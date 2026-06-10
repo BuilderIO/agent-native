@@ -847,7 +847,7 @@ export async function selectReferences(input: {
       .map((id) => byId.get(id))
       .filter(
         (asset): asset is NonNullable<typeof asset> =>
-          Boolean(asset) &&
+          asset != null &&
           asset.mimeType.startsWith("image/") &&
           asset.status !== "archived" &&
           asset.status !== "failed",

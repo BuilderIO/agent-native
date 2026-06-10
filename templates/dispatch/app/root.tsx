@@ -8,30 +8,25 @@ import {
 } from "react-router";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigationState } from "@/hooks/use-navigation-state";
-import { appPath } from "@agent-native/core/client";
+import { Toaster } from "sonner";
 import {
-  QueryClient,
-  QueryClientProvider,
-  useQueryClient,
-} from "@tanstack/react-query";
-import { ThemeProvider } from "next-themes";
-import {
-  ClientOnly,
+  AppProviders,
   CommandMenu,
   configureTracking,
-  DefaultSpinner,
+  createAgentNativeQueryClient,
   getThemeInitScript,
-  useDbSync,
   useCommandMenuShortcut,
+  useDbSync,
+  appPath,
 } from "@agent-native/core/client";
+import { useQueryClient } from "@tanstack/react-query";
 import { IconSun, IconMoon } from "@tabler/icons-react";
 import { useTheme } from "next-themes";
-import { Toaster } from "sonner";
-import { TooltipProvider } from "@radix-ui/react-tooltip";
 import { Layout as AppLayout } from "@agent-native/dispatch/components";
 import type { LinksFunction } from "react-router";
 import { dispatchExtensions } from "./dispatch-extensions";
 import stylesheet from "./global.css?url";
+
 configureTracking({
   getDefaultProps: (_name, properties) => ({
     ...properties,
@@ -43,19 +38,7 @@ export const links: LinksFunction = () => [
   { rel: "stylesheet", href: stylesheet },
 ];
 
-const THEME_INIT_SCRIPT_SELECTOR = "script[data-agent-native-theme-init]";
-
-function getHydrationStableThemeInitScript() {
-  if (typeof document !== "undefined") {
-    const existing = document.querySelector<HTMLScriptElement>(
-      THEME_INIT_SCRIPT_SELECTOR,
-    );
-    if (existing?.innerHTML) return existing.innerHTML;
-  }
-  return getThemeInitScript();
-}
-
-const THEME_INIT_SCRIPT = getHydrationStableThemeInitScript();
+const THEME_INIT_SCRIPT = getThemeInitScript();
 
 export function Layout({ children }: { children: React.ReactNode }) {
   return (
@@ -67,7 +50,6 @@ export function Layout({ children }: { children: React.ReactNode }) {
           content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no"
         />
         <script
-          data-agent-native-theme-init
           suppressHydrationWarning
           dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }}
         />
@@ -178,37 +160,36 @@ function ThemeToggleItem() {
   );
 }
 
-export default function Root() {
-  const [queryClient] = useState(() => new QueryClient());
+function AppContent() {
   const [cmdkOpen, setCmdkOpen] = useState(false);
   useCommandMenuShortcut(useCallback(() => setCmdkOpen(true), []));
   return (
-    <ClientOnly fallback={<DefaultSpinner />}>
-      <ThemeProvider
-        attribute="class"
-        defaultTheme="system"
-        enableSystem
-        disableTransitionOnChange
-      >
-        <QueryClientProvider client={queryClient}>
-          <TooltipProvider>
-            <DbSyncSetup />
-            <CommandMenu open={cmdkOpen} onOpenChange={setCmdkOpen}>
-              <CommandMenu.Group heading="Actions">
-                <CommandMenu.Item onSelect={() => {}}>Search</CommandMenu.Item>
-              </CommandMenu.Group>
-              <CommandMenu.Group heading="Appearance">
-                <ThemeToggleItem />
-              </CommandMenu.Group>
-            </CommandMenu>
-            <AppLayout extensions={dispatchExtensions}>
-              <Outlet />
-            </AppLayout>
-            <Toaster closeButton richColors position="bottom-left" />
-          </TooltipProvider>
-        </QueryClientProvider>
-      </ThemeProvider>
-    </ClientOnly>
+    <>
+      <DbSyncSetup />
+      <CommandMenu open={cmdkOpen} onOpenChange={setCmdkOpen}>
+        <CommandMenu.Group heading="Actions">
+          <CommandMenu.Item onSelect={() => {}}>Search</CommandMenu.Item>
+        </CommandMenu.Group>
+        <CommandMenu.Group heading="Appearance">
+          <ThemeToggleItem />
+        </CommandMenu.Group>
+      </CommandMenu>
+      <AppLayout extensions={dispatchExtensions}>
+        <Outlet />
+      </AppLayout>
+    </>
+  );
+}
+
+export default function Root() {
+  const [queryClient] = useState(() => createAgentNativeQueryClient());
+  return (
+    <AppProviders
+      queryClient={queryClient}
+      toaster={<Toaster richColors position="bottom-left" closeButton />}
+    >
+      <AppContent />
+    </AppProviders>
   );
 }
 

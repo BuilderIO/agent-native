@@ -16,7 +16,6 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
-import { Spinner } from "@/components/ui/spinner";
 import { useSetPageTitle } from "@/components/layout/HeaderActions";
 import { APP_NAME, APP_TITLE } from "@/lib/app-config";
 
@@ -29,14 +28,6 @@ export function meta() {
         "Build an agent-native app where the AI agent and UI share state, actions, and context.",
     },
   ];
-}
-
-export function HydrateFallback() {
-  return (
-    <div className="flex items-center justify-center h-screen w-full">
-      <Spinner className="size-8 text-foreground" />
-    </div>
-  );
 }
 
 export default function IndexPage() {

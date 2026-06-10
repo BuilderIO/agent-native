@@ -757,3 +757,100 @@ describe("SSE event processor error classification", () => {
     expect((err as AgentAutoContinueSignal).reason).toBe("stream_ended");
   });
 });
+
+describe("SSE event processor tool id matching", () => {
+  it("assigns tool_done result to the correct call when two same-name calls run in parallel and events carry ids", async () => {
+    const content: any[] = [];
+    const results = await drain(
+      readSSEStream(
+        eventStream([
+          // Two parallel "search" calls start at the same time
+          {
+            type: "tool_start",
+            tool: "search",
+            id: "call-1",
+            input: { q: "dogs" },
+          },
+          {
+            type: "tool_start",
+            tool: "search",
+            id: "call-2",
+            input: { q: "cats" },
+          },
+          // Results arrive in reverse order
+          {
+            type: "tool_done",
+            tool: "search",
+            id: "call-2",
+            result: "cats found",
+          },
+          {
+            type: "tool_done",
+            tool: "search",
+            id: "call-1",
+            result: "dogs found",
+          },
+          { type: "done" },
+        ]),
+        content,
+        { value: 0 },
+        undefined,
+      ),
+    );
+
+    // After all events, find the two tool calls and verify results are correctly paired
+    const lastResult = results[results.length - 1];
+    const parts = lastResult?.content ?? [];
+    const call1 = parts.find(
+      (p: any) => p.type === "tool-call" && p.toolCallId === "call-1",
+    );
+    const call2 = parts.find(
+      (p: any) => p.type === "tool-call" && p.toolCallId === "call-2",
+    );
+    expect(call1?.result).toBe("dogs found");
+    expect(call2?.result).toBe("cats found");
+  });
+
+  it("falls back to name matching when events lack an id", async () => {
+    const content: any[] = [];
+    const results = await drain(
+      readSSEStream(
+        eventStream([
+          // No id on events — legacy server build
+          { type: "tool_start", tool: "lookup", input: { key: "a" } },
+          { type: "tool_done", tool: "lookup", result: "value-a" },
+          { type: "done" },
+        ]),
+        content,
+        { value: 0 },
+        undefined,
+      ),
+    );
+
+    const lastResult = results[results.length - 1];
+    const part = lastResult?.content?.find(
+      (p: any) => p.type === "tool-call" && p.toolName === "lookup",
+    );
+    expect(part?.result).toBe("value-a");
+  });
+
+  it("stores the server-assigned id as the toolCallId when the start event carries one", async () => {
+    const content: any[] = [];
+    await drain(
+      readSSEStream(
+        eventStream([
+          { type: "tool_start", tool: "fetch", id: "srv-99", input: {} },
+          { type: "done" },
+        ]),
+        content,
+        { value: 0 },
+        undefined,
+      ),
+    );
+
+    const part = content.find(
+      (p: any) => p.type === "tool-call" && p.toolName === "fetch",
+    );
+    expect(part?.toolCallId).toBe("srv-99");
+  });
+});

@@ -1,28 +1,25 @@
 import { Links, Meta, Outlet, Scripts, ScrollRestoration } from "react-router";
 import { useCallback, useState } from "react";
 import { useNavigationState } from "@/hooks/use-navigation-state";
+import { useQueryClient } from "@tanstack/react-query";
 import {
-  QueryClient,
-  QueryClientProvider,
-  useQueryClient,
-} from "@tanstack/react-query";
-import {
-  ClientOnly,
+  AppProviders,
   CommandMenu,
-  DefaultSpinner,
   appPath,
+  createAgentNativeQueryClient,
   useCommandMenuShortcut,
   useDbSync,
 } from "@agent-native/core/client";
-import { TooltipProvider } from "@/components/ui/tooltip";
 import { Layout as AppLayout } from "@/components/layout/Layout";
 import { IconSun, IconMoon } from "@tabler/icons-react";
-import { ThemeProvider, useTheme } from "next-themes";
+import { useTheme } from "next-themes";
 import type { LinksFunction } from "react-router";
 import stylesheet from "./global.css?url";
 import { TAB_ID } from "@/lib/tab-id";
-import { configureTracking } from "@agent-native/core/client";
-import { getThemeInitScript } from "@agent-native/core/client";
+import {
+  configureTracking,
+  getThemeInitScript,
+} from "@agent-native/core/client";
 configureTracking({
   getDefaultProps: (_name, properties) => ({
     ...properties,
@@ -85,7 +82,7 @@ function AppContent() {
   useCommandMenuShortcut(useCallback(() => setCmdkOpen(true), []));
 
   return (
-    <TooltipProvider>
+    <>
       <CommandMenu open={cmdkOpen} onOpenChange={setCmdkOpen}>
         <CommandMenu.Group heading="Videos">
           <CommandMenu.Item onSelect={() => {}}>
@@ -105,25 +102,16 @@ function AppContent() {
       <AppLayout>
         <Outlet />
       </AppLayout>
-    </TooltipProvider>
+    </>
   );
 }
 
 export default function Root() {
-  const [queryClient] = useState(() => new QueryClient());
+  const [queryClient] = useState(() => createAgentNativeQueryClient());
   return (
-    <ClientOnly fallback={<DefaultSpinner />}>
-      <ThemeProvider
-        attribute="class"
-        defaultTheme="dark"
-        enableSystem
-        disableTransitionOnChange
-      >
-        <QueryClientProvider client={queryClient}>
-          <AppContent />
-        </QueryClientProvider>
-      </ThemeProvider>
-    </ClientOnly>
+    <AppProviders queryClient={queryClient} defaultTheme="dark">
+      <AppContent />
+    </AppProviders>
   );
 }
 

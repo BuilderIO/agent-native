@@ -46,6 +46,8 @@ Use Dispatch when:
 
 Skip it for a single-app scaffold — use the [Starter template](/docs/template-starter) or any of the domain templates directly.
 
+Live demo: [dispatch.agent-native.com](https://dispatch.agent-native.com).
+
 ## What you'll do with it {#what-youll-do}
 
 Day-to-day, Dispatch is the place admins and ops folks open to keep the workspace running:

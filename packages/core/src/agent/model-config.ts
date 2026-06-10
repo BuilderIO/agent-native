@@ -7,6 +7,113 @@
  * in this one file.
  */
 
+// ---------------------------------------------------------------------------
+// Per-model context window table (input token limit)
+//
+// Sources (June 2026):
+//  Anthropic  https://platform.claude.com/docs/en/about-claude/models/overview
+//  OpenAI     https://developers.openai.com/api/docs/models/gpt-5.5
+//             https://developers.openai.com/api/docs/models/gpt-5.4
+//  Google     https://ai.google.dev/gemini-api/docs/models
+//
+// Family defaults (used when a model id isn't listed explicitly):
+//  claude-*        → 200_000  (Haiku 4.5 and earlier models)
+//  gpt-5*          → 1_050_000 (GPT-5.4/5.5 flagship context)
+//  gemini-2* / gemini-3* → 1_048_576
+//  everything else → 128_000  (safe conservative floor)
+//
+// Note: Fable 5, Sonnet 4.6, and Opus 4.6/4.7/4.8 support 1M via the API
+// at standard prices.
+// ---------------------------------------------------------------------------
+
+const MODEL_CONTEXT_WINDOWS: Record<string, number> = {
+  // ── Anthropic / Claude (via Builder gateway or Anthropic direct) ──────────
+  "claude-fable-5": 1_000_000,
+  "claude-opus-4-8": 1_000_000,
+  "claude-opus-4-7": 1_000_000,
+  "claude-sonnet-4-6": 1_000_000,
+  "claude-haiku-4-5": 200_000,
+  "claude-haiku-4-5-20251001": 200_000,
+
+  // ── Builder gateway OpenAI IDs (dot→dash) ────────────────────────────────
+  "gpt-5-5": 1_050_000,
+  "gpt-5-4": 1_050_000,
+  "gpt-5-4-mini": 400_000,
+  "gpt-5-1-codex-mini": 128_000,
+
+  // ── Gemini (Builder gateway IDs) ─────────────────────────────────────────
+  "gemini-3-1-pro": 1_048_576,
+  "gemini-3-5-flash": 1_048_576,
+  "gemini-3-1-flash-lite": 1_048_576,
+
+  // ── OpenRouter model IDs ──────────────────────────────────────────────────
+  "anthropic/claude-fable-5": 1_000_000,
+  "anthropic/claude-opus-4.8": 1_000_000,
+  "anthropic/claude-opus-4.7": 1_000_000,
+  "anthropic/claude-sonnet-4.6": 1_000_000,
+  "openai/gpt-5.5": 1_050_000,
+  "openai/gpt-5.4": 1_050_000,
+  "google/gemini-2.5-flash": 1_048_576,
+
+  // ── AI-SDK native OpenAI IDs ──────────────────────────────────────────────
+  "gpt-5.5": 1_050_000,
+  "gpt-5.4": 1_050_000,
+  "gpt-5.4-mini": 400_000,
+
+  // ── AI-SDK native Google IDs ──────────────────────────────────────────────
+  "gemini-3.5-flash": 1_048_576,
+  "gemini-3.1-pro-preview": 1_048_576,
+  "gemini-2.5-flash": 1_048_576,
+  "gemini-2.5-pro": 1_048_576,
+};
+
+/** Conservative safe default when a model is not in the table. */
+const DEFAULT_CONTEXT_WINDOW = 128_000;
+
+/**
+ * Return the known input-token context window for the given model ID.
+ *
+ * Uses an exact-match table first, then falls back to family-prefix heuristics,
+ * then a conservative 128 K default.  Never throws — always returns a positive
+ * integer.
+ */
+export function getContextWindowForModel(modelId: string): number {
+  if (!modelId) return DEFAULT_CONTEXT_WINDOW;
+
+  const exact = MODEL_CONTEXT_WINDOWS[modelId];
+  if (exact !== undefined) return exact;
+
+  // Family heuristics for unlisted model IDs
+  const id = modelId.toLowerCase();
+
+  // Anthropic Fable 5, Opus 4.x, and Sonnet 4.6 = 1M
+  if (
+    id === "claude-fable-5" ||
+    id.includes("claude-fable-5") ||
+    id.startsWith("claude-opus-4") ||
+    id === "claude-sonnet-4-6" ||
+    id.includes("claude-sonnet-4.6")
+  )
+    return 1_000_000;
+
+  // All other Claude models — default 200K
+  if (id.startsWith("claude-")) return 200_000;
+
+  // GPT-5.x family — 1.05M
+  if (id.startsWith("gpt-5") || id.startsWith("openai/gpt-5")) return 1_050_000;
+
+  // Gemini 2.x / 3.x — 1M
+  if (
+    id.startsWith("gemini-2") ||
+    id.startsWith("gemini-3") ||
+    id.includes("/gemini-2") ||
+    id.includes("/gemini-3")
+  )
+    return 1_048_576;
+
+  return DEFAULT_CONTEXT_WINDOW;
+}
+
 const ANTHROPIC_DEFAULT_MODEL_ID = "claude-sonnet-4-6";
 
 function builderGatewayModelId(model: string): string {
@@ -31,7 +138,8 @@ export const AGENT_MODEL_CONFIG = {
   builder: {
     defaultModel: FRAMEWORK_DEFAULT_BUILDER_MODEL,
     supportedModels: [
-      "claude-opus-4-7",
+      "claude-fable-5",
+      "claude-opus-4-8",
       FRAMEWORK_DEFAULT_BUILDER_MODEL,
       "claude-haiku-4-5",
       FRAMEWORK_DEFAULT_BUILDER_OPENAI_MODEL,
@@ -52,7 +160,8 @@ export const AGENT_MODEL_CONFIG = {
   anthropic: {
     defaultModel: ANTHROPIC_DEFAULT_MODEL_ID,
     supportedModels: [
-      "claude-opus-4-7",
+      "claude-fable-5",
+      "claude-opus-4-8",
       ANTHROPIC_DEFAULT_MODEL_ID,
       "claude-haiku-4-5-20251001",
     ],
@@ -61,7 +170,8 @@ export const AGENT_MODEL_CONFIG = {
     anthropic: {
       defaultModel: ANTHROPIC_DEFAULT_MODEL_ID,
       supportedModels: [
-        "claude-opus-4-7",
+        "claude-fable-5",
+        "claude-opus-4-8",
         ANTHROPIC_DEFAULT_MODEL_ID,
         "claude-haiku-4-5-20251001",
       ],
@@ -77,10 +187,12 @@ export const AGENT_MODEL_CONFIG = {
     openrouter: {
       defaultModel: FRAMEWORK_DEFAULT_OPENROUTER_MODEL,
       supportedModels: [
-        "anthropic/claude-opus-4.7",
+        "anthropic/claude-fable-5",
+        "anthropic/claude-opus-4.8",
         "anthropic/claude-sonnet-4.6",
         FRAMEWORK_DEFAULT_OPENROUTER_MODEL,
         "openai/gpt-5.4",
+        // Current stable Gemini on OpenRouter (2.5 Flash is GA)
         "google/gemini-2.5-flash",
       ],
     },
@@ -89,11 +201,14 @@ export const AGENT_MODEL_CONFIG = {
       supportedModels: ["gemini-3.5-flash", "gemini-3.1-pro-preview"],
     },
     groq: {
+      // llama-3.1-70b-versatile and mixtral-8x7b-32768 were decommissioned
+      // (errors since Jan 2025 and Mar 2025 respectively). Replace with current
+      // Groq production models.
       defaultModel: "llama-3.3-70b-versatile",
       supportedModels: [
         "llama-3.3-70b-versatile",
-        "llama-3.1-70b-versatile",
-        "mixtral-8x7b-32768",
+        "llama3-8b-8192",
+        "llama-3.1-8b-instant",
       ],
     },
     mistral: {
@@ -105,8 +220,14 @@ export const AGENT_MODEL_CONFIG = {
       ],
     },
     cohere: {
-      defaultModel: "command-r-plus",
-      supportedModels: ["command-r-plus", "command-r"],
+      // command-r-plus (unversioned) is an alias that may lag; the stable
+      // dated release is command-r-plus-08-2024.
+      defaultModel: "command-r-plus-08-2024",
+      supportedModels: [
+        "command-r-plus-08-2024",
+        "command-r-plus",
+        "command-r",
+      ],
     },
     ollama: {
       defaultModel: "llama3.1",

@@ -168,14 +168,6 @@ export const meta: MetaFunction<typeof loader> = ({ data }) => {
   ];
 };
 
-export function HydrateFallback() {
-  return (
-    <div className="flex items-center justify-center h-screen w-full bg-background">
-      <Spinner className="h-8 w-8 text-muted-foreground" />
-    </div>
-  );
-}
-
 const STORAGE_KEY_PREFIX = "clips-share-pw-";
 
 export default function ShareRoute() {

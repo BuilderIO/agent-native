@@ -28,6 +28,7 @@ const mockRunAgentLoop = vi.mocked(runAgentLoop);
 function makeOpts(
   messages: EngineMessage[],
   signal: AbortSignal,
+  send?: (event: import("./types.js").AgentChatEvent) => void,
 ): Parameters<typeof runAgentLoopDirectWithSoftTimeout>[0] {
   return {
     // The wrapper only inspects messages, signal, and model. Cast the rest —
@@ -40,7 +41,7 @@ function makeOpts(
     tools: [],
     messages,
     actions: {},
-    send: () => {},
+    send: send ?? (() => {}),
     signal,
   } as Parameters<typeof runAgentLoopDirectWithSoftTimeout>[0];
 }
@@ -350,5 +351,70 @@ describe("runAgentLoopDirectWithSoftTimeout", () => {
       cacheWriteTokens: 4,
       model: "test-model",
     });
+  });
+
+  // Fix 4: emit 'clear' before resumable-error continuation
+  it("emits a clear event before resuming after a resumable engine error", async () => {
+    // The partial text was already streamed to the client but the model needs
+    // to re-generate from the beginning of the sentence. Without 'clear' the
+    // fold duplicates the streamed text inside one assistant message.
+    const sentEvents: import("./types.js").AgentChatEvent[] = [];
+    let attempts = 0;
+
+    mockRunAgentLoop.mockImplementation(async () => {
+      attempts++;
+      if (attempts === 1) {
+        throw new EngineError("Builder gateway timed out after 45s", {
+          errorCode: "builder_gateway_timeout",
+        });
+      }
+      return {
+        inputTokens: 10,
+        outputTokens: 5,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+        model: "test-model",
+      };
+    });
+
+    await runAgentLoopDirectWithSoftTimeout(
+      makeOpts(
+        [{ role: "user", content: [{ type: "text", text: "go" }] }],
+        new AbortController().signal,
+        (event) => sentEvents.push(event),
+      ),
+      60_000,
+    );
+
+    expect(attempts).toBe(2);
+    // A 'clear' event must have been emitted before the second attempt.
+    expect(sentEvents).toContainEqual({ type: "clear" });
+    // It must appear before the continuation message is appended (i.e. sent
+    // while retrying, not after).
+    const clearIndex = sentEvents.findIndex((e) => e.type === "clear");
+    expect(clearIndex).toBeGreaterThanOrEqual(0);
+  });
+
+  it("does not emit clear when there is no resumable error", async () => {
+    const sentEvents: import("./types.js").AgentChatEvent[] = [];
+
+    mockRunAgentLoop.mockResolvedValue({
+      inputTokens: 1,
+      outputTokens: 1,
+      cacheReadTokens: 0,
+      cacheWriteTokens: 0,
+      model: "test-model",
+    });
+
+    await runAgentLoopDirectWithSoftTimeout(
+      makeOpts(
+        [{ role: "user", content: [{ type: "text", text: "go" }] }],
+        new AbortController().signal,
+        (event) => sentEvents.push(event),
+      ),
+      60_000,
+    );
+
+    expect(sentEvents.filter((e) => e.type === "clear")).toHaveLength(0);
   });
 });

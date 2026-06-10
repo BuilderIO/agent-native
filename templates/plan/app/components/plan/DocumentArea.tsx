@@ -1,5 +1,6 @@
-import { useEffect, useRef, useState } from "react";
+import { Component, useEffect, useRef, useState, type ReactNode } from "react";
 import {
+  IconAlertTriangle,
   IconCheck,
   IconCode,
   IconEdit,
@@ -27,21 +28,89 @@ import { PlanMarkdownReader } from "./PlanMarkdownReader";
 import { PlanImageViewer } from "./PlanImageViewer";
 
 /**
- * Renders the document flow: dispatches a single plan block to its block
- * component. `compactVisuals` tightens embedded wireframes/diagrams in dense
- * contexts (e.g. tab panes).
+ * Marker prefix embedded in salvaged "unknown-block" callout bodies by the
+ * server-side per-block salvage path in parsePlanContent. The renderer detects
+ * this prefix and shows a "Unsupported block" placeholder card rather than a
+ * generic callout.
+ *
+ * Format: `__unknown_block__:<originalType>\n<errorSummary>`
  */
-export function PlanBlockView({
-  block,
-  onChange,
-  onRichTextChange,
-  onVisualQuestionsSubmit,
-  compactVisuals,
-  contentUpdatedAt,
-  editingDisabled = false,
-  planId,
-  collabUser,
+const UNKNOWN_BLOCK_MARKER = "​__unknown_block__:";
+
+/** React error boundary that catches render errors from a single block. */
+class BlockErrorBoundary extends Component<
+  { blockId: string; blockType: string; children: ReactNode },
+  { error: Error | null }
+> {
+  constructor(props: {
+    blockId: string;
+    blockType: string;
+    children: ReactNode;
+  }) {
+    super(props);
+    this.state = { error: null };
+  }
+
+  static getDerivedStateFromError(error: Error) {
+    return { error };
+  }
+
+  override componentDidCatch(error: Error) {
+    console.error(
+      `[PlanBlockView] render error in block ${this.props.blockId} (${this.props.blockType}):`,
+      error,
+    );
+  }
+
+  override render() {
+    if (!this.state.error) return this.props.children;
+    return (
+      <UnknownBlockPlaceholder
+        blockId={this.props.blockId}
+        originalType={this.props.blockType}
+        errorSummary={this.state.error.message}
+      />
+    );
+  }
+}
+
+/** Muted "Unsupported block" card for unknown/salvaged/errored blocks. */
+function UnknownBlockPlaceholder({
+  blockId,
+  originalType,
+  errorSummary,
 }: {
+  blockId: string;
+  originalType: string;
+  errorSummary: string;
+}) {
+  return (
+    <section
+      className="plan-block"
+      data-block-id={blockId}
+      data-unknown-block-type={originalType}
+    >
+      <div className="flex items-start gap-2 rounded-lg border border-plan-line bg-plan-block/40 px-3 py-2.5 text-plan-muted">
+        <IconAlertTriangle className="mt-0.5 size-4 shrink-0 text-amber-500" />
+        <span className="min-w-0 text-sm">
+          <span className="font-medium text-plan-text">
+            Unsupported block: {originalType}
+          </span>
+          <details className="mt-1">
+            <summary className="cursor-pointer text-xs opacity-60 hover:opacity-80">
+              Show details
+            </summary>
+            <pre className="mt-1 max-h-40 overflow-auto whitespace-pre-wrap break-all font-mono text-xs opacity-70">
+              {errorSummary}
+            </pre>
+          </details>
+        </span>
+      </div>
+    </section>
+  );
+}
+
+type PlanBlockViewProps = {
   block: PlanBlock;
   onChange?: (block: PlanBlock) => Promise<void> | void;
   onRichTextChange?: (
@@ -54,7 +123,33 @@ export function PlanBlockView({
   editingDisabled?: boolean;
   planId?: string | null;
   collabUser?: RichMarkdownCollabUser | null;
-}) {
+};
+
+/**
+ * Renders the document flow: dispatches a single plan block to its block
+ * component. `compactVisuals` tightens embedded wireframes/diagrams in dense
+ * contexts (e.g. tab panes). Wrapped in a per-block error boundary so one
+ * crashing renderer shows an inline error card instead of blanking the document.
+ */
+export function PlanBlockView(props: PlanBlockViewProps) {
+  return (
+    <BlockErrorBoundary blockId={props.block.id} blockType={props.block.type}>
+      <PlanBlockViewInner {...props} />
+    </BlockErrorBoundary>
+  );
+}
+
+function PlanBlockViewInner({
+  block,
+  onChange,
+  onRichTextChange,
+  onVisualQuestionsSubmit,
+  compactVisuals,
+  contentUpdatedAt,
+  editingDisabled = false,
+  planId,
+  collabUser,
+}: PlanBlockViewProps) {
   // Registry-first dispatch. If the block type is registered, render through the
   // block registry (`BlockView` → spec `Read`, or in edit mode the spec `Edit`
   // or the schema-driven auto-editor). Unregistered types fall through to the
@@ -121,6 +216,22 @@ export function PlanBlockView({
     );
   }
   if (block.type === "callout") {
+    // Detect the server-side per-block salvage marker. The marker starts with a
+    // zero-width-space followed by `__unknown_block__:<type>` to avoid collision
+    // with real callout content (real callouts never start with a ZWSP).
+    if (block.data.body.startsWith(UNKNOWN_BLOCK_MARKER)) {
+      const rest = block.data.body.slice(UNKNOWN_BLOCK_MARKER.length);
+      const newline = rest.indexOf("\n");
+      const originalType = newline >= 0 ? rest.slice(0, newline) : rest;
+      const errorSummary = newline >= 0 ? rest.slice(newline + 1) : "";
+      return (
+        <UnknownBlockPlaceholder
+          blockId={block.id}
+          originalType={originalType}
+          errorSummary={errorSummary}
+        />
+      );
+    }
     return (
       <section className="plan-block plan-callout" data-block-id={block.id}>
         {block.title && <div className="plan-block-label">{block.title}</div>}
@@ -204,10 +315,72 @@ export function PlanBlockView({
     );
   }
   if (block.type === "code-tabs") {
-    return <CodeTabsBlock block={block} />;
+    // Display-time migration: render code-tabs as a tabs block with inline code
+    // children so old stored plans get the richer tabs UX. Storage stays intact
+    // (no write-back); the block re-converts on every render.
+    const migratedTabs: Extract<PlanBlock, { type: "tabs" }> = {
+      id: block.id,
+      type: "tabs",
+      title: block.title,
+      summary: block.summary,
+      data: {
+        tabs: block.data.tabs.map((tab) => ({
+          id: tab.id,
+          label: tab.label,
+          blocks: [
+            {
+              id: `${tab.id}_code`,
+              type: "code" as const,
+              data: {
+                code: tab.code,
+                ...(tab.language ? { language: tab.language } : {}),
+                ...(tab.caption ? { caption: tab.caption } : {}),
+              },
+            },
+          ],
+        })),
+      },
+    };
+    return (
+      <TabsBlock
+        block={migratedTabs}
+        onRichTextChange={onRichTextChange}
+        onVisualQuestionsSubmit={onVisualQuestionsSubmit}
+        contentUpdatedAt={contentUpdatedAt}
+        editingDisabled={editingDisabled}
+        planId={planId}
+        collabUser={collabUser}
+      />
+    );
   }
   if (block.type === "implementation-map") {
-    return <ImplementationMapBlock block={block} />;
+    // Display-time migration: render implementation-map as a file-tree block so
+    // old plans use the modern file explorer rather than the deprecated layout.
+    // The block-level `title` and each file's `note` and `snippet` carry over.
+    // Storage stays intact.
+    const migratedFileTree: Extract<PlanBlock, { type: "file-tree" }> = {
+      id: block.id,
+      type: "file-tree",
+      title: block.title,
+      summary: block.summary,
+      data: {
+        entries: block.data.files.map((file) => ({
+          path: file.path,
+          ...(file.note ? { note: file.note } : {}),
+          ...(file.snippet ? { snippet: file.snippet } : {}),
+          ...(file.language ? { language: file.language } : {}),
+        })),
+      },
+    };
+    return (
+      <PlanBlockViewInner
+        block={migratedFileTree}
+        editingDisabled={editingDisabled}
+        contentUpdatedAt={contentUpdatedAt}
+        planId={planId}
+        collabUser={collabUser}
+      />
+    );
   }
   if (block.type === "legacy-wireframe") {
     return (
@@ -247,7 +420,15 @@ export function PlanBlockView({
   if (block.type === "custom-html") {
     return <CustomHtmlBlock block={block} onChange={onChange} />;
   }
-  return null;
+  // Unregistered block type — show a muted placeholder so the rest of the
+  // document stays visible instead of silently swallowing the block.
+  return (
+    <UnknownBlockPlaceholder
+      blockId={block.id}
+      originalType={(block as { type: string }).type}
+      errorSummary="This block type is not supported by the current renderer."
+    />
+  );
 }
 
 function RichTextBlock({
@@ -294,7 +475,8 @@ function RichTextBlock({
       ) : (
         // Read-only path (public / shared-reviewer / review mode / SSR): render
         // markdown without mounting Tiptap so comment clicks hit stable text.
-        <PlanMarkdownReader markdown={block.data.markdown} />
+        // Pass blockId so headings get stable anchor ids for deep-linking.
+        <PlanMarkdownReader markdown={block.data.markdown} blockId={block.id} />
       )}
     </section>
   );
@@ -935,11 +1117,12 @@ function ImageBlock({
   );
 }
 
-function imageSrcForAsset(_assetId?: string): string | undefined {
-  // Asset-id resolution is wired during integration (no asset route exists in
-  // this template yet). Until then, image blocks render via their `url`; an
-  // asset-only block falls back to the labeled placeholder below.
-  return undefined;
+function imageSrcForAsset(assetId?: string): string | undefined {
+  if (!assetId) return undefined;
+  // Encode the asset ID into the plan-asset serving route.
+  // The filename segment is omitted here since the route handler uses only the
+  // asset ID for lookup; a trailing slash is added for compatibility.
+  return `/_agent-native/plan-asset/${encodeURIComponent(assetId)}/image`;
 }
 
 function updateBlocks(

@@ -217,7 +217,7 @@ export default function AnalyticsPage() {
                             color: "hsl(var(--muted-foreground))",
                             marginBottom: "4px",
                           }}
-                          formatter={(value: number) => [
+                          formatter={(value: any) => [
                             `${value} kcal`,
                             tab === "net"
                               ? "Net Calories"
@@ -392,7 +392,7 @@ export default function AnalyticsPage() {
                               color: "hsl(var(--muted-foreground))",
                               marginBottom: "4px",
                             }}
-                            formatter={(value: number, name: string) => [
+                            formatter={(value: any, name: any) => [
                               `${value} lbs`,
                               tab === "trend"
                                 ? name === "trendWeight"

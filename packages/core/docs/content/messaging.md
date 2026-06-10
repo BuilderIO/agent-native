@@ -16,6 +16,7 @@ Connect your agent to Slack, email, Telegram, or WhatsApp so you can chat with i
 - **DM the agent on Slack**, or `@mention` it in any channel.
 - **Message the agent on Telegram or WhatsApp** from your phone.
 - **Same agent, same memory.** Whatever you tell it on Slack is remembered when you email it later. The web chat and external messages share one thread history.
+- For one-way in-app alerts (bell icon, webhooks) see [Notifications](/docs/notifications).
 
 ## Set up Slack {#slack}
 
@@ -345,8 +346,13 @@ const myAdapter: PlatformAdapter = {
     };
   },
 
-  // Format plain agent text into a platform-appropriate OutgoingMessage
-  formatAgentResponse(text: string): OutgoingMessage {
+  // Format plain agent text into a platform-appropriate OutgoingMessage.
+  // opts.threadDeepLinkUrl, when provided, is a URL back to the originating
+  // thread in the dispatch UI — render it as a button (Slack) or inline link.
+  formatAgentResponse(
+    text: string,
+    opts?: { threadDeepLinkUrl?: string },
+  ): OutgoingMessage {
     return { text, platformContext: {} };
   },
 
@@ -358,8 +364,9 @@ const myAdapter: PlatformAdapter = {
     // Call the platform's API, using context.platformContext for routing
   },
 
-  // Return current connection/configuration status for the settings UI
-  async getStatus() {
+  // Return current connection/configuration status for the settings UI.
+  // baseUrl is the app's public URL, used for status checks that need it.
+  async getStatus(baseUrl?: string) {
     return {
       platform: "discord",
       label: "Discord",

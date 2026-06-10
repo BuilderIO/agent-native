@@ -13,6 +13,9 @@ export {
 export { builderFileUploadProvider } from "./builder.js";
 export {
   preUploadImageAttachments,
+  preUploadAttachments,
+  isFileUploadProviderConfigured,
   type PreUploadAttachmentsResult,
   type PreUploadedImageAttachment,
+  type PreUploadedFileAttachment,
 } from "./pre-upload-attachments.js";

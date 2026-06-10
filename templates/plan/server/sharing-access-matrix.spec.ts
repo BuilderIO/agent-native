@@ -84,6 +84,7 @@ const VIEWER = "viewer@example.com";
 const EDITOR = "editor@example.com";
 const ORG = "org-1";
 const OTHER_ORG = "org-2";
+const ACCESS_MATRIX_SETUP_TIMEOUT_MS = 30_000;
 
 async function resetTables() {
   // guard:allow-unscoped -- test-only fixture cleanup resets the isolated temp DB.
@@ -188,6 +189,7 @@ beforeAll(async () => {
       usage_cost_cents_x100 INTEGER,
       usage_cost_source TEXT,
       usage_recorded_at TEXT,
+      source_url TEXT,
       owner_email TEXT NOT NULL,
       org_id TEXT,
       visibility TEXT NOT NULL DEFAULT 'private'
@@ -252,6 +254,15 @@ beforeAll(async () => {
       created_by TEXT NOT NULL,
       created_at TEXT NOT NULL
     );
+    CREATE TABLE plan_assets (
+      id TEXT PRIMARY KEY,
+      plan_id TEXT NOT NULL,
+      filename TEXT NOT NULL,
+      mime_type TEXT NOT NULL,
+      data TEXT NOT NULL,
+      byte_size INTEGER NOT NULL,
+      created_at TEXT NOT NULL
+    );
   `);
 
   registerShareableResource({
@@ -285,7 +296,7 @@ beforeAll(async () => {
   unshareResource = (
     await import("@agent-native/core/sharing/actions/unshare-resource")
   ).default as AnyAction;
-});
+}, ACCESS_MATRIX_SETUP_TIMEOUT_MS);
 
 afterAll(() => {
   client?.close();

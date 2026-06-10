@@ -113,7 +113,8 @@ Do not add boilerplate intro, disclaimer, provenance, or summary prose blocks to
 the generated plan body. In particular, do not create a `rich-text` block just to
 say the recap is an aid, that the reviewer should still review the diff, how many
 files changed, or which ref/working tree generated the recap. The plan title,
-brief, `file-tree`, and optional `diffstat` already carry that context.
+brief, and `file-tree` (which carries the per-file change stats) already carry
+that context.
 
 Only add prose blocks when they tell the reviewer something specific about the
 change that the structured blocks do not: the objective, a real compatibility
@@ -145,6 +146,34 @@ Skip the diff appendix only for a genuinely tiny change that reviews faster as
 plain diff (see "When To Use"); for any change worth recapping, the file-tree and
 key-change diffs belong in the plan.
 
+## Canonical Shape And Budgets
+
+A strong recap follows one skeleton, top to bottom:
+
+1. UI-impact headline — wireframes first, when the diff changed rendered UI.
+2. Short outcome narrative (`rich-text`): what changed and why, 1-3 paragraphs.
+3. `data-model` / `api-endpoint` blocks for schema and contract changes.
+4. `file-tree` of the changed files with `change` flags.
+5. `## Key changes` — one horizontal `tabs` block of `diff` / `annotated-code`.
+
+Budgets that keep the recap reviewable:
+
+- 3-8 key-change tabs. Fewer than 3 on a large change under-serves the
+  reviewer; more than 8 stops being a summary.
+- Keep each diff/annotated-code excerpt focused — prefer under ~150 lines per
+  tab; summarize or link the rest of a long file instead of dumping it.
+- Title at most ~70 characters; brief 1-3 sentences.
+
+**GOOD.** A 25-file auth change: Before/After wireframes of the login surface,
+a two-paragraph narrative, a diff-aware `data-model` of the sessions table, an
+`api-endpoint` for the new refresh route, a `file-tree` with change flags, and
+`## Key changes` with five focused tabs, each with a one-line `summary` and a
+few annotations on the load-bearing hunks.
+
+**BAD.** One giant unsegmented diff dump with no summaries or annotations; or a
+sparse three-block recap of a 40-file change (one wireframe, one sentence, one
+file list) that forces the reviewer back into the raw diff anyway.
+
 ## UI Impact Needs Wireframes
 
 When the diff changes rendered UI, layout, density, visual state, interaction
@@ -175,8 +204,8 @@ Choose the smallest visual surface that makes the review clear:
 
 - Use a `Before` / `After` wireframe pair when the reviewer benefits from direct
   comparison, such as a removed or added control, a changed state, layout
-  density, ordering, navigation, or a visible component replacement. The
-  Wireframe Quality core below owns how to lay that pair out (columns vs.
+  density, ordering, navigation, or a visible component replacement.
+  `references/wireframe.md` owns how to lay that pair out (columns vs.
   vertical stack by geometry).
 - Use an after-only wireframe when the change is purely additive or the "before"
   state would only show absence without adding review value.
@@ -212,10 +241,12 @@ wireframes, keep `renderMode` unset or `wireframe` unless a design-only editable
 mockup is explicitly required, because `renderMode="design"` disables the
 sketchy rough overlay.
 
-Before sharing a UI-impact recap, render it in the Plan viewer and inspect it at
-the current theme. If any label, annotation, toolbar, or wireframe content
-overlaps another element, fix the MDX and re-import before reporting the link. A
-text-match screenshot is not enough; visually inspect the captured image.
+When a browser tool is available, render a UI-impact recap in the Plan viewer
+and visually inspect it at the current theme before sharing. If any label,
+annotation, toolbar, or wireframe content overlaps another element, fix the MDX
+and re-import before reporting the link. A text-match screenshot is not enough;
+visually inspect the captured image. When no browser is available (for example
+a headless CI agent), state that in the recap handoff instead.
 
 ## Open And Report The Recap
 
@@ -345,14 +376,10 @@ tags — resolve every conceptual name to its exact tag + prop schema with the
   quick graph. Use two-dimensional layouts; do not reduce a structural change to
   a left-to-right chain. Do not use `diagram` as a stand-in for rendered UI
   controls; UI changes need `wireframe` blocks.
-  Diagram HTML/CSS should use renderer-owned primitives such as
-  `.diagram-panel`, `.diagram-card`, `.diagram-node`, `.diagram-box`,
-  `.diagram-pill`, `.diagram-muted`, and `[data-rough]`; these map to the plan's
-  Tailwind theme variables through `--wf-ink`, `--wf-muted`, `--wf-line`,
-  `--wf-paper`, `--wf-card`, `--wf-accent`, `--wf-accent-soft`, `--wf-warn`, and
-  `--wf-ok`, and switch to Excalifont plus rough.js outlines in sketchy mode. Do not
-  set `font-family` and do not emit hex, rgb/hsl literals, or one-off dark/light
-  palettes in diagram CSS.
+  Author diagram HTML/CSS with the renderer-owned `.diagram-*` primitives
+  (`.diagram-panel`, `.diagram-node`, `.diagram-pill`, `[data-rough]`, …) and
+  the same `--wf-*` theme tokens `references/wireframe.md` defines — never
+  `font-family`, hex, rgb/hsl literals, or one-off dark/light palettes.
 - **Outcome-first narrative** → `rich-text` for the "what changed and why" prose:
   the objective the diff served, the key decisions visible in it, and the risks a
   reviewer should weigh. This is the only place the model writes freely.
@@ -402,8 +429,8 @@ A few recap-specific authoring rules the registry table cannot encode:
   JSON `tabs={[…]}` prop — there is NO nested `<Tab>` element.
 - `WireframeBlock`: its body is a single `<Screen surface ... html=… />` subtree
   (nested MDX, not a flat prop); `html` must be a single-quoted string or static
-  template literal, never a dynamic `html={someVar}` expression. See the
-  Wireframe Quality core above for the HTML rules.
+  template literal, never a dynamic `html={someVar}` expression. See
+  `references/wireframe.md` for the HTML rules.
 - `Diagram`: the whole payload is one `data={{ html?, css?, nodes?, edges?, … }}`
   attribute and requires either `html` or at least one node; `Mermaid` is its
   own separate block (`source` text), not a `Diagram` prop.
@@ -431,7 +458,7 @@ sequence when that better matches the change. The visual headline must show
 exact placement, realistic chrome, and adequate padding before any abstract
 explanation. Do not stop at the first visible affordance when the diff adds a
 flow; show the entry point, the opened surface, and the resulting state or page
-so the reviewer can trace the actual user path. The Wireframe Quality core owns
+so the reviewer can trace the actual user path. `references/wireframe.md` owns
 the before/after layout choice —
 the `columns` renderer keeps narrow surfaces side by side and auto-stacks wide
 `desktop`/`browser` frames vertically; never hand-build a side-by-side

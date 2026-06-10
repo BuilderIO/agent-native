@@ -2,6 +2,7 @@ import { defineAction } from "@agent-native/core";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 import { exportPlanContentToMdxFolder } from "../server/plan-mdx.js";
+import { loadPlanAssetsForExport } from "../server/lib/plan-assets.js";
 import { getDb, schema } from "../server/db/index.js";
 import {
   assertPlanEditor,
@@ -95,13 +96,22 @@ export default defineAction({
 
     // Build the source-control friendly MDX payload — the same contract the
     // hosted import-visual-plan-source action consumes.
-    const mdx = await exportPlanContentToMdxFolder({
-      content: bundle.plan.content,
-      title: bundle.plan.title,
-      brief: bundle.plan.brief,
-      planId: bundle.plan.id,
-      url: planPath(bundle.plan.id, bundle.plan.kind),
-    });
+    const [mdx, sqlAssets] = await Promise.all([
+      exportPlanContentToMdxFolder({
+        content: bundle.plan.content,
+        title: bundle.plan.title,
+        brief: bundle.plan.brief,
+        planId: bundle.plan.id,
+        url: planPath(bundle.plan.id, bundle.plan.kind),
+      }),
+      loadPlanAssetsForExport(bundle.plan.id),
+    ]);
+
+    // Merge SQL-backed assets with any assets already emitted by the export
+    // (which handles assetId-based refs). The export produces the "assets/"
+    // object from assetId-resolved refs; loadPlanAssetsForExport catches any
+    // SQL assets not referenced in blocks (edge case: orphaned asset rows).
+    const combinedAssets = { ...sqlAssets, ...(mdx["assets/"] ?? {}) };
 
     const existingHostedPlanId =
       bundle.plan.hostedPlanId &&
@@ -132,6 +142,9 @@ export default defineAction({
               : {}),
             ...(mdx[".plan-state.json"]
               ? { ".plan-state.json": mdx[".plan-state.json"] }
+              : {}),
+            ...(Object.keys(combinedAssets).length > 0
+              ? { "assets/": combinedAssets }
               : {}),
           },
         }),

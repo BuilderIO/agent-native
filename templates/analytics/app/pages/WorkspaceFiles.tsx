@@ -87,7 +87,7 @@ export default function WorkspaceFiles() {
 
   const { data: fileContent, isLoading: loadingContent } = useActionQuery(
     "read-workspace-file",
-    viewing ? { path: viewing.path, maxChars: 50_000 } : null,
+    viewing ? { path: viewing.path, maxChars: 50_000 } : undefined,
     { enabled: !!viewing, staleTime: 5_000 },
   );
 

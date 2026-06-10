@@ -61,6 +61,14 @@ Or just ask the agent: "Create a 15-minute intro booking link with a name field.
 
 The agent will query Google Calendar live for any schedule question — it never guesses.
 
+## Why it's interesting
+
+Three things make Calendar a good showcase of the framework:
+
+1. **Live API queries, no local sync.** Events live in Google Calendar; the app queries the API on demand rather than maintaining a local mirror. This avoids stale data and webhook infrastructure while still giving the agent full read/write access through actions.
+2. **Booking links as a Calendly replacement.** The public booking page (`/book/{slug}`) is stateless to visitors — it queries availability live and creates a booking on submit. The `booking_link_shares` table wires into the framework sharing primitive so teammates can manage links collaboratively.
+3. **Multi-account overlay.** Connecting a second Google account is an action call; the UI overlays events from all connected calendars in the same view. This pattern — one row per account in `oauth_tokens`, list action that fans out — is reusable for any multi-account integration.
+
 ## For developers
 
 The rest of this doc is for anyone forking the Calendar template or extending it.

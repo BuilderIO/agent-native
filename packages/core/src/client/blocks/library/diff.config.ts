@@ -89,8 +89,9 @@ export const diffSchema = z.object({
  * `after` are multiline string attributes (round-trip through the shared `prop()`
  * encoder); `annotations` is a JSON array attribute, encoded the same way as the
  * `annotated-code` block. `fromAttrs` mirrors a forgiving parse (`before ?? ""`,
- * `after ?? ""`, `annotations ?? []`, optional `filename`/`language`/`mode`
- * undefined when absent) so a plan missing an attribute still parses.
+ * `after ?? ""`, optional `filename`/`language`/`mode`/`annotations` undefined
+ * when absent) so a plan missing an attribute still parses without re-emitting
+ * unauthored empty arrays.
  */
 export const diffMdx: BlockMdxConfig<DiffData> = {
   tag: "Diff",
@@ -108,6 +109,6 @@ export const diffMdx: BlockMdxConfig<DiffData> = {
     mode: attrs.string("mode") as DiffMode | undefined,
     before: attrs.string("before") ?? "",
     after: attrs.string("after") ?? "",
-    annotations: attrs.array<DiffAnnotation>("annotations") ?? [],
+    annotations: attrs.array<DiffAnnotation>("annotations"),
   }),
 };

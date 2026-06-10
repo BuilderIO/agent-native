@@ -1,0 +1,5 @@
+---
+"@agent-native/core": patch
+---
+
+Engine and model-catalog robustness fixes: Gemini 3.x now uses `thinkingLevel` instead of the rejected `thinkingBudget`; structured provider errors (statusCode, providerRetryable) flow through EngineError so retry logic avoids false-negative and false-positive matches; isRetryableError covers OpenAI "Rate limit reached", Google RESOURCE_EXHAUSTED/quota, and bare 429/500/502/503/529 status codes; isContextTooLongError covers Gemini "input token count exceeds" phrasing; model catalog adds claude-fable-5, claude-opus-4-8, removes decommissioned Groq (llama-3.1-70b-versatile, mixtral-8x7b-32768) and stale cohere alias; supportsClaudeXHigh is version-aware for future opus successors; builder-engine enables prompt caching with system+tools+final-message cache_control breakpoints; OpenRouter default output tokens raised from 1024 to 8192; global token clamp raised from 32768 to 64000; usage pricing table adds fable-5, opus-4-8, Gemini 3, Groq, Mistral entries.

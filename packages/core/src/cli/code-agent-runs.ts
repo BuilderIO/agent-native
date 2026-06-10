@@ -146,6 +146,50 @@ export function codeAgentRunTranscriptPath(runId: string): string {
   return path.join(codeAgentTranscriptsDir(), `${runId}.jsonl`);
 }
 
+// --------------- Command allowlist ---------------
+
+const COMMAND_ALLOWLIST_FILENAME = "command-allowlist.json";
+
+export function codeAgentCommandAllowlistPath(): string {
+  return path.join(codeAgentStoreRoot(), COMMAND_ALLOWLIST_FILENAME);
+}
+
+/**
+ * Load the per-store command allowlist.  Returns an array of exact command
+ * strings the user has marked "always allow".
+ */
+export function readCodeAgentCommandAllowlist(): string[] {
+  try {
+    const raw = JSON.parse(
+      fs.readFileSync(codeAgentCommandAllowlistPath(), "utf-8"),
+    ) as unknown;
+    if (!Array.isArray(raw)) return [];
+    return raw.filter((entry): entry is string => typeof entry === "string");
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Persist a command to the per-store allowlist so future identical commands
+ * are auto-approved without a prompt.  Deduplicates by exact string match.
+ */
+export function addCodeAgentCommandToAllowlist(command: string): void {
+  const current = readCodeAgentCommandAllowlist();
+  if (current.includes(command)) return;
+  const next = [...current, command];
+  fs.mkdirSync(codeAgentStoreRoot(), { recursive: true });
+  fs.writeFileSync(
+    codeAgentCommandAllowlistPath(),
+    JSON.stringify(next, null, 2),
+  );
+}
+
+/** Return true if `command` is in the stored allowlist. */
+export function isCodeAgentCommandAllowed(command: string): boolean {
+  return readCodeAgentCommandAllowlist().includes(command);
+}
+
 export function createCodeAgentRunRecord(
   input: CreateCodeAgentRunInput,
 ): CodeAgentRunRecord {

@@ -5,7 +5,15 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { actionsToEngineTools } from "../agent/production-agent.js";
 import { createDevScriptRegistry } from "../scripts/dev/index.js";
-import { createCodingToolRegistry, isReadOnlyShellCommand } from "./index.js";
+import {
+  BASH_OUTPUT_HEAD_CHARS,
+  BASH_OUTPUT_TAIL_CHARS,
+  createCodingToolRegistry,
+  isReadOnlyShellCommand,
+  spawnBackgroundCommand,
+  truncateBashOutput,
+  truncateCodingOutput,
+} from "./index.js";
 
 const tmpRoots: string[] = [];
 
@@ -95,3 +103,184 @@ function tempDir(): string {
   tmpRoots.push(root);
   return root;
 }
+
+describe("truncateCodingOutput", () => {
+  it("returns short strings unchanged", () => {
+    expect(truncateCodingOutput("hello", 100)).toBe("hello");
+  });
+
+  it("truncates long strings with a marker", () => {
+    const result = truncateCodingOutput("abcdef", 4);
+    expect(result).toContain("abcd");
+    expect(result).toContain("truncated 2 chars");
+  });
+});
+
+describe("truncateBashOutput", () => {
+  it("returns short strings unchanged", () => {
+    expect(truncateBashOutput("hello world", 100, 100)).toBe("hello world");
+  });
+
+  it("keeps head and tail with an omission marker for long strings", () => {
+    const head = "A".repeat(10);
+    const middle = "B".repeat(20);
+    const tail = "C".repeat(10);
+    const input = head + middle + tail;
+    const result = truncateBashOutput(input, 10, 10);
+
+    expect(result.startsWith(head)).toBe(true);
+    expect(result.endsWith(tail)).toBe(true);
+    expect(result).toContain("20 chars omitted");
+  });
+
+  it("uses default head/tail constants when called without args", () => {
+    const totalMax = BASH_OUTPUT_HEAD_CHARS + BASH_OUTPUT_TAIL_CHARS;
+    const input = "x".repeat(totalMax + 1000);
+    const result = truncateBashOutput(input);
+
+    expect(result.length).toBeLessThan(input.length);
+    expect(result).toContain("chars omitted");
+    expect(result.slice(0, BASH_OUTPUT_HEAD_CHARS)).toBe(
+      "x".repeat(BASH_OUTPUT_HEAD_CHARS),
+    );
+    expect(result.slice(result.length - BASH_OUTPUT_TAIL_CHARS)).toBe(
+      "x".repeat(BASH_OUTPUT_TAIL_CHARS),
+    );
+  });
+
+  it("handles empty string", () => {
+    expect(truncateBashOutput("")).toBe("");
+  });
+});
+
+describe("structuredMeta side-channel via onToolMetadata", () => {
+  it("calls onToolMetadata for bash with command/cwd on start and exitCode on done", async () => {
+    const cwd = tempDir();
+    const calls: { phase: string; meta: Record<string, unknown> }[] = [];
+    const registry = createCodingToolRegistry({
+      cwd,
+      onToolMetadata: (toolName, phase, meta) => {
+        if (toolName === "bash") {
+          calls.push({ phase, meta: meta as Record<string, unknown> });
+        }
+      },
+    });
+
+    await registry.bash.run({ command: "echo hi" });
+
+    expect(calls.length).toBeGreaterThanOrEqual(2);
+    const startCall = calls.find((c) => c.phase === "start");
+    const doneCall = calls.find((c) => c.phase === "done");
+    expect(startCall?.meta.toolKind).toBe("bash");
+    expect(startCall?.meta.command).toBe("echo hi");
+    expect(doneCall?.meta.exitCode).toBe(0);
+    expect(typeof doneCall?.meta.durationMs).toBe("number");
+  });
+
+  it("calls onToolMetadata for edit with oldText/newText on done", async () => {
+    const cwd = tempDir();
+    fs.writeFileSync(path.join(cwd, "greet.txt"), "hello world\n", "utf8");
+    const doneMetas: Record<string, unknown>[] = [];
+    const registry = createCodingToolRegistry({
+      cwd,
+      onToolMetadata: (_toolName, phase, meta) => {
+        if (phase === "done") doneMetas.push(meta as Record<string, unknown>);
+      },
+    });
+
+    await registry.edit.run({
+      path: "greet.txt",
+      oldText: "hello world",
+      newText: "hi world",
+    });
+
+    const editMeta = doneMetas[0];
+    expect(editMeta?.toolKind).toBe("edit");
+    expect(editMeta?.filePath).toBe("greet.txt");
+    expect(editMeta?.oldText).toContain("hello world");
+    expect(editMeta?.newText).toContain("hi world");
+  });
+
+  it("calls onToolMetadata for write with content/lineCount on done", async () => {
+    const cwd = tempDir();
+    const doneMetas: Record<string, unknown>[] = [];
+    const registry = createCodingToolRegistry({
+      cwd,
+      onToolMetadata: (_toolName, phase, meta) => {
+        if (phase === "done") doneMetas.push(meta as Record<string, unknown>);
+      },
+    });
+
+    await registry.write.run({ path: "new.txt", content: "line1\nline2\n" });
+
+    const writeMeta = doneMetas[0];
+    expect(writeMeta?.toolKind).toBe("write");
+    expect(writeMeta?.filePath).toBe("new.txt");
+    expect(writeMeta?.lineCount).toBe(3);
+    expect(writeMeta?.content).toContain("line1");
+  });
+});
+
+describe("bash background execution", () => {
+  it("returns immediately with pid and log file path", async () => {
+    const cwd = tempDir();
+    const registry = createCodingToolRegistry({ cwd });
+    const result = await registry.bash.run({
+      command: "echo background-hello",
+      background: "true",
+    });
+    expect(typeof result).toBe("string");
+    expect(result).toMatch(/Background process spawned/);
+    expect(result).toMatch(/pid:/);
+    expect(result).toMatch(/log:/);
+  });
+
+  it("spawnBackgroundCommand returns pid and log path in output", async () => {
+    const cwd = tempDir();
+    const result = spawnBackgroundCommand("echo direct-spawn", cwd);
+    expect(result).toMatch(/Background process spawned/);
+    expect(result).toMatch(/pid:\s*\d+/);
+    expect(result).toMatch(/log:\s*\S+\.log/);
+  });
+
+  it("writes output to the log file", async () => {
+    const cwd = tempDir();
+    const result = spawnBackgroundCommand("echo logged-output", cwd);
+    const logMatch = result.match(/log:\s*(\S+)/);
+    expect(logMatch).not.toBeNull();
+    const logFile = logMatch![1];
+    // Give the process a moment to write its output.
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    const content = fs.readFileSync(logFile, "utf8");
+    expect(content).toContain("logged-output");
+    fs.unlinkSync(logFile);
+  });
+
+  it("beforeBash policy still applies to background commands", async () => {
+    const cwd = tempDir();
+    const registry = createCodingToolRegistry({
+      cwd,
+      beforeBash: ({ command }) => {
+        if (command.includes("blocked")) return "Error: blocked by policy";
+        return null;
+      },
+    });
+    const result = await registry.bash.run({
+      command: "echo blocked",
+      background: "true",
+    });
+    expect(result).toBe("Error: blocked by policy");
+  });
+
+  it("default timeout is 120000 ms", () => {
+    // Verify the exported default via tool description which mentions 120000.
+    const registry = createCodingToolRegistry({});
+    const bashTool = registry.bash.tool;
+    const timeoutParam = (
+      bashTool.parameters as {
+        properties: Record<string, { description: string }>;
+      }
+    ).properties.timeoutMs;
+    expect(timeoutParam.description).toContain("120000");
+  });
+});

@@ -20,7 +20,7 @@ export default defineAction({
     const { view, formId } = args;
 
     if (!view && !formId) {
-      return "Error: At least --view or --formId is required.";
+      throw new Error("At least --view or --formId is required.");
     }
 
     const nav: Record<string, string> = {};

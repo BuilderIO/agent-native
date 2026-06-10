@@ -52,6 +52,14 @@ When you open the studio:
 
 If you select a track in the timeline and hit Cmd+I, the agent picks up that selection — "make this one snappier" just works.
 
+## Why it's interesting
+
+Three things make the Video template a good showcase of the framework:
+
+1. **Code as the authoring format.** Each composition is a React component, so the agent can write entirely new animation types — not just adjust parameters. The template demonstrates that an agent-native app can treat source code as a first-class editable artifact rather than a fixed runtime.
+2. **Track-based animation as structured data.** Animations are `AnimationTrack` rows (start, end, easing, animated props) rather than hardcoded frame checks. This makes AI edits ("shift this track 10 frames later") reliable and composable without touching render logic.
+3. **SQL + localStorage fusion.** User-created compositions persist in SQL; per-session tweaks (easing experiments, parameter knobs) persist in localStorage and deep-merge on load. This two-layer approach shows how to keep the agent's durable state separate from ephemeral in-session exploration.
+
 ## For developers
 
 The rest of this doc is for anyone forking the Video template or extending it. This template is more code-forward than the others — every composition is a React component and every animation is data on a track.
@@ -137,6 +145,15 @@ Server-side schema is in `templates/videos/server/db/schema.ts`:
 
 - `compositions` — id, title, type, `data` (full composition JSON blob), ownership columns, timestamps.
 - `composition_shares` — standard share grants produced by `createSharesTable()`.
+- `design_systems` — reusable brand tokens (colors, typography, spacing, assets, custom instructions, `is_default` flag) with `ownableColumns`.
+- `design_system_shares` — share grants for design systems.
+- `folders` — nestable folders for library organization, with `ownableColumns`.
+- `folder_shares` — share grants for folders.
+- `folder_memberships` — many-to-many join between a `folder_id` and a `composition_id`.
+
+### Folders and design systems
+
+Compositions can be organized into folders and styled with design systems. Actions: `create-folder`, `rename-folder`, `delete-folder`, `move-composition-to-folder`. Design system actions: `create-design-system`, `update-design-system`, `get-design-system`, `list-design-systems`, `set-default-design-system`, `apply-design-system`, `analyze-brand-assets`. Import actions: `import-github`, `import-from-url`, `import-document` (DOCX/PPTX/PDF).
 
 The registry in `app/remotion/registry.ts` is the in-code source of truth for what ships with the template. The SQL table stores user-created compositions and overrides. Studio state (per-composition track edits, prop overrides, composition settings) is mirrored to `localStorage` under `videos-tracks:<id>`, `videos-props:<id>`, and `videos-comp-settings:<id>`, and deep-merged back onto the registry defaults on load.
 

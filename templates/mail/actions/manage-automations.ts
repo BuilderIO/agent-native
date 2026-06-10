@@ -69,14 +69,16 @@ export default defineAction({
 
       case "create": {
         if (!args.name || !args.condition || !args.actions) {
-          return "Error: --name, --condition, and --actions are required for create";
+          throw new Error(
+            "--name, --condition, and --actions are required for create",
+          );
         }
 
         let actions;
         try {
           actions = JSON.parse(args.actions);
         } catch {
-          return "Error: --actions must be valid JSON array";
+          throw new Error("--actions must be valid JSON array");
         }
 
         const now = Date.now();
@@ -97,7 +99,7 @@ export default defineAction({
       }
 
       case "update": {
-        if (!args.id) return "Error: --id is required for update";
+        if (!args.id) throw new Error("--id is required for update");
 
         const updates: Record<string, any> = { updatedAt: Date.now() };
         if (args.name !== undefined) updates.name = args.name;
@@ -107,7 +109,7 @@ export default defineAction({
             JSON.parse(args.actions);
             updates.actions = args.actions;
           } catch {
-            return "Error: --actions must be valid JSON array";
+            throw new Error("--actions must be valid JSON array");
           }
         }
         if (args.enabled !== undefined) updates.enabled = args.enabled ? 1 : 0;
@@ -126,7 +128,7 @@ export default defineAction({
       }
 
       case "delete": {
-        if (!args.id) return "Error: --id is required for delete";
+        if (!args.id) throw new Error("--id is required for delete");
 
         await db
           .delete(schema.automationRules)
@@ -141,7 +143,7 @@ export default defineAction({
       }
 
       case "enable": {
-        if (!args.id) return "Error: --id is required for enable";
+        if (!args.id) throw new Error("--id is required for enable");
 
         await db
           .update(schema.automationRules)
@@ -157,7 +159,7 @@ export default defineAction({
       }
 
       case "disable": {
-        if (!args.id) return "Error: --id is required for disable";
+        if (!args.id) throw new Error("--id is required for disable");
 
         await db
           .update(schema.automationRules)
@@ -173,7 +175,9 @@ export default defineAction({
       }
 
       default:
-        return `Error: Unknown action "${action}". Use: list, create, update, delete, enable, disable`;
+        throw new Error(
+          `Unknown action "${action}". Use: list, create, update, delete, enable, disable`,
+        );
     }
   },
 });

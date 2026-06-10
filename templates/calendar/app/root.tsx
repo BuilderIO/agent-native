@@ -1,27 +1,29 @@
-import { Links, Meta, Outlet, Scripts, ScrollRestoration } from "react-router";
+import {
+  Links,
+  Meta,
+  Outlet,
+  Scripts,
+  ScrollRestoration,
+  useLocation,
+} from "react-router";
 import { useCallback, useState } from "react";
-import {
-  QueryClient,
-  QueryClientProvider,
-  useQueryClient,
-} from "@tanstack/react-query";
-import { ThemeProvider } from "next-themes";
+import { useQueryClient } from "@tanstack/react-query";
 import { useTheme } from "next-themes";
-import { useDbSync } from "@agent-native/core/client";
-import { getThemeInitScript } from "@agent-native/core/client";
+import { Toaster } from "sonner";
 import {
-  ClientOnly,
+  AppProviders,
+  CommandMenu,
   DefaultSpinner,
   appPath,
-  CommandMenu,
+  configureTracking,
+  createAgentNativeQueryClient,
+  getThemeInitScript,
   useCommandMenuShortcut,
+  useDbSync,
 } from "@agent-native/core/client";
 import { IconSun, IconMoon } from "@tabler/icons-react";
-import { Toaster } from "@/components/ui/sonner";
-import { TooltipProvider } from "@/components/ui/tooltip";
 import type { LinksFunction } from "react-router";
 import stylesheet from "./global.css?url";
-import { configureTracking } from "@agent-native/core/client";
 configureTracking({
   getDefaultProps: (_name, properties) => ({
     ...properties,
@@ -114,46 +116,67 @@ function ThemeToggleItem() {
   );
 }
 
-export default function Root() {
-  const [queryClient] = useState(
-    () =>
-      new QueryClient({
-        defaultOptions: {
-          queries: {
-            staleTime: 30_000,
-            retry: 1,
-            refetchOnWindowFocus: true,
-          },
-        },
-      }),
+/**
+ * Public booking routes (/book/*, /meet/*, /booking/manage/*) must SSR real
+ * content for first-visit signed-out users and crawlers. These paths bypass
+ * ClientOnly so entry.server.tsx can stream the actual route markup rather than
+ * a bare spinner. Auth/private routes are unaffected.
+ */
+function isPublicBookingPath(pathname: string): boolean {
+  const p = pathname.replace(/\/+$/, "") || "/";
+  return (
+    p.startsWith("/book/") ||
+    p.startsWith("/meet/") ||
+    p.startsWith("/booking/manage/")
   );
+}
+
+function AppContent() {
   const [cmdkOpen, setCmdkOpen] = useState(false);
   useCommandMenuShortcut(useCallback(() => setCmdkOpen(true), []));
   return (
-    <ClientOnly fallback={<DefaultSpinner />}>
-      <QueryClientProvider client={queryClient}>
-        <ThemeProvider
-          attribute="class"
-          defaultTheme="system"
-          enableSystem
-          disableTransitionOnChange
-        >
-          <TooltipProvider>
-            <DbSyncSetup />
-            <Toaster richColors position="bottom-center" />
-            <CommandMenu open={cmdkOpen} onOpenChange={setCmdkOpen}>
-              <CommandMenu.Group heading="Actions">
-                <CommandMenu.Item onSelect={() => {}}>Search</CommandMenu.Item>
-              </CommandMenu.Group>
-              <CommandMenu.Group heading="Appearance">
-                <ThemeToggleItem />
-              </CommandMenu.Group>
-            </CommandMenu>
-            <Outlet />
-          </TooltipProvider>
-        </ThemeProvider>
-      </QueryClientProvider>
-    </ClientOnly>
+    <>
+      <DbSyncSetup />
+      <CommandMenu open={cmdkOpen} onOpenChange={setCmdkOpen}>
+        <CommandMenu.Group heading="Actions">
+          <CommandMenu.Item onSelect={() => {}}>Search</CommandMenu.Item>
+        </CommandMenu.Group>
+        <CommandMenu.Group heading="Appearance">
+          <ThemeToggleItem />
+        </CommandMenu.Group>
+      </CommandMenu>
+      <Outlet />
+    </>
+  );
+}
+
+export default function Root() {
+  const [queryClient] = useState(() =>
+    createAgentNativeQueryClient({
+      defaultOptions: {
+        queries: {
+          // Calendar aggressively refetches on focus because external
+          // calendar events can change without a DB sync event (e.g. Google
+          // Calendar webhooks with a processing delay).
+          refetchOnWindowFocus: true,
+          // Flat retry: calendar data fetches don't need the auth-aware
+          // retry function — auth errors surface through the booking flow.
+          retry: 1,
+        },
+      },
+    }),
+  );
+  const location = useLocation();
+
+  return (
+    <AppProviders
+      queryClient={queryClient}
+      isPublicPath={isPublicBookingPath(location.pathname)}
+      clientOnlyFallback={<DefaultSpinner />}
+      toaster={<Toaster richColors position="bottom-center" />}
+    >
+      <AppContent />
+    </AppProviders>
   );
 }
 

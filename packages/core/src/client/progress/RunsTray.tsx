@@ -6,6 +6,7 @@ import {
   IconClock,
   IconExternalLink,
   IconLoader2,
+  IconPlayerStop,
   IconX,
 } from "@tabler/icons-react";
 import { usePausingInterval } from "../use-pausing-interval.js";
@@ -58,6 +59,7 @@ interface RunsTrayState {
   TriggerIcon: typeof IconLoader2;
   triggerTone: string;
   dismissRun: (runId: string) => void;
+  stopRun: (runId: string) => void;
 }
 
 function useRunsTrayState({
@@ -112,6 +114,33 @@ function useRunsTrayState({
     [refresh],
   );
 
+  const stopRun = useCallback(
+    async (runId: string) => {
+      // Optimistic: mark as cancelled immediately so the UI is responsive.
+      setRuns((current) =>
+        current.map((run) =>
+          run.id === runId
+            ? { ...run, status: "cancelled" as ProgressStatus }
+            : run,
+        ),
+      );
+      try {
+        const res = await fetch(
+          agentNativePath(`/_agent-native/agent-chat/runs/${runId}/stop`),
+          {
+            method: "POST",
+            headers: { "X-Agent-Native-CSRF": "1" },
+          },
+        );
+        if (!res.ok) throw new Error(`Stop failed (${res.status})`);
+      } catch {
+        // Reconcile from server on failure
+        refresh();
+      }
+    },
+    [refresh],
+  );
+
   const hasRuns = runs.length > 0;
   const activeCount = useMemo(
     () => runs.filter((run) => run.status === "running").length,
@@ -153,6 +182,7 @@ function useRunsTrayState({
     TriggerIcon,
     triggerTone,
     dismissRun,
+    stopRun,
   };
 }
 
@@ -183,6 +213,7 @@ export function RunsTray({
     TriggerIcon,
     triggerTone,
     dismissRun,
+    stopRun,
   } = useRunsTrayState({
     pollMs,
     limit,
@@ -261,6 +292,7 @@ export function RunsTray({
           activeCount={activeCount}
           terminalCount={terminalCount}
           onDismiss={dismissRun}
+          onStop={stopRun}
           onOpenThread={onOpenThread}
         />
       </PopoverContent>
@@ -288,6 +320,7 @@ export function RunsTrayMenuItem({
     TriggerIcon,
     triggerTone,
     dismissRun,
+    stopRun,
   } = useRunsTrayState({
     pollMs,
     limit,
@@ -332,6 +365,7 @@ export function RunsTrayMenuItem({
           activeCount={activeCount}
           terminalCount={terminalCount}
           onDismiss={dismissRun}
+          onStop={stopRun}
           onOpenThread={onOpenThread}
         />
       </DropdownMenuSubContent>
@@ -345,6 +379,7 @@ function RunsTrayContent({
   activeCount,
   terminalCount,
   onDismiss,
+  onStop,
   onOpenThread,
 }: {
   runs: AgentRunDto[];
@@ -352,6 +387,7 @@ function RunsTrayContent({
   activeCount: number;
   terminalCount: number;
   onDismiss: (runId: string) => void;
+  onStop: (runId: string) => void;
   onOpenThread?: (threadId: string, run: AgentRunDto) => void;
 }) {
   return (
@@ -373,6 +409,7 @@ function RunsTrayContent({
               key={run.id}
               run={run}
               onDismiss={onDismiss}
+              onStop={onStop}
               onOpenThread={onOpenThread}
             />
           ))}
@@ -430,17 +467,28 @@ function formatRunTime(run: AgentRunDto): string {
   })}`;
 }
 
+function isAgentTeamRun(run: AgentRunDto): boolean {
+  return (
+    typeof run.metadata === "object" &&
+    run.metadata !== null &&
+    (run.metadata as Record<string, unknown>).kind === "agent-team"
+  );
+}
+
 function RunRow({
   run,
   onDismiss,
+  onStop,
   onOpenThread,
 }: {
   run: AgentRunDto;
   onDismiss: (runId: string) => void;
+  onStop: (runId: string) => void;
   onOpenThread?: (threadId: string, run: AgentRunDto) => void;
 }) {
   const threadId = getRunThreadId(run);
   const isRunning = run.status === "running";
+  const canStop = isRunning && isAgentTeamRun(run);
 
   return (
     <div className="flex flex-col gap-1.5 px-3 py-2.5 text-sm">
@@ -491,11 +539,21 @@ function RunRow({
               <IconExternalLink size={12} aria-hidden />
             </button>
           ) : null}
+          {canStop ? (
+            <button
+              type="button"
+              aria-label={`Stop ${run.title}`}
+              className="inline-flex h-6 w-6 cursor-pointer items-center justify-center rounded text-muted-foreground hover:bg-accent/60 hover:text-destructive"
+              onClick={() => onStop(run.id)}
+            >
+              <IconPlayerStop size={13} aria-hidden />
+            </button>
+          ) : null}
           {!isRunning ? (
             <button
               type="button"
               aria-label={`Hide ${run.title}`}
-              className="inline-flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:bg-accent/60 hover:text-foreground"
+              className="inline-flex h-6 w-6 cursor-pointer items-center justify-center rounded text-muted-foreground hover:bg-accent/60 hover:text-foreground"
               onClick={() => onDismiss(run.id)}
             >
               <IconX size={13} aria-hidden />

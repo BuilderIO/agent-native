@@ -59,6 +59,7 @@ describe("DiffBlock", () => {
     document
       .querySelectorAll("[data-annotation-hover-card]")
       .forEach((node) => node.remove());
+    vi.useRealTimers();
     vi.unstubAllGlobals();
   });
 
@@ -358,6 +359,7 @@ describe("DiffBlock annotations", () => {
     document
       .querySelectorAll("[data-annotation-hover-card]")
       .forEach((node) => node.remove());
+    vi.useRealTimers();
     vi.unstubAllGlobals();
   });
 
@@ -469,6 +471,67 @@ describe("DiffBlock annotations", () => {
     // Line 2 starts at y=120 with a 20px height, so the first-row anchor center
     // is 130px. Hovering line 4 would have produced 170px before this fix.
     expect(card!.style.top).toBe("130px");
+  });
+
+  it("does not immediately reopen the annotation popover during scroll dismissal", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(0);
+
+    render({
+      before: "",
+      after: "const a = 1\nconst b = 2",
+      mode: "unified",
+      annotations: [{ lines: "1", label: "Changed", note: "First line." }],
+    });
+
+    const codeSurface = container.querySelector("[data-code-surface]");
+    const codeBox = codeSurface?.parentElement;
+    expect(codeBox).toBeTruthy();
+    stubRect(codeBox!, rect({ top: 80, height: 100 }));
+
+    const rows = Array.from(
+      container.querySelectorAll<HTMLElement>(
+        "[data-code-surface] > div > div",
+      ),
+    );
+    expect(rows).toHaveLength(2);
+    stubRect(rows[0], rect({ top: 100, height: 20 }));
+
+    act(() => {
+      rows[0].dispatchEvent(
+        new MouseEvent("mouseover", {
+          bubbles: true,
+          relatedTarget: document.body,
+        }),
+      );
+    });
+    expect(document.querySelector("[data-annotation-hover-card]")).toBeTruthy();
+
+    act(() => {
+      window.dispatchEvent(new Event("scroll"));
+    });
+    expect(document.querySelector("[data-annotation-hover-card]")).toBeNull();
+
+    act(() => {
+      rows[0].dispatchEvent(
+        new MouseEvent("mouseover", {
+          bubbles: true,
+          relatedTarget: document.body,
+        }),
+      );
+    });
+    expect(document.querySelector("[data-annotation-hover-card]")).toBeNull();
+
+    vi.setSystemTime(300);
+    act(() => {
+      rows[0].dispatchEvent(
+        new MouseEvent("mouseover", {
+          bubbles: true,
+          relatedTarget: document.body,
+        }),
+      );
+    });
+    expect(document.querySelector("[data-annotation-hover-card]")).toBeTruthy();
   });
 
   it("renders unchanged when there are no annotations (back-compat)", () => {

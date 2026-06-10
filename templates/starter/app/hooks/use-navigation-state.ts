@@ -1,10 +1,7 @@
-import { useEffect } from "react";
-import { useLocation, useNavigate } from "react-router";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-  agentNativePath,
   appBasePath,
   appPath,
+  useAgentRouteState,
 } from "@agent-native/core/client";
 import { TAB_ID } from "@/lib/tab-id";
 
@@ -14,64 +11,16 @@ export interface NavigationState {
 }
 
 export function useNavigationState() {
-  const location = useLocation();
-  const navigate = useNavigate();
-  const qc = useQueryClient();
-
-  // Sync current route to application state
-  useEffect(() => {
-    const state: NavigationState = {
-      view: viewForPath(location.pathname),
-      path: appPath(location.pathname),
-    };
-
-    fetch(agentNativePath("/_agent-native/application-state/navigation"), {
-      method: "PUT",
-      keepalive: true,
-      headers: {
-        "Content-Type": "application/json",
-        "X-Request-Source": TAB_ID,
-      },
-      body: JSON.stringify(state),
-    }).catch(() => {});
-  }, [location.pathname]);
-
-  // Listen for navigate commands from agent
-  const { data: navCommand } = useQuery({
-    queryKey: ["navigate-command"],
-    queryFn: async () => {
-      const res = await fetch(
-        agentNativePath("/_agent-native/application-state/navigate"),
-      );
-      if (!res.ok) return null;
-      const data = await res.json();
-      if (data) {
-        // Return with a timestamp to ensure uniqueness
-        return { ...data, _ts: Date.now() };
-      }
-      return null;
-    },
-    refetchInterval: 2_000,
-    structuralSharing: false,
+  useAgentRouteState<NavigationState>({
+    browserTabId: TAB_ID,
+    requestSource: TAB_ID,
+    getNavigationState: ({ pathname, search, hash }) => ({
+      view: viewForPath(pathname),
+      path: appPath(pathname),
+    }),
+    getCommandPath: (command) =>
+      routerPath(command.path || pathForView(command.view)),
   });
-
-  useEffect(() => {
-    if (!navCommand) return;
-    // Delete the one-shot command AFTER reading it
-    fetch(agentNativePath("/_agent-native/application-state/navigate"), {
-      method: "DELETE",
-      headers: {
-        "X-Agent-Native-CSRF": "1",
-        "X-Request-Source": TAB_ID,
-      },
-    }).catch(() => {});
-    const cmd = navCommand as NavigationState;
-
-    // Navigate to a specific path or resolve view name to path
-    const path = routerPath(cmd.path || pathForView(cmd.view));
-    navigate(path);
-    qc.setQueryData(["navigate-command"], null);
-  }, [navCommand, navigate, qc]);
 }
 
 function viewForPath(pathname: string): string {

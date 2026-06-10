@@ -81,8 +81,8 @@ describe("diff block config", () => {
       after: "const x = 1\nconst y = 3\nconst z = 4\nconsole.log(x, y, z)",
       mode: "split",
     };
-    // No annotations attribute is emitted, so the decode adds the empty default.
-    expect(roundTrip(data)).toEqual({ ...data, annotations: [] });
+    // No annotations attribute is emitted, so the decode preserves absence.
+    expect(roundTrip(data)).toEqual(data);
   });
 
   it("round-trips losslessly when optional fields are absent", () => {
@@ -90,15 +90,14 @@ describe("diff block config", () => {
       before: "old line",
       after: "new line",
     };
-    // No optional attributes are emitted, so the decode yields undefined
-    // filename/language/mode and an empty annotations array (forgiving default).
+    // No optional attributes are emitted, so the decode preserves absence.
     expect(roundTrip(data)).toEqual({
       filename: undefined,
       language: undefined,
       mode: undefined,
       before: data.before,
       after: data.after,
-      annotations: [],
+      annotations: undefined,
     });
   });
 
@@ -109,7 +108,7 @@ describe("diff block config", () => {
       mode: undefined,
       before: "",
       after: "",
-      annotations: [],
+      annotations: undefined,
     });
   });
 

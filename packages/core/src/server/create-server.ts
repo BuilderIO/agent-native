@@ -180,7 +180,8 @@ export function createServer(
           : getAllowedCorsOrigin(requestOrigin, {
               allowedOrigins,
               allowAnyOriginWhenNoAllowlist: !isProduction,
-              allowLocalhostWhenNoAllowlist: true,
+              // Let the cors-origins default apply (dev-only). Passing `true`
+              // here unconditionally would re-open the production localhost gap.
             });
         // No origin header at all (same-origin fetch, server-to-server) and
         // no allowlist → fall through with `*`-equivalent behaviour: omit

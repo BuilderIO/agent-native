@@ -88,7 +88,7 @@ function setEmbedStartResponseHeaders(event: H3Event): void {
 
 function embedStartCorsOrigin(event: H3Event): string | null {
   const origin = getHeader(event, "origin");
-  return isMcpEmbedCorsOrigin(origin) ? origin : null;
+  return isMcpEmbedCorsOrigin(origin) ? (origin ?? null) : null;
 }
 
 function embedStartResponseHeaders(

@@ -1,13 +1,15 @@
 ---
 title: "Observability"
-description: "Agent traces, evals, feedback, A/B experiments, and the admin dashboard — all built-in with zero configuration."
+description: "Agent traces, evals, feedback, A/B experiments, and the built-in dashboard — all with zero configuration."
 ---
 
 # Agent Observability
 
 Every agent-native app gets observability out of the box. Traces, automated evals, user feedback, and A/B experiments work with zero configuration — all data lives in the app's own SQL database.
 
-## What's Captured Automatically
+This page covers _agent quality_ metrics: traces, cost, evals, and feedback stored in your database. For _product_ analytics (your app's events flowing to PostHog/Mixpanel/Amplitude), see [Tracking](/docs/tracking).
+
+## What's captured automatically {#captured}
 
 When a user sends a message, the framework automatically records:
 
@@ -19,7 +21,7 @@ When a user sends a message, the framework automatically records:
 
 No code changes needed. The instrumentation hooks into `production-agent.ts` transparently.
 
-## The Dashboard
+## The dashboard {#dashboard}
 
 Add the dashboard to any template with a single route:
 
@@ -36,6 +38,8 @@ export default function ObservabilityPage() {
 }
 ```
 
+All data is scoped to the signed-in user; there is no cross-user admin view today.
+
 The dashboard has 5 tabs:
 
 | Tab               | What it shows                                                                   |
@@ -46,13 +50,13 @@ The dashboard has 5 tabs:
 | **Experiments**   | A/B test list with status badges, variant results with confidence intervals     |
 | **Feedback**      | Thumbs up/down stream, category breakdown, frustration scores                   |
 
-## User Feedback
+## User feedback {#feedback}
 
-### Explicit Feedback
+### Explicit feedback
 
 Thumbs up/down buttons render inline on every agent message in the chat UI. Thumbs down opens a category popover (Inaccurate, Not helpful, Wrong tool, Too slow). This is wired into `AssistantChat.tsx` automatically.
 
-### Implicit Feedback (Frustration Index)
+### Implicit feedback (frustration index)
 
 The framework computes a Frustration Index (0-100) from conversation signals:
 
@@ -66,7 +70,7 @@ The framework computes a Frustration Index (0-100) from conversation signals:
 
 Score interpretation: 0-20 = healthy, 20-40 = friction, 40-60 = dissatisfied, 60+ = broken session.
 
-## Automated Evals
+## Automated evals {#evals}
 
 Five deterministic scorers run after every agent run:
 
@@ -78,7 +82,7 @@ Five deterministic scorers run after every agent run:
 | `cost_efficiency`   | Normalized against cost baseline                       | 0-1         |
 | `error_recovery`    | Did the agent recover from tool errors?                | 0 or 1      |
 
-### LLM-as-Judge (Optional)
+### LLM-as-judge (optional)
 
 Enable sampled LLM-based evaluation by setting `evalSampleRate`:
 
@@ -101,7 +105,7 @@ const criteria = {
 };
 ```
 
-## A/B Experiments
+## A/B experiments {#experiments}
 
 Test different models, temperatures, or agent configurations:
 
@@ -124,7 +128,7 @@ PUT /_agent-native/observability/experiments/:id
 
 The agent loop automatically resolves the user's variant and applies the config override. Assignment uses consistent hashing — same user always gets the same variant.
 
-## Configuration
+## Configuration {#config}
 
 All settings are stored in the `observability-config` key:
 
@@ -141,7 +145,7 @@ All settings are stored in the `observability-config` key:
 
 Content is **redacted by default** — only token counts, costs, and timing are stored. Opt in to content capture when needed for debugging.
 
-## API Endpoints
+## API endpoints {#api}
 
 All auto-mounted at `/_agent-native/observability/`:
 
@@ -158,13 +162,14 @@ All auto-mounted at `/_agent-native/observability/`:
 | GET    | `/evals/stats`             | Eval statistics                |
 | POST   | `/experiments`             | Create experiment              |
 | GET    | `/experiments`             | List experiments               |
+| GET    | `/experiments/:id`         | Get experiment detail          |
 | PUT    | `/experiments/:id`         | Update experiment              |
 | POST   | `/experiments/:id/results` | Compute results                |
 | GET    | `/experiments/:id/results` | Get results                    |
 
 All endpoints support `?since=N` (ms timestamp) and `?limit=N` query params.
 
-## Export to External Platforms
+## Export to external platforms {#export}
 
 Send traces to Langfuse, Datadog, Grafana, or any OTel-compatible backend:
 
@@ -183,7 +188,7 @@ await putSetting("observability-config", {
 
 The framework emits `gen_ai.*` semantic convention spans compatible with the OpenTelemetry GenAI spec.
 
-## Error Reporting (Sentry)
+## Error reporting (Sentry) {#sentry}
 
 Server-side errors that escape Nitro route handlers are reported to Sentry when a DSN is configured. Without it the SDK silently no-ops, so it's safe to leave the env vars unset in dev. Browser and server events can go to the same Sentry project; split them into separate projects only when you want operational separation for ownership, volume, quotas, or alert routing.
 
@@ -193,7 +198,7 @@ Server-side errors that escape Nitro route handlers are reported to Sentry when 
 | Nitro server       | `@sentry/node`    | `SENTRY_SERVER_DSN` or `SENTRY_DSN`                            | Captures 5xx responses and Nitro lifecycle errors. Per-request user.  |
 | `agent-native` CLI | `@sentry/node`    | _hardcoded_                                                    | Crash reports from the published CLI binary; not user-configurable.   |
 
-### Server-side configuration
+### Server-side configuration {#sentry-config}
 
 Set `SENTRY_SERVER_DSN` or the shared `SENTRY_DSN` in the deploy environment (Netlify dashboard, Cloudflare secrets, etc.). The framework auto-mounts a Nitro plugin that:
 
@@ -218,7 +223,7 @@ export default createSentryPlugin();
 
 The CLI's hardcoded DSN is intentional — the published binary needs to phone home crashes regardless of which environment runs it. The server module never hardcodes a DSN because it runs inside customer environments where operators decide whether errors should reach Sentry at all.
 
-### Privacy & PII
+### Privacy & PII {#privacy}
 
 Both server and CLI initialize with `sendDefaultPii: false` and a `beforeSend` hook that strips:
 
@@ -229,3 +234,9 @@ Both server and CLI initialize with `sendDefaultPii: false` and a `beforeSend` h
 - Any event whose top-level exception type is `ValidationError` (treated as expected user-input rejection, not a bug).
 
 Identity fields explicitly set via `setUser({ id, email, username })` are preserved.
+
+## What's next
+
+- [**Tracking**](/docs/tracking) — product analytics (PostHog, Mixpanel, Amplitude) for your app's own events
+- [**Actions**](/docs/actions) — the operations that appear as tool calls in traces
+- [**Security**](/docs/security) — data scoping and credential handling

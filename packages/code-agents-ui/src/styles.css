@@ -1516,6 +1516,76 @@
   color: hsl(var(--background));
 }
 
+.code-agents-button--ghost {
+  border-color: transparent;
+  background: transparent;
+  color: hsl(var(--muted-foreground));
+}
+
+.code-agents-button--ghost:hover {
+  border-color: hsl(var(--border));
+  background: hsl(var(--accent) / 0.5);
+  color: hsl(var(--foreground));
+}
+
+.code-agents-button--danger,
+.code-agents-button--ghost.code-agents-button--danger {
+  color: hsl(var(--destructive));
+}
+
+.code-agents-button--ghost.code-agents-button--danger:hover {
+  border-color: hsl(var(--destructive) / 0.3);
+  background: hsl(var(--destructive) / 0.08);
+  color: hsl(var(--destructive));
+}
+
+.code-agents-approval-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  justify-content: flex-end;
+  flex-shrink: 0;
+}
+
+/* Token usage meter */
+.code-agents-token-meter {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 0 6px;
+  color: hsl(var(--muted-foreground));
+  font-size: 11px;
+  line-height: 1;
+  opacity: 0.8;
+}
+
+.code-agents-token-meter__icon {
+  flex-shrink: 0;
+  opacity: 0.7;
+}
+
+.code-agents-token-meter__label {
+  white-space: nowrap;
+  font-weight: 500;
+}
+
+.code-agents-token-meter__ctx {
+  padding: 1px 5px;
+  border: 1px solid hsl(var(--border));
+  border-radius: 10px;
+  background: hsl(var(--border) / 0.4);
+  white-space: nowrap;
+  font-size: 10px;
+  cursor: default;
+}
+
+.code-agents-token-meter__detail {
+  margin-left: auto;
+  white-space: nowrap;
+  opacity: 0.7;
+}
+
 .code-agents-callout,
 .code-agents-callout--degraded,
 .code-agents-callout--unauthorized,

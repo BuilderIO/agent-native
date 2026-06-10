@@ -1987,7 +1987,7 @@ async function syncSlack(source: SourceRow): Promise<ConnectorSyncResult> {
         const nextPage = data.response_metadata?.next_cursor;
         if (data.has_more && nextPage) {
           channelCursor.pageCursor = nextPage;
-          nextCursor.channels[channel.id] = channelCursor;
+          nextCursor.channels![channel.id] = channelCursor;
           break;
         }
 
@@ -1997,7 +1997,7 @@ async function syncSlack(source: SourceRow): Promise<ConnectorSyncResult> {
           pendingLatest ??
           channelCursor.latestTs;
         channelCursor.pendingLatestTs = undefined;
-        nextCursor.channels[channel.id] = channelCursor;
+        nextCursor.channels![channel.id] = channelCursor;
         break;
       }
     }
@@ -2339,7 +2339,7 @@ async function syncGitHub(source: SourceRow): Promise<ConnectorSyncResult> {
     "github",
   );
 
-  const captures = [];
+  const captures: any[] = [];
   const stats: Record<string, unknown> = {
     configuredRepositories: repositories.length,
     scannedRepositories: 0,
@@ -2533,7 +2533,7 @@ async function syncGitHub(source: SourceRow): Promise<ConnectorSyncResult> {
           maxUpdatedAt = candidateUpdatedAt;
         }
       }
-      nextCursor.repositories[repo] = {
+      nextCursor.repositories![repo] = {
         updatedAfter: maxUpdatedAt ?? nowIso(),
       };
     }

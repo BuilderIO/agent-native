@@ -770,7 +770,7 @@ export default function MeetingsIndexRoute() {
     );
     queryClient.setQueriesData<any>(
       { queryKey: ["action", "list-meetings"] },
-      (prev) => {
+      (prev: any) => {
         if (!prev || Array.isArray(prev)) return prev;
         return { ...prev, calendarErrors: [] };
       },
@@ -881,7 +881,7 @@ export default function MeetingsIndexRoute() {
   // entirely, so the only signal is the account's own status. Cover both.
   const needsCalendarReauth =
     calendarErrors.some((e) => e.needsReauth) ||
-    calendarAccounts.some((a) => a.status === "needs-reauth");
+    calendarAccounts.some((a: any) => a.status === "needs-reauth");
 
   if (isLoading) {
     return (

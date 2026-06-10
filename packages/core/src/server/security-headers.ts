@@ -49,12 +49,23 @@
  * set their own route-specific CSP / frame policy.
  */
 
+import { createHash } from "node:crypto";
 import { defineEventHandler, getHeader, setResponseHeader } from "h3";
 import { requestHasEmbedAuthMarker } from "./embed-session.js";
 import {
   isMcpEmbedCorsOrigin,
   MCP_EMBED_CORS_ALLOW_HEADERS,
 } from "../shared/mcp-embed-headers.js";
+
+/**
+ * Compute the sha256-<base64> hash token for an inline script's text content.
+ * Pass the raw script body (no surrounding <script> tags). The resulting token
+ * can be listed directly in a `script-src` CSP directive.
+ */
+export function computeInlineScriptHash(scriptContent: string): string {
+  const hash = createHash("sha256").update(scriptContent).digest("base64");
+  return `'sha256-${hash}'`;
+}
 
 const HSTS = "max-age=31536000; includeSubDomains; preload";
 const PERMISSIONS_POLICY =
@@ -125,7 +136,8 @@ export function createSecurityHeadersMiddleware() {
         : "same-site",
     );
     if (embedFrameRequest && isMcpEmbedCorsOrigin(requestOrigin)) {
-      setResponseHeader(event, "Access-Control-Allow-Origin", requestOrigin);
+      // requestOrigin is non-null: isMcpEmbedCorsOrigin returns true only for truthy origins
+      setResponseHeader(event, "Access-Control-Allow-Origin", requestOrigin!);
       setResponseHeader(event, "Vary", "Origin");
       setResponseHeader(
         event,

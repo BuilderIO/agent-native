@@ -19,7 +19,7 @@ function rowToBooking(row: typeof schema.bookings.$inferSelect): Booking {
     start: row.start,
     end: row.end,
     slug: row.slug,
-    eventTitle: row.eventTitle ?? undefined,
+    eventTitle: row.eventTitle ?? "",
     notes: row.notes ?? undefined,
     fieldResponses,
     meetingLink: row.meetingLink ?? undefined,

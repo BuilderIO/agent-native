@@ -3,6 +3,9 @@ import { useEffect, useState } from "react";
 interface TocItem {
   id: string;
   label: string;
+  /** Heading depth: 2=top-level, 3=indented, 4=double-indented */
+  level?: number;
+  /** Legacy boolean alias — treated as level 3 when true */
   indent?: boolean;
 }
 
@@ -40,23 +43,15 @@ export function getActiveTocId(
   return active;
 }
 
+/** Resolve indent depth (in multiples of 12px) from a TocItem. */
+function indentDepth(item: TocItem): number {
+  if (item.level && item.level >= 3) return item.level - 2; // h3→1, h4→2
+  if (item.indent) return 1;
+  return 0;
+}
+
 export default function TableOfContents({ items }: { items: TocItem[] }) {
   const [activeId, setActiveId] = useState<string>("");
-  const [headingLevels, setHeadingLevels] = useState<Record<string, number>>(
-    {},
-  );
-
-  useEffect(() => {
-    const levels: Record<string, number> = {};
-    for (const item of items) {
-      const el = document.getElementById(item.id);
-      if (el) {
-        const tag = el.tagName.toLowerCase();
-        levels[item.id] = tag === "h3" ? 1 : tag === "h4" ? 2 : 0;
-      }
-    }
-    setHeadingLevels(levels);
-  }, [items]);
 
   useEffect(() => {
     const ids = items.map((item) => item.id);
@@ -109,21 +104,20 @@ export default function TableOfContents({ items }: { items: TocItem[] }) {
           On this page
         </p>
         <ul className="list-none space-y-0 p-0">
-          {items.map((item) => (
-            <li key={item.id}>
-              <a
-                href={`#${item.id}`}
-                className={`toc-link${activeId === item.id ? " is-active" : ""}`}
-                style={
-                  headingLevels[item.id] || item.indent
-                    ? { paddingLeft: 12 * (headingLevels[item.id] || 1) }
-                    : undefined
-                }
-              >
-                {item.label}
-              </a>
-            </li>
-          ))}
+          {items.map((item) => {
+            const depth = indentDepth(item);
+            return (
+              <li key={item.id}>
+                <a
+                  href={`#${item.id}`}
+                  className={`toc-link${activeId === item.id ? " is-active" : ""}`}
+                  style={depth > 0 ? { paddingLeft: 12 * depth } : undefined}
+                >
+                  {item.label}
+                </a>
+              </li>
+            );
+          })}
         </ul>
       </nav>
     </aside>

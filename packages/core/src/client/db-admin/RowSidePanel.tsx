@@ -44,7 +44,7 @@ type FieldState = {
 };
 
 function initialFieldState(
-  col: DbAdminColumn,
+  _col: DbAdminColumn,
   kind: EditorKind,
   value: unknown,
   isInsert: boolean,
@@ -209,7 +209,7 @@ export function RowSidePanel({
 function RowField({
   column,
   state,
-  isInsert,
+  isInsert: _isInsert,
   onChange,
 }: {
   column: DbAdminColumn;

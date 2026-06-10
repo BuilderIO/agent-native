@@ -41,37 +41,6 @@ export const InteractiveZoneEditor: React.FC<InteractiveZoneEditorProps> = ({
   const [originalZone, setOriginalZone] = React.useState<Zone | null>(null);
   const [hoveredZone, setHoveredZone] = React.useState<string | null>(null);
 
-  if (!enabled) {
-    return (
-      <>
-        {zones.map(({ zone, label, color }) => (
-          <div
-            key={label}
-            style={{
-              position: "absolute",
-              left: zone.x,
-              top: zone.y,
-              width: zone.width,
-              height: zone.height,
-              backgroundColor: color,
-              border: "2px solid red",
-              pointerEvents: "none",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              fontSize: 10,
-              color: "white",
-              fontWeight: "bold",
-              textShadow: "0 0 3px black",
-            }}
-          >
-            {label}
-          </div>
-        ))}
-      </>
-    );
-  }
-
   const handleMouseDown = (
     e: React.MouseEvent,
     label: string,
@@ -137,6 +106,38 @@ export const InteractiveZoneEditor: React.FC<InteractiveZoneEditorProps> = ({
       };
     }
   }, [dragMode, dragStart, originalZone, selectedZone]);
+
+  // Disabled mode: render read-only zone overlays without any interaction.
+  if (!enabled) {
+    return (
+      <>
+        {zones.map(({ zone, label, color }) => (
+          <div
+            key={label}
+            style={{
+              position: "absolute",
+              left: zone.x,
+              top: zone.y,
+              width: zone.width,
+              height: zone.height,
+              backgroundColor: color,
+              border: "2px solid red",
+              pointerEvents: "none",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              fontSize: 10,
+              color: "white",
+              fontWeight: "bold",
+              textShadow: "0 0 3px black",
+            }}
+          >
+            {label}
+          </div>
+        ))}
+      </>
+    );
+  }
 
   return (
     <>

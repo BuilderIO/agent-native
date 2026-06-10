@@ -56,6 +56,7 @@ import {
   getAgentTeamRunDispatchState,
   listActiveAgentTeamTaskIdsForOwner,
   MAX_AGENT_TEAM_CONTINUATIONS,
+  MAX_AGENT_TEAM_NO_PROGRESS_CONTINUATIONS,
   RUN_DISPATCH_STUCK_AFTER_MS,
   RUN_PROCESSING_STUCK_AFTER_MS,
   type AgentTeamRunPayload,
@@ -187,6 +188,125 @@ const THREAD_PREFIX = "agent-task-thread:";
 
 /** Key prefix for queued orchestrator→sub-agent messages. */
 const TASK_MESSAGE_PREFIX = "task-message:";
+
+/**
+ * Key prefix for durable completion-injection entries that tell the parent
+ * thread's next turn about a finished sub-agent. Pattern mirrors
+ * `TASK_MESSAGE_PREFIX` (appstate key → JSON payload consumed once).
+ *
+ * Key: `parent-completion:{parentThreadId}:{injectionId}`
+ * Value: `ParentCompletionInjection` JSON.
+ */
+const PARENT_COMPLETION_PREFIX = "parent-completion:";
+
+/** Max chars of the sub-agent summary to include inline in the injection.
+ * The orchestrator can always call read-result for the full output. */
+const PARENT_COMPLETION_INLINE_MAX = 2_000;
+
+export interface ParentCompletionInjection {
+  id: string;
+  taskId: string;
+  taskName?: string;
+  status: "completed" | "errored";
+  hitContinuationLimit: boolean;
+  summaryExcerpt: string;
+  fullSummaryAvailable: boolean;
+  timestamp: number;
+}
+
+function parentCompletionQueuePrefix(parentThreadId: string): string {
+  return `${PARENT_COMPLETION_PREFIX}${parentThreadId}:`;
+}
+
+function generateInjectionId(): string {
+  return `inj-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+/** Append a completion-injection entry to the parent thread's queue. */
+async function appendParentCompletionInjection(
+  parentThreadId: string,
+  task: AgentTask,
+  terminal: {
+    taskStatus: "completed" | "errored";
+    summary: string;
+    hitContinuationLimit?: boolean;
+  },
+): Promise<void> {
+  const id = generateInjectionId();
+  const summaryExcerpt =
+    terminal.summary.length > PARENT_COMPLETION_INLINE_MAX
+      ? terminal.summary.slice(0, PARENT_COMPLETION_INLINE_MAX)
+      : terminal.summary;
+  const injection: ParentCompletionInjection = {
+    id,
+    taskId: task.taskId,
+    taskName: task.name,
+    status: terminal.taskStatus,
+    hitContinuationLimit: terminal.hitContinuationLimit ?? false,
+    summaryExcerpt,
+    fullSummaryAvailable:
+      terminal.summary.length > PARENT_COMPLETION_INLINE_MAX,
+    timestamp: Date.now(),
+  };
+  await writeAppState(
+    `${parentCompletionQueuePrefix(parentThreadId)}${id}`,
+    injection as any,
+  );
+}
+
+/** Format a parent-completion injection as a human-readable orchestrator
+ * message. Mirrors `formatQueuedTaskMessages`. */
+function formatParentCompletionInjection(
+  inj: ParentCompletionInjection,
+): string {
+  const name = inj.taskName ? `"${inj.taskName}"` : `task ${inj.taskId}`;
+  const statusLine =
+    inj.status === "completed"
+      ? inj.hitContinuationLimit
+        ? `completed (reached continuation limit — partial result)`
+        : `completed`
+      : `failed`;
+  const tail = inj.fullSummaryAvailable
+    ? `\n\n(Full output truncated — call \`agent-teams\` action "read-result" with taskId "${inj.taskId}" to retrieve the complete result.)`
+    : "";
+  return `Sub-agent ${name} ${statusLine}:\n\n${inj.summaryExcerpt}${tail}`;
+}
+
+/**
+ * Drain the parent-completion injection queue for a thread. Returns all
+ * pending injections and deletes them atomically. Exported so the agent-chat
+ * plugin can drain these into the orchestrator's next user-turn.
+ */
+export async function drainParentCompletionInjections(
+  parentThreadId: string,
+): Promise<ParentCompletionInjection[]> {
+  const prefix = parentCompletionQueuePrefix(parentThreadId);
+  const entries = await listAppState(prefix);
+  if (entries.length === 0) return [];
+  const injections: ParentCompletionInjection[] = [];
+  for (const entry of entries) {
+    const v = entry.value as Record<string, unknown>;
+    if (
+      typeof v.id === "string" &&
+      typeof v.taskId === "string" &&
+      typeof v.status === "string"
+    ) {
+      injections.push(v as unknown as ParentCompletionInjection);
+      await deleteAppState(entry.key);
+    }
+  }
+  return injections.sort((a, b) => a.timestamp - b.timestamp);
+}
+
+/**
+ * Format all drained parent-completion injections as a single user-turn
+ * message to inject into the orchestrator thread.
+ */
+export function formatParentCompletionInjections(
+  injections: ParentCompletionInjection[],
+): string {
+  return injections.map(formatParentCompletionInjection).join("\n\n---\n\n");
+}
 
 const TASK_RUN_MISSING_GRACE_MS = 60_000;
 
@@ -557,7 +677,7 @@ async function reconcileTaskWithRun(
   }
   if (runState?.status === "running") return task;
 
-  const ownerEmail = getRequestUserEmail();
+  const ownerEmail = getRequestUserEmail() ?? null;
   if (runState?.status === "completed") {
     return await completeReconciledTask(task, ownerEmail);
   }
@@ -754,9 +874,18 @@ async function completeTaskProgressRun(
   }
 }
 
+/**
+ * Maximum characters stored in `task.summary` (the full result surfaced to the
+ * orchestrator via `read-result`). Generous enough to avoid destroying long
+ * sub-agent output; matches the tool-result truncation cap used in the main
+ * production-agent loop.
+ */
+const TASK_SUMMARY_MAX_CHARS = 50_000;
+
 function resolveTaskCompletion(
   run: Pick<ActiveRun, "status" | "abortReason">,
   accumulatedText: string,
+  options?: { hitContinuationLimit?: boolean },
 ): {
   taskStatus: "completed" | "errored";
   summary: string;
@@ -779,6 +908,7 @@ function resolveTaskCompletion(
     };
   }
   if (run.status === "errored") {
+    // Keep a reasonable tail for error context; errors are rarely huge.
     const failed = text.slice(-500) || "Task failed.";
     return {
       taskStatus: "errored",
@@ -788,7 +918,16 @@ function resolveTaskCompletion(
       error: failed,
     };
   }
-  const summary = text.slice(-1000) || "Task completed successfully.";
+  // Store up to TASK_SUMMARY_MAX_CHARS so the orchestrator's read-result tool
+  // can access the full output without truncation. If the absolute continuation
+  // cap was hit, mark the result so the orchestrator can distinguish it.
+  let summary =
+    text.length > TASK_SUMMARY_MAX_CHARS
+      ? text.slice(-TASK_SUMMARY_MAX_CHARS)
+      : text || "Task completed successfully.";
+  if (options?.hitContinuationLimit) {
+    summary = `[hit-continuation-limit]\n\n${summary}`;
+  }
   return {
     taskStatus: "completed",
     summary,
@@ -1249,8 +1388,11 @@ async function finalizeAgentTeamRun(
   run: ActiveRun,
   ownerEmail: string | null,
   fullText: string,
+  options?: { hitContinuationLimit?: boolean; claimedAttempts?: number },
 ): Promise<void> {
-  const terminal = resolveTaskCompletion(run, fullText);
+  const terminal = resolveTaskCompletion(run, fullText, {
+    hitContinuationLimit: options?.hitContinuationLimit,
+  });
   task.status = terminal.taskStatus;
   task.summary = terminal.summary;
   task.error = terminal.error;
@@ -1268,7 +1410,52 @@ async function finalizeAgentTeamRun(
   await completeAgentTeamRun(
     task.taskId,
     terminal.taskStatus === "completed" ? "done" : "failed",
+    options?.claimedAttempts,
   );
+
+  // ── Completion loop: notify the parent thread ─────────────────────────────
+  // Append a durable injection to the parent thread's queue so the
+  // orchestrator automatically sees the result at its next turn start.
+  // Also write a NotificationsBell entry so the user sees a badge.
+  if (task.parentThreadId) {
+    try {
+      await appendParentCompletionInjection(task.parentThreadId, task, {
+        taskStatus: terminal.taskStatus,
+        summary: terminal.summary,
+        hitContinuationLimit: options?.hitContinuationLimit,
+      });
+    } catch {
+      // best-effort — a queue write failure must not break finalization
+    }
+  }
+  if (ownerEmail) {
+    try {
+      const { insertNotification } = await import("../notifications/store.js");
+      const name = task.name ?? task.description.slice(0, 60);
+      const statusLabel =
+        terminal.taskStatus === "completed"
+          ? options?.hitContinuationLimit
+            ? "finished (hit limit)"
+            : "finished"
+          : "failed";
+      await insertNotification({
+        owner: ownerEmail,
+        severity: terminal.taskStatus === "completed" ? "info" : "warning",
+        title: `Sub-agent "${name}" ${statusLabel}`,
+        body: terminal.summary.slice(0, 300) || undefined,
+        metadata: {
+          kind: "agent-team-complete",
+          taskId: task.taskId,
+          threadId: task.threadId,
+          ...(task.parentThreadId
+            ? { parentThreadId: task.parentThreadId }
+            : {}),
+        },
+      });
+    } catch {
+      // best-effort — a notification write failure must not break finalization
+    }
+  }
 }
 
 /** Run config the processor route resolves from plugin-scope closures. */
@@ -1287,6 +1474,9 @@ export interface ProcessAgentTeamRunOptions {
   /** Inbound request event, used to resolve the self-dispatch base URL for
    * continuation self-fires. */
   event?: any;
+  /** Count of consecutive non-progressing chunks carried forward from the
+   * previous invocation. Used by the progress-aware continuation budget. */
+  noProgressCount?: number;
   /** Builds the sub-agent run config from the queue payload + resolved owner.
    * The plugin supplies this because the action registry / base prompt /
    * engine are per-deployment plugin-scope closures, not serializable. */
@@ -1400,11 +1590,17 @@ export async function processAgentTeamRun(
       await saveTask(task);
       if (ownerEmail) await updateTaskProgressRun(task, ownerEmail);
 
+      // The attempts value at claim-time is the fencing token. All queue
+      // writes (heartbeat, bump, complete) include AND attempts = claimedAttempts
+      // so a superseded invocation that was re-claimed by a stuck-refire cannot
+      // accidentally touch the new invocation's row.
+      const claimedAttempts = claimed.attempts;
+
       const heartbeat = setInterval(() => {
         // Best-effort: a dropped Neon WebSocket (Lambda freeze/thaw) rejects
         // with a raw ErrorEvent; a floating rejection here surfaces as an
         // unhandled promise rejection, so it must be caught and logged.
-        touchAgentTeamRun(opts.taskId).catch((err) => {
+        touchAgentTeamRun(opts.taskId, claimedAttempts).catch((err) => {
           console.warn(
             `[agent-teams] heartbeat update failed for task ${opts.taskId}:`,
             describeDbError(err),
@@ -1416,6 +1612,13 @@ export async function processAgentTeamRun(
       let accumulatedText = "";
       let lastProgressSent = 0;
       const PROGRESS_INTERVAL_MS = 2000;
+      // Track no-progress continuation budget (Fix 3).
+      let consecutiveNoProgressChunks = opts.noProgressCount ?? 0;
+
+      // Capture loop usage for token accounting (Fix 4).
+      let chunkUsage:
+        | import("../agent/production-agent.js").AgentLoopUsage
+        | null = null;
 
       await new Promise<void>((resolve) => {
         startRun(
@@ -1447,7 +1650,7 @@ export async function processAgentTeamRun(
             await runWithRequestContext(
               { userEmail: ownerEmail || undefined, orgId: orgId ?? undefined },
               async () => {
-                await runAgentLoop({
+                chunkUsage = await runAgentLoop({
                   engine: config.engine,
                   model: config.model,
                   systemPrompt,
@@ -1472,6 +1675,35 @@ export async function processAgentTeamRun(
                 turnId,
               );
 
+              // Record token usage for this chunk (Fix 4).
+              if (chunkUsage && ownerEmail) {
+                try {
+                  const u = chunkUsage;
+                  if (
+                    u.inputTokens > 0 ||
+                    u.outputTokens > 0 ||
+                    u.cacheReadTokens > 0 ||
+                    u.cacheWriteTokens > 0
+                  ) {
+                    const { recordUsage } = await import("../usage/store.js");
+                    const label = payload.name
+                      ? `agent-team:${payload.name}`
+                      : "agent-team";
+                    await recordUsage({
+                      ownerEmail,
+                      inputTokens: u.inputTokens,
+                      outputTokens: u.outputTokens,
+                      cacheReadTokens: u.cacheReadTokens,
+                      cacheWriteTokens: u.cacheWriteTokens,
+                      model: u.model,
+                      label,
+                    });
+                  }
+                } catch {
+                  // Usage recording failed — don't break the run
+                }
+              }
+
               // A soft-timeout boundary means the host function wall is near and
               // the partial turn is checkpointed in thread_data — self-fire the
               // next continuation chunk (server-side analog of the client re-POST
@@ -1480,8 +1712,33 @@ export async function processAgentTeamRun(
                 (e) => e.event.type === "auto_continue",
               );
               if (reachedBoundary) {
-                const count = await bumpAgentTeamContinuation(opts.taskId);
-                if (count !== null && count <= MAX_AGENT_TEAM_CONTINUATIONS) {
+                // Progress check (Fix 3): count substantive events in this chunk.
+                // Any text or tool activity counts as progress. An empty chunk
+                // (only auto_continue with no actual work) is non-progressing.
+                const substantiveEvents = (run.events ?? []).filter(
+                  (e) =>
+                    e.event.type === "text" ||
+                    e.event.type === "tool_start" ||
+                    e.event.type === "tool_done",
+                ).length;
+                if (substantiveEvents === 0) {
+                  consecutiveNoProgressChunks += 1;
+                } else {
+                  consecutiveNoProgressChunks = 0;
+                }
+
+                const hitNoProgressLimit =
+                  consecutiveNoProgressChunks >=
+                  MAX_AGENT_TEAM_NO_PROGRESS_CONTINUATIONS;
+                const count = await bumpAgentTeamContinuation(
+                  opts.taskId,
+                  claimedAttempts,
+                );
+                if (
+                  count !== null &&
+                  count <= MAX_AGENT_TEAM_CONTINUATIONS &&
+                  !hitNoProgressLimit
+                ) {
                   task.currentStep = "Continuing sub-agent";
                   task.preview = (fullText || accumulatedText).slice(-800);
                   await saveTask(task);
@@ -1491,7 +1748,10 @@ export async function processAgentTeamRun(
                       event: opts.event,
                       path: AGENT_TEAM_PROCESS_RUN_PATH,
                       taskId: opts.taskId,
-                      body: { mode: "continue" },
+                      body: {
+                        mode: "continue",
+                        noProgressCount: consecutiveNoProgressChunks,
+                      },
                     });
                   } catch (err) {
                     await failReconciledTask(
@@ -1502,7 +1762,17 @@ export async function processAgentTeamRun(
                   }
                   return;
                 }
-                // Hit the cap — finalize with whatever was produced.
+                // Hit the absolute cap or no-progress limit — finalize with an
+                // explicit marker so the orchestrator can distinguish this from a
+                // clean completion.
+                await finalizeAgentTeamRun(
+                  task,
+                  run,
+                  ownerEmail || null,
+                  fullText || accumulatedText,
+                  { hitContinuationLimit: true, claimedAttempts },
+                );
+                return;
               }
 
               await finalizeAgentTeamRun(
@@ -1510,6 +1780,7 @@ export async function processAgentTeamRun(
                 run,
                 ownerEmail || null,
                 fullText || accumulatedText,
+                { claimedAttempts },
               );
             } finally {
               resolve();

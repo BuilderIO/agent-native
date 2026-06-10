@@ -83,7 +83,10 @@ export default defineEventHandler(async (event: H3Event) => {
 
   for (const acc of accounts) {
     try {
-      const client = await getClientFromAccount(acc);
+      const client = await getClientFromAccount({
+        ...acc,
+        owner: acc.owner ?? undefined,
+      });
       if (!client) {
         failed += 1;
         errors.push(`${acc.accountId}: no valid token`);

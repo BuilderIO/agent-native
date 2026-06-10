@@ -16,7 +16,6 @@ export interface DocEntry {
   title: string;
   description: string;
   search: string;
-  raw: string; // full raw markdown (with frontmatter)
   body: string; // markdown body (without frontmatter)
   headings: { id: string; label: string; level: number }[];
 }
@@ -49,10 +48,10 @@ function extractHeadings(
   body: string,
 ): { id: string; label: string; level: number }[] {
   const headings: { id: string; label: string; level: number }[] = [];
-  const pattern = /^(#{2,3})\s+(.+?)(?:\s+\{#([\w-]+)\})?\s*$/gm;
+  const pattern = /^(#{2,4})\s+(.+?)(?:\s+\{#([\w-]+)\})?\s*$/gm;
   let match;
   while ((match = pattern.exec(body)) !== null) {
-    const level = match[1].length; // 2 or 3
+    const level = match[1].length; // 2, 3, or 4
     const label = match[2].replace(/`([^`]+)`/g, "$1").trim();
     const id =
       match[3] ||
@@ -78,7 +77,6 @@ for (const [path, raw] of Object.entries(mdModules)) {
     title: data.title || slug,
     description: data.description || "",
     search: data.search || "",
-    raw,
     body,
     headings,
   });

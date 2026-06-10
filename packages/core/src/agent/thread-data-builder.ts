@@ -33,6 +33,13 @@ type AssistantMessage = NonNullable<ReturnType<typeof buildAssistantMessage>>;
 type UserMessage = ReturnType<typeof buildUserMessage>;
 
 const MAX_STORED_ATTACHMENT_CHARS = 60_000;
+/**
+ * When no file-upload provider is configured we fall back to storing base64
+ * directly in the SQL thread_data column. Cap the raw base64 per attachment to
+ * avoid unbounded row growth. Attachments larger than this get a '[truncated]'
+ * marker so the transcript still renders but the column stays sane.
+ */
+const MAX_STORED_BASE64_BYTES = 2 * 1024 * 1024; // 2 MB per attachment
 
 function isInternalContinuationError(event: {
   error: string;
@@ -736,8 +743,8 @@ export function mergeThreadDataForClientSave(
     : null;
   if (!existingMessages || !incomingMessages) return merged;
 
-  const incomingKeySets = incomingMessages.map(
-    (entry: any) => new Set(messageIdentityKeys(getStoredMessage(entry))),
+  const incomingKeySets: Set<string>[] = incomingMessages.map(
+    (entry: unknown) => new Set(messageIdentityKeys(getStoredMessage(entry))),
   );
   const usedIncoming = new Set<number>();
   const nextMessages: any[] = [];
@@ -746,7 +753,7 @@ export function mergeThreadDataForClientSave(
   for (const existingEntry of existingMessages) {
     const existingKeys = messageIdentityKeys(getStoredMessage(existingEntry));
     const incomingIndex = incomingKeySets.findIndex(
-      (keys, index) =>
+      (keys: Set<string>, index: number) =>
         !usedIncoming.has(index) && existingKeys.some((key) => keys.has(key)),
     );
 
@@ -808,6 +815,22 @@ function textAttachmentEnvelope(
   return `<attachment ${attrs.join(" ")}>\n${truncateStoredAttachment(text)}\n</attachment>`;
 }
 
+/**
+ * Cap a base64 data-URL string for storage. When the encoded string is over
+ * the limit we replace the base64 payload with a truncation marker so the
+ * transcript still renders the attachment chip but doesn't bloat SQL.
+ */
+function capBase64DataUrl(dataUrl: string): string {
+  const commaIdx = dataUrl.indexOf(",");
+  if (commaIdx === -1) return dataUrl;
+  const header = dataUrl.slice(0, commaIdx + 1);
+  const b64 = dataUrl.slice(commaIdx + 1);
+  // Each base64 char encodes 6 bits; 4 chars = 3 bytes.
+  const approxBytes = Math.floor((b64.length * 3) / 4);
+  if (approxBytes <= MAX_STORED_BASE64_BYTES) return dataUrl;
+  return `${header}[base64 truncated — ${approxBytes.toLocaleString()} bytes exceeds storage limit]`;
+}
+
 function buildStoredAttachments(
   attachments: AgentChatAttachment[] | undefined,
   runId: string | undefined,
@@ -815,6 +838,38 @@ function buildStoredAttachments(
   return (attachments ?? [])
     .map((att, index) => {
       const id = `server-${runId ?? Date.now()}-attachment-${index}`;
+      // When the attachment was successfully pre-uploaded, store only the URL
+      // reference. This keeps the SQL thread_data row compact regardless of
+      // file size, and lets the transcript render from the hosted URL instead
+      // of re-shipping megabytes of base64 on every poll save.
+      const uploadedUrl = (att as any).url as string | undefined;
+      if (uploadedUrl) {
+        return {
+          id,
+          type: att.type === "image" ? "image" : "file",
+          name: att.name,
+          contentType: att.contentType,
+          status: { type: "complete" },
+          // URL reference shape — content[0] uses the hosted URL.
+          content:
+            att.type === "image"
+              ? [{ type: "image", image: uploadedUrl }]
+              : [
+                  {
+                    type: "file",
+                    url: uploadedUrl,
+                    mimeType: att.contentType,
+                    filename: att.name,
+                  },
+                ],
+          // Keep the reference metadata for tooling / read-attachment.
+          metadata: {
+            uploadUrl: uploadedUrl,
+            uploadProvider: (att as any).uploadProvider as string | undefined,
+          },
+        };
+      }
+
       if (att.type === "image" && att.data) {
         return {
           id,
@@ -822,7 +877,7 @@ function buildStoredAttachments(
           name: att.name,
           contentType: att.contentType,
           status: { type: "complete" },
-          content: [{ type: "image", image: att.data }],
+          content: [{ type: "image", image: capBase64DataUrl(att.data) }],
         };
       }
       if (att.data) {
@@ -835,7 +890,7 @@ function buildStoredAttachments(
           content: [
             {
               type: "file",
-              data: att.data,
+              data: capBase64DataUrl(att.data),
               mimeType: att.contentType,
               filename: att.name,
             },
@@ -936,6 +991,7 @@ function toolContentPartForCodeAgentTranscriptItem(
     ...(item.result !== undefined
       ? { result: previewCodeAgentTranscriptValue(item.result) ?? "" }
       : {}),
+    ...(item.structuredMeta ? { structuredMeta: item.structuredMeta } : {}),
   };
 }
 

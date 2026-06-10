@@ -437,25 +437,15 @@ export function SqlChart({
   resolvedSql,
   onExportCsvChange,
 }: SqlChartProps) {
-  // Section panels are pure layout — no query, no chart. Render a header with
-  // optional description and skip the SQL pipeline entirely.
-  if (panel.chartType === "section") {
-    return (
-      <div className="px-1 py-2">
-        {panel.config?.description && (
-          <p className="text-sm text-muted-foreground">
-            {panel.config.description}
-          </p>
-        )}
-      </div>
-    );
-  }
-
+  // Hooks must be called unconditionally before any early return.
+  const isSection = panel.chartType === "section";
   const sql = serializePanelSql(resolvedSql ?? panel.sql);
   const { data: result, isLoading } = useSqlQuery(
     ["sql-chart", panel.id, sql, panel.source],
     sql,
     panel.source,
+    // Skip the query for section panels — they are pure layout with no data.
+    { enabled: !isSection },
   );
 
   const rawRows = result?.rows ?? [];
@@ -473,6 +463,20 @@ export function SqlChart({
     () => detectKeys(rows, panel.config, forcedYKeys),
     [rows, panel.config, forcedYKeys],
   );
+
+  // Section panels are pure layout — no query, no chart. Render a header with
+  // optional description and skip the SQL pipeline entirely.
+  if (isSection) {
+    return (
+      <div className="px-1 py-2">
+        {panel.config?.description && (
+          <p className="text-sm text-muted-foreground">
+            {panel.config.description}
+          </p>
+        )}
+      </div>
+    );
+  }
   const colors = panel.config?.colors || DEFAULT_COLORS;
   const yFormatter = panel.config?.yFormatter;
 
@@ -949,8 +953,8 @@ function PieRenderer({
             cx="50%"
             cy="50%"
             outerRadius={80}
-            label={({ name, percent }) =>
-              `${seriesNameFormatter(String(name))} ${(percent * 100).toFixed(0)}%`
+            label={(props: any) =>
+              `${seriesNameFormatter(String(props.name))} ${((props.percent ?? 0) * 100).toFixed(0)}%`
             }
             labelLine={false}
           >
@@ -996,7 +1000,8 @@ function BarRenderer({
   stacked?: boolean;
   panel: SqlPanel;
 }) {
-  const xLabelFormatter = (value: string) => formatXLabel(value, panel);
+  const xLabelFormatter = (value: any) =>
+    formatXLabel(String(value ?? ""), panel);
   const seriesNameFormatter = (name: string) =>
     formatSeriesLabelForPanel(panel, name);
 
@@ -1077,7 +1082,8 @@ function TimeSeriesRenderer({
   stacked?: boolean;
   panel: SqlPanel;
 }) {
-  const xLabelFormatter = (value: string) => formatXLabel(value, panel);
+  const xLabelFormatter = (value: any) =>
+    formatXLabel(String(value ?? ""), panel);
   const seriesNameFormatter = (name: string) =>
     formatSeriesLabelForPanel(panel, name);
 

@@ -53,14 +53,6 @@ export function meta() {
   return [{ title: "Clip recording · Clips" }];
 }
 
-export function HydrateFallback() {
-  return (
-    <div className="flex items-center justify-center h-screen w-full bg-background">
-      <Spinner className="h-8 w-8" />
-    </div>
-  );
-}
-
 type SidePanel = "transcript" | "comments" | "insights" | "agent" | "settings";
 
 function isNativeSaveFailureReason(reason: string | null | undefined): boolean {

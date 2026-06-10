@@ -4,7 +4,7 @@
   "type": "module",
   "repository": {
     "type": "git",
-    "url": "https://github.com/BuilderIO/agent-native"
+    "url": "git+https://github.com/BuilderIO/agent-native.git"
   },
   "bugs": {
     "url": "https://github.com/BuilderIO/agent-native/issues"
@@ -15,15 +15,15 @@
     "node": ">=22"
   },
   "scripts": {
-    "postinstall": "pnpm --filter @agent-native/shared-app-config build && pnpm --filter @agent-native/core build && pnpm --filter @agent-native/code-agents-ui build && pnpm --filter @agent-native/migrate build && pnpm --filter @agent-native/pinpoint build && pnpm --filter @agent-native/scheduling build && pnpm --filter @agent-native/embedding build && pnpm --filter @agent-native/dispatch build",
-    "setup": "pnpm install && pnpm --filter @agent-native/shared-app-config build && pnpm --filter @agent-native/core build && pnpm --filter @agent-native/code-agents-ui build && pnpm --filter @agent-native/migrate build && pnpm --filter @agent-native/pinpoint build && pnpm --filter @agent-native/scheduling build && pnpm --filter @agent-native/embedding build && pnpm --filter @agent-native/dispatch build && pnpm install",
+    "postinstall": "pnpm --filter @agent-native/shared-app-config --filter @agent-native/core --filter @agent-native/code-agents-ui --filter @agent-native/migrate --filter @agent-native/pinpoint --filter @agent-native/scheduling --filter @agent-native/embedding --filter @agent-native/dispatch run build",
+    "setup": "pnpm install",
     "build": "pnpm -r build",
     "dev": "node scripts/dev-lazy.ts",
     "typecheck": "pnpm -r --reporter-hide-prefix typecheck",
     "fmt": "prettier --write --log-level warn .",
     "fmt:check": "prettier --check --log-level warn .",
     "fix:imports": "prettier --write --plugin prettier-plugin-organize-imports --log-level warn .",
-    "test": "pnpm --filter @agent-native/core test && pnpm --filter @agent-native/migrate test && pnpm --filter @agent-native/docs test && pnpm --filter dispatch test && pnpm test:brain-evals",
+    "test": "pnpm -r --workspace-concurrency=4 test",
     "test:brain-evals": "pnpm --filter brain eval:ci",
     "qa:cli": "tsx scripts/qa-cli-smoke.ts",
     "qa:composer-geometry": "tsx scripts/qa-composer-geometry-smoke.ts",
@@ -31,7 +31,8 @@
     "qa:template-routes": "tsx scripts/qa-template-route-matrix.ts",
     "actions:audit": "node scripts/audit-template-actions.mjs",
     "test:mcp:e2e": "tsx scripts/e2e-mcp-test.ts",
-    "lint": "pnpm fmt:check && pnpm typecheck",
+    "lint": "pnpm fmt:check && pnpm oxlint && pnpm typecheck",
+    "oxlint": "oxlint --config .oxlintrc.json .",
     "dev:cli": "tsx packages/core/src/cli/index.ts",
     "guard:no-drizzle-push": "node scripts/guard-no-drizzle-push.mjs",
     "guard:no-unscoped-queries": "node scripts/guard-no-unscoped-queries.mjs",
@@ -48,7 +49,9 @@
     "guard:extension-no-public": "node scripts/guard-extension-no-public.mjs",
     "guard:no-one-off-mcp-app-html": "node scripts/guard-no-one-off-mcp-app-html.mjs",
     "guard:plan-marketplace": "tsx scripts/sync-plan-marketplace.ts --check",
-    "guards": "pnpm guard:no-drizzle-push && pnpm guard:no-unscoped-queries && pnpm guard:no-env-credentials && pnpm guard:no-unscoped-credentials && pnpm guard:no-env-mutation && pnpm guard:no-localhost-fallback && pnpm guard:google-auth-redirects && pnpm guard:db-tool-scoping && pnpm guard:template-list && pnpm guard:workspace-skills && pnpm guard:public-packages && pnpm guard:no-generated-artifacts && pnpm guard:extension-no-public && pnpm guard:no-one-off-mcp-app-html && pnpm guard:plan-marketplace",
+    "guard:no-error-string-returns": "node scripts/guard-no-error-string-returns.mjs",
+    "guard:no-action-twin-routes": "node scripts/guard-no-action-twin-routes.mjs",
+    "guards": "pnpm guard:no-drizzle-push && pnpm guard:no-unscoped-queries && pnpm guard:no-env-credentials && pnpm guard:no-unscoped-credentials && pnpm guard:no-env-mutation && pnpm guard:no-localhost-fallback && pnpm guard:google-auth-redirects && pnpm guard:db-tool-scoping && pnpm guard:template-list && pnpm guard:workspace-skills && pnpm guard:public-packages && pnpm guard:no-generated-artifacts && pnpm guard:extension-no-public && pnpm guard:no-one-off-mcp-app-html && pnpm guard:plan-marketplace && pnpm guard:no-error-string-returns && pnpm guard:no-action-twin-routes",
     "sync:workspace-skills": "tsx scripts/sync-workspace-core-skills.ts",
     "sync:plan-marketplace": "tsx scripts/sync-plan-marketplace.ts",
     "changeset": "changeset",
@@ -75,6 +78,7 @@
     "@libsql/linux-x64-gnu": "^0.5.29",
     "@playwright/test": "^1.60.0",
     "concurrently": "^9.1.0",
+    "oxlint": "1.69.0",
     "prettier": "^3.6.2",
     "prettier-plugin-organize-imports": "4.3.0",
     "tsx": "^4.20.3",
@@ -98,7 +102,17 @@
       "fast-xml-parser": ">=5.5.6",
       "glob": ">=10.5.0",
       "@anthropic-ai/sdk": ">=0.90.0",
-      "hono": ">=4.12.4"
+      "hono": ">=4.12.4",
+      "kysely": "^0.28.9"
     }
-  }
+  },
+  "version": "1.0.0",
+  "description": "Don't choose between rich user interfaces and autonomous agents. Every Agent-Native app is both.",
+  "main": "index.js",
+  "directories": {
+    "doc": "docs"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC"
 }

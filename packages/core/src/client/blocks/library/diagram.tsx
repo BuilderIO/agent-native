@@ -60,7 +60,7 @@ const DIAGRAM_ROUGH_SELECTOR =
 
 function HtmlDiagram({
   data,
-  ctx,
+  ctx: _ctx,
   compact,
 }: {
   data: DiagramData;

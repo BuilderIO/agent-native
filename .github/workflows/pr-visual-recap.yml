@@ -26,7 +26,8 @@ jobs:
     timeout-minutes: 10
     permissions:
       contents: read
-      pull-requests: read
+      issues: write
+      pull-requests: write
     outputs:
       run: ${{ steps.decide.outputs.run }}
       agent: ${{ steps.decide.outputs.agent }}
@@ -40,6 +41,7 @@ jobs:
           HAS_OPENAI: ${{ secrets.OPENAI_API_KEY != '' }}
           AGENT: ${{ env.VISUAL_RECAP_AGENT }}
           VISUAL_RECAP_MODEL: ${{ vars.VISUAL_RECAP_MODEL }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         with:
           script: |
             const pr = context.payload.pull_request;
@@ -114,6 +116,46 @@ jobs:
             core.setOutput('agent', agent);
             core.info(run ? `Visual recap will run (${agent}).` : `Visual recap skipped: ${reasons.join('; ')}`);
 
+            // When skipping, refresh an EXISTING sticky recap comment with a
+            // short skip line so it does not silently go stale. Never create a
+            // new comment (no spam for repos where the recap has never run).
+            if (!run && pr) {
+              try {
+                const MARKER = '<!-- pr-visual-recap -->';
+                const { data: comments } = await github.rest.issues.listComments({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: pr.number,
+                  per_page: 100,
+                });
+                const existing = comments.find(
+                  (c) => c.user && c.user.type === 'Bot' && c.body && c.body.includes(MARKER)
+                );
+                if (existing) {
+                  const headShort = (process.env.HEAD_SHA || '').slice(0, 7);
+                  const shaRef = headShort ? `\`${headShort}\`` : 'latest push';
+                  const primaryReason = reasons.filter(
+                    (r) => !r.startsWith('could not list PR files for the self-modifying guard')
+                  )[0] || reasons[0] || 'skipped';
+                  const skipLine = `_Recap skipped for ${shaRef}: ${primaryReason}._`;
+                  const withoutPrev = (existing.body || '')
+                    .split('\n')
+                    .filter((l) => !/_Recap skipped for .+_$/.test(l.trim()))
+                    .join('\n')
+                    .trimEnd();
+                  const updatedBody = `${withoutPrev}\n\n${skipLine}`;
+                  await github.rest.issues.updateComment({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    comment_id: existing.id,
+                    body: updatedBody,
+                  });
+                }
+              } catch (e) {
+                core.warning(`Could not update recap skip comment: ${e.message}`);
+              }
+            }
+
   recap:
     name: Generate visual recap
     needs: gate
@@ -147,12 +189,16 @@ jobs:
       # (no pnpm-lock.yaml) fall back to `npx @agent-native/core`.
       - name: Resolve recap CLI
         id: cli
+        env:
+          # Optional: pin the consumer CLI version (e.g. "1.2.3"). Defaults to
+          # "latest" when unset. Set via repository variable RECAP_CLI_VERSION.
+          RECAP_CLI_VERSION: ${{ vars.RECAP_CLI_VERSION || 'latest' }}
         run: |
           if [ -f packages/core/src/cli/index.ts ]; then
             echo "RECAP_CLI=pnpm exec tsx packages/core/src/cli/index.ts" >> "$GITHUB_ENV"
             echo "local=true" >> "$GITHUB_OUTPUT"
           else
-            echo "RECAP_CLI=npx -y @agent-native/core@latest" >> "$GITHUB_ENV"
+            echo "RECAP_CLI=npx -y @agent-native/core@${RECAP_CLI_VERSION}" >> "$GITHUB_ENV"
             echo "local=false" >> "$GITHUB_OUTPUT"
           fi
 
@@ -182,6 +228,28 @@ jobs:
         run: |
           set -euo pipefail
           $RECAP_CLI recap collect-diff --base "$BASE_SHA" --head "$HEAD_SHA" --out recap.diff --stat recap.stat
+
+      - name: Probe plan-app auth
+        id: auth_probe
+        if: steps.diff.outputs.tiny != 'true'
+        continue-on-error: true
+        run: |
+          set -uo pipefail
+          # Hit the plan app's action surface with the publish token. A 401 means
+          # the token is expired/revoked; surface it in the sticky comment so the
+          # repo owner knows to re-mint it instead of seeing a generic failure.
+          HTTP_STATUS=$(node -e '
+            const https = require("https");
+            const url = new URL("/_agent-native/actions/record-recap-usage", process.env.PLAN_RECAP_APP_URL || "https://plan.agent-native.com");
+            const req = https.request(url, { method: "POST", headers: { "authorization": "Bearer " + process.env.PLAN_RECAP_TOKEN, "content-type": "application/json" }, timeout: 8000 }, (res) => { process.stdout.write(String(res.statusCode)); req.destroy(); });
+            req.on("error", () => process.stdout.write("0"));
+            req.end(JSON.stringify({ planId: "__probe__" }));
+          ' 2>/dev/null || echo "0")
+          if [ "$HTTP_STATUS" = "401" ]; then
+            echo "auth_failed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "auth_failed=false" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Secret scan
         id: scan
@@ -364,6 +432,7 @@ jobs:
           DIFF_HUGE: ${{ steps.diff.outputs.huge }}
           DIFF_TINY: ${{ steps.diff.outputs.tiny }}
           PREV_PLAN_ID: ${{ steps.prev.outputs.plan_id }}
+          RECAP_AUTH_FAILED: ${{ steps.auth_probe.outputs.auth_failed }}
         run: |
           set -euo pipefail
           ARGS=(recap comment upsert --repo "$GITHUB_REPOSITORY" --issue "$PR_NUMBER" --token "$GH_TOKEN")

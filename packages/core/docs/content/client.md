@@ -11,19 +11,43 @@ These client/React APIs are exported from both `@agent-native/core` and `@agent-
 
 ## File-Based Routing {#file-based-routing}
 
-Agent-native apps use **React Router v7** with file-based routing. Every file in `app/routes/` becomes a URL.
+Agent-native apps use **React Router v7** with file-based routing via `flatRoutes()` from `@react-router/fs-routes`. Every file in `app/routes/` becomes a URL. Templates use the dot-notation convention — dots separate URL segments inside a single filename.
 
 ### File → URL mapping
 
-| File                             | URL                                   |
-| -------------------------------- | ------------------------------------- |
-| `app/routes/_index.tsx`          | `/`                                   |
-| `app/routes/settings.tsx`        | `/settings`                           |
-| `app/routes/inbox/index.tsx`     | `/inbox`                              |
-| `app/routes/inbox/$threadId.tsx` | `/inbox/:threadId`                    |
-| `app/routes/inbox.$threadId.tsx` | `/inbox/:threadId` (flat alternative) |
+| File                  | URL                | Notes                                  |
+| --------------------- | ------------------ | -------------------------------------- |
+| `_index.tsx`          | `/`                | Index route                            |
+| `settings.tsx`        | `/settings`        | Simple page                            |
+| `inbox.$threadId.tsx` | `/inbox/:threadId` | Dot = `/`, `$` = dynamic param         |
+| `_app.tsx`            | (no URL segment)   | Pathless layout — prefix with `_`      |
+| `inbox/route.tsx`     | `/inbox`           | Folder form — `route.tsx` is the index |
 
-Prefix a segment with `$` for dynamic params. Prefix with `_` to make it a pathless layout route (doesn't add a URL segment). `_index.tsx` is the index route for its folder.
+Prefix a segment with `$` for a dynamic param. Prefix with `_` to make it a pathless layout route (no URL segment). Templates use `flatRoutes()` — the dot-notation file above is primary; the nested-folder form `inbox/route.tsx` also works.
+
+## Fetching and Mutating Data {#fetching-mutating}
+
+The primary way to read and write app data from the browser is through the action hooks. Never hand-write `fetch` calls to `/_agent-native/*` routes — use the named helpers instead (see [Actions](/docs/actions)).
+
+```tsx
+import {
+  useActionQuery,
+  useActionMutation,
+  callAction,
+} from "@agent-native/core/client";
+
+// Read: auto-cached, auto-invalidated on mutations
+const { data, isLoading } = useActionQuery("get-lead", { leadId });
+
+// Mutate: emits a change event so query caches refetch
+const { mutate, isPending } = useActionMutation("create-lead");
+mutate({ name: "Alice", company: "Acme" });
+
+// Imperative: for one-off calls outside a component
+await callAction("archive-lead", { leadId });
+```
+
+---
 
 ### Adding a new page
 
@@ -105,6 +129,28 @@ sendToAgentChat({
   submit: false,
 });
 ```
+
+### Silent background sends {#background-send}
+
+Use `background: true` when a UI action should kick off real agent work without
+opening or focusing the sidebar. This still creates a normal chat thread/run,
+uses the agent's tools/actions/context, and keeps the work observable through
+the runs tray; it is not a raw one-shot model call.
+
+```ts
+const tabId = sendToAgentChat({
+  message: "Analyze this import and create any missing records",
+  context: `Import batch id: ${batchId}`,
+  submit: true,
+  newTab: true,
+  background: true,
+  openSidebar: false,
+});
+```
+
+`background` is intended to be paired with `newTab` so the hidden work does not
+overwrite the user's active conversation. Use the returned `tabId` if the UI
+needs to correlate follow-up status or deep-link into the run later.
 
 ### AgentChatMessage {#agentchatmessage}
 
@@ -326,14 +372,17 @@ function App() {
 
 ### Options {#usedbsync-options}
 
-| Option         | Type               | Description                                                                            |
-| -------------- | ------------------ | -------------------------------------------------------------------------------------- |
-| `queryClient`  | `QueryClient?`     | React-query client for cache invalidation                                              |
-| `queryKeys`    | `string[]?`        | Deprecated and ignored; kept for old call sites                                        |
-| `pollUrl`      | `string?`          | Poll endpoint URL. Default: `"/_agent-native/poll"`                                    |
-| `sseUrl`       | `string \| false?` | SSE endpoint URL. Default: `"/_agent-native/events"`; pass `false` to use polling only |
-| `ignoreSource` | `string?`          | Per-tab request source to ignore so a tab does not refetch from its own writes         |
-| `onEvent`      | `(data) => void`   | Optional callback when SSE/polling receives a change event                             |
+| Option             | Type               | Description                                                                            |
+| ------------------ | ------------------ | -------------------------------------------------------------------------------------- |
+| `queryClient`      | `QueryClient?`     | React-query client for cache invalidation                                              |
+| `queryKeys`        | `string[]?`        | Deprecated and ignored; kept for old call sites                                        |
+| `pollUrl`          | `string?`          | Poll endpoint URL. Default: `"/_agent-native/poll"`                                    |
+| `sseUrl`           | `string \| false?` | SSE endpoint URL. Default: `"/_agent-native/events"`; pass `false` to use polling only |
+| `interval`         | `number?`          | Polling interval in ms. Default: `2000`                                                |
+| `fallbackInterval` | `number?`          | Fallback polling interval when SSE is unavailable. Default: `15000`                    |
+| `pauseWhenHidden`  | `boolean?`         | Pause polling when the browser tab is hidden. Default: `true`                          |
+| `ignoreSource`     | `string?`          | Per-tab request source to ignore so a tab does not refetch from its own writes         |
+| `onEvent`          | `(data) => void`   | Optional callback when SSE/polling receives a change event                             |
 
 For normal CRUD, prefer `useActionQuery` and `useActionMutation`; mutating actions emit `source: "action"` and those hooks refetch automatically.
 

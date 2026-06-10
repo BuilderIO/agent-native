@@ -52,7 +52,7 @@ function inferImportedPlanTitle(planText: string): string {
 
 export default defineAction({
   description:
-    "Create an Agent-Native plan for a coding-agent task, or import existing Codex, Claude Code, Markdown, or pasted plan text as the starting point. Use this before implementation to open a durable structured plan with inline document diagrams, annotated code for the key files, options, annotations, and an optional top UI/product visual surface (none, wireframe canvas only, or wireframe canvas plus clickable prototype tabs). The only supported output is the published plan this tool returns — never deliver the plan as inline chat content (markdown, ASCII sketch, or table); an inline plan is a defect, not a fallback. If this tool is unreachable, stop and give the user the connect step rather than improvising inline.",
+    "Create a document-first structured plan for any coding task. For a plan whose centerpiece is wireframed screens/states on a canvas use create-ui-plan; for a recap of an existing diff use create-visual-recap; for a running interactive prototype use create-prototype-plan; for a full-fidelity branded design use create-plan-design. Also accepts imported Codex, Claude Code, Markdown, or pasted plan text via planText. Publish via this tool; never deliver the plan as inline chat text.",
   schema: z
     .object({
       title: z.string().optional().describe("Short plan title"),
@@ -62,10 +62,7 @@ export default defineAction({
         .describe(
           "One short sentence summarizing the plan, shown as the lede under the title. Keep it to a single tight line — the document body carries the detail, not this summary.",
         ),
-      goal: z
-        .string()
-        .optional()
-        .describe("Compatibility alias for brief; prefer brief"),
+      goal: z.string().optional().describe("Alias for brief."),
       planText: z
         .string()
         .min(1)
@@ -81,12 +78,12 @@ export default defineAction({
         .string()
         .optional()
         .describe(
-          "Legacy standalone HTML document. Prefer content blocks for new plans; use HTML only when importing an existing artifact.",
+          "Legacy: a standalone HTML document. Setting this NULLS structured content — blocks, contentPatches, inline editing, and MDX round-trip all stop working for this plan. Only for preserving a pre-existing HTML artifact; never author new plans this way.",
         ),
       content: planContentSchema
         .optional()
         .describe(
-          "Structured editable plan content. Prefer this for rich text, inline diagrams, annotated code for key files, question-form open questions, and any optional top UI/product visual surface. For architecture-only, backend-only, refactor, API, data model, migration, and code plans, omit canvas/prototype; use inline diagram, mermaid, api-endpoint, openapi-spec, data-model, diff, file-tree, json-explorer, code, annotated-code, or compact custom-html blocks near the relevant prose. For a file map, prefer `annotated-code` blocks (real code plus a few line-anchored notes on what changes) grouped in a vertical `tabs` block (one tab per key file) rather than a bespoke code-tabs container; drop to a plain `code` block only for a throwaway snippet with nothing to call out. Keep API endpoint and OpenAPI reference blocks in the normal single-column document flow; use columns for API material only when the work is explicitly a before/after contract comparison. For architecture/code diagrams, use diagram blocks with data.html/data.css so the diagram can be real semantic HTML and inline SVG: grouped regions, layers, swimlanes, dependency clusters, matrices, and side-by-side before/after or current/target panels. Use renderer-owned diagram classes such as .diagram-panel, .diagram-card, .diagram-node, .diagram-box, .diagram-pill, .diagram-muted, and data-rough plus --wf-* CSS tokens; the renderer maps them to Tailwind theme variables, Excalifont, and rough.js sketch outlines. Do not set fonts or hard-code hex/rgb/hsl colors in diagram HTML/CSS. Use legacy diagram nodes/edges only for tiny previews or true step-by-step flows. Use mermaid only when textual sequence/flowchart grammar is materially clearer. Use canvas only for static UI/product visuals; include both canvas and prototype for multi-step UI/product flows so the renderer shows Wireframes / Prototype tabs. Put any answerable unresolved decisions in a bottom question-form block with single/multi/freeform questions, recommended options, and optional wireframe/diagram previews. Canvas wireframes are HTML mockups: set data.html to a semantic fragment and pick a surface — the renderer owns theme, footprint/aspect, hand-drawn font, and sketch overlay; use --wf-* CSS tokens for any custom color, never hex. Prototype screens use semantic HTML with data-goto attributes for navigation. The renderer owns all visual styling; emit lean content, not pixels.",
+          "Structured editable plan content. Prefer this for rich text, inline diagrams, annotated code, question-form open questions, and optional canvas/prototype UI surfaces. Call the get-plan-blocks tool FIRST for the authoritative block catalog, authoring rules, and style tokens — do not author from memory. Key rules: use diagram blocks with .diagram-* primitives and --wf-* tokens (no hex/rgb/hsl, no custom fonts); for file maps use annotated-code blocks in a vertical tabs block; put unresolved decisions in a bottom question-form block.",
         ),
       markdown: z
         .string()

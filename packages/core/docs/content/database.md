@@ -36,7 +36,21 @@ The framework auto-detects the dialect from the URL and configures Drizzle accor
 
 ## Builder.io Managed Database {#builder-managed}
 
-When connected to Builder.io, your app can use a managed database that is provisioned and scaled automatically. This is the simplest path to production — no connection strings or database admin required. Coming soon.
+When connected to Builder.io, your app can use a managed database provisioned automatically — no connection strings required. Coming soon.
+
+## Where the DB Client Lives {#db-client}
+
+Each template creates a lazy, singleton Drizzle client by calling `createGetDb(schema)` from `@agent-native/core/db`. The canonical location is `server/db/index.ts`:
+
+```ts
+// server/db/index.ts
+import { createGetDb } from "@agent-native/core/db";
+import * as schema from "./schema.js";
+
+export const getDb = createGetDb(schema);
+```
+
+Import `getDb` from this template-local path — `../../server/db/index.js` in routes, `../server/db/index.js` in actions — rather than from `@agent-native/core` directly. The core export returns a generic untyped instance; the template's `getDb()` carries your schema types. See [Server](/docs/server#request-context) for how actions and custom routes each import it.
 
 ## Dialect-Agnostic Schema And Queries {#schema}
 
@@ -67,6 +81,8 @@ export const tasks = table("tasks", {
 | `now`     | Dialect-agnostic current timestamp for `.default(now())`        |
 
 Never import from `drizzle-orm/sqlite-core` or `drizzle-orm/pg-core` directly. Always use `@agent-native/core/db/schema`.
+
+Tables that store user-facing data must include an `owner_email` column so the framework's SQL-level scoping can filter rows to the authenticated user — see [Security](/docs/security#data-scoping). Tables that also support sharing with other users or orgs should spread `...ownableColumns()` instead, which adds `owner_email`, `org_id`, and `visibility` in one call — see [Sharing](/docs/sharing#building).
 
 For reads and writes, use Drizzle's query builder and portable operators from `drizzle-orm`:
 
@@ -124,6 +140,15 @@ export default runMigrations(
     {
       version: 1,
       sql: `ALTER TABLE projects ADD COLUMN IF NOT EXISTS sort_order INTEGER NOT NULL DEFAULT 0`,
+    },
+    {
+      // Dialect-gated: runs only on the matching backend. Omit the other key
+      // to make it a no-op on that dialect.
+      version: 2,
+      sql: {
+        postgres: `ALTER TABLE projects ADD COLUMN IF NOT EXISTS tsv tsvector`,
+        sqlite: `SELECT 1`, // no-op; tsvector is Postgres-only
+      },
     },
   ],
   { table: "my_app_migrations" },

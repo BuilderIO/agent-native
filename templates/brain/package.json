@@ -19,12 +19,13 @@
   },
   "dependencies": {
     "@agent-native/core": "workspace:*",
+    "@fontsource-variable/inter": "^5.2.8",
     "@libsql/client": "^0.15.0",
     "drizzle-orm": "^0.45.2",
     "h3": "^2.0.1-rc.22",
     "isbot": "^5.1.40",
-    "react": "^19.2.6",
-    "react-dom": "^19.2.6",
+    "react": "catalog:",
+    "react-dom": "catalog:",
     "zod": "^4.4.3"
   },
   "devDependencies": {
@@ -39,12 +40,12 @@
     "@radix-ui/react-tooltip": "^1.2.8",
     "@react-router/dev": "^7.16.0",
     "@react-router/fs-routes": "^7.16.0",
-    "@tabler/icons-react": "^3.44.0",
+    "@tabler/icons-react": "catalog:",
     "@tailwindcss/vite": "catalog:",
     "@tanstack/react-query": "^5.100.10",
     "@types/node": "^25.8.0",
-    "@types/react": "^19.2.14",
-    "@types/react-dom": "^19.2.3",
+    "@types/react": "catalog:",
+    "@types/react-dom": "catalog:",
     "@vitejs/plugin-react-swc": "^4.3.1",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
@@ -56,6 +57,6 @@
     "tailwindcss": "catalog:",
     "typescript": "^6.0.3",
     "vite": "catalog:",
-    "vitest": "^4.1.6"
+    "vitest": "catalog:"
   }
 }

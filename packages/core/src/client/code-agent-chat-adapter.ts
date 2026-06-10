@@ -15,6 +15,7 @@ import {
   normalizeCodeAgentTranscript,
   type CodeAgentTranscriptEvent as CoreCodeAgentTranscriptEvent,
   type NormalizedCodeAgentStatusEvent,
+  type NormalizedCodeAgentThinkingEvent,
   type NormalizedCodeAgentToolEvent,
   type NormalizedCodeAgentTranscriptItem,
 } from "../code-agents/transcript-normalizer.js";
@@ -333,11 +334,32 @@ function contentPartForCodeAgentTranscriptItem(
   if (item.type === "tool") {
     return toolContentPartForCodeAgentTranscriptItem(item);
   }
+  if (item.type === "thinking") {
+    return thinkingContentPartForCodeAgentTranscriptItem(item);
+  }
   if (item.type === "status") {
     const text = statusTextForCodeAgentTranscriptItem(item);
     return text ? { type: "text", text } : null;
   }
   return null;
+}
+
+function thinkingContentPartForCodeAgentTranscriptItem(
+  item: NormalizedCodeAgentThinkingEvent,
+): ContentPart | null {
+  const text = item.text.trim();
+  if (!text) return null;
+  // Surface as a special "thinking" tool-call-like part so the chat renderer
+  // can display a collapsed-by-default "Thinking…" cell.  Using a distinct
+  // toolName makes it easy to style in AssistantChat without a new content type.
+  return {
+    type: "tool-call",
+    toolCallId: `thinking-${item.id}`,
+    toolName: "thinking",
+    argsText: "",
+    args: {},
+    result: text,
+  };
 }
 
 function toolContentPartForCodeAgentTranscriptItem(
@@ -353,6 +375,7 @@ function toolContentPartForCodeAgentTranscriptItem(
       ? { result: previewValue(item.result) ?? "" }
       : {}),
     ...(item.mcpApp ? { mcpApp: item.mcpApp } : {}),
+    ...(item.structuredMeta ? { structuredMeta: item.structuredMeta } : {}),
   };
 }
 

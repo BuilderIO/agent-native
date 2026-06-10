@@ -107,7 +107,7 @@ export const importFigmaSystem = defineEventHandler(async (event) => {
   }
 
   const thumbnailDataUrl = extracted.preview.thumbnailDataUrl;
-  const data = withDefaults(extracted.data);
+  const data = withDefaults(extracted.data as Partial<DesignSystemData>);
   // Attach the file thumbnail as a brand reference image for the generator.
   if (thumbnailDataUrl) {
     data.imageStyle = {

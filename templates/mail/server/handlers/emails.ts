@@ -10,19 +10,12 @@ import {
 } from "h3";
 import { nanoid } from "nanoid";
 import type { EmailMessage, Label, UserSettings } from "@shared/types.js";
-import {
-  decodeCommonHtmlEntities,
-  escapeHtml,
-  markdownPreviewSnippet,
-  normalizeMarkdownHardBreaks,
-  renderInlineMarkdown,
-} from "@shared/markdown.js";
+import { markdownPreviewSnippet } from "@shared/markdown.js";
 import { getUserSetting, putUserSetting } from "@agent-native/core/settings";
 import { readBody, getSession } from "@agent-native/core/server";
 import {
   getOAuthTokens,
   saveOAuthTokens,
-  listOAuthAccounts,
   listOAuthAccountsByOwner,
   setOAuthDisplayName,
 } from "@agent-native/core/oauth-tokens";
@@ -31,11 +24,8 @@ import {
   gmailGetMessage,
   gmailGetThread,
   gmailListLabels,
-  gmailModifyMessage,
   gmailModifyThread,
   gmailSendMessage,
-  gmailTrashThread,
-  gmailUntrashThread,
   googleFetch,
   peopleListConnections,
   peopleListOtherContacts,
@@ -64,7 +54,6 @@ import { emit } from "@agent-native/core/event-bus";
 import { getSyntheticEmailsForView, getSnoozedThreadIds } from "../lib/jobs.js";
 import {
   collectLinks,
-  injectTrackingIntoHtml,
   newClickToken,
   newPixelToken,
   persistTracking,
@@ -73,15 +62,24 @@ import {
 import {
   bodyToHtml as outgoingBodyToHtml,
   buildRawEmail as buildOutgoingRawEmail,
-  encodeAddressHeader,
-  encodeMimeHeaderValue,
   resolveComposeAttachments,
+  splitReplyQuote,
 } from "../lib/outgoing-email.js";
 import { resolveGoogleSenderIdentity } from "../lib/sender-identity.js";
 import { normalizeSignature } from "../../shared/signature.js";
 import { emailMessageMatchesSearch } from "@shared/search.js";
 import { getAppProductionUrl } from "@agent-native/core/server";
 import { ssrfSafeFetch } from "@agent-native/core/extensions/url-safety";
+// State-change operations (archive/unarchive/star/trash/untrash/markRead) have
+// been migrated to the action surface; their handlers have been removed. The
+// shared lib functions in ../lib/email-state.js remain the single source of
+// truth and are called directly from the action definitions.
+import {
+  threadMessagesCache,
+  THREAD_CACHE_TTL,
+  threadCacheKey,
+  invalidateThreadCache,
+} from "../lib/thread-cache.js";
 
 /**
  * Strip CRLF from any value that flows into an RFC 2822 header line. Without
@@ -122,24 +120,6 @@ const labelMapCache = new Map<
   { map: Map<string, string>; expiresAt: number }
 >();
 const LABEL_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
-
-// In-memory cache for fully-fetched thread messages. Keyed by
-// `${ownerEmail}:${threadId}` so different users don't share entries.
-// Keeps prefetches and repeat opens from hammering the Gmail API (which
-// tripped the per-minute quota and made every navigation feel slow).
-const threadMessagesCache = new Map<
-  string,
-  { messages: EmailMessage[]; expiresAt: number }
->();
-const THREAD_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
-
-function threadCacheKey(ownerEmail: string, threadId: string) {
-  return `${ownerEmail}:${threadId}`;
-}
-
-export function invalidateThreadCache(ownerEmail: string, threadId: string) {
-  threadMessagesCache.delete(threadCacheKey(ownerEmail, threadId));
-}
 
 async function getCachedLabelMap(
   accountTokens: Array<{ email: string; accessToken: string }>,
@@ -739,386 +719,6 @@ export const getEmail = defineEventHandler(async (event: H3Event) => {
   return found;
 });
 
-// ─── Mark read ────────────────────────────────────────────────────────────────
-
-export const markRead = defineEventHandler(async (event: H3Event) => {
-  const email = await userEmail(event);
-  const body = ((await readBody(event).catch(() => ({}))) ?? {}) as {
-    isRead?: boolean;
-    accountEmail?: string;
-  };
-  const { isRead, accountEmail } = body;
-
-  if (await isConnected(email)) {
-    const acct = await resolveAccountEmail(accountEmail, email);
-    const accessToken = await getAccessToken(acct);
-    if (!accessToken) {
-      setResponseStatus(event, 401);
-      return { error: "No valid access token for account" };
-    }
-    try {
-      const id = getRouterParam(event, "id") as string;
-      await gmailModifyMessage(
-        accessToken,
-        id,
-        isRead ? undefined : ["UNREAD"],
-        isRead ? ["UNREAD"] : undefined,
-      );
-      return { id, isRead };
-    } catch (error: any) {
-      console.error("[markRead] Gmail error:", error.message);
-      setResponseStatus(event, 500);
-      return { error: error.message };
-    }
-  }
-
-  const emails = await readEmails(email);
-  const idx = emails.findIndex((e) => e.id === getRouterParam(event, "id"));
-  if (idx === -1) {
-    setResponseStatus(event, 404);
-    return { error: "Email not found" };
-  }
-
-  emails[idx] = { ...emails[idx], isRead };
-  await writeEmails(email, emails, { requestSource: reqSource(event) });
-
-  const labels = recomputeUnreadCounts(emails, await readLabels(email));
-  await writeLabels(email, labels, { requestSource: reqSource(event) });
-
-  return emails[idx];
-});
-
-export const markThreadRead = defineEventHandler(async (event: H3Event) => {
-  const email = await userEmail(event);
-  const threadId = getRouterParam(event, "threadId") as string;
-  const body = ((await readBody(event).catch(() => ({}))) ?? {}) as {
-    isRead?: boolean;
-    accountEmail?: string;
-  };
-  const isRead = body.isRead !== false;
-
-  if (await isConnected(email)) {
-    const acct = await resolveAccountEmail(body.accountEmail, email);
-    const accessToken = await getAccessToken(acct);
-    if (!accessToken) {
-      setResponseStatus(event, 401);
-      return { error: "No valid access token for account" };
-    }
-    try {
-      await gmailModifyThread(
-        accessToken,
-        threadId,
-        isRead ? undefined : ["UNREAD"],
-        isRead ? ["UNREAD"] : undefined,
-      );
-      invalidateThreadCache(email, threadId);
-      return { threadId, isRead };
-    } catch (error: any) {
-      console.error("[markThreadRead] Gmail error:", error.message);
-      setResponseStatus(event, 500);
-      return { error: error.message };
-    }
-  }
-
-  const emails = await readEmails(email);
-  let changed = false;
-  for (let i = 0; i < emails.length; i++) {
-    const key = emails[i].threadId || emails[i].id;
-    if (key === threadId && emails[i].isRead !== isRead) {
-      emails[i] = { ...emails[i], isRead };
-      changed = true;
-    }
-  }
-
-  if (!changed) return { threadId, isRead };
-
-  await writeEmails(email, emails, { requestSource: reqSource(event) });
-  const labels = recomputeUnreadCounts(emails, await readLabels(email));
-  await writeLabels(email, labels, { requestSource: reqSource(event) });
-  return { threadId, isRead };
-});
-
-// ─── Toggle star ──────────────────────────────────────────────────────────────
-
-export const toggleStar = defineEventHandler(async (event: H3Event) => {
-  const email = await userEmail(event);
-  const body = ((await readBody(event).catch(() => ({}))) ?? {}) as {
-    isStarred?: boolean;
-    accountEmail?: string;
-  };
-  const { isStarred, accountEmail } = body;
-
-  if (await isConnected(email)) {
-    const acct = await resolveAccountEmail(accountEmail, email);
-    const accessToken = await getAccessToken(acct);
-    if (!accessToken) {
-      setResponseStatus(event, 401);
-      return { error: "No valid access token for account" };
-    }
-    try {
-      const id = getRouterParam(event, "id") as string;
-      const updated = (await gmailModifyMessage(
-        accessToken,
-        id,
-        isStarred ? ["STARRED"] : undefined,
-        isStarred ? undefined : ["STARRED"],
-      )) as { threadId?: string };
-      if (updated.threadId) invalidateThreadCache(email, updated.threadId);
-      return { id, threadId: updated.threadId, isStarred };
-    } catch (error: any) {
-      console.error("[toggleStar] Gmail error:", error.message);
-      setResponseStatus(event, 500);
-      return { error: error.message };
-    }
-  }
-
-  const emails = await readEmails(email);
-  const idx = emails.findIndex((e) => e.id === getRouterParam(event, "id"));
-  if (idx === -1) {
-    setResponseStatus(event, 404);
-    return { error: "Email not found" };
-  }
-
-  emails[idx] = { ...emails[idx], isStarred };
-  await writeEmails(email, emails, { requestSource: reqSource(event) });
-  return emails[idx];
-});
-
-// ─── Archive ──────────────────────────────────────────────────────────────────
-
-export const archiveEmail = defineEventHandler(async (event: H3Event) => {
-  const email = await userEmail(event);
-  const body = ((await readBody(event).catch(() => ({}))) ?? {}) as {
-    accountEmail?: string;
-    removeLabel?: string;
-    threadId?: string;
-  };
-  if (await isConnected(email)) {
-    const acct = await resolveAccountEmail(body?.accountEmail, email);
-    const accessToken = await getAccessToken(acct);
-    if (!accessToken) {
-      setResponseStatus(event, 401);
-      return { error: "No valid access token for account" };
-    }
-    try {
-      const id = getRouterParam(event, "id") as string;
-      let threadId = body.threadId;
-      let labelIds: string[] | undefined;
-      if (!threadId || body.removeLabel) {
-        const msg = await gmailGetMessage(accessToken, id, "minimal");
-        threadId = threadId || msg.threadId;
-        labelIds = msg.labelIds;
-      }
-      if (!threadId) {
-        setResponseStatus(event, 404);
-        return { error: "Thread not found" };
-      }
-      // Remove INBOX + the current label (if archiving from a label view)
-      const removeLabels = ["INBOX"];
-      if (body.removeLabel) {
-        // Gmail label IDs for user labels are the label name or a Label_N id
-        const labelId = labelIds?.find(
-          (l: string) =>
-            l === body.removeLabel ||
-            l.toLowerCase() === body.removeLabel.toLowerCase(),
-        );
-        if (labelId && !removeLabels.includes(labelId)) {
-          removeLabels.push(labelId);
-        }
-      }
-      await gmailModifyThread(accessToken, threadId, undefined, removeLabels);
-      invalidateThreadCache(email, threadId);
-      return { id, threadId, isArchived: true };
-    } catch (error: any) {
-      console.error("[archiveEmail] Gmail error:", error.message);
-      setResponseStatus(event, 500);
-      return { error: error.message };
-    }
-  }
-
-  const emails = await readEmails(email);
-  const target = emails.find((e) => e.id === getRouterParam(event, "id"));
-  if (!target) {
-    setResponseStatus(event, 404);
-    return { error: "Email not found" };
-  }
-
-  // Archive all messages in the thread, not just the one
-  const threadId = target.threadId || target.id;
-  for (let i = 0; i < emails.length; i++) {
-    const eid = emails[i].threadId || emails[i].id;
-    if (eid === threadId) {
-      emails[i] = {
-        ...emails[i],
-        isArchived: true,
-        labelIds: emails[i].labelIds.filter((l) => l !== "inbox"),
-      };
-    }
-  }
-  await writeEmails(email, emails, { requestSource: reqSource(event) });
-
-  const labels = recomputeUnreadCounts(emails, await readLabels(email));
-  await writeLabels(email, labels, { requestSource: reqSource(event) });
-
-  return { id: getRouterParam(event, "id"), threadId, isArchived: true };
-});
-
-// ─── Unarchive ───────────────────────────────────────────────────────────────
-
-export const unarchiveEmail = defineEventHandler(async (event: H3Event) => {
-  const email = await userEmail(event);
-  const body = await readBody(event);
-  if (await isConnected(email)) {
-    const acct = await resolveAccountEmail(body?.accountEmail, email);
-    const accessToken = await getAccessToken(acct);
-    if (!accessToken) {
-      setResponseStatus(event, 401);
-      return { error: "No valid access token for account" };
-    }
-    try {
-      const id = getRouterParam(event, "id") as string;
-      const msg = await gmailGetMessage(accessToken, id, "minimal");
-      await gmailModifyThread(accessToken, msg.threadId, ["INBOX"]);
-      invalidateThreadCache(email, msg.threadId);
-      return { id, threadId: msg.threadId, isArchived: false };
-    } catch (error: any) {
-      console.error("[unarchiveEmail] Gmail error:", error.message);
-      setResponseStatus(event, 500);
-      return { error: error.message };
-    }
-  }
-
-  const emails = await readEmails(email);
-  const target = emails.find((e) => e.id === getRouterParam(event, "id"));
-  if (!target) {
-    setResponseStatus(event, 404);
-    return { error: "Email not found" };
-  }
-
-  // Unarchive all messages in the thread
-  const threadId = target.threadId || target.id;
-  for (let i = 0; i < emails.length; i++) {
-    const eid = emails[i].threadId || emails[i].id;
-    if (eid === threadId) {
-      emails[i] = {
-        ...emails[i],
-        isArchived: false,
-        labelIds: emails[i].labelIds.includes("inbox")
-          ? emails[i].labelIds
-          : ["inbox", ...emails[i].labelIds],
-      };
-    }
-  }
-  await writeEmails(email, emails, { requestSource: reqSource(event) });
-
-  const labels = recomputeUnreadCounts(emails, await readLabels(email));
-  await writeLabels(email, labels, { requestSource: reqSource(event) });
-
-  return { id: getRouterParam(event, "id"), threadId, isArchived: false };
-});
-
-// ─── Trash ────────────────────────────────────────────────────────────────────
-
-export const trashEmail = defineEventHandler(async (event: H3Event) => {
-  const email = await userEmail(event);
-  const body = await readBody(event);
-  if (await isConnected(email)) {
-    const acct = await resolveAccountEmail(body?.accountEmail, email);
-    const accessToken = await getAccessToken(acct);
-    if (!accessToken) {
-      setResponseStatus(event, 401);
-      return { error: "No valid access token for account" };
-    }
-    try {
-      const id = getRouterParam(event, "id") as string;
-      const msg = await gmailGetMessage(accessToken, id, "minimal");
-      await gmailTrashThread(accessToken, msg.threadId);
-      invalidateThreadCache(email, msg.threadId);
-      return { id, threadId: msg.threadId, isTrashed: true };
-    } catch (error: any) {
-      console.error("[trashEmail] Gmail error:", error.message);
-      setResponseStatus(event, 500);
-      return { error: error.message };
-    }
-  }
-
-  const emails = await readEmails(email);
-  const target = emails.find((e) => e.id === getRouterParam(event, "id"));
-  if (!target) {
-    setResponseStatus(event, 404);
-    return { error: "Email not found" };
-  }
-
-  // Trash all messages in the thread
-  const threadId = target.threadId || target.id;
-  for (let i = 0; i < emails.length; i++) {
-    const eid = emails[i].threadId || emails[i].id;
-    if (eid === threadId) {
-      emails[i] = { ...emails[i], isTrashed: true, isArchived: false };
-    }
-  }
-  await writeEmails(email, emails, { requestSource: reqSource(event) });
-
-  const labels = recomputeUnreadCounts(emails, await readLabels(email));
-  await writeLabels(email, labels, { requestSource: reqSource(event) });
-
-  return { id: getRouterParam(event, "id"), threadId, isTrashed: true };
-});
-
-// ─── Untrash ─────────────────────────────────────────────────────────────────
-
-export const untrashEmail = defineEventHandler(async (event: H3Event) => {
-  const email = await userEmail(event);
-  const body = await readBody(event);
-  if (await isConnected(email)) {
-    const acct = await resolveAccountEmail(body?.accountEmail, email);
-    const accessToken = await getAccessToken(acct);
-    if (!accessToken) {
-      setResponseStatus(event, 401);
-      return { error: "No valid access token for account" };
-    }
-    try {
-      const id = getRouterParam(event, "id") as string;
-      const msg = await gmailGetMessage(accessToken, id, "minimal");
-      await gmailUntrashThread(accessToken, msg.threadId);
-      invalidateThreadCache(email, msg.threadId);
-      return { id, threadId: msg.threadId, isTrashed: false };
-    } catch (error: any) {
-      console.error("[untrashEmail] Gmail error:", error.message);
-      setResponseStatus(event, 500);
-      return { error: error.message };
-    }
-  }
-
-  const emails = await readEmails(email);
-  const target = emails.find((e) => e.id === getRouterParam(event, "id"));
-  if (!target) {
-    setResponseStatus(event, 404);
-    return { error: "Email not found" };
-  }
-
-  // Untrash all messages in the thread
-  const threadId = target.threadId || target.id;
-  for (let i = 0; i < emails.length; i++) {
-    const eid = emails[i].threadId || emails[i].id;
-    if (eid === threadId) {
-      emails[i] = {
-        ...emails[i],
-        isTrashed: false,
-        labelIds: emails[i].labelIds.includes("inbox")
-          ? emails[i].labelIds
-          : ["inbox", ...emails[i].labelIds],
-      };
-    }
-  }
-  await writeEmails(email, emails, { requestSource: reqSource(event) });
-
-  const labels = recomputeUnreadCounts(emails, await readLabels(email));
-  await writeLabels(email, labels, { requestSource: reqSource(event) });
-
-  return { id: getRouterParam(event, "id"), threadId, isTrashed: false };
-});
-
 // ─── Report spam ──────────────────────────────────────────────────────────────
 
 export const reportSpam = defineEventHandler(async (event: H3Event) => {
@@ -1145,8 +745,8 @@ export const reportSpam = defineEventHandler(async (event: H3Event) => {
         threadId = msg.threadId;
       }
       // Report spam on entire thread
-      await gmailModifyThread(accessToken, threadId, ["SPAM"], ["INBOX"]);
-      invalidateThreadCache(email, threadId);
+      await gmailModifyThread(accessToken, threadId!, ["SPAM"], ["INBOX"]);
+      invalidateThreadCache(email, threadId!);
       return { id, threadId, spam: true };
     } catch (error: any) {
       console.error("[reportSpam] Gmail error:", error.message);
@@ -1798,166 +1398,6 @@ export const saveDraft = defineEventHandler(async (event: H3Event) => {
   };
 });
 
-/** Build RFC 2822 raw email for Gmail API */
-function buildRawEmail(opts: {
-  from: string;
-  to: string;
-  cc: string;
-  bcc: string;
-  subject: string;
-  body: string;
-  inReplyTo?: string;
-  references?: string;
-  tracking?: TrackingContext;
-}): string {
-  // Strip CRLF from every header value before concatenation. Without this an
-  // attacker who controls `to`/`cc`/`bcc`/`subject` (via API or a malicious
-  // agent action) can inject `\r\nBcc: attacker@evil` and exfiltrate the
-  // outbound mail through the victim's connected Gmail account.
-  const safeFrom = stripCrlf(opts.from);
-  const safeTo = stripCrlf(opts.to);
-  const safeCc = stripCrlf(opts.cc);
-  const safeBcc = stripCrlf(opts.bcc);
-  const safeSubject = stripCrlf(opts.subject);
-  const safeInReplyTo = opts.inReplyTo ? stripCrlf(opts.inReplyTo) : "";
-  const safeReferences = opts.references ? stripCrlf(opts.references) : "";
-
-  const boundary = `agent-native-${nanoid(12)}`;
-  const textBody = markdownToPlainText(opts.body);
-  const htmlBody = bodyToHtml(opts.body, opts.tracking);
-  const lines = [
-    `From: ${encodeAddressHeader(safeFrom)}`,
-    `To: ${encodeAddressHeader(safeTo)}`,
-    ...(safeCc ? [`Cc: ${encodeAddressHeader(safeCc)}`] : []),
-    ...(safeBcc ? [`Bcc: ${encodeAddressHeader(safeBcc)}`] : []),
-    `Subject: ${encodeMimeHeaderValue(safeSubject)}`,
-    ...(safeInReplyTo ? [`In-Reply-To: ${safeInReplyTo}`] : []),
-    ...(safeReferences ? [`References: ${safeReferences}`] : []),
-    `MIME-Version: 1.0`,
-    `Content-Type: multipart/alternative; boundary="${boundary}"`,
-    "",
-    `--${boundary}`,
-    `Content-Type: text/plain; charset="UTF-8"`,
-    "",
-    textBody,
-    "",
-    `--${boundary}`,
-    `Content-Type: text/html; charset="UTF-8"`,
-    "",
-    htmlBody,
-    "",
-    `--${boundary}--`,
-  ];
-  // Gmail API expects URL-safe base64
-  return Buffer.from(lines.join("\r\n"))
-    .toString("base64")
-    .replace(/\+/g, "-")
-    .replace(/\//g, "_")
-    .replace(/=+$/, "");
-}
-
-function markdownToHtml(markdown: string): string {
-  const normalized = decodeCommonHtmlEntities(
-    normalizeMarkdownHardBreaks(markdown),
-  ).trim();
-  if (!normalized) return "<div></div>";
-
-  const blocks = normalized.split(/\n{2,}/).map((block) => block.trim());
-  const html = blocks
-    .map((block) => {
-      if (block.startsWith("```") && block.endsWith("```")) {
-        const code = block.replace(/^```[^\n]*\n?/, "").replace(/\n?```$/, "");
-        return `<pre><code>${escapeHtml(code)}</code></pre>`;
-      }
-
-      const heading = block.match(/^(#{1,3})\s+(.+)$/);
-      if (heading) {
-        const level = heading[1].length;
-        return `<h${level}>${renderInlineMarkdown(heading[2])}</h${level}>`;
-      }
-
-      if (/^(\-|\*|\+)\s+/m.test(block)) {
-        const items = block
-          .split("\n")
-          .map((line) => line.trim())
-          .filter(Boolean)
-          .map((line) => line.replace(/^(\-|\*|\+)\s+/, ""))
-          .map((line) => `<li>${renderInlineMarkdown(line)}</li>`)
-          .join("");
-        return `<ul>${items}</ul>`;
-      }
-
-      if (/^\d+\.\s+/m.test(block)) {
-        const items = block
-          .split("\n")
-          .map((line) => line.trim())
-          .filter(Boolean)
-          .map((line) => line.replace(/^\d+\.\s+/, ""))
-          .map((line) => `<li>${renderInlineMarkdown(line)}</li>`)
-          .join("");
-        return `<ol>${items}</ol>`;
-      }
-
-      return `<p>${renderInlineMarkdown(block).replace(/\n/g, "<br />")}</p>`;
-    })
-    .join("");
-
-  return `<div>${html}</div>`;
-}
-
-function markdownToPlainText(markdown: string): string {
-  return decodeCommonHtmlEntities(normalizeMarkdownHardBreaks(markdown))
-    .replace(/!\[([^\]]*)\]\((https?:\/\/[^\s)]+)\)/g, "$1")
-    .replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, "$1 ($2)")
-    .replace(/`([^`]+)`/g, "$1")
-    .replace(/\*\*([^*]+)\*\*/g, "$1")
-    .replace(/(^|[\s(])\*([^*\n]+)\*(?=$|[\s).,!?:;])/g, "$1$2")
-    .trim();
-}
-
-/**
- * Split a compose body at the reply/forward quote separator.
- * Returns null for non-reply bodies (no separator found).
- */
-function splitReplyQuote(body: string): {
-  newContent: string;
-  attribution: string;
-  quotedBody: string;
-} | null {
-  const replyMatch = body.match(/\n*— On (.+? wrote):\n/);
-  const fwdMatch = body.match(/\n*(— Forwarded message —)\n/);
-  const match = replyMatch || fwdMatch;
-  if (!match || match.index === undefined) return null;
-
-  const newContent = body.slice(0, match.index);
-  const attribution = replyMatch ? `On ${match[1]}:` : "Forwarded message";
-  const afterSeparator = body.slice(match.index + match[0].length);
-  return { newContent, attribution, quotedBody: afterSeparator };
-}
-
-/**
- * Convert quoted content into Gmail-compatible HTML blockquote.
- * Strips leading `> ` prefixes from each line before converting to HTML.
- */
-function quotedContentToHtml(attribution: string, quotedBody: string): string {
-  const stripped = quotedBody
-    .split("\n")
-    .map((line) => {
-      if (line.startsWith("> ")) return line.slice(2);
-      if (line === ">") return "";
-      return line;
-    })
-    .join("\n");
-  const innerHtml = markdownToHtml(stripped);
-  return (
-    `<div class="gmail_quote" style="margin-top:2.5em">` +
-    `<div class="gmail_attr">${escapeHtml(attribution)}</div>` +
-    `<blockquote class="gmail_quote" style="margin:0 0 0 0.8ex;border-left:1px solid rgb(204,204,204);padding-left:1ex">` +
-    innerHtml +
-    `</blockquote></div>`
-  );
-}
-
 /**
  * Build a tracking context for an outgoing message. Returns undefined when
  * both open- and click-tracking are disabled so the caller skips injection
@@ -1988,20 +1428,6 @@ function buildTrackingContext(
     trackClicks,
     appUrl: getAppProductionUrl(event),
   };
-}
-
-function bodyToHtml(body: string, tracking?: TrackingContext): string {
-  const split = splitReplyQuote(body);
-  if (split) {
-    const newHtml = markdownToHtml(split.newContent);
-    const injected = tracking
-      ? injectTrackingIntoHtml(newHtml, tracking)
-      : newHtml;
-    const quoteHtml = quotedContentToHtml(split.attribution, split.quotedBody);
-    return injected + quoteHtml;
-  }
-  const html = markdownToHtml(body);
-  return tracking ? injectTrackingIntoHtml(html, tracking) : html;
 }
 
 // ─── Delete draft ─────────────────────────────────────────────────────────────

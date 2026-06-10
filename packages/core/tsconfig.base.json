@@ -17,12 +17,10 @@
     "esModuleInterop": true,
     "allowSyntheticDefaultImports": true,
 
-    "strict": false,
+    "strict": true,
     "noUnusedLocals": false,
     "noUnusedParameters": false,
-    "noImplicitAny": false,
     "noFallthroughCasesInSwitch": false,
-    "strictNullChecks": false,
 
     "rootDirs": [".", "./.react-router/types"],
     "baseUrl": ".",
@@ -32,12 +30,6 @@
     },
     "types": ["vite/client"]
   },
-  "include": [
-    "app/**/*",
-    "server/**/*",
-    "shared/**/*",
-    "vite.config.ts",
-    "vite.config.server.ts"
-  ],
+  "include": ["app/**/*", "server/**/*", "shared/**/*", "vite.config.ts"],
   "exclude": ["node_modules", "dist"]
 }

@@ -38,6 +38,12 @@ type PollResponse = {
   events: SyncEvent[];
 };
 
+/** Callback delivered to each transport subscriber for every batch of events. */
+type EventSubscriber = (
+  events: SyncEvent[],
+  version: number | undefined,
+) => void;
+
 function getPollAbortMs(interval: number): number {
   return Math.max(POLL_ABORT_MIN_MS, interval * 4);
 }
@@ -68,20 +74,6 @@ function normalizeEventPayload(payload: unknown): SyncEvent[] {
     );
   }
   return [payload as SyncEvent];
-}
-
-function eventVersion(event: SyncEvent): number {
-  return typeof event.version === "number" ? event.version : 0;
-}
-
-function hasAppStateEvent(events: SyncEvent[], key: string): boolean {
-  return events.some(
-    (event) =>
-      event.source === "app-state" &&
-      (event.key === key ||
-        event.key === "*" ||
-        (typeof event.key === "string" && event.key.startsWith(`${key}:`))),
-  );
 }
 
 function isAuthFailure(error: unknown): boolean {
@@ -117,6 +109,343 @@ async function fetchPollJson<T>(
   } finally {
     if (timeout) clearTimeout(timeout);
   }
+}
+
+// ---------------------------------------------------------------------------
+// Shared SSE + poll transport
+//
+// One SyncTransport per (pollUrl, sseUrl) pair is held in a module-level
+// registry. Both `useDbSync` and `useScreenRefreshKey` subscribe to it, so a
+// single browser tab opens exactly ONE SSE connection and ONE poll loop
+// regardless of how many hook instances are mounted.
+//
+// Lifecycle: the transport starts when the first subscriber joins and shuts
+// down when the last subscriber leaves. This makes it safe to SSR and to
+// mount/unmount hooks independently.
+// ---------------------------------------------------------------------------
+
+interface TransportSubscription {
+  onEvents: EventSubscriber;
+  /**
+   * Whether this subscriber wants the transport to pause when the tab is
+   * hidden. The transport pauses only when ALL subscribers request it — any
+   * subscriber with `pauseWhenHidden: false` keeps the connection alive.
+   */
+  pauseWhenHidden: boolean;
+  /**
+   * Requested poll interval in ms. The transport uses the minimum across all
+   * subscribers so the most-frequent caller is satisfied.
+   */
+  interval: number;
+  /** Requested fallback interval while SSE is connected. */
+  fallbackInterval: number;
+}
+
+class SyncTransport {
+  private subscribers = new Map<symbol, TransportSubscription>();
+  private versionRef = 0;
+  private timer: ReturnType<typeof setTimeout> | null = null;
+  private stopped = false;
+  private inFlight = false;
+  private eventSource: EventSource | null = null;
+  private sseConnected = false;
+  private authFailureUntil = 0;
+
+  constructor(
+    private readonly pollUrl: string,
+    private readonly sseUrl: string | false,
+  ) {}
+
+  // -------------------------------------------------------------------------
+  // Subscriber management
+  // -------------------------------------------------------------------------
+
+  add(id: symbol, sub: TransportSubscription): void {
+    const wasEmpty = this.subscribers.size === 0;
+    this.subscribers.set(id, sub);
+    if (wasEmpty) {
+      this.stopped = false;
+      this.start();
+    }
+  }
+
+  remove(id: symbol): void {
+    this.subscribers.delete(id);
+    if (this.subscribers.size === 0) {
+      this.teardown();
+    } else {
+      // Recalculate poll interval in case the leaving subscriber was the
+      // fastest caller; reschedule with the updated cadence.
+      this.reschedule();
+    }
+  }
+
+  // -------------------------------------------------------------------------
+  // Derived settings (aggregate over active subscribers)
+  // -------------------------------------------------------------------------
+
+  private get effectivePauseWhenHidden(): boolean {
+    // Pause only if every subscriber has opted in.
+    for (const sub of this.subscribers.values()) {
+      if (!sub.pauseWhenHidden) return false;
+    }
+    return true;
+  }
+
+  private get effectiveInterval(): number {
+    let min = Infinity;
+    for (const sub of this.subscribers.values()) {
+      if (sub.interval < min) min = sub.interval;
+    }
+    return isFinite(min) ? min : 2000;
+  }
+
+  private get effectiveFallbackInterval(): number {
+    let min = Infinity;
+    for (const sub of this.subscribers.values()) {
+      if (sub.fallbackInterval < min) min = sub.fallbackInterval;
+    }
+    return isFinite(min) ? min : SSE_FALLBACK_INTERVAL_MS;
+  }
+
+  // -------------------------------------------------------------------------
+  // Event fan-out
+  // -------------------------------------------------------------------------
+
+  private fan(events: SyncEvent[], version: number | undefined): void {
+    for (const sub of this.subscribers.values()) {
+      sub.onEvents(events, version);
+    }
+  }
+
+  // -------------------------------------------------------------------------
+  // SSE + poll loop (mirrors the original per-hook logic exactly)
+  // -------------------------------------------------------------------------
+
+  private authFailureDelayMs(): number {
+    return Math.max(0, this.authFailureUntil - Date.now());
+  }
+
+  private schedulePoll(): void {
+    if (this.stopped) return;
+    if (this.effectivePauseWhenHidden && isDocumentHidden()) return;
+    if (this.timer) clearTimeout(this.timer);
+    const authDelay = this.authFailureDelayMs();
+    if (authDelay > 0) {
+      this.timer = setTimeout(() => {
+        this.timer = null;
+        void this.poll();
+      }, authDelay);
+      return;
+    }
+    this.timer = setTimeout(
+      () => {
+        this.timer = null;
+        void this.poll();
+      },
+      this.sseConnected
+        ? this.effectiveFallbackInterval
+        : this.effectiveInterval,
+    );
+  }
+
+  private reschedule(): void {
+    // Only need to act if a timer is already pending; next natural tick will
+    // pick up the new effective interval otherwise.
+    if (this.timer !== null) {
+      clearTimeout(this.timer);
+      this.timer = null;
+      this.schedulePoll();
+    }
+  }
+
+  private closeEvents(): void {
+    if (!this.eventSource) return;
+    this.eventSource.close();
+    this.eventSource = null;
+    this.sseConnected = false;
+  }
+
+  private connectEvents(): void {
+    if (
+      this.stopped ||
+      !this.sseUrl ||
+      this.eventSource ||
+      typeof EventSource === "undefined" ||
+      (this.effectivePauseWhenHidden && isDocumentHidden())
+    ) {
+      return;
+    }
+
+    const source = new EventSource(this.sseUrl);
+    this.eventSource = source;
+    source.onopen = () => {
+      this.sseConnected = true;
+      this.schedulePoll();
+    };
+    source.onerror = () => {
+      this.sseConnected = false;
+      // When the browser gives up permanently (HTTP error → readyState
+      // CLOSED), it won't auto-reconnect. Drop the ref so a later
+      // connectEvents() (on focus/visibility) can establish a fresh stream;
+      // otherwise the non-null closed `eventSource` blocks reconnection and
+      // we'd be stuck on polling-only forever.
+      if (source.readyState === EventSource.CLOSED) {
+        this.eventSource = null;
+      }
+      this.schedulePoll();
+    };
+    source.onmessage = (message) => {
+      try {
+        const payload = JSON.parse(message.data);
+        const events = normalizeEventPayload(payload);
+        const version =
+          typeof payload?.version === "number" ? payload.version : undefined;
+        this.applyVersion(events, version);
+        this.fan(events, version);
+      } catch {
+        // Ignore malformed SSE frames; polling is the safety net.
+      }
+    };
+  }
+
+  /**
+   * Advance the transport's shared version cursor. Subscribers receive the
+   * raw events and decide independently which ones are "fresh" relative to
+   * their own cursor, but the transport-level cursor ensures the poll
+   * `?since=` parameter always advances.
+   */
+  private applyVersion(events: SyncEvent[], version: number | undefined): void {
+    let max = typeof version === "number" ? version : 0;
+    for (const evt of events) {
+      const v = typeof evt.version === "number" ? evt.version : 0;
+      if (v > max) max = v;
+    }
+    if (max > this.versionRef) this.versionRef = max;
+  }
+
+  private async poll(): Promise<void> {
+    if (this.stopped || this.inFlight) return;
+    this.inFlight = true;
+    try {
+      const data = await fetchPollJson<PollResponse>(
+        this.pollUrl,
+        this.versionRef,
+        this.effectiveInterval,
+      );
+      if (this.stopped) return;
+      const events = data.events ?? [];
+      this.applyVersion(events, data.version);
+      this.fan(events, data.version);
+    } catch (err) {
+      if (this.stopped) return;
+      if (isAuthFailure(err)) {
+        this.authFailureUntil = Date.now() + POLL_AUTH_FAILURE_COOLDOWN_MS;
+        this.closeEvents();
+      }
+      // Network error — will retry on next interval.
+    } finally {
+      this.inFlight = false;
+      this.schedulePoll();
+    }
+  }
+
+  private pollNow(): void {
+    if (this.effectivePauseWhenHidden && isDocumentHidden()) return;
+    if (this.authFailureDelayMs() > 0) {
+      this.schedulePoll();
+      return;
+    }
+    if (this.timer) {
+      clearTimeout(this.timer);
+      this.timer = null;
+    }
+    this.connectEvents();
+    void this.poll();
+  }
+
+  private handleVisibilityChange = (): void => {
+    if (document.visibilityState === "visible") {
+      this.connectEvents();
+      this.pollNow();
+    } else if (this.effectivePauseWhenHidden) {
+      this.closeEvents();
+      if (this.timer) {
+        clearTimeout(this.timer);
+        this.timer = null;
+      }
+    }
+  };
+
+  private handleFocus = (): void => {
+    this.pollNow();
+  };
+
+  private start(): void {
+    // Universal demo-mode redaction for the UI. Idempotent + browser-only +
+    // a no-op until demo mode is on. Lives here because every template root
+    // already mounts useDbSync, so this needs zero per-template wiring.
+    ensureEmbedAuthFetchInterceptor();
+    ensureDemoModeFetchInterceptor();
+
+    if (!this.effectivePauseWhenHidden || !isDocumentHidden()) {
+      this.connectEvents();
+      void this.poll();
+    }
+    window.addEventListener("focus", this.handleFocus);
+    document.addEventListener("visibilitychange", this.handleVisibilityChange);
+  }
+
+  private teardown(): void {
+    this.stopped = true;
+    this.closeEvents();
+    if (this.timer) {
+      clearTimeout(this.timer);
+      this.timer = null;
+    }
+    window.removeEventListener("focus", this.handleFocus);
+    document.removeEventListener(
+      "visibilitychange",
+      this.handleVisibilityChange,
+    );
+  }
+}
+
+/**
+ * Registry of active transports keyed by "<pollUrl>\0<sseUrl>".
+ * Module-level singleton: survives React render cycles, shared across all
+ * hook instances in the same browser tab.
+ */
+const transportRegistry = new Map<string, SyncTransport>();
+
+function getOrCreateTransport(
+  pollUrl: string,
+  sseUrl: string | false,
+): SyncTransport {
+  const key = `${pollUrl}\0${String(sseUrl)}`;
+  let transport = transportRegistry.get(key);
+  if (!transport) {
+    transport = new SyncTransport(pollUrl, sseUrl);
+    transportRegistry.set(key, transport);
+  }
+  return transport;
+}
+
+/** Remove a transport from the registry once torn down (last subscriber left). */
+function releaseTransport(pollUrl: string, sseUrl: string | false): void {
+  const key = `${pollUrl}\0${String(sseUrl)}`;
+  // Leave the entry in place: SSE/poll is already stopped inside the class;
+  // the next subscriber will re-start it via `add()`. Clearing the map entry
+  // prevents any dangling reference from the old SyncTransport instance.
+  transportRegistry.delete(key);
+}
+
+// ---------------------------------------------------------------------------
+// Internal test helper — reset transport registry between tests.
+// ---------------------------------------------------------------------------
+/** @internal */
+export function _resetSyncTransportRegistryForTests(): void {
+  transportRegistry.clear();
 }
 
 /**
@@ -180,42 +509,18 @@ export function useDbSync(
   ignoreSourceRef.current = options.ignoreSource;
 
   useEffect(() => {
-    // Universal demo-mode redaction for the UI. Idempotent + browser-only +
-    // a no-op until demo mode is on. Lives here because every template root
-    // already mounts useDbSync, so this needs zero per-template wiring.
-    ensureEmbedAuthFetchInterceptor();
-    ensureDemoModeFetchInterceptor();
+    const id = Symbol("useDbSync");
+    // Per-subscriber version cursor: tracks which events have already been
+    // processed by THIS subscriber so stale poll re-deliveries are ignored.
+    let subscriberVersion = 0;
 
-    let versionRef = 0;
-    let timer: ReturnType<typeof setTimeout> | null = null;
-    let stopped = false;
-    let inFlight = false;
-    let eventSource: EventSource | null = null;
-    let sseConnected = false;
-    let authFailureUntil = 0;
-
-    function authFailureDelayMs(): number {
-      return Math.max(0, authFailureUntil - Date.now());
-    }
-
-    function schedulePoll() {
-      if (stopped) return;
-      if (pauseWhenHidden && isDocumentHidden()) return;
-      if (timer) clearTimeout(timer);
-      const authDelay = authFailureDelayMs();
-      if (authDelay > 0) {
-        timer = setTimeout(() => {
-          timer = null;
-          void poll();
-        }, authDelay);
-        return;
-      }
-      timer = setTimeout(
-        () => {
-          timer = null;
-          void poll();
-        },
-        sseConnected ? fallbackInterval : interval,
+    function hasAppStateEvent(events: SyncEvent[], key: string): boolean {
+      return events.some(
+        (event) =>
+          event.source === "app-state" &&
+          (event.key === key ||
+            event.key === "*" ||
+            (typeof event.key === "string" && event.key.startsWith(`${key}:`))),
       );
     }
 
@@ -281,10 +586,10 @@ export function useDbSync(
       }
     }
 
-    function applyEvents(events: SyncEvent[], version?: number) {
+    function onEvents(events: SyncEvent[], version: number | undefined): void {
       const freshEvents = events.filter((event) => {
-        const version = eventVersion(event);
-        return version === 0 || version > versionRef;
+        const v = typeof event.version === "number" ? event.version : 0;
+        return v === 0 || v > subscriberVersion;
       });
 
       if (freshEvents.length > 0) {
@@ -292,128 +597,34 @@ export function useDbSync(
       }
 
       const maxEventVersion = freshEvents.reduce(
-        (max, event) => Math.max(max, eventVersion(event)),
+        (max, event) =>
+          Math.max(max, typeof event.version === "number" ? event.version : 0),
         0,
       );
-      versionRef = Math.max(versionRef, version ?? 0, maxEventVersion);
+      subscriberVersion = Math.max(
+        subscriberVersion,
+        version ?? 0,
+        maxEventVersion,
+      );
     }
 
-    function closeEvents() {
-      if (!eventSource) return;
-      eventSource.close();
-      eventSource = null;
-      sseConnected = false;
-    }
-
-    function connectEvents() {
-      if (
-        stopped ||
-        !sseUrl ||
-        eventSource ||
-        typeof EventSource === "undefined" ||
-        (pauseWhenHidden && isDocumentHidden())
-      ) {
-        return;
-      }
-
-      const source = new EventSource(sseUrl);
-      eventSource = source;
-      source.onopen = () => {
-        sseConnected = true;
-        schedulePoll();
-      };
-      source.onerror = () => {
-        sseConnected = false;
-        // When the browser gives up permanently (HTTP error → readyState
-        // CLOSED), it won't auto-reconnect. Drop the ref so a later
-        // connectEvents() (on focus/visibility) can establish a fresh stream;
-        // otherwise the non-null closed `eventSource` blocks reconnection and
-        // we'd be stuck on polling-only forever.
-        if (source.readyState === EventSource.CLOSED) {
-          eventSource = null;
-        }
-        schedulePoll();
-      };
-      source.onmessage = (message) => {
-        try {
-          const payload = JSON.parse(message.data);
-          const events = normalizeEventPayload(payload);
-          const version =
-            typeof payload?.version === "number" ? payload.version : undefined;
-          applyEvents(events, version);
-        } catch {
-          // Ignore malformed SSE frames; polling is the safety net.
-        }
-      };
-    }
-
-    async function poll() {
-      if (stopped || inFlight) return;
-      inFlight = true;
-      try {
-        const data = await fetchPollJson<PollResponse>(
-          pollUrl,
-          versionRef,
-          interval,
-        );
-        if (stopped) return;
-        applyEvents(data.events ?? [], data.version);
-      } catch (err) {
-        if (stopped) return;
-        if (isAuthFailure(err)) {
-          authFailureUntil = Date.now() + POLL_AUTH_FAILURE_COOLDOWN_MS;
-          closeEvents();
-        }
-        // Network error — will retry on next interval
-      } finally {
-        inFlight = false;
-        schedulePoll();
-      }
-    }
-
-    function pollNow() {
-      if (pauseWhenHidden && isDocumentHidden()) {
-        return;
-      }
-      if (authFailureDelayMs() > 0) {
-        schedulePoll();
-        return;
-      }
-      if (timer) {
-        clearTimeout(timer);
-        timer = null;
-      }
-      connectEvents();
-      void poll();
-    }
-
-    function handleVisibilityChange() {
-      if (document.visibilityState === "visible") {
-        connectEvents();
-        pollNow();
-      } else if (pauseWhenHidden) {
-        closeEvents();
-        if (timer) {
-          clearTimeout(timer);
-          timer = null;
-        }
-      }
-    }
-
-    // Initial poll immediately when visible. Hidden tabs catch up on focus.
-    if (!pauseWhenHidden || !isDocumentHidden()) {
-      connectEvents();
-      void poll();
-    }
-    window.addEventListener("focus", pollNow);
-    document.addEventListener("visibilitychange", handleVisibilityChange);
+    const transport = getOrCreateTransport(pollUrl, sseUrl);
+    transport.add(id, {
+      onEvents,
+      pauseWhenHidden,
+      interval,
+      fallbackInterval,
+    });
 
     return () => {
-      stopped = true;
-      closeEvents();
-      if (timer) clearTimeout(timer);
-      window.removeEventListener("focus", pollNow);
-      document.removeEventListener("visibilitychange", handleVisibilityChange);
+      transport.remove(id);
+      // If the registry still holds this transport, and the transport is now
+      // empty, evict it so the next mount gets a fresh instance rather than a
+      // stopped-but-still-registered one (the registry entry being cleared by
+      // releaseTransport is the signal to rebuild state).
+      if (!transport["subscribers"].size) {
+        releaseTransport(pollUrl, sseUrl);
+      }
     };
   }, [
     pollUrl,
@@ -469,169 +680,43 @@ export function useScreenRefreshKey(
   const [key, setKey] = useState(0);
 
   useEffect(() => {
-    let versionRef = 0;
-    let timer: ReturnType<typeof setTimeout> | null = null;
-    let stopped = false;
-    let inFlight = false;
-    let eventSource: EventSource | null = null;
-    let sseConnected = false;
-    let authFailureUntil = 0;
+    const id = Symbol("useScreenRefreshKey");
+    // Per-subscriber version cursor (same freshness logic as useDbSync).
+    let subscriberVersion = 0;
 
-    function authFailureDelayMs(): number {
-      return Math.max(0, authFailureUntil - Date.now());
-    }
-
-    function schedulePoll() {
-      if (stopped) return;
-      if (pauseWhenHidden && isDocumentHidden()) return;
-      if (timer) clearTimeout(timer);
-      const authDelay = authFailureDelayMs();
-      if (authDelay > 0) {
-        timer = setTimeout(() => {
-          timer = null;
-          void poll();
-        }, authDelay);
-        return;
-      }
-      timer = setTimeout(
-        () => {
-          timer = null;
-          void poll();
-        },
-        sseConnected ? fallbackInterval : interval,
-      );
-    }
-
-    function applyEvents(events: SyncEvent[], version?: number) {
+    function onEvents(events: SyncEvent[], version: number | undefined): void {
       const freshEvents = events.filter((event) => {
-        const version = eventVersion(event);
-        return version === 0 || version > versionRef;
+        const v = typeof event.version === "number" ? event.version : 0;
+        return v === 0 || v > subscriberVersion;
       });
       if (freshEvents.some((e) => e.source === "screen-refresh")) {
         setKey((k) => k + 1);
       }
       const maxEventVersion = freshEvents.reduce(
-        (max, event) => Math.max(max, eventVersion(event)),
+        (max, event) =>
+          Math.max(max, typeof event.version === "number" ? event.version : 0),
         0,
       );
-      versionRef = Math.max(versionRef, version ?? 0, maxEventVersion);
+      subscriberVersion = Math.max(
+        subscriberVersion,
+        version ?? 0,
+        maxEventVersion,
+      );
     }
 
-    function closeEvents() {
-      if (!eventSource) return;
-      eventSource.close();
-      eventSource = null;
-      sseConnected = false;
-    }
-
-    function connectEvents() {
-      if (
-        stopped ||
-        !sseUrl ||
-        eventSource ||
-        typeof EventSource === "undefined" ||
-        (pauseWhenHidden && isDocumentHidden())
-      ) {
-        return;
-      }
-
-      const source = new EventSource(sseUrl);
-      eventSource = source;
-      source.onopen = () => {
-        sseConnected = true;
-        schedulePoll();
-      };
-      source.onerror = () => {
-        sseConnected = false;
-        // When the browser gives up permanently (HTTP error → readyState
-        // CLOSED), it won't auto-reconnect. Drop the ref so a later
-        // connectEvents() (on focus/visibility) can establish a fresh stream;
-        // otherwise the non-null closed `eventSource` blocks reconnection and
-        // we'd be stuck on polling-only forever.
-        if (source.readyState === EventSource.CLOSED) {
-          eventSource = null;
-        }
-        schedulePoll();
-      };
-      source.onmessage = (message) => {
-        try {
-          const payload = JSON.parse(message.data);
-          const events = normalizeEventPayload(payload);
-          const version =
-            typeof payload?.version === "number" ? payload.version : undefined;
-          applyEvents(events, version);
-        } catch {
-          // Polling will catch missed screen-refresh events.
-        }
-      };
-    }
-
-    async function poll() {
-      if (stopped || inFlight) return;
-      inFlight = true;
-      try {
-        const data = await fetchPollJson<PollResponse>(
-          pollUrl,
-          versionRef,
-          interval,
-        );
-        if (stopped) return;
-        applyEvents(data.events ?? [], data.version);
-      } catch (err) {
-        if (stopped) return;
-        if (isAuthFailure(err)) {
-          authFailureUntil = Date.now() + POLL_AUTH_FAILURE_COOLDOWN_MS;
-          closeEvents();
-        }
-        // Network error — retry on next interval.
-      } finally {
-        inFlight = false;
-        schedulePoll();
-      }
-    }
-
-    function pollNow() {
-      if (pauseWhenHidden && isDocumentHidden()) {
-        return;
-      }
-      if (authFailureDelayMs() > 0) {
-        schedulePoll();
-        return;
-      }
-      if (timer) {
-        clearTimeout(timer);
-        timer = null;
-      }
-      connectEvents();
-      void poll();
-    }
-
-    function handleVisibilityChange() {
-      if (document.visibilityState === "visible") {
-        connectEvents();
-        pollNow();
-      } else if (pauseWhenHidden) {
-        closeEvents();
-        if (timer) {
-          clearTimeout(timer);
-          timer = null;
-        }
-      }
-    }
-
-    if (!pauseWhenHidden || !isDocumentHidden()) {
-      connectEvents();
-      void poll();
-    }
-    window.addEventListener("focus", pollNow);
-    document.addEventListener("visibilitychange", handleVisibilityChange);
+    const transport = getOrCreateTransport(pollUrl, sseUrl);
+    transport.add(id, {
+      onEvents,
+      pauseWhenHidden,
+      interval,
+      fallbackInterval,
+    });
 
     return () => {
-      stopped = true;
-      closeEvents();
-      if (timer) clearTimeout(timer);
-      window.removeEventListener("focus", pollNow);
-      document.removeEventListener("visibilitychange", handleVisibilityChange);
+      transport.remove(id);
+      if (!transport["subscribers"].size) {
+        releaseTransport(pollUrl, sseUrl);
+      }
     };
   }, [pollUrl, sseUrl, interval, fallbackInterval, pauseWhenHidden]);
 

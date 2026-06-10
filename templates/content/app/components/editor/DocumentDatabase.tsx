@@ -1909,7 +1909,7 @@ function DatabaseItemPreview({
               disabled={!previousItem}
               aria-label="Previous database page"
               onClick={() => {
-                if (previousItem) onPreviewItem(previousItem);
+                if (previousItem) onPreviewItem?.(previousItem);
               }}
             >
               <IconArrowLeft className="size-3.5" />
@@ -1922,7 +1922,7 @@ function DatabaseItemPreview({
               disabled={!nextItem}
               aria-label="Next database page"
               onClick={() => {
-                if (nextItem) onPreviewItem(nextItem);
+                if (nextItem) onPreviewItem?.(nextItem);
               }}
             >
               <IconArrowRight className="size-3.5" />
@@ -7713,7 +7713,8 @@ export function databaseCalendarItemsByDate(
       properties.find(
         (candidate) => candidate.definition.id === datePropertyId,
       );
-    const key = calendarDateKey(property?.value);
+    if (!property?.value) continue;
+    const key = calendarDateKey(property.value);
     if (!key) continue;
     const group = grouped.get(key) ?? [];
     group.push(item);

@@ -61,6 +61,8 @@ or issue.
 
 ## Getting started
 
+Live demo: [brain.agent-native.com](https://brain.agent-native.com).
+
 1. **Try the demo.** Open Ask and choose **Start demo**. Brain seeds a small
    product-decision corpus, runs the trust checks, and asks a cited question so
    you can see answers, citations, review, and not-found behavior before adding
@@ -77,14 +79,68 @@ For a public demo, the seeded corpus demonstrates product-decision recall,
 citation links, supersede behavior, review gating, redaction, personal-content
 exclusion, and honest not-found behavior without connecting a real workspace.
 
-### Scaffolding
+## Why it's interesting
+
+Three things make Brain a good showcase of the framework:
+
+1. **No vector database required.** Brain uses SQL text search with agentic query expansion, so it stays portable across SQLite, Postgres, Neon, D1, and Turso without an additional service dependency. This demonstrates that semantic-enough retrieval can be built without embedding infrastructure.
+2. **Human-in-the-loop distillation.** Raw captures don't become company knowledge automatically. High-confidence entries can auto-publish; sensitive or low-confidence ones queue as proposals for human review. The Review surface is a first-class part of the product, not a settings screen.
+3. **Shared workspace integrations.** Brain sources resolve credentials from workspace grants first, not duplicated env vars. It's a live example of the grant pattern — one Slack token at workspace level, per-app access requests.
+
+## For developers
+
+The rest of this section is for anyone forking or extending the Brain template.
+
+### Quick start
 
 ```bash
 npx @agent-native/core create my-brain --standalone --template brain
+cd my-brain
+pnpm install
+pnpm dev
 ```
 
-Then open the app, add sources, import a transcript, and ask the agent to
-distill cited memories from the raw capture.
+Open the app and choose **Start demo** to see cited memory without connecting a real workspace.
+
+### Data model
+
+Brain's schema lives in `templates/brain/server/db/schema.ts`. Eight tables:
+
+| Table                    | What it holds                                                                                                                                  |
+| ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| `brain_sources`          | Connector config — provider, allow-listed channels/repos, sync cursors, review posture, `ingest_token_hash`, `status`, `last_synced_at`        |
+| `brain_source_shares`    | Per-source share grants (viewer / editor / admin)                                                                                              |
+| `brain_raw_captures`     | Transcripts, channel exports, notes, and webhook imports with `external_id` dedupe key, `content_hash`, kind, and distillation status          |
+| `brain_knowledge`        | Distilled atomic entries — kind (decision / fact / process / …), topic, entities, evidence quotes, confidence, `publish_tier`, supersede links |
+| `brain_knowledge_shares` | Per-knowledge share grants                                                                                                                     |
+| `brain_proposals`        | Pending review items — proposed create/update/archive with evidence and reviewer notes                                                         |
+| `brain_proposal_shares`  | Per-proposal share grants                                                                                                                      |
+| `brain_sync_runs`        | Sync audit log — provider, status, stats JSON, error, start/end timestamps                                                                     |
+| `brain_ingest_queue`     | Background distillation queue — operation, status, priority, retry count, `run_after`                                                          |
+
+### Key actions
+
+Grouped by area (`templates/brain/actions/`):
+
+- **Source management** — `create-source`, `update-source`, `delete-source`, `get-source`, `list-sources`, `sync-source`, `sync-due-sources`, `run-slack-pilot`, `test-slack-connection`
+- **Capture ingestion** — `import-capture`, `import-transcript`, `list-captures`, `get-capture`, `mark-capture-distilled`, `resanitize-captures`
+- **Distillation** — `enqueue-distillation`, `enqueue-captures-distillation`, `claim-distillation`, `retry-distillation`, `list-distillation-queue`
+- **Knowledge & review** — `write-knowledge`, `get-knowledge`, `list-knowledge`, `set-knowledge-canonical`, `preview-canonical-resource`, `list-proposals`, `review-proposal`, `approve-proposal`, `reject-proposal`, `update-proposal`
+- **Search & retrieval** — `ask-brain`, `search-knowledge`, `search-everything`
+- **Settings** — `get-brain-settings`, `update-brain-settings`, `set-settings`, `get-settings`
+- **Evaluation & demo** — `seed-demo-data`, `run-demo-eval`, `run-retrieval-eval`
+- **Context & navigation** — `view-screen`, `navigate`
+- **Provider APIs** — `provider-api-catalog`, `provider-api-docs`, `provider-api-request`
+
+### Customizing it
+
+Key places to look when extending Brain:
+
+- `templates/brain/actions/` — every agent-callable operation. Add a new file with `defineAction` to expose a new capability.
+- `templates/brain/app/routes/` — the UI surface: Ask, Sources, Review, Knowledge, Settings, and Team routes.
+- `templates/brain/.agents/skills/` — Brain-specific guidance for distillation and retrieval.
+- `templates/brain/AGENTS.md` — top-level agent guide. Update when you add major features.
+- `templates/brain/server/db/schema.ts` — data model. Additive migrations only.
 
 ## Connecting sources
 

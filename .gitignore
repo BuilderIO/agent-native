@@ -75,6 +75,16 @@ wrangler.toml
 .claude/scheduled_tasks.lock
 .claude/worktrees/
 
+# Agent session scratch / plan draft notes
+.claude/plan-drafts/
+
+# Builder writing agent scratch (edit-plan.md, edit-state.json)
+**/.builder-writing/
+
+# Regenerable plan artifacts (plan.mdx/canvas.mdx are kept; these are not)
+plans/*/preview.html
+plans/*/.plan-state.json
+
 # Shell `script` command log artifacts
 db-exec
 

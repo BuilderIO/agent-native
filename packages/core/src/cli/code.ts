@@ -26,7 +26,9 @@ import {
   renderProjectSlashCommandPrompt,
 } from "./code-agent-commands.js";
 import {
+  executeApproveAlwaysCodeAgentApproval,
   executeCodeAgentRun,
+  executeDenyCodeAgentApproval,
   executeExistingCodeAgentRun,
   executePendingCodeAgentApproval,
 } from "./code-agent-executor.js";
@@ -97,6 +99,8 @@ export const CODE_AGENT_CLI_GOALS: CodeAgentCliGoal[] = [
 
 type CodeAgentControlSubcommand =
   | "approve"
+  | "approve-always"
+  | "deny"
   | "attach"
   | "list"
   | "logs"
@@ -108,6 +112,8 @@ type CodeAgentControlSubcommand =
 
 const CODE_AGENT_CONTROL_SUBCOMMANDS = new Set<CodeAgentControlSubcommand>([
   "approve",
+  "approve-always",
+  "deny",
   "attach",
   "list",
   "logs",
@@ -816,6 +822,12 @@ async function runCodeAgentControl(
     case "approve":
       await approveCodeAgentRun(runs, effectiveArgs, output);
       return;
+    case "approve-always":
+      await approveAlwaysCodeAgentRun(runs, effectiveArgs, output);
+      return;
+    case "deny":
+      await denyCodeAgentRun(runs, effectiveArgs, output);
+      return;
     case "attach":
       await attachCodeAgentRun(runs, effectiveArgs, output);
       return;
@@ -850,7 +862,9 @@ async function maybePickRunArgs(
 ): Promise<string[] | null> {
   if (
     !allowPicker ||
-    !["approve", "attach", "logs", "resume"].includes(subcommand) ||
+    !["approve", "approve-always", "deny", "attach", "logs", "resume"].includes(
+      subcommand,
+    ) ||
     args.includes("--last") ||
     hasExplicitRunId(args) ||
     runs.length === 0 ||
@@ -1129,16 +1143,83 @@ async function approveCodeAgentRun(
     ].join("\n"),
   );
   await executePendingCodeAgentApproval(run.id, { stdout: output });
+  writeLine(output, ["", "Approval step finished — run resumed."].join("\n"));
+}
+
+async function approveAlwaysCodeAgentRun(
+  runs: CodeAgentRunRecord[],
+  args: string[],
+  output: NodeJS.WritableStream,
+): Promise<void> {
+  const run = selectCodeAgentRun(runs, args, {
+    defaultToLast: args.includes("--last"),
+  });
+  if (!run) {
+    writeLine(
+      output,
+      [
+        "",
+        "Agent-Native Code approve-always",
+        "",
+        "  No Agent-Native Code session selected.",
+        "",
+        "Try: agent-native code approve-always --last",
+      ].join("\n"),
+    );
+    return;
+  }
+
   writeLine(
     output,
     [
       "",
-      "Approval step finished.",
+      "Agent-Native Code approve-always",
       "",
-      "Resume the Agent-Native Code session:",
-      `  agent-native code run ${run.id}`,
+      `  Run: ${run.id}`,
+      "",
+      "Adding command to allowlist and running.",
     ].join("\n"),
   );
+  await executeApproveAlwaysCodeAgentApproval(run.id, { stdout: output });
+  writeLine(output, ["", "Allowlist updated and run resumed."].join("\n"));
+}
+
+async function denyCodeAgentRun(
+  runs: CodeAgentRunRecord[],
+  args: string[],
+  output: NodeJS.WritableStream,
+): Promise<void> {
+  const run = selectCodeAgentRun(runs, args, {
+    defaultToLast: args.includes("--last"),
+  });
+  if (!run) {
+    writeLine(
+      output,
+      [
+        "",
+        "Agent-Native Code deny",
+        "",
+        "  No Agent-Native Code session selected.",
+        "",
+        "Try: agent-native code deny --last",
+      ].join("\n"),
+    );
+    return;
+  }
+
+  writeLine(
+    output,
+    [
+      "",
+      "Agent-Native Code deny",
+      "",
+      `  Run: ${run.id}`,
+      "",
+      "Denying approval and resuming run so model can adapt.",
+    ].join("\n"),
+  );
+  await executeDenyCodeAgentApproval(run.id, { stdout: output });
+  writeLine(output, ["", "Denial recorded — run resumed."].join("\n"));
 }
 
 function renderCodeAgentLogs(

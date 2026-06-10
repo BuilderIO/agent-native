@@ -1,17 +1,8 @@
 import { TeamPage } from "@agent-native/core/client/org";
-import { Spinner } from "@/components/ui/spinner";
 import { useSetPageTitle } from "@/components/layout/HeaderActions";
 
 export function meta() {
   return [{ title: "Team — Remotion Studio" }];
-}
-
-export function HydrateFallback() {
-  return (
-    <div className="flex items-center justify-center h-screen w-full">
-      <Spinner className="size-8 text-foreground" />
-    </div>
-  );
 }
 
 export default function TeamRoute() {

@@ -41,7 +41,7 @@ Separate concern from [notifications](/docs/notifications): notifications fire o
 | `failed`    | Error terminal              |
 | `cancelled` | User interrupted            |
 
-Terminal statuses set `completed_at`. The UI tray shows only `running` rows; completed rows stay in the database for `manage-progress --action=list` queries.
+Terminal statuses set `completed_at`. The UI tray shows only `running` rows; completed rows stay in the database for `action=list` queries.
 
 ## API {#api}
 
@@ -138,7 +138,7 @@ A single `manage-progress` tool is registered in every template. The `action` pa
 
 - Use for anything > ~5 seconds. A spinner with no context feels frozen.
 - Update at natural checkpoints, not every iteration. Every 5–10% is plenty.
-- **Always** call `manage-progress --action=complete`, including in error paths. An orphan `running` row is worse than no row.
+- **Always** call `manage-progress` with `action=complete`, including in error paths. An orphan `running` row is worse than no row.
 - Pair with `notify` on completion so the user sees the outcome when they're not actively watching the tray.
 
 ## Event bus {#event-bus}
@@ -156,10 +156,10 @@ Two events emit on the [event bus](/docs/automations#event-bus):
 ---
 triggerType: event
 event: run.progress.updated
-condition: "status is running and (now - started) > 5 minutes"
+condition: "status is failed"
 mode: agentic
 ---
-Notify me that run {{runId}} has been running for a long time.
+Notify me that run {{runId}} has failed.
 ```
 
 ## How it works {#internals}
@@ -171,6 +171,6 @@ Notify me that run {{runId}} has been running for a long time.
 
 ## What's next
 
-- [**Notifications**](/docs/notifications) — pair with `manage-progress --action=complete` to tell the user when work finishes
+- [**Notifications**](/docs/notifications) — pair with `manage-progress` (`action=complete`) to tell the user when work finishes
 - [**Automations**](/docs/automations) — watchdog slow runs via `run.progress.updated`
 - [**Client**](/docs/client) — `useDbSync` for real-time cache invalidation

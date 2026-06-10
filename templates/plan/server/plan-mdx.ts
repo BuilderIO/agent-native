@@ -34,6 +34,11 @@ import {
   type MdxJsxNode,
 } from "@agent-native/core/blocks/server";
 import { registerPlanBlocks } from "../shared/plan-block-registry.js";
+import {
+  PLAN_ASSET_MAX_SINGLE_BYTES,
+  PLAN_ASSET_MAX_TOTAL_BYTES,
+  mimeTypeFromFilename,
+} from "./lib/plan-assets.js";
 
 // Server-side plan block registry. Registered specs (currently the editable
 // callout) drive serialize/parse via the registry; every other block type still
@@ -109,6 +114,12 @@ export const planMdxFileSchema = z.object({
   "canvas.mdx": z.string().optional(),
   "prototype.mdx": z.string().optional(),
   ".plan-state.json": z.string().optional(),
+  /**
+   * Optional image assets keyed by filename (e.g. `"screenshot.png"`), base64-encoded.
+   * Accepted formats: png, jpg/jpeg, gif, webp, svg.
+   * Size caps: 2 MB per asset, 10 MB total per plan.
+   */
+  "assets/": z.record(z.string(), z.string()).optional(),
 });
 
 const planMdxStateSchema = z
@@ -500,6 +511,86 @@ function visualUrlForMdx(input: Pick<ExportPlanMdxInput, "planId" | "url">) {
   }
 }
 
+/** Base URL prefix for plan-asset serving route (local SQL-backed assets). */
+const PLAN_ASSET_ROUTE_PREFIX = "/_agent-native/plan-asset/";
+
+/**
+ * Collect image blocks with `assetId` or a local plan-asset URL. Returns a
+ * map from assetId → block ref so the caller can load asset data from the DB
+ * and rewrite the block.
+ */
+function collectAssetRefs(blocks: PlanBlock[]): Map<string, PlanBlock> {
+  const refs = new Map<string, PlanBlock>();
+  for (const block of blocks) {
+    if (block.type !== "image") continue;
+    if (block.data.assetId) {
+      refs.set(block.data.assetId, block);
+    } else if (
+      block.data.url &&
+      block.data.url.startsWith(PLAN_ASSET_ROUTE_PREFIX)
+    ) {
+      // Extract assetId from URL path: /_agent-native/plan-asset/<assetId>/...
+      const rest = block.data.url.slice(PLAN_ASSET_ROUTE_PREFIX.length);
+      const assetId = decodeURIComponent(rest.split("/")[0] ?? "");
+      if (assetId) refs.set(assetId, block);
+    }
+  }
+  return refs;
+}
+
+/**
+ * Load asset records for export. Returns a map from assetId → { filename,
+ * base64 } for SQL-fallback assets, and assetId → { filename, cdnUrl } for
+ * CDN-backed assets.
+ *
+ * We do a lazy import of the DB so this module can be used in tests without
+ * requiring a live DB connection (the import only resolves when called at
+ * runtime).
+ */
+async function loadAssetDataForExport(
+  assetIds: string[],
+): Promise<
+  Map<
+    string,
+    { filename: string; base64: string | null; cdnUrl: string | null }
+  >
+> {
+  if (assetIds.length === 0) return new Map();
+  try {
+    const { getDb, schema } = await import("./db/index.js");
+    const { eq, inArray } = await import("drizzle-orm");
+    const db = getDb();
+    const rows = await db
+      .select()
+      .from(schema.planAssets)
+      .where(inArray(schema.planAssets.id, assetIds));
+
+    const result = new Map<
+      string,
+      { filename: string; base64: string | null; cdnUrl: string | null }
+    >();
+    for (const row of rows) {
+      if (row.data.startsWith("cdn:")) {
+        result.set(row.id, {
+          filename: row.filename,
+          base64: null,
+          cdnUrl: row.data.slice(4),
+        });
+      } else {
+        result.set(row.id, {
+          filename: row.filename,
+          base64: row.data,
+          cdnUrl: null,
+        });
+      }
+    }
+    return result;
+  } catch {
+    // DB unavailable (e.g. in tests without a live DB) — return empty map.
+    return new Map();
+  }
+}
+
 export async function exportPlanContentToMdxFolder(
   input: ExportPlanMdxInput,
 ): Promise<PlanMdxFolder> {
@@ -528,6 +619,60 @@ export async function exportPlanContentToMdxFolder(
     ) ?? planContentSchema.parse({ version: PLAN_CONTENT_VERSION, blocks: [] });
   const visualUrl = visualUrlForMdx(input);
 
+  // ── Asset export ──────────────────────────────────────────────────────────
+  // Collect image blocks that reference local plan assets (by assetId or by
+  // the local plan-asset route URL). Load their data, emit `assets/<filename>`
+  // entries in the folder, and rewrite the block refs to relative asset paths.
+  const assetRefs = collectAssetRefs(content.blocks);
+  const assetData = await loadAssetDataForExport([...assetRefs.keys()]);
+
+  // Build a map from assetId → relative asset path (for MDX rewriting) and
+  // accumulate the assets/ entries.
+  const assetsFolder: Record<string, string> = {};
+  const assetIdToRelativePath = new Map<string, string>();
+
+  for (const [assetId, assetInfo] of assetData) {
+    if (assetInfo.cdnUrl) {
+      // CDN asset: the block keeps the CDN url; nothing to emit in assets/.
+      assetIdToRelativePath.set(assetId, assetInfo.cdnUrl);
+      continue;
+    }
+    if (!assetInfo.base64) continue;
+
+    // Validate size before emitting.
+    const bytes = Buffer.from(assetInfo.base64, "base64");
+    if (bytes.byteLength > PLAN_ASSET_MAX_SINGLE_BYTES) continue;
+
+    const filename = assetInfo.filename;
+    const relPath = `assets/${filename}`;
+    assetsFolder[filename] = assetInfo.base64;
+    assetIdToRelativePath.set(assetId, relPath);
+  }
+
+  // Rewrite image blocks: replace assetId refs with relative asset paths or
+  // CDN URLs so the exported MDX is self-contained.
+  const rewrittenBlocks = content.blocks.map((block): PlanBlock => {
+    if (block.type !== "image") return block;
+    const targetId = block.data.assetId;
+    if (!targetId) return block;
+    const resolvedPath = assetIdToRelativePath.get(targetId);
+    if (!resolvedPath) return block;
+    // Replace assetId with url so the exported MDX uses a plain url= attr.
+    return {
+      ...block,
+      data: {
+        ...block.data,
+        assetId: undefined,
+        url: resolvedPath,
+      },
+    };
+  });
+
+  const rewrittenContent: PlanContent = {
+    ...content,
+    blocks: rewrittenBlocks,
+  };
+
   const planSource = [
     frontmatter({
       visualUrl,
@@ -536,12 +681,12 @@ export async function exportPlanContentToMdxFolder(
       version: content.version,
       notionSync: content.notionSync ? true : undefined,
     }),
-    content.blocks.map(serializeBlock).join("\n\n"),
+    rewrittenContent.blocks.map(serializeBlock).join("\n\n"),
   ].join("");
 
   const folder: PlanMdxFolder = {
     "plan.mdx": await formatMdx(planSource),
-    "assets/": {},
+    "assets/": Object.keys(assetsFolder).length > 0 ? assetsFolder : {},
     ".plan-state.json": JSON.stringify(
       {
         version: 1,

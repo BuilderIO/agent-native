@@ -378,9 +378,9 @@ function writeCloudflareRoutingManifest(distDir: string, apps: string[]): void {
     ? dispatchRootFaviconAsset(distDir)
     : null;
   // _routes.json tells Cloudflare which paths are dynamic (Functions) vs
-  // static. Mark /<app>/* as include so every app's worker handles its
-  // subtree.
-  const include = apps.map((a) => `/${a}/*`).concat(["/"]);
+  // static. Mark both /<app> and /<app>/* as include so every app's worker
+  // handles its root and subtree.
+  const include = apps.flatMap((a) => [`/${a}`, `/${a}/*`]).concat(["/"]);
   if (apps.includes("dispatch")) {
     include.push("/_agent-native/*");
     include.push("/.well-known/*");
@@ -408,7 +408,7 @@ function writeCloudflareRoutingManifest(distDir: string, apps: string[]): void {
   const dispatch = apps
     .map(
       (a) =>
-        `  if (pathname === "/${a}" || pathname.startsWith("/${a}/")) return ${moduleIdent(a)}.fetch(request, env, ctx);`,
+        `  if (pathname === "/${a}" || pathname.startsWith("/${a}/")) return ${moduleIdent(a)}.fetch(requestForMountedApp(request, "/${a}"), env, ctx);`,
     )
     .join("\n");
   const dispatchRootFrameworkRoutes = apps.includes("dispatch")
@@ -435,6 +435,15 @@ function writeCloudflareRoutingManifest(distDir: string, apps: string[]): void {
     : "";
 
   const worker = `${imports}
+
+function requestForMountedApp(request, basePath) {
+  const url = new URL(request.url);
+  if (url.pathname !== basePath && url.pathname !== \`\${basePath}/\`) {
+    return request;
+  }
+  url.pathname = \`\${basePath}//\`;
+  return new Request(url, request);
+}
 
 export default {
   async fetch(request, env, ctx) {
@@ -1026,20 +1035,19 @@ function parseWorkspaceAppsManifest(
       : null;
   if (!rawApps) return null;
 
-  const apps = rawApps
+  const apps = (rawApps as unknown[])
     .map((entry) => {
       if (!entry || typeof entry !== "object") return null;
-      const id = typeof entry.id === "string" ? entry.id.trim() : "";
+      const e = entry as Record<string, unknown>;
+      const id = typeof e.id === "string" ? e.id.trim() : "";
       if (!id) return null;
-      const url = normalizeWorkspaceAppUrl(entry.url);
+      const url = normalizeWorkspaceAppUrl(e.url);
       const audience =
-        entry.audience === undefined
+        e.audience === undefined
           ? undefined
-          : normalizeWorkspaceAppAudience(entry.audience);
-      const publicPaths = normalizeWorkspaceAppPathList(entry.publicPaths);
-      const protectedPaths = normalizeWorkspaceAppPathList(
-        entry.protectedPaths,
-      );
+          : normalizeWorkspaceAppAudience(e.audience);
+      const publicPaths = normalizeWorkspaceAppPathList(e.publicPaths);
+      const protectedPaths = normalizeWorkspaceAppPathList(e.protectedPaths);
       return {
         id,
         ...(url ? { url } : {}),

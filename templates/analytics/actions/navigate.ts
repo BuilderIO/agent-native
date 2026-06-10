@@ -33,7 +33,9 @@ export default defineAction({
       !args.analysisId &&
       !args.extensionId
     ) {
-      return "Error: At least --view, --dashboardId, --analysisId, or --extensionId is required.";
+      throw new Error(
+        "At least --view, --dashboardId, --analysisId, or --extensionId is required.",
+      );
     }
     const nav: Record<string, string> = {};
     if (args.view) nav.view = args.view;

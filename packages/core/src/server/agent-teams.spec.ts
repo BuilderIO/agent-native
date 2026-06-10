@@ -161,6 +161,50 @@ describe("agent teams message queue", () => {
     });
   });
 
+  it("preserves long sub-agent output up to 50 000 chars without truncation", async () => {
+    const { _agentTeamsQueueForTests } = await import("./agent-teams.js");
+
+    // A result shorter than the cap must round-trip verbatim.
+    const short = "A".repeat(10_000);
+    const shortResult = _agentTeamsQueueForTests.resolveTaskCompletion(
+      { status: "completed" },
+      short,
+    );
+    expect(shortResult.summary).toBe(short);
+    expect(shortResult.summary.length).toBe(10_000);
+
+    // A result exactly at the cap must round-trip verbatim.
+    const atCap = "B".repeat(50_000);
+    expect(
+      _agentTeamsQueueForTests.resolveTaskCompletion(
+        { status: "completed" },
+        atCap,
+      ).summary,
+    ).toBe(atCap);
+
+    // A result exceeding the cap gets the tail (last 50 000 chars).
+    const overCap = "X".repeat(10_000) + "Y".repeat(50_000);
+    const overResult = _agentTeamsQueueForTests.resolveTaskCompletion(
+      { status: "completed" },
+      overCap,
+    );
+    expect(overResult.summary.length).toBe(50_000);
+    expect(overResult.summary).toBe("Y".repeat(50_000));
+  });
+
+  it("marks the summary with [hit-continuation-limit] when the absolute cap fires", async () => {
+    const { _agentTeamsQueueForTests } = await import("./agent-teams.js");
+
+    const result = _agentTeamsQueueForTests.resolveTaskCompletion(
+      { status: "completed" },
+      "partial output",
+      { hitContinuationLimit: true },
+    );
+    expect(result.summary).toContain("[hit-continuation-limit]");
+    expect(result.summary).toContain("partial output");
+    expect(result.taskStatus).toBe("completed");
+  });
+
   it("maps tasks into the shared background run vocabulary", async () => {
     const {
       getAgentTeamBackgroundRun,
@@ -405,6 +449,123 @@ describe("agent teams message queue", () => {
         sourceLabel: "Agent Teams",
       }),
     );
+  });
+  // ── Completion loop injection ────────────────────────────────────────────
+
+  it("appends a parent-completion injection when parentThreadId is set", async () => {
+    const {
+      drainParentCompletionInjections,
+      formatParentCompletionInjections,
+    } = await import("./agent-teams.js");
+
+    // Pre-populate the app state with a completion injection (simulates what
+    // finalizeAgentTeamRun writes internally via appendParentCompletionInjection).
+    const injKey = "parent-completion:parent-thread-1:inj-test-001";
+    appState.set(injKey, {
+      id: "inj-test-001",
+      taskId: "task-sub-1",
+      taskName: "Research task",
+      status: "completed",
+      hitContinuationLimit: false,
+      summaryExcerpt: "Found 10 results.",
+      fullSummaryAvailable: false,
+      timestamp: Date.now(),
+    });
+
+    const injections = await drainParentCompletionInjections("parent-thread-1");
+
+    expect(injections).toHaveLength(1);
+    expect(injections[0]).toMatchObject({
+      taskId: "task-sub-1",
+      taskName: "Research task",
+      status: "completed",
+      summaryExcerpt: "Found 10 results.",
+    });
+    // Consumed — second drain is empty
+    await expect(
+      drainParentCompletionInjections("parent-thread-1"),
+    ).resolves.toEqual([]);
+
+    const formatted = formatParentCompletionInjections(injections);
+    expect(formatted).toContain("Research task");
+    expect(formatted).toContain("Found 10 results.");
+    expect(formatted).toContain("completed");
+  });
+
+  it("formats completion injections with a pointer for long summaries", async () => {
+    const {
+      drainParentCompletionInjections,
+      formatParentCompletionInjections,
+    } = await import("./agent-teams.js");
+
+    const injKey = "parent-completion:parent-thread-2:inj-long-001";
+    appState.set(injKey, {
+      id: "inj-long-001",
+      taskId: "task-big",
+      taskName: "Big analysis",
+      status: "completed",
+      hitContinuationLimit: false,
+      summaryExcerpt: "A".repeat(2000),
+      fullSummaryAvailable: true,
+      timestamp: Date.now(),
+    });
+
+    const injections = await drainParentCompletionInjections("parent-thread-2");
+    const formatted = formatParentCompletionInjections(injections);
+
+    expect(formatted).toContain("read-result");
+    expect(formatted).toContain("task-big");
+  });
+
+  it("formats hit-continuation-limit completions with a descriptive label", async () => {
+    const {
+      drainParentCompletionInjections,
+      formatParentCompletionInjections,
+    } = await import("./agent-teams.js");
+
+    const injKey = "parent-completion:parent-thread-3:inj-limit-001";
+    appState.set(injKey, {
+      id: "inj-limit-001",
+      taskId: "task-limited",
+      status: "completed",
+      hitContinuationLimit: true,
+      summaryExcerpt: "Partial work done.",
+      fullSummaryAvailable: false,
+      timestamp: Date.now(),
+    });
+
+    const injections = await drainParentCompletionInjections("parent-thread-3");
+    const formatted = formatParentCompletionInjections(injections);
+
+    expect(formatted).toContain("continuation limit");
+  });
+
+  it("drains multiple injections in timestamp order", async () => {
+    const { drainParentCompletionInjections } =
+      await import("./agent-teams.js");
+
+    const now = Date.now();
+    appState.set("parent-completion:parent-thread-4:inj-b", {
+      id: "inj-b",
+      taskId: "task-b",
+      status: "completed",
+      hitContinuationLimit: false,
+      summaryExcerpt: "B done",
+      fullSummaryAvailable: false,
+      timestamp: now + 100,
+    });
+    appState.set("parent-completion:parent-thread-4:inj-a", {
+      id: "inj-a",
+      taskId: "task-a",
+      status: "errored",
+      hitContinuationLimit: false,
+      summaryExcerpt: "A failed",
+      fullSummaryAvailable: false,
+      timestamp: now,
+    });
+
+    const injections = await drainParentCompletionInjections("parent-thread-4");
+    expect(injections.map((i) => i.taskId)).toEqual(["task-a", "task-b"]);
   });
 });
 

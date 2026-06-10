@@ -20,21 +20,21 @@ function makePreviewCursorTrack(
   const { clickFrame = 60, fadeOpacity = false } = opts;
   const track = createCursorTrack(150, { startX: 200, startY: 200 });
 
-  track.animatedProps.find((p) => p.property === "x")!.keyframes = [
+  track.animatedProps!.find((p) => p.property === "x")!.keyframes = [
     { frame: 0, value: "200" },
     { frame: 15, value: String(cx) },
     { frame: 90, value: String(cx) },
     { frame: 120, value: "1720" },
     { frame: 150, value: "1720" },
   ];
-  track.animatedProps.find((p) => p.property === "y")!.keyframes = [
+  track.animatedProps!.find((p) => p.property === "y")!.keyframes = [
     { frame: 0, value: "200" },
     { frame: 15, value: String(cy) },
     { frame: 90, value: String(cy) },
     { frame: 120, value: "200" },
     { frame: 150, value: "200" },
   ];
-  track.animatedProps.find((p) => p.property === "isClicking")!.keyframes = [
+  track.animatedProps!.find((p) => p.property === "isClicking")!.keyframes = [
     { frame: 0, value: "0" },
     { frame: clickFrame - 1, value: "0" },
     { frame: clickFrame, value: "1" },
@@ -42,7 +42,7 @@ function makePreviewCursorTrack(
     { frame: 150, value: "0" },
   ];
   if (fadeOpacity) {
-    track.animatedProps.find((p) => p.property === "opacity")!.keyframes = [
+    track.animatedProps!.find((p) => p.property === "opacity")!.keyframes = [
       { frame: 0, value: "0" },
       { frame: 5, value: "0" },
       { frame: 15, value: "1" },

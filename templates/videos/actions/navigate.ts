@@ -29,7 +29,7 @@ export default defineAction({
   http: false,
   run: async (args) => {
     if (!args.view && !args.compositionId) {
-      return "Error: At least --view or --compositionId is required.";
+      throw new Error("At least --view or --compositionId is required.");
     }
     const nav: Record<string, string> = {};
     if (args.view) nav.view = args.view;

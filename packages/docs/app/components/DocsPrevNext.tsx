@@ -41,12 +41,11 @@ export default function DocsPrevNext() {
   const location = useLocation();
   const currentPath = location.pathname;
 
-  const currentIndex = NAV_ITEMS.findIndex((item) => {
-    if (item.to === "/docs") {
-      return currentPath === "/docs" || currentPath === "/docs/";
-    }
-    return currentPath.startsWith(item.to);
-  });
+  const norm = currentPath.replace(/\/+$/, "") || "/";
+
+  const currentIndex = NAV_ITEMS.findIndex((item) => norm === item.to);
+
+  if (currentIndex === -1) return null;
 
   const prev = currentIndex > 0 ? NAV_ITEMS[currentIndex - 1] : null;
   const next =

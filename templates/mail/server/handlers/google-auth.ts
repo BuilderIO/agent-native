@@ -161,7 +161,7 @@ export const handleGoogleCallback = defineEventHandler(
         query.state as string | undefined,
         getAppUrl(event, "/_agent-native/google/callback"),
       );
-      desktop = state.desktop;
+      desktop = state.desktop ?? false;
       flowId = state.flowId;
 
       // Handle Google authorization errors (e.g. user denied access, invalid client)
@@ -330,7 +330,7 @@ export const handleGoogleAddAccountCallback = defineEventHandler(
         query.state as string | undefined,
         getAppUrl(event, "/_agent-native/google/add-account/callback"),
       );
-      desktop = state.desktop;
+      desktop = state.desktop ?? false;
       flowId = state.flowId;
 
       // Handle Google authorization errors (e.g. user denied access, invalid client)

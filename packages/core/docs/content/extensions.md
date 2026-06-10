@@ -151,7 +151,7 @@ Inside the iframe sandbox, every extension has these helpers on `window`:
 | `extensionData.get(collection, id, opts?)`       | Get a single item                                         | `extensionData.get('notes', 'note-1')`                    |
 | `extensionData.remove(collection, id, opts?)`    | Delete a persisted item                                   | `extensionData.remove('notes', 'note-1')`                 |
 
-Two rules of thumb:
+Three rules of thumb:
 
 - **Prefer `appAction` over `dbQuery`.** Actions are the template's official surface — they handle access control, scoping, and validation for you. Reach for raw SQL only when no action fits.
 - **Use `appAction` for template data.** Extension `appFetch` is limited to framework `/_agent-native/*` endpoints; template `/api/*` routes are blocked by the iframe bridge.
@@ -215,7 +215,7 @@ In practice you don't run those three commands by hand. Just say "pin this widge
 
 > **Slots are an _added_ capability, not a prerequisite.** Plenty of useful extensions never get installed into a slot — they live happily on their own page. Reach for slots when the widget needs to be _next to_ what the user is looking at in the host template.
 
-For deeper detail on slots — how to declare them in your template, how the context contract works, how installs are scoped — see the `extension-points` skill.
+For deeper detail on slots — how to declare them in your template, how the context contract works, how installs are scoped — see the `extension-points` skill. Skills ship inside every scaffolded template under `.agents/skills/`; see [Skills Guide](/docs/skills-guide) for how they work.
 
 ## Sharing {#sharing}
 

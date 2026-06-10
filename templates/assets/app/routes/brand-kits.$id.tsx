@@ -106,6 +106,8 @@ import {
   VIDEO_DURATIONS,
   VIDEO_MODELS,
   VIDEO_RESOLUTIONS,
+  type AspectRatio,
+  type ImageCategory,
 } from "../../shared/api";
 
 function candidateSaveKey(slot: any): string {
@@ -1544,7 +1546,7 @@ function RunCard({
           </div>
           {outputIds.length ? (
             <div className="mt-2 flex flex-wrap gap-2">
-              {outputIds.map((assetId) => {
+              {outputIds.map((assetId: any) => {
                 const outputAsset = outputAssets?.get(assetId);
                 return (
                   <Button
@@ -1990,8 +1992,8 @@ function GenerationPresetsPanel({
   const [open, setOpen] = useState(false);
   const [confirmPresetId, setConfirmPresetId] = useState<string | null>(null);
   const [title, setTitle] = useState("");
-  const [category, setCategory] = useState("social");
-  const [aspectRatio, setAspectRatio] = useState("1:1");
+  const [category, setCategory] = useState<ImageCategory>("social");
+  const [aspectRatio, setAspectRatio] = useState<AspectRatio>("1:1");
   const [promptTemplate, setPromptTemplate] = useState("");
   const [textPolicy, setTextPolicy] = useState(
     "Prefer no embedded text. Keep any requested text short and readable.",
@@ -2146,7 +2148,10 @@ function GenerationPresetsPanel({
             <div className="grid grid-cols-2 gap-3">
               <div className="grid gap-2">
                 <Label>Category</Label>
-                <Select value={category} onValueChange={setCategory}>
+                <Select
+                  value={category}
+                  onValueChange={(value) => setCategory(value as ImageCategory)}
+                >
                   <SelectTrigger>
                     <SelectValue />
                   </SelectTrigger>
@@ -2161,7 +2166,12 @@ function GenerationPresetsPanel({
               </div>
               <div className="grid gap-2">
                 <Label>Aspect ratio</Label>
-                <Select value={aspectRatio} onValueChange={setAspectRatio}>
+                <Select
+                  value={aspectRatio}
+                  onValueChange={(value) =>
+                    setAspectRatio(value as AspectRatio)
+                  }
+                >
                   <SelectTrigger>
                     <SelectValue />
                   </SelectTrigger>

@@ -8,7 +8,7 @@
  * ✓ Apply all animation properties
  * ✓ Provide visual feedback
  *
- * @see INTERACTIVE_COMPONENTS.md for full documentation
+ * See animation-tracks skill for implementation details.
  */
 
 export { InteractiveButton } from "./InteractiveButton";

@@ -26,6 +26,7 @@ import {
   AGENT_NATIVE_SOCIAL_IMAGE_TYPE,
   AGENT_NATIVE_SOCIAL_IMAGE_WIDTH,
 } from "../shared/social-meta.js";
+import { normalizeAppBasePath } from "./app-base-path.js";
 
 function hasGoogleOAuth(): boolean {
   return !!(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET);
@@ -42,13 +43,6 @@ function getConnectionLabel(): string {
   if (url.startsWith("file:")) return "SQLite (local file)";
   if (url.startsWith("libsql://") || url.includes("turso.io")) return "Turso";
   return "SQL database";
-}
-
-function normalizeAppBasePath(value: string | undefined): string {
-  if (!value || value === "/") return "";
-  const trimmed = value.trim();
-  if (!trimmed || trimmed === "/") return "";
-  return `/${trimmed.replace(/^\/+/, "").replace(/\/+$/, "")}`;
 }
 
 function withAppBasePath(path: string): string {

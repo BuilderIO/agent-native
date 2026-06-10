@@ -1,28 +1,23 @@
 import { Links, Meta, Outlet, Scripts, ScrollRestoration } from "react-router";
 import { useCallback, useState } from "react";
-import {
-  QueryClient,
-  QueryClientProvider,
-  useQueryClient,
-} from "@tanstack/react-query";
-import { ThemeProvider } from "next-themes";
-import { useDbSync } from "@agent-native/core";
-import {
-  ClientOnly,
-  CommandMenu,
-  DefaultSpinner,
-  appPath,
-  useCommandMenuShortcut,
-} from "@agent-native/core/client";
-import { Toaster } from "@/components/ui/sonner";
-import { IconSun, IconMoon } from "@tabler/icons-react";
+import { useQueryClient } from "@tanstack/react-query";
 import { useTheme } from "next-themes";
-import { TooltipProvider } from "@/components/ui/tooltip";
+import {
+  AppProviders,
+  CommandMenu,
+  appPath,
+  createAgentNativeQueryClient,
+  useCommandMenuShortcut,
+  useDbSync,
+  getThemeInitScript,
+  configureTracking,
+} from "@agent-native/core/client";
+import { IconSun, IconMoon } from "@tabler/icons-react";
+import { Toaster } from "@/components/ui/sonner";
 import { Layout as AppLayout } from "@/components/layout/Layout";
 import type { LinksFunction } from "react-router";
 import stylesheet from "./global.css?url";
-import { configureTracking } from "@agent-native/core/client";
-import { getThemeInitScript } from "@agent-native/core/client";
+
 configureTracking({
   getDefaultProps: (_name, properties) => ({
     ...properties,
@@ -83,54 +78,40 @@ function DbSyncSetup() {
   return null;
 }
 
-function AppContent() {
-  const [cmdkOpen, setCmdkOpen] = useState(false);
+function ThemeToggleItem() {
   const { resolvedTheme, setTheme } = useTheme();
   const isDark = resolvedTheme === "dark";
-  useCommandMenuShortcut(useCallback(() => setCmdkOpen(true), []));
-
   return (
-    <>
+    <CommandMenu.Item
+      onSelect={() => setTheme(isDark ? "light" : "dark")}
+      keywords={["theme", "dark", "light", "mode"]}
+    >
+      {isDark ? <IconSun size={16} /> : <IconMoon size={16} />}
+      Toggle {isDark ? "light" : "dark"} mode
+    </CommandMenu.Item>
+  );
+}
+
+export default function Root() {
+  const [queryClient] = useState(() => createAgentNativeQueryClient());
+  const [cmdkOpen, setCmdkOpen] = useState(false);
+  useCommandMenuShortcut(useCallback(() => setCmdkOpen(true), []));
+  return (
+    <AppProviders queryClient={queryClient}>
+      <DbSyncSetup />
+      <Toaster richColors position="bottom-left" />
       <CommandMenu open={cmdkOpen} onOpenChange={setCmdkOpen}>
         <CommandMenu.Group heading="Actions">
           <CommandMenu.Item onSelect={() => {}}>Search</CommandMenu.Item>
         </CommandMenu.Group>
         <CommandMenu.Group heading="Appearance">
-          <CommandMenu.Item
-            onSelect={() => setTheme(isDark ? "light" : "dark")}
-            keywords={["theme", "dark", "light", "mode"]}
-          >
-            {isDark ? <IconSun size={16} /> : <IconMoon size={16} />}
-            Toggle {isDark ? "light" : "dark"} mode
-          </CommandMenu.Item>
+          <ThemeToggleItem />
         </CommandMenu.Group>
       </CommandMenu>
       <AppLayout>
         <Outlet />
       </AppLayout>
-      <Toaster richColors position="bottom-left" />
-    </>
-  );
-}
-
-export default function Root() {
-  const [queryClient] = useState(() => new QueryClient());
-  return (
-    <ClientOnly fallback={<DefaultSpinner />}>
-      <ThemeProvider
-        attribute="class"
-        defaultTheme="system"
-        enableSystem
-        disableTransitionOnChange
-      >
-        <QueryClientProvider client={queryClient}>
-          <TooltipProvider>
-            <DbSyncSetup />
-            <AppContent />
-          </TooltipProvider>
-        </QueryClientProvider>
-      </ThemeProvider>
-    </ClientOnly>
+    </AppProviders>
   );
 }
 

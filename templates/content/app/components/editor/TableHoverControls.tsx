@@ -212,7 +212,10 @@ function getChildren(node: ProseMirrorNode) {
   return children;
 }
 
-function findTableNodeByIndex(doc: ProseMirrorNode, tableIndex: number) {
+function findTableNodeByIndex(
+  doc: ProseMirrorNode,
+  tableIndex: number,
+): { node: ProseMirrorNode; pos: number } | null {
   let currentIndex = -1;
   let result: { node: ProseMirrorNode; pos: number } | null = null;
 

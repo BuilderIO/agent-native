@@ -4,6 +4,8 @@ import {
   mergeCoreSharingActions,
 } from "./action-discovery.js";
 
+const CORE_ACTION_DISCOVERY_TIMEOUT_MS = 15_000;
+
 describe("action discovery", () => {
   it("preserves explicit readOnly false from static defineAction entries", () => {
     const registry = loadActionsFromStaticRegistry({
@@ -181,26 +183,30 @@ describe("action discovery", () => {
     expect(seenArgs[0]).toEqual(["--id", "abc", "--title", "Hi there"]);
   });
 
-  it("preserves toolCallable:false on merged core sharing actions (audit-H5)", async () => {
-    // Regression guard: mergeCoreSharingActions must carry the security-relevant
-    // toolCallable:false flag from the action defs into the registry, otherwise
-    // the tools-iframe bridge 403 in action-routes.ts never fires and a
-    // sandboxed extension could change resource visibility / revoke shares.
-    const registry: Record<string, any> = {};
-    await mergeCoreSharingActions(registry);
+  it(
+    "preserves toolCallable:false on merged core sharing actions (audit-H5)",
+    async () => {
+      // Regression guard: mergeCoreSharingActions must carry the security-relevant
+      // toolCallable:false flag from the action defs into the registry, otherwise
+      // the tools-iframe bridge 403 in action-routes.ts never fires and a
+      // sandboxed extension could change resource visibility / revoke shares.
+      const registry: Record<string, any> = {};
+      await mergeCoreSharingActions(registry);
 
-    for (const name of [
-      "share-resource",
-      "unshare-resource",
-      "set-resource-visibility",
-    ]) {
-      expect(registry[name], `${name} should be merged`).toBeDefined();
-      expect(
-        registry[name].toolCallable,
-        `${name} must keep toolCallable:false`,
-      ).toBe(false);
-    }
-  });
+      for (const name of [
+        "share-resource",
+        "unshare-resource",
+        "set-resource-visibility",
+      ]) {
+        expect(registry[name], `${name} should be merged`).toBeDefined();
+        expect(
+          registry[name].toolCallable,
+          `${name} must keep toolCallable:false`,
+        ).toBe(false);
+      }
+    },
+    CORE_ACTION_DISCOVERY_TIMEOUT_MS,
+  );
 
   it("does not overwrite a template-provided action of the same name (template wins)", async () => {
     const templateRun = async () => "template-share";

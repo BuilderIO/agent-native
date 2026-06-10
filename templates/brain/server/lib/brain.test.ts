@@ -735,7 +735,9 @@ describe("Brain knowledge quality gates", () => {
       },
       importedBy: "[redacted]",
     });
-    expect(redacted.source.title).toBe("Slack source [redacted]");
+    expect(redacted.source).toMatchObject({
+      title: "Slack source [redacted]",
+    });
 
     const raw = await getCaptureAction.run({
       id: "capture-1",
@@ -755,7 +757,9 @@ describe("Brain knowledge quality gates", () => {
       },
       importedBy: "owner@example.test",
     });
-    expect(raw.source.title).toBe("Slack source alice@example.com");
+    expect(raw.source).toMatchObject({
+      title: "Slack source alice@example.com",
+    });
   });
 
   it("requires signed ingest payload sourceKey to match the source config", async () => {
@@ -1048,7 +1052,7 @@ describe("Brain knowledge quality gates", () => {
       visibility: "org",
       confidence: 95,
     });
-    expect(result.knowledge.publishedAt).toEqual(expect.any(String));
+    expect(result.knowledge!.publishedAt).toEqual(expect.any(String));
   });
 
   it("publishes and unpublishes approved knowledge as canonical workspace context", async () => {
@@ -1074,7 +1078,7 @@ describe("Brain knowledge quality gates", () => {
     expect(result.mode).toBe("knowledge");
 
     const published = await setKnowledgeCanonicalResource(
-      result.knowledge.id,
+      result.knowledge!.id,
       true,
     );
     expect(published.publishedResourcePath).toMatch(
@@ -1088,7 +1092,7 @@ describe("Brain knowledge quality gates", () => {
     );
 
     const unpublished = await setKnowledgeCanonicalResource(
-      result.knowledge.id,
+      result.knowledge!.id,
       false,
     );
     expect(unpublished.publishedResourcePath).toBeNull();
@@ -1129,7 +1133,7 @@ describe("Brain knowledge quality gates", () => {
     expect(result.mode).toBe("knowledge");
 
     const preview = await previewKnowledgeCanonicalResource({
-      knowledgeId: result.knowledge.id,
+      knowledgeId: result.knowledge!.id,
     });
     expect(preview).toMatchObject({
       source: "knowledge",
@@ -1145,7 +1149,7 @@ describe("Brain knowledge quality gates", () => {
       '1. Planning note (https://example.test/source/beta): "Decision: ship the beta on May 20."',
     );
 
-    await setKnowledgeCanonicalResource(result.knowledge.id, true);
+    await setKnowledgeCanonicalResource(result.knowledge!.id, true);
     expect(mocks.resourceWrites[mocks.resourceWrites.length - 1]).toMatchObject(
       {
         path: preview.path,
@@ -1178,7 +1182,7 @@ describe("Brain knowledge quality gates", () => {
     expect(result.mode).toBe("proposal");
 
     const preview = await previewKnowledgeCanonicalResource({
-      proposalId: result.proposal.id,
+      proposalId: result.proposal!.id,
       draft: {
         title: "Beta launch date",
         body: "The reviewer wording says beta launches on May 20.",
@@ -1187,7 +1191,7 @@ describe("Brain knowledge quality gates", () => {
 
     expect(preview).toMatchObject({
       source: "proposal",
-      proposalId: result.proposal.id,
+      proposalId: result.proposal!.id,
       knowledgeId: null,
       path: "context/company-brain/beta-launch-date-<new-id>.md",
       pathExact: false,
@@ -1225,7 +1229,7 @@ describe("Brain knowledge quality gates", () => {
     expect(result.mode).toBe("knowledge");
 
     await expect(
-      setKnowledgeCanonicalResource(result.knowledge.id, true),
+      setKnowledgeCanonicalResource(result.knowledge!.id, true),
     ).rejects.toThrow(/Only published Brain knowledge/);
   });
 
@@ -1252,9 +1256,9 @@ describe("Brain knowledge quality gates", () => {
     });
 
     expect(result.mode).toBe("knowledge");
-    expect(result.knowledge.status).toBe("redacted");
+    expect(result.knowledge!.status).toBe("redacted");
     expect(JSON.stringify(result.knowledge)).not.toContain("alice@example.com");
-    expect(result.knowledge.publishedAt).toBeNull();
+    expect(result.knowledge!.publishedAt).toBeNull();
   });
 
   it("keeps distillation queue items queued when no distillation worker completed them", async () => {
@@ -1662,7 +1666,7 @@ describe("Brain connector smoke coverage", () => {
       ({
         total: Object.values(
           values as Record<string, number | undefined>,
-        ).reduce((total, value) => total + Number(value ?? 0), 0),
+        ).reduce((total: number, value) => total + Number(value ?? 0), 0),
         other: 0,
         ...Object.fromEntries(statuses.map((status) => [status, 0])),
         ...values,

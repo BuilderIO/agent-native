@@ -507,6 +507,9 @@ export function useCollaborativeDoc(
   // Poll for remote doc updates + awareness sync, with SSE fast-path.
   useEffect(() => {
     if (!ydoc || !docId || docMissing) return;
+    // Non-null capture: null branch returned early above; async closures lose
+    // the narrowing on the outer ydoc variable.
+    const doc: Y.Doc = ydoc;
 
     let stopped = false;
     let timer: ReturnType<typeof setTimeout> | null = null;
@@ -559,11 +562,7 @@ export function useCollaborativeDoc(
               if (requestSource && change.requestSource === requestSource)
                 return;
               try {
-                Y.applyUpdate(
-                  ydoc,
-                  base64ToUint8Array(change.update),
-                  "remote",
-                );
+                Y.applyUpdate(doc, base64ToUint8Array(change.update), "remote");
               } catch {
                 // Malformed update — trigger state-vector fetch on next poll
               }
@@ -624,7 +623,7 @@ export function useCollaborativeDoc(
 
     async function fetchStateVector(): Promise<void> {
       try {
-        const stateVector = uint8ArrayToBase64(Y.encodeStateVector(ydoc));
+        const stateVector = uint8ArrayToBase64(Y.encodeStateVector(doc));
         const stateRes = await fetch(
           `${baseUrl}/${docId}/state?stateVector=${encodeURIComponent(stateVector)}`,
         );
@@ -635,7 +634,7 @@ export function useCollaborativeDoc(
           if (stateData?.state) {
             const binary = base64ToUint8Array(stateData.state);
             if (binary.length > 2) {
-              Y.applyUpdate(ydoc, binary, "remote");
+              Y.applyUpdate(doc, binary, "remote");
             }
           }
         }
@@ -683,7 +682,7 @@ export function useCollaborativeDoc(
           if (evt.source === "collab" && evt.docId === docId && evt.update) {
             if (requestSource && evt.requestSource === requestSource) continue;
             try {
-              Y.applyUpdate(ydoc, base64ToUint8Array(evt.update), "remote");
+              Y.applyUpdate(doc, base64ToUint8Array(evt.update), "remote");
             } catch {
               // Failed to apply — fetch full state-vector below
               await fetchStateVector();
@@ -727,7 +726,7 @@ export function useCollaborativeDoc(
                   method: "POST",
                   headers: { "Content-Type": "application/json" },
                   body: JSON.stringify({
-                    clientId: ydoc.clientID,
+                    clientId: doc.clientID,
                     state: JSON.stringify(localState),
                   }),
                 },
@@ -748,7 +747,7 @@ export function useCollaborativeDoc(
                 }
                 const changes = reconcileRemoteAwarenessStates(
                   awareness.getStates() as Map<number, unknown>,
-                  ydoc.clientID,
+                  doc.clientID,
                   remoteStates,
                 );
                 if (
@@ -799,7 +798,7 @@ export function useCollaborativeDoc(
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          clientId: ydoc.clientID,
+          clientId: doc.clientID,
           state: JSON.stringify(localState),
         }),
         keepalive: true,
@@ -858,6 +857,9 @@ export function useCollaborativeDoc(
     if (!ydoc || !docId || !awareness || typeof EventSource === "undefined") {
       return;
     }
+    // Non-null captures for closures: null branches returned early above.
+    const capturedYdoc = ydoc;
+    const capturedAwareness = awareness;
     const sseUrl = agentNativePath("/_agent-native/poll-events");
     let source: EventSource | null = null;
     let stopped = false;
@@ -893,8 +895,8 @@ export function useCollaborativeDoc(
             }
           }
           const changes = reconcileRemoteAwarenessStates(
-            awareness.getStates() as Map<number, unknown>,
-            ydoc.clientID,
+            capturedAwareness.getStates() as Map<number, unknown>,
+            capturedYdoc.clientID,
             remoteStates,
           );
           if (
@@ -902,7 +904,7 @@ export function useCollaborativeDoc(
             changes.updated.length ||
             changes.removed.length
           ) {
-            awareness.emit("change", [changes, "remote"]);
+            capturedAwareness.emit("change", [changes, "remote"]);
           }
         } catch {
           // Ignore malformed SSE frames; poll cycle is the safety net.

@@ -167,7 +167,7 @@ Stdio servers are still a no-op outside Node runtimes, but remote HTTP MCP serve
 
 ## Shared MCP servers via a hub {#hub}
 
-If your workspace runs multiple agent-native apps (e.g. dispatch + mail + clips), you can configure **one** app as the hub and have the others pull its org-scope MCP servers automatically. No per-app copy-paste of URLs and bearer tokens.
+If your workspace runs multiple agent-native apps (e.g. dispatch + mail + clips), you can configure **one** app as the hub and have the others pull its org-scope MCP servers automatically. No per-app copy-paste of URLs and bearer tokens. See [Multi-App Workspace](/docs/multi-app-workspace) for the canonical approach using Dispatch workspace MCP resources.
 
 Dispatch is the conventional hub — it already coordinates across apps.
 
@@ -230,7 +230,7 @@ Hub responses include the full auth headers (Bearer tokens etc). The transport i
 
 ### 4. Hot reload vs restart
 
-Local UI adds in each app hot-reload via `McpClientManager.reconfigure()` — no restart. Hub-sourced servers currently re-fetch only when a local mutation triggers a reconfigure (or when the app restarts), so if you add a new server in dispatch, other apps pick it up on their next restart or next local change. Periodic background refresh is on the roadmap.
+Local UI adds in each app hot-reload via `McpClientManager.reconfigure()` — no restart. Hub-sourced servers are picked up by the same periodic background refresh (approximately 60 s, tunable or disableable via `AGENT_NATIVE_MCP_CONFIG_REFRESH_MS`) that the workspace resource path uses, so changes made in Dispatch propagate to all consumer apps within about a minute without a restart. Additionally, any local mutation in a consumer app immediately triggers a reconfigure for that app.
 
 ### Endpoints summary
 

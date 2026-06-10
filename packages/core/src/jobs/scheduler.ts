@@ -17,7 +17,7 @@ import {
 } from "../agent/engine/index.js";
 import type { AgentEngine } from "../agent/engine/types.js";
 import { createThread } from "../chat-threads/store.js";
-import type { AgentChatEvent } from "../agent/types.js";
+import { startRun, resolveRunSoftTimeoutMs } from "../agent/run-manager.js";
 
 // ─── Frontmatter parsing ────────────────────────────────────────────────────
 
@@ -423,29 +423,89 @@ async function executeJob(
           },
         ];
 
-        // 5-minute timeout
-        const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), 5 * 60 * 1000);
+        // Route through startRun (from run-manager) instead of calling
+        // runAgentLoop directly. This adds:
+        //   1. A heartbeat row in agent_runs so a serverless kill is detected
+        //      by reapAllStaleRuns on the next startup and the row is flipped
+        //      to 'errored' — no more stranded lastStatus:"running" in the job
+        //      frontmatter after the next tick resets it via the stuck-guard.
+        //   2. The soft-timeout infrastructure so the job checkpoints cleanly
+        //      before serverless hard-kill rather than dying mid-flight.
+        //   3. SQL abort checks so a displaced/reaped run self-aborts instead
+        //      of completing invisibly and potentially overwriting newer state.
+        const runId = `job-${jobName.replace(/[^a-zA-Z0-9._-]/g, "-")}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
 
-        const events: AgentChatEvent[] = [];
-        const send = (event: AgentChatEvent) => {
-          events.push(event);
-        };
+        // Use the same soft-timeout logic as interactive runs. On hosted
+        // runtimes this clamps to 40s (under the gateway wall); locally it
+        // defaults to 0 (no framework timeout). The 5-minute hard-abort
+        // below is still provided as a backstop via the startRun signal.
+        const softTimeoutMs = resolveRunSoftTimeoutMs(undefined, {
+          useHostedDefault: true,
+        });
 
-        try {
-          await runAgentLoop({
-            engine,
-            model,
-            systemPrompt,
-            tools,
-            messages,
-            actions,
-            send,
-            signal: controller.signal,
-          });
-        } finally {
-          clearTimeout(timeout);
-        }
+        // Hard-abort backstop: 5 minutes. On hosted runtimes the soft-timeout
+        // will fire first; locally this is the only guard.
+        const hardAbortTimer = setTimeout(
+          () => {
+            // startRun's abort controller handles this below, but we still need
+            // the handle to clear it in the finally block.
+          },
+          5 * 60 * 1000,
+        );
+
+        let jobError: Error | null = null;
+        await new Promise<void>((resolve, reject) => {
+          const activeRun = startRun(
+            runId,
+            thread.id,
+            async (send, signal) => {
+              try {
+                await runAgentLoop({
+                  engine,
+                  model,
+                  systemPrompt,
+                  tools,
+                  messages,
+                  actions,
+                  send,
+                  signal,
+                  threadId: thread.id,
+                });
+              } catch (err) {
+                throw err;
+              }
+            },
+            // onComplete: run finished (completed or aborted)
+            async (run) => {
+              if (run.status === "completed") {
+                resolve();
+              } else {
+                reject(new Error(`Job run ended with status: ${run.status}`));
+              }
+            },
+            {
+              softTimeoutMs,
+              // turnId defaults to runId — fine for single-turn jobs
+            },
+          );
+
+          // Hard-abort backstop: abort the run-manager's own controller after
+          // 5 minutes if it hasn't finished naturally.
+          clearTimeout(hardAbortTimer);
+          setTimeout(
+            () => {
+              if (activeRun.status === "running") {
+                activeRun.abort.abort("job_hard_timeout");
+                reject(new Error("Job timed out after 5 minutes"));
+              }
+            },
+            5 * 60 * 1000,
+          );
+        }).catch((err: any) => {
+          jobError = err;
+        });
+
+        if (jobError) throw jobError;
 
         // Success — update status. Compute the next run from completion time,
         // not the job's start time `now`: a long run could otherwise schedule a

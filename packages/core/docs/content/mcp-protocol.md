@@ -7,6 +7,16 @@ description: "Expose your agent-native app as a remote MCP server so Claude, Cha
 
 Every agent-native app automatically exposes a remote MCP (Model Context Protocol) server. This lets external AI tools like Claude, ChatGPT custom MCP apps, Claude Code, Cursor, Codex, VS Code GitHub Copilot, and Windsurf discover and call your app's actions directly — no extra code needed.
 
+**Which page do I need?**
+
+| Goal                                                        | Page                                     |
+| ----------------------------------------------------------- | ---------------------------------------- |
+| Connect Claude / ChatGPT / Codex / Cursor to a hosted app   | [External Agents](/docs/external-agents) |
+| Make your app callable over MCP (server setup, auth, tools) | This page                                |
+| Give your app's agent more tools from external MCP servers  | [MCP Clients](/docs/mcp-clients)         |
+| App-to-app delegation via JSON-RPC                          | [A2A Protocol](/docs/a2a-protocol)       |
+| Build or embed interactive MCP App UIs                      | [MCP Apps](/docs/mcp-apps)               |
+
 If your goal is to connect Claude, ChatGPT, Claude Code, Codex, Cursor, or Claude Cowork to hosted agent-native apps, start with [External Agents](/docs/external-agents). It documents the recommended single Dispatch connector at `https://dispatch.agent-native.com/_agent-native/mcp`, direct per-app URLs for isolated app access, standard remote MCP OAuth, fallback config for older clients, MCP Apps inline UIs, and deep links back into the UI. This page is the lower-level MCP server reference.
 
 ## Overview {#overview}
@@ -38,23 +48,29 @@ Both protocols are auto-mounted. Use whichever fits your use case:
 
 You can also use the `ask-agent` MCP tool to get the best of both worlds — call it from Claude Code and let your app's agent reason through complex tasks.
 
-## Manual MCP client config {#claude-code}
+## Manual MCP client config {#manual-config}
 
 For the recommended one-command setup, use [External Agents](/docs/external-agents). If you are hand-writing MCP config for an OAuth-capable client, add your app as a remote MCP server with no static headers:
 
+```bash
+claude mcp add --transport http mail https://mail.example.com/_agent-native/mcp
+```
+
+Or write the entry by hand in `.mcp.json` (project scope) or `~/.claude.json` (user scope):
+
 ```jsonc
-// ~/.claude/mcp_servers.json
+// .mcp.json
 {
-  "mail": {
-    "type": "http",
-    "url": "https://mail.example.com/_agent-native/mcp",
+  "mcpServers": {
+    "mail": {
+      "type": "http",
+      "url": "https://mail.example.com/_agent-native/mcp",
+    },
   },
 }
 ```
 
-Then run `/mcp` in Claude Code and choose **Authenticate**. For clients that cannot perform remote MCP OAuth, use the Connect page or a static bearer-token entry with `headers.Authorization`.
-
-Then in Claude Code, you can use your app's tools naturally:
+Then run `/mcp` in Claude Code and choose **Authenticate**. For clients that cannot perform remote MCP OAuth, use the Connect page or a static bearer-token entry with `headers.Authorization`. Once authenticated, you can use your app's tools naturally:
 
 ```
 > draft an email to John about the Q3 report
@@ -83,10 +99,7 @@ navigation, mediates host actions over the `ui/*` JSON-RPC bridge (and the
 clamps the resource shell height so a full-app route does not render as an
 oversized chat artifact.
 
-See [External Agents](/docs/external-agents#mcp-app-bridge) for the full MCP App
-embed bridge and host-bridge details — transplant vs controlled-frame, the
-`ui/*` and postMessage tables, `create_embed_session` / `embedStartUrl`, CSP and
-domain rules, extension `srcDoc` embedding, and height clamping.
+See [MCP Apps](/docs/mcp-apps#mcp-app-bridge) for the full embed bridge details — transplant vs controlled-frame, the `ui/*` and postMessage tables, `create_embed_session` / `embedStartUrl`, CSP and domain rules, extension `srcDoc` embedding, height clamping, and the host bridge client API.
 
 ## Tools {#tools}
 
@@ -187,7 +200,7 @@ import { autoDiscoverActions } from "@agent-native/core/server";
 export default defineNitroPlugin(async (nitro) => {
   const actions = await autoDiscoverActions(import.meta.url);
 
-  mountMCP(nitro.h3App, {
+  mountMCP(nitro, {
     name: "My App",
     description: "Custom MCP server",
     actions,
@@ -196,6 +209,8 @@ export default defineNitroPlugin(async (nitro) => {
       // Your custom agent logic
       return "Response";
     },
+    // Optional: override the route prefix (default "/_agent-native")
+    // routePrefix: "/_agent-native",
   });
 });
 ```
@@ -204,12 +219,20 @@ export default defineNitroPlugin(async (nitro) => {
 
 You have a deployed analytics app at `analytics.example.com`. From Claude Code:
 
+```bash
+claude mcp add --transport http analytics https://analytics.example.com/_agent-native/mcp
+```
+
+Or add it by hand in `.mcp.json`:
+
 ```jsonc
-// ~/.claude/mcp_servers.json
+// .mcp.json
 {
-  "analytics": {
-    "type": "http",
-    "url": "https://analytics.example.com/_agent-native/mcp",
+  "mcpServers": {
+    "analytics": {
+      "type": "http",
+      "url": "https://analytics.example.com/_agent-native/mcp",
+    },
   },
 }
 ```

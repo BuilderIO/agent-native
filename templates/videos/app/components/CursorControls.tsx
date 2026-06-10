@@ -253,7 +253,11 @@ export const CursorControls: React.FC<CursorControlsProps> = ({
 
         return { ...prop, keyframes: newKeyframes };
       });
-      onUpdateTrack("cursor", { animatedProps: updatedProps });
+      onUpdateTrack("cursor", {
+        animatedProps: updatedProps as
+          | import("@/types").AnimatedProp[]
+          | undefined,
+      });
     } else {
       // For numeric properties, use the existing utility
       const numericValue = parseFloat(value);

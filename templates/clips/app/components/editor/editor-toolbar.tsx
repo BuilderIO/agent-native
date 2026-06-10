@@ -102,10 +102,10 @@ export function EditorToolbar({
   onOpenStitch,
   chaptersOpen,
 }: EditorToolbarProps) {
-  const undo = useActionMutation("undo-edit" as any);
-  const clear = useActionMutation("clear-edits" as any);
-  const trim = useActionMutation("trim-recording" as any);
-  const split = useActionMutation("split-recording" as any);
+  const undo = useActionMutation("undo-edit");
+  const clear = useActionMutation("clear-edits");
+  const trim = useActionMutation("trim-recording");
+  const split = useActionMutation("split-recording");
 
   const [exporting, setExporting] = useState(false);
   const [exportProgress, setExportProgress] = useState<ExportProgress | null>(
@@ -118,8 +118,8 @@ export function EditorToolbar({
 
   const handleUndo = async () => {
     try {
-      const r = await undo.mutateAsync({ recordingId } as any);
-      if (!(r as any)?.undone) toast.info("Nothing to undo");
+      const r = await undo.mutateAsync({ recordingId });
+      if (!r?.undone) toast.info("Nothing to undo");
     } catch (err: any) {
       toast.error(err?.message ?? "Undo failed");
     }
@@ -127,7 +127,7 @@ export function EditorToolbar({
 
   const handleClear = async () => {
     try {
-      await clear.mutateAsync({ recordingId } as any);
+      await clear.mutateAsync({ recordingId });
       toast.success("Edits cleared");
     } catch (err: any) {
       toast.error(err?.message ?? "Clear failed");
@@ -144,7 +144,7 @@ export function EditorToolbar({
         recordingId,
         startMs: Math.round(selectionRange.startMs),
         endMs: Math.round(selectionRange.endMs),
-      } as any);
+      });
       toast.success("Selection cut");
     } catch (err: any) {
       toast.error(err?.message ?? "Trim failed");
@@ -162,7 +162,7 @@ export function EditorToolbar({
         recordingId,
         startMs: 0,
         endMs,
-      } as any);
+      });
       toast.success("Start cut");
     } catch (err: any) {
       toast.error(err?.message ?? "Trim failed");
@@ -180,7 +180,7 @@ export function EditorToolbar({
         recordingId,
         startMs,
         endMs: Math.round(durationMs),
-      } as any);
+      });
       toast.success("End cut");
     } catch (err: any) {
       toast.error(err?.message ?? "Trim failed");
@@ -192,7 +192,7 @@ export function EditorToolbar({
       await split.mutateAsync({
         recordingId,
         atMs: Math.round(playheadMs),
-      } as any);
+      });
       toast.success("Split added");
     } catch (err: any) {
       toast.error(err?.message ?? "Split failed");

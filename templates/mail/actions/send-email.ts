@@ -10,8 +10,10 @@ import {
 } from "../server/lib/google-auth.js";
 import { setOAuthDisplayName } from "@agent-native/core/oauth-tokens";
 import {
-  encodeAddressHeader,
-  encodeMimeHeaderValue,
+  bodyToHtml,
+  buildRawEmail,
+  resolveComposeAttachments,
+  splitReplyQuote,
 } from "../server/lib/outgoing-email.js";
 import { resolveGoogleSenderIdentity } from "../server/lib/sender-identity.js";
 import { getRequestUserEmail } from "@agent-native/core/server";
@@ -19,7 +21,6 @@ import { getUserSetting, putUserSetting } from "@agent-native/core/settings";
 import { emit } from "@agent-native/core/event-bus";
 import {
   collectLinks,
-  injectTrackingIntoHtml,
   newClickToken,
   newPixelToken,
   persistTracking,
@@ -27,156 +28,7 @@ import {
 } from "../server/lib/email-tracking.js";
 import { getAppProductionUrl } from "@agent-native/core/server";
 import type { UserSettings } from "../shared/types.js";
-import {
-  decodeCommonHtmlEntities,
-  escapeHtml,
-  markdownPreviewSnippet,
-  normalizeMarkdownHardBreaks,
-  renderInlineMarkdown,
-} from "../shared/markdown.js";
-
-function markdownToHtml(markdown: string): string {
-  const normalized = decodeCommonHtmlEntities(
-    normalizeMarkdownHardBreaks(markdown),
-  ).trim();
-  if (!normalized) return "<div></div>";
-
-  const blocks = normalized.split(/\n{2,}/).map((block) => block.trim());
-  const html = blocks
-    .map((block) => {
-      if (block.startsWith("```") && block.endsWith("```")) {
-        const code = block.replace(/^```[^\n]*\n?/, "").replace(/\n?```$/, "");
-        return `<pre><code>${escapeHtml(code)}</code></pre>`;
-      }
-      const heading = block.match(/^(#{1,3})\s+(.+)$/);
-      if (heading) {
-        const level = heading[1].length;
-        return `<h${level}>${renderInlineMarkdown(heading[2])}</h${level}>`;
-      }
-      if (/^(\-|\*|\+)\s+/m.test(block)) {
-        const items = block
-          .split("\n")
-          .map((line) => line.trim())
-          .filter(Boolean)
-          .map((line) => line.replace(/^(\-|\*|\+)\s+/, ""))
-          .map((line) => `<li>${renderInlineMarkdown(line)}</li>`)
-          .join("");
-        return `<ul>${items}</ul>`;
-      }
-      if (/^\d+\.\s+/m.test(block)) {
-        const items = block
-          .split("\n")
-          .map((line) => line.trim())
-          .filter(Boolean)
-          .map((line) => line.replace(/^\d+\.\s+/, ""))
-          .map((line) => `<li>${renderInlineMarkdown(line)}</li>`)
-          .join("");
-        return `<ol>${items}</ol>`;
-      }
-      return `<p>${renderInlineMarkdown(block).replace(/\n/g, "<br />")}</p>`;
-    })
-    .join("");
-
-  return `<div>${html}</div>`;
-}
-
-function markdownToPlainText(markdown: string): string {
-  return decodeCommonHtmlEntities(normalizeMarkdownHardBreaks(markdown))
-    .replace(/!\[([^\]]*)\]\((https?:\/\/[^\s)]+)\)/g, "$1")
-    .replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, "$1 ($2)")
-    .replace(/`([^`]+)`/g, "$1")
-    .replace(/\*\*([^*]+)\*\*/g, "$1")
-    .replace(/(^|[\s(])\*([^*\n]+)\*(?=$|[\s).,!?:;])/g, "$1$2")
-    .trim();
-}
-
-function splitReplyQuote(body: string): {
-  newContent: string;
-  attribution: string;
-  quotedBody: string;
-} | null {
-  const replyMatch = body.match(/\n*— On (.+? wrote):\n/);
-  const fwdMatch = body.match(/\n*(— Forwarded message —)\n/);
-  const match = replyMatch || fwdMatch;
-  if (!match || match.index === undefined) return null;
-
-  const newContent = body.slice(0, match.index);
-  const attribution = replyMatch ? `On ${match[1]}:` : "Forwarded message";
-  const afterSeparator = body.slice(match.index + match[0].length);
-  return { newContent, attribution, quotedBody: afterSeparator };
-}
-
-function bodyToHtml(body: string, tracking?: TrackingContext): string {
-  const split = splitReplyQuote(body);
-  if (split) {
-    const newHtml = markdownToHtml(split.newContent);
-    const injectedNew = tracking
-      ? injectTrackingIntoHtml(newHtml, tracking)
-      : newHtml;
-    const stripped = split.quotedBody
-      .split("\n")
-      .map((line) => {
-        if (line.startsWith("> ")) return line.slice(2);
-        if (line === ">") return "";
-        return line;
-      })
-      .join("\n");
-    const innerHtml = markdownToHtml(stripped);
-    const quoteHtml =
-      `<div class="gmail_quote" style="margin-top:2.5em">` +
-      `<div class="gmail_attr">${escapeHtml(split.attribution)}</div>` +
-      `<blockquote class="gmail_quote" style="margin:0 0 0 0.8ex;border-left:1px solid rgb(204,204,204);padding-left:1ex">` +
-      innerHtml +
-      `</blockquote></div>`;
-    return injectedNew + quoteHtml;
-  }
-  const html = markdownToHtml(body);
-  return tracking ? injectTrackingIntoHtml(html, tracking) : html;
-}
-
-function buildRawEmail(opts: {
-  from: string;
-  to: string;
-  cc?: string;
-  bcc?: string;
-  subject: string;
-  body: string;
-  inReplyTo?: string;
-  references?: string;
-  tracking?: TrackingContext;
-}): string {
-  const boundary = `agent-native-${Date.now()}`;
-  const textBody = markdownToPlainText(opts.body);
-  const htmlBody = bodyToHtml(opts.body, opts.tracking);
-  const lines = [
-    `From: ${encodeAddressHeader(opts.from)}`,
-    `To: ${encodeAddressHeader(opts.to)}`,
-    ...(opts.cc ? [`Cc: ${encodeAddressHeader(opts.cc)}`] : []),
-    ...(opts.bcc ? [`Bcc: ${encodeAddressHeader(opts.bcc)}`] : []),
-    `Subject: ${encodeMimeHeaderValue(opts.subject)}`,
-    ...(opts.inReplyTo ? [`In-Reply-To: ${opts.inReplyTo}`] : []),
-    ...(opts.references ? [`References: ${opts.references}`] : []),
-    `MIME-Version: 1.0`,
-    `Content-Type: multipart/alternative; boundary="${boundary}"`,
-    "",
-    `--${boundary}`,
-    `Content-Type: text/plain; charset="UTF-8"`,
-    "",
-    textBody,
-    "",
-    `--${boundary}`,
-    `Content-Type: text/html; charset="UTF-8"`,
-    "",
-    htmlBody,
-    "",
-    `--${boundary}--`,
-  ];
-  return Buffer.from(lines.join("\r\n"))
-    .toString("base64")
-    .replace(/\+/g, "-")
-    .replace(/\//g, "_")
-    .replace(/=+$/, "");
-}
+import { markdownPreviewSnippet } from "../shared/markdown.js";
 
 async function readSettings(): Promise<{
   name: string;
@@ -224,8 +76,27 @@ function buildTrackingContext(
   };
 }
 
+const attachmentSchema = z.object({
+  filename: z
+    .string()
+    .describe(
+      "The stored upload filename (the server-side key, e.g. 'abc123.pdf'). Must match a file previously uploaded via the media-upload endpoint.",
+    ),
+  originalName: z
+    .string()
+    .optional()
+    .describe("Display name shown to the recipient (e.g. 'Q2-Report.pdf')"),
+  mimeType: z
+    .string()
+    .optional()
+    .describe(
+      "MIME type, e.g. 'application/pdf'. Inferred from the stored upload when omitted.",
+    ),
+});
+
 export default defineAction({
-  description: "Send an email via Gmail.",
+  description:
+    "Send an email via Gmail. IMPORTANT: Never call this unless the user explicitly asks to send — always draft first and show the content to the user for review before sending.",
   schema: z.object({
     to: z.string().describe("Recipient email(s), comma-separated"),
     subject: z.string().describe("Email subject"),
@@ -244,11 +115,35 @@ export default defineAction({
       .string()
       .optional()
       .describe("Specific account email to send from"),
+    attachments: z
+      .array(attachmentSchema)
+      .optional()
+      .describe(
+        "Files to attach. Each entry must reference a previously-uploaded file by its server-side `filename`. The upload must have been created via the media-upload endpoint before calling this action.",
+      ),
   }),
   run: async (args) => {
     const ownerEmail = getRequestUserEmail();
     if (!ownerEmail) throw new Error("no authenticated user");
     const settings = await readSettings();
+
+    // Resolve attachments eagerly — fail before touching Gmail if any are missing.
+    let resolvedAttachments: Awaited<
+      ReturnType<typeof resolveComposeAttachments>
+    > = [];
+    if (args.attachments && args.attachments.length > 0) {
+      try {
+        resolvedAttachments = await resolveComposeAttachments(
+          args.attachments,
+          ownerEmail,
+        );
+      } catch {
+        throw new Error(
+          "One or more attachments could not be read. Make sure each file was uploaded via the media-upload endpoint before sending.",
+        );
+      }
+    }
+
     const accounts = await getAccessTokens();
     if (accounts.length === 0) {
       const data = await getUserSetting(ownerEmail, "local-emails");
@@ -292,6 +187,17 @@ export default defineAction({
         isArchived: false,
         isTrashed: false,
         labelIds: ["sent"],
+        ...(resolvedAttachments.length > 0
+          ? {
+              attachments: resolvedAttachments.map((att) => ({
+                id: att.filename,
+                filename: att.originalName,
+                mimeType: att.mimeType,
+                size: att.size,
+                url: att.url,
+              })),
+            }
+          : {}),
       };
       emails.push(newEmail);
       await putUserSetting(ownerEmail, "local-emails", { emails });
@@ -314,7 +220,7 @@ export default defineAction({
 
     if (args.account) {
       const match = accounts.find((a) => a.email === args.account);
-      if (!match) return `Error: Account ${args.account} not connected`;
+      if (!match) throw new Error(`Account ${args.account} not connected`);
       selectedToken = match.accessToken;
       selectedEmail = match.email;
     }
@@ -371,6 +277,8 @@ export default defineAction({
       inReplyTo,
       references,
       tracking,
+      attachments:
+        resolvedAttachments.length > 0 ? resolvedAttachments : undefined,
     });
 
     try {
@@ -404,7 +312,7 @@ export default defineAction({
 
       return `Email sent successfully (id: ${sent.id})`;
     } catch (err: any) {
-      return `Error sending email: ${err?.message}`;
+      throw new Error(`sending email: ${err?.message}`);
     }
   },
 });

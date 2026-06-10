@@ -95,6 +95,7 @@ import {
   DevDatabaseLink,
   FeedbackButton,
   appApiPath,
+  callAction,
   appPath,
   useActionMutation,
   useChangeVersions,
@@ -935,25 +936,24 @@ type SqlDashboardListItem = {
 };
 
 async function fetchSqlDashboards(): Promise<SqlDashboardListItem[]> {
-  const token = await getIdToken();
-  const res = await fetch(appApiPath("/api/sql-dashboards"), {
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
-  });
-  if (!res.ok) return [];
-  const data = await res.json();
-  return (data.dashboards ?? [])
-    .filter((d: any) => d && typeof d.id === "string" && d.id.length > 0)
-    .map((d: any) => ({
-      id: d.id,
-      name:
-        typeof d.name === "string" && d.name.trim().length > 0
-          ? d.name
-          : "Untitled dashboard",
-      visibility:
-        d.visibility === "org" || d.visibility === "public"
-          ? (d.visibility as Visibility)
-          : ("private" as Visibility),
-    }));
+  try {
+    const rows = await callAction("list-sql-dashboards", {});
+    return (Array.isArray(rows) ? rows : [])
+      .filter((d: any) => d && typeof d.id === "string" && d.id.length > 0)
+      .map((d: any) => ({
+        id: d.id,
+        name:
+          typeof d.name === "string" && d.name.trim().length > 0
+            ? d.name
+            : "Untitled dashboard",
+        visibility:
+          d.visibility === "org" || d.visibility === "public"
+            ? (d.visibility as Visibility)
+            : ("private" as Visibility),
+      }));
+  } catch {
+    return [];
+  }
 }
 
 async function fetchSidebarAnalyses(
@@ -966,29 +966,27 @@ async function fetchSidebarAnalyses(
     hiddenAt: string | null;
   }[]
 > {
-  const token = await getIdToken();
-  const path =
-    hidden === "hidden" ? "/api/analyses?hidden=hidden" : "/api/analyses";
-  const res = await fetch(appApiPath(path), {
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
-  });
-  if (!res.ok) return [];
-  const data = await res.json();
-  const rows = Array.isArray(data) ? data : (data.analyses ?? []);
-  return rows
-    .filter((a: any) => a && typeof a.id === "string" && a.id.length > 0)
-    .map((a: any) => ({
-      id: a.id,
-      name:
-        typeof a.name === "string" && a.name.trim().length > 0
-          ? a.name
-          : "Untitled analysis",
-      visibility:
-        a.visibility === "org" || a.visibility === "public"
-          ? a.visibility
-          : ("private" as Visibility),
-      hiddenAt: typeof a.hiddenAt === "string" ? a.hiddenAt : null,
-    }));
+  try {
+    const rows = await callAction("list-analyses", {
+      ...(hidden === "hidden" ? { hidden: "hidden" } : {}),
+    } as Record<string, unknown>);
+    return (Array.isArray(rows) ? rows : [])
+      .filter((a: any) => a && typeof a.id === "string" && a.id.length > 0)
+      .map((a: any) => ({
+        id: a.id,
+        name:
+          typeof a.name === "string" && a.name.trim().length > 0
+            ? a.name
+            : "Untitled analysis",
+        visibility:
+          a.visibility === "org" || a.visibility === "public"
+            ? a.visibility
+            : ("private" as Visibility),
+        hiddenAt: typeof a.hiddenAt === "string" ? a.hiddenAt : null,
+      }));
+  } catch {
+    return [];
+  }
 }
 
 type PrefetchedSqlDashboard = {
@@ -1008,54 +1006,41 @@ type PrefetchedSqlDashboard = {
 async function fetchSqlDashboardForPrefetch(
   id: string,
 ): Promise<PrefetchedSqlDashboard | null> {
-  const token = await getIdToken();
-  const res = await fetch(appApiPath(`/api/sql-dashboards/${id}`), {
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
-  });
-  if (res.status === 404) return null;
-  if (!res.ok) {
-    throw new Error(`Dashboard prefetch failed (${res.status})`);
-  }
-  let data: any;
   try {
-    data = await res.json();
+    const data: any = await callAction("get-sql-dashboard", { id });
+    if (!data || data.error) return null;
+    return {
+      id,
+      config: {
+        name:
+          typeof data.name === "string" && data.name.trim().length > 0
+            ? data.name
+            : "Untitled Dashboard",
+        description: data.description,
+        filters: data.filters,
+        variables: data.variables,
+        columns: typeof data.columns === "number" ? data.columns : undefined,
+        panels: Array.isArray(data.panels) ? data.panels : [],
+      },
+      archivedAt: typeof data.archivedAt === "string" ? data.archivedAt : null,
+      hiddenAt: typeof data.hiddenAt === "string" ? data.hiddenAt : null,
+      role: typeof data.role === "string" ? data.role : undefined,
+      canEdit: typeof data.canEdit === "boolean" ? data.canEdit : undefined,
+      canManage:
+        typeof data.canManage === "boolean" ? data.canManage : undefined,
+    };
   } catch {
-    throw new Error("Dashboard prefetch returned invalid JSON");
+    return null;
   }
-  return {
-    id,
-    config: {
-      name:
-        typeof data.name === "string" && data.name.trim().length > 0
-          ? data.name
-          : "Untitled Dashboard",
-      description: data.description,
-      filters: data.filters,
-      variables: data.variables,
-      columns: typeof data.columns === "number" ? data.columns : undefined,
-      panels: Array.isArray(data.panels) ? data.panels : [],
-    },
-    archivedAt: typeof data.archivedAt === "string" ? data.archivedAt : null,
-    hiddenAt: typeof data.hiddenAt === "string" ? data.hiddenAt : null,
-    role: typeof data.role === "string" ? data.role : undefined,
-    canEdit: typeof data.canEdit === "boolean" ? data.canEdit : undefined,
-    canManage: typeof data.canManage === "boolean" ? data.canManage : undefined,
-  };
 }
 
 async function fetchAnalysisDetailForPrefetch(id: string): Promise<unknown> {
-  const token = await getIdToken();
-  const res = await fetch(appApiPath(`/api/analyses/${id}`), {
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
-  });
-  if (res.status === 404) return null;
-  if (!res.ok) {
-    throw new Error(`Analysis prefetch failed (${res.status})`);
-  }
   try {
-    return await res.json();
+    const data = await callAction("get-analysis", { id });
+    if (!data || (data as Record<string, unknown>).error) return null;
+    return data;
   } catch {
-    throw new Error("Analysis prefetch returned invalid JSON");
+    return null;
   }
 }
 
@@ -1128,6 +1113,16 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
   const { mutateAsync: hideAnalysisMut } = useActionMutation("hide-analysis");
   const { mutateAsync: setResourceVisibility } = useActionMutation(
     "set-resource-visibility",
+  );
+  const { mutateAsync: deleteSqlDashboard } = useActionMutation(
+    "delete-sql-dashboard",
+    { method: "DELETE" },
+  );
+  const { mutateAsync: archiveDashboardMut } =
+    useActionMutation("archive-dashboard");
+  const { mutateAsync: deleteAnalysisMut } = useActionMutation(
+    "delete-analysis",
+    { method: "DELETE" },
   );
   const [sidebarWidth, setSidebarWidth] = useState(() => {
     if (typeof window === "undefined") return 256;
@@ -1400,14 +1395,7 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
         (old) => (old ?? []).filter((item) => item.id !== d.id),
       );
       try {
-        const token = await getIdToken();
-        const res = await fetch(appApiPath(`/api/sql-dashboards/${d.id}`), {
-          method: "DELETE",
-          headers: token ? { Authorization: `Bearer ${token}` } : {},
-        });
-        if (!res.ok) {
-          throw new Error(`Delete failed: ${res.status}`);
-        }
+        await deleteSqlDashboard({ id: d.id });
         queryClient.removeQueries({ queryKey: sqlDashboardPrefetchKey(d.id) });
         queryClient.invalidateQueries({ queryKey: activeKey });
       } catch (err) {
@@ -1415,7 +1403,7 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
         throw err;
       }
     },
-    [queryClient],
+    [queryClient, deleteSqlDashboard],
   );
 
   const handleDashboardArchive = useCallback(
@@ -1437,15 +1425,7 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
         (old) => (old ?? []).filter((item) => item.id !== d.id),
       );
       try {
-        const token = await getIdToken();
-        const res = await fetch(
-          appApiPath(`/api/sql-dashboards/${d.id}/archive`),
-          {
-            method: "POST",
-            headers: token ? { Authorization: `Bearer ${token}` } : {},
-          },
-        );
-        if (!res.ok) throw new Error(`archive failed: ${res.status}`);
+        await archiveDashboardMut({ id: d.id, archived: true });
         queryClient.removeQueries({ queryKey: sqlDashboardPrefetchKey(d.id) });
         queryClient.invalidateQueries({ queryKey: activeKey });
         toast.success(`Archived "${d.name}"`);
@@ -1454,7 +1434,7 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
         throw err;
       }
     },
-    [queryClient],
+    [queryClient, archiveDashboardMut],
   );
 
   const handleDashboardRename = useCallback(
@@ -1508,14 +1488,7 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
         (old) => (old ?? []).filter((item) => item.id !== a.id),
       );
       try {
-        const token = await getIdToken();
-        const res = await fetch(appApiPath(`/api/analyses/${a.id}`), {
-          method: "DELETE",
-          headers: token ? { Authorization: `Bearer ${token}` } : {},
-        });
-        if (!res.ok) {
-          throw new Error(`Delete failed: ${res.status}`);
-        }
+        await deleteAnalysisMut({ id: a.id });
         queryClient.removeQueries({
           queryKey: analysisDetailPrefetchKey(a.id),
         });
@@ -1526,7 +1499,7 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
         throw err;
       }
     },
-    [queryClient],
+    [queryClient, deleteAnalysisMut],
   );
 
   const handleDashboardSetVisibility = useCallback(
@@ -1634,7 +1607,7 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
           item.id === a.id ? { ...item, name: trimmed } : item,
         ),
       );
-      queryClient.setQueriesData<any>({ queryKey: detailKey }, (old) =>
+      queryClient.setQueriesData<any>({ queryKey: detailKey }, (old: any) =>
         old ? { ...old, name: trimmed } : old,
       );
 

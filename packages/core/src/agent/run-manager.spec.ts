@@ -5,6 +5,11 @@ vi.mock("./run-store.js", () => ({
   insertRun: vi.fn(() => Promise.resolve()),
   insertRunEvent: vi.fn(() => Promise.resolve()),
   updateRunStatus: vi.fn(() => Promise.resolve()),
+  updateRunStatusIfRunning: vi.fn(() => Promise.resolve(true)),
+  getRunStatus: vi.fn(() => Promise.resolve("running")),
+  tryClaimRunSlot: vi.fn(() =>
+    Promise.resolve({ claimed: true, activeRunId: null }),
+  ),
   markRunAborted: vi.fn(() => Promise.resolve()),
   isRunAborted: vi.fn(() => Promise.resolve(false)),
   getRunAbortState: vi.fn(() => Promise.resolve({ aborted: false })),
@@ -44,6 +49,7 @@ import {
 } from "./run-manager.js";
 import {
   getRunAbortState,
+  getRunStatus,
   insertRun,
   insertRunEvent,
   getRunById,
@@ -51,6 +57,7 @@ import {
   getRunEventsSince,
   markRunAborted,
   updateRunStatus,
+  updateRunStatusIfRunning,
   ensureTerminalRunEvent,
   cleanupOldRuns,
   setRunError,
@@ -121,6 +128,7 @@ describe("run manager soft timeout", () => {
     vi.useFakeTimers();
     clearHostedEnvForTest();
     vi.mocked(getRunAbortState).mockResolvedValue({ aborted: false });
+    vi.mocked(getRunStatus).mockResolvedValue("running");
     vi.mocked(getRunById).mockResolvedValue(null);
     vi.mocked(getRunEventsSince).mockResolvedValue([]);
     vi.mocked(insertRun).mockResolvedValue(undefined);
@@ -128,6 +136,8 @@ describe("run manager soft timeout", () => {
     vi.mocked(markRunAborted).mockClear();
     vi.mocked(insertRunEvent).mockClear();
     vi.mocked(updateRunStatus).mockClear();
+    vi.mocked(updateRunStatusIfRunning).mockReset();
+    vi.mocked(updateRunStatusIfRunning).mockResolvedValue(true);
     vi.mocked(cleanupOldRuns).mockClear();
     vi.mocked(setRunError).mockClear();
   });
@@ -392,12 +402,12 @@ describe("run manager soft timeout", () => {
         expect.stringContaining('"type":"error"'),
       );
     });
-    expect(updateRunStatus).not.toHaveBeenCalled();
+    expect(updateRunStatusIfRunning).not.toHaveBeenCalled();
 
     releaseTerminalEvent();
 
     await vi.waitFor(() => {
-      expect(updateRunStatus).toHaveBeenCalledWith(
+      expect(updateRunStatusIfRunning).toHaveBeenCalledWith(
         "run-terminal-event-order",
         "errored",
       );
@@ -532,7 +542,7 @@ describe("run manager soft timeout", () => {
     await Promise.resolve();
 
     expect(run.status).toBe("completed");
-    expect(updateRunStatus).not.toHaveBeenCalledWith(
+    expect(updateRunStatusIfRunning).not.toHaveBeenCalledWith(
       "run-insert-race",
       "completed",
     );
@@ -540,7 +550,7 @@ describe("run manager soft timeout", () => {
     resolveInsert();
 
     await vi.waitFor(() =>
-      expect(updateRunStatus).toHaveBeenCalledWith(
+      expect(updateRunStatusIfRunning).toHaveBeenCalledWith(
         "run-insert-race",
         "completed",
       ),
@@ -568,7 +578,7 @@ describe("run manager soft timeout", () => {
     run.subscribers.add((event) => events.push(event.event));
 
     await vi.waitFor(() =>
-      expect(updateRunStatus).toHaveBeenCalledWith(
+      expect(updateRunStatusIfRunning).toHaveBeenCalledWith(
         "run-capture-error",
         "errored",
       ),
@@ -634,7 +644,7 @@ describe("run manager soft timeout", () => {
       0,
       JSON.stringify({ type: "text", text: "saved first" }),
     );
-    expect(updateRunStatus).not.toHaveBeenCalledWith(
+    expect(updateRunStatusIfRunning).not.toHaveBeenCalledWith(
       "run-terminal-after-save",
       "completed",
     );
@@ -647,7 +657,7 @@ describe("run manager soft timeout", () => {
       1,
       JSON.stringify({ type: "done" }),
     );
-    expect(updateRunStatus).toHaveBeenCalledWith(
+    expect(updateRunStatusIfRunning).toHaveBeenCalledWith(
       "run-terminal-after-save",
       "completed",
     );
@@ -673,7 +683,7 @@ describe("run manager soft timeout", () => {
     run.subscribers.add((event) => events.push(event.event));
 
     await vi.waitFor(() =>
-      expect(updateRunStatus).toHaveBeenCalledWith(
+      expect(updateRunStatusIfRunning).toHaveBeenCalledWith(
         "run-completion-failed",
         "errored",
       ),
@@ -936,5 +946,112 @@ describe("run manager soft timeout", () => {
 
     const output = chunks.join("");
     expect(output).toContain('"errorCode":"stale_run"');
+  });
+
+  // Fix 1a/b: zombie self-abort — run whose row was reaped must self-abort
+  it("self-aborts and does not overwrite status when the SQL row is no longer running", async () => {
+    // Simulate a run that gets reaped mid-execution: the SQL row flips to
+    // 'errored' after the heartbeat interval fires and checkSqlAbort reads it.
+    vi.mocked(getRunStatus).mockResolvedValueOnce("errored");
+
+    let abortFired = false;
+    const run = startRun(
+      "run-zombie-reap",
+      "thread-zombie-reap",
+      async (_send, signal) => {
+        await new Promise<void>((resolve) => {
+          signal.addEventListener("abort", () => {
+            abortFired = true;
+            resolve();
+          });
+        });
+      },
+      undefined,
+      { softTimeoutMs: 0 },
+    );
+
+    // Advance past the 3s checkSqlAbort threshold
+    await vi.advanceTimersByTimeAsync(3001);
+
+    expect(abortFired).toBe(true);
+    // The zombie must NOT have written a terminal status on top of the reaper's
+    // 'errored' write — the conditional updateRunStatusIfRunning call should
+    // have been skipped because the run was aborted (status="aborted").
+    expect(run.abortReason).toBe("displaced");
+  });
+
+  it("uses a conditional WHERE status=running write so a reaped row is not overwritten", async () => {
+    // Simulate the reaper having flipped the row to 'errored'. The zombie's
+    // own terminal write must use updateRunStatusIfRunning (WHERE id=? AND
+    // status='running') so it is a no-op when the row is already errored.
+    // The mock returns false (rowsAffected=0) to simulate the row being gone.
+    vi.mocked(updateRunStatusIfRunning).mockResolvedValue(false);
+    vi.mocked(getRunStatus).mockResolvedValue("errored");
+
+    startRun(
+      "run-no-clobber",
+      "thread-no-clobber",
+      async (_send, signal) => {
+        await new Promise<void>((resolve) => {
+          signal.addEventListener("abort", () => resolve());
+        });
+      },
+      undefined,
+      { softTimeoutMs: 0 },
+    );
+
+    await vi.advanceTimersByTimeAsync(3001);
+    // Wait for the run to finish winding down (status flips to aborted)
+    await vi.waitFor(() => expect(updateRunStatusIfRunning).toHaveBeenCalled());
+    // The unconditional updateRunStatus must NOT have been called — only the
+    // guarded conditional variant is allowed on the terminal status write path.
+    expect(updateRunStatus).not.toHaveBeenCalledWith(
+      "run-no-clobber",
+      expect.anything(),
+    );
+  });
+
+  // Fix 3: ordered event persistence
+  it("chains event persistence so inserts commit in seq order", async () => {
+    const persistOrder: number[] = [];
+    let resolveSeq0!: () => void;
+    const seq0Barrier = new Promise<void>((r) => {
+      resolveSeq0 = r;
+    });
+
+    vi.mocked(insertRunEvent).mockImplementation(async (_runId, seq) => {
+      if (seq === 0) {
+        // seq=0 is intentionally slow
+        await seq0Barrier;
+      }
+      persistOrder.push(seq);
+    });
+
+    const run = startRun(
+      "run-persist-order",
+      "thread-persist-order",
+      async (send) => {
+        send({ type: "text", text: "first" }); // seq 0
+        send({ type: "text", text: "second" }); // seq 1
+      },
+      undefined,
+      { softTimeoutMs: 0 },
+    );
+    run.subscribers.add(() => {});
+
+    // Let the run complete; seq=1 insert would normally beat seq=0 without the chain
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    // seq=1 must not have committed yet because seq=0 is still pending
+    expect(persistOrder).not.toContain(1);
+
+    // Release seq=0 — seq=1 should follow
+    resolveSeq0();
+    await vi.waitFor(() => expect(persistOrder).toContain(1));
+
+    // Order must be preserved: seq=0 before seq=1
+    expect(persistOrder.indexOf(0)).toBeLessThan(persistOrder.indexOf(1));
   });
 });

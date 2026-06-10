@@ -1,6 +1,6 @@
-/** @import must precede all other statements */
-@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap");
-@import url("https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&display=swap");
+/* Self-hosted via @fontsource-variable/inter and @fontsource-variable/jetbrains-mono — no render-blocking Google Fonts request */
+@import "@fontsource-variable/inter";
+@import "@fontsource-variable/jetbrains-mono";
 
 @import "tailwindcss";
 @import "@agent-native/core/styles/agent-native.css";
@@ -97,6 +97,7 @@
   body {
     @apply bg-background text-foreground;
     font-family:
+      "Inter Variable",
       "Inter",
       system-ui,
       -apple-system,
@@ -112,7 +113,7 @@
   code {
     overflow-x: auto;
     white-space: pre;
-    font-family: "JetBrains Mono", monospace;
+    font-family: "JetBrains Mono Variable", "JetBrains Mono", monospace;
   }
 
   /* Custom dark scrollbar for all elements */

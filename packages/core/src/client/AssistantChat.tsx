@@ -15,23 +15,14 @@ import {
   useAui,
   useComposer,
   useComposerRuntime,
-  useMessagePartText,
-  useMessageRuntime,
   ThreadPrimitive,
-  MessagePrimitive,
 } from "@assistant-ui/react";
 import type {
-  AttachmentAdapter,
-  ChatModelAdapter,
-  CompleteAttachment,
-  ExportedMessageRepository,
-  PendingAttachment,
-  ToolCallMessagePartProps,
   Attachment,
+  ChatModelAdapter,
+  ExportedMessageRepository,
 } from "@assistant-ui/react";
 import { CompositeAttachmentAdapter } from "@assistant-ui/react";
-import ReactMarkdown, { defaultUrlTransform } from "react-markdown";
-import remarkGfm from "remark-gfm";
 import {
   createAgentChatAdapter,
   type AgentChatSurfaceKind,
@@ -49,18 +40,11 @@ import {
   type AgentDynamicSuggestionsOption,
 } from "./dynamic-suggestions.js";
 import type { ReasoningEffort } from "../shared/reasoning-effort.js";
-import {
-  initialSmoothStreamingGraphemeCount,
-  SMOOTH_STREAMING_COMMIT_INTERVAL_MS,
-  smoothStreamingPunctuationDelayMs,
-  smoothStreamingRevealCount,
-  splitStreamingTextGraphemes,
-} from "../shared/streaming-text-smoothing.js";
-import type { AgentMcpAppPayload } from "../mcp-client/app-result.js";
 import type {
   ChatThreadScope,
   ChatThreadSnapshot,
 } from "./use-chat-threads.js";
+import { PROVIDER_ENV_VARS } from "../agent/engine/provider-env-vars.js";
 import { getActiveRun } from "./active-run-state.js";
 import {
   AgentAutoContinueSignal,
@@ -73,14 +57,8 @@ import {
   AssistantUiStaleIndexErrorBoundary,
 } from "./assistant-ui-recovery.js";
 import { cn } from "./utils.js";
-import { writeClipboardText } from "./clipboard.js";
 import { useNearBottomAutoscroll } from "./conversation/index.js";
 import { TextAttachmentAdapter } from "./composer/attachment-accept.js";
-import { AgentTaskCard } from "./AgentTaskCard.js";
-import { ConnectBuilderCard } from "./ConnectBuilderCard.js";
-import { McpAppRenderer } from "./mcp-apps/McpAppRenderer.js";
-import { humanizeToolName } from "./tool-display.js";
-import { useBuilderConnectFlow } from "./settings/useBuilderStatus.js";
 import {
   Tooltip,
   TooltipContent,
@@ -88,29 +66,11 @@ import {
   TooltipTrigger,
 } from "./components/ui/tooltip.js";
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "./components/ui/dropdown-menu.js";
-import { IframeEmbed, parseEmbedBody } from "./IframeEmbed.js";
-import {
   GuidedQuestionFlow,
   useGuidedQuestionFlow,
 } from "./guided-questions.js";
 import { useDevMode } from "./use-dev-mode.js";
 import { agentNativePath } from "./api-path.js";
-import {
-  saveAgentEngineApiKey,
-  type AgentEngineProvider,
-} from "./agent-engine-key.js";
-import {
-  BUILDER_SPACE_SETTINGS_URL,
-  NEW_CHAT_ACTION_HREF,
-} from "./error-format.js";
-import { ThumbsFeedback } from "./observability/ThumbsFeedback.js";
 import {
   TiptapComposer,
   type ComposerSubmitIntent,
@@ -128,42 +88,55 @@ import {
   IconMessage,
   IconX,
   IconPlayerStop,
-  IconCheck,
   IconChevronDown,
-  IconCopy,
   IconTerminal,
-  IconLoader2,
-  IconCircleX,
-  IconSquareFilled,
   IconClock,
-  IconFile,
-  IconFolder,
-  IconFileText,
-  IconCheckbox,
-  IconMail,
-  IconUser,
-  IconPresentation,
-  IconStack2,
-  IconMessageChatbot,
-  IconArrowBackUp,
-  IconExternalLink,
-  IconKey,
-  IconDots,
-  IconGitFork,
-  IconId,
-  IconQuote,
-  IconGauge,
-  IconArrowRight,
-  IconSettings,
   IconAlertTriangle,
   IconRefresh,
-  IconPlayerPlay,
-  IconClipboardList,
-  IconSearch,
-  IconArrowsMaximize,
-  IconArrowsMinimize,
-  IconPlus,
 } from "@tabler/icons-react";
+// ─── chat/ module imports ─────────────────────────────────────────────────────
+import {
+  DownscalingImageAttachmentAdapter,
+  BinaryDocumentAttachmentAdapter,
+  MAX_ESTIMATED_BODY_BYTES,
+  AGGRESSIVE_MAX_IMAGE_DIMENSION,
+  AGGRESSIVE_JPEG_QUALITY,
+  transcodeImageToDataURL,
+  createAgentImageAttachments,
+  serializeQueuedAttachments,
+  estimateAttachmentBodyBytes,
+  type QueuedAttachment,
+} from "./chat/attachment-adapters.js";
+import { TextStreamingContext } from "./chat/markdown-renderer.js";
+import {
+  ChatRunningContext,
+  ReconnectStreamMessage,
+} from "./chat/tool-call-display.js";
+import {
+  CheckpointContext,
+  MessageActionsContext,
+  UserMessage,
+  AssistantMessage,
+  SelectionAttachedPill,
+  RunningActivityStatus,
+} from "./chat/message-components.js";
+import {
+  BuilderSetupCard,
+  LoopLimitContinueCard,
+  RunErrorRecoveryCard,
+  PlanModeCallout,
+  getLoopLimitMetadata,
+  getRunErrorMetadata,
+  getRequestModeMetadata,
+  type LoopLimitInfo,
+  type RunErrorInfo,
+} from "./chat/run-recovery.js";
+import {
+  repoHasAssistantMessage,
+  getRepoMessages,
+  getRepoMessage,
+  shouldImportServerThreadData,
+} from "./chat/repo-helpers.js";
 
 export {
   AssistantMessageListErrorBoundary,
@@ -173,178 +146,10 @@ export {
   isAssistantUiStaleIndexError,
 } from "./assistant-ui-recovery.js";
 
-class DownscalingImageAttachmentAdapter implements AttachmentAdapter {
-  public accept = "image/*";
+export { displayableUserMessageText } from "./chat/message-components.js";
 
-  public async add(state: { file: File }): Promise<PendingAttachment> {
-    return {
-      id: state.file.name,
-      type: "image",
-      name: state.file.name,
-      contentType: state.file.type,
-      file: state.file,
-      status: { type: "requires-action", reason: "composer-send" },
-    };
-  }
-
-  public async send(
-    attachment: PendingAttachment,
-  ): Promise<CompleteAttachment> {
-    return {
-      ...attachment,
-      status: { type: "complete" },
-      content: [
-        {
-          type: "image",
-          image: await getImageFileDataURL(attachment.file),
-        },
-      ],
-    };
-  }
-
-  public async remove() {
-    // noop
-  }
-}
-
-class BinaryDocumentAttachmentAdapter implements AttachmentAdapter {
-  public accept = "application/pdf,.pdf";
-
-  public async add(state: { file: File }): Promise<PendingAttachment> {
-    return {
-      id: state.file.name,
-      type: "document",
-      name: state.file.name,
-      contentType: inferDocumentContentType(state.file),
-      file: state.file,
-      status: { type: "requires-action", reason: "composer-send" },
-    };
-  }
-
-  public async send(
-    attachment: PendingAttachment,
-  ): Promise<CompleteAttachment> {
-    return {
-      ...attachment,
-      status: { type: "complete" },
-      content: [
-        {
-          type: "file",
-          filename: attachment.name,
-          data: await getFileDataURL(attachment.file),
-          mimeType: inferDocumentContentType(attachment.file),
-        },
-      ],
-    };
-  }
-
-  public async remove() {
-    // noop
-  }
-}
-
-function inferDocumentContentType(file: File): string {
-  if (file.type) return file.type;
-  if (file.name.toLowerCase().endsWith(".pdf")) return "application/pdf";
-  return "application/octet-stream";
-}
-
-function getFileDataURL(file: File | Blob): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(reader.result as string);
-    reader.onerror = (error) => reject(error);
-    reader.readAsDataURL(file);
-  });
-}
-
-// Anthropic / OpenAI vision inputs choke on multi-megabyte images, and
-// base64-encoding a raw screenshot eats enough heap to crash the composer
-// (PayloadTooLarge / "Maximum call stack" in serializers). Downscale large
-// images on the client before we ever serialize them.
-const MAX_IMAGE_BYTES = 4 * 1024 * 1024;
-const MAX_IMAGE_DIMENSION = 2048;
-
-function loadImage(url: string): Promise<HTMLImageElement> {
-  return new Promise((resolve, reject) => {
-    const img = new Image();
-    img.onload = () => resolve(img);
-    img.onerror = () => reject(new Error("Failed to decode pasted image"));
-    img.src = url;
-  });
-}
-
-async function getImageFileDataURL(file: File): Promise<string> {
-  if (file.size <= MAX_IMAGE_BYTES) {
-    return getFileDataURL(file);
-  }
-  if (typeof document === "undefined" || typeof Image === "undefined") {
-    return getFileDataURL(file);
-  }
-  const objectUrl = URL.createObjectURL(file);
-  try {
-    const img = await loadImage(objectUrl);
-    const ratio = Math.min(
-      MAX_IMAGE_DIMENSION / img.naturalWidth,
-      MAX_IMAGE_DIMENSION / img.naturalHeight,
-      1,
-    );
-    const width = Math.max(1, Math.round(img.naturalWidth * ratio));
-    const height = Math.max(1, Math.round(img.naturalHeight * ratio));
-    const canvas = document.createElement("canvas");
-    canvas.width = width;
-    canvas.height = height;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) {
-      return getFileDataURL(file);
-    }
-    ctx.drawImage(img, 0, 0, width, height);
-    const useJpeg =
-      file.type !== "image/png" || file.size > MAX_IMAGE_BYTES * 2;
-    return canvas.toDataURL(useJpeg ? "image/jpeg" : "image/png", 0.85);
-  } catch {
-    return getFileDataURL(file);
-  } finally {
-    URL.revokeObjectURL(objectUrl);
-  }
-}
-
-type QueuedAttachment = CompleteAttachment;
 type AgentRequestMode = "act" | "plan";
 export type AgentRecoveryAction = "continue" | "retry";
-
-function imageContentTypeFromDataUrl(dataUrl: string): string {
-  const match = /^data:([^;,]+)/.exec(dataUrl);
-  return match?.[1] || "image/jpeg";
-}
-
-function imageExtensionFromContentType(contentType: string): string {
-  if (contentType === "image/png") return "png";
-  if (contentType === "image/webp") return "webp";
-  if (contentType === "image/gif") return "gif";
-  return "jpg";
-}
-
-function createAgentImageAttachments(
-  images?: readonly string[],
-): QueuedAttachment[] | undefined {
-  const validImages = (images ?? []).filter((image) => image.trim().length > 0);
-  if (validImages.length === 0) return undefined;
-
-  return validImages.map((image, index) => {
-    const contentType = imageContentTypeFromDataUrl(image);
-    const extension = imageExtensionFromContentType(contentType);
-    const name = `image-${index + 1}.${extension}`;
-    return {
-      id: `agent-chat-image-${index + 1}`,
-      type: "image",
-      name,
-      contentType,
-      status: { type: "complete" },
-      content: [{ type: "image", image }],
-    };
-  });
-}
 
 function createUserMessageRunConfig(
   references?: Reference[],
@@ -381,169 +186,6 @@ function createUserMessageRunConfig(
   return options;
 }
 
-function escapeQueuedAttachmentAttribute(value: string): string {
-  return value.replace(/&/g, "&amp;").replace(/"/g, "&quot;");
-}
-
-function isTextLikeFile(file: File): boolean {
-  if (file.type.startsWith("text/")) return true;
-  if (file.type === "application/json") return true;
-  return /\.(txt|md|markdown|csv|json|yaml|yml)$/i.test(file.name);
-}
-
-function textFileAttachmentEnvelope(file: File, text: string): string {
-  const contentType = file.type || "text/plain";
-  return `<attachment name="${escapeQueuedAttachmentAttribute(file.name)}" contentType="${escapeQueuedAttachmentAttribute(contentType)}">\n${text}\n</attachment>`;
-}
-
-function serializeAttachmentContentPart(
-  part: Record<string, unknown>,
-): QueuedAttachment["content"][number] | null {
-  if (part.type === "image" && typeof part.image === "string") {
-    return { type: "image", image: part.image };
-  }
-  if (part.type === "text" && typeof part.text === "string") {
-    return { type: "text", text: part.text };
-  }
-  if (part.type === "file" && typeof part.data === "string") {
-    return {
-      type: "file",
-      data: part.data,
-      mimeType:
-        typeof part.mimeType === "string"
-          ? part.mimeType
-          : "application/octet-stream",
-      ...(typeof part.filename === "string" ? { filename: part.filename } : {}),
-    };
-  }
-  return null;
-}
-
-async function serializeQueuedAttachments(
-  attachments?: ReadonlyArray<unknown>,
-): Promise<QueuedAttachment[] | undefined> {
-  const queued: QueuedAttachment[] = [];
-  for (const raw of attachments ?? []) {
-    const attachment = raw as Partial<Attachment> & { file?: File };
-    const name = attachment.name || attachment.file?.name || "attachment";
-    const id = attachment.id || name;
-    const type = attachment.type || "file";
-    const contentType = attachment.contentType || attachment.file?.type;
-
-    if (Array.isArray(attachment.content) && attachment.content.length > 0) {
-      const content = attachment.content
-        .map((part) =>
-          serializeAttachmentContentPart(part as Record<string, unknown>),
-        )
-        .filter((part): part is QueuedAttachment["content"][number] => !!part);
-      if (content.length > 0) {
-        queued.push({
-          id,
-          type,
-          name,
-          contentType,
-          status: { type: "complete" },
-          content,
-        });
-      }
-      continue;
-    }
-
-    if (typeof File !== "undefined" && attachment.file instanceof File) {
-      const file = attachment.file;
-      if (file.type.startsWith("image/")) {
-        queued.push({
-          id,
-          type: "image",
-          name,
-          contentType: file.type,
-          status: { type: "complete" },
-          content: [{ type: "image", image: await getImageFileDataURL(file) }],
-        });
-      } else if (isTextLikeFile(file)) {
-        queued.push({
-          id,
-          type: "file",
-          name,
-          contentType: file.type || "text/plain",
-          status: { type: "complete" },
-          content: [
-            {
-              type: "text",
-              text: textFileAttachmentEnvelope(file, await file.text()),
-            },
-          ],
-        });
-      } else {
-        queued.push({
-          id,
-          type: "document",
-          name,
-          contentType: inferDocumentContentType(file),
-          status: { type: "complete" },
-          content: [
-            {
-              type: "file",
-              filename: file.name,
-              data: await getFileDataURL(file),
-              mimeType: inferDocumentContentType(file),
-            },
-          ],
-        });
-      }
-    }
-  }
-
-  return queued.length > 0 ? queued : undefined;
-}
-
-// ─── Markdown Text ──────────────────────────────────────────────────────────
-
-const markdownStyles = `
-.agent-markdown > :first-child { margin-top: 0; }
-.agent-markdown > :last-child { margin-bottom: 0; }
-.agent-markdown p { margin: 0.5em 0; }
-.agent-markdown ul, .agent-markdown ol { margin: 0.5em 0; padding-left: 1.5em; }
-.agent-markdown li { margin: 0.2em 0; }
-.agent-markdown li > p { margin: 0; }
-.agent-markdown h1 { font-size: 1.25em; font-weight: 600; margin: 0.75em 0 0.25em; }
-.agent-markdown h2 { font-size: 1.125em; font-weight: 600; margin: 0.75em 0 0.25em; }
-.agent-markdown h3 { font-size: 1em; font-weight: 600; margin: 0.75em 0 0.25em; }
-.agent-markdown strong { font-weight: 600; }
-.agent-markdown em { font-style: italic; }
-.agent-markdown code { font-size: 0.875em; padding: 0.15em 0.35em; border-radius: 0.25em; background: hsl(var(--muted, 0 0% 15%)); color: hsl(var(--foreground, 0 0% 90%)); border: 1px solid hsl(var(--border, 0 0% 80%)); }
-.agent-markdown pre { margin: 0.5em 0; padding: 0.75em 1em; border-radius: 0.375em; background: hsl(var(--muted, 0 0% 15%)); color: hsl(var(--foreground, 0 0% 90%)); overflow-x: auto; border: 1px solid hsl(var(--border, 0 0% 80%)); }
-.agent-markdown pre code { padding: 0; background: transparent; font-size: 0.8125em; color: inherit; border: none; }
-.agent-markdown-shiki { margin: 0.5em 0; border-radius: 0.375em; overflow: hidden; font-size: 0.8125em; }
-.agent-markdown-shiki pre { margin: 0; padding: 0.75em 1em; overflow-x: auto; background: var(--shiki-light-bg); color: var(--shiki-light); }
-.agent-markdown-shiki pre code { background: transparent; padding: 0; font-size: inherit; color: inherit; }
-.agent-markdown-shiki pre span { color: var(--shiki-light); background: var(--shiki-light-bg); }
-.dark .agent-markdown-shiki pre { background: var(--shiki-dark-bg); color: var(--shiki-dark); }
-.dark .agent-markdown-shiki pre span { color: var(--shiki-dark); background: var(--shiki-dark-bg); }
-@media (prefers-color-scheme: dark) { :root:not(.light) .agent-markdown-shiki pre { background: var(--shiki-dark-bg); color: var(--shiki-dark); } :root:not(.light) .agent-markdown-shiki pre span { color: var(--shiki-dark); background: var(--shiki-dark-bg); } }
-.agent-tool-code .agent-markdown-shiki { margin: 0; border-radius: 0; min-width: max-content; }
-.agent-tool-code .agent-markdown-shiki pre { padding: 0.75rem; border: 0; background: transparent; }
-.agent-tool-code .agent-markdown-shiki pre span { background: transparent; }
-.agent-tool-code pre { margin: 0; min-width: max-content; padding: 0.75rem; background: transparent; color: inherit; }
-.agent-tool-code mark { border-radius: 0.1875rem; background: rgba(245, 158, 11, 0.25); color: inherit; }
-.agent-markdown hr { border: none; border-top: 1px solid hsl(var(--border, 0 0% 20%)); margin: 0.75em 0 1em; }
-.agent-markdown a { text-decoration: underline; text-underline-offset: 2px; }
-.agent-markdown a.agent-markdown-cta { text-decoration: none; }
-.agent-markdown blockquote { border-left: 2px solid hsl(var(--border, 0 0% 20%)); padding-left: 0.75em; margin: 0.5em 0; opacity: 0.8; }
-.agent-markdown table { border-collapse: collapse; margin: 0.5em 0; font-size: 0.875em; }
-.agent-markdown th, .agent-markdown td { border: 1px solid hsl(var(--border, 0 0% 20%)); padding: 0.35em 0.65em; text-align: left; }
-.agent-markdown th { font-weight: 600; background: hsl(var(--muted, 0 0% 15%)); color: hsl(var(--foreground, 0 0% 90%)); }
-.agent-markdown[data-streaming="true"] > :last-child:not(pre):not(table)::after { content: ""; display: inline-block; width: 0.42em; height: 1em; margin-left: 0.12em; border-radius: 999px; background: currentColor; opacity: 0.35; transform: translateY(0.16em); animation: agent-markdown-stream-caret 1.15s ease-in-out infinite; }
-@keyframes agent-markdown-stream-caret { 0%, 100% { opacity: 0.2; } 50% { opacity: 0.58; } }
-@media (prefers-reduced-motion: reduce) { .agent-markdown[data-streaming="true"] > :last-child:not(pre):not(table)::after { animation: none; opacity: 0.28; } }
-`;
-
-/**
- * Pending selection context — written to application_state when the user
- * presses Cmd+I with text selected on the page. The agent's next turn picks
- * it up via the `selectionContextPromise` in production-agent. The pill
- * below tells the user the context is attached and lets them clear it.
- */
 const PENDING_SELECTION_KEY = "pending-selection-context";
 const ACTIVE_RUN_CLEAR_TIMEOUT_MS = 5_000;
 const ACTIVE_RUN_POLL_INTERVAL_MS = 150;
@@ -564,79 +206,6 @@ function activeRunLooksStale(runInfo: ActiveRunLookup): boolean {
     heartbeatAt != null &&
     Date.now() - heartbeatAt > 5000
   );
-}
-
-function repoHasAssistantMessage(repo: any): boolean {
-  return repo?.messages?.some(
-    (m: { message?: { role?: string }; role?: string }) =>
-      (m.message?.role ?? m.role) === "assistant",
-  );
-}
-
-function getRepoMessages(repo: any): any[] {
-  return Array.isArray(repo?.messages) ? repo.messages : [];
-}
-
-function getRepoMessage(entry: any): any {
-  return entry?.message ?? entry;
-}
-
-function isAssistantMessageTerminal(message: any): boolean {
-  const statusType =
-    message?.status && typeof message.status === "object"
-      ? message.status.type
-      : undefined;
-  return statusType === "complete" || statusType === "incomplete";
-}
-
-function repoTextLength(repo: any): number {
-  let length = 0;
-  for (const entry of getRepoMessages(repo)) {
-    const message = getRepoMessage(entry);
-    const content = message?.content;
-    if (typeof content === "string") {
-      length += content.length;
-    } else if (Array.isArray(content)) {
-      for (const part of content) {
-        if (part?.type === "text" && typeof part.text === "string") {
-          length += part.text.length;
-        }
-      }
-    }
-  }
-  return length;
-}
-
-function repoTerminalAssistantCount(repo: any): number {
-  return getRepoMessages(repo).filter((entry) => {
-    const message = getRepoMessage(entry);
-    return message?.role === "assistant" && isAssistantMessageTerminal(message);
-  }).length;
-}
-
-function shouldImportServerThreadData(currentRepo: any, incomingRepo: any) {
-  const incomingCount = getRepoMessages(incomingRepo).length;
-  if (incomingCount === 0) return false;
-
-  const currentCount = getRepoMessages(currentRepo).length;
-  if (currentCount === 0) return true;
-  if (incomingCount < currentCount) return false;
-
-  if (incomingCount === currentCount) {
-    const currentTerminalAssistants = repoTerminalAssistantCount(currentRepo);
-    const incomingTerminalAssistants = repoTerminalAssistantCount(incomingRepo);
-    if (incomingTerminalAssistants < currentTerminalAssistants) {
-      return false;
-    }
-    if (
-      incomingTerminalAssistants <= currentTerminalAssistants &&
-      repoTextLength(incomingRepo) < repoTextLength(currentRepo)
-    ) {
-      return false;
-    }
-  }
-
-  return true;
 }
 
 function cloneContentParts(content: ContentPart[]): ContentPart[] {
@@ -696,662 +265,18 @@ async function waitForThreadRunToClear(apiUrl: string, threadId?: string) {
   }
 }
 
-interface FormattedMessageTimestamp {
-  short: string;
-  full: string;
-}
-
-function coerceMessageDate(value: unknown): Date | null {
-  if (value instanceof Date) {
-    return Number.isNaN(value.getTime()) ? null : value;
-  }
-  if (typeof value === "string" || typeof value === "number") {
-    const date = new Date(value);
-    return Number.isNaN(date.getTime()) ? null : date;
-  }
-  return null;
-}
-
-function isSameCalendarDay(a: Date, b: Date): boolean {
-  return (
-    a.getFullYear() === b.getFullYear() &&
-    a.getMonth() === b.getMonth() &&
-    a.getDate() === b.getDate()
-  );
-}
-
-function formatMessageTimestamp(
-  value: unknown,
-): FormattedMessageTimestamp | null {
-  const date = coerceMessageDate(value);
-  if (!date) return null;
-
-  const now = new Date();
-  const yesterday = new Date(now);
-  yesterday.setDate(now.getDate() - 1);
-  const time = new Intl.DateTimeFormat(undefined, {
-    hour: "numeric",
-    minute: "2-digit",
-  }).format(date);
-
-  let short: string;
-  if (isSameCalendarDay(date, now)) {
-    short = time;
-  } else if (isSameCalendarDay(date, yesterday)) {
-    short = `Yesterday ${time}`;
-  } else if (date.getFullYear() === now.getFullYear()) {
-    short = `${new Intl.DateTimeFormat(undefined, {
-      month: "short",
-      day: "numeric",
-    }).format(date)}, ${time}`;
-  } else {
-    short = `${new Intl.DateTimeFormat(undefined, {
-      month: "short",
-      day: "numeric",
-      year: "numeric",
-    }).format(date)}, ${time}`;
-  }
-
-  return {
-    short,
-    full: new Intl.DateTimeFormat(undefined, {
-      weekday: "short",
-      month: "short",
-      day: "numeric",
-      year: "numeric",
-      hour: "numeric",
-      minute: "2-digit",
-    }).format(date),
-  };
-}
-
-function MessageTimestamp({
-  timestamp,
-  className,
-}: {
-  timestamp: FormattedMessageTimestamp;
-  className?: string;
-}) {
-  return (
-    <span
-      className={cn(
-        "text-[11px] leading-none text-muted-foreground",
-        className,
-      )}
-      title={timestamp.full}
-    >
-      {timestamp.short}
-    </span>
-  );
-}
-
-function SelectionAttachedPill() {
-  const [length, setLength] = useState<number | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    fetch(
-      agentNativePath(
-        `/_agent-native/application-state/${PENDING_SELECTION_KEY}`,
-      ),
-    )
-      .then((r) => (r.ok && r.status !== 204 ? r.json() : null))
-      .then((data) => {
-        if (cancelled) return;
-        const text =
-          (data?.value?.text as string | undefined) ??
-          (data?.text as string | undefined);
-        if (text) setLength(text.length);
-      })
-      .catch(() => {});
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  useEffect(() => {
-    function onAttached(e: Event) {
-      const detail = (e as CustomEvent).detail;
-      if (typeof detail?.length === "number") setLength(detail.length);
-    }
-    function onCleared() {
-      setLength(null);
-    }
-    window.addEventListener("agent-panel:selection-attached", onAttached);
-    window.addEventListener("agent-panel:selection-cleared", onCleared);
-    return () => {
-      window.removeEventListener("agent-panel:selection-attached", onAttached);
-      window.removeEventListener("agent-panel:selection-cleared", onCleared);
-    };
-  }, []);
-
-  if (length === null || length === 0) return null;
-
-  return (
-    <div className="shrink-0 px-3 pt-1.5 -mb-1">
-      <div className="inline-flex items-center gap-1.5 rounded-full border border-border bg-muted/50 px-2 py-0.5 text-[11px] text-muted-foreground">
-        <IconQuote size={11} />
-        <span>{length.toLocaleString()} chars of selection attached</span>
-        <button
-          type="button"
-          aria-label="Clear selection context"
-          onClick={() => {
-            setLength(null);
-            clearPendingSelection();
-          }}
-          className="flex h-4 w-4 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/60"
-        >
-          <IconX size={11} />
-        </button>
-      </div>
-    </div>
-  );
-}
-
-let stylesInjected = false;
-function injectMarkdownStyles() {
-  if (stylesInjected || typeof document === "undefined") return;
-  stylesInjected = true;
-  const style = document.createElement("style");
-  style.textContent = markdownStyles;
-  document.head.appendChild(style);
-}
-
-function extractCodeText(child: React.ReactNode): string {
-  if (typeof child === "string") return child;
-  if (Array.isArray(child)) return child.map(extractCodeText).join("");
-  if (React.isValidElement(child)) {
-    const props = child.props as { children?: React.ReactNode };
-    return extractCodeText(props.children);
-  }
-  return "";
-}
-
-// Lazy-loaded shiki highlighter using the fine-grained API so we only ship
-// the languages and themes we actually use (instead of shiki's full ~30 MB
-// bundle of every grammar). This is required to keep the Cloudflare Pages
-// Functions bundle under the 25 MiB limit.
-type ShikiHighlighter = {
-  codeToHtml: (
-    code: string,
-    options: {
-      lang: string;
-      themes: { light: string; dark: string };
-      defaultColor?: false | "light" | "dark";
-    },
-  ) => string | Promise<string>;
-  getLoadedLanguages: () => string[];
-};
-
-let highlighterLoader: Promise<ShikiHighlighter> | null = null;
-function loadHighlighter(): Promise<ShikiHighlighter> {
-  if (!highlighterLoader) {
-    highlighterLoader = (async () => {
-      const [{ createHighlighterCore }, { createOnigurumaEngine }] =
-        await Promise.all([
-          import("shiki/core"),
-          import("shiki/engine/oniguruma"),
-        ]);
-      return createHighlighterCore({
-        themes: [
-          import("shiki/themes/github-light-default.mjs"),
-          import("shiki/themes/github-dark-default.mjs"),
-        ],
-        langs: [
-          import("shiki/langs/javascript.mjs"),
-          import("shiki/langs/typescript.mjs"),
-          import("shiki/langs/jsx.mjs"),
-          import("shiki/langs/tsx.mjs"),
-          import("shiki/langs/json.mjs"),
-          import("shiki/langs/css.mjs"),
-          import("shiki/langs/html.mjs"),
-          import("shiki/langs/markdown.mjs"),
-          import("shiki/langs/bash.mjs"),
-          import("shiki/langs/shellscript.mjs"),
-          import("shiki/langs/python.mjs"),
-          import("shiki/langs/yaml.mjs"),
-          import("shiki/langs/sql.mjs"),
-        ],
-        engine: createOnigurumaEngine(import("shiki/wasm")),
-      }) as unknown as Promise<ShikiHighlighter>;
-    })().catch((error) => {
-      // Reset on failure so a future code block can retry instead of
-      // silently failing forever on a stale chunk / network blip.
-      highlighterLoader = null;
-      throw error;
-    });
-  }
-  return highlighterLoader;
-}
-
-import { PROVIDER_ENV_VARS } from "../agent/engine/provider-env-vars.js";
-
 const PROVIDER_ENV_VAR_SET = new Set(PROVIDER_ENV_VARS);
-
-// Map a few common aliases to languages we bundled above.
-const LANG_ALIASES: Record<string, string> = {
-  js: "javascript",
-  ts: "typescript",
-  sh: "bash",
-  shell: "bash",
-  zsh: "bash",
-  py: "python",
-  yml: "yaml",
-  md: "markdown",
-  bq: "sql",
-  bigquery: "sql",
-};
-
-function HighlightedCodeBlock({ code, lang }: { code: string; lang: string }) {
-  const [html, setHtml] = useState<string | null>(null);
-  useEffect(() => {
-    let cancelled = false;
-    loadHighlighter()
-      .then((highlighter) => {
-        const requested = (lang || "text").toLowerCase();
-        const resolved = LANG_ALIASES[requested] ?? requested;
-        const loaded = highlighter.getLoadedLanguages();
-        const finalLang = loaded.includes(resolved) ? resolved : "text";
-        return highlighter.codeToHtml(code, {
-          lang: finalLang,
-          themes: {
-            light: "github-light-default",
-            dark: "github-dark-default",
-          },
-          defaultColor: false,
-        });
-      })
-      .then((out) => {
-        if (!cancelled) setHtml(out);
-      })
-      .catch(() => {
-        // Unknown language or other shiki failure — fall back to plain pre.
-        if (!cancelled) setHtml(null);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [code, lang]);
-
-  if (html) {
-    return (
-      <div
-        className="agent-markdown-shiki"
-        dangerouslySetInnerHTML={{ __html: html }}
-      />
-    );
-  }
-  return (
-    <pre>
-      <code className={lang ? `language-${lang}` : undefined}>{code}</code>
-    </pre>
-  );
-}
-
-const CTA_BUTTON_CLASSES =
-  "agent-markdown-cta mt-1 inline-flex items-center gap-1.5 rounded-md bg-foreground px-3 py-1.5 text-xs font-medium text-background no-underline shadow-sm transition-colors hover:bg-foreground/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background cursor-pointer";
-
-const markdownComponents = {
-  a(props: React.AnchorHTMLAttributes<HTMLAnchorElement>) {
-    const {
-      href,
-      children,
-      className,
-      rel: _rel,
-      target: _target,
-      ...rest
-    } = props;
-    if (href === NEW_CHAT_ACTION_HREF) {
-      // In-app action: dispatch a CustomEvent that MultiTabAssistantChat
-      // listens for and opens a new chat tab. Not an external navigation.
-      return (
-        <button
-          type="button"
-          onClick={(e) => {
-            e.preventDefault();
-            window.dispatchEvent(new CustomEvent("agent-chat:new-chat"));
-          }}
-          className={cn(CTA_BUTTON_CLASSES, className)}
-        >
-          <IconPlus size={13} strokeWidth={2} aria-hidden="true" />
-          <span>{children}</span>
-        </button>
-      );
-    }
-    const isBuilderCta = isBuilderErrorCtaHref(href);
-    if (!isBuilderCta) {
-      return (
-        <a href={href} className={className} {...rest}>
-          {children}
-        </a>
-      );
-    }
-    return (
-      <a
-        href={href}
-        target="_blank"
-        rel="noreferrer"
-        className={cn(CTA_BUTTON_CLASSES, className)}
-        {...rest}
-      >
-        <span>{children}</span>
-        <IconExternalLink size={13} strokeWidth={2} aria-hidden="true" />
-      </a>
-    );
-  },
-  pre(props: React.HTMLAttributes<HTMLPreElement>) {
-    const { children, ...rest } = props;
-    if (React.isValidElement(children)) {
-      const childProps = children.props as {
-        className?: string;
-        children?: React.ReactNode;
-      };
-      const className = childProps.className || "";
-      if (/\blanguage-embed\b/.test(className)) {
-        const body = extractCodeText(childProps.children);
-        const parsed = parseEmbedBody(body);
-        return (
-          <IframeEmbed {...(parsed as Parameters<typeof IframeEmbed>[0])} />
-        );
-      }
-      const langMatch = className.match(/\blanguage-([\w+-]+)\b/);
-      if (langMatch) {
-        const code = extractCodeText(childProps.children).replace(/\n$/, "");
-        return <HighlightedCodeBlock code={code} lang={langMatch[1]} />;
-      }
-    }
-    return <pre {...rest}>{children}</pre>;
-  },
-};
-
-function isBuilderErrorCtaHref(href: string | undefined): boolean {
-  if (!href) return false;
-  try {
-    const url = new URL(href);
-    if (url.protocol !== "https:" || url.hostname !== "builder.io") {
-      return false;
-    }
-    return (
-      url.href === BUILDER_SPACE_SETTINGS_URL ||
-      url.pathname === "/account/billing" ||
-      /^\/app\/organizations\/[^/]+\/billing$/.test(url.pathname)
-    );
-  } catch {
-    return false;
-  }
-}
-
-// react-markdown's defaultUrlTransform strips href values whose protocol
-// isn't on its safe list (https, mailto, etc.). Our in-app pseudo-href
-// `agent-native:new-chat` would be blanked out by that, so let it through
-// while delegating every other URL to the default transform for sanitization.
-function markdownUrlTransform(value: string): string {
-  if (value === NEW_CHAT_ACTION_HREF) return value;
-  return defaultUrlTransform(value);
-}
-
-const TextStreamingContext = React.createContext(false);
-
-function usePrefersReducedMotion(): boolean {
-  const [prefersReducedMotion, setPrefersReducedMotion] = useState(() =>
-    typeof window !== "undefined" && window.matchMedia
-      ? window.matchMedia("(prefers-reduced-motion: reduce)").matches
-      : false,
-  );
-
-  useEffect(() => {
-    if (typeof window === "undefined" || !window.matchMedia) return undefined;
-
-    const media = window.matchMedia("(prefers-reduced-motion: reduce)");
-    const handleChange = () => setPrefersReducedMotion(media.matches);
-    handleChange();
-
-    if (typeof media.addEventListener === "function") {
-      media.addEventListener("change", handleChange);
-      return () => media.removeEventListener("change", handleChange);
-    }
-
-    media.addListener(handleChange);
-    return () => media.removeListener(handleChange);
-  }, []);
-
-  return prefersReducedMotion;
-}
-
-function sliceGraphemes(
-  targetText: string,
-  graphemes: readonly string[],
-  count: number,
-): string {
-  if (count >= graphemes.length) return targetText;
-  if (count <= 0) return "";
-  return graphemes.slice(0, count).join("");
-}
-
-function useSmoothStreamingText(
-  targetText: string,
-  streaming: boolean,
-  resetKey: string,
-): string {
-  const prefersReducedMotion = usePrefersReducedMotion();
-  const [visibleText, setVisibleText] = useState(() => {
-    if (!streaming || prefersReducedMotion) return targetText;
-    const graphemes = splitStreamingTextGraphemes(targetText);
-    return sliceGraphemes(
-      targetText,
-      graphemes,
-      initialSmoothStreamingGraphemeCount(graphemes),
-    );
-  });
-  const visibleTextRef = useRef(visibleText);
-  const visibleCountRef = useRef(
-    splitStreamingTextGraphemes(visibleText).length,
-  );
-  const targetTextRef = useRef(targetText);
-  const targetGraphemesRef = useRef(splitStreamingTextGraphemes(targetText));
-  const frameRef = useRef<number | null>(null);
-  const lastCommitAtRef = useRef(0);
-  const pauseUntilRef = useRef(0);
-  const resetKeyRef = useRef(resetKey);
-  const stepRef = useRef<(time: number) => void>(() => {});
-
-  const commitVisibleCount = useCallback((nextCount: number) => {
-    const graphemes = targetGraphemesRef.current;
-    const boundedCount = Math.max(0, Math.min(nextCount, graphemes.length));
-    const nextText = sliceGraphemes(
-      targetTextRef.current,
-      graphemes,
-      boundedCount,
-    );
-    visibleCountRef.current = boundedCount;
-    if (visibleTextRef.current !== nextText) {
-      visibleTextRef.current = nextText;
-      setVisibleText(nextText);
-    }
-  }, []);
-
-  const cancelFrame = useCallback(() => {
-    if (
-      frameRef.current != null &&
-      typeof window !== "undefined" &&
-      typeof window.cancelAnimationFrame === "function"
-    ) {
-      window.cancelAnimationFrame(frameRef.current);
-    }
-    frameRef.current = null;
-    pauseUntilRef.current = 0;
-  }, []);
-
-  const scheduleFrame = useCallback(() => {
-    if (frameRef.current != null) return;
-    if (
-      typeof window === "undefined" ||
-      typeof window.requestAnimationFrame !== "function"
-    ) {
-      commitVisibleCount(targetGraphemesRef.current.length);
-      return;
-    }
-
-    frameRef.current = window.requestAnimationFrame((time) => {
-      frameRef.current = null;
-      stepRef.current(time);
-    });
-  }, [commitVisibleCount]);
-
-  stepRef.current = (time) => {
-    const targetGraphemes = targetGraphemesRef.current;
-    const backlog = targetGraphemes.length - visibleCountRef.current;
-    if (backlog <= 0) {
-      pauseUntilRef.current = 0;
-      return;
-    }
-
-    if (pauseUntilRef.current > time) {
-      scheduleFrame();
-      return;
-    }
-
-    const lastCommitAt =
-      lastCommitAtRef.current || time - SMOOTH_STREAMING_COMMIT_INTERVAL_MS;
-    if (
-      time - lastCommitAt < SMOOTH_STREAMING_COMMIT_INTERVAL_MS &&
-      backlog > 1
-    ) {
-      scheduleFrame();
-      return;
-    }
-
-    const revealCount = smoothStreamingRevealCount({
-      backlog,
-      elapsedMs: Math.min(120, Math.max(8, time - lastCommitAt)),
-    });
-
-    if (revealCount > 0) {
-      const nextCount = visibleCountRef.current + revealCount;
-      commitVisibleCount(nextCount);
-      lastCommitAtRef.current = time;
-      const nextBacklog = targetGraphemes.length - visibleCountRef.current;
-      const pauseMs = smoothStreamingPunctuationDelayMs(
-        targetGraphemes[visibleCountRef.current - 1],
-        nextBacklog,
-      );
-      pauseUntilRef.current = pauseMs > 0 ? time + pauseMs : 0;
-    }
-
-    if (visibleCountRef.current < targetGraphemes.length) {
-      scheduleFrame();
-    } else {
-      pauseUntilRef.current = 0;
-    }
-  };
-
-  useEffect(() => {
-    const targetGraphemes = splitStreamingTextGraphemes(targetText);
-    targetTextRef.current = targetText;
-    targetGraphemesRef.current = targetGraphemes;
-
-    const keyChanged = resetKeyRef.current !== resetKey;
-    resetKeyRef.current = resetKey;
-
-    if (!streaming || prefersReducedMotion) {
-      cancelFrame();
-      commitVisibleCount(targetGraphemes.length);
-      return;
-    }
-
-    const visibleNoLongerMatchesTarget =
-      visibleTextRef.current.length > 0 &&
-      !targetText.startsWith(visibleTextRef.current);
-
-    if (
-      visibleNoLongerMatchesTarget ||
-      visibleCountRef.current > targetGraphemes.length ||
-      (keyChanged && visibleTextRef.current.length === 0)
-    ) {
-      commitVisibleCount(initialSmoothStreamingGraphemeCount(targetGraphemes));
-      lastCommitAtRef.current = 0;
-      pauseUntilRef.current = 0;
-    }
-
-    if (visibleCountRef.current < targetGraphemes.length) {
-      scheduleFrame();
-    }
-  }, [
-    targetText,
-    streaming,
-    prefersReducedMotion,
-    resetKey,
-    cancelFrame,
-    commitVisibleCount,
-    scheduleFrame,
-  ]);
-
-  useEffect(() => cancelFrame, [cancelFrame]);
-
-  return visibleText;
-}
-
-function SmoothMarkdownText({
-  text,
-  streaming,
-  resetKey,
-  statusType = "complete",
-}: {
-  text: string;
-  streaming: boolean;
-  resetKey: string;
-  statusType?: string;
-}) {
-  useEffect(() => {
-    injectMarkdownStyles();
-  }, []);
-
-  const visibleText = useSmoothStreamingText(text, streaming, resetKey);
-  const isVisuallyStreaming = streaming && visibleText !== text;
-
-  return (
-    <div
-      className="agent-markdown break-words"
-      data-status={statusType}
-      data-streaming={isVisuallyStreaming ? "true" : undefined}
-    >
-      <ReactMarkdown
-        remarkPlugins={[remarkGfm]}
-        components={markdownComponents}
-        urlTransform={markdownUrlTransform}
-      >
-        {visibleText}
-      </ReactMarkdown>
-    </div>
-  );
-}
-
-function MarkdownText() {
-  const textPart = useMessagePartText();
-  const messageRuntime = useMessageRuntime();
-  const message = messageRuntime.getState();
-  const thread = useThread();
-  const textStreaming = React.useContext(TextStreamingContext);
-  const lastMessage = thread.messages[thread.messages.length - 1];
-  const isLastAssistantMessage =
-    message.role === "assistant" && lastMessage?.id === message.id;
-  const statusType =
-    textPart.status?.type ?? message.status?.type ?? "complete";
-
-  return (
-    <SmoothMarkdownText
-      text={textPart.text}
-      streaming={textStreaming && isLastAssistantMessage}
-      resetKey={`${message.id}:${statusType}`}
-      statusType={statusType}
-    />
-  );
-}
 
 // ─── Composer Attachment Preview ─────────────────────────────────────────────
 
 function getImageAttachmentSrc(attachment: Attachment): string | null {
   if (attachment.type !== "image") return null;
+
+  // Prefer the hosted URL when the server already uploaded this attachment.
+  const uploadUrl = (attachment as any).metadata?.uploadUrl as
+    | string
+    | undefined;
+  if (uploadUrl) return uploadUrl;
 
   if ("file" in attachment && attachment.file) {
     return URL.createObjectURL(attachment.file);
@@ -1462,1484 +387,6 @@ function ComposerAttachmentPreviewStrip() {
         />
       ))}
     </div>
-  );
-}
-
-// Provides the parent's combined running state to tool-call renderers so they
-// can stop spinning when the user clicks stop. `thread.isRunning` alone misses
-// the force-stopped case; `part.result === undefined` alone ignores stop.
-const ChatRunningContext = React.createContext(false);
-
-// ─── Tool Call Display ──────────────────────────────────────────────────────
-// Shared presentational component for rendering a tool call pill + result.
-// Used by both the normal message path (ToolCallFallback) and the reconnect
-// stream path (ReconnectStreamMessage). All state is passed as props — no
-// assistant-ui hooks here.
-
-type ToolDetailSection = "input" | "result";
-type ToolDetailPayload = {
-  section: ToolDetailSection;
-  title: string;
-  text: string;
-  copyText: string;
-  lang: string;
-};
-
-function stringifyToolValue(value: unknown, pretty = false): string {
-  if (typeof value === "string") return value;
-  try {
-    return JSON.stringify(value, null, pretty ? 2 : 0);
-  } catch {
-    return String(value ?? "");
-  }
-}
-
-function looksLikeSql(text: string): boolean {
-  return /^\s*(select|with|insert|update|delete|merge|create|alter|drop|explain|declare|begin)\b/i.test(
-    text,
-  );
-}
-
-function parseJsonText(text: string): unknown | null {
-  const trimmed = text.trim();
-  if (!trimmed || !/^[{[]/.test(trimmed)) return null;
-  try {
-    return JSON.parse(trimmed);
-  } catch {
-    return null;
-  }
-}
-
-function inferToolTextLanguage(
-  text: string,
-  key?: string,
-  toolName?: string,
-): string {
-  const keyName = (key ?? "").toLowerCase();
-  const tool = (toolName ?? "").toLowerCase();
-  if (
-    keyName === "sql" ||
-    keyName.endsWith("sql") ||
-    keyName === "query" ||
-    tool.includes("bigquery") ||
-    tool.includes("db-query") ||
-    looksLikeSql(text)
-  ) {
-    return "sql";
-  }
-  return parseJsonText(text) ? "json" : "text";
-}
-
-function formatToolTextValue(
-  value: unknown,
-  key?: string,
-  toolName?: string,
-): { text: string; lang: string } {
-  if (typeof value === "string") {
-    const parsed = parseJsonText(value);
-    if (parsed) {
-      return { text: JSON.stringify(parsed, null, 2), lang: "json" };
-    }
-    return {
-      text: value,
-      lang: inferToolTextLanguage(value, key, toolName),
-    };
-  }
-  return { text: stringifyToolValue(value, true), lang: "json" };
-}
-
-function toolInputPayload(
-  toolName: string,
-  args: Record<string, unknown>,
-): ToolDetailPayload | null {
-  const entries = Object.entries(args);
-  if (entries.length === 0) return null;
-  if (entries.length === 1) {
-    const [key, value] = entries[0]!;
-    const formatted = formatToolTextValue(value, key, toolName);
-    const normalizedKey = key.toLowerCase();
-    const keyLabel =
-      normalizedKey === "sql" || normalizedKey.endsWith("sql") ? "SQL" : key;
-    return {
-      section: "input",
-      title: `Input - ${keyLabel}`,
-      text: formatted.text,
-      copyText:
-        typeof value === "string" ? value : stringifyToolValue(value, true),
-      lang: formatted.lang,
-    };
-  }
-  return {
-    section: "input",
-    title: "Input",
-    text: JSON.stringify(args, null, 2),
-    copyText: JSON.stringify(args, null, 2),
-    lang: "json",
-  };
-}
-
-function toolResultPayload(
-  result: string | undefined,
-): ToolDetailPayload | null {
-  if (result === undefined) return null;
-  const formatted = formatToolTextValue(result);
-  return {
-    section: "result",
-    title: "Result",
-    text: formatted.text,
-    copyText: result,
-    lang: formatted.lang,
-  };
-}
-
-function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
-function countTextMatches(text: string, query: string): number {
-  const needle = query.trim();
-  if (!needle) return 0;
-  return Array.from(text.matchAll(new RegExp(escapeRegExp(needle), "gi")))
-    .length;
-}
-
-function renderHighlightedSearchText(
-  text: string,
-  query: string,
-): React.ReactNode {
-  const needle = query.trim();
-  if (!needle) return text;
-  const regex = new RegExp(escapeRegExp(needle), "gi");
-  const parts: React.ReactNode[] = [];
-  let lastIndex = 0;
-  let match: RegExpExecArray | null;
-  while ((match = regex.exec(text))) {
-    if (match.index > lastIndex) {
-      parts.push(text.slice(lastIndex, match.index));
-    }
-    parts.push(<mark key={`${match.index}-${match[0]}`}>{match[0]}</mark>);
-    lastIndex = match.index + match[0].length;
-    if (match[0].length === 0) regex.lastIndex += 1;
-  }
-  if (lastIndex < text.length) parts.push(text.slice(lastIndex));
-  return parts;
-}
-
-function ToolDetailViewer({ payload }: { payload: ToolDetailPayload }) {
-  const [expanded, setExpanded] = useState(false);
-  const [searchOpen, setSearchOpen] = useState(false);
-  const [search, setSearch] = useState("");
-  const [copied, setCopied] = useState(false);
-  const copyResetRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const matchCount = useMemo(
-    () => countTextMatches(payload.text, search),
-    [payload.text, search],
-  );
-
-  useEffect(() => {
-    return () => {
-      if (copyResetRef.current) clearTimeout(copyResetRef.current);
-    };
-  }, []);
-
-  const copyValue = useCallback(async () => {
-    try {
-      if (await writeClipboardText(payload.copyText)) {
-        setCopied(true);
-        if (copyResetRef.current) clearTimeout(copyResetRef.current);
-        copyResetRef.current = setTimeout(() => setCopied(false), 1200);
-      }
-    } catch {
-      // Clipboard failures should not interrupt chat rendering.
-    }
-  }, [payload.copyText]);
-
-  return (
-    <div className="rounded-md border border-border/50 bg-background/60">
-      <div className="flex min-h-9 flex-wrap items-center gap-2 border-b border-border/50 px-2.5 py-1.5">
-        <div className="min-w-0 flex-1">
-          <div className="flex min-w-0 items-center gap-1.5">
-            <span className="truncate text-[11px] font-medium text-foreground/85">
-              {payload.title}
-            </span>
-            {payload.lang !== "text" && (
-              <span className="shrink-0 rounded border border-border/60 px-1 py-0.5 font-mono text-[9px] uppercase leading-none text-muted-foreground">
-                {payload.lang}
-              </span>
-            )}
-          </div>
-        </div>
-        <button
-          type="button"
-          onClick={() => setSearchOpen((v) => !v)}
-          aria-label={`Search ${payload.title.toLowerCase()}`}
-          aria-pressed={searchOpen}
-          className={cn(
-            "inline-flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground",
-            searchOpen && "bg-accent text-foreground",
-          )}
-        >
-          <IconSearch size={12} />
-        </button>
-        <button
-          type="button"
-          onClick={() => setExpanded((v) => !v)}
-          aria-label={expanded ? "Shrink code viewer" : "Expand code viewer"}
-          aria-pressed={expanded}
-          className="inline-flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
-        >
-          {expanded ? (
-            <IconArrowsMinimize size={12} />
-          ) : (
-            <IconArrowsMaximize size={12} />
-          )}
-        </button>
-        <button
-          type="button"
-          onClick={copyValue}
-          className="inline-flex h-6 items-center gap-1 rounded-md px-1.5 font-sans text-[11px] text-muted-foreground hover:bg-accent hover:text-foreground"
-        >
-          {copied ? <IconCheck size={12} /> : <IconCopy size={12} />}
-          {copied ? "Copied" : "Copy"}
-        </button>
-      </div>
-      {searchOpen && (
-        <div className="flex items-center gap-2 border-b border-border/50 px-2.5 py-2">
-          <input
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Find"
-            className="h-7 min-w-0 flex-1 rounded-md border border-border bg-background px-2 text-xs text-foreground outline-none placeholder:text-muted-foreground focus:ring-1 focus:ring-ring"
-          />
-          <span className="shrink-0 text-[11px] text-muted-foreground">
-            {search.trim() ? matchCount : ""}
-          </span>
-        </div>
-      )}
-      <div
-        className={cn(
-          "agent-tool-code overflow-auto font-mono text-[11px] leading-relaxed text-foreground",
-          expanded ? "max-h-[70vh]" : "max-h-72",
-        )}
-      >
-        {search.trim() ? (
-          <pre>
-            <code>{renderHighlightedSearchText(payload.text, search)}</code>
-          </pre>
-        ) : (
-          <HighlightedCodeBlock code={payload.text} lang={payload.lang} />
-        )}
-      </div>
-    </div>
-  );
-}
-
-function ToolCallDisplay({
-  toolName,
-  argsText,
-  args,
-  result,
-  mcpApp,
-  isRunning,
-}: {
-  toolName: string;
-  argsText?: string;
-  args: Record<string, unknown>;
-  result?: string;
-  mcpApp?: AgentMcpAppPayload;
-  isRunning: boolean;
-}) {
-  const streamRef = useRef<HTMLDivElement>(null);
-  const isAgentCall = toolName.startsWith("agent:");
-  const [expanded, setExpanded] = useState(isAgentCall);
-  const agentName = isAgentCall ? toolName.slice(6) : null;
-  const isAgentError = isAgentCall && result === "Error calling agent";
-  const agentStreamText = isAgentCall ? (argsText ?? "") : "";
-  const hasStreamText = agentStreamText.length > 0;
-  const hasArgs = !isAgentCall && Object.keys(args).length > 0;
-
-  // NOTE: All hooks must be above any conditional returns
-  useEffect(() => {
-    if (isAgentCall && isRunning && streamRef.current) {
-      streamRef.current.scrollTop = streamRef.current.scrollHeight;
-    }
-  }, [agentStreamText, isAgentCall, isRunning]);
-
-  // Render connect-builder as ConnectBuilderCard once the result is available
-  if (toolName === "connect-builder" && result) {
-    try {
-      const parsed = JSON.parse(result);
-      if (parsed?.kind === "connect-builder-card") {
-        return (
-          <ConnectBuilderCard
-            configured={!!parsed.configured}
-            builderEnabled={parsed.builderEnabled !== false}
-            // Ignore saved cliAuthUrl values from older tool results. They
-            // contain signed callback state and can expire while a chat sits
-            // open; the card's hook fetches a fresh signed URL on mount/click.
-            connectUrl={parsed.connectUrl || ""}
-            orgName={parsed.orgName ?? null}
-            prompt={typeof parsed.prompt === "string" ? parsed.prompt : ""}
-          />
-        );
-      }
-    } catch {
-      // fall through to default pill rendering
-    }
-  }
-
-  // Render agent-teams spawn as AgentTaskCard once the result is available
-  if (
-    toolName === "agent-teams" &&
-    (args as Record<string, string>)?.action === "spawn" &&
-    result
-  ) {
-    try {
-      const parsed = JSON.parse(result);
-      if (parsed.taskId && parsed.threadId) {
-        return (
-          <AgentTaskCard
-            taskId={parsed.taskId}
-            threadId={parsed.threadId}
-            description={
-              parsed.description ||
-              (args as Record<string, string>)?.task ||
-              "Sub-agent task"
-            }
-            onOpen={(tid) => {
-              window.dispatchEvent(
-                new CustomEvent("agent-task-open", {
-                  detail: {
-                    threadId: tid,
-                    description:
-                      parsed.description ||
-                      (args as Record<string, string>)?.task ||
-                      "",
-                    name: parsed.name || "",
-                  },
-                }),
-              );
-            }}
-          />
-        );
-      }
-    } catch {
-      // Fall through to default pill rendering
-    }
-  }
-
-  const inputPayload = hasArgs ? toolInputPayload(toolName, args) : null;
-  const resultPayload = toolResultPayload(result);
-
-  const displayName = isAgentCall
-    ? isRunning
-      ? `Asking ${agentName}...`
-      : isAgentError
-        ? `Error asking ${agentName}`
-        : `Asked ${agentName}`
-    : humanizeToolName(toolName);
-
-  const canExpand = isAgentCall
-    ? hasStreamText
-    : hasArgs || result !== undefined;
-  const isExpanded = isAgentCall ? hasStreamText && expanded : expanded;
-
-  return (
-    <div className="my-1 overflow-hidden">
-      {mcpApp && <McpAppRenderer app={mcpApp} className="mb-1.5" />}
-      <button
-        onClick={() => canExpand && setExpanded(!isExpanded)}
-        aria-expanded={canExpand ? isExpanded : undefined}
-        className={cn(
-          "flex items-center gap-2 rounded-md px-2.5 py-1.5 text-xs font-mono w-full text-left overflow-hidden",
-          isRunning
-            ? "bg-muted text-muted-foreground"
-            : "bg-muted text-muted-foreground hover:bg-accent",
-        )}
-      >
-        <span className="shrink-0">
-          {isRunning ? (
-            <IconLoader2 className="h-3 w-3 animate-spin" />
-          ) : isAgentError ? (
-            <IconCircleX className="h-3 w-3 text-destructive" />
-          ) : result !== undefined ? (
-            <IconCheck className="h-3 w-3 text-emerald-500" />
-          ) : (
-            <IconSquareFilled className="h-3 w-3 text-muted-foreground" />
-          )}
-        </span>
-        <span className="truncate min-w-0">
-          <span className="font-medium">{displayName}</span>
-        </span>
-        {canExpand && (
-          <IconChevronDown
-            className={cn(
-              "ml-auto h-3 w-3 shrink-0 opacity-40",
-              isExpanded && "rotate-180",
-            )}
-          />
-        )}
-      </button>
-      {isExpanded && isAgentCall && hasStreamText && (
-        <div
-          ref={streamRef}
-          className="mt-1 rounded-md bg-muted/50 px-3 py-2 text-xs text-muted-foreground break-words max-h-48 overflow-y-auto agent-markdown prose prose-sm prose-invert max-w-none"
-        >
-          <ReactMarkdown
-            remarkPlugins={[remarkGfm]}
-            components={markdownComponents}
-            urlTransform={markdownUrlTransform}
-          >
-            {agentStreamText}
-          </ReactMarkdown>
-        </div>
-      )}
-      {isExpanded && !isAgentCall && (hasArgs || result !== undefined) && (
-        <div className="mt-1 space-y-2 rounded-md bg-muted/50 px-3 py-2 text-xs text-muted-foreground">
-          {inputPayload && <ToolDetailViewer payload={inputPayload} />}
-          {resultPayload && <ToolDetailViewer payload={resultPayload} />}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function ToolCallFallback({
-  toolName,
-  args,
-  argsText,
-  result,
-  ...rest
-}: ToolCallMessagePartProps & { mcpApp?: AgentMcpAppPayload }) {
-  const chatRunning = React.useContext(ChatRunningContext);
-  const isRunning = result === undefined && chatRunning;
-  return (
-    <ToolCallDisplay
-      toolName={toolName}
-      args={args as Record<string, unknown>}
-      argsText={argsText}
-      result={
-        typeof result === "string"
-          ? result
-          : result !== undefined
-            ? JSON.stringify(result)
-            : undefined
-      }
-      mcpApp={rest.mcpApp}
-      isRunning={isRunning}
-    />
-  );
-}
-
-// ─── Reconnect Stream Message ───────────────────────────────────────────────
-// Renders the agent's in-progress response during reconnection (outside
-// assistant-ui's runtime). Uses the same visual styling as normal messages.
-
-function ReconnectStreamMessage({ content }: { content: ContentPart[] }) {
-  const chatRunning = React.useContext(ChatRunningContext);
-
-  return (
-    <div className="flex justify-start">
-      <div className="max-w-[95%] text-sm leading-relaxed text-foreground space-y-1">
-        {content.map((part, i) => {
-          if (part.type === "text") {
-            return (
-              <SmoothMarkdownText
-                key={`reconnect-text-${i}`}
-                text={part.text}
-                streaming={chatRunning}
-                resetKey={`reconnect-text-${i}`}
-                statusType={chatRunning ? "running" : "complete"}
-              />
-            );
-          }
-          if (part.type === "tool-call") {
-            return (
-              <ToolCallDisplay
-                key={`reconnect-tool-${i}`}
-                toolName={part.toolName}
-                argsText={part.argsText}
-                args={part.args}
-                result={part.result}
-                mcpApp={part.mcpApp}
-                isRunning={part.result === undefined && chatRunning}
-              />
-            );
-          }
-          return null;
-        })}
-      </div>
-    </div>
-  );
-}
-
-// ─── Message Components ─────────────────────────────────────────────────────
-
-const mentionIconProps = {
-  size: 14,
-  className: "shrink-0 text-muted-foreground",
-};
-
-function MentionChipIcon({ icon }: { icon?: string }) {
-  switch (icon) {
-    case "folder":
-      return <IconFolder {...mentionIconProps} />;
-    case "document":
-      return <IconFileText {...mentionIconProps} />;
-    case "form":
-      return <IconCheckbox {...mentionIconProps} />;
-    case "email":
-      return <IconMail {...mentionIconProps} />;
-    case "user":
-      return <IconUser {...mentionIconProps} />;
-    case "deck":
-      return <IconPresentation {...mentionIconProps} />;
-    case "agent":
-      return <IconMessageChatbot {...mentionIconProps} />;
-    case "file":
-      return <IconFile {...mentionIconProps} />;
-    default:
-      return <IconStack2 {...mentionIconProps} />;
-  }
-}
-
-// Matches rich mention format: @[label|icon] or plain @word
-const richMentionPattern = /@\[([^\]|]+)\|([^\]]+)\]/g;
-const plainMentionPattern = /((?:^|(?<=\s))@(\w+))/g;
-
-function UserMessageText({ text }: { text: string }) {
-  // Strip injected <context>...</context> blocks before display
-  const displayText = displayableUserMessageText(text);
-
-  const parts: React.ReactNode[] = [];
-  let lastIndex = 0;
-  let match: RegExpExecArray | null;
-  let hasRichMentions = false;
-
-  // First try rich mentions (@[label|icon])
-  richMentionPattern.lastIndex = 0;
-  while ((match = richMentionPattern.exec(displayText)) !== null) {
-    hasRichMentions = true;
-    const matchStart = match.index;
-    if (matchStart > lastIndex) {
-      parts.push(displayText.slice(lastIndex, matchStart));
-    }
-    const label = match[1];
-    const icon = match[2];
-    parts.push(
-      <span
-        key={matchStart}
-        className="inline-flex items-center gap-1 rounded-md border border-input bg-muted/50 px-1.5 py-0.5 text-xs font-medium text-foreground align-middle mx-0.5 max-w-[200px] select-all"
-        data-mention-label={label}
-      >
-        <MentionChipIcon icon={icon} />
-        <span className="truncate">{label}</span>
-      </span>,
-    );
-    lastIndex = matchStart + match[0].length;
-  }
-
-  if (hasRichMentions) {
-    if (lastIndex < displayText.length) {
-      parts.push(displayText.slice(lastIndex));
-    }
-    return <>{parts}</>;
-  }
-
-  // Fallback: plain @word mentions (for older messages)
-  plainMentionPattern.lastIndex = 0;
-  while ((match = plainMentionPattern.exec(displayText)) !== null) {
-    const matchStart = match.index;
-    if (matchStart > lastIndex) {
-      parts.push(displayText.slice(lastIndex, matchStart));
-    }
-    const mentionName = match[2];
-    parts.push(
-      <span
-        key={matchStart}
-        className="inline-flex items-center gap-1 rounded-md border border-input bg-muted/50 px-1.5 py-0.5 text-xs font-medium text-foreground align-middle mx-0.5 select-all"
-        data-mention-label={mentionName}
-      >
-        @{mentionName}
-      </span>,
-    );
-    lastIndex = matchStart + match[0].length;
-  }
-
-  if (lastIndex < displayText.length) {
-    parts.push(displayText.slice(lastIndex));
-  }
-
-  return <>{parts.length > 0 ? parts : displayText}</>;
-}
-
-export function displayableUserMessageText(text: string): string {
-  return text.replace(/<context>[\s\S]*?<\/context>\n?/g, "").trim();
-}
-
-function UserMessageAttachments() {
-  const messageRuntime = useMessageRuntime();
-  const msg = messageRuntime.getState();
-  // assistant-ui stores user attachments on msg.attachments (separate from content).
-  // Each attachment has: { id, type, name, contentType?, content: MessagePart[] }.
-  // Image adapters put a {type:"image", image:"data:..."} part in content; text
-  // adapters put a {type:"text", text:"<attachment>..."} part. Fall back to a
-  // file chip when there's no inline image.
-  const attachments = (msg as { attachments?: readonly Attachment[] })
-    .attachments;
-  if (!attachments || attachments.length === 0) return null;
-
-  return (
-    <div className="flex flex-wrap justify-end gap-1.5 mb-1.5">
-      {attachments.map((att) => {
-        if (isPastedTextAttachmentName(att.name)) {
-          return <PastedTextChip key={att.id} attachment={att} compact />;
-        }
-
-        const imagePart = att.content?.find(
-          (p): p is { type: "image"; image: string } =>
-            p.type === "image" && "image" in p && !!p.image,
-        );
-        if (imagePart) {
-          return (
-            <div
-              key={att.id}
-              className="h-16 w-16 overflow-hidden rounded-lg border border-border/70 bg-muted/50"
-              title={att.name}
-            >
-              <img
-                src={imagePart.image}
-                alt={att.name}
-                className="h-full w-full object-cover"
-              />
-            </div>
-          );
-        }
-        return (
-          <div
-            key={att.id}
-            className="flex items-center gap-1.5 rounded-lg border border-border/70 bg-muted/50 px-2 py-1.5 text-xs text-muted-foreground"
-            title={att.name}
-          >
-            <IconFile className="h-3.5 w-3.5 shrink-0" />
-            <span className="truncate max-w-[120px]">{att.name || "file"}</span>
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
-function UserMessage() {
-  const [expanded, setExpanded] = useState(false);
-  const [isExpandable, setIsExpandable] = useState(false);
-  const contentRef = useRef<HTMLDivElement>(null);
-  const messageRuntime = useMessageRuntime();
-  const message = messageRuntime.getState();
-  const timestamp = formatMessageTimestamp(message.createdAt);
-  const hasDisplayableText =
-    message.content
-      ?.filter((part): part is { type: "text"; text: string } => {
-        return part.type === "text" && typeof part.text === "string";
-      })
-      .some((part) => displayableUserMessageText(part.text).length > 0) ??
-    false;
-
-  useEffect(() => {
-    const el = contentRef.current;
-    if (!el || !hasDisplayableText) return;
-
-    const measure = () => {
-      setIsExpandable(el.scrollHeight > 200);
-    };
-
-    measure();
-    const observer = new ResizeObserver(measure);
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, [hasDisplayableText]);
-
-  return (
-    <div
-      className="group flex justify-end"
-      style={{ contentVisibility: "auto" }}
-    >
-      <div className="max-w-[85%]">
-        <UserMessageAttachments />
-        {hasDisplayableText && (
-          <div
-            className="relative rounded-lg bg-accent px-3 py-2 text-sm leading-relaxed text-foreground"
-            onCopy={(e) => {
-              const selection = window.getSelection();
-              if (!selection || selection.rangeCount === 0) return;
-              const fragment = selection.getRangeAt(0).cloneContents();
-              const mentions = fragment.querySelectorAll(
-                "[data-mention-label]",
-              );
-              if (mentions.length === 0) return;
-              e.preventDefault();
-              mentions.forEach((el) => {
-                el.textContent = `@${el.getAttribute("data-mention-label")}`;
-              });
-              const div = document.createElement("div");
-              div.appendChild(fragment);
-              e.clipboardData.setData("text/plain", div.textContent || "");
-            }}
-          >
-            <div
-              ref={contentRef}
-              className={cn(
-                "whitespace-pre-wrap break-words",
-                !expanded && isExpandable && "max-h-[200px] overflow-hidden",
-              )}
-            >
-              <MessagePrimitive.Parts
-                components={{
-                  Text: UserMessageText,
-                }}
-              />
-            </div>
-            {!expanded && isExpandable && (
-              <div className="pointer-events-none absolute inset-x-0 bottom-0 h-14 rounded-b-lg bg-gradient-to-t from-accent via-accent/90 to-transparent" />
-            )}
-          </div>
-        )}
-        {hasDisplayableText && isExpandable && (
-          <button
-            type="button"
-            onClick={() => setExpanded((prev) => !prev)}
-            className="mt-1 inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-[11px] font-medium text-muted-foreground hover:text-foreground"
-          >
-            <IconChevronDown
-              className={cn(
-                "h-3.5 w-3.5 transition-transform",
-                expanded && "rotate-180",
-              )}
-            />
-            {expanded ? "Collapse" : "Expand"}
-          </button>
-        )}
-        {timestamp && (
-          <div className="mt-1 flex justify-end">
-            <MessageTimestamp
-              timestamp={timestamp}
-              className="opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100"
-            />
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-const CheckpointContext = React.createContext<{
-  apiUrl: string;
-  devMode: boolean;
-  threadId?: string;
-} | null>(null);
-
-const MessageActionsContext = React.createContext<{
-  onForkChat?: () => void | boolean | Promise<void | boolean>;
-} | null>(null);
-
-function MessageActionsMenu({
-  showRevert,
-  onRevert,
-}: {
-  showRevert?: boolean;
-  onRevert?: () => void;
-} = {}) {
-  const [open, setOpen] = useState(false);
-  const [copied, setCopied] = useState<string | null>(null);
-  const messageRuntime = useMessageRuntime();
-  const actionsCtx = React.useContext(MessageActionsContext);
-  const timestamp = formatMessageTimestamp(messageRuntime.getState().createdAt);
-
-  const handleCopyMessage = useCallback(() => {
-    const m = messageRuntime.getState();
-    const text = m.content
-      .filter((p) => p.type === "text")
-      .map((p) => (p as { text: string }).text)
-      .join("\n");
-    void writeClipboardText(text).then((ok) => {
-      if (!ok) return;
-      setCopied("message");
-      setTimeout(() => {
-        setCopied(null);
-        setOpen(false);
-      }, 1000);
-    });
-  }, [messageRuntime]);
-
-  const handleCopyRequestId = useCallback(() => {
-    const m = messageRuntime.getState();
-    const meta = m.metadata as
-      | {
-          custom?: { runId?: unknown };
-          runId?: unknown;
-        }
-      | undefined;
-    // Live yields put the trace ID at metadata.custom.runId; server-persisted
-    // messages put it at metadata.runId. If neither is present (e.g. the run
-    // is still in flight and this is the first message), fall back to the
-    // active-run state so a hung / mid-stream chat still surfaces a usable
-    // trace ID. Last resort is the assistant-ui local message id.
-    const runId =
-      (typeof meta?.custom?.runId === "string" && meta.custom.runId) ||
-      (typeof meta?.runId === "string" && meta.runId) ||
-      (typeof window !== "undefined" ? getActiveRun()?.runId : null) ||
-      m.id ||
-      "";
-    void writeClipboardText(runId).then((ok) => {
-      if (!ok) return;
-      setCopied("id");
-      setTimeout(() => {
-        setCopied(null);
-        setOpen(false);
-      }, 1000);
-    });
-  }, [messageRuntime]);
-
-  const handleForkChat = useCallback(() => {
-    setOpen(false);
-    actionsCtx?.onForkChat?.();
-  }, [actionsCtx]);
-
-  const handleRevert = useCallback(() => {
-    setOpen(false);
-    onRevert?.();
-  }, [onRevert]);
-
-  return (
-    <DropdownMenu open={open} onOpenChange={setOpen}>
-      <DropdownMenuTrigger asChild>
-        <button
-          aria-label="Message actions"
-          className={cn(
-            "flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground/70 transition-colors duration-150 hover:bg-accent hover:text-foreground",
-            open && "bg-accent text-foreground",
-          )}
-        >
-          <IconDots className="h-3.5 w-3.5" />
-        </button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent
-        align="start"
-        sideOffset={6}
-        className="w-48 rounded-lg border-border p-1.5 shadow-xl"
-      >
-        {actionsCtx?.onForkChat && (
-          <DropdownMenuItem onSelect={handleForkChat}>
-            <IconGitFork className="h-3.5 w-3.5" />
-            Fork Chat
-          </DropdownMenuItem>
-        )}
-        <DropdownMenuItem
-          onSelect={(e) => {
-            e.preventDefault();
-            handleCopyMessage();
-          }}
-        >
-          {copied === "message" ? (
-            <IconCheck className="h-3.5 w-3.5" />
-          ) : (
-            <IconCopy className="h-3.5 w-3.5" />
-          )}
-          {copied === "message" ? "Copied!" : "Copy Message"}
-        </DropdownMenuItem>
-        <DropdownMenuItem
-          onSelect={(e) => {
-            e.preventDefault();
-            handleCopyRequestId();
-          }}
-        >
-          {copied === "id" ? (
-            <IconCheck className="h-3.5 w-3.5" />
-          ) : (
-            <IconId className="h-3.5 w-3.5" />
-          )}
-          {copied === "id" ? "Copied!" : "Copy Request ID"}
-        </DropdownMenuItem>
-        {showRevert && (
-          <DropdownMenuItem onSelect={handleRevert}>
-            <IconArrowBackUp className="h-3.5 w-3.5" />
-            Revert to here
-          </DropdownMenuItem>
-        )}
-        {timestamp && (
-          <>
-            <DropdownMenuSeparator />
-            <DropdownMenuLabel className="px-2 py-1 text-[11px] font-normal text-muted-foreground">
-              Sent {timestamp.short}
-            </DropdownMenuLabel>
-          </>
-        )}
-      </DropdownMenuContent>
-    </DropdownMenu>
-  );
-}
-
-function AssistantMessage() {
-  const [restoreState, setRestoreState] = useState<
-    "idle" | "confirming" | "restoring"
-  >("idle");
-  const messageRuntime = useMessageRuntime();
-  const thread = useThread();
-  const chatRunning = React.useContext(ChatRunningContext);
-  const msg = messageRuntime.getState();
-  const timestamp = formatMessageTimestamp(msg.createdAt);
-  const isLast =
-    thread.messages.length > 0 &&
-    thread.messages[thread.messages.length - 1].id === msg.id;
-  const isComplete = !isLast || !chatRunning;
-  const cpCtx = React.useContext(CheckpointContext);
-
-  const handleRestore = useCallback(async () => {
-    if (restoreState === "idle") {
-      setRestoreState("confirming");
-      return;
-    }
-    if (restoreState !== "confirming" || !cpCtx) return;
-    setRestoreState("restoring");
-    try {
-      const m = messageRuntime.getState();
-      const meta = m.metadata as
-        | { custom?: { runId?: unknown }; runId?: unknown }
-        | undefined;
-      const runId =
-        (typeof meta?.custom?.runId === "string" && meta.custom.runId) ||
-        (typeof meta?.runId === "string" && meta.runId) ||
-        null;
-      if (!runId) {
-        setRestoreState("idle");
-        return;
-      }
-      const tid = cpCtx.threadId || "";
-      const res = await fetch(
-        `${cpCtx.apiUrl}/checkpoints?threadId=${encodeURIComponent(tid)}`,
-      );
-      const checkpoints: any[] = res.ok ? await res.json() : [];
-      const checkpoint = checkpoints.find((cp: any) => cp.runId === runId);
-      if (!checkpoint) {
-        setRestoreState("idle");
-        return;
-      }
-      const restoreRes = await fetch(`${cpCtx.apiUrl}/checkpoints/restore`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ checkpointId: checkpoint.id }),
-      });
-      if (restoreRes.ok) {
-        window.location.reload();
-      } else {
-        setRestoreState("idle");
-      }
-    } catch {
-      setRestoreState("idle");
-    }
-  }, [restoreState, cpCtx, messageRuntime]);
-
-  const cancelRestore = useCallback(() => {
-    setRestoreState("idle");
-  }, []);
-
-  const showRestore = cpCtx?.devMode && isComplete && !isLast;
-
-  return (
-    <div
-      className="group relative"
-      style={{ contentVisibility: isComplete ? "auto" : "visible" }}
-    >
-      <div className="max-w-[95%] text-sm leading-relaxed text-foreground">
-        <MessagePrimitive.Parts
-          components={{
-            Text: MarkdownText,
-            tools: {
-              Fallback: ToolCallFallback,
-            },
-          }}
-        />
-      </div>
-      {isComplete && (
-        <div className="mt-1 flex items-center justify-between">
-          <div className="flex min-w-0 items-center gap-2">
-            <MessageActionsMenu
-              showRevert={showRestore && restoreState === "idle"}
-              onRevert={handleRestore}
-            />
-            {timestamp && (
-              <MessageTimestamp
-                timestamp={timestamp}
-                className="opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100"
-              />
-            )}
-          </div>
-          {showRestore && restoreState === "confirming" ? (
-            <div className="flex items-center gap-1 text-xs">
-              <button
-                onClick={handleRestore}
-                className="rounded-md bg-destructive px-1.5 py-0.5 text-destructive-foreground hover:bg-destructive/90"
-              >
-                Restore to here?
-              </button>
-              <button
-                onClick={cancelRestore}
-                className="rounded-md px-1.5 py-0.5 text-muted-foreground hover:bg-accent"
-              >
-                Cancel
-              </button>
-            </div>
-          ) : showRestore && restoreState === "restoring" ? (
-            <span className="flex items-center gap-1 text-xs text-muted-foreground">
-              <IconLoader2 className="h-3 w-3 animate-spin" />
-              Restoring...
-            </span>
-          ) : (
-            <ThumbsFeedback
-              threadId={cpCtx?.threadId ?? ""}
-              runId={(() => {
-                const meta = messageRuntime.getState().metadata as
-                  | { custom?: { runId?: unknown }; runId?: unknown }
-                  | undefined;
-                return (
-                  (typeof meta?.custom?.runId === "string" &&
-                    meta.custom.runId) ||
-                  (typeof meta?.runId === "string" && meta.runId) ||
-                  ""
-                );
-              })()}
-              messageSeq={thread.messages.findIndex((m) => m.id === msg.id)}
-            />
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ─── Thinking Indicator ─────────────────────────────────────────────────────
-
-function RunningActivityStatus({ label }: { label: string }) {
-  return (
-    <div className="agent-running-activity shrink-0 px-4 pb-2">
-      <ThinkingIndicator label={label} />
-    </div>
-  );
-}
-
-function ThinkingIndicator({ label = "Thinking" }: { label?: string } = {}) {
-  const [dots, setDots] = useState(0);
-  useEffect(() => {
-    const interval = setInterval(() => {
-      setDots((d) => (d + 1) % 4);
-    }, 400);
-    return () => clearInterval(interval);
-  }, []);
-  return (
-    <div className="flex items-center text-muted-foreground">
-      <span className="text-xs">
-        {label}
-        {".".repeat(dots)}
-      </span>
-    </div>
-  );
-}
-
-// ─── Builder.io Connect CTA (shared by setup + usage-limit cards) ───────────
-//
-// Renders a single row with left-aligned copy and a right-aligned action.
-// Click opens the Builder CLI-auth popup via the shared
-// `useBuilderConnectFlow` hook (which owns the synchronous window.open,
-// the 2s status poll, and the focus-refresh). On success the hook broadcasts
-// a config-change event and this card clears its local `missingApiKey` gate
-// so the user can start chatting without a full-page reload.
-//
-// Desktop note: when this component runs inside the Electron shell, the
-// window.open call is intercepted by the main process's webview popup handler,
-// which opens the flow in an Electron BrowserWindow that shares the webview's
-// session. See packages/desktop-app/src/main/index.ts.
-
-function BuilderConnectCta({
-  variant = "primary",
-  onConnected,
-}: {
-  variant?: "primary" | "compact";
-  onConnected?: () => void;
-}) {
-  const { configured, orgName, connecting, error, start } =
-    useBuilderConnectFlow({
-      trackingSource: "assistant_chat_builder_cta",
-      onConnected,
-    });
-
-  const containerClass =
-    variant === "compact"
-      ? "rounded-md border border-border px-3 py-2.5"
-      : "flex items-center gap-3 rounded-md border border-border px-3 py-3";
-
-  if (configured) {
-    return (
-      <div className={containerClass}>
-        <div className="min-w-0 flex-1">
-          <div className="text-xs font-medium text-foreground">Builder.io</div>
-          <p className="text-[11px] text-muted-foreground mt-0.5">
-            {orgName ? `Connected — ${orgName}` : "Connected"}
-          </p>
-        </div>
-        <span className="ml-auto inline-flex items-center gap-1 shrink-0 rounded-md bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium text-emerald-500">
-          <IconCheck size={10} />
-          Connected
-        </span>
-      </div>
-    );
-  }
-
-  return (
-    <div className={containerClass}>
-      <div className="min-w-0 flex-1">
-        <div className="text-xs font-medium text-foreground">
-          Connect Builder.io
-        </div>
-        <p className="text-[11px] text-muted-foreground mt-0.5 max-w-[220px]">
-          Free credits for LLM, hosting, and more — no API key needed
-        </p>
-        {error && <p className="mt-1 text-[10px] text-destructive">{error}</p>}
-      </div>
-      <button
-        type="button"
-        onClick={() => start()}
-        disabled={connecting}
-        className="ml-auto inline-flex items-center gap-1 shrink-0 rounded-md bg-foreground px-3 py-1.5 text-[11px] font-medium no-underline text-background hover:opacity-90 disabled:opacity-60 disabled:cursor-wait"
-        aria-busy={connecting}
-      >
-        {connecting ? (
-          <>
-            <IconLoader2 size={10} className="animate-spin" />
-            Waiting…
-          </>
-        ) : (
-          <>
-            Connect
-            <IconExternalLink size={10} />
-          </>
-        )}
-      </button>
-    </div>
-  );
-}
-
-// ─── Builder Setup Card ─────────────────────────────────────────────────────
-
-function BuilderSetupCard({
-  onConnected,
-  bouncePulse,
-}: {
-  onConnected?: () => void;
-  bouncePulse?: number;
-}) {
-  // Progressive disclosure: the card leads with the one-click Builder connect.
-  // The bring-your-own-key path stays tucked behind a single link so the chat
-  // stays clean for people who connect Builder or never use the side chat at
-  // all (they can keep driving the plan from their own coding agent).
-  const [keyOpen, setKeyOpen] = useState(false);
-
-  const cardRef = useRef<HTMLDivElement>(null);
-  // Replay the bounce keyframe each time bouncePulse increments. Toggling the
-  // class off-then-on (with a forced reflow) restarts the animation even when
-  // the value changes back-to-back.
-  useEffect(() => {
-    if (!bouncePulse) return;
-    const el = cardRef.current;
-    if (!el) return;
-    el.classList.remove("animate-bounce-once");
-    void el.offsetWidth;
-    el.classList.add("animate-bounce-once");
-  }, [bouncePulse]);
-
-  return (
-    <div
-      ref={cardRef}
-      className="mx-4 my-6 rounded-lg border border-border bg-card p-5"
-    >
-      <div className="flex items-center gap-3 mb-3">
-        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-muted">
-          <IconMessage className="h-4.5 w-4.5 text-muted-foreground" />
-        </div>
-        <div>
-          <h3 className="text-sm font-medium text-foreground">
-            Turn on the side chat
-          </h3>
-          <p className="mt-0.5 text-[11px] text-muted-foreground">
-            One click to connect Builder for free hosted access — no API key or
-            account needed.
-          </p>
-        </div>
-      </div>
-
-      <div className="space-y-3">
-        <BuilderConnectCta onConnected={onConnected} />
-
-        {keyOpen ? (
-          <ApiKeyConnect onConnected={onConnected} />
-        ) : (
-          <div className="text-center">
-            <button
-              type="button"
-              onClick={() => setKeyOpen(true)}
-              className="text-[11px] text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
-            >
-              Or paste your own Anthropic or OpenAI key
-            </button>
-          </div>
-        )}
-
-        <p className="text-center text-[11px] leading-relaxed text-muted-foreground">
-          You can skip this and keep editing the plan with your own coding
-          agent.
-        </p>
-      </div>
-    </div>
-  );
-}
-
-// ─── Inline BYOK (Anthropic / OpenAI) ───────────────────────────────────────
-
-const API_KEY_PROVIDERS: Array<{
-  value: AgentEngineProvider;
-  label: string;
-  placeholder: string;
-}> = [
-  { value: "anthropic", label: "Anthropic", placeholder: "sk-ant-…" },
-  { value: "openai", label: "OpenAI", placeholder: "sk-…" },
-];
-
-function ApiKeyConnect({ onConnected }: { onConnected?: () => void }) {
-  const [provider, setProvider] = useState<AgentEngineProvider>("anthropic");
-  const [apiKey, setApiKey] = useState("");
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const active = API_KEY_PROVIDERS.find((p) => p.value === provider)!;
-
-  const handleSave = useCallback(async () => {
-    if (!apiKey.trim() || saving) return;
-    setSaving(true);
-    setError(null);
-    try {
-      await saveAgentEngineApiKey({ provider, apiKey });
-      setApiKey("");
-      onConnected?.();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not save the key.");
-    } finally {
-      setSaving(false);
-    }
-  }, [apiKey, onConnected, provider, saving]);
-
-  return (
-    <div className="rounded-md border border-border bg-background/60 p-3">
-      <div className="mb-2 flex items-center gap-1.5 text-[11px] font-medium text-foreground">
-        <IconKey size={12} strokeWidth={1.9} />
-        Use your own API key
-      </div>
-      <p className="mb-2.5 text-[11px] leading-relaxed text-muted-foreground">
-        Stored locally for this app only — no account required.
-      </p>
-      <div
-        role="tablist"
-        aria-label="API key provider"
-        className="mb-2 inline-flex rounded-md border border-border bg-muted/40 p-0.5"
-      >
-        {API_KEY_PROVIDERS.map((option) => {
-          const selected = option.value === provider;
-          return (
-            <button
-              key={option.value}
-              type="button"
-              role="tab"
-              aria-selected={selected}
-              onClick={() => {
-                setProvider(option.value);
-                setError(null);
-              }}
-              className={cn(
-                "rounded px-2.5 py-1 text-[11px] font-medium transition-colors",
-                selected
-                  ? "bg-background text-foreground shadow-sm"
-                  : "text-muted-foreground hover:text-foreground",
-              )}
-            >
-              {option.label}
-            </button>
-          );
-        })}
-      </div>
-      <div className="flex items-center gap-2">
-        <input
-          type="password"
-          value={apiKey}
-          autoComplete="off"
-          spellCheck={false}
-          placeholder={active.placeholder}
-          onChange={(e) => {
-            setApiKey(e.target.value);
-            if (error) setError(null);
-          }}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") {
-              e.preventDefault();
-              void handleSave();
-            }
-          }}
-          className="h-8 min-w-0 flex-1 rounded-md border border-input bg-background px-2.5 text-[12px] text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1 focus:ring-offset-background"
-        />
-        <button
-          type="button"
-          onClick={handleSave}
-          disabled={!apiKey.trim() || saving}
-          className="inline-flex h-8 shrink-0 items-center gap-1 rounded-md bg-foreground px-3 text-[11px] font-medium text-background hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
-        >
-          {saving ? (
-            <>
-              <IconLoader2 size={11} className="animate-spin" />
-              Saving…
-            </>
-          ) : (
-            "Save"
-          )}
-        </button>
-      </div>
-      {error ? (
-        <p className="mt-2 text-[11px] text-destructive">{error}</p>
-      ) : null}
-    </div>
-  );
-}
-
-// ─── Loop Limit Continue Card ───────────────────────────────────────────────
-
-type LoopLimitInfo = { maxIterations?: number };
-type RunErrorInfo = {
-  message: string;
-  details?: string;
-  errorCode?: string;
-  runId?: string;
-  recoverable?: boolean;
-};
-
-interface AgentLoopSettingsResponse {
-  maxIterations: number;
-  defaultMaxIterations: number;
-  minMaxIterations: number;
-  maxMaxIterations: number;
-  scope: "org" | "user" | "default";
-  source: "org" | "user" | "env" | "default";
-  canUpdate: boolean;
-  orgName?: string | null;
-  role?: string | null;
-}
-
-function getLoopLimitMetadata(message: unknown): LoopLimitInfo | null {
-  const meta = (message as { metadata?: unknown })?.metadata as
-    | {
-        custom?: { loopLimit?: LoopLimitInfo };
-        loopLimit?: LoopLimitInfo;
-      }
-    | undefined;
-  const loopLimit = meta?.custom?.loopLimit ?? meta?.loopLimit;
-  if (!loopLimit || typeof loopLimit !== "object") return null;
-  return {
-    ...(typeof loopLimit.maxIterations === "number"
-      ? { maxIterations: loopLimit.maxIterations }
-      : {}),
-  };
-}
-
-function getRunErrorMetadata(message: unknown): RunErrorInfo | null {
-  const meta = (message as { metadata?: unknown })?.metadata as
-    | {
-        custom?: { runError?: RunErrorInfo; runId?: unknown };
-        runError?: RunErrorInfo;
-        runId?: unknown;
-      }
-    | undefined;
-  const runError = meta?.custom?.runError ?? meta?.runError;
-  if (!runError || typeof runError !== "object") return null;
-  const messageText =
-    typeof runError.message === "string" ? runError.message : "";
-  if (!messageText) return null;
-  const runId =
-    typeof runError.runId === "string"
-      ? runError.runId
-      : typeof meta?.custom?.runId === "string"
-        ? meta.custom.runId
-        : typeof meta?.runId === "string"
-          ? meta.runId
-          : undefined;
-  return {
-    message: messageText,
-    ...(typeof runError.details === "string"
-      ? { details: runError.details }
-      : {}),
-    ...(typeof runError.errorCode === "string"
-      ? { errorCode: runError.errorCode }
-      : {}),
-    ...(runId ? { runId } : {}),
-    ...(runError.recoverable ? { recoverable: true } : {}),
-  };
-}
-
-function getRequestModeMetadata(message: unknown): AgentRequestMode | null {
-  const meta = (message as { metadata?: unknown })?.metadata as
-    | {
-        custom?: { requestMode?: unknown };
-        requestMode?: unknown;
-      }
-    | undefined;
-  const requestMode = meta?.custom?.requestMode ?? meta?.requestMode;
-  return requestMode === "act" || requestMode === "plan" ? requestMode : null;
-}
-
-function isBuilderReconnectRunError(info: RunErrorInfo): boolean {
-  const code = (info.errorCode ?? "").toLowerCase();
-  const message = info.message.toLowerCase();
-  const isAuthCode =
-    code === "authentication_error" ||
-    code === "unauthorized" ||
-    code === "http_401" ||
-    code === "http_403";
-  return (
-    code === "builder_auth_error" ||
-    message.includes("builder authentication failed") ||
-    (isAuthCode &&
-      (message.includes("invalid token") ||
-        message.includes("personal access token")))
-  );
-}
-
-function isProviderQueryRunError(info: RunErrorInfo): boolean {
-  const text = [info.errorCode, info.message, info.details]
-    .filter(Boolean)
-    .join("\n")
-    .toLowerCase();
-  return (
-    text.includes("bigquery") ||
-    text.includes("sql") ||
-    text.includes("query") ||
-    text.includes("schema") ||
-    text.includes("syntax") ||
-    text.includes("unknown column") ||
-    text.includes("unknown table") ||
-    text.includes("type mismatch")
-  );
-}
-
-function isConnectionRecoveryRunError(info: RunErrorInfo): boolean {
-  const code = (info.errorCode ?? "").toLowerCase();
-  const message = info.message.toLowerCase();
-  return (
-    code === "connection_error" ||
-    message.includes("connection kept failing") ||
-    message.includes("automatic recovery attempts")
   );
 }
 
@@ -3056,457 +503,6 @@ export function latestNonRecoveryUserMessageText(
     if (text) return text;
   }
   return "";
-}
-
-function RunErrorRecoveryCard({
-  info,
-  onContinue,
-  onRetry,
-  onFork,
-  onDismiss,
-}: {
-  info: RunErrorInfo;
-  onContinue: () => void;
-  onRetry: () => void;
-  onFork?: () => void | boolean | Promise<void | boolean>;
-  onDismiss: () => void;
-}) {
-  const [detailsOpen, setDetailsOpen] = useState(false);
-  const [copied, setCopied] = useState(false);
-  const [forking, setForking] = useState(false);
-  const [forkError, setForkError] = useState<string | null>(null);
-  const builderReconnect = useBuilderConnectFlow({
-    trackingSource: "assistant_chat_reconnect_error",
-  });
-  const canRecover = info.recoverable === true;
-  const shouldShowBuilderReconnect = isBuilderReconnectRunError(info);
-  const builderReconnectResolved =
-    shouldShowBuilderReconnect &&
-    builderReconnect.hasFetchedStatus &&
-    builderReconnect.configured;
-  const isQueryError = isProviderQueryRunError(info);
-  const isConnectionRecoveryError = isConnectionRecoveryRunError(info);
-  const copyLabel =
-    info.runId || info.errorCode || info.details ? "Copy debug" : "Copy";
-  const copyDetails = useCallback(() => {
-    const text = [
-      info.message,
-      info.errorCode ? `Code: ${info.errorCode}` : "",
-      info.runId ? `Run: ${info.runId}` : "",
-      info.details ? `Details:\n${info.details}` : "",
-    ]
-      .filter(Boolean)
-      .join("\n\n");
-    void writeClipboardText(text).then((ok) => {
-      if (!ok) return;
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1200);
-    });
-  }, [info]);
-  const startNewChat = useCallback(() => {
-    window.dispatchEvent(new CustomEvent("agent-chat:new-chat"));
-    onDismiss();
-  }, [onDismiss]);
-
-  const handleFork = useCallback(async () => {
-    if (!onFork || forking) return;
-    setForking(true);
-    setForkError(null);
-    try {
-      const result = await onFork();
-      if (result === false) {
-        setForkError("Could not fork this chat. Try starting a new chat.");
-      }
-    } catch {
-      setForkError("Could not fork this chat. Try starting a new chat.");
-    } finally {
-      setForking(false);
-    }
-  }, [forking, onFork]);
-
-  useEffect(() => {
-    if (builderReconnectResolved) {
-      onDismiss();
-    }
-  }, [builderReconnectResolved, onDismiss]);
-
-  return (
-    <div className="rounded-lg border border-amber-500/25 bg-amber-500/[0.06] p-3 text-sm">
-      <div className="flex items-start gap-2">
-        <span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-amber-500/10 text-amber-700 dark:text-amber-300">
-          <IconAlertTriangle size={14} />
-        </span>
-        <div className="min-w-0 flex-1">
-          <div className="font-medium text-foreground">
-            {canRecover
-              ? "The agent stopped before finishing"
-              : "The agent hit an error"}
-          </div>
-          <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-            {info.message}
-          </p>
-          {shouldShowBuilderReconnect && !builderReconnectResolved && (
-            <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
-              The current Builder.io or model-provider credential was rejected.
-              Reconnect Builder.io, then retry this message.
-            </p>
-          )}
-          {isConnectionRecoveryError && (
-            <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
-              If retry lands on the same error, start a new chat session and
-              continue from what already changed.
-            </p>
-          )}
-          {(info.runId || info.errorCode || info.details) && (
-            <button
-              type="button"
-              onClick={() => setDetailsOpen((v) => !v)}
-              className="mt-2 inline-flex items-center gap-1 text-[11px] font-medium text-muted-foreground hover:text-foreground"
-            >
-              <IconChevronDown
-                size={12}
-                className={cn(
-                  "transition-transform",
-                  detailsOpen && "rotate-180",
-                )}
-              />
-              Details
-            </button>
-          )}
-          {detailsOpen && (
-            <div className="mt-2 rounded-md border border-border/60 bg-background/70 p-2 font-mono text-[11px] leading-relaxed text-muted-foreground">
-              {info.runId && <div>run: {info.runId}</div>}
-              {info.errorCode && <div>code: {info.errorCode}</div>}
-              {info.details && (
-                <pre className="mt-2 max-h-28 overflow-auto whitespace-pre-wrap break-words font-mono">
-                  {info.details}
-                </pre>
-              )}
-            </div>
-          )}
-        </div>
-        <button
-          type="button"
-          onClick={onDismiss}
-          aria-label="Dismiss"
-          className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-background/80 hover:text-foreground"
-        >
-          <IconX size={14} />
-        </button>
-      </div>
-      <div className="mt-3 flex flex-wrap items-center gap-2">
-        {shouldShowBuilderReconnect && !builderReconnectResolved && (
-          <button
-            type="button"
-            onClick={() => builderReconnect.start()}
-            disabled={builderReconnect.connecting}
-            className="inline-flex h-8 items-center gap-1.5 rounded-md bg-foreground px-3 text-xs font-medium text-background hover:opacity-90 disabled:cursor-wait disabled:opacity-70"
-          >
-            {builderReconnect.connecting ? (
-              <IconLoader2 size={13} className="animate-spin" />
-            ) : (
-              <IconExternalLink size={13} />
-            )}
-            {builderReconnect.connecting
-              ? "Connecting Builder.io"
-              : "Reconnect Builder.io"}
-          </button>
-        )}
-        {canRecover && (
-          <>
-            <button
-              type="button"
-              onClick={onContinue}
-              className="inline-flex h-8 items-center gap-1.5 rounded-md bg-foreground px-3 text-xs font-medium text-background hover:opacity-90"
-            >
-              <IconPlayerPlay size={13} />
-              Continue
-            </button>
-            <button
-              type="button"
-              onClick={onRetry}
-              className="inline-flex h-8 items-center gap-1.5 rounded-md border border-border bg-background px-3 text-xs font-medium text-foreground hover:bg-accent"
-            >
-              <IconRefresh size={13} />
-              {isQueryError ? "Diagnose and retry" : "Retry"}
-            </button>
-          </>
-        )}
-        {canRecover && isConnectionRecoveryError && (
-          <button
-            type="button"
-            onClick={startNewChat}
-            className="inline-flex h-8 items-center gap-1.5 rounded-md border border-border bg-background px-3 text-xs font-medium text-foreground hover:bg-accent"
-          >
-            <IconPlus size={13} />
-            New chat
-          </button>
-        )}
-        {canRecover && onFork && !isConnectionRecoveryError && (
-          <button
-            type="button"
-            onClick={handleFork}
-            disabled={forking}
-            title="Fork this conversation into a separate chat thread."
-            aria-label="Fork this conversation into a separate chat thread"
-            className="inline-flex h-8 items-center gap-1.5 rounded-md border border-border bg-background px-3 text-xs font-medium text-foreground hover:bg-accent disabled:cursor-wait disabled:opacity-70"
-          >
-            {forking ? (
-              <IconLoader2 size={13} className="animate-spin" />
-            ) : (
-              <IconGitFork size={13} />
-            )}
-            {forking ? "Forking..." : "Fork chat"}
-          </button>
-        )}
-        <button
-          type="button"
-          onClick={copyDetails}
-          className="ml-auto inline-flex h-8 items-center gap-1.5 rounded-md px-2.5 text-xs font-medium text-muted-foreground hover:bg-background/80 hover:text-foreground"
-        >
-          {copied ? <IconCheck size={13} /> : <IconCopy size={13} />}
-          {copied ? "Copied" : copyLabel}
-        </button>
-      </div>
-      {shouldShowBuilderReconnect && builderReconnect.error && (
-        <p className="mt-2 text-xs leading-relaxed text-red-500">
-          {builderReconnect.error}
-        </p>
-      )}
-      {forkError && (
-        <p className="mt-2 text-xs leading-relaxed text-red-500">{forkError}</p>
-      )}
-    </div>
-  );
-}
-
-function LoopLimitContinueCard({
-  info,
-  onContinue,
-}: {
-  info: LoopLimitInfo;
-  onContinue: () => void;
-}) {
-  const [settings, setSettings] = useState<AgentLoopSettingsResponse | null>(
-    null,
-  );
-  const [value, setValue] = useState("");
-  const [saving, setSaving] = useState(false);
-  const [saved, setSaved] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const load = useCallback(() => {
-    let cancelled = false;
-    fetch(agentNativePath("/_agent-native/agent-loop-settings"))
-      .then((r) => (r.ok ? r.json() : null))
-      .then((data: AgentLoopSettingsResponse | null) => {
-        if (cancelled || !data) return;
-        setSettings(data);
-        setValue(String(data.maxIterations));
-      })
-      .catch(() => {
-        if (!cancelled) setValue(String(info.maxIterations ?? ""));
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [info.maxIterations]);
-
-  useEffect(() => load(), [load]);
-
-  const currentLimit = settings?.maxIterations ?? info.maxIterations;
-  const numericValue = Number(value);
-  const hasPendingChange =
-    !!settings &&
-    settings.canUpdate &&
-    Number.isInteger(numericValue) &&
-    numericValue !== settings.maxIterations;
-  const scopeLabel =
-    settings?.scope === "org"
-      ? settings.orgName
-        ? `${settings.orgName} org`
-        : "org"
-      : "your account";
-
-  const saveLimit = useCallback(async (): Promise<boolean> => {
-    if (!settings?.canUpdate) return false;
-    setSaving(true);
-    setSaved(false);
-    setError(null);
-    try {
-      const res = await fetch(
-        agentNativePath("/_agent-native/agent-loop-settings"),
-        {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ maxIterations: numericValue }),
-        },
-      );
-      const body = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        throw new Error(body?.error ?? `Save failed (${res.status})`);
-      }
-      setSettings(body as AgentLoopSettingsResponse);
-      setValue(String((body as AgentLoopSettingsResponse).maxIterations));
-      setSaved(true);
-      window.dispatchEvent(
-        new CustomEvent("agent-loop-settings:changed", { detail: body }),
-      );
-      setTimeout(() => setSaved(false), 2000);
-      return true;
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Save failed");
-      return false;
-    } finally {
-      setSaving(false);
-    }
-  }, [numericValue, settings?.canUpdate]);
-
-  const handleContinue = useCallback(async () => {
-    if (hasPendingChange) {
-      const ok = await saveLimit();
-      if (!ok) return;
-    }
-    onContinue();
-  }, [hasPendingChange, onContinue, saveLimit]);
-
-  const openSettings = useCallback(() => {
-    try {
-      window.location.hash = "agent-limits";
-    } catch {}
-    window.dispatchEvent(new CustomEvent("agent-panel:open-settings"));
-  }, []);
-
-  return (
-    <div className="rounded-lg border border-amber-500/25 bg-amber-500/[0.06] px-3 py-3 shadow-sm">
-      <div className="flex items-start gap-2.5">
-        <span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-amber-500/10 text-amber-600 dark:text-amber-400">
-          <IconGauge size={14} />
-        </span>
-        <div className="min-w-0">
-          <p className="text-sm font-medium text-foreground">
-            Step limit reached
-          </p>
-          <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">
-            The agent used{" "}
-            {currentLimit
-              ? `${currentLimit.toLocaleString()} steps`
-              : "all available steps"}
-            . Keep going in a fresh turn, or raise the {scopeLabel} limit first.
-          </p>
-        </div>
-      </div>
-
-      <div className="mt-3 flex flex-wrap items-end gap-2">
-        <label className="min-w-[116px] flex-1 space-y-1">
-          <span className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-            Max steps
-          </span>
-          <input
-            type="number"
-            min={settings?.minMaxIterations ?? 1}
-            max={settings?.maxMaxIterations ?? 1000}
-            value={value}
-            disabled={!settings?.canUpdate || saving}
-            onChange={(e) => {
-              setValue(e.target.value);
-              setError(null);
-            }}
-            className="h-8 w-full rounded-md border border-border bg-background px-2 text-xs text-foreground outline-none focus:ring-1 focus:ring-ring disabled:opacity-60"
-          />
-        </label>
-        <button
-          type="button"
-          onClick={saveLimit}
-          disabled={!hasPendingChange || saving}
-          className="inline-flex h-8 items-center gap-1 rounded-md border border-border px-2.5 text-xs font-medium text-foreground hover:bg-accent disabled:opacity-50"
-        >
-          {saving ? (
-            <IconLoader2 size={12} className="animate-spin" />
-          ) : saved ? (
-            <IconCheck size={12} />
-          ) : (
-            "Save"
-          )}
-        </button>
-        <button
-          type="button"
-          onClick={openSettings}
-          className="inline-flex h-8 items-center gap-1 rounded-md border border-border px-2.5 text-xs font-medium text-muted-foreground hover:bg-accent hover:text-foreground"
-        >
-          <IconSettings size={12} />
-          Settings
-        </button>
-        <button
-          type="button"
-          onClick={handleContinue}
-          disabled={saving}
-          className="ml-auto inline-flex h-8 items-center gap-1 rounded-md bg-foreground px-3 text-xs font-medium text-background hover:opacity-90 disabled:opacity-60"
-        >
-          {hasPendingChange ? "Save and keep going" : "Keep going"}
-          <IconArrowRight size={12} />
-        </button>
-      </div>
-
-      {settings && !settings.canUpdate && (
-        <p className="mt-2 text-[11px] text-muted-foreground">
-          Only organization owners and admins can change this limit.
-        </p>
-      )}
-      {error && <p className="mt-2 text-[11px] text-destructive">{error}</p>}
-    </div>
-  );
-}
-
-function PlanModeCallout({
-  canImplementPlan,
-  onImplementPlan,
-  onSwitchToAct,
-}: {
-  canImplementPlan: boolean;
-  onImplementPlan: () => void;
-  onSwitchToAct: () => void;
-}) {
-  return (
-    <div className="shrink-0 px-3 pt-2">
-      <div className="rounded-lg border border-blue-500/25 bg-blue-500/[0.06] px-3 py-2.5 shadow-sm">
-        <div className="flex items-center gap-2.5">
-          <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-blue-500/10 text-blue-600 dark:text-blue-300">
-            <IconClipboardList size={15} />
-          </span>
-          <div className="min-w-0 flex-1">
-            <p className="text-sm font-medium text-foreground">
-              {canImplementPlan ? "Plan ready" : "Plan mode is on"}
-            </p>
-            <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">
-              {canImplementPlan
-                ? "Switch to Act and run the proposed plan."
-                : "The next turn will stay read-only until you switch to Act."}
-            </p>
-          </div>
-          {canImplementPlan ? (
-            <button
-              type="button"
-              onClick={onImplementPlan}
-              className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md bg-foreground px-3 text-xs font-medium text-background hover:opacity-90"
-            >
-              <IconPlayerPlay size={13} />
-              Implement Plan
-            </button>
-          ) : (
-            <button
-              type="button"
-              onClick={onSwitchToAct}
-              className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md border border-border bg-background px-3 text-xs font-medium text-foreground hover:bg-accent"
-            >
-              Act
-              <IconArrowRight size={13} />
-            </button>
-          )}
-        </div>
-      </div>
-    </div>
-  );
 }
 
 // ─── Main Component ─────────────────────────────────────────────────────────
@@ -3740,6 +736,74 @@ import {
 } from "../agent/thread-data-builder.js";
 export { extractThreadMeta };
 
+/**
+ * Strip raw base64 payload from attachment content parts when a hosted URL
+ * already exists in the same content entry. This keeps the periodic thread
+ * save payload compact — the server already stored the URL reference when it
+ * processed the POST, and re-shipping multi-megabyte base64 strings on every
+ * 5-second poll save balloons the SQL thread_data column unnecessarily.
+ *
+ * Only strips the raw base64 data-URL string from `content[].image` / `content[].data`
+ * when a `metadata.uploadUrl` reference is present on the same attachment object,
+ * so the transcript can still render from the hosted URL after hydration.
+ */
+function stripBase64FromRepo(repo: unknown): unknown {
+  if (!repo || typeof repo !== "object") return repo;
+  const r = repo as Record<string, unknown>;
+  if (!Array.isArray(r.messages)) return repo;
+
+  const messages = r.messages.map((entry: unknown) => {
+    if (!entry || typeof entry !== "object") return entry;
+    const e = entry as Record<string, unknown>;
+    const msg = (e.message ?? e) as Record<string, unknown> | null;
+    if (!msg || typeof msg !== "object") return entry;
+
+    const attachments = msg.attachments;
+    if (!Array.isArray(attachments)) return entry;
+
+    const strippedAttachments = attachments.map((att: unknown) => {
+      if (!att || typeof att !== "object") return att;
+      const a = att as Record<string, unknown>;
+      const meta = a.metadata as Record<string, unknown> | undefined;
+      // Only strip when we have a hosted upload URL confirmed by the server.
+      if (!meta?.uploadUrl) return att;
+
+      if (!Array.isArray(a.content)) return att;
+      const strippedContent = a.content.map((part: unknown) => {
+        if (!part || typeof part !== "object") return part;
+        const p = part as Record<string, unknown>;
+        // Replace the raw base64 image data-URL with the hosted URL.
+        if (
+          p.type === "image" &&
+          typeof p.image === "string" &&
+          p.image.startsWith("data:")
+        ) {
+          return { ...p, image: meta.uploadUrl };
+        }
+        // Replace the raw base64 file data with a stripped marker.
+        if (
+          p.type === "file" &&
+          typeof p.data === "string" &&
+          p.data.startsWith("data:")
+        ) {
+          const { data: _d, ...rest } = p;
+          return { ...rest, url: meta.uploadUrl };
+        }
+        return part;
+      });
+      return { ...a, content: strippedContent };
+    });
+
+    const strippedMsg = { ...msg, attachments: strippedAttachments };
+    if (e.message !== undefined) {
+      return { ...e, message: strippedMsg };
+    }
+    return strippedMsg;
+  });
+
+  return { ...r, messages };
+}
+
 const AssistantChatInner = forwardRef<
   AssistantChatHandle,
   AssistantChatProps & { apiUrl: string }
@@ -3779,7 +843,6 @@ const AssistantChatInner = forwardRef<
     planModeDisabledReason,
     selectedModel,
     defaultModel,
-    selectedEngine,
     selectedEffort,
     availableModels,
     onModelChange,
@@ -3820,6 +883,10 @@ const AssistantChatInner = forwardRef<
   // attachment strip otherwise navigate to the file (browser default), which
   // is why "upload does nothing" — the chat refreshes to the dropped image.
   const [dropActive, setDropActive] = useState(false);
+  // Inline error shown just above the composer for attachment failures
+  // (unsupported format, size cap, body-size rejection, drop errors).
+  // Cleared on the next message send.
+  const [composerError, setComposerError] = useState<string | null>(null);
   const dropDepthRef = useRef(0);
   const handleChatDragEnter = useCallback((e: React.DragEvent) => {
     if (!Array.from(e.dataTransfer?.types ?? []).includes("Files")) return;
@@ -3862,10 +929,14 @@ const AssistantChatInner = forwardRef<
       void Promise.all(
         attachments.map((file) => composerRuntime.addAttachment(file)),
       ).catch((error) => {
-        console.error("Error adding dropped chat attachment:", error);
+        const msg =
+          error instanceof Error
+            ? error.message
+            : "Could not add the dropped file. Try a different format.";
+        setComposerError(msg);
       });
     },
-    [composerRuntime],
+    [composerRuntime, setComposerError],
   );
 
   // Patch the underlying assistant-ui MessageRepository so addOrUpdateMessage
@@ -4027,6 +1098,11 @@ const AssistantChatInner = forwardRef<
     runId?: string;
   } | null>(null);
   const [isReconnecting, setIsReconnecting] = useState(false);
+  // Last activity label emitted by agent-chat:activity events (tool name / step label).
+  const [activityLabel, setActivityLabel] = useState<string | null>(null);
+  // True during the 250ms continuation window and startup of the next chunk
+  // (adapter's auto-continue delay before POSTing the next chunk).
+  const [isAutoResuming, setIsAutoResuming] = useState(false);
   const [reconnectContent, setReconnectContent] = useState<ContentPart[]>([]);
   // When stop is clicked during reconnect, keep content visible (don't wipe it)
   const [reconnectFrozen, setReconnectFrozen] = useState(false);
@@ -4047,6 +1123,9 @@ const AssistantChatInner = forwardRef<
   const wasRunningRef = useRef(false);
   const lastBroadcastRunningRef = useRef(isRunning);
   const tiptapRef = useRef<TiptapComposerHandle>(null);
+  // Stable ref to the "stop active run" action so addToQueue can abort
+  // a running turn without adding many unstable closure deps to its dep list.
+  const stopActiveRunRef = useRef<() => void>(() => {});
 
   useEffect(() => {
     if (lastBroadcastRunningRef.current === isRunning) return;
@@ -4575,7 +1654,7 @@ const AssistantChatInner = forwardRef<
     lastSaveTimeRef.current = now;
     savedTitleRef.current = title;
     onSaveThreadRef.current(threadId, {
-      threadData: JSON.stringify(repo),
+      threadData: JSON.stringify(stripBase64FromRepo(repo)),
       title,
       preview,
       messageCount: messages.length,
@@ -4595,7 +1674,7 @@ const AssistantChatInner = forwardRef<
       const { title, preview } = extractThreadMeta(repo);
       savedTitleRef.current = title;
       onSaveThreadRef.current(threadId, {
-        threadData: JSON.stringify(repo),
+        threadData: JSON.stringify(stripBase64FromRepo(repo)),
         title,
         preview,
         messageCount: messages.length,
@@ -4824,6 +1903,59 @@ const AssistantChatInner = forwardRef<
     return () => window.removeEventListener("agent-chat:run-error", handler);
   }, [tabId]);
 
+  // Track the most recent activity label for the running indicator.
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent).detail as {
+        label?: string;
+        tool?: string;
+        tabId?: string;
+      };
+      if (tabId && detail?.tabId && detail.tabId !== tabId) return;
+      if (typeof detail?.label === "string" && detail.label.trim()) {
+        setActivityLabel(detail.label.trim());
+        setIsAutoResuming(false);
+      }
+    };
+    window.addEventListener("agent-chat:activity", handler);
+    return () => window.removeEventListener("agent-chat:activity", handler);
+  }, [tabId]);
+
+  // Clear the activity label when the server clears a corrective draft.
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent).detail as { tabId?: string };
+      if (tabId && detail?.tabId && detail.tabId !== tabId) return;
+      setActivityLabel(null);
+    };
+    window.addEventListener("agent-chat:activity-clear", handler);
+    return () =>
+      window.removeEventListener("agent-chat:activity-clear", handler);
+  }, [tabId]);
+
+  // Show "Resuming…" during the adapter's auto-continuation window (the
+  // ~250ms gap between the end of one serverless chunk and the POST for the
+  // next). The adapter dispatches `agent-chat:auto-continue` at that moment.
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent).detail as { tabId?: string };
+      if (tabId && detail?.tabId && detail.tabId !== tabId) return;
+      setIsAutoResuming(true);
+      setActivityLabel(null);
+    };
+    window.addEventListener("agent-chat:auto-continue", handler);
+    return () =>
+      window.removeEventListener("agent-chat:auto-continue", handler);
+  }, [tabId]);
+
+  // Clear auto-resume / activity label when the run stops.
+  useEffect(() => {
+    if (!isRunning) {
+      setIsAutoResuming(false);
+      setActivityLabel(null);
+    }
+  }, [isRunning]);
+
   // Auto-dequeue: when agent finishes running, send the next queued message
   useEffect(() => {
     if (wasRunningRef.current && !isRunning && queuedMessages.length > 0) {
@@ -4954,6 +2086,51 @@ const AssistantChatInner = forwardRef<
     threadRuntime,
   ]);
 
+  // Abort the active server run (identical to what the Stop button does) so
+  // an immediate-while-running send can proceed cleanly without a 409 race.
+  // Captured in a stable ref so addToQueue can call it without listing
+  // all the stop-related state in its own dep array.
+  const stopActiveRun = useCallback(() => {
+    setForceStopped(true);
+    const activeRun = getActiveRun();
+    const runIdToAbort = reconnectRunIdRef.current ?? activeRun?.runId;
+    userStoppedRunRef.current = {
+      at: Date.now(),
+      ...(runIdToAbort ? { runId: runIdToAbort } : {}),
+    };
+    setRunErrorInfo(null);
+    setDismissedRunErrorKey(null);
+    if (runIdToAbort) {
+      fetch(`${apiUrl}/runs/${encodeURIComponent(runIdToAbort)}/abort`, {
+        method: "POST",
+      }).catch(() => {});
+    }
+    if (isReconnecting) {
+      reconnectAbortRef.current?.abort();
+      reconnectAbortRef.current = null;
+      reconnectRunIdRef.current = null;
+      setIsReconnecting(false);
+      setReconnectFrozen(reconnectContent.length > 0);
+    }
+    threadRuntime.cancelRun();
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(
+        new CustomEvent("agentNative.chatRunning", {
+          detail: { isRunning: false, tabId: tabId || threadId },
+        }),
+      );
+    }
+  }, [
+    apiUrl,
+    isReconnecting,
+    reconnectContent.length,
+    tabId,
+    threadId,
+    threadRuntime,
+  ]);
+  // Keep the ref current so addToQueue can call it without a stale closure.
+  stopActiveRunRef.current = stopActiveRun;
+
   const addToQueue = useCallback(
     async (
       text: string,
@@ -4971,6 +2148,7 @@ const AssistantChatInner = forwardRef<
       setLoopLimitInfo(null);
       setRunErrorInfo(null);
       setDismissedRunErrorKey(null);
+      setComposerError(null);
       userStoppedRunRef.current = null;
       // Selection context attached via Cmd+I is one-shot — clear it as soon
       // as the user actually sends a message so it can't be re-used.
@@ -4985,12 +2163,119 @@ const AssistantChatInner = forwardRef<
         ? buildComposerContextSubmission(text)
         : { text, includesContext: false };
       const submittedText = submitted.text;
-      const queuedAttachments = await serializeQueuedAttachments(attachments);
+      let queuedAttachments: Awaited<
+        ReturnType<typeof serializeQueuedAttachments>
+      >;
+      try {
+        queuedAttachments = await serializeQueuedAttachments(attachments);
+      } catch (err) {
+        const msg =
+          err instanceof Error
+            ? err.message
+            : "Attachment could not be processed.";
+        setComposerError(msg);
+        return;
+      }
       const imageAttachments = createAgentImageAttachments(images);
-      const messageAttachments = [
+      const allAttachments = [
         ...(queuedAttachments ?? []),
         ...(imageAttachments ?? []),
       ];
+
+      // ── Body-size guard (Fix 3) ─────────────────────────────────────
+      // Estimate the total serialized attachment payload. If it exceeds the
+      // Vercel/Netlify body limit, progressively re-compress images until
+      // the payload fits, then reject the largest remaining file if still over.
+      let messageAttachments = allAttachments;
+      {
+        const allDataUrls = allAttachments.flatMap((a) =>
+          a.content
+            .filter(
+              (c): c is { type: "image"; image: string } => c.type === "image",
+            )
+            .map((c) => c.image),
+        );
+        if (
+          estimateAttachmentBodyBytes(allDataUrls) > MAX_ESTIMATED_BODY_BYTES
+        ) {
+          // Re-compress image attachments more aggressively.
+          const recompressed: typeof allAttachments = [];
+          let stillOver = false;
+          for (const att of allAttachments) {
+            if (
+              att.type === "image" &&
+              att.content.length === 1 &&
+              att.content[0].type === "image"
+            ) {
+              // Find the original File from the queued attachments input.
+              const rawAtt = (attachments ?? []).find(
+                (r) => (r as any).id === att.id,
+              ) as { file?: File } | undefined;
+              const rawFile = rawAtt?.file;
+              if (rawFile && typeof document !== "undefined") {
+                try {
+                  const recompressedUrl = await transcodeImageToDataURL(
+                    rawFile,
+                    {
+                      maxDimension: AGGRESSIVE_MAX_IMAGE_DIMENSION,
+                      jpegQuality: AGGRESSIVE_JPEG_QUALITY,
+                    },
+                  );
+                  recompressed.push({
+                    ...att,
+                    content: [{ type: "image", image: recompressedUrl }],
+                  });
+                  continue;
+                } catch {
+                  // Could not recompress — keep original and flag overflow
+                  stillOver = true;
+                }
+              } else {
+                stillOver = true;
+              }
+            }
+            recompressed.push(att);
+          }
+          // Re-estimate after recompression.
+          const recompressedUrls = recompressed.flatMap((a) =>
+            a.content
+              .filter(
+                (c): c is { type: "image"; image: string } =>
+                  c.type === "image",
+              )
+              .map((c) => c.image),
+          );
+          if (
+            stillOver ||
+            estimateAttachmentBodyBytes(recompressedUrls) >
+              MAX_ESTIMATED_BODY_BYTES
+          ) {
+            // Find the largest attachment and reject it.
+            let largestIdx = -1;
+            let largestSize = 0;
+            for (let i = 0; i < recompressed.length; i++) {
+              const url =
+                recompressed[i].content.find(
+                  (c): c is { type: "image"; image: string } =>
+                    c.type === "image",
+                )?.image ?? "";
+              if (url.length > largestSize) {
+                largestSize = url.length;
+                largestIdx = i;
+              }
+            }
+            if (largestIdx >= 0) {
+              const rejected = recompressed[largestIdx];
+              setComposerError(
+                `"${rejected.name}" makes the message too large to send (combined attachments must be under ${Math.round(MAX_ESTIMATED_BODY_BYTES / 1024 / 1024)} MB). Remove it or use a smaller image.`,
+              );
+              return;
+            }
+          }
+          messageAttachments = recompressed;
+        }
+      }
+      // ── End body-size guard ──────────────────────────────────────────
       // Snapshot the exec mode at enqueue time when the caller didn't
       // pass an explicit override. Without this, a plan-mode message that
       // sits in the queue runs as 'act' if the user flips the global toggle
@@ -5002,7 +2287,36 @@ const AssistantChatInner = forwardRef<
           : execMode === "build"
             ? "act"
             : undefined);
-      if (isRunning && intent === "queued") {
+      if (isRunning && intent === "immediate") {
+        // Mid-run Enter race fix: immediately abort the active server run,
+        // wait for it to clear, then send — mirroring what the auto-dequeue
+        // path already does safely. Without this, assistant-ui's append()
+        // would cancel the adapter run locally but the server run would keep
+        // going; the new POST would then 409, reconnect to the OLD run, and
+        // replay the old answer under the new prompt.
+        setQueuedMessages((prev) => [
+          ...prev,
+          {
+            id:
+              typeof crypto !== "undefined" && crypto.randomUUID
+                ? crypto.randomUUID()
+                : `q-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+            text: submittedText,
+            images,
+            attachments:
+              messageAttachments.length > 0 ? messageAttachments : undefined,
+            references,
+            requestMode: effectiveRequestMode,
+            recoveryAction,
+            trackInRunsTray,
+          },
+        ]);
+        // Abort the server run (same as Stop button). This flips forceStopped
+        // → isRunning=false → auto-dequeue fires → waitForThreadRunToClear →
+        // append. The abort is fire-and-forget; waitForThreadRunToClear does
+        // the actual wait.
+        stopActiveRunRef.current();
+      } else if (isRunning && intent === "queued") {
         setQueuedMessages((prev) => [
           ...prev,
           {
@@ -5642,8 +2956,32 @@ const AssistantChatInner = forwardRef<
               {/* Keep live run progress pinned in the composer footer. */}
               {showRunningInUI && (
                 <RunningActivityStatus
-                  label={isReconnecting ? "Reconnecting" : "Thinking"}
+                  label={
+                    isReconnecting
+                      ? "Reconnecting"
+                      : isAutoResuming
+                        ? "Resuming"
+                        : (activityLabel ?? "Thinking")
+                  }
                 />
+              )}
+              {/* Inline attachment / body-size error */}
+              {composerError && (
+                <div
+                  role="alert"
+                  className="shrink-0 mx-3 mb-1.5 flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive"
+                >
+                  <IconAlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+                  <span className="flex-1 leading-snug">{composerError}</span>
+                  <button
+                    type="button"
+                    aria-label="Dismiss error"
+                    onClick={() => setComposerError(null)}
+                    className="shrink-0 opacity-70 hover:opacity-100"
+                  >
+                    <IconX className="h-3 w-3" />
+                  </button>
+                </div>
               )}
               {/* Input area */}
               <AgentComposerFrame
@@ -5709,6 +3047,7 @@ const AssistantChatInner = forwardRef<
                   providerConnectStatusEnabled={providerStatusChecksEnabled}
                   draftScope={threadId || tabId}
                   interceptBuildRequestsForBuilder
+                  onAttachmentError={setComposerError}
                   extraActionButton={
                     contextXRayEnabled ||
                     composerExtraActionButton ||
@@ -5723,51 +3062,7 @@ const AssistantChatInner = forwardRef<
                             <TooltipTrigger asChild>
                               <button
                                 type="button"
-                                onClick={() => {
-                                  // Nuclear stop: flip forceStopped so isRunning is false
-                                  // immediately. This unblocks submission even if the
-                                  // runtime or reconnect state is stuck.
-                                  setForceStopped(true);
-                                  const activeRun = getActiveRun();
-                                  const runIdToAbort =
-                                    reconnectRunIdRef.current ??
-                                    activeRun?.runId;
-                                  userStoppedRunRef.current = {
-                                    at: Date.now(),
-                                    ...(runIdToAbort
-                                      ? { runId: runIdToAbort }
-                                      : {}),
-                                  };
-                                  setRunErrorInfo(null);
-                                  setDismissedRunErrorKey(null);
-                                  if (runIdToAbort) {
-                                    fetch(
-                                      `${apiUrl}/runs/${encodeURIComponent(runIdToAbort)}/abort`,
-                                      { method: "POST" },
-                                    ).catch(() => {});
-                                  }
-
-                                  if (isReconnecting) {
-                                    reconnectAbortRef.current?.abort();
-                                    reconnectAbortRef.current = null;
-                                    reconnectRunIdRef.current = null;
-                                    setIsReconnecting(false);
-                                    setReconnectFrozen(
-                                      reconnectContent.length > 0,
-                                    );
-                                  }
-
-                                  threadRuntime.cancelRun();
-
-                                  window.dispatchEvent(
-                                    new CustomEvent("agentNative.chatRunning", {
-                                      detail: {
-                                        isRunning: false,
-                                        tabId: tabId || threadId,
-                                      },
-                                    }),
-                                  );
-                                }}
+                                onClick={stopActiveRun}
                                 className="shrink-0 flex h-7 w-7 items-center justify-center rounded-md bg-muted text-foreground hover:bg-muted/80"
                               >
                                 <IconPlayerStop className="h-3.5 w-3.5" />

@@ -1,9 +1,9 @@
 ---
-title: "Migration Workbench"
+title: "Migrating to Agent-Native (/migrate)"
 description: "Use the open-source Agent-Native Code workspace for coding sessions, including the built-in /migrate capability."
 ---
 
-# Agent-Native Code Workspace and /migrate
+# Migrating to Agent-Native (/migrate)
 
 Start from **Agent-Native Code**:
 
@@ -35,52 +35,9 @@ full run-control command set).
 
 ## Code Workspace
 
-`agent-native code` opens the interactive Agent-Native Code shell for coding-agent work. You do not need to pass an initial prompt:
+`agent-native code` opens the interactive Agent-Native Code shell. Inside the shell, `/migrate` is a slash goal alongside `/audit` and other built-in commands. Projects can also define custom migration variants in `.agents/commands/*.md`. The CLI and Desktop hub share the same run store — start in one and continue in the other using the standard `list`/`attach`/`logs`/`resume`/`approve`/`stop` controls.
 
-```bash
-npx @agent-native/core@latest code
-```
-
-Inside the shell, type a task or use slash goals as commands:
-
-```text
-code> fix the failing auth tests
-code> /migrate ./my-next-app --out ../migrated-app
-code> /audit --url https://example.com
-```
-
-Agent-Native Code uses the same minimal coding-tool profile (`bash`, `read`, `edit`, `write`) and shared composer as the rest of the framework; see [Agent-Native Code UI](/docs/code-agents-ui) for details.
-
-The same goals can run directly from the command line:
-
-```bash
-npx @agent-native/core@latest "fix the failing auth tests"
-npx @agent-native/core@latest code "fix the failing auth tests"
-npx @agent-native/core@latest code exec "fix the failing auth tests"
-npx @agent-native/core@latest code -p "fix the failing auth tests"
-npx @agent-native/core@latest code --plan "explain the failing auth tests"
-npx @agent-native/core@latest code --auto "fix the failing auth tests"
-npx @agent-native/core@latest code /migrate ./my-next-app --out ../migrated-app
-npx @agent-native/core@latest code /audit --url https://example.com
-```
-
-Run `agent-native code goals` to see the goals registered in your checkout. A bare prompt starts a local coding-agent session for open-ended code work, streams the run, records transcript/status/tool events, and accepts follow-up prompts through the same run record.
-
-Installed `agent-native` with no arguments launches the Agent-Native Code workspace, and `agent-native "prompt"` starts a generic Agent-Native Code task directly. Use `agent-native create` when you want to scaffold apps or workspaces.
-
-## Sessions and Modes
-
-Agent-Native Code makes migration feel like a local Codex/Claude Code session instead of a one-shot command. The CLI and Desktop hub share the same run store, so you can start a `/migrate` run in one place and continue it in the other with the standard `list`/`attach`/`logs`/`resume`/`approve`/`stop` controls. See [Agent-Native Code UI](/docs/code-agents-ui) for those run controls, the mixed background-run source model, two-way follow-up semantics, and the Plan/Auto run modes that also govern `/migrate` sessions. Auto mode is the default; use Plan mode for migration assessment, architecture, or review where you want a proposal before edits.
-
-## Project Slash Commands
-
-Built-in slash goals such as `/migrate` and `/audit` are framework commands. Projects can also define migration variants as custom commands in `.agents/commands/*.md` (see [Agent-Native Code UI](/docs/code-agents-ui) for how project commands and skills are discovered and inserted):
-
-```bash
-npx @agent-native/core@latest code /migrate-storefront ./legacy-shop --out ../agent-shop
-```
-
-Versioning migration variants this way keeps source-specific handoffs close to the repository. Source-specific systems such as AEM or Builder.io should stay as optional instruction-pack examples inside those commands, not top-level migration assumptions.
+See [Agent-Native Code UI](/docs/code-agents-ui) for the full shell, run controls, Plan/Auto modes, slash-goal discovery, and Desktop hub integration.
 
 ## Input Shapes
 

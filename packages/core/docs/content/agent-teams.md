@@ -9,6 +9,8 @@ The agent chat is an **orchestrator**, not a monolith. When the main agent hits 
 
 This keeps the main thread focused, lets sub-agents run in parallel, and gives you a clean audit trail for any delegated work.
 
+Agent Teams runs on the core run-manager: events stream and persist, aborts propagate through SQL, and tasks survive serverless cold starts.
+
 ## The mental model {#mental-model}
 
 - **Main chat** — the orchestrator. Reads your request, delegates. Rarely does heavy work itself.
@@ -17,23 +19,6 @@ This keeps the main thread focused, lets sub-agents run in parallel, and gives y
 - **Bidirectional messaging** — the main agent can send follow-ups to a running sub-agent; a sub-agent can message back when it hits an ambiguous point.
 
 Sub-agent state is persisted in the `application_state` SQL table (under `agent-task:<taskId>`), so tasks survive serverless cold starts and work across multiple processes.
-
-Agent Teams runs on the same core `run-manager` as hosted
-agent chat: events are streamed and persisted, aborts propagate through SQL,
-heartbeats mark active work, and stale runs can be reaped consistently. New
-background-agent UIs should reuse `run-manager` or `spawnTask()` instead of
-introducing a separate runner with its own lifecycle rules.
-
-Agent-Native Code is the sibling local surface, not a second hosted-agent
-lifecycle. Code currently keeps long-running local sessions in the file-backed
-Code run store and exposes them through the shared background-run foundation.
-The CLI commands (`agent-native`, `agent-native code`, `resume`, `status`,
-`stop`, `ui`), the Desktop Code tab, background sessions, and sub-agent
-sessions should present the same run model even when their persistence layer is
-different. When a new surface needs both hosted sub-agents and local Code
-sessions, adapt those sources into the shared background-run/run-manager
-vocabulary instead of adding another queue, transcript model, or process
-tracker.
 
 ## When to spawn a sub-agent {#when-to-spawn}
 
@@ -58,7 +43,17 @@ Custom agents live in the workspace at `agents/<slug>.md` — a Markdown file wi
 
 ### 2. The main agent delegates automatically {#auto-delegate}
 
-The framework gives the main agent a `delegate-to-agent` tool. When the model decides a task fits a registered sub-agent profile, it calls the tool. A chip appears; the sub-agent runs. The main agent waits (or moves on in parallel) and incorporates the result when the sub-agent finishes.
+The framework gives the main agent an `agent-teams` tool. When the model decides a task fits a registered sub-agent profile, it calls the tool with `action: "spawn"` and an optional `agent` parameter naming a profile from `agents/*.md`. A chip appears; the sub-agent runs. The main agent waits (or moves on in parallel) and incorporates the result when the sub-agent finishes.
+
+The full `agent-teams` action set is:
+
+| Action        | Purpose                              |
+| ------------- | ------------------------------------ |
+| `spawn`       | Start a new sub-agent task           |
+| `status`      | Check a running sub-agent's progress |
+| `read-result` | Get a finished sub-agent's output    |
+| `send`        | Message a running sub-agent          |
+| `list`        | See all tasks for the current user   |
 
 ### 3. Programmatic spawn {#programmatic-spawn}
 
@@ -73,12 +68,13 @@ const task = await spawnTask({
   ownerEmail: user.email,
   systemPrompt: mailAgentSystemPrompt,
   actions: mailActions,
-  apiKey: process.env.ANTHROPIC_API_KEY!,
+  // Pass either apiKey or engine — engine takes precedence.
+  apiKey: process.env.ANTHROPIC_API_KEY, // optional if engine is provided
   parentSend: emit, // streaming sender for the parent chat response
 });
 ```
 
-Most app code won't call this directly — the framework does it under the hood for `@mentions` and for the `delegate-to-agent` tool. Reach for `spawnTask()` only when you're wiring a new entry point (e.g., a button that kicks off a background job that runs as a sub-agent).
+Most app code won't call this directly — the framework does it under the hood for `@mentions` and for the `agent-teams` tool. Reach for `spawnTask()` only when you're wiring a new entry point (e.g., a button that kicks off a background job that runs as a sub-agent).
 
 ## Task lifecycle {#lifecycle}
 
@@ -112,7 +108,7 @@ const task = await getTask(taskId); // single task
 const tasks = await listTasks(); // all tasks for the user (sorted newest first)
 ```
 
-`AgentTask` shape:
+`AgentTask` key fields:
 
 ```ts
 interface AgentTask {
@@ -124,36 +120,26 @@ interface AgentTask {
   summary: string; // full summary once completed
   currentStep: string; // latest step label (updated while running)
   createdAt: number;
+  // Additional fields: parentThreadId, name, updatedAt, startedAt,
+  // completedAt, runId, error
 }
 ```
 
 ## Custom agent profiles {#profiles}
 
-A custom agent is a Markdown file in the workspace:
+A custom agent is a Markdown file in the workspace. Minimal example:
 
 ```markdown
 ---
 name: Code Review
-description: >-
-  Reviews TypeScript PRs with a focus on correctness, type safety, and API design.
+description: Reviews TypeScript PRs for correctness and type safety.
 model: inherit
-tools: inherit
-delegate-default: true
 ---
 
-# Role
-
-You are a meticulous code reviewer. Focus on correctness, subtle type errors,
-and the public API surface. Be terse and concrete — cite file:line wherever
-you can.
-
-## Rules
-
-- Prefer "here's the bug" over "here's why this pattern is wrong."
-- Never LGTM silently; always summarize what you checked.
+You are a meticulous code reviewer. Be terse and concrete — cite file:line wherever you can.
 ```
 
-Store at `agents/code-review.md` in the workspace. It appears in the `@mention` dropdown and is available to the main agent as a delegation target. See [Workspace — Custom Agents](/docs/workspace#custom-agents) for the full format.
+Store at `agents/code-review.md` in the workspace. It appears in the `@mention` dropdown and is available to the main agent as a delegation target. See [Workspace — Custom Agents](/docs/workspace#custom-agents) for the full format including `tools`, `delegate-default`, and model overrides.
 
 ## What's next
 

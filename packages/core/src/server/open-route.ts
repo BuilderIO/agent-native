@@ -108,7 +108,8 @@ function addMcpEmbedHeaders(event: H3Event, headers: Headers): Headers {
   headers.set("Referrer-Policy", "no-referrer");
   const origin = getHeader(event, "origin");
   if (isMcpEmbedCorsOrigin(origin)) {
-    headers.set("Access-Control-Allow-Origin", origin);
+    // origin is non-null: isMcpEmbedCorsOrigin only returns true for truthy origins
+    headers.set("Access-Control-Allow-Origin", origin!);
     headers.set("Vary", "Origin");
     headers.set("Access-Control-Allow-Methods", "GET,HEAD,OPTIONS");
     headers.set("Access-Control-Allow-Headers", MCP_EMBED_CORS_ALLOW_HEADERS);

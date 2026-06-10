@@ -17,10 +17,19 @@
 import { getDbExec, intType, retryOnDdlRace } from "../db/client.js";
 
 /** Max cross-invocation continuations for one sub-agent run. Each continuation
- * is one ~40s soft-timeout chunk, so ~12 ≈ ~8 minutes of wall-clock work. Two
+ * is one ~40s soft-timeout chunk, so ~60 ≈ ~40 minutes of wall-clock work. Two
  * independent guards bound runaway self-fire: this persisted cap and the
- * per-invocation `MAX_RUN_LOOP_CONTINUATIONS` inside the run loop. */
-export const MAX_AGENT_TEAM_CONTINUATIONS = 12;
+ * per-invocation `MAX_RUN_LOOP_CONTINUATIONS` inside the run loop.
+ *
+ * Progress-aware continuation: non-progressing chunks count against a much
+ * smaller budget (`MAX_AGENT_TEAM_NO_PROGRESS_CONTINUATIONS`) so a stalled
+ * sub-agent is detected and finalized quickly, while actively-working sub-agents
+ * can run for as long as this absolute cap allows. */
+export const MAX_AGENT_TEAM_CONTINUATIONS = 60;
+
+/** Max consecutive *non-progressing* continuations before the run is finalized.
+ * A chunk that emits no new events, tool calls, or text counts as no-progress. */
+export const MAX_AGENT_TEAM_NO_PROGRESS_CONTINUATIONS = 3;
 
 /** A `running` row whose `updated_at` is older than this is treated as a
  * dropped dispatch and may be re-claimed / re-fired. Must be comfortably larger
@@ -192,10 +201,26 @@ export async function claimAgentTeamRun(
 }
 
 /** Heartbeat: bump `updated_at` while a claimed run is actively processing so a
- * healthy run isn't re-claimed by the stuck-refire path. */
-export async function touchAgentTeamRun(taskId: string): Promise<boolean> {
+ * healthy run isn't re-claimed by the stuck-refire path.
+ *
+ * When `claimedAttempts` is provided the UPDATE is fenced to
+ * `attempts = claimedAttempts`: a superseded invocation (one that was
+ * re-claimed after it stalled) will find the attempts counter has been bumped
+ * and the update will be a no-op, signalling that this invocation should
+ * self-terminate. */
+export async function touchAgentTeamRun(
+  taskId: string,
+  claimedAttempts?: number,
+): Promise<boolean> {
   await ensureTable();
   const client = getDbExec();
+  if (claimedAttempts !== undefined) {
+    const result = await client.execute({
+      sql: `UPDATE agent_team_run_queue SET updated_at = ? WHERE task_id = ? AND status = 'running' AND attempts = ?`,
+      args: [Date.now(), taskId, claimedAttempts],
+    });
+    return getAffectedRowCount(result) > 0;
+  }
   const result = await client.execute({
     sql: `UPDATE agent_team_run_queue SET updated_at = ? WHERE task_id = ? AND status = 'running'`,
     args: [Date.now(), taskId],
@@ -207,19 +232,31 @@ export async function touchAgentTeamRun(taskId: string): Promise<boolean> {
  * Record a soft-timeout continuation: re-queue the row (so the next
  * self-fired invocation can claim it) and increment the counter. Returns the
  * new continuation count, or null if the row wasn't in a continuable state.
- */
+ *
+ * When `claimedAttempts` is provided the UPDATE is fenced to
+ * `attempts = claimedAttempts` so a superseded invocation cannot queue a
+ * spurious continuation. */
 export async function bumpAgentTeamContinuation(
   taskId: string,
+  claimedAttempts?: number,
 ): Promise<number | null> {
   await ensureTable();
   const client = getDbExec();
   const now = Date.now();
-  const result = await client.execute({
-    sql: `UPDATE agent_team_run_queue
-            SET continuation_count = continuation_count + 1, status = 'queued', updated_at = ?
-          WHERE task_id = ? AND status = 'running'`,
-    args: [now, taskId],
-  });
+  const result =
+    claimedAttempts !== undefined
+      ? await client.execute({
+          sql: `UPDATE agent_team_run_queue
+                  SET continuation_count = continuation_count + 1, status = 'queued', updated_at = ?
+                WHERE task_id = ? AND status = 'running' AND attempts = ?`,
+          args: [now, taskId, claimedAttempts],
+        })
+      : await client.execute({
+          sql: `UPDATE agent_team_run_queue
+                  SET continuation_count = continuation_count + 1, status = 'queued', updated_at = ?
+                WHERE task_id = ? AND status = 'running'`,
+          args: [now, taskId],
+        });
   if (getAffectedRowCount(result) === 0) return null;
   const { rows } = await client.execute({
     sql: `SELECT continuation_count FROM agent_team_run_queue WHERE task_id = ?`,
@@ -229,16 +266,30 @@ export async function bumpAgentTeamContinuation(
   return Number((rows[0] as any).continuation_count ?? 0);
 }
 
+/**
+ * Mark a run terminal.
+ *
+ * When `claimedAttempts` is provided the UPDATE is fenced to
+ * `attempts = claimedAttempts` so a superseded invocation cannot overwrite a
+ * freshly-claimed row's status. Returns whether the row was actually updated. */
 export async function completeAgentTeamRun(
   taskId: string,
   status: "done" | "failed",
-): Promise<void> {
+  claimedAttempts?: number,
+): Promise<boolean> {
   await ensureTable();
   const client = getDbExec();
-  await client.execute({
-    sql: `UPDATE agent_team_run_queue SET status = ?, updated_at = ? WHERE task_id = ?`,
-    args: [status, Date.now(), taskId],
-  });
+  const result =
+    claimedAttempts !== undefined
+      ? await client.execute({
+          sql: `UPDATE agent_team_run_queue SET status = ?, updated_at = ? WHERE task_id = ? AND attempts = ?`,
+          args: [status, Date.now(), taskId, claimedAttempts],
+        })
+      : await client.execute({
+          sql: `UPDATE agent_team_run_queue SET status = ?, updated_at = ? WHERE task_id = ?`,
+          args: [status, Date.now(), taskId],
+        });
+  return getAffectedRowCount(result) > 0;
 }
 
 /** Task ids of an owner's in-flight (queued/running) sub-agent runs. Used by

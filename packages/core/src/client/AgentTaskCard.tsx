@@ -7,6 +7,7 @@ import {
   IconChevronRight,
   IconExternalLink,
   IconAlertCircle,
+  IconPlayerStop,
   IconSubtask,
 } from "@tabler/icons-react";
 import { cn } from "./utils.js";
@@ -122,6 +123,29 @@ export function AgentTaskCard({
     [onOpen, threadId],
   );
 
+  const handleStop = useCallback(
+    async (e: React.MouseEvent) => {
+      e.stopPropagation();
+      // Optimistic UI: mark stopped immediately
+      setStatus("errored");
+      setCurrentStep("");
+      try {
+        await fetch(
+          agentNativePath(
+            `/_agent-native/agent-chat/runs/run-task-${taskId}/stop`,
+          ),
+          {
+            method: "POST",
+            headers: { "X-Agent-Native-CSRF": "1" },
+          },
+        );
+      } catch {
+        // best-effort
+      }
+    },
+    [taskId],
+  );
+
   const isRunning = status === "running";
   const isComplete = status === "completed";
   const isError = status === "errored";
@@ -215,19 +239,31 @@ export function AgentTaskCard({
         </div>
       )}
 
-      {/* Footer with Open button */}
+      {/* Footer with Open / Stop buttons */}
       {expanded && (
         <div className="flex items-center justify-between gap-2 px-3 pb-2">
           <span className="min-w-0 flex-1 truncate text-[10px] text-muted-foreground/60">
             {!hasContent ? emptyMessage : ""}
           </span>
-          <button
-            onClick={handleOpen}
-            className="inline-flex shrink-0 items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium text-muted-foreground hover:bg-muted hover:text-foreground"
-          >
-            Open thread
-            <IconExternalLink className="h-3 w-3" />
-          </button>
+          <div className="flex shrink-0 items-center gap-1">
+            {isRunning && (
+              <button
+                onClick={handleStop}
+                className="inline-flex cursor-pointer items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium text-muted-foreground hover:bg-muted hover:text-destructive"
+                aria-label="Stop sub-agent"
+              >
+                <IconPlayerStop className="h-3 w-3" />
+                Stop
+              </button>
+            )}
+            <button
+              onClick={handleOpen}
+              className="inline-flex cursor-pointer items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium text-muted-foreground hover:bg-muted hover:text-foreground"
+            >
+              Open thread
+              <IconExternalLink className="h-3 w-3" />
+            </button>
+          </div>
         </div>
       )}
     </div>

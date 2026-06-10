@@ -1033,7 +1033,7 @@ function missingCredentialErrorText(message: string): string {
  * Creates a ChatModelAdapter that connects to the agent-native
  * `/_agent-native/agent-chat` SSE endpoint. Supports reconnection via run-manager.
  */
-export function createAgentChatAdapter(options?: {
+export interface CreateAgentChatAdapterOptions {
   apiUrl?: string;
   tabId?: string;
   threadId?: string;
@@ -1044,7 +1044,11 @@ export function createAgentChatAdapter(options?: {
   browserTabId?: string;
   scopeRef?: { current: ChatThreadScope | null | undefined };
   surface?: AgentChatSurfaceKind;
-}): ChatModelAdapter {
+}
+
+export function createAgentChatAdapter(
+  options?: CreateAgentChatAdapterOptions,
+): ChatModelAdapter {
   const apiUrl =
     options?.apiUrl ?? agentNativePath("/_agent-native/agent-chat");
   const tabId = options?.tabId;
@@ -1994,6 +1998,15 @@ export function createAgentChatAdapter(options?: {
                   content: snapshotContent(content),
                 } as ChatModelRunResult;
               }
+              // Signal to the UI that we are in the continuation window so it
+              // can display "Resuming…" instead of "Thinking" during the gap.
+              if (typeof window !== "undefined") {
+                window.dispatchEvent(
+                  new CustomEvent("agent-chat:auto-continue", {
+                    detail: { tabId },
+                  }),
+                );
+              }
               await delay(250, abortSignal);
               if (abortSignal.aborted) return;
               continue;
@@ -2130,6 +2143,14 @@ export function createAgentChatAdapter(options?: {
                 yield {
                   content: snapshotContent(content),
                 } as ChatModelRunResult;
+              }
+              // Signal to the UI that we are in the continuation window.
+              if (typeof window !== "undefined") {
+                window.dispatchEvent(
+                  new CustomEvent("agent-chat:auto-continue", {
+                    detail: { tabId },
+                  }),
+                );
               }
               await delay(250, abortSignal);
               if (abortSignal.aborted) return;

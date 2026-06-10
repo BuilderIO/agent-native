@@ -1,16 +1,7 @@
 import { TeamPage } from "@agent-native/core/client/org";
-import { Spinner } from "@/components/ui/spinner";
 
 export function meta() {
   return [{ title: "Team - Design" }];
-}
-
-export function HydrateFallback() {
-  return (
-    <div className="flex h-screen w-full items-center justify-center">
-      <Spinner className="size-8 text-foreground" />
-    </div>
-  );
 }
 
 export default function TeamRoute() {

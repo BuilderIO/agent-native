@@ -5,6 +5,41 @@ description: "Embed an Agent-Native sidecar into an existing SaaS app with page 
 
 # Embedding SDK
 
+## Installation {#installation}
+
+```bash
+pnpm add @agent-native/embedding
+```
+
+Subpath exports from `@agent-native/embedding`:
+
+| Import path                        | What it provides                                                                        |
+| ---------------------------------- | --------------------------------------------------------------------------------------- |
+| `@agent-native/embedding`          | `EmbeddedApp` picker component, `getA2AUrl`, `getMcpUrl`, `sendMessage` (streaming A2A) |
+| `@agent-native/embedding/react`    | React-specific hooks and components                                                     |
+| `@agent-native/embedding/bridge`   | `announceEmbeddedAppReady`, `sendEmbeddedAppMessage` — used inside the embedded app     |
+| `@agent-native/embedding/agent`    | Agent endpoint helpers                                                                  |
+| `@agent-native/embedding/protocol` | Protocol types                                                                          |
+
+For the **batteries-included embedded mode** (full sidecar with actions, database, and agent chat), install `@agent-native/core` on the server and use `createAgentNativeEmbeddedPlugin`:
+
+```bash
+pnpm add @agent-native/core
+```
+
+## Choosing a mode {#choosing-a-mode}
+
+| Mode                                 | Use it when                                                                                         | Package                                                  |
+| ------------------------------------ | --------------------------------------------------------------------------------------------------- | -------------------------------------------------------- |
+| **EmbeddedApp picker**               | Launching a full Agent-Native app as a focused iframe (asset picker, form builder, approval panel). | `@agent-native/embedding`                                |
+| **Batteries-included server plugin** | Adding a durable agent sidecar with its own database and actions to your existing SaaS app.         | `@agent-native/core` + `createAgentNativeEmbeddedPlugin` |
+| **`<AgentNative>` host component**   | Client-side: rendering the agent sidecar panel in your React app shell with live page context.      | `@agent-native/core/client`                              |
+| **Extension slot**                   | Embedding a sandboxed mini-app (extension) inside an existing agent-native template.                | `@agent-native/core` extensions system                   |
+
+The CLAW-style host bridge described below uses the batteries-included plugin (server) + the `<AgentNativeEmbedded>` component (client). It is the recommended default when you want the agent to see and operate on the page the user is already using.
+
+---
+
 The embedding SDK is for the CLAW-style shape: keep your existing SaaS app, add a durable agent sidecar, and let that agent see and operate on the page the user is already using.
 
 Use it when you want an assistant that can:

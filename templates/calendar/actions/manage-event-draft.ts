@@ -199,13 +199,13 @@ export default defineAction({
     }
 
     if (action === "delete") {
-      if (!args.id) return "Error: --id is required for delete";
+      if (!args.id) throw new Error("--id is required for delete");
       const safeId = sanitizeDraftId(args.id);
-      if (!safeId) return `Error: Invalid draft ID "${args.id}"`;
+      if (!safeId) throw new Error(`Invalid draft ID "${args.id}"`);
       const deleted = await deleteAppState(draftKey(safeId));
-      return deleted
-        ? `Deleted calendar event draft ${safeId}`
-        : `Error: Calendar event draft "${safeId}" not found`;
+      if (!deleted)
+        throw new Error(`Calendar event draft "${safeId}" not found`);
+      return `Deleted calendar event draft ${safeId}`;
     }
 
     const rawId = args.id || `draft-${Date.now()}`;
@@ -218,7 +218,7 @@ export default defineAction({
         : null;
 
     if (action === "update" && !existing) {
-      return `Error: Calendar event draft "${id}" not found`;
+      throw new Error(`Calendar event draft "${id}" not found`);
     }
 
     const now = new Date().toISOString();

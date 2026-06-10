@@ -154,13 +154,16 @@ export async function getTrackingStats(
     .where(eq(schema.emailLinkTracking.pixelToken, tracking.pixelToken))
     .orderBy(desc(schema.emailLinkTracking.clicksCount));
 
-  const linkClicks = linkRows.map((r) => ({
+  const linkClicks = linkRows.map((r: any) => ({
     url: r.url,
     count: r.clicksCount,
     firstClickedAt: r.firstClickedAt ?? undefined,
     lastClickedAt: r.lastClickedAt ?? undefined,
   }));
-  const totalClicks = linkClicks.reduce((sum, l) => sum + l.count, 0);
+  const totalClicks = linkClicks.reduce(
+    (sum: number, l: any) => sum + l.count,
+    0,
+  );
 
   return {
     opens: tracking.opensCount,

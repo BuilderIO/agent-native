@@ -45,11 +45,7 @@ import { resolveMaxOutputTokensForEngine } from "./output-tokens.js";
 
 export const BUILDER_CAPABILITIES: EngineCapabilities = {
   thinking: true,
-  // TODO: flip to true once we forward `cache_control` blocks through to
-  // the gateway request body. Today the engine builds the Anthropic-shaped
-  // body without cache_control markers, and Anthropic caching is opt-in
-  // (not automatic), so claiming `promptCaching: true` would overpromise.
-  promptCaching: false,
+  promptCaching: true,
   vision: true,
   computerUse: false,
   parallelToolCalls: true,
@@ -149,11 +145,61 @@ class BuilderEngine implements AgentEngine {
         ? mapReasoningEffort(thinkingBudget)
         : undefined);
 
+    // Apply prompt caching to system + tools (stable prefix) and to the last
+    // user message (moving cache breakpoint so growing history gets cached
+    // across tool-loop iterations at ~90% off input cost).
+    // Templates can opt out by setting providerOptions.anthropic.cacheControl=false.
+    const cacheEnabled =
+      opts.providerOptions?.anthropic?.cacheControl !== false;
+
+    // System: wrap in array with cache_control when caching is on.
+    const systemValue: unknown = opts.systemPrompt
+      ? cacheEnabled
+        ? [
+            {
+              type: "text",
+              text: opts.systemPrompt,
+              cache_control: { type: "ephemeral" },
+            },
+          ]
+        : opts.systemPrompt
+      : undefined;
+
+    // Tools: add cache_control to the last tool definition.
+    let cachedTools = tools;
+    if (cacheEnabled && tools.length > 0) {
+      cachedTools = [...tools];
+      const last = { ...cachedTools[cachedTools.length - 1] } as any;
+      last.cache_control = { type: "ephemeral" };
+      cachedTools[cachedTools.length - 1] = last;
+    }
+
+    // Messages: add a moving cache breakpoint on the last user message's last
+    // content block so the entire conversation prefix is cached.
+    let cachedMessages = messages;
+    if (cacheEnabled && messages.length > 0) {
+      const lastUserIdx = [...messages].findLastIndex(
+        (m: any) => m.role === "user",
+      );
+      if (lastUserIdx >= 0) {
+        cachedMessages = [...messages];
+        const lastMsg = { ...cachedMessages[lastUserIdx] } as any;
+        if (Array.isArray(lastMsg.content) && lastMsg.content.length > 0) {
+          const content = [...lastMsg.content];
+          const lastBlock = { ...content[content.length - 1] } as any;
+          lastBlock.cache_control = { type: "ephemeral" };
+          content[content.length - 1] = lastBlock;
+          lastMsg.content = content;
+          cachedMessages[lastUserIdx] = lastMsg;
+        }
+      }
+    }
+
     const body: Record<string, unknown> = {
       model: opts.model,
-      messages,
-      ...(opts.systemPrompt ? { system: opts.systemPrompt } : {}),
-      ...(tools.length > 0 ? { tools } : {}),
+      messages: cachedMessages,
+      ...(systemValue !== undefined ? { system: systemValue } : {}),
+      ...(cachedTools.length > 0 ? { tools: cachedTools } : {}),
       max_tokens: resolveMaxOutputTokensForEngine(
         this.name,
         opts.maxOutputTokens,

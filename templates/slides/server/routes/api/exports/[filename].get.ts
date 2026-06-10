@@ -51,8 +51,8 @@ export default defineEventHandler(async (event) => {
   const ext = path.extname(filename).toLowerCase();
   const contentType = CONTENT_TYPES[ext] ?? "application/octet-stream";
 
-  event.node.res.setHeader("Content-Type", contentType);
-  event.node.res.setHeader(
+  event.node!.res!.setHeader("Content-Type", contentType);
+  event.node!.res!.setHeader(
     "Content-Disposition",
     `attachment; filename="${filename}"`,
   );

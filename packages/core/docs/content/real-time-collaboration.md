@@ -17,6 +17,10 @@ agent-native collaboration model.
 Editing alongside the agent feels like working in Google Docs or Figma with
 a coworker who is both instant and tireless:
 
+If you just need the UI to refresh when the agent or another user writes to SQL, you don't need any of this — use [`useDbSync`](/docs/client). This page is for character-level co-editing of a single rich-text document (shared cursors, conflict-free merging). Both ride the same `/_agent-native/poll` channel.
+
+This is built on three battle-tested technologies: **Yjs** (CRDT for conflict-free merging), **TipTap** (rich text editor), and **polling-based sync** (works in all deployment environments including serverless and edge).
+
 - **CRDT merging** — Concurrent edits from humans and agents merge without
   conflicts. You type in one paragraph; the agent rewrites another; both
   land cleanly.
@@ -214,11 +218,113 @@ useEffect(() => {
 }, [ydoc, editor, isLoaded]);
 ```
 
+User identity is derived from the session email. The framework provides `emailToColor()` and `emailToName()` helpers to generate consistent cursor colors and display names from email addresses.
+
+## Comments {#comments}
+
+Templates can add a comments system with threaded discussions on documents. The content template's comments system includes a full implementation with:
+
+- `document_comments` SQL table (threads, replies, resolved status)
+- The content template's REST routes for update/delete at `/api/comments/:id`; create and list run through the `add-comment` / `list-comments` actions. Custom templates implement their own equivalent endpoints against the core `POST /_agent-native/collab/:docId/search-replace` route.
+- Comments sidebar with threaded view and reply UI
+- Resolve/unresolve threads
+- **Send to AI** button — sends the comment thread context to the agent chat via `sendToAgentChat()`
+- Agent actions: `list-comments`, `add-comment`
+- Notion comment sync: `sync-notion-comments` action for bidirectional pull/push
+
+## Collab routes {#collab-routes}
+
+All collab routes are auto-mounted under `/_agent-native/collab/` by the collab plugin:
+
+| Route                         | Purpose                                  |
+| ----------------------------- | ---------------------------------------- |
+| `GET /:docId/state`           | Fetch full Y.Doc state (base64)          |
+| `POST /:docId/update`         | Apply client Yjs update                  |
+| `POST /:docId/text`           | Apply full text replacement (diff-based) |
+| `POST /:docId/search-replace` | Surgical find/replace in Y.XmlFragment   |
+| `POST /:docId/awareness`      | Sync cursor/presence state               |
+| `GET /:docId/users`           | List active users on a document          |
+
+## Agent edit action {#edit-document}
+
+The content template's `edit-document` action is the primary way agents make changes to documents in collaborative mode:
+
+```bash
+# Single edit
+pnpm action edit-document --id doc123 --find "old text" --replace "new text"
+
+# Batch edits
+pnpm action edit-document --id doc123 --edits '[{"find":"old","replace":"new"}]'
+
+# Delete text
+pnpm action edit-document --id doc123 --find "delete me" --replace ""
+```
+
 ---
 
 ## Presence Kit {#presence-kit}
 
 The presence kit provides Liveblocks/Figma-grade live-cursor and selection primitives on top of the existing awareness layer.
+
+Import client-side presence and editor UI from the focused browser subpath:
+
+```ts
+import {
+  PresenceBar,
+  LiveCursorOverlay,
+  RemoteSelectionRings,
+  useCollaborativeDoc,
+  usePresence,
+} from "@agent-native/core/client/collab";
+```
+
+Server-side agent presence helpers stay in the lower-level collab package:
+
+```ts
+import {
+  agentEnterDocument,
+  agentLeaveDocument,
+  agentUpdateSelection,
+} from "@agent-native/core/collab";
+```
+
+### Public API {#presence-public-api}
+
+| API                                                 | Purpose                                                                                                                                                |
+| --------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `useCollaborativeDoc(options)`                      | Creates the stable `Y.Doc` and awareness instance, handles state-vector sync, SSE fast-path, polling fallback, active users, and agent presence flags. |
+| `usePresence(awareness, localClientId)`             | Derives remote participants and publishes arbitrary local awareness fields such as cursor, selection, viewport, or tool mode.                          |
+| `<PresenceBar>`                                     | Renders active collaborators plus the AI agent, with optional avatar-click follow mode wiring.                                                         |
+| `<LiveCursorOverlay>`                               | Renders remote cursor labels over a positioned container from normalized 0-1 coordinates.                                                              |
+| `<RemoteSelectionRings>`                            | Renders colored rings and labels around selected DOM elements resolved by your app.                                                                    |
+| `useFollowUser(options)`                            | Invokes a callback when the followed participant publishes viewport changes.                                                                           |
+| `toNormalized()` / `fromNormalized()`               | Convert pointer coordinates to/from normalized container coordinates.                                                                                  |
+| `dedupeCollabUsersByEmail()`                        | Build custom avatar stacks without one user showing once per open tab.                                                                                 |
+| `useCollaborativeMap()` / `useCollaborativeArray()` | Client hooks for Y.Map/Y.Array structured collaboration. Treat as lower-level until a template proves the exact product pattern.                       |
+
+`UseCollaborativeDocOptions`:
+
+| Option                | Description                                                         |
+| --------------------- | ------------------------------------------------------------------- |
+| `docId`               | Document id, or `null` to disable the hook.                         |
+| `pollInterval`        | Poll interval when SSE is unavailable. Default: `2000`.             |
+| `pollIntervalWithSse` | Slow poll interval while SSE is healthy. Default: `12000`.          |
+| `pauseWhenHidden`     | Pause remote update/presence polling while hidden. Default: `true`. |
+| `baseUrl`             | Collab endpoint prefix. Default: `/_agent-native/collab`.           |
+| `requestSource`       | Stable tab/source id used to ignore self-originated refresh noise.  |
+| `user`                | `{ name, email, color }` shown in cursor and presence UI.           |
+
+`UseCollaborativeDocResult`:
+
+| Field          | Description                                                          |
+| -------------- | -------------------------------------------------------------------- |
+| `ydoc`         | Stable `Y.Doc` for the current `docId`.                              |
+| `awareness`    | Yjs Awareness instance used by cursors, selections, and follow mode. |
+| `isLoading`    | Initial server state is still loading.                               |
+| `isSynced`     | The hook has caught up to server state.                              |
+| `activeUsers`  | Human collaborators from awareness.                                  |
+| `agentActive`  | The agent is actively editing right now.                             |
+| `agentPresent` | The agent has an awareness entry for this document.                  |
 
 ### Fast awareness {#fast-awareness}
 

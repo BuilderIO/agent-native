@@ -454,3 +454,242 @@
     transform: rotate(360deg);
   }
 }
+
+/* ─── Agent-Markdown (AssistantChat react-markdown render surface) ─────────── */
+/* These classes are applied by the SmoothMarkdownText/MarkdownText components  */
+/* in the AssistantChat/AssistantChatInner tree. The shiki dual-theme rules      */
+/* follow the same .dark / @media pattern used above for agent-conversation.     */
+
+.agent-markdown > :first-child {
+  margin-top: 0;
+}
+
+.agent-markdown > :last-child {
+  margin-bottom: 0;
+}
+
+.agent-markdown p {
+  margin: 0.5em 0;
+}
+
+.agent-markdown ul,
+.agent-markdown ol {
+  margin: 0.5em 0;
+  padding-left: 1.5em;
+}
+
+.agent-markdown li {
+  margin: 0.2em 0;
+}
+
+.agent-markdown li > p {
+  margin: 0;
+}
+
+.agent-markdown h1 {
+  font-size: 1.25em;
+  font-weight: 600;
+  margin: 0.75em 0 0.25em;
+}
+
+.agent-markdown h2 {
+  font-size: 1.125em;
+  font-weight: 600;
+  margin: 0.75em 0 0.25em;
+}
+
+.agent-markdown h3 {
+  font-size: 1em;
+  font-weight: 600;
+  margin: 0.75em 0 0.25em;
+}
+
+.agent-markdown strong {
+  font-weight: 600;
+}
+
+.agent-markdown em {
+  font-style: italic;
+}
+
+.agent-markdown code {
+  font-size: 0.875em;
+  padding: 0.15em 0.35em;
+  border-radius: 0.25em;
+  background: hsl(var(--muted, 0 0% 15%));
+  color: hsl(var(--foreground, 0 0% 90%));
+  border: 1px solid hsl(var(--border, 0 0% 80%));
+}
+
+.agent-markdown pre {
+  margin: 0.5em 0;
+  padding: 0.75em 1em;
+  border-radius: 0.375em;
+  background: hsl(var(--muted, 0 0% 15%));
+  color: hsl(var(--foreground, 0 0% 90%));
+  overflow-x: auto;
+  border: 1px solid hsl(var(--border, 0 0% 80%));
+}
+
+.agent-markdown pre code {
+  padding: 0;
+  background: transparent;
+  font-size: 0.8125em;
+  color: inherit;
+  border: none;
+}
+
+.agent-markdown hr {
+  border: none;
+  border-top: 1px solid hsl(var(--border, 0 0% 20%));
+  margin: 0.75em 0 1em;
+}
+
+.agent-markdown a {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.agent-markdown a.agent-markdown-cta {
+  text-decoration: none;
+}
+
+.agent-markdown blockquote {
+  border-left: 2px solid hsl(var(--border, 0 0% 20%));
+  padding-left: 0.75em;
+  margin: 0.5em 0;
+  opacity: 0.8;
+}
+
+.agent-markdown table {
+  border-collapse: collapse;
+  margin: 0.5em 0;
+  font-size: 0.875em;
+}
+
+.agent-markdown th,
+.agent-markdown td {
+  border: 1px solid hsl(var(--border, 0 0% 20%));
+  padding: 0.35em 0.65em;
+  text-align: left;
+}
+
+.agent-markdown th {
+  font-weight: 600;
+  background: hsl(var(--muted, 0 0% 15%));
+  color: hsl(var(--foreground, 0 0% 90%));
+}
+
+/* Streaming caret appended after last non-code paragraph while text is live. */
+.agent-markdown[data-streaming="true"]
+  > :last-child:not(pre):not(table)::after {
+  content: "";
+  display: inline-block;
+  width: 0.42em;
+  height: 1em;
+  margin-left: 0.12em;
+  border-radius: 999px;
+  background: currentColor;
+  opacity: 0.35;
+  transform: translateY(0.16em);
+  animation: agent-markdown-stream-caret 1.15s ease-in-out infinite;
+}
+
+@keyframes agent-markdown-stream-caret {
+  0%,
+  100% {
+    opacity: 0.2;
+  }
+  50% {
+    opacity: 0.58;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .agent-markdown[data-streaming="true"]
+    > :last-child:not(pre):not(table)::after {
+    animation: none;
+    opacity: 0.28;
+  }
+}
+
+/* Shiki-highlighted code blocks inside agent-markdown replies. */
+.agent-markdown-shiki {
+  margin: 0.5em 0;
+  border-radius: 0.375em;
+  overflow: hidden;
+  font-size: 0.8125em;
+}
+
+.agent-markdown-shiki pre {
+  margin: 0;
+  padding: 0.75em 1em;
+  overflow-x: auto;
+  background: var(--shiki-light-bg);
+  color: var(--shiki-light);
+}
+
+.agent-markdown-shiki pre code {
+  background: transparent;
+  padding: 0;
+  font-size: inherit;
+  color: inherit;
+}
+
+.agent-markdown-shiki pre span {
+  color: var(--shiki-light);
+  background: var(--shiki-light-bg);
+}
+
+.dark .agent-markdown-shiki pre {
+  background: var(--shiki-dark-bg);
+  color: var(--shiki-dark);
+}
+
+.dark .agent-markdown-shiki pre span {
+  color: var(--shiki-dark);
+  background: var(--shiki-dark-bg);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not(.light) .agent-markdown-shiki pre {
+    background: var(--shiki-dark-bg);
+    color: var(--shiki-dark);
+  }
+
+  :root:not(.light) .agent-markdown-shiki pre span {
+    color: var(--shiki-dark);
+    background: var(--shiki-dark-bg);
+  }
+}
+
+/* Tool-code viewer that uses shiki inside the ToolDetailViewer. */
+.agent-tool-code .agent-markdown-shiki {
+  margin: 0;
+  border-radius: 0;
+  min-width: max-content;
+}
+
+.agent-tool-code .agent-markdown-shiki pre {
+  padding: 0.75rem;
+  border: 0;
+  background: transparent;
+}
+
+.agent-tool-code .agent-markdown-shiki pre span {
+  background: transparent;
+}
+
+.agent-tool-code pre {
+  margin: 0;
+  min-width: max-content;
+  padding: 0.75rem;
+  background: transparent;
+  color: inherit;
+}
+
+.agent-tool-code mark {
+  border-radius: 0.1875rem;
+  background: rgba(245, 158, 11, 0.25);
+  color: inherit;
+}

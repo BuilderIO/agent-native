@@ -99,6 +99,7 @@ All routes live under `/_agent-native/onboarding/`:
 // server/plugins/my-onboarding.ts
 import { defineNitroPlugin } from "@agent-native/core/server";
 import { registerOnboardingStep } from "@agent-native/core/onboarding";
+import { listOAuthAccounts } from "@agent-native/core/oauth-tokens";
 
 export default defineNitroPlugin(() => {
   registerOnboardingStep({
@@ -127,7 +128,12 @@ export default defineNitroPlugin(() => {
         },
       },
     ],
-    isComplete: () => !!process.env.GMAIL_REFRESH_TOKEN,
+    // OAuth tokens live in the oauth_tokens store (saveOAuthTokens), not env vars.
+    // Check the store — not process.env.GMAIL_REFRESH_TOKEN.
+    isComplete: async () => {
+      const accounts = await listOAuthAccounts("google");
+      return accounts.length > 0;
+    },
   });
 });
 ```

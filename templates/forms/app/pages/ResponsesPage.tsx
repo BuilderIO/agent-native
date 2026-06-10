@@ -76,7 +76,7 @@ export function ResponsesPage() {
     const q = search.trim().toLowerCase();
     let rows = responses;
     if (q) {
-      rows = rows.filter((r) => {
+      rows = rows.filter((r: any) => {
         for (const f of fields) {
           if (valueAsString(r.data[f.id]).toLowerCase().includes(q))
             return true;

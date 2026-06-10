@@ -49,7 +49,7 @@ const PAGE_SIZES = [25, 50, 100, 250, 500];
 
 export function TableEditor({
   table,
-  dialect,
+  dialect: _dialect,
   initialFilters,
   onNavigateToRow,
 }: TableEditorProps) {

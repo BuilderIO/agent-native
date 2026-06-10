@@ -55,6 +55,7 @@ describe("AnnotatedCodeBlock annotations", () => {
     document
       .querySelectorAll("[data-annotation-hover-card]")
       .forEach((node) => node.remove());
+    vi.useRealTimers();
     vi.unstubAllGlobals();
   });
 
@@ -162,5 +163,128 @@ describe("AnnotatedCodeBlock annotations", () => {
     // Line 2 starts at y=122 with a 22px height, so the first-line anchor center
     // is 133px. Hovering line 4 would have produced 177px before this fix.
     expect(card!.style.top).toBe("133px");
+  });
+
+  it("does not immediately reopen the popover while scrolling under a hovered line", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(0);
+
+    act(() => {
+      root.render(
+        <AnnotatedCodeRead
+          blockId="code-annotations"
+          ctx={{}}
+          data={{
+            language: "ts",
+            code: ["const one = 1;", "const two = 2;"].join("\n"),
+            annotations: [
+              {
+                lines: "1",
+                label: "Entry",
+                note: "The first line is annotated.",
+              },
+            ],
+          }}
+        />,
+      );
+    });
+
+    const codeBox = container.querySelector("section > div");
+    expect(codeBox).toBeTruthy();
+    stubRect(codeBox!, rect({ top: 80, height: 80 }));
+
+    const firstLine = container.querySelector<HTMLElement>(
+      '[data-code-line="1"]',
+    );
+    expect(firstLine).toBeTruthy();
+    stubRect(firstLine!, rect({ top: 100, height: 22 }));
+
+    act(() => {
+      firstLine!.dispatchEvent(
+        new MouseEvent("mouseover", {
+          bubbles: true,
+          relatedTarget: document.body,
+        }),
+      );
+    });
+    expect(document.querySelector("[data-annotation-hover-card]")).toBeTruthy();
+
+    act(() => {
+      window.dispatchEvent(new Event("scroll"));
+    });
+    expect(document.querySelector("[data-annotation-hover-card]")).toBeNull();
+
+    act(() => {
+      firstLine!.dispatchEvent(
+        new MouseEvent("mouseover", {
+          bubbles: true,
+          relatedTarget: document.body,
+        }),
+      );
+    });
+    expect(document.querySelector("[data-annotation-hover-card]")).toBeNull();
+
+    vi.setSystemTime(300);
+    act(() => {
+      firstLine!.dispatchEvent(
+        new MouseEvent("mouseover", {
+          bubbles: true,
+          relatedTarget: document.body,
+        }),
+      );
+    });
+    expect(document.querySelector("[data-annotation-hover-card]")).toBeTruthy();
+  });
+
+  it("keeps the popover open when the hover card itself scrolls", () => {
+    act(() => {
+      root.render(
+        <AnnotatedCodeRead
+          blockId="code-annotations"
+          ctx={{}}
+          data={{
+            language: "ts",
+            code: ["const one = 1;", "const two = 2;"].join("\n"),
+            annotations: [
+              {
+                lines: "1",
+                label: "Scrollable note",
+                note: "A long annotation can scroll inside the hover card.",
+              },
+            ],
+          }}
+        />,
+      );
+    });
+
+    const codeBox = container.querySelector("section > div");
+    expect(codeBox).toBeTruthy();
+    stubRect(codeBox!, rect({ top: 80, height: 80 }));
+
+    const firstLine = container.querySelector<HTMLElement>(
+      '[data-code-line="1"]',
+    );
+    expect(firstLine).toBeTruthy();
+    stubRect(firstLine!, rect({ top: 100, height: 22 }));
+
+    act(() => {
+      firstLine!.dispatchEvent(
+        new MouseEvent("mouseover", {
+          bubbles: true,
+          relatedTarget: document.body,
+        }),
+      );
+    });
+
+    const card = document.querySelector<HTMLElement>(
+      "[data-annotation-hover-card]",
+    );
+    expect(card).toBeTruthy();
+
+    act(() => {
+      card!.dispatchEvent(new Event("scroll", { bubbles: true }));
+    });
+
+    expect(document.querySelector("[data-annotation-hover-card]")).toBeTruthy();
   });
 });

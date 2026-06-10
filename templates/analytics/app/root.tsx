@@ -1,17 +1,15 @@
 import { Links, Meta, Outlet, Scripts, ScrollRestoration } from "react-router";
 import { useState } from "react";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { TooltipProvider } from "@/components/ui/tooltip";
+import { useQueryClient } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import {
-  ClientOnly,
-  DefaultSpinner,
+  AppProviders,
   appPath,
+  createAgentNativeQueryClient,
+  getThemeInitScript,
   useDbSync,
 } from "@agent-native/core/client";
-import { getThemeInitScript } from "@agent-native/core/client";
-import { ThemeProvider } from "next-themes";
 import { AuthProvider } from "@/components/auth/AuthProvider";
 import { CommandPalette } from "./components/layout/CommandPalette";
 import { Layout as AppLayout } from "./components/layout/Layout";
@@ -67,41 +65,34 @@ export function Layout({ children }: { children: React.ReactNode }) {
   );
 }
 
-function DbSyncBridge({ queryClient }: { queryClient: QueryClient }) {
+function DbSyncBridge() {
   // Invalidate react-query caches on DB changes (agent edits, other tabs,
   // cron jobs). The hook invalidates every active query on any non-own
   // change event, so we no longer need to enumerate dashboard / analysis
   // / explorer keys here. Screen-refresh is handled automatically inside
   // AgentSidebar.
+  const queryClient = useQueryClient();
   useDbSync({ queryClient, ignoreSource: TAB_ID });
   return null;
 }
 
 export default function Root() {
-  const [queryClient] = useState(() => new QueryClient());
+  const [queryClient] = useState(() => createAgentNativeQueryClient());
   return (
-    <ClientOnly fallback={<DefaultSpinner />}>
-      <ThemeProvider
-        attribute="class"
-        defaultTheme="dark"
-        enableSystem
-        disableTransitionOnChange
-      >
-        <QueryClientProvider client={queryClient}>
-          <DbSyncBridge queryClient={queryClient} />
-          <TooltipProvider>
-            <Toaster />
-            <Sonner position="bottom-left" />
-            <AuthProvider>
-              <CommandPalette />
-              <AppLayout>
-                <Outlet />
-              </AppLayout>
-            </AuthProvider>
-          </TooltipProvider>
-        </QueryClientProvider>
-      </ThemeProvider>
-    </ClientOnly>
+    // defaultTheme="dark": analytics defaults to dark mode if no stored preference.
+    // toaster={null}: suppress AppProviders' built-in sonner; analytics renders
+    // both its styled Sonner and the legacy shadcn Toaster explicitly below.
+    <AppProviders queryClient={queryClient} defaultTheme="dark" toaster={null}>
+      <DbSyncBridge />
+      <Toaster />
+      <Sonner position="bottom-left" />
+      <AuthProvider>
+        <CommandPalette />
+        <AppLayout>
+          <Outlet />
+        </AppLayout>
+      </AuthProvider>
+    </AppProviders>
   );
 }
 

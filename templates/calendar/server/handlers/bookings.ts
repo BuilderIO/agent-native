@@ -637,9 +637,11 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
       setResponseStatus(event, 404);
       return { error: "Booking link not found" };
     }
+    // After the guard above, bookingLink is either undefined (no requestedSlug)
+    // or the full DB row. Cast away the "" from the short-circuit type.
+    const link = bookingLink || undefined;
 
-    const hostEmail =
-      (bookingLink as any)?.ownerEmail || (bookingLink as any)?.owner_email;
+    const hostEmail = (link as any)?.ownerEmail || (link as any)?.owner_email;
     if (!hostEmail) {
       setResponseStatus(event, 500);
       return { error: "Booking link has no host email" };
@@ -671,9 +673,9 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
 
     // Validate custom field responses
     let customFields: CustomField[] = [];
-    if (bookingLink?.customFields) {
+    if (link?.customFields) {
       try {
-        customFields = JSON.parse(bookingLink.customFields);
+        customFields = JSON.parse(link.customFields);
       } catch {}
     }
     const rawFieldResponses: Record<string, string | boolean> =
@@ -760,8 +762,8 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
         .set({ ownerEmail: hostEmail })
         .where(eq(schema.bookingLinks.ownerEmail, hostEmail));
 
-      const conflictSlugs = bookingLink?.ownerEmail
-        ? await getBookingLinkSlugsForOwner(bookingLink.ownerEmail, tx)
+      const conflictSlugs = link?.ownerEmail
+        ? await getBookingLinkSlugsForOwner(link.ownerEmail, tx)
         : requestedSlug
           ? [requestedSlug]
           : [];
@@ -813,7 +815,7 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
         status: "confirmed",
         createdAt: now,
         ownerEmail: hostEmail,
-        orgId: bookingLink?.orgId ?? null,
+        orgId: link?.orgId ?? null,
       });
 
       return { conflict: false } as const;
@@ -826,9 +828,9 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
 
     // Resolve conferencing config
     let conferencing: ConferencingConfig | undefined;
-    if (bookingLink?.conferencing) {
+    if (link?.conferencing) {
       try {
-        conferencing = JSON.parse(bookingLink.conferencing);
+        conferencing = JSON.parse(link.conferencing);
       } catch {}
     }
     let meetingLink: string | undefined;
@@ -879,8 +881,8 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
         const descParts: string[] = [
           `Booking by ${attendeeName} (${attendeeEmail})`,
         ];
-        if (bookingLink?.title) {
-          descParts.push(`Meeting type: ${bookingLink.title}`);
+        if (link?.title) {
+          descParts.push(`Meeting type: ${link.title}`);
         }
         if (notes) descParts.push(`Notes: ${notes}`);
         if (customFields.length > 0 && Object.keys(fieldResponses).length > 0) {
@@ -1266,7 +1268,7 @@ function rowToBooking(row: typeof schema.bookings.$inferSelect): Booking {
     start: row.start,
     end: row.end,
     slug: row.slug,
-    eventTitle: row.eventTitle ?? undefined,
+    eventTitle: row.eventTitle ?? "",
     notes: row.notes ?? undefined,
     fieldResponses,
     meetingLink: row.meetingLink ?? undefined,

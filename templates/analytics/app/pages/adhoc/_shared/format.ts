@@ -25,7 +25,7 @@ export function formatCurrency(val: number | null | undefined): string {
   return `$${val.toFixed(0)}`;
 }
 
-export function formatDate(value: string): string {
+export function formatDate(value: any): string {
   try {
     const d = new Date(value);
     return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });

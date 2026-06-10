@@ -1,5 +1,4 @@
 import SharedPresentation from "@/pages/SharedPresentation";
-import { Spinner } from "@/components/ui/spinner";
 import {
   toSharedDeckSlide,
   type SharedDeckResponse,
@@ -84,14 +83,6 @@ export const meta: MetaFunction<typeof loader> = ({ data }) => {
   const title = data?.deck?.title ?? "Shared Presentation";
   return [{ title }];
 };
-
-export function HydrateFallback() {
-  return (
-    <div className="flex h-screen w-full items-center justify-center bg-black">
-      <Spinner className="size-8 text-white" />
-    </div>
-  );
-}
 
 export default function PublicDeckRoute() {
   const data = useLoaderData<typeof loader>();

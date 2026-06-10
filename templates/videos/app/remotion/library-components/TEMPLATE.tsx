@@ -64,28 +64,28 @@ const FALLBACK_TRACKS: AnimationTrack[] = (() => {
   const cy = String(CANVAS_HEIGHT / 2 - 16);
 
   // Timeline: arrive at 0.5s (frame 15), click at 2s (frame 60), exit at 3.5s (frame 105)
-  cursor.animatedProps.find((p) => p.property === "x")!.keyframes = [
+  cursor.animatedProps!.find((p) => p.property === "x")!.keyframes = [
     { frame: 0, value: "200" },
     { frame: 15, value: cx }, // Cursor arrives
     { frame: 90, value: cx }, // Hover period
     { frame: 120, value: "1720" },
     { frame: 150, value: "1720" },
   ];
-  cursor.animatedProps.find((p) => p.property === "y")!.keyframes = [
+  cursor.animatedProps!.find((p) => p.property === "y")!.keyframes = [
     { frame: 0, value: "200" },
     { frame: 15, value: cy },
     { frame: 90, value: cy },
     { frame: 120, value: "200" },
     { frame: 150, value: "200" },
   ];
-  cursor.animatedProps.find((p) => p.property === "isClicking")!.keyframes = [
+  cursor.animatedProps!.find((p) => p.property === "isClicking")!.keyframes = [
     { frame: 0, value: "0" },
     { frame: 59, value: "0" },
     { frame: 60, value: "1" }, // Click
     { frame: 70, value: "0" },
     { frame: 150, value: "0" },
   ];
-  cursor.animatedProps.find((p) => p.property === "opacity")!.keyframes = [
+  cursor.animatedProps!.find((p) => p.property === "opacity")!.keyframes = [
     { frame: 0, value: "0" },
     { frame: 5, value: "0" },
     { frame: 15, value: "1" }, // Fade in

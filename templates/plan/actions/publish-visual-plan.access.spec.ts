@@ -138,7 +138,7 @@ beforeAll(async () => {
       kind TEXT NOT NULL DEFAULT 'plan',
       status TEXT NOT NULL DEFAULT 'draft', source TEXT NOT NULL DEFAULT 'manual',
       repo_path TEXT, current_focus TEXT, html TEXT, markdown TEXT, content TEXT,
-      hosted_plan_id TEXT, hosted_plan_url TEXT,
+      hosted_plan_id TEXT, hosted_plan_url TEXT, source_url TEXT,
       created_at TEXT NOT NULL, updated_at TEXT NOT NULL, approved_at TEXT,
       usage_agent TEXT, usage_model TEXT,
       usage_input_tokens INTEGER, usage_output_tokens INTEGER,
@@ -151,6 +151,7 @@ beforeAll(async () => {
     CREATE TABLE plan_events (id TEXT PRIMARY KEY, plan_id TEXT NOT NULL, type TEXT NOT NULL, message TEXT NOT NULL, payload TEXT, created_by TEXT NOT NULL DEFAULT 'agent', created_at TEXT NOT NULL);
     CREATE TABLE plan_versions (id TEXT PRIMARY KEY, owner_email TEXT NOT NULL DEFAULT 'local@localhost', plan_id TEXT NOT NULL, title TEXT NOT NULL, snapshot_json TEXT NOT NULL, change_label TEXT, created_by TEXT NOT NULL DEFAULT 'agent', created_at TEXT NOT NULL);
     CREATE TABLE plan_shares (id TEXT PRIMARY KEY, resource_id TEXT NOT NULL, principal_type TEXT NOT NULL, principal_id TEXT NOT NULL, role TEXT NOT NULL DEFAULT 'viewer', created_by TEXT NOT NULL, created_at TEXT NOT NULL);
+    CREATE TABLE plan_assets (id TEXT PRIMARY KEY, plan_id TEXT NOT NULL, filename TEXT NOT NULL, mime_type TEXT NOT NULL, data TEXT NOT NULL, byte_size INTEGER NOT NULL, created_at TEXT NOT NULL);
   `);
   registerShareableResource({
     type: "plan",

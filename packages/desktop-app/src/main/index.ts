@@ -188,6 +188,8 @@ const CODE_AGENTS_TRANSCRIPT_EVENTS_CHANNEL = "code-agents:transcript-events";
 
 type DesktopBackgroundAgentControlCommand =
   | "approve"
+  | "approve-always"
+  | "deny"
   | "resume"
   | "retry"
   | "stop";
@@ -245,6 +247,10 @@ interface CodeAgentTranscriptSubscription {
   watcher?: fs.FSWatcher;
   flushTimer?: NodeJS.Timeout;
   reason?: string;
+  /** Byte offset into the primary event JSONL file for incremental tailing. */
+  fileOffset?: number;
+  /** Absolute path of the primary event file being tailed. */
+  tailedFilePath?: string;
 }
 
 function isDeepLinkArg(arg: string): boolean {
@@ -865,6 +871,68 @@ function showUpdateReadyNotification(version: string) {
   notification.on("click", focusMainWindow);
   notification.show();
 }
+
+// --------------- Run completion / attention notifications ---------------
+
+/** True when the main window is hidden or unfocused. */
+function isWindowUnfocused(): boolean {
+  const win = mainWindow && !mainWindow.isDestroyed() ? mainWindow : null;
+  if (!win) return true;
+  return !win.isFocused() || win.isMinimized() || !win.isVisible();
+}
+
+/** Attention-needed run count (approval-needed + recently-finished while away). */
+const runAttentionRunIds = new Set<string>();
+
+function updateDockBadge(): void {
+  if (process.platform !== "darwin") return;
+  if (runAttentionRunIds.size > 0) {
+    app.setBadgeCount(runAttentionRunIds.size);
+  } else {
+    app.setBadgeCount(0);
+  }
+}
+
+function showCodeAgentRunNotification(
+  runId: string,
+  kind: "completed" | "failed" | "approval-needed",
+  runTitle: string,
+): void {
+  if (!Notification.isSupported()) return;
+  if (!isWindowUnfocused()) return;
+
+  const titles: Record<typeof kind, string> = {
+    completed: "Run finished",
+    failed: "Run failed",
+    "approval-needed": "Approval needed",
+  };
+  const bodies: Record<typeof kind, string> = {
+    completed: `"${runTitle}" completed successfully.`,
+    failed: `"${runTitle}" encountered an error.`,
+    "approval-needed": `"${runTitle}" is waiting for your approval.`,
+  };
+
+  runAttentionRunIds.add(runId);
+  updateDockBadge();
+
+  const notification = new Notification({
+    title: titles[kind],
+    body: bodies[kind],
+  });
+  notification.on("click", () => {
+    focusMainWindow();
+    // Clear this run from attention set when user clicks
+    runAttentionRunIds.delete(runId);
+    updateDockBadge();
+  });
+  notification.show();
+}
+
+// Clear badge whenever the main window gains focus.
+app.on("browser-window-focus", () => {
+  runAttentionRunIds.clear();
+  updateDockBadge();
+});
 
 if (!IS_DEV) {
   // The GitHub provider reads the repository-wide latest release feed, which
@@ -2410,6 +2478,81 @@ function readJsonlCodeAgentTranscriptEvents(
     .filter((event): event is CodeAgentTranscriptEvent => Boolean(event));
 }
 
+interface TailedJsonlResult {
+  events: CodeAgentTranscriptEvent[];
+  nextOffset: number;
+}
+
+/**
+ * Reads only the bytes appended to a JSONL file since the last read.
+ * Returns the new events and the updated file offset for the next call.
+ * Falls back to a full read when offset is 0 (first call) or the file
+ * was truncated (file size < offset).
+ */
+function tailJsonlCodeAgentTranscriptEvents(
+  filePath: string,
+  runId: string,
+  offset: number,
+): TailedJsonlResult {
+  if (!fs.existsSync(filePath)) return { events: [], nextOffset: offset };
+  try {
+    const stat = fs.statSync(filePath);
+    const fileSize = stat.size;
+    // File was truncated or rotated — fall back to full read.
+    if (fileSize < offset) {
+      const events = readJsonlCodeAgentTranscriptEvents(filePath, runId);
+      return { events, nextOffset: fileSize };
+    }
+    // Nothing new.
+    if (fileSize === offset) return { events: [], nextOffset: offset };
+    const byteCount = fileSize - offset;
+    const buf = Buffer.allocUnsafe(byteCount);
+    const fd = fs.openSync(filePath, "r");
+    try {
+      fs.readSync(fd, buf, 0, byteCount, offset);
+    } finally {
+      fs.closeSync(fd);
+    }
+    const chunk = buf.toString("utf-8");
+    const createdAt = new Date().toISOString();
+    const events: CodeAgentTranscriptEvent[] = [];
+    // We may have a partial line at the end (write in progress). Only process
+    // complete lines; save the remainder for the next tail call by adjusting
+    // the returned offset backward.
+    const lines = chunk.split(/\r?\n/);
+    // If the chunk doesn't end with a newline, the last element is an
+    // incomplete line — don't parse it, and walk the offset back.
+    const hasTrailingNewline = chunk.endsWith("\n") || chunk.endsWith("\r\n");
+    const completeLines = hasTrailingNewline ? lines : lines.slice(0, -1);
+    const incompleteByteCount = hasTrailingNewline
+      ? 0
+      : Buffer.byteLength(lines.at(-1) ?? "", "utf-8");
+    for (const line of completeLines) {
+      const trimmed = line.trim();
+      if (!trimmed) continue;
+      let parsed: unknown = trimmed;
+      try {
+        parsed = JSON.parse(trimmed) as unknown;
+      } catch {
+        parsed = trimmed;
+      }
+      const event = normalizeCodeAgentTranscriptEvent(parsed, runId, {
+        createdAt,
+        idSuffix: `tail-${events.length}`,
+        source: filePath,
+      });
+      if (event) events.push(event);
+    }
+    return {
+      events,
+      nextOffset: fileSize - incompleteByteCount,
+    };
+  } catch {
+    // On any error fall back to nothing — next full flush will reconcile.
+    return { events: [], nextOffset: offset };
+  }
+}
+
 function codeAgentTranscriptFileCandidates(
   runId: string,
   runRecord: Record<string, unknown> | null,
@@ -2540,6 +2683,19 @@ function initializeCodeAgentTranscriptSubscriptionKeys(
   subscription.knownEventKeys = new Set(
     result.events.map(codeAgentTranscriptEventKey),
   );
+  // Set up byte-offset tailing for the primary event file so subsequent
+  // flushes only read appended bytes.
+  const tailFile = codeAgentEventFilePath(subscription.runId);
+  if (tailFile) {
+    subscription.tailedFilePath = tailFile;
+    try {
+      subscription.fileOffset = fs.existsSync(tailFile)
+        ? fs.statSync(tailFile).size
+        : 0;
+    } catch {
+      subscription.fileOffset = 0;
+    }
+  }
   return result;
 }
 
@@ -2571,6 +2727,38 @@ function flushCodeAgentTranscriptSubscription(
   reason: string,
 ): void {
   subscription.flushTimer = undefined;
+
+  // Fast path: use byte-offset tailing on the primary event file.
+  // This avoids re-reading the entire JSONL file on every watch event.
+  if (subscription.tailedFilePath && subscription.fileOffset !== undefined) {
+    const { events: tailedEvents, nextOffset } =
+      tailJsonlCodeAgentTranscriptEvents(
+        subscription.tailedFilePath,
+        subscription.runId,
+        subscription.fileOffset,
+      );
+    subscription.fileOffset = nextOffset;
+    // Deduplicate against known keys (handles rare duplicates or inline events).
+    const newEvents = tailedEvents.filter((event) => {
+      const key = codeAgentTranscriptEventKey(event);
+      if (subscription.knownEventKeys.has(key)) return false;
+      subscription.knownEventKeys.add(key);
+      return true;
+    });
+    if (newEvents.length > 0) {
+      sendCodeAgentTranscriptSubscriptionBatch(subscription, {
+        status: "ok",
+        runId: subscription.runId,
+        events: newEvents,
+        eventFile: subscription.tailedFilePath,
+        reason,
+      });
+    }
+    return;
+  }
+
+  // Fallback path: full re-read (used when no primary file is established,
+  // e.g. run records with inline events only).
   const result = readCodeAgentTranscript({ runId: subscription.runId });
   const nextKnownEventKeys = new Set<string>();
   const events: CodeAgentTranscriptEvent[] = [];
@@ -2856,6 +3044,20 @@ function spawnCodeAgentRunner(
           runnerExitSignal: signal,
         },
       });
+      // Notify user if window is not focused.
+      const finalRecord = readCodeAgentRunRecord(runId);
+      const finalStatus = getRecordString(finalRecord, "status");
+      const runTitle =
+        getRecordString(finalRecord, "title") ??
+        getRecordString(finalRecord, "goal") ??
+        runId;
+      if (finalStatus === "completed") {
+        showCodeAgentRunNotification(runId, "completed", runTitle);
+      } else if (finalStatus === "errored") {
+        showCodeAgentRunNotification(runId, "failed", runTitle);
+      } else if (finalStatus === "needs-approval") {
+        showCodeAgentRunNotification(runId, "approval-needed", runTitle);
+      }
     });
     child.unref();
   } catch (err) {
@@ -2881,6 +3083,7 @@ function spawnCodeAgentRunner(
 function spawnCodeAgentApprovalRunner(
   runId: string,
   cwd: string,
+  subcommand: "approve" | "approve-always" | "deny" = "approve",
 ): CodeAgentControlResult {
   if (activeCodeAgentProcesses.has(runId)) {
     return {
@@ -2920,7 +3123,7 @@ function spawnCodeAgentApprovalRunner(
   const localCli = path.join(repoRoot, "packages/core/dist/cli/index.js");
   const command = fs.existsSync(localCli) ? "node" : "pnpm";
   const args = fs.existsSync(localCli)
-    ? [path.relative(repoRoot, localCli), "code", "approve", runId]
+    ? [path.relative(repoRoot, localCli), "code", subcommand, runId]
     : [
         "--filter",
         "@agent-native/core",
@@ -2928,7 +3131,7 @@ function spawnCodeAgentApprovalRunner(
         "node",
         "dist/cli/index.js",
         "code",
-        "approve",
+        subcommand,
         runId,
       ];
 
@@ -2996,6 +3199,20 @@ function spawnCodeAgentApprovalRunner(
           approvalRunnerExitSignal: signal,
         },
       });
+      // Notify user if window is not focused.
+      const finalRecord = readCodeAgentRunRecord(runId);
+      const finalStatus = getRecordString(finalRecord, "status");
+      const runTitle =
+        getRecordString(finalRecord, "title") ??
+        getRecordString(finalRecord, "goal") ??
+        runId;
+      if (finalStatus === "completed") {
+        showCodeAgentRunNotification(runId, "completed", runTitle);
+      } else if (finalStatus === "errored") {
+        showCodeAgentRunNotification(runId, "failed", runTitle);
+      } else if (finalStatus === "needs-approval") {
+        showCodeAgentRunNotification(runId, "approval-needed", runTitle);
+      }
     });
     child.unref();
     return {
@@ -3239,7 +3456,7 @@ async function controlDesktopCodeBackgroundAgentRun(
     return stopDesktopCodeBackgroundAgentRunWithoutSignal(input.runId);
   }
 
-  if (input.command === "approve") {
+  if (input.command === "approve" || input.command === "approve-always") {
     const metadata = isObject(runRecord.metadata) ? runRecord.metadata : null;
     const pendingApproval = isObject(metadata?.pendingApproval)
       ? metadata.pendingApproval
@@ -3256,7 +3473,30 @@ async function controlDesktopCodeBackgroundAgentRun(
     }
     const cwd =
       getRecordString(runRecord, "cwd") ?? resolveCodeAgentsTerminalCwd({});
-    const result = spawnCodeAgentApprovalRunner(input.runId, cwd);
+    const subcommand =
+      input.command === "approve-always" ? "approve-always" : "approve";
+    const result = spawnCodeAgentApprovalRunner(input.runId, cwd, subcommand);
+    return desktopControlResultToBackgroundResult(input.runId, result);
+  }
+
+  if (input.command === "deny") {
+    const metadata = isObject(runRecord.metadata) ? runRecord.metadata : null;
+    const pendingApproval = isObject(metadata?.pendingApproval)
+      ? metadata.pendingApproval
+      : null;
+    if (!pendingApproval) {
+      return {
+        ok: true,
+        runId: input.runId,
+        run: desktopCodeBackgroundAgentController.get(
+          input.runId,
+        ) as BackgroundAgentRun | null,
+        message: "No pending approval was found for this run.",
+      };
+    }
+    const cwd =
+      getRecordString(runRecord, "cwd") ?? resolveCodeAgentsTerminalCwd({});
+    const result = spawnCodeAgentApprovalRunner(input.runId, cwd, "deny");
     return desktopControlResultToBackgroundResult(input.runId, result);
   }
 
@@ -4932,7 +5172,12 @@ async function controlCodeAgentRun(
     });
   }
 
-  if (command === "approve" && goal.surfaceKind === "native") {
+  if (
+    (command === "approve" ||
+      command === "approve-always" ||
+      command === "deny") &&
+    goal.surfaceKind === "native"
+  ) {
     const result = await desktopCodeBackgroundAgentController.control({
       runId,
       command,
@@ -4940,12 +5185,16 @@ async function controlCodeAgentRun(
     return backgroundControlResultToDesktopControlResult(command, result);
   }
 
-  if (command === "approve") {
+  if (
+    command === "approve" ||
+    command === "approve-always" ||
+    command === "deny"
+  ) {
     return {
       ok: true,
       command,
       action: "open-ui",
-      message: `Open ${goal.surfaceLabel} to approve this run.`,
+      message: `Open ${goal.surfaceLabel} to ${command === "deny" ? "deny" : "approve"} this run.`,
     };
   }
 

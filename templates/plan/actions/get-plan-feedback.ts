@@ -393,7 +393,7 @@ function feedbackThreadManifest(
 
 export default defineAction({
   description:
-    "Get unconsumed human comments, corrections, questions, and annotations for an Agent-Native Plan. Call this before acting on a plan to surface reviewer feedback, open threads, and recent edit events.",
+    "Get unconsumed human comments, corrections, questions, and annotations for an Agent-Native Plan. Call this before acting on a plan to surface reviewer feedback, open threads, and recent edit events. A resolved thread remains in results until consumed — resolve-plan-comment marks the thread done for reviewers but does not remove it; call consume-plan-feedback to exclude it from future results.",
   schema: z.object({
     planId: z.string().describe("Plan ID"),
   }),
@@ -488,7 +488,7 @@ export default defineAction({
       instructions: [
         "Treat actionableThreads as agent-owned work. Human-review threads are visible context unless the user asks you to reply or resolve them.",
         "Each thread includes anchorDetails with the exact selected text, nearby text, canvas point, visual target, selector, or section context available for that comment.",
-        "Focused screenshot attachments, when present in the chat, are ordered to match visual actionable feedback first. Each screenshot includes a red ring around the comment point.",
+        "Focused screenshot attachments (embedded-app chats only; not available over bare MCP), when present in the chat, are ordered to match visual actionable feedback first. Each screenshot includes a red ring around the comment point.",
         "If overflowVisual is non-empty, some visual comments were not screenshotted because of the image budget; use their anchorDetails and ask for more visual context before making pixel-sensitive changes.",
         "Use recentReviewEvents to understand human edits made alongside comments; event payloads include targeted content patch metadata when available.",
         ...(detachedThreads.length > 0

@@ -24,25 +24,14 @@ static inspection, plus prototype tabs when the flow should be functional. The
 document carries the technical depth the visuals cannot show — concrete
 file/symbol maps, API and data contracts, code snippets, migration or
 implementation phases, risks, and validation. For architecture/code reviews,
-invert that: the document is the visual surface, and each recommendation should
-carry its own nearby inline `diagram` / `data-model` block plus file evidence
-and terse Problem/Solution/Why text. For architecture/code diagrams, prefer
-standard two-dimensional layouts: paired before/after panels, layered diagrams,
-swimlanes, dependency maps, matrices, or grouped regions. Do not default to
-left-to-right chains; use a line only when the relationship is truly a sequence.
-Use native `diagram` blocks with `data.html` / `data.css` for these richer
-layouts; the fragment may use semantic HTML and inline SVG, and the renderer
-applies the viewer's sketch/clean style. Leave room for the sketch font: keep
-labels short, give nodes generous width, and place boundary/annotation labels in
-unused space instead of over nodes. For small text/SVG changes to an existing
-HTML diagram, use `patch-diagram-html` with a unique `find`/`replace` snippet
-instead of resending the whole `data.html` string. Legacy `nodes` / `edges` are
-only for tiny previews or genuinely linear step flows. Repeat a wireframe in the document only
-for a genuinely new detail view or comparison. Skip the visual surface entirely
-for non-visual work and write a clean rich document. For a simple binary UI
-visual choice, show the two directions in the canvas only; do not repeat the
-same options as body wireframes or prose. Put the actual
-choice in the bottom "Open Questions" form.
+invert that: the document is the visual surface, and each recommendation
+carries its own nearby inline `diagram` / `data-model` block plus file
+evidence (the `diagram` bullet below owns how to author those diagrams).
+Repeat a wireframe in the document only for a genuinely new detail view or
+comparison. Skip the visual surface entirely for non-visual work and write a
+clean rich document. For a simple binary UI visual choice, show the two
+directions in the canvas only; do not repeat the same options as body
+wireframes or prose. Put the actual choice in the bottom "Open Questions" form.
 
 **Use the right block, and make it carry substance.** For the authoritative,
 machine-checked list of block types and their data schemas, call `get-plan-blocks`
@@ -76,7 +65,11 @@ so you never emit a block the editor cannot render or round-trip:
   each side needs real nested blocks; label the columns clearly and avoid
   stacking comparison blocks vertically when parallel reading is the point.
 - `diagram` for two-dimensional architecture, dependency, data-flow, or state
-  relationships, only when it clarifies something real. For architecture/code
+  relationships, only when it clarifies something real. Prefer standard
+  two-dimensional layouts — paired before/after panels, layered diagrams,
+  swimlanes, dependency maps, matrices, or grouped regions; do not default to
+  left-to-right chains, and use a line only when the relationship is truly a
+  sequence. For architecture/code
   diagrams, prefer `data.html` / `data.css` with semantic HTML and inline SVG so
   the diagram can use panels, layers, matrices, arrows, annotations, and
   responsive layout directly. Author diagram HTML with renderer-owned primitives
@@ -86,12 +79,16 @@ so you never emit a block the editor cannot render or round-trip:
   `--wf-paper`, `--wf-card`, `--wf-accent`, `--wf-accent-soft`, `--wf-warn`, and
   `--wf-ok`, and switch to Excalifont plus rough.js outlines in sketchy mode. Do not
   set `font-family` and do not hard-code hex, rgb, or hsl colors in diagram HTML
-  or CSS. Use legacy `nodes` / `edges` only for small previews or truly
+  or CSS. Leave room for the sketch font: keep labels short, give nodes generous
+  width, and place boundary/annotation labels in unused space instead of over
+  nodes; labels must not overlap nodes, connectors, or each other. For small
+  text/SVG changes to an existing HTML diagram, use `patch-diagram-html` with a
+  unique `find`/`replace` snippet instead of resending the whole `data.html`
+  string. Use legacy `nodes` / `edges` only for small previews or truly
   sequential flows. In architecture/code plans, prefer a repeated section rhythm:
   recommendation title, confidence and category badges, code-path evidence, a
   local before/after or current/target spatial diagram, then concise
-  Problem/Solution/Why text. Labels must not overlap nodes, connectors, or each
-  other.
+  Problem/Solution/Why text.
 - `tabs` for multiple states, directions, or comparisons. A tab that reveals
   only prose usually means the plan is under-specified — include a relevant
   visual unless the tab is intentionally document-only.

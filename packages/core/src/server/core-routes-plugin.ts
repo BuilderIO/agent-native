@@ -43,7 +43,11 @@ import { isIdentitySsoEnabled } from "./identity-sso-store.js";
 import { getAppName } from "./app-name.js";
 import { upsertEnvFile } from "./create-server.js";
 import type { EnvKeyConfig } from "./create-server.js";
-import { readBody } from "./h3-helpers.js";
+import {
+  readBody,
+  DEFAULT_UPLOAD_MAX_FILE_BYTES,
+  isAllowedUploadMimeType,
+} from "./h3-helpers.js";
 import {
   BUILDER_CONNECT_PARAM,
   BUILDER_CONNECT_OWNER_COOKIE,
@@ -87,6 +91,7 @@ import {
 } from "../settings/user-settings.js";
 import { getSession, type AuthSession } from "./auth.js";
 import { getAppBasePath, getOrigin } from "./google-oauth.js";
+import { getConfiguredAppBasePath, stripAppBasePath } from "./app-base-path.js";
 import { findWorkspaceRoot } from "../scripts/utils.js";
 import { listOnboardingSteps } from "../onboarding/registry.js";
 import {
@@ -160,6 +165,12 @@ function parseBuilderCallbackBoolean(
 const PROVIDER_ENV_VAR_KEYS = new Set(
   Object.values(PROVIDER_ENV_META).map(({ envVar }) => envVar),
 );
+
+// Raster-only data-URI allowlist for avatar writes. SVG is deliberately absent:
+// data:image/svg+xml payloads can carry inline <script> and event-handler
+// attributes that execute when the browser renders them as an <img> src or
+// inlines them in the DOM. Mirrors SAFE_DATA_IMAGE in sanitize-html.ts.
+export const AVATAR_RASTER_MIME = /^data:image\/(png|jpe?g|gif|webp);/i;
 
 async function detectUsageEngineName(
   event: H3Event,
@@ -237,25 +248,6 @@ async function trackBuilderLifecycle(
     },
     { userId: userEmail },
   );
-}
-
-function normalizeAppBasePath(value: string | undefined): string {
-  if (!value || value === "/") return "";
-  const trimmed = value.trim();
-  if (!trimmed || trimmed === "/") return "";
-  return `/${trimmed.replace(/^\/+/, "").replace(/\/+$/, "")}`;
-}
-
-function stripAppBasePath(pathname: string): string {
-  const basePath = normalizeAppBasePath(
-    process.env.VITE_APP_BASE_PATH || process.env.APP_BASE_PATH,
-  );
-  if (!basePath) return pathname;
-  if (pathname === basePath) return "/";
-  if (pathname.startsWith(`${basePath}/`)) {
-    return pathname.slice(basePath.length) || "/";
-  }
-  return pathname;
 }
 
 function getBuilderConnectOwnerCookiePath(): string {
@@ -393,9 +385,7 @@ export function resolveLegacyToolsRedirect(
   const pathname = stripAppBasePath(rawPath);
   if (pathname !== "/tools" && !pathname.startsWith("/tools/")) return null;
   const suffix = pathname === "/tools" ? "" : pathname.slice("/tools".length);
-  const basePath = normalizeAppBasePath(
-    process.env.VITE_APP_BASE_PATH || process.env.APP_BASE_PATH,
-  );
+  const basePath = getConfiguredAppBasePath();
   return `${basePath}/extensions${suffix}${search}`;
 }
 
@@ -887,25 +877,70 @@ export function createCoreRoutesPlugin(
             }
           }
 
-          return runWithRequestContext({ userEmail, orgId }, async () => {
-            const projectId = await resolveBuilderBranchProjectId();
-            const requestStatus = {
-              ...envStatus,
-              builderEnabled: !!projectId,
-              branchProjectIdConfigured: !!projectId,
-              branchProjectId: projectId || undefined,
-            };
+          return runWithRequestContext(
+            { userEmail, orgId: orgId ?? undefined },
+            async () => {
+              const projectId = await resolveBuilderBranchProjectId();
+              const requestStatus = {
+                ...envStatus,
+                builderEnabled: !!projectId,
+                branchProjectIdConfigured: !!projectId,
+                branchProjectId: projectId || undefined,
+              };
 
-            // Surface a recent OAuth callback failure before reporting a
-            // deployment fallback as "connected"; otherwise a failed personal
-            // connect attempt on a deploy that also has BUILDER_PRIVATE_KEY set
-            // looks successful even though the user's credentials were not saved.
-            try {
-              if (userEmail) {
-                const errKey = `builder-connect-error:${userEmail}`;
-                const errRow = await getSetting(errKey);
-                if (errRow && typeof errRow.message === "string") {
-                  await deleteSetting(errKey).catch(() => {});
+              // Surface a recent OAuth callback failure before reporting a
+              // deployment fallback as "connected"; otherwise a failed personal
+              // connect attempt on a deploy that also has BUILDER_PRIVATE_KEY set
+              // looks successful even though the user's credentials were not saved.
+              try {
+                if (userEmail) {
+                  const errKey = `builder-connect-error:${userEmail}`;
+                  const errRow = await getSetting(errKey);
+                  if (errRow && typeof errRow.message === "string") {
+                    await deleteSetting(errKey).catch(() => {});
+                    return withConnectToken({
+                      ...requestStatus,
+                      configured: false,
+                      privateKeyConfigured: false,
+                      publicKeyConfigured: false,
+                      userId: undefined,
+                      orgName: undefined,
+                      orgKind: undefined,
+                      subscription: undefined,
+                      subscriptionLevel: undefined,
+                      subscriptionName: undefined,
+                      isEnterprise: undefined,
+                      isFreeAccount: undefined,
+                      connectError: {
+                        message: errRow.message as string,
+                        at:
+                          typeof errRow.at === "number"
+                            ? (errRow.at as number)
+                            : Date.now(),
+                      },
+                    });
+                  }
+                }
+              } catch {
+                // settings store unavailable — fall through
+              }
+
+              // Read request-scoped Builder credentials first; deploy env is only
+              // the fallback. This keeps a root/local BUILDER_PRIVATE_KEY from
+              // blocking a user from connecting their own Builder account.
+              try {
+                const {
+                  resolveBuilderCredentials,
+                  resolveBuilderCredentialSource,
+                  getBuilderCredentialAuthFailure,
+                } = await import("./credential-provider.js");
+                const [creds, credentialSource] = await Promise.all([
+                  resolveBuilderCredentials(),
+                  resolveBuilderCredentialSource(),
+                ]);
+                const authFailure =
+                  await getBuilderCredentialAuthFailure(creds);
+                if (authFailure) {
                   return withConnectToken({
                     ...requestStatus,
                     configured: false,
@@ -919,130 +954,91 @@ export function createCoreRoutesPlugin(
                     subscriptionName: undefined,
                     isEnterprise: undefined,
                     isFreeAccount: undefined,
-                    connectError: {
-                      message: errRow.message as string,
-                      at:
-                        typeof errRow.at === "number"
-                          ? (errRow.at as number)
-                          : Date.now(),
+                    credentialSource: credentialSource ?? undefined,
+                    // Surface durable credential rejection separately from
+                    // one-shot cli-auth callback failures. The reconnect UI keeps
+                    // polling through authError while the user chooses a new
+                    // Builder space; connectError means the active callback itself
+                    // failed and should stop the flow.
+                    authError: {
+                      message: authFailure.message,
+                      at: authFailure.at,
                     },
                   });
                 }
+                if (creds.privateKey && creds.publicKey) {
+                  return withConnectToken({
+                    ...requestStatus,
+                    configured: true,
+                    privateKeyConfigured: true,
+                    publicKeyConfigured: !!creds.publicKey,
+                    userId: creds.userId || envStatus.userId,
+                    orgName: creds.orgName || envStatus.orgName,
+                    orgKind: creds.orgKind || envStatus.orgKind,
+                    subscription:
+                      creds.subscription || envStatus.subscription || undefined,
+                    subscriptionLevel:
+                      creds.subscriptionLevel ||
+                      envStatus.subscriptionLevel ||
+                      undefined,
+                    subscriptionName:
+                      creds.subscriptionName ||
+                      envStatus.subscriptionName ||
+                      undefined,
+                    isEnterprise:
+                      creds.isEnterprise ?? envStatus.isEnterprise ?? undefined,
+                    isFreeAccount:
+                      creds.isFreeAccount ??
+                      envStatus.isFreeAccount ??
+                      undefined,
+                    credentialSource: credentialSource ?? undefined,
+                  });
+                }
+              } catch {
+                // Secrets table not ready — fall through to env status
               }
-            } catch {
-              // settings store unavailable — fall through
-            }
 
-            // Read request-scoped Builder credentials first; deploy env is only
-            // the fallback. This keeps a root/local BUILDER_PRIVATE_KEY from
-            // blocking a user from connecting their own Builder account.
-            try {
-              const {
-                resolveBuilderCredentials,
-                resolveBuilderCredentialSource,
-                getBuilderCredentialAuthFailure,
-              } = await import("./credential-provider.js");
-              const [creds, credentialSource] = await Promise.all([
-                resolveBuilderCredentials(),
-                resolveBuilderCredentialSource(),
-              ]);
-              const authFailure = await getBuilderCredentialAuthFailure(creds);
-              if (authFailure) {
-                return withConnectToken({
-                  ...requestStatus,
-                  configured: false,
-                  privateKeyConfigured: false,
-                  publicKeyConfigured: false,
-                  userId: undefined,
-                  orgName: undefined,
-                  orgKind: undefined,
-                  subscription: undefined,
-                  subscriptionLevel: undefined,
-                  subscriptionName: undefined,
-                  isEnterprise: undefined,
-                  isFreeAccount: undefined,
-                  credentialSource: credentialSource ?? undefined,
-                  // Surface durable credential rejection separately from
-                  // one-shot cli-auth callback failures. The reconnect UI keeps
-                  // polling through authError while the user chooses a new
-                  // Builder space; connectError means the active callback itself
-                  // failed and should stop the flow.
-                  authError: {
-                    message: authFailure.message,
-                    at: authFailure.at,
-                  },
-                });
+              // Honor legacy disconnect flag for existing deployments.
+              try {
+                const disconnected = await getSetting("builder-disconnected");
+                if (disconnected) {
+                  return withConnectToken({
+                    ...requestStatus,
+                    configured: false,
+                    privateKeyConfigured: false,
+                    publicKeyConfigured: false,
+                    userId: undefined,
+                    orgName: undefined,
+                    orgKind: undefined,
+                    subscription: undefined,
+                    subscriptionLevel: undefined,
+                    subscriptionName: undefined,
+                    isEnterprise: undefined,
+                    isFreeAccount: undefined,
+                  });
+                }
+              } catch {
+                // DB not reachable
               }
-              if (creds.privateKey && creds.publicKey) {
-                return withConnectToken({
-                  ...requestStatus,
-                  configured: true,
-                  privateKeyConfigured: true,
-                  publicKeyConfigured: !!creds.publicKey,
-                  userId: creds.userId || envStatus.userId,
-                  orgName: creds.orgName || envStatus.orgName,
-                  orgKind: creds.orgKind || envStatus.orgKind,
-                  subscription:
-                    creds.subscription || envStatus.subscription || undefined,
-                  subscriptionLevel:
-                    creds.subscriptionLevel ||
-                    envStatus.subscriptionLevel ||
-                    undefined,
-                  subscriptionName:
-                    creds.subscriptionName ||
-                    envStatus.subscriptionName ||
-                    undefined,
-                  isEnterprise:
-                    creds.isEnterprise ?? envStatus.isEnterprise ?? undefined,
-                  isFreeAccount:
-                    creds.isFreeAccount ?? envStatus.isFreeAccount ?? undefined,
-                  credentialSource: credentialSource ?? undefined,
-                });
-              }
-            } catch {
-              // Secrets table not ready — fall through to env status
-            }
-
-            // Honor legacy disconnect flag for existing deployments.
-            try {
-              const disconnected = await getSetting("builder-disconnected");
-              if (disconnected) {
-                return withConnectToken({
-                  ...requestStatus,
-                  configured: false,
-                  privateKeyConfigured: false,
-                  publicKeyConfigured: false,
-                  userId: undefined,
-                  orgName: undefined,
-                  orgKind: undefined,
-                  subscription: undefined,
-                  subscriptionLevel: undefined,
-                  subscriptionName: undefined,
-                  isEnterprise: undefined,
-                  isFreeAccount: undefined,
-                });
-              }
-            } catch {
-              // DB not reachable
-            }
-            // No env, no per-user creds → not configured. Both authenticated
-            // and unauthenticated callers see "not connected" so they can
-            // run through the OAuth flow.
-            return withConnectToken({
-              ...requestStatus,
-              configured: false,
-              privateKeyConfigured: false,
-              publicKeyConfigured: false,
-              userId: undefined,
-              orgName: undefined,
-              orgKind: undefined,
-              subscription: undefined,
-              subscriptionLevel: undefined,
-              subscriptionName: undefined,
-              isEnterprise: undefined,
-              isFreeAccount: undefined,
-            });
-          });
+              // No env, no per-user creds → not configured. Both authenticated
+              // and unauthenticated callers see "not connected" so they can
+              // run through the OAuth flow.
+              return withConnectToken({
+                ...requestStatus,
+                configured: false,
+                privateKeyConfigured: false,
+                publicKeyConfigured: false,
+                userId: undefined,
+                orgName: undefined,
+                orgKind: undefined,
+                subscription: undefined,
+                subscriptionLevel: undefined,
+                subscriptionName: undefined,
+                isEnterprise: undefined,
+                isFreeAccount: undefined,
+              });
+            },
+          );
         }),
       );
 
@@ -1302,43 +1298,46 @@ export function createCoreRoutesPlugin(
           // uses. Without this, per-user Builder keys stored in app_secrets are
           // invisible to the run path and the call throws "Builder keys are not
           // configured" even though the status endpoint correctly reports configured=true.
-          return runWithRequestContext({ userEmail, orgId }, async () => {
-            const projectId = await resolveBuilderBranchProjectId();
-            if (!projectId) {
-              setResponseStatus(event, 403);
-              return {
-                error:
-                  "Builder branch creation is not available for this organization yet.",
-              };
-            }
+          return runWithRequestContext(
+            { userEmail, orgId: orgId ?? undefined },
+            async () => {
+              const projectId = await resolveBuilderBranchProjectId();
+              if (!projectId) {
+                setResponseStatus(event, 403);
+                return {
+                  error:
+                    "Builder branch creation is not available for this organization yet.",
+                };
+              }
 
-            const { resolveBuilderCredential: resolveBuilderCred } =
-              await import("./credential-provider.js");
-            const builderUserId =
-              (await resolveBuilderCred("BUILDER_USER_ID")) || undefined;
-            // Server-controlled projectId — don't let clients target arbitrary
-            // Builder projects with our private key. When this feature graduates
-            // past the hardcoded preview, the projectId will come from
-            // workspace/org config, still resolved server-side.
-            try {
-              const result = await runBuilderAgent({
-                prompt,
-                projectId,
-                branchName:
-                  typeof body?.branchName === "string"
-                    ? body.branchName
-                    : undefined,
-                userEmail,
-                userId: builderUserId,
-              });
-              return result;
-            } catch (e) {
-              setResponseStatus(event, 500);
-              return {
-                error: e instanceof Error ? e.message : "Builder run failed",
-              };
-            }
-          });
+              const { resolveBuilderCredential: resolveBuilderCred } =
+                await import("./credential-provider.js");
+              const builderUserId =
+                (await resolveBuilderCred("BUILDER_USER_ID")) || undefined;
+              // Server-controlled projectId — don't let clients target arbitrary
+              // Builder projects with our private key. When this feature graduates
+              // past the hardcoded preview, the projectId will come from
+              // workspace/org config, still resolved server-side.
+              try {
+                const result = await runBuilderAgent({
+                  prompt,
+                  projectId,
+                  branchName:
+                    typeof body?.branchName === "string"
+                      ? body.branchName
+                      : undefined,
+                  userEmail,
+                  userId: builderUserId,
+                });
+                return result;
+              } catch (e) {
+                setResponseStatus(event, 500);
+                return {
+                  error: e instanceof Error ? e.message : "Builder run failed",
+                };
+              }
+            },
+          );
         }),
       );
 
@@ -2120,7 +2119,7 @@ export function createCoreRoutesPlugin(
               return {
                 configured: true,
                 engine,
-                model: stored.model ?? entry?.defaultModel ?? DEFAULT_MODEL,
+                model: stored?.model ?? entry?.defaultModel ?? DEFAULT_MODEL,
                 source: "settings" as const,
               };
             }
@@ -2483,6 +2482,22 @@ export function createCoreRoutesPlugin(
             return { error: "No file uploaded" };
           }
 
+          // Reject files that exceed the upload size ceiling.
+          if (filePart.data.length > DEFAULT_UPLOAD_MAX_FILE_BYTES) {
+            setResponseStatus(event, 413);
+            return {
+              error: `File too large (max ${Math.round(DEFAULT_UPLOAD_MAX_FILE_BYTES / 1024 / 1024)} MB)`,
+            };
+          }
+
+          // Reject executable/script MIME types.
+          if (filePart.type && !isAllowedUploadMimeType(filePart.type)) {
+            setResponseStatus(event, 415);
+            return {
+              error: `Unsupported file type: ${filePart.type}`,
+            };
+          }
+
           const session = await getSession(event);
           if (!session?.email) {
             setResponseStatus(event, 401);
@@ -2831,6 +2846,11 @@ export function createCoreRoutesPlugin(
       // ─── Avatar routes ──────────────────────────────────────────────────
       // GET /_agent-native/avatar/:email — fetch any user's avatar (public)
       // PUT /_agent-native/avatar       — update current user's avatar (auth required)
+      //
+      // Only raster MIME types are accepted on write; SVG carries scripting risk
+      // (data:image/svg+xml payloads can execute JS when rendered by browsers),
+      // so it is explicitly excluded. Mirrors the SAFE_DATA_IMAGE allowlist in
+      // packages/core/src/client/blocks/library/sanitize-html.ts.
       getH3App(nitroApp).use(
         `${P}/avatar`,
         defineEventHandler(async (event: H3Event) => {
@@ -2858,9 +2878,12 @@ export function createCoreRoutesPlugin(
             }
             const body = await readBody(event);
             const { image } = body as { image?: string };
-            if (!image || !image.startsWith("data:image/")) {
+            if (!image || !AVATAR_RASTER_MIME.test(image)) {
               setResponseStatus(event, 400);
-              return { error: "image (data URL) required" };
+              return {
+                error:
+                  "image must be a data URI with a raster MIME type (png, jpeg, gif, or webp)",
+              };
             }
             await putSetting(`avatar:${session.email}`, { image });
             return { ok: true };

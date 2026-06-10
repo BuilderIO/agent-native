@@ -11,9 +11,8 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { IconFlask, IconClock, IconSearch } from "@tabler/icons-react";
-import { getIdToken } from "@/lib/auth";
 import {
-  appApiPath,
+  callAction,
   useSendToAgentChat,
   useChangeVersions,
 } from "@agent-native/core/client";
@@ -29,13 +28,8 @@ interface AnalysisSummary {
 }
 
 async function fetchAnalyses(): Promise<AnalysisSummary[]> {
-  const token = await getIdToken();
-  const res = await fetch(appApiPath("/api/analyses"), {
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
-  });
-  if (!res.ok) return [];
-  const data = await res.json();
-  return data.analyses ?? [];
+  const rows = await callAction("list-analyses", {});
+  return (Array.isArray(rows) ? rows : []) as AnalysisSummary[];
 }
 
 function formatRelativeDate(iso: string): string {

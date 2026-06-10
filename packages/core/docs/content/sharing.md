@@ -136,7 +136,26 @@ registerShareableResource({
 });
 ```
 
-After that, list/read queries pass through `accessFilter()` and write actions use `assertAccess()` to enforce roles. `getResourcePath` gives notification emails a direct fallback link when a share is created by the agent or another non-UI caller. The full pattern (including create-action ownership stamping and the migration recipe for existing tables) lives in the `sharing` agent skill — the agent reads it on demand when building a sharing-aware feature.
+After that, list/read queries pass through `accessFilter()` and write actions use `assertAccess()` to enforce roles.
+
+### Optional hardening flags {#hardening-flags}
+
+`registerShareableResource` accepts two security flags for resources that execute code or carry elevated trust:
+
+```ts
+registerShareableResource({
+  type: "extension",
+  resourceTable: schema.extensions,
+  sharesTable: schema.extensionShares,
+  // ...
+  allowPublic: false, // Reject set-resource-visibility → "public"
+  requireOrgMemberForUserShares: true, // Reject user grants to non-org emails
+});
+```
+
+`allowPublic: false` prevents any caller — agent or UI — from setting the resource's visibility to `public`. `requireOrgMemberForUserShares: true` rejects individual user grants to email addresses outside the resource owner's org. Extensions set both: an extension's HTML runs inside an iframe that calls actions and DB as the _viewer_, so public access would be arbitrary code with the viewer's credentials.
+
+`getResourcePath` gives notification emails a direct fallback link when a share is created by the agent or another non-UI caller. The full pattern (including create-action ownership stamping and the migration recipe for existing tables) lives in the `sharing` agent skill — the agent reads it on demand when building a sharing-aware feature.
 
 ## Security guarantees {#security}
 

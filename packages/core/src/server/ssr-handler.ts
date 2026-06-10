@@ -18,6 +18,11 @@
 import { createRequestHandler } from "react-router";
 import { defineEventHandler, type H3Event } from "h3";
 import { getSentryClientConfigScript } from "./sentry-config.js";
+import { computeInlineScriptHash } from "./security-headers.js";
+import {
+  getAppBasePathFromViteEnv,
+  stripAppBasePath as canonicalStripAppBasePath,
+} from "./app-base-path.js";
 import { BETTER_AUTH_COOKIE_PREFIX, COOKIE_NAME, getSession } from "./auth.js";
 import { runWithRequestContext } from "./request-context.js";
 import { requestHasEmbedAuthMarker } from "./embed-session.js";
@@ -35,7 +40,6 @@ import {
 import {
   DEFAULT_SSR_CACHE_HEADERS,
   DEFAULT_SPECULATION_RULES_PATH,
-  DEFAULT_SSR_CACHE_CONTROL,
 } from "../shared/cache-control.js";
 
 export {
@@ -49,8 +53,26 @@ const BETTER_AUTH_SESSION_COOKIE_RE = /\.session_(?:token|data)$/;
 /**
  * Read the active org for a request without forcing every template to bundle
  * the org module. Mirrors what `core-routes-plugin` does for action handlers.
+ *
+ * Fast path: when the session already carries a valid orgId (backfilled by
+ * backfillSessionOrg during getSession), return it directly — no additional
+ * org_members round trip. Only when the session has no orgId do we fall
+ * through to getOrgContext for the full membership lookup.
  */
-async function readOrgIdForEvent(event: H3Event): Promise<string | undefined> {
+async function readOrgIdForEvent(
+  event: H3Event,
+  session: Awaited<ReturnType<typeof getSession>>,
+): Promise<string | undefined> {
+  // Reuse orgId already resolved by backfillSessionOrg inside getSession.
+  const sessionOrgId =
+    typeof session?.orgId === "string" && session.orgId.trim()
+      ? session.orgId.trim()
+      : undefined;
+  if (sessionOrgId) return sessionOrgId;
+
+  // No orgId on the session — full org_members lookup needed.
+  // getOrgContext is per-event memoized, so this is at most one DB read
+  // even if other request code calls getOrgContext independently.
   try {
     const { getOrgContext } = await import("../org/context.js");
     const ctx = await getOrgContext(event);
@@ -60,31 +82,12 @@ async function readOrgIdForEvent(event: H3Event): Promise<string | undefined> {
   }
 }
 
-function normalizeAppBasePath(value: string | undefined): string {
-  if (!value || value === "/") return "";
-  const trimmed = value.trim();
-  if (!trimmed || trimmed === "/") return "";
-  return `/${trimmed.replace(/^\/+/, "").replace(/\/+$/, "")}`;
-}
-
 function getAppBasePath(): string {
-  const metaEnv = (
-    import.meta as unknown as {
-      env?: Record<string, string | undefined>;
-    }
-  ).env;
-  return normalizeAppBasePath(
-    process.env.VITE_APP_BASE_PATH ||
-      process.env.APP_BASE_PATH ||
-      metaEnv?.VITE_APP_BASE_PATH ||
-      metaEnv?.APP_BASE_PATH ||
-      metaEnv?.BASE_URL,
-  );
+  return getAppBasePathFromViteEnv();
 }
 
 function stripAppBasePath(pathname: string): string {
-  const basePath = getAppBasePath();
-  return stripBasePath(pathname, basePath);
+  return canonicalStripAppBasePath(pathname, getAppBasePath());
 }
 
 function stripBasePath(pathname: string, basePath: string): string {
@@ -246,46 +249,62 @@ function isAuthenticatedCookieName(name: string): boolean {
   );
 }
 
-function shouldUseDefaultSsrCacheHeader(
+const PRIVATE_NO_STORE = "private, no-store";
+
+function isSsrHtmlOrDataResponse(
   headers: Headers,
   status: number,
   pathname: string,
 ): boolean {
   if (status < 200 || status >= 400) return false;
-
   const contentType = headers.get("content-type")?.toLowerCase() ?? "";
-  if (contentType.includes("text/html")) {
-    // SSR HTML is public app shell in this framework; any per-user state is
-    // fetched after hydration. Always enforce the framework SWR default here;
-    // route-level no-cache/private headers on SSR HTML recreate the same
-    // origin stampede this cache policy is meant to prevent.
-    return true;
-  }
-
-  if (!pathname.endsWith(".data")) return false;
-  if (!contentType.includes("text/x-script")) return false;
-
-  // React Router gives loader `.data` responses `cache-control: no-cache` by
-  // default. In Agent-Native, SSR output is intentionally public app shell:
-  // user/org-specific reads happen after hydration through actions and API
-  // routes. Keep `.data` on the same short-fresh/long-SWR policy as HTML so
-  // route data fetches warm the CDN instead of hammering origin.
-  // Do not re-add a blanket cookie/auth-signal bypass here: logged-in browsers
-  // still need CDN-cached public route data.
-  // Also do not preserve route-level private/no-store for React Router .data:
-  // if a route needs per-user data, it belongs behind a client-side action/API
-  // call rather than in the shared SSR payload.
-  return true;
+  if (contentType.includes("text/html")) return true;
+  return pathname.endsWith(".data") && contentType.includes("text/x-script");
 }
 
+/**
+ * Apply the correct SSR cache policy to the response headers.
+ *
+ * Anonymous requests (no auth signal on the incoming request) get the public
+ * stale-while-revalidate default so the CDN can serve shared app-shell HTML
+ * and React Router loader data to every unauthenticated visitor without
+ * hammering origin.
+ *
+ * Authenticated requests must never be publicly CDN-cached: the loader may
+ * have embedded session-personalized data. If the route already returned a
+ * Cache-Control header we respect it; otherwise we fall back to
+ * `private, no-store` so the browser re-fetches but no shared cache stores
+ * the response.
+ *
+ * The distinction is on the *incoming* auth signal, not on whether the loader
+ * actually used the session — that would require inspecting the response body.
+ * Erring toward private for any credentialed request is the safe default.
+ */
 function applyDefaultSsrCacheHeader(
   headers: Headers,
   status: number,
   pathname: string,
+  hasAuthSignal: boolean,
 ) {
-  if (!shouldUseDefaultSsrCacheHeader(headers, status, pathname)) {
+  if (!isSsrHtmlOrDataResponse(headers, status, pathname)) return;
+
+  if (hasAuthSignal) {
+    // A route that explicitly opts into public caching (e.g. a share page that
+    // accepts an optional auth cookie) can signal intent via a `public` directive.
+    // Any other route-level or framework-default value (no-cache, private, unset)
+    // is overridden with private/no-store so no shared CDN cache stores a
+    // potentially personalized response.
+    const existingCc = headers.get("cache-control") ?? "";
+    if (!existingCc.includes("public")) {
+      headers.set("cache-control", PRIVATE_NO_STORE);
+    }
+    // Never propagate CDN-specific cache headers on authenticated responses,
+    // regardless of what the route set.
+    headers.delete("cdn-cache-control");
+    headers.delete("netlify-cdn-cache-control");
     return;
   }
+
   // Netlify Functions/proxies are not cached by default, and production docs
   // requests often carry stale auth/doc cookies. Keep all three cache headers:
   // Cache-Control for browsers, CDN-Cache-Control for generic CDNs, and
@@ -318,6 +337,76 @@ function applyDefaultSpeculationRulesHeader(
   headers.set("speculation-rules", `"${rulesPath}"`);
 }
 
+/**
+ * Extract the plain JS body from a `<script ...>body</script>` string.
+ * Returns `null` if the input is falsy or has no recognisable `</script>` end.
+ * Used to compute the sha256 hash of framework-injected inline scripts so the
+ * hash can be listed in the `script-src` CSP directive without relying on
+ * `'unsafe-inline'`.
+ */
+function extractScriptBody(scriptTag: string | null): string | null {
+  if (!scriptTag) return null;
+  const start = scriptTag.indexOf(">") + 1;
+  const end = scriptTag.lastIndexOf("</script>");
+  if (start <= 0 || end < start) return null;
+  return scriptTag.slice(start, end);
+}
+
+/**
+ * Apply a Content-Security-Policy header to HTML document responses.
+ *
+ * Two directives are always enforced in production:
+ *
+ *   - `object-src 'none'`  — disables Flash / Java / PDF plugin execution,
+ *     which are a reliable code-execution vector even in modern browsers.
+ *   - `base-uri 'self'`    — prevents a `<base href="...">` injection from
+ *     hijacking all relative URLs in the document (a common attack target when
+ *     user-controlled content reaches the HTML).
+ *
+ * A third directive, `script-src`, is emitted via `Content-Security-Policy-
+ * Report-Only` rather than enforced. The framework injects one deterministic
+ * inline script per process (the Sentry config block — its hash is computed
+ * once at process startup from the resolved env vars). Templates additionally
+ * render a theme-init inline script whose exact content varies by template
+ * (default theme param, custom docs variant, etc.) and which is rendered by
+ * React Router, not this handler, so its hash is not available here. Shipping
+ * script-src as Report-Only surfaces violations without breaking template
+ * customisations; teams can graduate to enforcement once their hashes are
+ * enumerated.
+ *
+ * Skipped in development (`NODE_ENV !== 'production'`) so HMR eval and Vite
+ * dev-server injects are never blocked. Set `AGENT_NATIVE_DISABLE_DOC_CSP=1`
+ * to opt out in production for a template with exotic needs.
+ */
+function applyDocumentCsp(headers: Headers, sentryScript: string | null): void {
+  if (process.env.NODE_ENV !== "production") return;
+  if (process.env.AGENT_NATIVE_DISABLE_DOC_CSP === "1") return;
+
+  // object-src / base-uri: enforced; neither directive mentions scripts, so
+  // they are safe even when a template's inline script hashes are unknown.
+  const existing = headers.get("content-security-policy") ?? "";
+  if (!existing) {
+    headers.set(
+      "content-security-policy",
+      "object-src 'none'; base-uri 'self'",
+    );
+  }
+
+  // script-src as Report-Only: list 'self' plus the hash for the Sentry config
+  // script the SSR handler injects into every HTML response (the hash is
+  // computed once from the resolved env vars at process startup). Template
+  // theme-init hashes are NOT included here — see function comment above.
+  const sentryBody = extractScriptBody(sentryScript);
+  const sentryHash = sentryBody ? computeInlineScriptHash(sentryBody) : null;
+  const scriptSrcTokens = ["'self'", ...(sentryHash ? [sentryHash] : [])];
+  const scriptSrc = `script-src ${scriptSrcTokens.join(" ")}`;
+
+  const existingRo = headers.get("content-security-policy-report-only") ?? "";
+  if (!existingRo) {
+    headers.set("content-security-policy-report-only", scriptSrc);
+  }
+}
+
 function isFrameworkOrAssetPath(pathname: string): boolean {
   return (
     pathname.startsWith("/.well-known/") ||
@@ -341,10 +430,11 @@ async function rewriteMountedResponse(
   basePath: string,
   pathname: string,
   requestUrl: string,
+  hasAuthSignal: boolean,
 ): Promise<Response> {
   const sentryClientConfigScript = getSentryClientConfigScript();
   const headers = new Headers(response.headers);
-  applyDefaultSsrCacheHeader(headers, response.status, pathname);
+  applyDefaultSsrCacheHeader(headers, response.status, pathname, hasAuthSignal);
   applyDefaultSpeculationRulesHeader(headers, response.status, basePath);
 
   const location = headers.get("location");
@@ -363,6 +453,7 @@ async function rewriteMountedResponse(
 
   const html = await response.text();
   headers.delete("content-length");
+  applyDocumentCsp(headers, sentryClientConfigScript);
   return new Response(
     injectHeadScript(
       injectDefaultSocialImageMeta(
@@ -407,7 +498,12 @@ export function createH3SSRHandler(getBuild: () => Promise<unknown> | unknown) {
           // Auth lookup failures must not break SSR; treat as unauthenticated.
         }
       }
-      const orgId = session?.email ? await readOrgIdForEvent(event) : undefined;
+      // readOrgIdForEvent fast-paths when session.orgId is already backfilled
+      // (the common case), avoiding a duplicate org_members query. A second
+      // query only fires for authenticated users whose session has no orgId.
+      const orgId = session?.email
+        ? await readOrgIdForEvent(event, session)
+        : undefined;
       const ctx = {
         userEmail: session?.email ?? undefined,
         orgId,
@@ -430,6 +526,7 @@ export function createH3SSRHandler(getBuild: () => Promise<unknown> | unknown) {
           basePath,
           p,
           request.url,
+          hasAuthSignal,
         );
       }
       return await rewriteMountedResponse(
@@ -437,6 +534,7 @@ export function createH3SSRHandler(getBuild: () => Promise<unknown> | unknown) {
         basePath,
         p,
         request.url,
+        hasAuthSignal,
       );
     } catch (err) {
       // Log the full stack server-side, but never leak it to the client.

@@ -166,8 +166,10 @@ export async function listBookings(
     );
   let out = rows.map((r: any) => rowToBooking(r, attendees, references));
   if (filter.attendeeEmail) {
-    out = out.filter((b) =>
-      b.attendees.some((a) => a.email === filter.attendeeEmail),
+    out = out.filter((b: (typeof out)[number]) =>
+      b.attendees.some(
+        (a: { email: string }) => a.email === filter.attendeeEmail,
+      ),
     );
   }
   return out;

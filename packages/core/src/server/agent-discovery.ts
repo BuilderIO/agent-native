@@ -455,38 +455,33 @@ function parseWorkspaceAppsManifest(
       : null;
   if (!rawApps) return null;
 
-  const apps = rawApps
-    .map((entry) => {
+  const apps = (rawApps as unknown[])
+    .map((entry): WorkspaceAppManifestEntry | null => {
       if (!entry || typeof entry !== "object") return null;
-      const id = typeof entry.id === "string" ? entry.id.trim() : "";
-      const pathValue = typeof entry.path === "string" ? entry.path.trim() : "";
+      const e = entry as Record<string, unknown>;
+      const id = typeof e.id === "string" ? e.id.trim() : "";
+      const pathValue = typeof e.path === "string" ? e.path.trim() : "";
       if (!id || !pathValue.startsWith("/")) return null;
       return {
         id,
         name:
-          typeof entry.name === "string" && entry.name.trim()
-            ? entry.name.trim()
+          typeof e.name === "string" && e.name.trim()
+            ? e.name.trim()
             : titleCase(id),
-        description:
-          typeof entry.description === "string" ? entry.description : "",
+        description: typeof e.description === "string" ? e.description : "",
         path: pathValue,
-        url:
-          typeof entry.url === "string" && entry.url.trim()
-            ? entry.url.trim()
-            : null,
+        url: typeof e.url === "string" && e.url.trim() ? e.url.trim() : null,
         isDispatch:
-          typeof entry.isDispatch === "boolean"
-            ? entry.isDispatch
-            : id === "dispatch",
+          typeof e.isDispatch === "boolean" ? e.isDispatch : id === "dispatch",
         audience:
-          entry.audience === undefined
+          e.audience === undefined
             ? DEFAULT_WORKSPACE_APP_AUDIENCE
-            : normalizeWorkspaceAppAudience(entry.audience),
-        publicPaths: normalizeWorkspaceAppPathList(entry.publicPaths),
-        protectedPaths: normalizeWorkspaceAppPathList(entry.protectedPaths),
-      } satisfies WorkspaceAppManifestEntry;
+            : normalizeWorkspaceAppAudience(e.audience),
+        publicPaths: normalizeWorkspaceAppPathList(e.publicPaths),
+        protectedPaths: normalizeWorkspaceAppPathList(e.protectedPaths),
+      };
     })
-    .filter((app): app is WorkspaceAppManifestEntry => !!app)
+    .filter((app): app is WorkspaceAppManifestEntry => app !== null)
     .sort((a, b) => {
       if (a.id === "dispatch") return -1;
       if (b.id === "dispatch") return 1;

@@ -117,6 +117,36 @@ describe("parseConnectArgs", () => {
       name: "agent-native-plan",
     });
   });
+
+  it("parses --service-token and --ttl-days", () => {
+    const p = parseConnectArgs([
+      "https://plan.agent-native.com",
+      "--service-token",
+      "pr-recap",
+      "--ttl-days=90",
+    ]);
+    expect(p.url).toBe("https://plan.agent-native.com");
+    expect(p.serviceToken).toBe("pr-recap");
+    expect(p.ttlDays).toBe(90);
+    expect(p.token).toBeUndefined();
+  });
+
+  it("parses --full-catalog", () => {
+    const p = parseConnectArgs([
+      "https://plan.agent-native.com",
+      "--full-catalog",
+      "--client",
+      "codex",
+    ]);
+    expect(p.url).toBe("https://plan.agent-native.com");
+    expect(p.fullCatalog).toBe(true);
+    expect(p.client).toBe("codex");
+  });
+
+  it("defaults fullCatalog to undefined when flag is absent", () => {
+    const p = parseConnectArgs(["https://plan.agent-native.com"]);
+    expect(p.fullCatalog).toBeUndefined();
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -1578,5 +1608,156 @@ describe("runConnect", () => {
     await runConnect(["--help"]);
     expect(process.exitCode).toBeFalsy();
     expect(out.mock.calls.flat().join("")).toContain("agent-native connect");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// runConnect --service-token (org service-token mint for CI)
+// ---------------------------------------------------------------------------
+
+describe("runConnect --service-token", () => {
+  const originalExitCode = process.exitCode;
+  const originalCwd = process.cwd();
+
+  afterEach(() => {
+    process.exitCode = originalExitCode;
+    process.chdir(originalCwd);
+  });
+
+  /**
+   * Fetch stub for the full mint flow: device start → poll (approved with a
+   * personal bearer grant) → POST to the create-org-service-token action.
+   * Captures the action request so tests can assert auth + body.
+   */
+  function makeServiceTokenFetch(
+    actionResponse: { status: number; json: unknown },
+    captured: { url?: string; auth?: string; body?: any },
+  ): typeof fetch {
+    return vi.fn(async (url: string, init?: RequestInit) => {
+      const u = String(url);
+      if (u.endsWith("/device/start")) {
+        return new Response(
+          JSON.stringify({
+            device_code: "dev-123",
+            user_code: "WXYZ-1234",
+            verification_uri: "https://plan.example.com/connect",
+            verification_uri_complete:
+              "https://plan.example.com/connect?code=WXYZ-1234",
+            interval: 1,
+            expires_in: 600,
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      if (u.endsWith("/device/poll")) {
+        return new Response(
+          JSON.stringify({
+            status: "approved",
+            token: "personal-grant-token",
+            mcpUrl: "https://plan.example.com/_agent-native/mcp",
+            serverName: "agent-native-plan",
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      if (u.endsWith("/_agent-native/actions/create-org-service-token")) {
+        captured.url = u;
+        captured.auth = (
+          init?.headers as Record<string, string>
+        )?.authorization;
+        captured.body = JSON.parse(String(init?.body ?? "{}"));
+        return new Response(JSON.stringify(actionResponse.json), {
+          status: actionResponse.status,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      throw new Error(`unexpected fetch in test: ${u}`);
+    }) as unknown as typeof fetch;
+  }
+
+  it("authenticates via the device flow, mints, and prints the token exactly once", async () => {
+    const root = tmpDir();
+    process.chdir(root);
+    const out = vi
+      .spyOn(process.stdout, "write")
+      .mockImplementation(() => true);
+    const captured: { url?: string; auth?: string; body?: any } = {};
+
+    await runConnect(
+      [
+        "https://plan.example.com",
+        "--service-token",
+        "PR Recap",
+        "--ttl-days",
+        "90",
+      ],
+      {
+        fetchImpl: makeServiceTokenFetch(
+          {
+            status: 200,
+            json: {
+              token: "svc-token-value-shown-once",
+              id: "tok-1",
+              serviceName: "pr-recap",
+              serviceEmail: "svc-pr-recap@service.org_1",
+              orgId: "org_1",
+              ttlDays: 90,
+            },
+          },
+          captured,
+        ),
+        sleep: noopSleep,
+        openBrowser: vi.fn(),
+      },
+    );
+
+    expect(process.exitCode).toBeFalsy();
+    // The action call is authenticated with the device-flow grant.
+    expect(captured.auth).toBe("Bearer personal-grant-token");
+    expect(captured.body).toEqual({ name: "PR Recap", ttlDays: 90 });
+
+    const printed = out.mock.calls.flat().join("");
+    // Token printed exactly once, with PLAN_RECAP_TOKEN guidance.
+    expect(printed.split("svc-token-value-shown-once").length - 1).toBe(1);
+    expect(printed).toContain("PLAN_RECAP_TOKEN");
+    expect(printed).toContain("svc-pr-recap@service.org_1");
+
+    // No local MCP config is written by the service-token path.
+    expect(fs.existsSync(path.join(root, ".mcp.json"))).toBe(false);
+  });
+
+  it("fails with a role hint when the server returns 403", async () => {
+    const root = tmpDir();
+    process.chdir(root);
+    vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+    const err = vi
+      .spyOn(process.stderr, "write")
+      .mockImplementation(() => true);
+    const captured: { url?: string; auth?: string; body?: any } = {};
+
+    await runConnect(["https://plan.example.com", "--service-token", "ci"], {
+      fetchImpl: makeServiceTokenFetch(
+        {
+          status: 403,
+          json: {
+            error:
+              "Only org owners or admins can create or revoke service tokens.",
+          },
+        },
+        captured,
+      ),
+      sleep: noopSleep,
+      openBrowser: vi.fn(),
+    });
+
+    expect(process.exitCode).toBe(1);
+    const printedErr = err.mock.calls.flat().join("");
+    expect(printedErr).toContain("owners or admins");
+  });
+
+  it("requires a URL", async () => {
+    vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    await runConnect(["--service-token", "ci"]);
+    expect(process.exitCode).toBe(1);
   });
 });

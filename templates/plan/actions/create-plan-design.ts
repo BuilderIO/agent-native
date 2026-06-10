@@ -101,7 +101,7 @@ const designContextRecordSchema = z.record(z.string(), z.unknown()).refine(
 
 export default defineAction({
   description:
-    "Create a /plan-design Agent-Native plan: a full-fidelity Design tab on a Figma-style canvas, plus a matching Prototype tab when interaction or flow review is useful. Use design.md, parsed .fig brand kits, and codebase CSS/Tailwind/token evidence when available. Design screens are bounded HTML/CSS fragments with `data-design-id` targets for specific style edits. The only supported output is the published plan this tool returns — never deliver the design plan as inline chat content (markdown, ASCII sketch, or table); an inline plan is a defect, not a fallback. If this tool is unreachable, stop and give the user the connect step rather than improvising inline.",
+    "Create a full-fidelity branded design plan with a Design tab (Figma-style canvas) and optional Prototype tab. For a document-first plan use create-visual-plan; for a wireframe-canvas plan use create-ui-plan; for a recap of an existing diff use create-visual-recap; for a clickable prototype use create-prototype-plan. Use design.md, .fig brand kits, and codebase CSS/Tailwind/token evidence when available. Design screens are bounded HTML/CSS fragments with data-design-id targets. Publish via this tool; never deliver the plan as inline chat text.",
   schema: z
     .object({
       title: z.string().optional().describe("Short design plan title"),
@@ -111,10 +111,7 @@ export default defineAction({
         .describe(
           "One short sentence summarizing the design direction, shown as the lede under the title. Keep it to a single tight line.",
         ),
-      goal: z
-        .string()
-        .optional()
-        .describe("Compatibility alias for brief; prefer brief"),
+      goal: z.string().optional().describe("Alias for brief."),
       source: planSourceSchema.optional().default("manual"),
       repoPath: z.string().optional().describe("Repository path for the run"),
       currentFocus: z

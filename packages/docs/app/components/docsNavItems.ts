@@ -11,8 +11,33 @@ export const NAV_SECTIONS: NavSection[] = [
         to: "/docs/what-is-agent-native" as const,
       },
       { label: "Key Concepts", to: "/docs/key-concepts" as const },
-      { label: "Templates", to: "/docs/cloneable-saas" as const },
+      { label: "Template Catalog", to: "/docs/cloneable-saas" as const },
+      { label: "Pure-Agent Apps", to: "/docs/pure-agent-apps" as const },
       { label: "FAQ", to: "/docs/faq" as const },
+    ],
+  },
+  {
+    title: "Core Architecture",
+    items: [
+      { label: "Server", to: "/docs/server" as const },
+      { label: "Client", to: "/docs/client" as const },
+      { label: "Actions", to: "/docs/actions" as const },
+      { label: "Agent Web Surfaces", to: "/docs/agent-web-surfaces" as const },
+      { label: "Database", to: "/docs/database" as const },
+      { label: "File Uploads", to: "/docs/file-uploads" as const },
+      { label: "Deployment", to: "/docs/deployment" as const },
+      { label: "Progress", to: "/docs/progress" as const },
+    ],
+  },
+  {
+    title: "Data, Auth & Governance",
+    items: [
+      { label: "Authentication", to: "/docs/authentication" as const },
+      { label: "Multi-Tenancy", to: "/docs/multi-tenancy" as const },
+      { label: "Security & Data Scoping", to: "/docs/security" as const },
+      { label: "Sharing & Privacy", to: "/docs/sharing" as const },
+      { label: "Tracking & Analytics", to: "/docs/tracking" as const },
+      { label: "Observability", to: "/docs/observability" as const },
     ],
   },
   {
@@ -23,7 +48,7 @@ export const NAV_SECTIONS: NavSection[] = [
       { label: "Agent Mentions", to: "/docs/agent-mentions" as const },
       { label: "Voice Input", to: "/docs/voice-input" as const },
       { label: "Drop-in Agent", to: "/docs/drop-in-agent" as const },
-      { label: "Pure-Agent Apps", to: "/docs/pure-agent-apps" as const },
+      { label: "Component API", to: "/docs/components" as const },
       {
         label: "Real-Time Collaboration",
         to: "/docs/real-time-collaboration" as const,
@@ -56,15 +81,40 @@ export const NAV_SECTIONS: NavSection[] = [
       { label: "Messaging (Slack, Email…)", to: "/docs/messaging" as const },
       { label: "Dispatch", to: "/docs/dispatch" as const },
       { label: "A2A Protocol", to: "/docs/a2a-protocol" as const },
-      { label: "MCP Clients", to: "/docs/mcp-clients" as const },
-      { label: "MCP Protocol", to: "/docs/mcp-protocol" as const },
+      {
+        label: "MCP Clients (Add Tools)",
+        to: "/docs/mcp-clients" as const,
+      },
+      {
+        label: "MCP Server (Expose Your App)",
+        to: "/docs/mcp-protocol" as const,
+      },
       { label: "External Agents", to: "/docs/external-agents" as const },
+      { label: "MCP Apps", to: "/docs/mcp-apps" as const },
       { label: "Cross-App SSO", to: "/docs/cross-app-sso" as const },
       { label: "Notifications", to: "/docs/notifications" as const },
       {
         label: "Workspace Connections",
         to: "/docs/workspace-connections" as const,
       },
+    ],
+  },
+  {
+    title: "Build & Extend",
+    items: [
+      { label: "Creating Templates", to: "/docs/creating-templates" as const },
+      {
+        label: "Writing Agent Instructions",
+        to: "/docs/writing-agent-instructions" as const,
+      },
+      { label: "Frames", to: "/docs/frames" as const },
+      { label: "Embedding SDK", to: "/docs/embedding-sdk" as const },
+      {
+        label: "Migration Workbench",
+        to: "/docs/migration-workbench" as const,
+      },
+      { label: "Agent-Native Code UI", to: "/docs/code-agents-ui" as const },
+      { label: "CLI Adapters", to: "/docs/cli-adapters" as const },
     ],
   },
   {
@@ -107,48 +157,6 @@ export const NAV_SECTIONS: NavSection[] = [
       { label: "Design", to: "/docs/template-design" as const },
       { label: "Dispatch", to: "/docs/template-dispatch" as const },
       { label: "Forms", to: "/docs/template-forms" as const },
-    ],
-  },
-  {
-    title: "Core Architecture",
-    items: [
-      { label: "Server", to: "/docs/server" as const },
-      { label: "Client", to: "/docs/client" as const },
-      { label: "Actions", to: "/docs/actions" as const },
-      { label: "Agent Web Surfaces", to: "/docs/agent-web-surfaces" as const },
-      { label: "Database", to: "/docs/database" as const },
-      { label: "File Uploads", to: "/docs/file-uploads" as const },
-      { label: "Deployment", to: "/docs/deployment" as const },
-      { label: "Progress", to: "/docs/progress" as const },
-    ],
-  },
-  {
-    title: "Data, Auth & Governance",
-    items: [
-      { label: "Authentication", to: "/docs/authentication" as const },
-      { label: "Multi-Tenancy", to: "/docs/multi-tenancy" as const },
-      { label: "Security & Data Scoping", to: "/docs/security" as const },
-      { label: "Sharing & Privacy", to: "/docs/sharing" as const },
-      { label: "Tracking & Analytics", to: "/docs/tracking" as const },
-      { label: "Observability", to: "/docs/observability" as const },
-    ],
-  },
-  {
-    title: "Build & Extend",
-    items: [
-      { label: "Creating Templates", to: "/docs/creating-templates" as const },
-      {
-        label: "Writing Agent Instructions",
-        to: "/docs/writing-agent-instructions" as const,
-      },
-      { label: "Frames", to: "/docs/frames" as const },
-      { label: "Embedding SDK", to: "/docs/embedding-sdk" as const },
-      {
-        label: "Migration Workbench",
-        to: "/docs/migration-workbench" as const,
-      },
-      { label: "Agent-Native Code UI", to: "/docs/code-agents-ui" as const },
-      { label: "CLI Adapters", to: "/docs/cli-adapters" as const },
     ],
   },
 ];

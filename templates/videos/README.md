@@ -11,12 +11,6 @@ pnpm run dev
 
 Open http://localhost:8080 to access the studio.
 
-## 📚 Documentation
-
-- **[Quick Start Guide](QUICK_START.md)** - Get started creating your first composition in minutes
-- **[Composition Guide](COMPOSITION_GUIDE.md)** - Complete reference for all features and APIs
-- **[Example Script](scripts/create-composition.ts)** - Template for programmatic composition creation
-
 ## ✨ Features
 
 ### 🎬 AI-Powered Generation

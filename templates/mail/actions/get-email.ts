@@ -14,7 +14,7 @@ export default defineAction({
   }),
   http: { method: "GET" },
   run: async (args) => {
-    if (!args.id) return "Error: --id is required";
+    if (!args.id) throw new Error("--id is required");
 
     const ownerEmail = getRequestUserEmail();
     if (!ownerEmail) throw new Error("no authenticated user");
@@ -23,11 +23,12 @@ export default defineAction({
       const emails =
         data && Array.isArray((data as any).emails) ? (data as any).emails : [];
       const found = emails.find((e: any) => e.id === args.id);
-      return found ? JSON.stringify(found, null, 2) : "Error: Email not found.";
+      if (!found) throw new Error("Email not found.");
+      return JSON.stringify(found, null, 2);
     }
 
     const accounts = await getAccessTokens();
-    if (accounts.length === 0) return "Error: No Google account connected.";
+    if (accounts.length === 0) throw new Error("No Google account connected.");
 
     for (const { email, accessToken } of accounts) {
       try {
@@ -37,9 +38,9 @@ export default defineAction({
         return JSON.stringify(parsed, null, 2);
       } catch (err: any) {
         if (err?.message?.includes("404")) continue;
-        return `Error: ${err?.message}`;
+        throw new Error(err?.message ?? "Gmail API error");
       }
     }
-    return "Error: Email not found in any connected account.";
+    throw new Error("Email not found in any connected account.");
   },
 });

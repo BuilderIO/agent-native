@@ -192,6 +192,16 @@ elementId, styles }]`. Elements must have `data-design-id` or
   Reuse the shared `renderEmail` template; do not invent a separate
   plan-specific email style.
 
+## Events
+
+The plan app emits four events on the framework event bus: `plan.created`,
+`plan.commented`, `plan.published`, and `plan.status.changed`. Automations can
+subscribe to any of them — if a user asks to "notify me when someone comments"
+or similar, call `manage-automations` with `action=define` (trigger `plan.commented`,
+optional condition on `resolutionTarget`) rather than writing bespoke integration
+code. See the `automations` skill and the [Visual Plans events docs](/docs/template-plan#events)
+for payload schemas and recipe examples.
+
 Read the relevant root skill before implementation: `adding-a-feature`,
 `actions`, `storing-data`, `real-time-sync`, `security`, `delegate-to-agent`,
 `frontend-design`, `shadcn-ui`, and `self-modifying-code`.

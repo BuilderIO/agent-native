@@ -56,6 +56,34 @@ afterEach(() => {
 });
 
 describe("application-state store", () => {
+  it("issues hot-path index DDL on init", async () => {
+    // ensureTable() is triggered by the first store call and issues CREATE
+    // TABLE + CREATE INDEX. Capture which SQL strings rawClient.execute
+    // receives and assert the two poll-path indexes are among them.
+    // Restore the original implementation immediately after so later tests
+    // in this file are not affected.
+    const seen: string[] = [];
+    const orig = rawClient.execute.getMockImplementation()!;
+    rawClient.execute.mockImplementation(
+      async (input: string | { sql: string; args?: unknown[] }) => {
+        const sql = typeof input === "string" ? input : input.sql;
+        seen.push(sql);
+        return orig(input);
+      },
+    );
+    try {
+      await appStatePut(SESSION, "probe", { x: 1 });
+    } finally {
+      rawClient.execute.mockImplementation(orig);
+    }
+    expect(seen).toContain(
+      "CREATE INDEX IF NOT EXISTS app_state_updated_at_idx ON application_state (updated_at)",
+    );
+    expect(seen).toContain(
+      "CREATE INDEX IF NOT EXISTS app_state_key_updated_idx ON application_state (key, updated_at)",
+    );
+  });
+
   it("lists literal prefixes without treating underscores as LIKE wildcards", async () => {
     await appStatePut(SESSION, "compose_draft", { id: "draft" });
     await appStatePut(SESSION, "composeXdraft", { id: "not-draft" });

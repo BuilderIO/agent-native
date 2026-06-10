@@ -5,6 +5,8 @@ description: "Apps where the agent is the whole product — open it, ask for wha
 
 # Pure-Agent Apps
 
+This is the minimal end of agent-native — for the full-UI end, start from a [template](/docs/cloneable-saas).
+
 Imagine opening an app and seeing… just a chat. No dashboard. No sidebar full of menus. No forms. You ask for what you want — "summarize my unread emails," "post the daily metrics to Slack," "find the candidates who replied last week" — and the agent goes off and does it. The output shows up in chat, in Slack, in your inbox, wherever it belongs.
 
 That's a pure-agent app. The agent _is_ the product.
@@ -63,7 +65,7 @@ If you're not a developer, you can usually start with the [Dispatch template](/d
 For developers who want the absolute minimum, start from the **Starter** template:
 
 ```bash
-pnpm dlx @agent-native/core create my-agent --template starter
+npx @agent-native/core create my-agent --template starter
 ```
 
 Starter gives you the architecture, the agent panel, the workspace, auth, polling, and one example action — and nothing else. Add your own actions in `actions/`, connect any MCP servers you need, write the relevant skills into the workspace, and you're done.

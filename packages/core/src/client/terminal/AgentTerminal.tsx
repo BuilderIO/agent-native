@@ -156,8 +156,10 @@ export function AgentTerminal({
     if (typeof window === "undefined") return;
     if (hideInFrame && inFrame) return;
 
-    const container = termRef.current;
-    if (!container) return;
+    const containerRaw = termRef.current;
+    if (!containerRaw) return;
+    // Non-null assertion: null branch exited above; closures lose the narrowing.
+    const container: HTMLDivElement = containerRaw;
 
     let disposed = false;
     let ws: WebSocket | null = null;

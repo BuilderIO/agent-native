@@ -447,9 +447,7 @@ export async function resolveEngine(
     }
   }
 
-  let stored:
-    | (Record<string, unknown> & { engine?: unknown; config?: unknown })
-    | null = null;
+  let stored: { engine?: unknown; config?: unknown } | null = null;
   try {
     stored = (await getSetting("agent-engine")) as typeof stored;
   } catch {
@@ -469,14 +467,17 @@ export async function resolveEngine(
   // This remains below Builder detection so "Builder.io connected" and the
   // runtime agree on the default managed gateway path. Non-Builder user keys
   // still honor the stored provider/model when Builder is not connected.
-  if (stored && typeof stored.engine === "string") {
-    const entry = _registry.get(stored.engine);
-    if (entry && (await isStoredEngineUsableForRequest(stored, entry))) {
+  const storedRaw = stored as { engine?: unknown; config?: unknown } | null;
+  const storedEngine = storedRaw?.engine;
+  const storedConfig = storedRaw?.config;
+  if (storedRaw && typeof storedEngine === "string") {
+    const entry = _registry.get(storedEngine);
+    if (entry && (await isStoredEngineUsableForRequest(storedRaw, entry))) {
       return entry.create({
         ...engineCreateConfig(
           apiKey,
           stripInlineApiKeyConfig(
-            stored.config as Record<string, unknown> | undefined,
+            storedConfig as Record<string, unknown> | undefined,
           ),
         ),
       });

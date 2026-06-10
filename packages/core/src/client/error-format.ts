@@ -43,6 +43,12 @@ export function formatChatErrorText(
   if (errorCode === "builder_gateway_error") {
     return `Error: ${normalized.message}\n\n[Start new chat](${NEW_CHAT_ACTION_HREF})`;
   }
+  if (
+    errorCode === "context_length_exceeded" ||
+    errorCode === "input_too_long"
+  ) {
+    return `Error: ${normalized.message}\n\n[Start new chat](${NEW_CHAT_ACTION_HREF})`;
+  }
   if (!upgradeUrl || !isSafeUpgradeUrl(upgradeUrl)) {
     return `Error: ${normalized.message}`;
   }

@@ -48,6 +48,7 @@ import {
   getActiveRunForThreadAsync,
   getRun,
   abortRun,
+  tryClaimRunSlot,
 } from "./run-manager.js";
 import type { ActiveRun } from "./run-manager.js";
 import { readBody } from "../server/h3-helpers.js";
@@ -75,7 +76,12 @@ import {
   type ReasoningEffort,
 } from "../shared/reasoning-effort.js";
 import { isAgentActionStopError } from "../action.js";
-import { preUploadImageAttachments } from "../file-upload/pre-upload-attachments.js";
+import {
+  writeLedgerEntry,
+  readLedgerEntry,
+  clearLedgerForThread,
+} from "./run-store.js";
+import { preUploadAttachments } from "../file-upload/pre-upload-attachments.js";
 import { extensionIdFromPathname } from "../extensions/path.js";
 import { applyContextDirectives } from "./context-xray/apply-directives.js";
 import {
@@ -276,9 +282,9 @@ export type { ActionRunContext, ActionCaller } from "../action.js";
 export interface ActionEntry {
   tool: ActionTool;
   run: (
-    args: Record<string, string>,
+    args: any,
     context?: import("../action.js").ActionRunContext,
-  ) => Promise<any>;
+  ) => Promise<any> | any;
   /** HTTP exposure config. `false` = agent-only. Omitted = auto-inferred from name. */
   http?: import("../action.js").ActionHttpConfig | false;
   /** Whether the action is exposed to the agent as a callable tool. Only an
@@ -745,8 +751,10 @@ function toolInputActivityLabel(toolName?: string): string {
   return toolName ? `Preparing ${toolName} action` : "Preparing action input";
 }
 
-/** Check if an error is transient and should be retried */
-function isContextTooLongError(err: unknown): boolean {
+/** Check if an error is transient and should be retried
+ * @internal exported for unit tests only
+ */
+export function isContextTooLongError(err: unknown): boolean {
   if (!(err instanceof Error)) return false;
   const msg = err.message.toLowerCase();
   if (
@@ -754,7 +762,10 @@ function isContextTooLongError(err: unknown): boolean {
     msg.includes("input_too_long") ||
     msg.includes("too many tokens") ||
     msg.includes("prompt is too long") ||
-    msg.includes("reduce the length")
+    msg.includes("reduce the length") ||
+    // Gemini phrasing
+    msg.includes("input token count exceeds") ||
+    msg.includes("request too large")
   )
     return true;
   if (err instanceof EngineError) {
@@ -765,27 +776,51 @@ function isContextTooLongError(err: unknown): boolean {
   return false;
 }
 
-function isRetryableError(err: unknown): boolean {
+/** @internal exported for unit tests only */
+export function isRetryableError(err: unknown): boolean {
   if (!(err instanceof Error)) return false;
   const msg = err.message.toLowerCase();
-  const code =
-    err instanceof EngineError ? (err.errorCode ?? "").toLowerCase() : "";
+  const engineErr = err instanceof EngineError ? err : null;
+  const code = (engineErr?.errorCode ?? "").toLowerCase();
+
+  // Hard non-retryable codes — check these first.
   if (code === "builder_gateway_timeout") return false;
   if (
     code === "rate_limit_exceeded" ||
     msg.includes("daily gateway request cap")
   )
     return false;
+
+  // Prefer structured fields from the engine before falling back to message
+  // keyword matching — avoids false positives on user-supplied text that
+  // happens to contain "rate_limit" etc.
+  if (engineErr) {
+    // Provider explicitly said it is retryable.
+    if (engineErr.providerRetryable === true) return true;
+    // HTTP status-code checks (429, 500, 502, 503, 529 = Anthropic overloaded).
+    const sc = engineErr.statusCode;
+    if (sc === 429 || sc === 500 || sc === 502 || sc === 503 || sc === 529)
+      return true;
+  }
+
   return (
     code === "builder_gateway_error" ||
     code === "builder_gateway_network_error" ||
+    code === "http_500" ||
     code === "http_502" ||
     code === "http_503" ||
     code === "http_504" ||
     code === "timeout" ||
+    // Anthropic
     msg.includes("overloaded") ||
     msg.includes("rate_limit") ||
     msg.includes("529") ||
+    // OpenAI phrasing
+    msg.includes("rate limit reached") ||
+    // Google / Gemini
+    msg.includes("resource_exhausted") ||
+    msg.includes("quota exceeded") ||
+    // Generic HTTP codes
     msg.includes("502") ||
     msg.includes("503") ||
     msg.includes("504") ||
@@ -798,6 +833,61 @@ function isRetryableError(err: unknown): boolean {
     msg.includes("inactivity timeout") ||
     msg.includes("too much time has passed without sending any data")
   );
+}
+
+// ---------------------------------------------------------------------------
+// Context-window overflow recovery
+// ---------------------------------------------------------------------------
+
+/**
+ * Number of recent messages to protect when trimming tool results.
+ * Messages in the tail of this length are left completely intact; only
+ * older messages have their tool-result text replaced with a stub.
+ */
+const CONTEXT_TRIM_KEEP_TAIL = 10;
+const CONTEXT_TRIM_STUB =
+  "[result trimmed to save context — re-run the tool if needed]";
+
+/**
+ * Attempt one aggressive trim of old tool-result content to reduce the
+ * context window usage.  Tool-result messages older than the last
+ * {@link CONTEXT_TRIM_KEEP_TAIL} messages have their text replaced with a
+ * short stub.  All user/assistant text messages and the recent tail are
+ * preserved exactly.
+ *
+ * Returns a new array — the original is not mutated.
+ * Returns `null` when there are no trimable tool results (so the caller can
+ * skip the retry).
+ */
+export function trimOldToolResults(
+  messages: EngineMessage[],
+  keepTail = CONTEXT_TRIM_KEEP_TAIL,
+): EngineMessage[] | null {
+  const cutoff = Math.max(0, messages.length - keepTail);
+  let trimmed = false;
+
+  const result = messages.map((msg, idx): EngineMessage => {
+    // Keep messages in the protected tail intact
+    if (idx >= cutoff) return msg;
+
+    // Only touch user messages that contain tool-result parts
+    if (msg.role !== "user") return msg;
+
+    const hasToolResult = msg.content.some((p) => p.type === "tool-result");
+    if (!hasToolResult) return msg;
+
+    const stubbedContent = msg.content.map(
+      (p): import("./engine/types.js").EngineContentPart => {
+        if (p.type !== "tool-result") return p;
+        trimmed = true;
+        return { ...p, content: CONTEXT_TRIM_STUB };
+      },
+    );
+
+    return { role: "user", content: stubbedContent };
+  });
+
+  return trimmed ? result : null;
 }
 
 /** Wait with exponential backoff, respecting abort signal */
@@ -849,16 +939,22 @@ function unwrapTextAttachmentEnvelope(text: string): string {
   return match ? match[1] : text;
 }
 
-function truncateTextAttachment(text: string): string {
+function truncateTextAttachment(text: string, attachmentName?: string): string {
   if (text.length <= MAX_TEXT_ATTACHMENT_CHARS) return text;
 
   const omitted = text.length - MAX_TEXT_ATTACHMENT_CHARS;
-  return `${text.slice(0, MAX_TEXT_ATTACHMENT_CHARS)}\n\n[Attachment truncated after ${MAX_TEXT_ATTACHMENT_CHARS.toLocaleString()} characters; ${omitted.toLocaleString()} characters omitted to keep the agent request within model context limits.]`;
+  const readHint = attachmentName
+    ? ` Use the \`read-attachment\` tool with name="${escapeAttachmentAttribute(attachmentName)}" to read the rest.`
+    : "";
+  return `${text.slice(0, MAX_TEXT_ATTACHMENT_CHARS)}\n\n[Attachment truncated after ${MAX_TEXT_ATTACHMENT_CHARS.toLocaleString()} characters; ${omitted.toLocaleString()} characters omitted.${readHint}]`;
 }
 
 function formatTextAttachment(att: AgentChatAttachment): string | null {
   if (typeof att.text !== "string" || att.text.length === 0) return null;
-  const text = truncateTextAttachment(unwrapTextAttachmentEnvelope(att.text));
+  const text = truncateTextAttachment(
+    unwrapTextAttachmentEnvelope(att.text),
+    att.name,
+  );
 
   const attrs = [
     `name="${escapeAttachmentAttribute(att.name || "attachment")}"`,
@@ -893,7 +989,20 @@ export function buildUserContentWithAttachments(opts: {
   const textAttachments: string[] = [];
 
   for (const att of opts.attachments ?? []) {
-    if (att.type === "image" && att.data) {
+    if (att.type === "image") {
+      // Prefer the hosted URL when one exists (set by preUploadAttachments).
+      // Anthropic / AI SDK accept URL image parts natively; for other engines
+      // the translate layer falls back to base64 automatically.
+      const uploadedUrl = (att as any).url as string | undefined;
+      if (uploadedUrl) {
+        userContent.push({
+          type: "image",
+          url: uploadedUrl,
+        } as unknown as EngineContentPart);
+        continue;
+      }
+
+      if (!att.data) continue;
       const match = att.data.match(/^data:(image\/[^;]+);base64,(.+)$/);
       if (match && isSupportedImageMediaType(match[1])) {
         userContent.push({
@@ -901,6 +1010,18 @@ export function buildUserContentWithAttachments(opts: {
           data: match[2],
           mediaType: match[1],
         });
+      } else {
+        // The client sent an image in an unsupported format (HEIC, TIFF, AVIF,
+        // etc.). Inject a short text placeholder so the model knows the image
+        // was present but could not be processed, rather than silently omitting
+        // it and leaving the model confused ("I don't see an image").
+        const mime = match?.[1] ?? att.contentType ?? "unknown format";
+        const label = att.name ? `"${att.name}"` : "An image";
+        textAttachments.push(
+          `[${label} could not be processed — unsupported image format (${mime}). ` +
+            `Inform the user that only JPEG, PNG, GIF, and WebP images are supported, ` +
+            `and ask them to convert the file before attaching.]`,
+        );
       }
       continue;
     }
@@ -1780,9 +1901,10 @@ export async function runAgentLoop(opts: {
             }
           } else if (event.type === "thinking-delta") {
             thinkingBuffer += event.text;
-            // Thinking deltas are not forwarded to the SSE client yet —
-            // we accumulate them. In a future iteration, we can surface
-            // them as a collapsible "reasoning" section in the UI.
+            // Forward thinking deltas as a distinct event type so the UI
+            // can render a collapsible "Thinking…" cell while the model
+            // reasons, then collapse it when content arrives.
+            send({ type: "thinking", text: event.text });
           } else if (event.type === "tool-input-start") {
             if (event.id && event.name) {
               toolInputNames.set(event.id, event.name);
@@ -1814,6 +1936,8 @@ export async function runAgentLoop(opts: {
               throw new EngineError(event.error ?? "Engine stream error", {
                 errorCode: event.errorCode,
                 upgradeUrl: event.upgradeUrl,
+                statusCode: event.statusCode,
+                providerRetryable: event.providerRetryable,
               });
             }
           }
@@ -1823,8 +1947,23 @@ export async function runAgentLoop(opts: {
       } catch (err: unknown) {
         if (signal.aborted) throw err;
         if (isContextTooLongError(err)) {
+          // ── One-shot recovery: trim old tool results and retry once ────────
+          // Only attempt recovery on the first overflow (retry === 0) to avoid
+          // infinite trim loops. On subsequent overflows fall through to the
+          // terminal error.
+          if (retry === 0) {
+            const trimmed = trimOldToolResults(contextMessages);
+            if (trimmed !== null) {
+              // Replace the sent messages for this iteration with the trimmed
+              // version, clear any partial output, and retry immediately
+              // (no delay — context errors are not transient).
+              contextMessages = trimmed;
+              send({ type: "clear" });
+              continue;
+            }
+          }
           throw new EngineError(
-            "Conversation has grown too long. Start a new conversation to continue.",
+            "Conversation has grown too long. The agent tried to recover automatically but the context is still too large. You can continue in a new chat, or ask the agent to summarize the conversation and continue.",
             { errorCode: "context_length_exceeded" },
           );
         }
@@ -2033,10 +2172,44 @@ export async function runAgentLoop(opts: {
       // this turn (connection drop mid-execution → agent retries → repeat).
       // A write tool that keeps failing likely has a timeout / large-payload
       // problem; retrying indefinitely creates duplicates and confuses users.
+      //
+      // LEDGER RECOVERY: before applying the give-up budget, check whether the
+      // previous invocation's zombie actually completed and wrote its result to
+      // the durable ledger. If so, return the ledger result without re-executing
+      // (prevents the duplicate side effect) and skip counting it toward the
+      // interruption budget.
       if (!actionEntry.readOnly) {
         const writeCacheKey = toolCallCacheKey(toolCall.name, toolCall.input);
         const priorInterruptions =
           writeToolInterruptions.get(writeCacheKey) ?? 0;
+
+        if (priorInterruptions > 0 && opts.threadId) {
+          const ledgerResult = await readLedgerEntry(
+            opts.threadId,
+            writeCacheKey,
+          );
+          if (ledgerResult !== null) {
+            // Zombie completed — recover the real result without re-executing.
+            const result =
+              `(Recovered from prior interrupted chunk — action already completed.)\n\n` +
+              ledgerResult;
+            send({
+              type: "tool_start",
+              tool: toolCall.name,
+              input: toolCall.input as Record<string, string>,
+            });
+            send({ type: "tool_done", tool: toolCall.name, result });
+            recordToolResult(result, false);
+            return {
+              type: "tool-result" as const,
+              toolCallId: toolCall.id,
+              toolName: toolCall.name,
+              toolInput: wireToolInput,
+              content: result,
+            };
+          }
+        }
+
         if (priorInterruptions >= MAX_WRITE_TOOL_INTERRUPTIONS) {
           const result =
             `The ${toolCall.name} action was interrupted ${priorInterruptions} time(s) in this session — ` +
@@ -2126,14 +2299,47 @@ export async function runAgentLoop(opts: {
         | undefined;
       try {
         const timeoutSignal = AbortSignal.timeout(toolTimeoutMs);
-        const raw = await Promise.race([
+        // Keep a reference to the action promise so we can attach a zombie-
+        // detection continuation AFTER Promise.race abandons it on run abort.
+        // The promise itself is not awaited here — Promise.race owns the await.
+        const actionPromise = Promise.resolve(
           actionEntry.run(toolCall.input as Record<string, string>, {
             send,
             userEmail: getRequestUserEmail(),
             orgId: getRequestOrgId() ?? null,
             caller: "tool",
             attachments: opts.attachments,
+            signal,
           }),
+        );
+
+        // When the run is aborted (soft-timeout / user cancel) while this tool
+        // call is in flight, Promise.race below will throw "Run aborted" and the
+        // action's promise becomes a zombie — it keeps running but its result is
+        // never returned to the loop. If the zombie eventually resolves, write
+        // the result to the durable ledger keyed by (threadId, toolKey) so the
+        // next continuation chunk can recover it instead of re-executing the
+        // side effect.
+        if (opts.threadId && !actionEntry.readOnly) {
+          const ledgerThreadId = opts.threadId;
+          const ledgerToolKey = toolCallCacheKey(toolCall.name, toolCall.input);
+          actionPromise
+            .then((zombieRaw: unknown) => {
+              const zombieMcp = isMcpActionResult(zombieRaw) ? zombieRaw : null;
+              const zombieText = zombieMcp ? zombieMcp.text : zombieRaw;
+              const zombieStr =
+                typeof zombieText === "string"
+                  ? zombieText
+                  : JSON.stringify(zombieText, null, 2);
+              void writeLedgerEntry(ledgerThreadId, ledgerToolKey, zombieStr);
+            })
+            .catch(() => {
+              // Action errored in the zombie — no result to ledger.
+            });
+        }
+
+        const raw = await Promise.race([
+          actionPromise,
           new Promise<never>((_, reject) => {
             timeoutSignal.addEventListener("abort", () =>
               reject(
@@ -2312,12 +2518,25 @@ export async function runAgentLoop(opts: {
 
     messages.push({ role: "user", content: toolResultParts });
     if (requestedActionStop) {
-      send({ type: "text", text: requestedActionStop.message });
+      // TypeScript can't track ??= through async closures; cast to known type.
+      const stop = requestedActionStop as {
+        message: string;
+        errorCode?: string;
+      };
+      send({ type: "text", text: stop.message });
       break;
     }
   }
 
-  if (!signal.aborted) send({ type: "done" });
+  if (!signal.aborted) {
+    send({ type: "done" });
+    // Clean up any zombie-completion ledger entries for this thread now that
+    // the turn completed normally. If the run was aborted the ledger must stay
+    // intact so the next continuation chunk can still recover from it.
+    if (opts.threadId) {
+      void clearLedgerForThread(opts.threadId).catch(() => {});
+    }
+  }
   return usage;
 }
 
@@ -2500,19 +2719,27 @@ export function createProductionAgentHandler(
       }
     }
 
-    // Pre-upload chat image attachments through the framework file-upload
-    // provider (Builder.io by default). The model still sees the base64
-    // multimodal content for vision; we only ADD the hosted URL so the agent
-    // can embed the image in slides / docs / outbound messages.
+    // Pre-upload chat attachments (images AND files/PDFs) through the framework
+    // file-upload provider (Builder.io by default). The model still sees the
+    // base64 multimodal content for the current turn; each uploaded attachment
+    // also gets a hosted `url` injected so the agent can embed it in slides,
+    // docs, or outbound messages, and callers can persist a URL reference
+    // instead of the raw base64.
     //
     // When no provider is configured, leave attachments untouched and inject a
-    // hint recommending Builder.io connect — the model can still see the
-    // image, it just can't reference it as a URL until upload is set up.
-    if (hasAttachments && requestAttachments.some((a) => a.type === "image")) {
+    // hint recommending Builder.io connect — the model can still see images via
+    // base64, and files via their data URL / text, but has no hosted URL.
+    if (
+      hasAttachments &&
+      requestAttachments.some(
+        (a) => a.type === "image" || a.type === "file" || a.type === "document",
+      )
+    ) {
       try {
-        const preUpload = await preUploadImageAttachments({
+        const preUpload = await preUploadAttachments({
           attachments: requestAttachments,
           ownerEmail,
+          includeFiles: true,
         });
         if (preUpload.injectedText) {
           requestMessage = requestMessage
@@ -2521,7 +2748,35 @@ export function createProductionAgentHandler(
         }
       } catch (err) {
         console.warn(
-          "[agent-native] preUploadImageAttachments failed:",
+          "[agent-native] preUploadAttachments failed:",
+          err instanceof Error ? err.message : String(err),
+        );
+      }
+    }
+
+    // Persist text-ish attachments as thread-scoped agent_scratch resources so
+    // the model can page through them with the `read-attachment` tool. We do
+    // this here — before buildUserContentWithAttachments — so the resource IDs
+    // are available when we inject the truncation notice into the text content.
+    const textAttachmentResourceMap = new Map<
+      number,
+      { resourceId: string; path: string; totalChars: number }
+    >();
+    if (hasAttachments && threadId) {
+      try {
+        const { persistTextAttachmentsAsResources } =
+          await import("../server/attachment-actions.js");
+        const stored = await persistTextAttachmentsAsResources({
+          attachments: requestAttachments,
+          threadId,
+          ownerEmail,
+        });
+        for (const [k, v] of stored) {
+          textAttachmentResourceMap.set(k, v);
+        }
+      } catch (err) {
+        console.warn(
+          "[agent-native] persistTextAttachmentsAsResources failed:",
           err instanceof Error ? err.message : String(err),
         );
       }
@@ -2923,15 +3178,18 @@ export function createProductionAgentHandler(
       { role: "user" as const, content: userContent },
     ];
 
-    // If there's already an active run for this thread, reject with 409 so
-    // the client can queue or wait rather than silently aborting the existing run.
+    // Atomically claim the run slot for this thread. The claim checks SQL for
+    // a live (non-stale) running row so two near-simultaneous POSTs on
+    // different serverless isolates both see the correct state — a plain
+    // read-then-act check races on multi-isolate deployments because both
+    // reads see no running row before either insert commits.
     if (threadId) {
-      const existingRun = await getActiveRunForThreadAsync(threadId);
-      if (existingRun?.status === "running") {
+      const slot = await tryClaimRunSlot(threadId);
+      if (!slot.claimed) {
         setResponseStatus(event, 409);
         return {
           error: "Run already in progress for this thread",
-          activeRunId: existingRun.runId,
+          activeRunId: slot.activeRunId,
         };
       }
     }
@@ -3353,7 +3611,10 @@ export function createProductionAgentHandler(
 
         send({ type: "activity", label: "Contacting model" });
 
-        let loopUsage: AgentLoopUsage;
+        // loopUsage is always assigned — either via instrumentAgentLoop or
+        // runAgentLoop before use below. The definite-assignment guard is
+        // conservative because the try/catch makes the control flow non-obvious.
+        let loopUsage: AgentLoopUsage = undefined!;
         let instrumented = false;
         try {
           const { getObservabilityConfig, instrumentAgentLoop } =

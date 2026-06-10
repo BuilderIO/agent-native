@@ -1,6 +1,10 @@
+import { createHash } from "node:crypto";
 import { createApp, createRouter, defineEventHandler } from "h3";
 import { describe, expect, it } from "vitest";
-import { createSecurityHeadersMiddleware } from "./security-headers.js";
+import {
+  computeInlineScriptHash,
+  createSecurityHeadersMiddleware,
+} from "./security-headers.js";
 
 describe("createSecurityHeadersMiddleware", () => {
   it("does not emit frame-blocking headers for production app pages", async () => {
@@ -77,6 +81,29 @@ describe("createSecurityHeadersMiddleware", () => {
     expect(res.headers.get("Cross-Origin-Resource-Policy")).toBe("same-site");
   });
 
+  it("does not set Content-Security-Policy (document CSP is applied in ssr-handler, not here)", async () => {
+    const app = createApp();
+    app.use(createSecurityHeadersMiddleware());
+
+    const router = createRouter();
+    router.get(
+      "/settings",
+      defineEventHandler(() => {
+        return new Response("ok");
+      }),
+    );
+    app.use(router);
+
+    const res = await app.request("http://localhost/settings");
+
+    // The security-headers middleware intentionally omits CSP — document CSP
+    // (object-src, base-uri, script-src report-only) is applied by the SSR
+    // handler after the response body is available and the HTML content-type
+    // is confirmed.
+    expect(res.headers.get("Content-Security-Policy")).toBeNull();
+    expect(res.headers.get("Content-Security-Policy-Report-Only")).toBeNull();
+  });
+
   it("allows iframe navigations to satisfy cross-origin isolated parents", async () => {
     const app = createApp();
     app.use(createSecurityHeadersMiddleware());
@@ -104,5 +131,20 @@ describe("createSecurityHeadersMiddleware", () => {
     expect(res.headers.get("Cross-Origin-Embedder-Policy")).toBe(
       "require-corp",
     );
+  });
+});
+
+describe("computeInlineScriptHash", () => {
+  it("produces a sha256-<base64> token matching the Node crypto output", () => {
+    const body = "alert(1)";
+    const expected =
+      "'sha256-" + createHash("sha256").update(body).digest("base64") + "'";
+    expect(computeInlineScriptHash(body)).toBe(expected);
+  });
+
+  it("produces different hashes for different script bodies", () => {
+    const h1 = computeInlineScriptHash("console.log(1)");
+    const h2 = computeInlineScriptHash("console.log(2)");
+    expect(h1).not.toBe(h2);
   });
 });

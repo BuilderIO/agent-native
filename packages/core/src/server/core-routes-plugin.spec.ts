@@ -3,6 +3,7 @@ import type { H3Event } from "h3";
 import {
   resolveBuilderOwnerContextForRequest,
   resolveLegacyToolsRedirect,
+  AVATAR_RASTER_MIME,
 } from "./core-routes-plugin.js";
 import {
   BUILDER_CONNECT_PARAM,
@@ -186,5 +187,69 @@ describe("resolveBuilderOwnerContextForRequest", () => {
     expect(context.email).toBe("steve@builder.io");
     expect(context.session).toEqual({ email: "steve@builder.io" });
     expect(context.anonymous).toBe(false);
+  });
+});
+
+describe("AVATAR_RASTER_MIME", () => {
+  // Accepted raster types
+  it("accepts data:image/png", () => {
+    expect(AVATAR_RASTER_MIME.test("data:image/png;base64,iVBORw0KGgo=")).toBe(
+      true,
+    );
+  });
+
+  it("accepts data:image/jpeg", () => {
+    expect(AVATAR_RASTER_MIME.test("data:image/jpeg;base64,/9j/4AA=")).toBe(
+      true,
+    );
+  });
+
+  it("accepts data:image/jpg alias", () => {
+    expect(AVATAR_RASTER_MIME.test("data:image/jpg;base64,/9j/4AA=")).toBe(
+      true,
+    );
+  });
+
+  it("accepts data:image/gif", () => {
+    expect(AVATAR_RASTER_MIME.test("data:image/gif;base64,R0lGODlh")).toBe(
+      true,
+    );
+  });
+
+  it("accepts data:image/webp", () => {
+    expect(AVATAR_RASTER_MIME.test("data:image/webp;base64,UklGRg==")).toBe(
+      true,
+    );
+  });
+
+  // Rejected types — SVG is the primary stored-XSS vector
+  it("rejects data:image/svg+xml (stored-XSS risk)", () => {
+    expect(
+      AVATAR_RASTER_MIME.test(
+        "data:image/svg+xml;base64,PHN2ZyB4bWxucz0naHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmcnPjxzY3JpcHQ+YWxlcnQoMSk8L3NjcmlwdD48L3N2Zz4=",
+      ),
+    ).toBe(false);
+  });
+
+  it("rejects data:image/svg+xml with raw content", () => {
+    expect(
+      AVATAR_RASTER_MIME.test(
+        "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg'><script>alert(1)</script></svg>",
+      ),
+    ).toBe(false);
+  });
+
+  it("rejects data:text/html", () => {
+    expect(AVATAR_RASTER_MIME.test("data:text/html,<h1>hi</h1>")).toBe(false);
+  });
+
+  it("rejects https:// URLs (not a data URI)", () => {
+    expect(AVATAR_RASTER_MIME.test("https://example.com/avatar.png")).toBe(
+      false,
+    );
+  });
+
+  it("rejects a plain data:image/ prefix with no subtype", () => {
+    expect(AVATAR_RASTER_MIME.test("data:image/")).toBe(false);
   });
 });

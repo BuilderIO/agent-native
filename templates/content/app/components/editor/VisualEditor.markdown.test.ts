@@ -255,15 +255,15 @@ describe("VisualEditor markdown round-tripping", () => {
 
       const table = editor.getJSON().content?.[0] as any;
       const rows = table?.content ?? [];
-      expect(rows[0].content?.map((cell) => cell.type)).toEqual([
+      expect(rows[0].content?.map((cell: any) => cell.type)).toEqual([
         "tableHeader",
         "tableHeader",
       ]);
-      expect(rows[1].content?.map((cell) => cell.type)).toEqual([
+      expect(rows[1].content?.map((cell: any) => cell.type)).toEqual([
         "tableHeader",
         "tableCell",
       ]);
-      expect(rows[2].content?.map((cell) => cell.type)).toEqual([
+      expect(rows[2].content?.map((cell: any) => cell.type)).toEqual([
         "tableHeader",
         "tableCell",
       ]);
@@ -456,19 +456,14 @@ describe("VisualEditor markdown round-tripping", () => {
 
   it("optimistically inserts a pending image block before upload resolves", async () => {
     const editor = createFullEditor();
-    let resolveFetch:
-      | ((response: {
-          ok: boolean;
-          status: number;
-          json: () => Promise<{ url: string }>;
-        }) => void)
-      | null = null;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const fetchCtx: { resolve: any } = { resolve: null };
     vi.stubGlobal(
       "fetch",
       vi.fn(
         () =>
           new Promise((resolve) => {
-            resolveFetch = resolve as typeof resolveFetch;
+            fetchCtx.resolve = resolve;
           }),
       ),
     );
@@ -485,7 +480,7 @@ describe("VisualEditor markdown round-tripping", () => {
       expect(imageNode?.attrs?.src).toBeNull();
       expect(imageNode?.attrs?.uploadId).toMatch(/^image-upload-/);
 
-      resolveFetch?.({
+      fetchCtx.resolve?.({
         ok: true,
         status: 201,
         json: async () => ({ url: "https://cdn.example.com/diagram.png" }),
@@ -503,19 +498,14 @@ describe("VisualEditor markdown round-tripping", () => {
 
   it("optimistically inserts a pending video block before upload resolves", async () => {
     const editor = createFullEditor();
-    let resolveFetch:
-      | ((response: {
-          ok: boolean;
-          status: number;
-          json: () => Promise<{ url: string }>;
-        }) => void)
-      | null = null;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const fetchCtx: { resolve: any } = { resolve: null };
     vi.stubGlobal(
       "fetch",
       vi.fn(
         () =>
           new Promise((resolve) => {
-            resolveFetch = resolve as typeof resolveFetch;
+            fetchCtx.resolve = resolve;
           }),
       ),
     );
@@ -532,7 +522,7 @@ describe("VisualEditor markdown round-tripping", () => {
       expect(videoNode?.attrs?.src).toBeNull();
       expect(videoNode?.attrs?.uploadId).toMatch(/^video-upload-/);
 
-      resolveFetch?.({
+      fetchCtx.resolve?.({
         ok: true,
         status: 201,
         json: async () => ({ url: "https://cdn.example.com/demo.mp4" }),
@@ -550,19 +540,14 @@ describe("VisualEditor markdown round-tripping", () => {
 
   it("optimistically inserts a pending audio block before upload resolves", async () => {
     const editor = createFullEditor();
-    let resolveFetch:
-      | ((response: {
-          ok: boolean;
-          status: number;
-          json: () => Promise<{ url: string }>;
-        }) => void)
-      | null = null;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const fetchCtx: { resolve: any } = { resolve: null };
     vi.stubGlobal(
       "fetch",
       vi.fn(
         () =>
           new Promise((resolve) => {
-            resolveFetch = resolve as typeof resolveFetch;
+            fetchCtx.resolve = resolve;
           }),
       ),
     );
@@ -579,7 +564,7 @@ describe("VisualEditor markdown round-tripping", () => {
       expect(audioNode?.attrs?.src).toBeNull();
       expect(audioNode?.attrs?.uploadId).toMatch(/^audio-upload-/);
 
-      resolveFetch?.({
+      fetchCtx.resolve?.({
         ok: true,
         status: 201,
         json: async () => ({ url: "https://cdn.example.com/demo.mp3" }),

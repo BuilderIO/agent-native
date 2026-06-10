@@ -10,7 +10,7 @@
     "inlineSources": true,
     "outDir": "dist",
     "rootDir": "src",
-    "strict": false,
+    "strict": true,
     "esModuleInterop": true,
     "allowSyntheticDefaultImports": true,
     "skipLibCheck": true,
@@ -21,7 +21,9 @@
     "baseUrl": ".",
     "paths": {
       "@/*": ["./src/*"]
-    }
+    },
+    "incremental": true,
+    "tsBuildInfoFile": "node_modules/.cache/tsbuildinfo/dispatch.tsbuildinfo"
   },
   "include": ["src/**/*"],
   "exclude": ["node_modules", "dist", "src/**/*.spec.ts", "src/**/*.spec.tsx"]

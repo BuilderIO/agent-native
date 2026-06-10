@@ -16,7 +16,7 @@ import {
 } from "../components/ui/tooltip.js";
 import { useActionMutation, useActionQuery } from "../use-action.js";
 import { cn } from "../utils.js";
-import { CONTEXT_XRAY_MODEL_LIMIT, formatTokens } from "./format.js";
+import { formatTokens, resolveContextWindow } from "./format.js";
 
 const ContextXRayPanel = lazy(() =>
   import("./ContextXRayPanel.js").then((m) => ({
@@ -99,12 +99,9 @@ export function ContextMeter({
   }, [enabled, threadId]);
 
   const manifest = query.data;
-  const segments = manifest?.segments ?? [];
+  const contextWindow = resolveContextWindow(manifest?.model);
   const pct = manifest
-    ? Math.min(
-        100,
-        Math.round((manifest.totalTokens / CONTEXT_XRAY_MODEL_LIMIT) * 100),
-      )
+    ? Math.min(100, Math.round((manifest.totalTokens / contextWindow) * 100))
     : 0;
 
   if (!shouldQuery || !threadId || !manifest || manifest.rawTokens <= 0) {

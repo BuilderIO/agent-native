@@ -21,8 +21,16 @@ export type Dialect = "sqlite" | "postgres" | "d1";
 
 export interface DbExec {
   execute(
-    sql: string | { sql: string; args: any[] },
+    sql: string | { sql: string; args?: unknown[] },
   ): Promise<{ rows: any[]; rowsAffected: number }>;
+  transaction?<T>(fn: (tx: DbExec) => Promise<T>): Promise<T>;
+  /**
+   * Release the underlying connection/pool held by this exec.
+   * Only non-singleton execs created via `createDbExec()` (e.g. the migration
+   * direct-endpoint exec) should call this. The global singleton exec (`getDbExec`)
+   * is managed by `closeDbExec()` instead.
+   */
+  close?(): Promise<void>;
 }
 
 export interface DbExecConfig {
@@ -307,6 +315,32 @@ export function intType(): string {
 function sqliteToPostgresParams(sql: string): string {
   let i = 0;
   return sql.replace(/\?/g, () => `$${++i}`);
+}
+
+function sqlAndArgs(sql: string | { sql: string; args?: unknown[] }): {
+  rawSql: string;
+  args: unknown[];
+} {
+  return typeof sql === "string"
+    ? { rawSql: sql, args: [] }
+    : { rawSql: sql.sql, args: sql.args || [] };
+}
+
+function explicitTransaction(
+  execute: DbExec["execute"],
+  begin = "BEGIN",
+): NonNullable<DbExec["transaction"]> {
+  return async (fn) => {
+    await execute(begin);
+    try {
+      const result = await fn({ execute });
+      await execute("COMMIT");
+      return result;
+    } catch (err) {
+      await execute("ROLLBACK").catch(() => {});
+      throw err;
+    }
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -625,21 +659,23 @@ async function createDbExecInternal(
   // Cloudflare D1
   if (dialect === "d1") {
     const d1 = config.d1Binding;
+    const execute: DbExec["execute"] = async (sql) => {
+      if (typeof sql === "string") {
+        const r = await d1.prepare(sql).all();
+        return {
+          rows: r.results || [],
+          rowsAffected: r.meta?.changes ?? 0,
+        };
+      }
+      const r = await d1
+        .prepare(sql.sql)
+        .bind(...(sql.args ?? []))
+        .all();
+      return { rows: r.results || [], rowsAffected: r.meta?.changes ?? 0 };
+    };
     return {
-      async execute(sql) {
-        if (typeof sql === "string") {
-          const r = await d1.prepare(sql).all();
-          return {
-            rows: r.results || [],
-            rowsAffected: r.meta?.changes ?? 0,
-          };
-        }
-        const r = await d1
-          .prepare(sql.sql)
-          .bind(...sql.args)
-          .all();
-        return { rows: r.results || [], rowsAffected: r.meta?.changes ?? 0 };
-      },
+      execute,
+      transaction: explicitTransaction(execute),
     };
   }
 
@@ -664,14 +700,31 @@ async function createDbExecInternal(
       const pool = new Pool({ connectionString: url, max: neonPoolMax() });
       attachNeonPoolErrorLogger(pool);
       if (trackSingletonResources) _neonPool = pool;
+      async function queryNeonClient(
+        client: any,
+        sql: Parameters<DbExec["execute"]>[0],
+      ) {
+        const { rawSql, args } = sqlAndArgs(sql);
+        const pgSql = sqliteToPostgresParams(rawSql);
+        const result = await withDbTimeout(
+          "query",
+          () =>
+            client.query(pgSql, args as any[]) as Promise<{
+              rows: unknown[];
+              rowCount?: number;
+            }>,
+          dbOpTimeoutMs(),
+        );
+        return {
+          rows: result.rows,
+          rowsAffected: result.rowCount ?? 0,
+        };
+      }
       return {
         async execute(sql) {
-          const rawSql = typeof sql === "string" ? sql : sql.sql;
-          const args = typeof sql === "string" ? [] : sql.args || [];
-          const pgSql = sqliteToPostgresParams(rawSql);
           const result = await retryOnConnectionError<{
             rows: unknown[];
-            rowCount?: number;
+            rowsAffected: number;
           }>(async () => {
             // Bound the pooled-connection ACQUIRE, not just the query below.
             // Neon's pooler can stall on `connect()` when cold or exhausted,
@@ -703,16 +756,7 @@ async function createDbExecInternal(
             };
 
             try {
-              const result = await withDbTimeout(
-                "query",
-                () =>
-                  client.query(pgSql, args as any[]) as Promise<{
-                    rows: unknown[];
-                    rowCount?: number;
-                  }>,
-                dbOpTimeoutMs(),
-                () => releaseClient(true),
-              );
+              const result = await queryNeonClient(client, sql);
               releaseClient();
               return result;
             } catch (err) {
@@ -722,8 +766,48 @@ async function createDbExecInternal(
           });
           return {
             rows: result.rows,
-            rowsAffected: result.rowCount ?? 0,
+            rowsAffected: result.rowsAffected,
           };
+        },
+        async transaction<T>(fn: (tx: DbExec) => Promise<T>): Promise<T> {
+          return retryOnConnectionError(async () => {
+            let acquireTimedOut = false;
+            const client = await withDbTimeout(
+              "connect",
+              () =>
+                pool.connect().then((c) => {
+                  if (acquireTimedOut) c.release();
+                  return c;
+                }),
+              dbOpTimeoutMs(),
+              () => {
+                acquireTimedOut = true;
+              },
+            );
+            let released = false;
+            const releaseClient = (err?: Error | boolean) => {
+              if (released) return;
+              released = true;
+              client.release(err);
+            };
+            const tx: DbExec = {
+              execute: (sql) => queryNeonClient(client, sql),
+            };
+            try {
+              await queryNeonClient(client, "BEGIN");
+              const result = await fn(tx);
+              await queryNeonClient(client, "COMMIT");
+              releaseClient();
+              return result;
+            } catch (err) {
+              await queryNeonClient(client, "ROLLBACK").catch(() => {});
+              releaseClient(isConnectionError(err) ? true : undefined);
+              throw err;
+            }
+          }, 1);
+        },
+        async close() {
+          await pool.end();
         },
       };
     }
@@ -777,6 +861,46 @@ async function createDbExecInternal(
             }
           }
         },
+        async transaction<T>(fn: (tx: DbExec) => Promise<T>): Promise<T> {
+          const conn = postgres(url, {
+            max: 1,
+            idle_timeout: 0,
+            onnotice: () => {},
+          });
+          try {
+            const result = await conn.begin(async (txSql: any) => {
+              const tx: DbExec = {
+                async execute(sql) {
+                  const { rawSql, args } = sqlAndArgs(sql);
+                  const pgSql = sqliteToPostgresParams(rawSql);
+                  const result = await withDbTimeout<
+                    ArrayLike<unknown> & { count?: number }
+                  >(
+                    "query",
+                    () =>
+                      txSql.unsafe(pgSql, args as any[]) as Promise<
+                        ArrayLike<unknown> & { count?: number }
+                      >,
+                    dbOpTimeoutMs(),
+                  );
+                  return {
+                    rows: Array.from(result),
+                    rowsAffected: result.count ?? 0,
+                  };
+                },
+              };
+              return fn(tx);
+            });
+            return result as T;
+          } finally {
+            await conn.end().catch((err: unknown) => {
+              console.warn(
+                "[db/postgres] worker transaction cleanup failed:",
+                err instanceof Error ? err.message : err,
+              );
+            });
+          }
+        },
       };
     } else {
       // Node.js: reuse connection pool. pgPoolOptions caps the pool to a
@@ -798,8 +922,7 @@ async function createDbExecInternal(
 
       return {
         async execute(sql) {
-          const rawSql = typeof sql === "string" ? sql : sql.sql;
-          const args = typeof sql === "string" ? [] : sql.args || [];
+          const { rawSql, args } = sqlAndArgs(sql);
           const pgSql = sqliteToPostgresParams(rawSql);
           const result = await retryOnConnectionError<
             ArrayLike<unknown> & { count?: number }
@@ -818,6 +941,35 @@ async function createDbExecInternal(
             rowsAffected: result.count ?? 0,
           };
         },
+        async transaction<T>(fn: (tx: DbExec) => Promise<T>): Promise<T> {
+          const result = await pool.begin(async (txSql: any) => {
+            const tx: DbExec = {
+              async execute(sql) {
+                const { rawSql, args } = sqlAndArgs(sql);
+                const pgSql = sqliteToPostgresParams(rawSql);
+                const result = await withDbTimeout<
+                  ArrayLike<unknown> & { count?: number }
+                >(
+                  "query",
+                  () =>
+                    txSql.unsafe(pgSql, args as any[]) as Promise<
+                      ArrayLike<unknown> & { count?: number }
+                    >,
+                  dbOpTimeoutMs(),
+                );
+                return {
+                  rows: Array.from(result),
+                  rowsAffected: result.count ?? 0,
+                };
+              },
+            };
+            return fn(tx);
+          });
+          return result as T;
+        },
+        async close() {
+          await pool.end();
+        },
       };
     }
   }
@@ -833,23 +985,27 @@ async function createDbExecInternal(
     sqlite.pragma("busy_timeout = 10000");
     sqlite.pragma("journal_mode = WAL");
     if (trackSingletonResources) _sqlite = sqlite;
+    const execute: DbExec["execute"] = async (sql) => {
+      const { rawSql, args } = sqlAndArgs(sql);
+      const stmt = sqlite.prepare(rawSql);
+      if (stmt.reader) {
+        return {
+          rows: stmt.all(...args),
+          rowsAffected: 0,
+        };
+      }
+      const result = stmt.run(...args);
+      return {
+        rows: [],
+        rowsAffected: result.changes ?? 0,
+      };
+    };
 
     return {
-      async execute(sql) {
-        const rawSql = typeof sql === "string" ? sql : sql.sql;
-        const args = typeof sql === "string" ? [] : sql.args || [];
-        const stmt = sqlite.prepare(rawSql);
-        if (stmt.reader) {
-          return {
-            rows: stmt.all(...args),
-            rowsAffected: 0,
-          };
-        }
-        const result = stmt.run(...args);
-        return {
-          rows: [],
-          rowsAffected: result.changes ?? 0,
-        };
+      execute,
+      transaction: explicitTransaction(execute, "BEGIN IMMEDIATE"),
+      async close() {
+        sqlite.close();
       },
     };
   }
@@ -859,24 +1015,29 @@ async function createDbExecInternal(
     url,
     authToken: config.authToken,
   });
-
-  return {
-    async execute(sql) {
-      if (typeof sql === "string") {
-        const r = await client.execute(sql);
-        return {
-          rows: r.rows as any[],
-          rowsAffected: r.rowsAffected,
-        };
-      }
-      const r = await client.execute({
-        sql: sql.sql,
-        args: sql.args as any[],
-      });
+  const execute: DbExec["execute"] = async (sql) => {
+    if (typeof sql === "string") {
+      const r = await client.execute(sql);
       return {
         rows: r.rows as any[],
         rowsAffected: r.rowsAffected,
       };
+    }
+    const r = await client.execute({
+      sql: sql.sql,
+      args: sql.args as any[],
+    });
+    return {
+      rows: r.rows as any[],
+      rowsAffected: r.rowsAffected,
+    };
+  };
+
+  return {
+    execute,
+    transaction: explicitTransaction(execute),
+    async close() {
+      client.close();
     },
   };
 }
@@ -909,10 +1070,10 @@ export function getDbExec(): DbExec {
 
   // Sanitize args: replace undefined with null (libsql rejects undefined)
   function sanitize(
-    sql: string | { sql: string; args: any[] },
-  ): string | { sql: string; args: any[] } {
+    sql: string | { sql: string; args?: unknown[] },
+  ): string | { sql: string; args?: unknown[] } {
     if (typeof sql === "object" && sql.args) {
-      return { ...sql, args: sql.args.map((a: any) => a ?? null) };
+      return { ...sql, args: sql.args.map((a) => a ?? null) };
     }
     return sql;
   }
@@ -934,9 +1095,50 @@ export function getDbExec(): DbExec {
       // After init, swap to a sanitizing wrapper around the real client
       const wrapper: DbExec = {
         execute: (s) => _exec!.execute(sanitize(s)),
+        transaction: _exec!.transaction
+          ? (fn) =>
+              _exec!.transaction!((tx) =>
+                fn({
+                  execute: (s) => tx.execute(sanitize(s)),
+                  transaction: tx.transaction,
+                }),
+              )
+          : undefined,
       };
       Object.assign(proxy, wrapper);
       return _exec!.execute(sanitize(sql));
+    },
+    async transaction(fn) {
+      if (!_initPromise) _initPromise = initClient();
+      try {
+        await _initPromise;
+      } catch (err) {
+        _initPromise = undefined;
+        _exec = undefined;
+        throw err;
+      }
+      const wrapper: DbExec = {
+        execute: (s) => _exec!.execute(sanitize(s)),
+        transaction: _exec!.transaction
+          ? (innerFn) =>
+              _exec!.transaction!((tx) =>
+                innerFn({
+                  execute: (s) => tx.execute(sanitize(s)),
+                  transaction: tx.transaction,
+                }),
+              )
+          : undefined,
+      };
+      Object.assign(proxy, wrapper);
+      if (_exec!.transaction) {
+        return _exec!.transaction((tx) =>
+          fn({
+            execute: (s) => tx.execute(sanitize(s)),
+            transaction: tx.transaction,
+          }),
+        );
+      }
+      return explicitTransaction(wrapper.execute)(fn);
     },
   };
   return proxy;

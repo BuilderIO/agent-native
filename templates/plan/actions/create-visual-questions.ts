@@ -9,7 +9,6 @@ import { getDb, schema } from "../server/db/index.js";
 import {
   createVisualQuestionsContent,
   normalizePlanContent,
-  sanitizeStoredPlanHtml,
   serializePlanContent,
   type VisualQuestionBuilderInput,
 } from "../server/plan-content.js";
@@ -81,64 +80,57 @@ const visualQuestionsSchema = z
     });
   });
 
+export const createVisualQuestionsSchema = z
+  .object({
+    title: z.string().optional().describe("Short questionnaire title"),
+    brief: z
+      .string()
+      .optional()
+      .describe(
+        "One short line on what the questions clarify, shown as the lede under the title. Keep it tight.",
+      ),
+    goal: z.string().optional().describe("Alias for brief."),
+    source: planSourceSchema.optional().default("manual"),
+    repoPath: z.string().optional().describe("Repository path for the run"),
+    currentFocus: z
+      .string()
+      .optional()
+      .describe("Current visual-question focus"),
+    status: planStatusSchema.optional().default("review"),
+    questions: visualQuestionsSchema
+      .optional()
+      .default([])
+      .describe(
+        "Optional custom question schema. Omit for the default UI intake flow.",
+      ),
+    content: planContentSchema
+      .optional()
+      .describe(
+        "Structured editable visual-question content. Prefer this for rich intake questions, visual options, semantic kit-tree wireframe previews, diagrams, and follow-up notes.",
+      ),
+    markdown: z
+      .string()
+      .optional()
+      .describe("Markdown/text fallback or source intake notes"),
+    sections: z
+      .array(sectionInputSchema)
+      .optional()
+      .default([])
+      .describe("Optional fallback sections for the question plan"),
+    comments: z
+      .array(commentInputSchema)
+      .optional()
+      .default([])
+      .describe("Initial review prompts or annotations"),
+  })
+  .refine((args) => Boolean(args.brief || args.goal), {
+    message: "Either brief or goal is required.",
+  });
+
 export default defineAction({
   description:
-    "Create a visual intake questionnaire as an Agent-Native Plan. Use this for explicit /visual-questions workflows when the user should answer rich visual questions with chips, mockup options, diagrams, and freeform notes before a later plan. The only supported output is the published questionnaire this tool returns — never deliver the questions as inline chat content; an inline questionnaire is a defect, not a fallback. If this tool is unreachable, stop and give the user the connect step rather than improvising inline.",
-  schema: z
-    .object({
-      title: z.string().optional().describe("Short questionnaire title"),
-      brief: z
-        .string()
-        .optional()
-        .describe(
-          "One short line on what the questions clarify, shown as the lede under the title. Keep it tight.",
-        ),
-      goal: z
-        .string()
-        .optional()
-        .describe("Compatibility alias for brief; prefer brief"),
-      source: planSourceSchema.optional().default("manual"),
-      repoPath: z.string().optional().describe("Repository path for the run"),
-      currentFocus: z
-        .string()
-        .optional()
-        .describe("Current visual-question focus"),
-      status: planStatusSchema.optional().default("review"),
-      questions: visualQuestionsSchema
-        .optional()
-        .default([])
-        .describe(
-          "Optional custom question schema. Omit for the default UI intake flow.",
-        ),
-      html: z
-        .string()
-        .optional()
-        .describe(
-          "Legacy standalone questionnaire HTML. Prefer content blocks for new visual question plans.",
-        ),
-      content: planContentSchema
-        .optional()
-        .describe(
-          "Structured editable visual-question content. Prefer this for rich intake questions, visual options, semantic kit-tree wireframe previews, diagrams, and follow-up notes.",
-        ),
-      markdown: z
-        .string()
-        .optional()
-        .describe("Markdown/text fallback or source intake notes"),
-      sections: z
-        .array(sectionInputSchema)
-        .optional()
-        .default([])
-        .describe("Optional fallback sections for the question plan"),
-      comments: z
-        .array(commentInputSchema)
-        .optional()
-        .default([])
-        .describe("Initial review prompts or annotations"),
-    })
-    .refine((args) => Boolean(args.brief || args.goal), {
-      message: "Either brief or goal is required.",
-    }),
+    "Create a visual intake questionnaire before a plan. Use this only when the user explicitly wants to answer rich visual questions (chips, mockup options, diagrams, freeform) before planning. For a forward plan use create-visual-plan; for a UI-first wireframe plan use create-ui-plan. Publish via this tool; never deliver the questions as inline chat text.",
+  schema: createVisualQuestionsSchema,
   publicAgent: {
     expose: true,
     readOnly: false,
@@ -205,13 +197,11 @@ export default defineAction({
           ];
     const content = args.content
       ? normalizePlanContent(args.content)
-      : args.html
-        ? null
-        : createVisualQuestionsContent({
-            title,
-            brief,
-            questions,
-          });
+      : createVisualQuestionsContent({
+          title,
+          brief,
+          questions,
+        });
 
     await getDb()
       .insert(schema.plans)
@@ -223,7 +213,7 @@ export default defineAction({
         source: args.source,
         repoPath: args.repoPath ?? null,
         currentFocus: args.currentFocus ?? "visual questions",
-        html: args.html != null ? sanitizeStoredPlanHtml(args.html) : null,
+        html: null,
         markdown: args.markdown ?? null,
         content: content ? serializePlanContent(content) : null,
         createdAt: now,

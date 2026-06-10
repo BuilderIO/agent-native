@@ -39,7 +39,9 @@ export default defineAction({
       !args.calendarViewMode &&
       !args.extensionId
     ) {
-      return "Error: At least view, date, calendarViewMode, eventId, eventDraftId, or extensionId is required.";
+      throw new Error(
+        "At least view, date, calendarViewMode, eventId, eventDraftId, or extensionId is required.",
+      );
     }
     const nav: Record<string, string> = {};
     if (args.view) nav.view = args.view;

@@ -42,7 +42,7 @@ async function getFs(): Promise<typeof import("fs")> {
  * node-pty's kill() only sends a signal to the shell, but child processes
  * (like `builder`) may be in their own process group and survive as orphans.
  */
-async function killProcessTree(pid: number, logPrefix: string): Promise<void> {
+async function killProcessTree(pid: number, _logPrefix: string): Promise<void> {
   const cp = await getChildProcess();
 
   if (os.platform() === "win32") {

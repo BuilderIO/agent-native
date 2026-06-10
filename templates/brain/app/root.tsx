@@ -7,26 +7,20 @@ import {
   useNavigate,
 } from "react-router";
 import { useCallback, useState } from "react";
-import {
-  QueryClient,
-  QueryClientProvider,
-  useQueryClient,
-} from "@tanstack/react-query";
-import { ThemeProvider, useTheme } from "next-themes";
+import { useQueryClient } from "@tanstack/react-query";
+import { useTheme } from "next-themes";
 import { IconMoon, IconSun } from "@tabler/icons-react";
 import { useDbSync } from "@agent-native/core";
 import {
-  ClientOnly,
+  AppProviders,
   CommandMenu,
-  DefaultSpinner,
   appPath,
+  createAgentNativeQueryClient,
+  getThemeInitScript,
   useCommandMenuShortcut,
 } from "@agent-native/core/client";
-import { getThemeInitScript } from "@agent-native/core/client";
 import { configureTracking } from "@agent-native/core/client";
 import { Layout as AppLayout } from "@/components/layout/Layout";
-import { Toaster } from "@/components/ui/sonner";
-import { TooltipProvider } from "@/components/ui/tooltip";
 import { useDistillationBridge } from "@/hooks/use-distillation-bridge";
 import { useNavigationState } from "@/hooks/use-navigation-state";
 import { TAB_ID } from "@/lib/tab-id";
@@ -177,41 +171,34 @@ function AppContent() {
       <AppLayout>
         <Outlet />
       </AppLayout>
-      <Toaster richColors position="bottom-left" />
     </>
   );
 }
 
 export default function Root() {
-  const [queryClient] = useState(
-    () =>
-      new QueryClient({
-        defaultOptions: {
-          queries: {
-            staleTime: 20_000,
-            retry: 1,
-            refetchOnWindowFocus: true,
-          },
+  const [queryClient] = useState(() =>
+    createAgentNativeQueryClient({
+      defaultOptions: {
+        queries: {
+          // Brain has a faster sync cadence for source distillation status;
+          // 20 s keeps the source list fresh without hammering the server.
+          staleTime: 20_000,
+          // Brain shows live ingestion progress — refetch on focus to pick
+          // up background sync jobs that don't emit DB events.
+          refetchOnWindowFocus: true,
+          // Flat retry: Brain data fetches are rarely auth failures so a
+          // flat count is sufficient.
+          retry: 1,
         },
-      }),
+      },
+    }),
   );
 
   return (
-    <ClientOnly fallback={<DefaultSpinner />}>
-      <ThemeProvider
-        attribute="class"
-        defaultTheme="system"
-        enableSystem
-        disableTransitionOnChange
-      >
-        <QueryClientProvider client={queryClient}>
-          <TooltipProvider delayDuration={250}>
-            <DbSyncSetup />
-            <AppContent />
-          </TooltipProvider>
-        </QueryClientProvider>
-      </ThemeProvider>
-    </ClientOnly>
+    <AppProviders queryClient={queryClient} tooltipDelayDuration={250}>
+      <DbSyncSetup />
+      <AppContent />
+    </AppProviders>
   );
 }
 

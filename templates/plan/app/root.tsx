@@ -1,25 +1,19 @@
 import { Links, Meta, Outlet, Scripts, ScrollRestoration } from "react-router";
 import { useCallback, useState } from "react";
 import { useNavigationState } from "@/hooks/use-navigation-state";
-import {
-  QueryClient,
-  QueryClientProvider,
-  useQueryClient,
-} from "@tanstack/react-query";
-import { ThemeProvider } from "next-themes";
+import { useQueryClient } from "@tanstack/react-query";
 import { useDbSync } from "@agent-native/core";
 import {
-  ClientOnly,
+  AppProviders,
   CommandMenu,
-  DefaultSpinner,
   appPath,
+  createAgentNativeQueryClient,
+  getThemeInitScript,
   useCommandMenuShortcut,
 } from "@agent-native/core/client";
-import { getThemeInitScript } from "@agent-native/core/client";
 import { IconSun, IconMoon } from "@tabler/icons-react";
 import { useTheme } from "next-themes";
 import { Toaster } from "@/components/ui/sonner";
-import { TooltipProvider } from "@/components/ui/tooltip";
 import { Layout as AppLayout } from "@/components/layout/Layout";
 import { TAB_ID } from "@/lib/tab-id";
 import { APP_TITLE } from "@/lib/app-config";
@@ -108,29 +102,23 @@ function AppContent() {
       <AppLayout>
         <Outlet />
       </AppLayout>
-      <Toaster richColors position="bottom-left" />
     </>
   );
 }
 
 export default function Root() {
-  const [queryClient] = useState(() => new QueryClient());
+  const [queryClient] = useState(() => createAgentNativeQueryClient());
   return (
-    <ClientOnly fallback={<DefaultSpinner />}>
-      <ThemeProvider
-        attribute="class"
-        defaultTheme="system"
-        enableSystem
-        disableTransitionOnChange
-      >
-        <QueryClientProvider client={queryClient}>
-          <TooltipProvider>
-            <DbSyncSetup />
-            <AppContent />
-          </TooltipProvider>
-        </QueryClientProvider>
-      </ThemeProvider>
-    </ClientOnly>
+    // Pass the plan-specific styled Toaster via `toaster` so only one sonner
+    // instance renders (avoids the duplicate that would appear if AppProviders'
+    // built-in Toaster AND a children-rendered Toaster both mounted).
+    <AppProviders
+      queryClient={queryClient}
+      toaster={<Toaster richColors position="bottom-left" />}
+    >
+      <DbSyncSetup />
+      <AppContent />
+    </AppProviders>
   );
 }
 

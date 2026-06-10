@@ -1628,7 +1628,7 @@ export function createIntegrationsPlugin(
         startGoogleDocsPoller({
           systemPrompt: baseSystemPrompt,
           actions,
-          model,
+          model: model ?? "",
           apiKey: getApiKey(),
           ownerEmail: "integration@google-docs",
           webhookUrl,

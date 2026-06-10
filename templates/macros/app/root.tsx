@@ -1,20 +1,16 @@
 import { Links, Meta, Outlet, Scripts, ScrollRestoration } from "react-router";
 import { useCallback, useState } from "react";
-import {
-  QueryClient,
-  QueryClientProvider,
-  useQueryClient,
-} from "@tanstack/react-query";
-import { ThemeProvider } from "next-themes";
+import { useQueryClient } from "@tanstack/react-query";
 import { useTheme } from "next-themes";
 import { Toaster } from "@/components/ui/sonner";
-import { TooltipProvider } from "@/components/ui/tooltip";
 import { useDbSync } from "@agent-native/core";
 import {
-  ClientOnly,
-  DefaultSpinner,
-  appPath,
+  AppProviders,
   CommandMenu,
+  appPath,
+  configureTracking,
+  createAgentNativeQueryClient,
+  getThemeInitScript,
   useCommandMenuShortcut,
 } from "@agent-native/core/client";
 import { IconSun, IconMoon } from "@tabler/icons-react";
@@ -22,8 +18,7 @@ import { TAB_ID } from "@/lib/tab-id";
 import { AppLayout } from "@/components/layout/AppLayout";
 import type { LinksFunction } from "react-router";
 import stylesheet from "./global.css?url";
-import { configureTracking } from "@agent-native/core/client";
-import { getThemeInitScript } from "@agent-native/core/client";
+
 configureTracking({
   getDefaultProps: (_name, properties) => ({
     ...properties,
@@ -35,6 +30,7 @@ export const links: LinksFunction = () => [
   { rel: "stylesheet", href: stylesheet },
 ];
 
+// Dark default: macros defaults to dark mode; enableSystem respects OS preference.
 const THEME_INIT_SCRIPT = getThemeInitScript("dark", true);
 
 export function Layout({ children }: { children: React.ReactNode }) {
@@ -103,48 +99,43 @@ function ThemeToggleItem() {
 }
 
 export default function Root() {
-  const [queryClient] = useState(
-    () =>
-      new QueryClient({
-        defaultOptions: {
-          queries: {
-            staleTime: 30_000,
-            retry: 1,
-            refetchOnWindowFocus: true,
-          },
+  const [queryClient] = useState(() =>
+    createAgentNativeQueryClient({
+      defaultOptions: {
+        queries: {
+          // Macros UI refetches on focus to pick up meals logged in other
+          // browser tabs or mobile, which don't always arrive via DB sync.
+          refetchOnWindowFocus: true,
+          // Flat retry: macros data errors are usually transient network
+          // issues, not auth failures, so a flat count is sufficient.
+          retry: 1,
         },
-      }),
+      },
+    }),
   );
   const [cmdkOpen, setCmdkOpen] = useState(false);
   useCommandMenuShortcut(useCallback(() => setCmdkOpen(true), []));
 
   return (
-    <ClientOnly fallback={<DefaultSpinner />}>
-      <QueryClientProvider client={queryClient}>
-        <ThemeProvider
-          attribute="class"
-          defaultTheme="dark"
-          enableSystem
-          disableTransitionOnChange
-        >
-          <TooltipProvider delayDuration={300}>
-            <Toaster richColors position="bottom-left" />
-            <DbSyncSetup />
-            <CommandMenu open={cmdkOpen} onOpenChange={setCmdkOpen}>
-              <CommandMenu.Group heading="Actions">
-                <CommandMenu.Item onSelect={() => {}}>Search</CommandMenu.Item>
-              </CommandMenu.Group>
-              <CommandMenu.Group heading="Appearance">
-                <ThemeToggleItem />
-              </CommandMenu.Group>
-            </CommandMenu>
-            <AppLayout>
-              <Outlet />
-            </AppLayout>
-          </TooltipProvider>
-        </ThemeProvider>
-      </QueryClientProvider>
-    </ClientOnly>
+    <AppProviders
+      queryClient={queryClient}
+      defaultTheme="dark"
+      tooltipDelayDuration={300}
+      toaster={<Toaster richColors position="bottom-left" />}
+    >
+      <DbSyncSetup />
+      <CommandMenu open={cmdkOpen} onOpenChange={setCmdkOpen}>
+        <CommandMenu.Group heading="Actions">
+          <CommandMenu.Item onSelect={() => {}}>Search</CommandMenu.Item>
+        </CommandMenu.Group>
+        <CommandMenu.Group heading="Appearance">
+          <ThemeToggleItem />
+        </CommandMenu.Group>
+      </CommandMenu>
+      <AppLayout>
+        <Outlet />
+      </AppLayout>
+    </AppProviders>
   );
 }
 

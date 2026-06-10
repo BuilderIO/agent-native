@@ -170,7 +170,8 @@ export const SharedImage = Image.extend<SharedImageOptions>({
 
   addOptions() {
     return {
-      ...this.parent?.(),
+      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+      ...this.parent!(),
       onImageUpload: null,
     };
   },

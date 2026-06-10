@@ -105,12 +105,14 @@ const CLIPS_USER_PREFS_KEY = "clips-user-prefs";
 const RECENT_PENDING_TRANSCRIPT_MS = 2 * 60 * 1000;
 
 function queueBrainExport(recordingId: string): void {
-  void exportToBrain.run({ recordingId }).catch((err) => {
-    console.warn(
-      `[clips] Brain export skipped for ${recordingId}:`,
-      (err as Error)?.message ?? String(err),
-    );
-  });
+  void Promise.resolve(exportToBrain.run({ recordingId })).catch(
+    (err: unknown) => {
+      console.warn(
+        `[clips] Brain export skipped for ${recordingId}:`,
+        (err as Error)?.message ?? String(err),
+      );
+    },
+  );
 }
 
 function verboseTranscriptErrors(): boolean {
@@ -535,17 +537,17 @@ async function completeReadyTranscript({
       );
     });
 
-    void regenerateTitle
-      .run({
+    void Promise.resolve(
+      regenerateTitle.run({
         recordingId,
         transcriptText: fullText,
-      })
-      .catch((err) => {
-        console.warn(
-          `[clips] native-transcript title generation failed for ${recordingId}:`,
-          (err as Error)?.message ?? String(err),
-        );
-      });
+      }),
+    ).catch((err: unknown) => {
+      console.warn(
+        `[clips] native-transcript title generation failed for ${recordingId}:`,
+        (err as Error)?.message ?? String(err),
+      );
+    });
   }
 
   // Wake the player polling so it picks up the queued cleanup state row

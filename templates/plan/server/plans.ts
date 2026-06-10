@@ -747,6 +747,7 @@ export async function loadPlanBundle(planId: string): Promise<PlanBundle> {
       currentFocus: plan.currentFocus,
       hostedPlanId: plan.hostedPlanId,
       hostedPlanUrl: plan.hostedPlanUrl,
+      sourceUrl: plan.sourceUrl,
       html: plan.html,
       markdown: plan.markdown,
       content: parsePlanContent(plan.content),
@@ -797,6 +798,7 @@ export async function summarizePlans(
       | "currentFocus"
       | "hostedPlanId"
       | "hostedPlanUrl"
+      | "sourceUrl"
       | "createdAt"
       | "updatedAt"
       | "approvedAt"
@@ -845,6 +847,7 @@ export async function summarizePlans(
       currentFocus: plan.currentFocus,
       hostedPlanId: plan.hostedPlanId,
       hostedPlanUrl: plan.hostedPlanUrl,
+      sourceUrl: plan.sourceUrl,
       createdAt: plan.createdAt,
       updatedAt: plan.updatedAt,
       approvedAt: plan.approvedAt,

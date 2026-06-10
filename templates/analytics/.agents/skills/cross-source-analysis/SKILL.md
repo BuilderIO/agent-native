@@ -48,13 +48,43 @@ If the metric, time range, or grain is ambiguous and the choice would change the
 numbers, use the `ask-question` clarifying tool once before querying. Skip it
 when the dictionary or the user already answered.
 
-## 2. Fetch Per Source
+## 2. Fetch Per Source (Stage Large Responses)
 
 Query each source independently with its own provider action/skill. Convert the
 requested local date range to UTC consistently across every source so the
-windows line up. Keep each source's raw result (rows or row samples, counts,
-and any provider errors) — you will need it for stitching, de-duplication, and
-provenance.
+windows line up.
+
+For any provider-api-request call that may return more than a few hundred rows
+(e.g. Stripe charges, PostHog events, HubSpot contacts), **always use staging**
+instead of reading the raw body into the context window:
+
+```txt
+provider-api-request(
+  provider: "stripe",
+  path: "/charges",
+  query: { limit: 100, created: { gte: 1704067200 } },
+  stageAs: "stripe_charges",
+  pagination: { cursorParam: "starting_after", nextCursorPath: "data.-1.id", maxPages: 20 }
+)
+```
+
+This writes rows into a scratch dataset and returns only `{ rowCount, columns,
+sampleRows }` — keeping large payloads out of the context window and avoiding
+the 50K-char truncation that silently biases aggregates.
+
+Once staged, run aggregations with `query-staged-dataset`:
+
+```txt
+query-staged-dataset(
+  datasetId: "<id from stageAs result>",
+  groupBy: ["currency"],
+  aggregate: [{ column: "amount", op: "sum", as: "total_amount" }, { column: "id", op: "count", as: "n" }]
+)
+```
+
+For cross-source joins, stage each source first, then aggregate each
+independently, and join the resulting summary objects in the final answer rather
+than trying to join raw rows in the context.
 
 Never invent rows to fill a gap. If a source is unconfigured or errors, record
 that as a gap and continue with what you have.

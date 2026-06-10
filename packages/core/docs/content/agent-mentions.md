@@ -65,22 +65,19 @@ Agents become available for mentioning through several mechanisms:
 
 ### Custom workspace agents
 
-Custom agents are Markdown resources:
+Custom agents are Markdown files stored in the workspace:
 
 ```markdown
 ---
 name: Design
-description: >-
-  Reviews layouts, product UX, and visual direction.
+description: Reviews layouts, product UX, and visual direction.
 model: inherit
-tools: inherit
-delegate-default: false
 ---
-
-# Role
 
 You are a focused design agent.
 ```
+
+See [Workspace — Custom Agents](/docs/workspace#custom-agents) for the full format (including `tools`, `delegate-default`, and model overrides).
 
 You can create them from the Workspace tab using:
 
@@ -102,7 +99,9 @@ Remote A2A agents still use JSON manifests:
 }
 ```
 
-## Custom mention providers {#custom-mention-providers}
+---
+
+## For developers: extending mentions {#extending-mentions}
 
 Templates can register custom mention providers to add domain-specific mentionable items beyond agents and files. A mention provider implements the `MentionProvider` interface:
 

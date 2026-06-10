@@ -117,6 +117,22 @@ App instructions should make honesty and verification the default behavior:
 
 Put these as core rules in `AGENTS.md` so they apply to every turn.
 
+## The four surfaces the agent sees {#four-surfaces}
+
+Every piece of guidance you author lands in one of four surfaces. Knowing which surface to use prevents duplication and misplaced detail:
+
+| Surface                     | Who writes it             | When it's loaded                                       | What belongs there                                          |
+| --------------------------- | ------------------------- | ------------------------------------------------------ | ----------------------------------------------------------- |
+| `AGENTS.md` instructions    | You (developer)           | Every turn, as orientation                             | Purpose, core rules, state keys, action index, skills index |
+| Skills (`SKILL.md`)         | You (developer)           | On demand when the agent decides the skill is relevant | Step-by-step how-to for a specific pattern, do/don't lists  |
+| Action descriptions (tools) | You (developer)           | Every turn, as the tool list                           | What the action does, what it returns, parameter semantics  |
+| `application_state` context | Your UI code (at runtime) | Every turn, as live app state                          | Current navigation, selection, focused object, URL          |
+
+**Quick diagnosis:**
+
+- "The agent keeps asking which record to act on even when one is open" → fix: write the current item ID into `application_state` (`navigation` key) from your UI. That's an `application_state` gap, not a skill gap.
+- "The agent calls the wrong action or misuses a parameter" → fix: improve the action's `description` and `.describe()` on the parameter. That's a tool description fix, not a skill.
+
 ## What goes where {#what-goes-where}
 
 - **AGENTS.md** — applies to the whole app, every turn: purpose, core rules, state keys, action index, skills index.
@@ -127,4 +143,4 @@ Put these as core rules in `AGENTS.md` so they apply to every turn.
 
 - [Skills Guide](/docs/skills-guide) — the skill file format, framework skills, and app-backed skills.
 - [Creating Templates](/docs/creating-templates) — how `AGENTS.md` and skills fit into a shippable template.
-- [Adding a Feature](/docs/adding-a-feature) — the four-area model every feature must satisfy.
+- [The four-area checklist](/docs/key-concepts#four-area-checklist) — the four-area model every feature must satisfy.

@@ -42,10 +42,14 @@ const queueDb = {
       }
       return affected(0);
     }
+    // bump continuation (with or without attempts fencing)
     if (s.includes("continuation_count = continuation_count + 1")) {
-      const [updatedAt, taskId] = args;
+      const [updatedAt, taskId, claimedAttempts] = args;
       const r = queueRows.find(
-        (x) => x.task_id === taskId && x.status === "running",
+        (x) =>
+          x.task_id === taskId &&
+          x.status === "running" &&
+          (claimedAttempts === undefined || x.attempts === claimedAttempts),
       );
       if (r) {
         r.continuation_count += 1;
@@ -55,9 +59,14 @@ const queueDb = {
       }
       return affected(0);
     }
-    if (s.includes("SET status = ?, updated_at = ? WHERE task_id = ?")) {
-      const [status, updatedAt, taskId] = args;
-      const r = queueRows.find((x) => x.task_id === taskId);
+    // complete (with or without attempts fencing)
+    if (s.includes("SET status = ?, updated_at = ?")) {
+      const [status, updatedAt, taskId, claimedAttempts] = args;
+      const r = queueRows.find(
+        (x) =>
+          x.task_id === taskId &&
+          (claimedAttempts === undefined || x.attempts === claimedAttempts),
+      );
       if (r) {
         r.status = status;
         r.updated_at = updatedAt;
@@ -65,12 +74,16 @@ const queueDb = {
       }
       return affected(0);
     }
+    // touch (with or without attempts fencing)
     if (
       s.includes("SET updated_at = ? WHERE task_id = ? AND status = 'running'")
     ) {
-      const [updatedAt, taskId] = args;
+      const [updatedAt, taskId, claimedAttempts] = args;
       const r = queueRows.find(
-        (x) => x.task_id === taskId && x.status === "running",
+        (x) =>
+          x.task_id === taskId &&
+          x.status === "running" &&
+          (claimedAttempts === undefined || x.attempts === claimedAttempts),
       );
       if (r) {
         r.updated_at = updatedAt;
@@ -638,6 +651,153 @@ describe("processAgentTeamRun (durable serverless execution)", () => {
     expect(abortRunMock).toHaveBeenCalledWith(
       "run-task-task-ending-c1-c0",
       "user",
+    );
+  });
+
+  it("finalizes with [hit-continuation-limit] marker after consecutive no-progress chunks", async () => {
+    // Each chunk emits auto_continue but no substantive events (text/tool).
+    // After MAX_AGENT_TEAM_NO_PROGRESS_CONTINUATIONS (3) such chunks the run
+    // should be finalized rather than continuing indefinitely.
+    let chunkCount = 0;
+    runAgentLoopMock.mockImplementation(async (opts: any) => {
+      chunkCount += 1;
+      // emit ONLY the continuation signal — no text, no tool calls.
+      opts.send({ type: "auto_continue", reason: "run_timeout" });
+    });
+    await seedTask("tp-no-progress");
+
+    // Run the first chunk (count 1).
+    await processAgentTeamRun({
+      taskId: "tp-no-progress",
+      mode: "start",
+      noProgressCount: 0,
+      resolveConfig: async () => resolveConfig(),
+    });
+    expect(appState.get("agent-task:tp-no-progress").status).toBe("running");
+    expect(dispatches[0]).toMatchObject({
+      body: { mode: "continue", noProgressCount: 1 },
+    });
+
+    // Chunk 2 — noProgressCount = 1.
+    await processAgentTeamRun({
+      taskId: "tp-no-progress",
+      mode: "continue",
+      noProgressCount: 1,
+      resolveConfig: async () => resolveConfig(),
+    });
+    expect(appState.get("agent-task:tp-no-progress").status).toBe("running");
+    expect(dispatches[1]).toMatchObject({
+      body: { mode: "continue", noProgressCount: 2 },
+    });
+
+    // Chunk 3 — noProgressCount = 2. After this, consecutive count reaches 3
+    // which equals MAX_AGENT_TEAM_NO_PROGRESS_CONTINUATIONS, so it must finalize.
+    await processAgentTeamRun({
+      taskId: "tp-no-progress",
+      mode: "continue",
+      noProgressCount: 2,
+      resolveConfig: async () => resolveConfig(),
+    });
+
+    const task = appState.get("agent-task:tp-no-progress");
+    expect(task.status).toBe("completed");
+    expect(task.summary).toContain("[hit-continuation-limit]");
+    expect(
+      (await queue.getAgentTeamRunDispatchState("tp-no-progress"))?.status,
+    ).toBe("done");
+    // No fourth chunk fired.
+    expect(dispatches).toHaveLength(2);
+  });
+
+  it("resets no-progress counter when a chunk makes progress", async () => {
+    // Pattern: no-progress, progress, no-progress, no-progress — should NOT
+    // finalize early because the counter resets on the progress chunk.
+    let callCount = 0;
+    runAgentLoopMock.mockImplementation(async (opts: any) => {
+      callCount += 1;
+      if (callCount === 2) {
+        // chunk 2: actual progress
+        opts.send({ type: "text", text: "some progress" });
+      }
+      opts.send({ type: "auto_continue", reason: "run_timeout" });
+    });
+    await seedTask("tp-reset");
+
+    // Chunk 1: no-progress (count goes to 1).
+    await processAgentTeamRun({
+      taskId: "tp-reset",
+      mode: "start",
+      noProgressCount: 0,
+      resolveConfig: async () => resolveConfig(),
+    });
+    expect(dispatches[0].body.noProgressCount).toBe(1);
+
+    // Chunk 2: has progress → counter resets to 0.
+    await processAgentTeamRun({
+      taskId: "tp-reset",
+      mode: "continue",
+      noProgressCount: 1,
+      resolveConfig: async () => resolveConfig(),
+    });
+    expect(dispatches[1].body.noProgressCount).toBe(0);
+
+    // Still running after 2 chunks.
+    expect(appState.get("agent-task:tp-reset").status).toBe("running");
+  });
+
+  it("fenced heartbeat write no-ops when the row has been re-claimed (double-claim prevention)", async () => {
+    // Simulate a superseded invocation: an old invocation claimed attempts=1,
+    // but the row has since been re-claimed (attempts=2). The superseded
+    // invocation's heartbeat write must not affect the live invocation's row.
+    await queue.enqueueAgentTeamRun({
+      taskId: "tf-fence",
+      threadId: "thread-fence",
+      runId: "run-task-tf-fence",
+      ownerEmail: OWNER,
+      orgId: null,
+      payload: { description: "fence test", turnId: "run-task-tf-fence" },
+    });
+
+    // First claim → attempts becomes 1.
+    const firstClaim = await queue.claimAgentTeamRun("tf-fence");
+    expect(firstClaim?.attempts).toBe(1);
+
+    // Simulate the row going stale and being re-claimed (attempts → 2).
+    const row = queueRows.find((x) => x.task_id === "tf-fence");
+    if (!row) throw new Error("missing row");
+    // Re-set to queued so the second claim succeeds.
+    row.status = "queued";
+    const secondClaim = await queue.claimAgentTeamRun("tf-fence");
+    expect(secondClaim?.attempts).toBe(2);
+
+    // A heartbeat from the superseded (attempts=1) invocation must be a no-op.
+    const supersededTouched = await queue.touchAgentTeamRun("tf-fence", 1);
+    expect(supersededTouched).toBe(false);
+
+    // A heartbeat from the live (attempts=2) invocation succeeds.
+    const liveTouched = await queue.touchAgentTeamRun("tf-fence", 2);
+    expect(liveTouched).toBe(true);
+
+    // The superseded invocation's finalize must also be a no-op.
+    const supersededCompleted = await queue.completeAgentTeamRun(
+      "tf-fence",
+      "done",
+      1,
+    );
+    expect(supersededCompleted).toBe(false);
+    expect((await queue.getAgentTeamRunDispatchState("tf-fence"))?.status).toBe(
+      "running",
+    ); // live invocation still running
+
+    // The live invocation's finalize succeeds.
+    const liveCompleted = await queue.completeAgentTeamRun(
+      "tf-fence",
+      "done",
+      2,
+    );
+    expect(liveCompleted).toBe(true);
+    expect((await queue.getAgentTeamRunDispatchState("tf-fence"))?.status).toBe(
+      "done",
     );
   });
 });

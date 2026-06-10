@@ -288,7 +288,7 @@ function ArtboardFrame({
 
 function HtmlArtboard({
   data,
-  ctx,
+  ctx: _ctx,
   compact,
 }: {
   data: WireframeData;

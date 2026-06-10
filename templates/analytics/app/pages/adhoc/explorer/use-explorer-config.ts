@@ -2,8 +2,7 @@ import { useState, useCallback, useEffect, useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
 import type { ExplorerConfig } from "./types";
 import { createDefaultConfig } from "./types";
-import { getIdToken } from "@/lib/auth";
-import { appApiPath } from "@agent-native/core/client";
+import { callAction } from "@agent-native/core/client";
 
 const AUTOSAVE_ID = "_autosave";
 const AUTOSAVE_DELAY = 800; // ms debounce
@@ -13,40 +12,31 @@ interface SavedConfigEntry {
   name: string;
 }
 
-async function fetchWithAuth(url: string, options?: RequestInit) {
-  const token = await getIdToken();
-  return fetch(appApiPath(url), {
-    ...options,
-    headers: {
-      "Content-Type": "application/json",
-      ...(token && { Authorization: `Bearer ${token}` }),
-      ...options?.headers,
-    },
-  });
-}
-
 async function fetchSavedConfigs(): Promise<SavedConfigEntry[]> {
-  const res = await fetchWithAuth("/api/explorer-configs");
-  if (!res.ok) return [];
-  const data = await res.json();
-  return (data.configs ?? [])
-    .filter((c: any) => c.id !== AUTOSAVE_ID)
-    .map((c: any) => ({ id: c.id, name: c.name }));
+  try {
+    const rows = await callAction("list-explorer-configs", {});
+    return (Array.isArray(rows) ? rows : []) as SavedConfigEntry[];
+  } catch {
+    return [];
+  }
 }
 
 async function fetchConfig(id: string): Promise<ExplorerConfig | null> {
-  const res = await fetchWithAuth(`/api/explorer-configs/${id}`);
-  if (!res.ok) return null;
-  const data = await res.json();
-  // Strip server-added fields
-  const { id: _id, ...rest } = data;
-  return rest as ExplorerConfig;
+  try {
+    const data = await callAction("get-explorer-config", { id });
+    if (!data || typeof data !== "object") return null;
+    // Strip server-added id field
+    const { id: _id, ...rest } = data as Record<string, unknown>;
+    return rest as unknown as ExplorerConfig;
+  } catch {
+    return null;
+  }
 }
 
 function persistConfig(id: string, config: ExplorerConfig) {
-  fetchWithAuth(`/api/explorer-configs/${id}`, {
-    method: "POST",
-    body: JSON.stringify(config),
+  callAction("save-explorer-config", {
+    id,
+    data: config as unknown as Record<string, unknown>,
   }).catch(() => {});
 }
 
@@ -101,9 +91,9 @@ export function useExplorerConfig() {
       const toSave = { ...config, name: name || config.name };
       setIsSaving(true);
       try {
-        await fetchWithAuth(`/api/explorer-configs/${id}`, {
-          method: "POST",
-          body: JSON.stringify(toSave),
+        await callAction("save-explorer-config", {
+          id,
+          data: toSave as unknown as Record<string, unknown>,
         });
         setCurrentId(id);
         setConfig(toSave);
@@ -117,7 +107,7 @@ export function useExplorerConfig() {
 
   const deleteConfig = useCallback(
     async (id: string) => {
-      await fetchWithAuth(`/api/explorer-configs/${id}`, { method: "DELETE" });
+      await callAction("delete-explorer-config", { id });
       if (currentId === id) {
         setConfig(createDefaultConfig());
         setCurrentId(null);

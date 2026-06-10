@@ -1,10 +1,8 @@
-import { useEffect } from "react";
-import { useLocation, useNavigate } from "react-router";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useRef } from "react";
 import {
-  agentNativePath,
   appBasePath,
   appPath,
+  useAgentRouteState,
 } from "@agent-native/core/client";
 import { extensionIdFromPathname } from "@agent-native/core/client/extensions";
 import type {
@@ -23,62 +21,31 @@ export interface NavigationState {
 }
 
 export function useNavigationState(extensions?: DispatchExtensionConfig) {
-  const location = useLocation();
-  const navigate = useNavigate();
-  const qc = useQueryClient();
+  // Capture extensions in a ref so the stable callbacks always read latest.
+  const extensionsRef = useRef(extensions);
+  extensionsRef.current = extensions;
 
-  // Sync current route to application state
-  useEffect(() => {
-    const localPathname = routerPath(location.pathname);
-    const state = buildDispatchNavigationState(
-      localPathname,
-      location.search,
-      extensions,
-    );
-
-    fetch(agentNativePath("/_agent-native/application-state/navigation"), {
-      method: "PUT",
-      keepalive: true,
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(state),
-    }).catch(() => {});
-  }, [extensions, location.pathname, location.search]);
-
-  // Listen for navigate commands from agent
-  const { data: navCommand } = useQuery({
-    queryKey: ["navigate-command"],
-    queryFn: async () => {
-      const res = await fetch(
-        agentNativePath("/_agent-native/application-state/navigate"),
+  useAgentRouteState<NavigationState>({
+    getNavigationState: ({ pathname, search }) => {
+      const localPathname = routerPath(pathname);
+      return buildDispatchNavigationState(
+        localPathname,
+        search,
+        extensionsRef.current,
       );
-      if (!res.ok) return null;
-      const data = await res.json();
-      if (data) {
-        return { ...data, _ts: Date.now() };
-      }
-      return null;
     },
-    refetchInterval: 2_000,
-    structuralSharing: false,
+    getCommandPath: (cmd) => {
+      const resolvedPath =
+        cmd.path ||
+        resolvePath(cmd.view, extensionsRef.current, cmd) ||
+        "/overview";
+      const path =
+        cmd.view === "dreams" && cmd.dreamId && !resolvedPath.includes("?")
+          ? `${resolvedPath}?dreamId=${encodeURIComponent(cmd.dreamId)}`
+          : resolvedPath;
+      return routerPath(path);
+    },
   });
-
-  useEffect(() => {
-    if (!navCommand) return;
-    fetch(agentNativePath("/_agent-native/application-state/navigate"), {
-      method: "DELETE",
-      headers: { "X-Agent-Native-CSRF": "1" },
-    }).catch(() => {});
-    const cmd = navCommand as NavigationState;
-
-    const resolvedPath =
-      cmd.path || resolvePath(cmd.view, extensions, cmd) || "/overview";
-    const path =
-      cmd.view === "dreams" && cmd.dreamId && !resolvedPath.includes("?")
-        ? `${resolvedPath}?dreamId=${encodeURIComponent(cmd.dreamId)}`
-        : resolvedPath;
-    navigate(routerPath(path));
-    qc.setQueryData(["navigate-command"], null);
-  }, [extensions, navCommand, navigate, qc]);
 }
 
 export function buildDispatchNavigationState(

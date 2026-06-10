@@ -492,7 +492,7 @@ export async function getClientsWithErrors(forEmail?: string): Promise<{
 }
 
 export async function isConnected(forEmail?: string): Promise<boolean> {
-  return isOAuthConnected("google", forEmail);
+  return isOAuthConnected("google", forEmail ?? "");
 }
 
 export async function getConnectedAccounts(

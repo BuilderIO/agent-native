@@ -9,20 +9,14 @@ import {
   useRouteError,
 } from "react-router";
 import { useEffect, useState } from "react";
-import {
-  QueryClient,
-  QueryClientProvider,
-  useQueryClient,
-} from "@tanstack/react-query";
-import { ThemeProvider } from "next-themes";
+import { useQueryClient } from "@tanstack/react-query";
 import { useDbSync } from "@agent-native/core";
 import {
-  ClientOnly,
-  DefaultSpinner,
+  AppProviders,
   appPath,
   getThemeInitScript,
+  createAgentNativeQueryClient,
 } from "@agent-native/core/client";
-import { Toaster } from "sonner";
 import { configureTracking } from "@agent-native/core/client";
 import { useNavigationState } from "./hooks/use-navigation-state";
 import { TAB_ID } from "./lib/tab-id";
@@ -92,22 +86,12 @@ function DbSyncSetup() {
 }
 
 export default function Root() {
-  const [queryClient] = useState(() => new QueryClient());
+  const [queryClient] = useState(() => createAgentNativeQueryClient());
   return (
-    <ClientOnly fallback={<DefaultSpinner />}>
-      <ThemeProvider
-        attribute="class"
-        defaultTheme="system"
-        enableSystem
-        disableTransitionOnChange
-      >
-        <QueryClientProvider client={queryClient}>
-          <DbSyncSetup />
-          <Outlet />
-          <Toaster richColors position="bottom-left" />
-        </QueryClientProvider>
-      </ThemeProvider>
-    </ClientOnly>
+    <AppProviders queryClient={queryClient}>
+      <DbSyncSetup />
+      <Outlet />
+    </AppProviders>
   );
 }
 

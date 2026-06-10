@@ -17,7 +17,7 @@ export default defineAction({
     // Verify access to the parent design
     const access = await resolveAccess("design", designId);
     if (!access) {
-      return "Error: Design not found";
+      throw new Error("Design not found");
     }
 
     const db = getDb();

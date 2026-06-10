@@ -8,29 +8,24 @@ import {
 } from "react-router";
 import { useCallback, useState } from "react";
 import { useNavigationState } from "@/hooks/use-navigation-state";
-import {
-  QueryClient,
-  QueryClientProvider,
-  useQueryClient,
-} from "@tanstack/react-query";
-import { ThemeProvider } from "next-themes";
+import { useQueryClient } from "@tanstack/react-query";
 import { useDbSync } from "@agent-native/core";
 import {
-  ClientOnly,
+  AppProviders,
   CommandMenu,
-  DefaultSpinner,
   DevOverlay,
   appPath,
+  createAgentNativeQueryClient,
+  getThemeInitScript,
   useCommandMenuShortcut,
 } from "@agent-native/core/client";
 import { IconSun, IconMoon } from "@tabler/icons-react";
 import { useTheme } from "next-themes";
 import { Toaster } from "@/components/ui/sonner";
-import { TooltipProvider } from "@/components/ui/tooltip";
 import type { LinksFunction } from "react-router";
 import stylesheet from "./global.css?url";
 import { configureTracking } from "@agent-native/core/client";
-import { getThemeInitScript } from "@agent-native/core/client";
+
 configureTracking({
   getDefaultProps: (_name, properties) => ({
     ...properties,
@@ -115,19 +110,25 @@ function ThemeToggleItem() {
   );
 }
 
+/**
+ * Paths that are fully public-facing and must SSR real content rather than
+ * routing through the authenticated app shell. Kept in one place so both the
+ * ClientOnly bypass in Root and the DbSync/CommandMenu skip in AppContent stay
+ * in sync.
+ */
 function isStandalonePublicPath(pathname: string): boolean {
   const path = pathname.replace(/\/+$/, "") || "/";
   return (
     path === "/download" ||
     path.startsWith("/share/") ||
-    path.startsWith("/embed/")
+    path.startsWith("/embed/") ||
+    path.startsWith("/invite/")
   );
 }
 
-function RootContent() {
+function AppContent() {
   const location = useLocation();
   const standalonePublic = isStandalonePublicPath(location.pathname);
-  const [queryClient] = useState(() => new QueryClient());
   const [cmdkOpen, setCmdkOpen] = useState(false);
   useCommandMenuShortcut(
     useCallback(() => {
@@ -136,39 +137,41 @@ function RootContent() {
   );
 
   return (
-    <ThemeProvider
-      attribute="class"
-      defaultTheme="system"
-      enableSystem
-      disableTransitionOnChange
-    >
-      <QueryClientProvider client={queryClient}>
-        <TooltipProvider>
-          {standalonePublic ? null : <DbSyncSetup />}
-          {standalonePublic ? null : (
-            <CommandMenu open={cmdkOpen} onOpenChange={setCmdkOpen}>
-              <CommandMenu.Group heading="Actions">
-                <CommandMenu.Item onSelect={() => {}}>Search</CommandMenu.Item>
-              </CommandMenu.Group>
-              <CommandMenu.Group heading="Appearance">
-                <ThemeToggleItem />
-              </CommandMenu.Group>
-            </CommandMenu>
-          )}
-          {standalonePublic ? null : <DevOverlay />}
-          <Outlet />
-          <Toaster richColors position="bottom-left" />
-        </TooltipProvider>
-      </QueryClientProvider>
-    </ThemeProvider>
+    <>
+      {standalonePublic ? null : <DbSyncSetup />}
+      {standalonePublic ? null : (
+        <CommandMenu open={cmdkOpen} onOpenChange={setCmdkOpen}>
+          <CommandMenu.Group heading="Actions">
+            <CommandMenu.Item onSelect={() => {}}>Search</CommandMenu.Item>
+          </CommandMenu.Group>
+          <CommandMenu.Group heading="Appearance">
+            <ThemeToggleItem />
+          </CommandMenu.Group>
+        </CommandMenu>
+      )}
+      {standalonePublic ? null : <DevOverlay />}
+      <Outlet />
+      <Toaster richColors position="bottom-left" />
+    </>
   );
 }
 
+/**
+ * Public share/embed/download/invite paths must SSR real content for
+ * first-visit signed-out users and bots. AppProviders' isPublicPath prop
+ * removes the ClientOnly gate for these paths so entry.server.tsx streams
+ * actual markup and loader-fed OG meta instead of a bare spinner.
+ */
 export default function Root() {
+  const location = useLocation();
+  const [queryClient] = useState(() => createAgentNativeQueryClient());
   return (
-    <ClientOnly fallback={<DefaultSpinner />}>
-      <RootContent />
-    </ClientOnly>
+    <AppProviders
+      queryClient={queryClient}
+      isPublicPath={isStandalonePublicPath(location.pathname)}
+    >
+      <AppContent />
+    </AppProviders>
   );
 }
 

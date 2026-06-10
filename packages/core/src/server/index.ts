@@ -5,7 +5,15 @@ export {
   type EnvKeyConfig,
 } from "./create-server.js";
 
-export { readBody, streamFile } from "./h3-helpers.js";
+export {
+  readBody,
+  readBodyWithSizeLimit,
+  streamFile,
+  DEFAULT_CHAT_MAX_BODY_BYTES,
+  DEFAULT_UPLOAD_MAX_FILE_BYTES,
+  MAX_CHAT_ATTACHMENTS_PER_MESSAGE,
+  isAllowedUploadMimeType,
+} from "./h3-helpers.js";
 export {
   buildDeepLink,
   toAbsoluteOpenUrl,
@@ -97,6 +105,13 @@ export {
   getStoredModelForEngine,
   resolveEngine,
 } from "../agent/engine/index.js";
+export {
+  completeText,
+  type CompleteTextMessage,
+  type CompleteTextOptions,
+  type CompleteTextResult,
+  type CompleteTextUsage,
+} from "./complete-text.js";
 export { createDevScriptRegistry } from "../scripts/dev/index.js";
 
 export {

@@ -21,13 +21,12 @@ import {
 } from "@tabler/icons-react";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { getIdToken } from "@/lib/auth";
 import { useMetricsQuery } from "@/lib/query-metrics";
 import { ExplorerChart } from "../explorer/components/ExplorerChart";
 import { buildSql } from "../explorer/sql-builder";
 import type { ExplorerConfig } from "../explorer/types";
 import type { DashboardChart } from "./index";
-import { appApiPath } from "@agent-native/core/client";
+import { callAction } from "@agent-native/core/client";
 import {
   Tooltip,
   TooltipContent,
@@ -44,14 +43,14 @@ interface ChartCardProps {
 }
 
 async function fetchConfig(id: string): Promise<ExplorerConfig | null> {
-  const token = await getIdToken();
-  const res = await fetch(appApiPath(`/api/explorer-configs/${id}`), {
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
-  });
-  if (!res.ok) return null;
-  const data = await res.json();
-  const { id: _id, ...rest } = data;
-  return rest as ExplorerConfig;
+  try {
+    const data = await callAction("get-explorer-config", { id });
+    if (!data || typeof data !== "object") return null;
+    const { id: _id, ...rest } = data as Record<string, unknown>;
+    return rest as unknown as ExplorerConfig;
+  } catch {
+    return null;
+  }
 }
 
 export function DashboardChartCard({

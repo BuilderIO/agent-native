@@ -1,9 +1,10 @@
 ---
 name: visual-plan
 description: >-
-  Use Agent-Native Plans when coding-agent work needs an interactive structured
-  plan document with inline diagrams, implementation maps, optional UI/product
-  wireframes or prototypes, annotations, and comments.
+  Use Agent-Native Plans when coding-agent work needs a reviewable plan
+  published as an interactive document — inline diagrams, annotated code
+  walkthroughs, file trees, optional UI wireframes or prototypes, open-question
+  forms, and comments — before implementation starts.
 metadata:
   visibility: exported
 ---
@@ -14,10 +15,9 @@ Agent-Native Plans is structured visual planning mode for coding agents. Build
 the plan you would normally write in Markdown, but as a scannable document with
 editable blocks mixed in: inline diagrams, code snippets,
 open questions, and an optional top visual review area (wireframe canvas, live
-prototype, or both in tabs). Architecture, backend, data, and refactor plans
-usually start in the document with local diagrams near each claim. UI and product
-plans should still start with the top canvas/prototype when screens or behavior
-are what the user needs to review.
+prototype, or both in tabs). Architecture and backend plans stay document-only;
+UI and product plans start with the top canvas/prototype (the Visual Surface
+Choice section owns that rule).
 
 `/visual-plan` is the packaged command and main entry point. Choose the review
 mode from the task: UI-first when the work is primarily product UI and review
@@ -68,9 +68,9 @@ plan needs a richer review surface.
   ambiguity would change the design and you cannot resolve it from the code; use
   the host agent's normal ask-user-question flow and batch 2-4 high-leverage
   questions before finalizing. Do not call `create-visual-questions` from
-  `/visual-plan`; keep any answerable follow-up inside the plan itself as a
-  bottom `question-form` Open Questions block. Otherwise state the assumption
-  explicitly and proceed, and put anything unresolved in an open-questions block.
+  `/visual-plan`. Otherwise state the assumption explicitly and proceed, and
+  keep anything unresolved in the plan's single bottom `question-form` Open
+  Questions block.
 - **The plan is the approval gate.** After surfacing it, ask the user to review
   and approve before you write code, and name which files/areas the work touches.
   Presenting the plan and requesting sign-off is the approval step — do not ask a
@@ -79,36 +79,19 @@ plan needs a richer review surface.
   update the plan with `update-visual-plan` rather than only changing course in
   chat, and re-read the approved plan before major steps.
 
-## Local-Files Privacy Mode
+## Always Publish As An Agent-Native Plan — Never Inline
 
-Use local-files privacy mode when the user explicitly asks for no DB writes,
-no hosted Plan app, no Plan MCP publish, fully local files, offline/private
-planning, or when `AGENT_NATIVE_PLANS_MODE=local-files` is set. In this mode the
-plan data must never be sent to the Plan MCP server or Plan app action surface.
-
-The local-files contract is:
-
-- Read source context from local files and shell commands only.
-- Write the plan as a local MDX folder under `plans/<slug>/`: `plan.mdx`,
-  optional `canvas.mdx`, optional `prototype.mdx`, and optional
-  `.plan-state.json`.
-- Run `agent-native plan local preview --dir plans/<slug> --kind plan` after
-  writing or updating the folder. Report the returned local URL or the
-  `/local-plans/<slug>` route if the local Plan app is running with the same
-  `PLAN_LOCAL_DIR`.
-- Do **not** call `create-visual-plan`, `create-ui-plan`,
-  `create-prototype-plan`, `create-plan-design`, `import-visual-plan-source`,
-  `update-visual-plan`, `patch-visual-plan-source`, `get-plan-feedback`,
-  `export-visual-plan`, or any hosted Plan tool for that plan.
-- Treat feedback as file or chat feedback: update the MDX files directly, rerun
-  the local preview command, and summarize the new local URL/path. Hosted
-  comments, sharing, history, and publish/export receipts are unavailable until
-  the user explicitly opts into publishing.
-
-Local-files mode prevents plan content from going to the Agent-Native Plan
-database. It does not by itself make the coding agent's language model local;
-for that stronger privacy boundary, the host agent/model must also be local or
-otherwise approved by the user.
+The deliverable is ALWAYS a published Agent-Native Plan created via the Plan
+MCP connector (`plan` server, or legacy `agent-native-plans`). NEVER hand the
+plan over as inline chat content — no Markdown prose, ASCII sketch, table, or
+fenced wireframe. If the connector's tools are missing, do NOT fall back to
+inline output: the usual cause is a connector that did not finish connecting
+this session (it registers zero tools), not auth. Stop and give the user the
+exact restore step — reconnect via `/mcp` (or restart the session); only if
+genuinely unauthenticated, run
+`agent-native connect https://plan.agent-native.com`. Publish once the tool is
+reachable. Local-files privacy mode (after Tool Guidance) is the only
+exception.
 
 ## Core Workflow
 
@@ -117,26 +100,29 @@ otherwise approved by the user.
    clarifying questions as needed before generating the plan. If a source plan
    already exists, gather its exact text from the user's paste, a referenced
    file, or recent visible agent context; do not invent source text.
-2. Decide whether the plan needs a top visual surface with the rules below, then call
-   `create-visual-plan` with the title, brief, source, repo path, and structured
-   `content` blocks. When a source plan already exists, pass it as `planText`
-   and preserve the original plan's intent while adding structured review
-   content.
-3. Compose or enrich any top UI/product visual surface from the kit and write the
-   document with native blocks (see the cores below). Keep the document close to
-   the Markdown plan the agent would normally output, or to the existing plan
-   when one was provided. For architecture, backend, refactor, API, data-model,
-   migration, or code plans, usually omit `content.canvas` and
-   `content.prototype`; put `diagram`, `mermaid`, `api-endpoint`,
-   `openapi-spec`, `data-model`, `diff`, `file-tree`, `json-explorer`,
-   `code` and `annotated-code` blocks directly next
-   to the relevant prose. Skip the top visual surface for non-visual work.
+2. Call `get-plan-blocks` for the authoritative block catalog — do not author
+   from memorized tags. Then call the mode-matched create tool:
+   `create-visual-plan` for document-first plans (architecture, backend, data,
+   refactor, API), `create-ui-plan` for UI-first plans, `create-prototype-plan`
+   for prototype-first plans, `create-plan-design` for design-first plans,
+   `create-visual-questions` only when the user explicitly asks for a visual
+   intake questionnaire. When a source plan already exists,
+   pass it as `planText` and preserve the original plan's intent while adding
+   structured review content.
+3. Compose or enrich any top UI/product visual surface and write the document
+   with native blocks (see `references/canvas.md` and
+   `references/document-quality.md`). Keep the document close to the Markdown
+   plan the agent would normally output, or to the existing plan when one was
+   provided. For non-visual plans, skip the top visual surface (Visual Surface
+   Choice below owns the rule) and put `diagram`, `data-model`,
+   `api-endpoint`, `diff`, `file-tree`, `code`, and `annotated-code` blocks
+   directly next to the relevant prose.
 4. Surface the returned Plans link or inline MCP App and ask the user to review.
    Always include the actual URL in chat so the next step is a click in CLI or
    other text-only hosts. When the host exposes an embedded browser/preview panel
    and a tool can open arbitrary URLs there, open the returned plan URL
-   automatically for convenient review; do not rely on this as the only handoff.
-   Treat that browser open as a convenience and smoke test, not as the access
+   automatically for convenient review — a convenience and smoke test, never the
+   only handoff or the access
    model. Plans should load out of the box for the local agent and local browser
    session; if a signed-in embedded browser cannot read a local plan that an
    anonymous/tool check can read, fix the app/action ownership or access path
@@ -225,8 +211,8 @@ and `/visual-recap`. Do not author wireframes from memory.
 
 ## Canvas — read `references/canvas.md`
 
-The canvas is the single source of truth for static UI mockups: artboard
-placement is locked by the `surface` (never coordinates), mixed surfaces lay out
+The canvas is the single source of truth for static UI mockups: the `surface`
+locks each artboard's footprint, mixed surfaces lay out
 in lanes, annotations are plain-text designer notes anchored by
 `targetId`/`placement`, and edits are surgical `contentPatches`. Before
 authoring or editing ANY canvas, artboard, or annotation, READ
@@ -262,8 +248,8 @@ directory before authoring a plan.
   into a prototype plan.
 - `create-visual-questions`: use only when the user explicitly asks for a visual
   intake questionnaire, not as `/visual-plan` preflight.
-- `update-visual-plan`: revise content, status, or comments; prefer
-  `contentPatches` over regenerating the whole plan.
+- `update-visual-plan`: revise content, status, or comments with targeted
+  `contentPatches` (see Core Workflow step 6).
 - `read-visual-plan-source`: read the normalized plan as `plan.mdx`,
   optional `canvas.mdx`, optional `.plan-state.json`, and JSON.
 - `patch-visual-plan-source`: apply granular MDX AST patches by stable block,
@@ -282,6 +268,37 @@ directory before authoring a plan.
 
 When the user critiques a plan's look or structure, fix the renderer or this
 skill — never hand-edit one stored plan. Turn feedback into better guidance.
+
+## Local-Files Privacy Mode
+
+Use local-files privacy mode when the user explicitly asks for no DB writes,
+no hosted Plan app, no Plan MCP publish, fully local files, offline/private
+planning, or when `AGENT_NATIVE_PLANS_MODE=local-files` is set. In this mode the
+plan data must never be sent to the Plan MCP server or Plan app action surface.
+
+The local-files contract is:
+
+- Read source context from local files and shell commands only.
+- Write the plan as a local MDX folder under `plans/<slug>/`: `plan.mdx`,
+  optional `canvas.mdx`, optional `prototype.mdx`, and optional
+  `.plan-state.json`.
+- Run `agent-native plan local preview --dir plans/<slug> --kind plan` after
+  writing or updating the folder. Report the returned local URL or the
+  `/local-plans/<slug>` route if the local Plan app is running with the same
+  `PLAN_LOCAL_DIR`.
+- Do **not** call `create-visual-plan`, `create-ui-plan`,
+  `create-prototype-plan`, `create-plan-design`, `import-visual-plan-source`,
+  `update-visual-plan`, `patch-visual-plan-source`, `get-plan-feedback`,
+  `export-visual-plan`, or any hosted Plan tool for that plan.
+- Treat feedback as file or chat feedback: update the MDX files directly, rerun
+  the local preview command, and summarize the new local URL/path. Hosted
+  comments, sharing, history, and publish/export receipts are unavailable until
+  the user explicitly opts into publishing.
+
+Local-files mode prevents plan content from going to the Agent-Native Plan
+database. It does not by itself make the coding agent's language model local;
+for that stronger privacy boundary, the host agent/model must also be local or
+otherwise approved by the user.
 
 ## Interpreting comment anchors
 
@@ -334,11 +351,10 @@ agent-native skills add visual-plan
 ```
 
 After that, `/visual-plan` and `/visual-recap` are the two installed slash
-commands. Other planning modes — UI-first (`create-ui-plan`), prototype-first
-(`create-prototype-plan`), design-first (`create-plan-design`), and visual
-intake (`create-visual-questions`) — are MCP tools reachable from `/visual-plan`,
-not separate slash commands. Pass `--no-connect` to register the connector
-without authenticating, then run
+commands. The other planning modes (`create-ui-plan`, `create-prototype-plan`,
+`create-plan-design`, `create-visual-questions`) are MCP tools reachable from
+`/visual-plan`, not separate slash commands. Pass `--no-connect` to register
+the connector without authenticating, then run
 `agent-native connect https://plan.agent-native.com` whenever you are ready.
 
 **Browser (people you share with).** Open the Plans editor and create & edit

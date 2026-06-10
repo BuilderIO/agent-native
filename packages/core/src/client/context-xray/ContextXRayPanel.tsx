@@ -18,11 +18,7 @@ import {
 import { cn } from "../utils.js";
 import { ContextSegmentRow } from "./ContextSegmentRow.js";
 import { ContextTreemap } from "./ContextTreemap.js";
-import {
-  CONTEXT_XRAY_MODEL_LIMIT,
-  formatTokens,
-  groupColor,
-} from "./format.js";
+import { formatTokens, groupColor, resolveContextWindow } from "./format.js";
 
 interface Group {
   name: string;
@@ -95,11 +91,12 @@ export function ContextXRayPanel({
     [manifest.segments, optimistic],
   );
   const groups = useMemo(() => groupedSegments(segments), [segments]);
+  const contextWindow = resolveContextWindow(manifest.model);
   const pct = Math.min(
     100,
-    Math.round((manifest.totalTokens / CONTEXT_XRAY_MODEL_LIMIT) * 100),
+    Math.round((manifest.totalTokens / contextWindow) * 100),
   );
-  const headroom = Math.max(0, CONTEXT_XRAY_MODEL_LIMIT - manifest.totalTokens);
+  const headroom = Math.max(0, contextWindow - manifest.totalTokens);
   const pinned = segments.filter((s) => s.status === "pinned").length;
   const evicted = segments.filter((s) => s.status === "evicted").length;
   const details = [

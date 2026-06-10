@@ -96,16 +96,30 @@ The signed-in session carries `email` and (when an org is active) `orgId`. The f
 
 ### Per-User Scoping (`owner_email`)
 
-Every table with user-specific data **must** have an `owner_email` text column:
+Every table with user-specific data **must** have an `owner_email` text column. Use the camelCase Drizzle property name — `accessFilter` reads `resourceTable.ownerEmail`:
 
 ```typescript
-import { table, text, integer } from "@agent-native/core/db/schema";
+import {
+  table,
+  text,
+  integer,
+  ownableColumns,
+} from "@agent-native/core/db/schema";
 
+// Minimal: just the owner column
 export const notes = table("notes", {
   id: text("id").primaryKey(),
   title: text("title").notNull(),
   content: text("content"),
-  owner_email: text("owner_email").notNull(), // REQUIRED
+  ownerEmail: text("owner_email").notNull(), // REQUIRED — camelCase property
+});
+
+// Or use ownableColumns() to add owner_email + org_id + visibility in one call
+export const notes = table("notes", {
+  id: text("id").primaryKey(),
+  title: text("title").notNull(),
+  content: text("content"),
+  ...ownableColumns(),
 });
 ```
 

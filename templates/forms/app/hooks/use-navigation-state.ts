@@ -1,7 +1,4 @@
-import { useEffect } from "react";
-import { useLocation, useNavigate } from "react-router";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { agentNativePath } from "@agent-native/core/client";
+import { useAgentRouteState } from "@agent-native/core/client";
 
 interface NavigationState {
   view: string;
@@ -9,91 +6,45 @@ interface NavigationState {
 }
 
 export function useNavigationState() {
-  const location = useLocation();
-  const navigate = useNavigate();
-  const qc = useQueryClient();
+  useAgentRouteState<NavigationState>({
+    getNavigationState: ({ pathname }) => {
+      const state: NavigationState = { view: "forms" };
 
-  // Sync current route to application state
-  useEffect(() => {
-    const path = location.pathname;
-    const state: NavigationState = { view: "forms" };
-
-    if (path === "/" || path.startsWith("/forms")) {
-      const formMatch = path.match(/\/forms\/([^/]+)/);
-      if (formMatch) {
-        const formId = formMatch[1];
-        if (path.includes("/responses")) {
-          state.view = "responses";
-          state.formId = formId;
+      if (pathname === "/" || pathname.startsWith("/forms")) {
+        const formMatch = pathname.match(/\/forms\/([^/]+)/);
+        if (formMatch) {
+          const formId = formMatch[1];
+          if (pathname.includes("/responses")) {
+            state.view = "responses";
+            state.formId = formId;
+          } else {
+            state.view = "form";
+            state.formId = formId;
+          }
         } else {
-          state.view = "form";
-          state.formId = formId;
+          state.view = "forms";
         }
-      } else {
-        state.view = "forms";
+      } else if (pathname.startsWith("/f/")) {
+        state.view = "public-form";
+      } else if (pathname.startsWith("/team")) {
+        state.view = "team";
+      } else if (pathname.startsWith("/extensions")) {
+        state.view = "extensions";
+      } else if (pathname.startsWith("/form-preview")) {
+        state.view = "form-preview";
       }
-    } else if (path.startsWith("/f/")) {
-      state.view = "public-form";
-    } else if (path.startsWith("/team")) {
-      state.view = "team";
-    } else if (path.startsWith("/extensions")) {
-      state.view = "extensions";
-    } else if (path.startsWith("/form-preview")) {
-      state.view = "form-preview";
-    }
 
-    fetch(agentNativePath("/_agent-native/application-state/navigation"), {
-      method: "PUT",
-      keepalive: true,
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(state),
-    }).catch(() => {});
-  }, [location.pathname]);
-
-  // Listen for navigate commands from agent
-  const { data: navCommand } = useQuery({
-    queryKey: ["navigate-command"],
-    queryFn: async () => {
-      const res = await fetch(
-        agentNativePath("/_agent-native/application-state/navigate"),
-      );
-      if (!res.ok) return null;
-      const data = await res.json();
-      if (data) {
-        // Return with a timestamp to ensure uniqueness
-        return { ...data, _ts: Date.now() };
-      }
-      return null;
+      return state;
     },
-    refetchInterval: 2_000,
-    structuralSharing: false,
+    getCommandPath: (cmd) => {
+      if (cmd.view === "form" && cmd.formId) return `/forms/${cmd.formId}`;
+      if (cmd.view === "responses" && cmd.formId)
+        return `/forms/${cmd.formId}/responses`;
+      if (cmd.view === "forms") return "/forms";
+      if (cmd.view === "team") return "/team";
+      if (cmd.view === "extensions") return "/extensions";
+      if (cmd.view === "form-preview") return "/form-preview";
+      return "/forms";
+    },
   });
-
-  useEffect(() => {
-    if (!navCommand) return;
-    // Delete the one-shot command AFTER reading it
-    fetch(agentNativePath("/_agent-native/application-state/navigate"), {
-      method: "DELETE",
-      headers: { "X-Agent-Native-CSRF": "1" },
-    }).catch(() => {});
-    const cmd = navCommand as NavigationState;
-    let path = "/forms";
-
-    if (cmd.view === "form" && cmd.formId) {
-      path = `/forms/${cmd.formId}`;
-    } else if (cmd.view === "responses" && cmd.formId) {
-      path = `/forms/${cmd.formId}/responses`;
-    } else if (cmd.view === "forms") {
-      path = "/forms";
-    } else if (cmd.view === "team") {
-      path = "/team";
-    } else if (cmd.view === "extensions") {
-      path = "/extensions";
-    } else if (cmd.view === "form-preview") {
-      path = "/form-preview";
-    }
-
-    navigate(path);
-    qc.setQueryData(["navigate-command"], null);
-  }, [navCommand, navigate, qc]);
 }

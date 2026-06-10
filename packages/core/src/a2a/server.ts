@@ -106,7 +106,7 @@ async function verifyA2AToken(
     try {
       const { getA2ASecretByDomain } = await import("../org/context.js");
       const orgSecret = await getA2ASecretByDomain(orgDomainHint);
-      addSecretCandidate(candidateSecrets, orgSecret);
+      addSecretCandidate(candidateSecrets, orgSecret ?? undefined);
     } catch {
       // DB not ready or column doesn't exist yet — fall through
     }
@@ -244,7 +244,7 @@ export function mountA2A(
       if (hasConfiguredA2ASecret()) {
         const auth = getRequestHeader(event, "authorization");
         const tok = extractBearerToken(auth);
-        if (!verifyInternalToken(taskId, tok)) {
+        if (!verifyInternalToken(taskId, tok ?? "")) {
           setResponseStatus(event, 401);
           return { error: "Invalid or expired processor token" };
         }

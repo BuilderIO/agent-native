@@ -2,12 +2,7 @@ import type { ActionTool } from "../agent/types.js";
 import type { ActionRunContext } from "../agent/production-agent.js";
 import { createHash } from "node:crypto";
 import { findAgent, discoverAgents } from "../server/agent-discovery.js";
-import {
-  A2AClient,
-  A2ATaskTimeoutError,
-  callAgent,
-  signA2AToken,
-} from "../a2a/client.js";
+import { A2ATaskTimeoutError, callAgent, signA2AToken } from "../a2a/client.js";
 import { A2A_CONTINUATION_QUEUED_MARKER } from "../integrations/a2a-continuation-marker.js";
 import {
   formatLlmCredentialErrorMessage,
@@ -171,8 +166,6 @@ export async function run(
           );
         } catch {}
       }
-
-      const client = new A2AClient(agent.url, apiKey);
 
       if (process.env.NODE_ENV === "production" && callerEmail) {
         try {

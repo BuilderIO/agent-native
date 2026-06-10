@@ -180,7 +180,7 @@ export function CommandMenu({
   onOpenChange,
   children,
   placeholder = "Type a command or ask AI...",
-  emptyText = "No commands found.",
+  emptyText: _emptyText = "No commands found.",
   showAgentFallback = true,
   className,
 }: CommandMenuProps) {

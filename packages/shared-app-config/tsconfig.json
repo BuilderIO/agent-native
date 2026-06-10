@@ -6,7 +6,9 @@
     "strict": true,
     "esModuleInterop": true,
     "declaration": true,
-    "outDir": "dist"
+    "outDir": "dist",
+    "incremental": true,
+    "tsBuildInfoFile": "node_modules/.cache/tsbuildinfo/shared-app-config.tsbuildinfo"
   },
   "include": ["index.ts", "templates.ts"]
 }

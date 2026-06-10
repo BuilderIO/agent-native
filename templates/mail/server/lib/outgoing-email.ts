@@ -1,12 +1,12 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { nanoid } from "nanoid";
+import { marked, type Tokens, Renderer } from "marked";
 import type { ComposeAttachment } from "@shared/types.js";
 import {
   decodeCommonHtmlEntities,
   escapeHtml,
   normalizeMarkdownHardBreaks,
-  renderInlineMarkdown,
 } from "@shared/markdown.js";
 import {
   injectTrackingIntoHtml,
@@ -59,51 +59,43 @@ function encodeSingleAddress(addr: string): string {
   return encodeMimeHeaderValue(addr);
 }
 
+// Build a marked Renderer that keeps links safe for email clients (absolute
+// hrefs only, target=_blank + rel=noopener, no javascript:).
+function buildEmailRenderer(): Renderer {
+  const renderer = new Renderer();
+
+  renderer.link = ({ href, title, tokens }: Tokens.Link) => {
+    const safeHref = href && /^https?:\/\//i.test(href) ? href : (href ?? "#");
+    // Use the parser to render the inline tokens when available; fall back to
+    // extracting raw text so the label is never empty.
+    const label = (renderer as any).parser
+      ? (renderer as any).parser.parseInline(tokens)
+      : tokens.map((t: any) => t.text ?? "").join("") || safeHref;
+    const titleAttr = title ? ` title="${title}"` : "";
+    return `<a href="${safeHref}"${titleAttr} target="_blank" rel="noopener noreferrer">${label}</a>`;
+  };
+
+  renderer.image = ({ href, title, text }: Tokens.Image) => {
+    const safeHref = href && /^https?:\/\//i.test(href) ? href : (href ?? "");
+    const titleAttr = title ? ` title="${title}"` : "";
+    return `<img src="${safeHref}" alt="${text}"${titleAttr} style="max-width:100%;height:auto;" />`;
+  };
+
+  return renderer;
+}
+
 function markdownToHtml(markdown: string): string {
   const normalized = decodeCommonHtmlEntities(
     normalizeMarkdownHardBreaks(markdown),
   ).trim();
   if (!normalized) return "<div></div>";
 
-  const blocks = normalized.split(/\n{2,}/).map((block) => block.trim());
-  const html = blocks
-    .map((block) => {
-      if (block.startsWith("```") && block.endsWith("```")) {
-        const code = block.replace(/^```[^\n]*\n?/, "").replace(/\n?```$/, "");
-        return `<pre><code>${escapeHtml(code)}</code></pre>`;
-      }
-
-      const heading = block.match(/^(#{1,3})\s+(.+)$/);
-      if (heading) {
-        const level = heading[1].length;
-        return `<h${level}>${renderInlineMarkdown(heading[2])}</h${level}>`;
-      }
-
-      if (/^(\-|\*|\+)\s+/m.test(block)) {
-        const items = block
-          .split("\n")
-          .map((line) => line.trim())
-          .filter(Boolean)
-          .map((line) => line.replace(/^(\-|\*|\+)\s+/, ""))
-          .map((line) => `<li>${renderInlineMarkdown(line)}</li>`)
-          .join("");
-        return `<ul>${items}</ul>`;
-      }
-
-      if (/^\d+\.\s+/m.test(block)) {
-        const items = block
-          .split("\n")
-          .map((line) => line.trim())
-          .filter(Boolean)
-          .map((line) => line.replace(/^\d+\.\s+/, ""))
-          .map((line) => `<li>${renderInlineMarkdown(line)}</li>`)
-          .join("");
-        return `<ol>${items}</ol>`;
-      }
-
-      return `<p>${renderInlineMarkdown(block).replace(/\n/g, "<br />")}</p>`;
-    })
-    .join("");
+  const html = marked.parse(normalized, {
+    renderer: buildEmailRenderer(),
+    async: false,
+    gfm: true,
+    breaks: false,
+  }) as string;
 
   return `<div>${html}</div>`;
 }
@@ -118,7 +110,7 @@ function markdownToPlainText(markdown: string): string {
     .trim();
 }
 
-function splitReplyQuote(body: string): {
+export function splitReplyQuote(body: string): {
   newContent: string;
   attribution: string;
   quotedBody: string;

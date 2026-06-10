@@ -1,4 +1,6 @@
-@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap");
+/* Self-hosted via @fontsource-variable/inter and @fontsource-variable/jetbrains-mono — no render-blocking Google Fonts request */
+@import "@fontsource-variable/inter";
+@import "@fontsource-variable/jetbrains-mono";
 
 @import "tailwindcss";
 @import "@agent-native/core/styles/agent-native.css";
@@ -100,6 +102,7 @@
   body {
     @apply bg-background text-foreground;
     font-family:
+      "Inter Variable",
       "Inter",
       system-ui,
       -apple-system,
@@ -278,6 +281,7 @@
   outline: none;
   --notion-indent-size: 1.75rem;
   font-family:
+    "Inter Variable",
     "Inter",
     system-ui,
     -apple-system,
@@ -636,7 +640,7 @@
 .notion-editor .notion-code-block-wrapper pre,
 .notion-editor .notion-code-block,
 .notion-editor pre {
-  font-family: "JetBrains Mono", monospace;
+  font-family: "JetBrains Mono Variable", "JetBrains Mono", monospace;
   font-size: 0.85rem;
   background: transparent;
   border-radius: 0;
@@ -720,7 +724,7 @@
 
 /* Inline code */
 .notion-editor code {
-  font-family: "JetBrains Mono", monospace;
+  font-family: "JetBrains Mono Variable", "JetBrains Mono", monospace;
   font-size: 0.85em;
   background: hsl(var(--muted));
   color: hsl(0 70% 55%);

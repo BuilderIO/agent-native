@@ -286,7 +286,10 @@ export async function getClientForAccount(
   const all = await listOAuthAccounts("google");
   const account = all.find((a) => a.accountId === accountId);
   if (!account) return null;
-  return getClientFromAccount(account);
+  return getClientFromAccount({
+    ...account,
+    owner: account.owner ?? undefined,
+  });
 }
 
 /**
@@ -393,7 +396,7 @@ export async function getClientsWithErrors(forEmail?: string): Promise<{
  * checks only that specific account.
  */
 export async function isConnected(forEmail?: string): Promise<boolean> {
-  return isOAuthConnected("google", forEmail);
+  return isOAuthConnected("google", forEmail ?? "");
 }
 
 export async function getConnectedAccounts(

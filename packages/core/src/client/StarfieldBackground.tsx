@@ -208,16 +208,21 @@ export function StarfieldBackground({
   const rafRef = useRef<number>(0);
 
   useEffect(() => {
-    const canvas = canvasRef.current;
-    const container = containerRef.current;
-    if (!canvas || !container) return;
+    const canvasRaw = canvasRef.current;
+    const containerRaw = containerRef.current;
+    if (!canvasRaw || !containerRaw) return;
+    // Non-null assertions: null branches exited above and these are
+    // referenced inside closures where TypeScript loses the narrowing.
+    const canvas: HTMLCanvasElement = canvasRaw;
+    const container: HTMLElement = containerRaw;
 
-    const gl = canvas.getContext("webgl", {
+    const glRaw = canvas.getContext("webgl", {
       alpha: false,
       antialias: false,
       preserveDrawingBuffer: false,
     });
-    if (!gl) return;
+    if (!glRaw) return;
+    const gl: WebGLRenderingContext = glRaw;
 
     function compileShader(type: number, src: string) {
       const shader = gl.createShader(type);

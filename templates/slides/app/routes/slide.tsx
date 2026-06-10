@@ -14,10 +14,6 @@ export function meta() {
   return [{ title: "Slide Preview" }];
 }
 
-export function HydrateFallback() {
-  return <div className="h-screen w-screen bg-black" />;
-}
-
 function SlideError({ message }: { message: string }) {
   return (
     <div className="flex h-screen w-screen items-center justify-center bg-black">

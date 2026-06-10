@@ -96,7 +96,7 @@ export function registerBuiltinEngines(): void {
       "Claude models through the Vercel AI SDK. Supports thinking and caching via AI SDK providerOptions.",
     openai: "OpenAI GPT models via the Vercel AI SDK. Requires OPENAI_API_KEY.",
     openrouter:
-      "300+ models from Anthropic, OpenAI, Google, Meta, and more routed through a single endpoint. Use model IDs like 'anthropic/claude-sonnet-4.5' or 'openai/gpt-4o'. Requires OPENROUTER_API_KEY.",
+      "300+ models from Anthropic, OpenAI, Google, Meta, and more routed through a single endpoint. Use model IDs like 'anthropic/claude-sonnet-4.6' or 'openai/gpt-5.5'. Requires OPENROUTER_API_KEY.",
     google:
       "Google Gemini models via the Vercel AI SDK. Requires GOOGLE_GENERATIVE_AI_API_KEY.",
     groq: "Groq LPU inference via the Vercel AI SDK. Requires GROQ_API_KEY.",

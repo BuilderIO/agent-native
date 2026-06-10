@@ -1,7 +1,4 @@
-import { useEffect } from "react";
-import { useLocation, useNavigate } from "react-router";
-import { useQuery } from "@tanstack/react-query";
-import { agentNativePath } from "@agent-native/core/client";
+import { useAgentRouteState } from "@agent-native/core/client";
 
 function optionalParam(params: URLSearchParams, key: string) {
   const value = params.get(key)?.trim();
@@ -120,40 +117,10 @@ function pathFromCommand(command: any): string | null {
 }
 
 export function useNavigationState() {
-  const location = useLocation();
-  const navigate = useNavigate();
-
-  useEffect(() => {
-    fetch(agentNativePath("/_agent-native/application-state/navigation"), {
-      method: "PUT",
-      headers: {
-        "content-type": "application/json",
-        "x-request-source": "assets-ui",
-      },
-      body: JSON.stringify(
-        navigationFromPath(location.pathname, location.search),
-      ),
-    }).catch(() => {});
-  }, [location.pathname, location.search]);
-
-  const { data: command } = useQuery({
-    queryKey: ["app-state", "navigate"],
-    queryFn: async () => {
-      const res = await fetch(
-        agentNativePath("/_agent-native/application-state/navigate"),
-      );
-      if (!res.ok) return null;
-      return res.json();
-    },
-    refetchInterval: 1000,
+  useAgentRouteState({
+    requestSource: "assets-ui",
+    getNavigationState: ({ pathname, search }) =>
+      navigationFromPath(pathname, search),
+    getCommandPath: (command) => pathFromCommand(command),
   });
-
-  useEffect(() => {
-    const path = pathFromCommand(command);
-    if (!path) return;
-    fetch(agentNativePath("/_agent-native/application-state/navigate"), {
-      method: "DELETE",
-    }).catch(() => {});
-    navigate(path);
-  }, [command, navigate]);
 }

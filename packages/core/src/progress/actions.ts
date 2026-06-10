@@ -27,13 +27,21 @@ export function createProgressToolEntries(
   return {
     "manage-progress": {
       tool: {
-        description: `Manage long-running task progress visible to the user. Use this whenever a task will take more than a few seconds so the user can watch status in the runs tray.
+        description: `Track multi-step task progress visible to the user in the runs tray.
+
+Use for non-trivial work with multiple real steps (not single-action lookups). Do NOT create single-step plans. Skip for trivial tasks that finish in one tool call.
+
+**Discipline:**
+- Exactly one task in progress at a time; never batch-complete steps after the fact — update as you go.
+- Always transition pending → in_progress before completing a step.
+- If the task pivots (scope change, unexpected blocker), update the current step to reflect it before continuing.
+- End every run with "complete" (succeeded / failed / cancelled). Never leave a run open indefinitely.
 
 Actions:
-• "start" — Begin tracking a new task. Returns a runId to pass to subsequent calls. Params: title (required), step (optional initial step text), metadataJson (optional JSON string with link/thread/artifact info).
-• "update" — Report progress on a running task. Call frequently during long loops. Params: runId (required), percent (optional 0–100), step (optional current step text). Omitted fields stay unchanged.
-• "complete" — Mark a task as finished. Params: runId (required), status (required: "succeeded" | "failed" | "cancelled"), step (optional final step text). Pairs well with \`notify\` to tell the user the outcome.
-• "list" — List the user's recent runs. Use when the user asks "what is still running" or "what did you do earlier". Params: active (optional boolean, filter to in-progress only), limit (optional number, default 20, max 200).`,
+• "start" — Begin tracking. Returns a runId for subsequent calls. Params: title (required, short human description e.g. "Triage 42 emails"), step (optional initial step), metadataJson (optional JSON with link/thread/artifact info).
+• "update" — Report progress. Call after each meaningful milestone. Params: runId (required), percent (optional 0–100 when a bound is known), step (optional current step text). Omitted fields stay unchanged.
+• "complete" — Mark finished. Params: runId (required), status (required: "succeeded" | "failed" | "cancelled"), step (optional final step text). Pair with \`notify\` when the user should be alerted.
+• "list" — List recent runs. Use when the user asks "what is still running" or "what did you do earlier". Params: active (optional boolean, filter to in-progress only), limit (optional number, default 20, max 200).`,
         parameters: {
           type: "object" as const,
           properties: {

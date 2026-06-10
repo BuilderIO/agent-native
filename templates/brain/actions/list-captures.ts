@@ -36,6 +36,12 @@ function redactOptionalText(value: string | null) {
   return value ? redactSensitiveText(value) : value;
 }
 
+function previewRawFromRow(row: Record<string, unknown>): string {
+  if (typeof row.contentPreviewRaw === "string") return row.contentPreviewRaw;
+  if (typeof row.content === "string") return row.content;
+  return "";
+}
+
 function redactDistillationQueue<T extends { error: string | null }>(
   queue: T | null,
 ): T | null {
@@ -164,10 +170,12 @@ export default defineAction({
             distillationQueue: redactDistillationQueue(
               queueByCapture.get(row.id) ?? null,
             ),
-            preview:
-              args.includePreview && "contentPreviewRaw" in row
-                ? contentPreview(row.contentPreviewRaw, args.previewLength)
-                : undefined,
+            preview: args.includePreview
+              ? contentPreview(
+                  previewRawFromRow(row as Record<string, unknown>),
+                  args.previewLength,
+                )
+              : undefined,
             createdAt: row.createdAt,
             updatedAt: row.updatedAt,
           },

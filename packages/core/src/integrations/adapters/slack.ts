@@ -346,7 +346,7 @@ export function slackAdapter(): PlatformAdapter {
       };
     },
 
-    async getStatus(baseUrl?: string): Promise<IntegrationStatus> {
+    async getStatus(_baseUrl?: string): Promise<IntegrationStatus> {
       const hasToken = !!process.env.SLACK_BOT_TOKEN;
       const hasSecret = !!process.env.SLACK_SIGNING_SECRET;
       const configured = hasToken && hasSecret;

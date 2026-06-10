@@ -13,21 +13,23 @@ Most "templates" give you a blank scaffold and a long TODO list. Agent-native fl
 
 Each one is a real app you could use today, and the launching pad for your own version of it.
 
-| Template      | What it is                                                                                                     |
-| ------------- | -------------------------------------------------------------------------------------------------------------- |
-| **Mail**      | An agent-native Superhuman. Inbox, labels, AI triage, keyboard-first, drafts and sends through the agent.      |
-| **Calendar**  | An agent-native Google Calendar. Events, sync, public booking links, agent-driven scheduling.                  |
-| **Content**   | An agent-native Notion / Google Docs. Markdown + Tiptap editor, Notion sync, real-time multi-user collab.      |
-| **Brain**     | Clean company chat backed by cited institutional memory, approved sources, review gates, and citations.        |
-| **Assets**    | Digital asset manager for brand libraries, uploads, references, and on-brand image/video generation.           |
-| **Slides**    | An agent-native Google Slides. React-based decks the agent generates and edits directly.                       |
-| **Video**     | An agent-native video editor on Remotion. Prompt for a cut, the agent assembles it.                            |
-| **Analytics** | An agent-native Amplitude/Mixpanel. Connect data sources, prompt for charts, pin to dashboards.                |
-| **Clips**     | Replaces Loom — async screen + camera recording with transcription, chapters, AI summaries.                    |
-| **Design**    | Agent-native HTML prototyping studio for interactive Alpine/Tailwind designs.                                  |
-| **Forms**     | An agent-native Typeform. Build, share, collect, and route submissions to Slack, Sheets, webhooks, or Discord. |
-| **Dispatch**  | The workspace control plane: shared secrets, reusable integrations, Slack/Telegram, scheduled jobs.            |
-| **Starter**   | The minimal scaffold. Agent chat plus the architecture, nothing else. Build something new.                     |
+| Template                                  | What it is                                                                                                     |
+| ----------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| [**Mail**](/docs/template-mail)           | An agent-native Superhuman. Inbox, labels, AI triage, keyboard-first, drafts and sends through the agent.      |
+| [**Calendar**](/docs/template-calendar)   | An agent-native Google Calendar. Events, sync, public booking links, agent-driven scheduling.                  |
+| [**Content**](/docs/template-content)     | An agent-native Notion / Google Docs. Markdown + Tiptap editor, Notion sync, real-time multi-user collab.      |
+| [**Brain**](/docs/template-brain)         | Clean company chat backed by cited institutional memory, approved sources, review gates, and citations.        |
+| [**Assets**](/docs/template-assets)       | Digital asset manager for brand libraries, uploads, references, and on-brand image/video generation.           |
+| [**Slides**](/docs/template-slides)       | An agent-native Google Slides. React-based decks the agent generates and edits directly.                       |
+| [**Video**](/docs/template-videos)        | Programmatic motion graphics and product-demo videos on Remotion.                                              |
+| [**Analytics**](/docs/template-analytics) | An agent-native Amplitude/Mixpanel. Connect data sources, prompt for charts, pin to dashboards.                |
+| [**Clips**](/docs/template-clips)         | Async screen + camera recording with transcription, chapters, and AI summaries.                                |
+| [**Design**](/docs/template-design)       | Agent-native HTML prototyping studio for interactive Alpine/Tailwind designs.                                  |
+| [**Forms**](/docs/template-forms)         | An agent-native Typeform. Build, share, collect, and route submissions to Slack, Sheets, webhooks, or Discord. |
+| [**Plan**](/docs/template-plan)           | Visual plans and PR recaps with diagrams, wireframes, and annotations.                                         |
+| [**Dispatch**](/docs/template-dispatch)   | The workspace control plane: shared secrets, reusable integrations, Slack/Telegram, scheduled jobs.            |
+
+Don't want a domain template? See [Pure-Agent Apps / Starter](/docs/pure-agent-apps) for the minimal scaffold.
 
 See the full catalog under [Templates](/templates), or jump straight to one — for example, [Dispatch](/docs/template-dispatch) is a great place to start if you want a workspace-style app.
 
@@ -70,13 +72,7 @@ You don't have to. Every template is also available as a hosted app on `agent-na
 
 ## Try it with a skill {#try-with-a-skill}
 
-Don't want to scaffold a whole app yet? Add agent-native superpowers to a coding agent you already use — Claude Code, Codex, or Cursor — with a single command. Installing the **Plans** skill turns the plans your agent writes into structured, reviewable docs with diagrams, wireframes, and inline comments:
-
-```bash
-npx @agent-native/core@latest skills add visual-plan
-```
-
-That one command installs the skill instructions, registers the hosted MCP connector, and signs you in — no marketplace browsing, no manual OAuth. Then run `/visual-plan` in your agent. See the [Skills Guide](/docs/skills-guide#app-backed-skills) for more skills, local/offline installs, and how app-backed skills work.
+Not ready to scaffold? You can add agent-native superpowers to a coding agent you already use with a single command — no app needed. See [Try it with a skill](/docs/getting-started#try-with-a-skill) in Getting Started.
 
 ## Building on this
 
@@ -91,7 +87,7 @@ That one command installs the skill instructions, registers the hosted MCP conne
 If you're scaffolding now, the CLI command is:
 
 ```bash
-pnpm dlx @agent-native/core create my-platform
+npx @agent-native/core create my-platform
 ```
 
 You'll get a multi-select picker. Pick one app (standalone) or several (workspace — apps share auth, brand, agent config, and database). Each picked template is scaffolded into `apps/<name>/` with every file you need.

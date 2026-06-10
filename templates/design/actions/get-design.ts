@@ -16,7 +16,7 @@ export default defineAction({
   run: async ({ id }) => {
     const access = await resolveAccess("design", id);
     if (!access) {
-      return "Error: Design not found";
+      throw new Error("Design not found");
     }
 
     const row = access.resource;

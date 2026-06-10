@@ -1,0 +1,44 @@
+{
+  "name": "@agent-native/skills",
+  "version": "0.0.0",
+  "type": "module",
+  "description": "Install BuilderIO skills for Codex and Claude Code.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/BuilderIO/agent-native",
+    "directory": "packages/skills"
+  },
+  "bugs": {
+    "url": "https://github.com/BuilderIO/agent-native/issues"
+  },
+  "homepage": "https://github.com/BuilderIO/agent-native#readme",
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "bin": {
+    "skills": "dist/cli.js"
+  },
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest --run src --passWithNoTests",
+    "prepublishOnly": "npm run build"
+  },
+  "devDependencies": {
+    "@types/node": "^25.9.2",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  }
+}

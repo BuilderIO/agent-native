@@ -20,14 +20,14 @@ export function SplitButton({
   playheadMs,
   disabled,
 }: SplitButtonProps) {
-  const split = useActionMutation("split-recording" as any);
+  const split = useActionMutation("split-recording");
 
   const handleClick = async () => {
     try {
       await split.mutateAsync({
         recordingId,
         atMs: Math.round(playheadMs),
-      } as any);
+      });
       toast.success("Split added");
     } catch (err: any) {
       console.error(err);

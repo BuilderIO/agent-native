@@ -57,12 +57,11 @@ import {
   emailToName,
   useSession,
   agentNativePath,
-  appApiPath,
+  callAction,
   useChangeVersions,
   useActionMutation,
   type CollabUser,
 } from "@agent-native/core/client";
-import { getIdToken } from "@/lib/auth";
 import { SqlChartCard } from "./SqlChartCard";
 import {
   DashboardFilterBar,
@@ -116,18 +115,6 @@ import {
 
 const TAB_ID = generateTabId();
 
-async function fetchWithAuth(url: string, options?: RequestInit) {
-  const token = await getIdToken();
-  return fetch(appApiPath(url), {
-    ...options,
-    headers: {
-      "Content-Type": "application/json",
-      ...(token && { Authorization: `Bearer ${token}` }),
-      ...options?.headers,
-    },
-  });
-}
-
 type FetchedDashboard = {
   id: string;
   config: SqlDashboardConfig;
@@ -140,54 +127,51 @@ type FetchedDashboard = {
 } & ResourceAccess;
 
 async function fetchDashboard(id: string): Promise<FetchedDashboard | null> {
-  const res = await fetchWithAuth(`/api/sql-dashboards/${id}`);
-  if (!res.ok) return null;
-  const data = await res.json();
-  return {
-    id,
-    config: {
-      name: data.name ?? "Untitled Dashboard",
-      description: data.description,
-      filters: data.filters,
-      variables: data.variables,
-      columns: typeof data.columns === "number" ? data.columns : undefined,
-      panels: data.panels ?? [],
-    },
-    archivedAt: typeof data.archivedAt === "string" ? data.archivedAt : null,
-    hiddenAt: typeof data.hiddenAt === "string" ? data.hiddenAt : null,
-    hiddenBy: typeof data.hiddenBy === "string" ? data.hiddenBy : null,
-    visibility:
-      data.visibility === "org" || data.visibility === "public"
-        ? data.visibility
-        : "private",
-    ownerEmail: typeof data.ownerEmail === "string" ? data.ownerEmail : null,
-    updatedAt: typeof data.updatedAt === "string" ? data.updatedAt : null,
-    role: typeof data.role === "string" ? data.role : undefined,
-    canEdit: typeof data.canEdit === "boolean" ? data.canEdit : undefined,
-    canManage: typeof data.canManage === "boolean" ? data.canManage : undefined,
-  };
+  try {
+    const data: any = await callAction("get-sql-dashboard", { id });
+    if (!data || data.error) return null;
+    return {
+      id,
+      config: {
+        name: data.name ?? "Untitled Dashboard",
+        description: data.description,
+        filters: data.filters,
+        variables: data.variables,
+        columns: typeof data.columns === "number" ? data.columns : undefined,
+        panels: data.panels ?? [],
+      },
+      archivedAt: typeof data.archivedAt === "string" ? data.archivedAt : null,
+      hiddenAt: typeof data.hiddenAt === "string" ? data.hiddenAt : null,
+      hiddenBy: typeof data.hiddenBy === "string" ? data.hiddenBy : null,
+      visibility:
+        data.visibility === "org" || data.visibility === "public"
+          ? data.visibility
+          : "private",
+      ownerEmail: typeof data.ownerEmail === "string" ? data.ownerEmail : null,
+      updatedAt: typeof data.updatedAt === "string" ? data.updatedAt : null,
+      role: typeof data.role === "string" ? data.role : undefined,
+      canEdit: typeof data.canEdit === "boolean" ? data.canEdit : undefined,
+      canManage:
+        typeof data.canManage === "boolean" ? data.canManage : undefined,
+    };
+  } catch {
+    return null;
+  }
 }
 
 /**
- * Save dashboard config. Throws on non-2xx with the server's error message so
+ * Save dashboard config via the update-dashboard action. Throws on error so
  * callers (e.g. the panel editor dialog) can surface BigQuery validation
  * errors inline instead of silently swallowing them.
  */
-async function saveDashboard(id: string, data: SqlDashboardConfig) {
-  const res = await fetchWithAuth(`/api/sql-dashboards/${id}`, {
-    method: "POST",
-    body: JSON.stringify(data),
+async function saveDashboard(
+  dashboardId: string,
+  data: SqlDashboardConfig,
+): Promise<void> {
+  await callAction("update-dashboard", {
+    dashboardId,
+    config: data as unknown as Record<string, unknown>,
   });
-  if (!res.ok) {
-    let message = `Save failed (${res.status})`;
-    try {
-      const body = await res.json();
-      if (body && typeof body.error === "string") message = body.error;
-    } catch {
-      // non-JSON body — fall back to generic message
-    }
-    throw new Error(message);
-  }
 }
 
 export default function SqlDashboardPage() {
@@ -222,6 +206,12 @@ export default function SqlDashboardPage() {
   const canManage = resourceCanManage(resourceAccess);
   const { mutateAsync: hideDashboardAction, isPending: unhidePending } =
     useActionMutation("hide-dashboard");
+  const { mutateAsync: deleteDashboardAction } = useActionMutation(
+    "delete-sql-dashboard",
+    { method: "DELETE" },
+  );
+  const { mutateAsync: archiveDashboardAction } =
+    useActionMutation("archive-dashboard");
 
   // Refetch the dashboard whenever the `dashboards` source bumps OR any
   // agent action runs. We depend on both because:
@@ -751,9 +741,7 @@ export default function SqlDashboardPage() {
   const handleDelete = useCallback(async () => {
     if (!dashboardId) return;
     if (!canManage) return;
-    await fetchWithAuth(`/api/sql-dashboards/${dashboardId}`, {
-      method: "DELETE",
-    });
+    await deleteDashboardAction({ id: dashboardId });
     queryClient.invalidateQueries({ queryKey: ["sql-dashboards-sidebar"] });
     queryClient.invalidateQueries({ queryKey: ["sql-dashboards-palette"] });
     queryClient.removeQueries({
@@ -763,27 +751,14 @@ export default function SqlDashboardPage() {
       queryKey: ["data", "sql-dashboard", dashboardId],
     });
     navigate("/");
-  }, [dashboardId, canManage, queryClient, navigate]);
+  }, [dashboardId, canManage, deleteDashboardAction, queryClient, navigate]);
 
   const handleArchive = useCallback(async () => {
     if (!dashboardId) return;
     if (!canEdit) return;
     if (archivedAt) return;
     try {
-      const res = await fetchWithAuth(
-        `/api/sql-dashboards/${dashboardId}/archive`,
-        { method: "POST" },
-      );
-      if (!res.ok) {
-        let msg = `Archive failed (${res.status})`;
-        try {
-          const body = await res.json();
-          if (body?.error) msg = body.error;
-        } catch {
-          // non-JSON body — keep generic message
-        }
-        throw new Error(msg);
-      }
+      await archiveDashboardAction({ id: dashboardId, archived: true });
       queryClient.invalidateQueries({ queryKey: ["sql-dashboards-sidebar"] });
       queryClient.removeQueries({
         queryKey: sqlDashboardPrefetchKey(dashboardId),
@@ -802,6 +777,7 @@ export default function SqlDashboardPage() {
     dashboardId,
     canEdit,
     archivedAt,
+    archiveDashboardAction,
     queryClient,
     navigate,
     dashboard?.name,

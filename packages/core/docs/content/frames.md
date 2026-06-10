@@ -40,13 +40,15 @@ The panel runs in one of two tool modes:
 - **App mode** — the agent only has your app's own tools: the actions you
   defined with `defineAction`, plus navigation and context. No filesystem or
   shell access. This is what end users get.
-- **Code mode** — adds the shared coding tools (`bash`, `read`, `edit`,
-  `write`) and database access on top of the app tools, so the agent can change
-  the app's own source. Code requests are gated: when a message requires code
+- **Code mode** — adds the shared coding tools (`bash`, `read`, `edit`, `write`)
+  and database access on top of the app tools, so the agent can change the app's
+  own source. Code requests are gated: when a message requires code
   (`type: "code"`) and no code-capable frame is connected, the panel shows a
   dialog explaining that code changes need Agent Native Desktop or Builder;
   when a frame is connected, the request is routed to it and a code-agent
-  indicator shows while it works (`useSendToAgentChat`).
+  indicator shows while it works (`useSendToAgentChat`). For the canonical
+  coding-tool list and shared UI contracts, see
+  [Agent-Native Code UI](/docs/code-agents-ui).
 
 "Code mode" is the agent-capability toggle — distinct from environment dev mode
 (`NODE_ENV` / Vite). For back-compat the underlying `AGENT_MODE` env var, the
@@ -104,7 +106,8 @@ agent, regardless of which frame is hosting it:
 
 1. **Send a message** — `sendToAgentChat()` sends a message to the agent. The
    `useSendToAgentChat()` hook wraps it with the code-request gating described
-   above and returns a `codeRequiredDialog` element to render.
+   above and returns a `codeRequiredDialog` element to render. See
+   [Drop-in Agent](/docs/drop-in-agent) for full usage and options.
 2. **Generation state** — `useAgentChatGenerating()` tracks when the agent is
    running, so the UI can show progress without polling the agent directly.
 3. **Polling sync** — database-backed sync keeps UI caches fresh when the agent
@@ -124,10 +127,4 @@ cd my-app
 pnpm dev
 ```
 
-The local dev frame is an internal tooling package (it is not published to npm),
-used when developing templates inside this repository. It loads the active
-app's dev server in an iframe and mounts the embedded panel beside it, selecting
-the app via the `app` query param. The integrated CLI terminal requires Agent
-Native Desktop, which provides the local code and PTY access the terminal needs;
-without it, the panel shows the chat surface and prompts you to open Desktop to
-use the CLI.
+The local dev frame (the private `@agent-native/frame` package in the framework repo) is an internal tooling package that is not published to npm. It loads the active app's dev server in an iframe and mounts the embedded panel beside it, selecting the app via the `app` query param. The integrated CLI terminal requires Agent Native Desktop, which provides the local code and PTY access the terminal needs; without it, the panel shows the chat surface and prompts you to open Desktop to use the CLI.

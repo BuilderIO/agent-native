@@ -1,4 +1,4 @@
-import { type ReactNode, useEffect, useRef } from "react";
+import { type ReactNode } from "react";
 import DocsSidebar from "./DocsSidebar";
 import TableOfContents from "./TableOfContents";
 import MobileDocsNav from "./MobileDocsNav";
@@ -17,40 +17,12 @@ export default function DocsLayout({
   children: ReactNode;
   toc?: TocItem[];
 }) {
-  const articleRef = useRef<HTMLElement>(null);
-
-  useEffect(() => {
-    const article = articleRef.current;
-    if (!article) return;
-
-    const headings = article.querySelectorAll("h2[id], h3[id]");
-    for (const heading of headings) {
-      if (heading.querySelector(".heading-anchor")) continue;
-      const anchor = document.createElement("a");
-      anchor.href = `#${heading.id}`;
-      anchor.className = "heading-anchor";
-      // Move all children into the anchor
-      while (heading.firstChild) {
-        anchor.appendChild(heading.firstChild);
-      }
-      // Add the # indicator
-      const hash = document.createElement("span");
-      hash.className = "heading-anchor-hash";
-      hash.textContent = "#";
-      anchor.appendChild(hash);
-      heading.appendChild(anchor);
-    }
-  }, [children]);
-
   return (
     <div className="mx-auto flex w-full max-w-[1600px] px-0 lg:px-6">
       <DocsSidebar />
       <main className="min-w-0 flex-1 border-0 border-[var(--docs-border)] px-4 pb-16 pt-0 sm:px-6 lg:border-x lg:px-12 lg:pt-8">
         <MobileDocsNav />
-        <article
-          ref={articleRef}
-          className="docs-content mx-auto max-w-[900px]"
-        >
+        <article className="docs-content mx-auto max-w-[900px]">
           {children}
         </article>
         <div className="mx-auto max-w-[900px]">

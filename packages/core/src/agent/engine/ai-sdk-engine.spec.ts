@@ -35,6 +35,118 @@ const BASE_STREAM_OPTIONS = {
   abortSignal: new AbortController().signal,
 } as const;
 
+function mockGoogleProvider() {
+  const googleModel = { id: "google-model" };
+  const provider = vi.fn().mockReturnValue(googleModel);
+  const createGoogleGenerativeAI = vi.fn().mockReturnValue(provider);
+  vi.doMock("@ai-sdk/google", () => ({ createGoogleGenerativeAI }));
+  return { createGoogleGenerativeAI, provider, googleModel };
+}
+
+describe("AISDKEngine Google Gemini thinking config", () => {
+  beforeEach(() => {
+    vi.resetModules();
+    vi.unstubAllEnvs();
+  });
+
+  it("uses thinkingBudget for Gemini 2.5 models", async () => {
+    const { streamText } = mockAiSdk();
+    mockGoogleProvider();
+
+    const { createAISDKEngine } = await import("./ai-sdk-engine.js");
+    const engine = createAISDKEngine("google", { apiKey: "key" });
+
+    await drain(
+      engine.stream({
+        ...BASE_STREAM_OPTIONS,
+        model: "gemini-2.5-flash",
+        reasoningEffort: "medium",
+      }),
+    );
+
+    expect(streamText).toHaveBeenCalledWith(
+      expect.objectContaining({
+        providerOptions: expect.objectContaining({
+          google: expect.objectContaining({
+            thinkingConfig: { thinkingBudget: 4096 },
+          }),
+        }),
+      }),
+    );
+  });
+
+  it("uses thinkingLevel for Gemini 3.x models (low effort → 'low')", async () => {
+    const { streamText } = mockAiSdk();
+    mockGoogleProvider();
+
+    const { createAISDKEngine } = await import("./ai-sdk-engine.js");
+    const engine = createAISDKEngine("google", { apiKey: "key" });
+
+    await drain(
+      engine.stream({
+        ...BASE_STREAM_OPTIONS,
+        model: "gemini-3.1-pro-preview",
+        reasoningEffort: "low",
+      }),
+    );
+
+    expect(streamText).toHaveBeenCalledWith(
+      expect.objectContaining({
+        providerOptions: expect.objectContaining({
+          google: expect.objectContaining({
+            thinkingConfig: { thinkingLevel: "low" },
+          }),
+        }),
+      }),
+    );
+  });
+
+  it("uses thinkingLevel 'high' for Gemini 3.x medium effort", async () => {
+    const { streamText } = mockAiSdk();
+    mockGoogleProvider();
+
+    const { createAISDKEngine } = await import("./ai-sdk-engine.js");
+    const engine = createAISDKEngine("google", { apiKey: "key" });
+
+    await drain(
+      engine.stream({
+        ...BASE_STREAM_OPTIONS,
+        model: "gemini-3.5-flash",
+        reasoningEffort: "medium",
+      }),
+    );
+
+    expect(streamText).toHaveBeenCalledWith(
+      expect.objectContaining({
+        providerOptions: expect.objectContaining({
+          google: expect.objectContaining({
+            thinkingConfig: { thinkingLevel: "high" },
+          }),
+        }),
+      }),
+    );
+  });
+
+  it("does not emit thinkingConfig when no reasoningEffort is set for Google", async () => {
+    const { streamText } = mockAiSdk();
+    mockGoogleProvider();
+
+    const { createAISDKEngine } = await import("./ai-sdk-engine.js");
+    const engine = createAISDKEngine("google", { apiKey: "key" });
+
+    await drain(
+      engine.stream({
+        ...BASE_STREAM_OPTIONS,
+        model: "gemini-3.5-flash",
+      }),
+    );
+
+    // No providerOptions should be emitted when there's no reasoning effort
+    const call = streamText.mock.calls[0][0];
+    expect(call.providerOptions?.google?.thinkingConfig).toBeUndefined();
+  });
+});
+
 describe("AISDKEngine OpenAI model selection", () => {
   beforeEach(() => {
     vi.resetModules();

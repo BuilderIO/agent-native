@@ -11,12 +11,12 @@ export default defineAction({
   schema: z.object({
     id: z.string().describe("The analysis ID to delete"),
   }),
-  http: false,
+  http: { method: "DELETE" },
   run: async (args) => {
     const orgId = getRequestOrgId() || null;
     const email = getRequestUserEmail();
     if (!email) throw new Error("no authenticated user");
     await removeAnalysis(args.id, { email, orgId });
-    return `Analysis "${args.id}" deleted.`;
+    return { id: args.id, success: true };
   },
 });

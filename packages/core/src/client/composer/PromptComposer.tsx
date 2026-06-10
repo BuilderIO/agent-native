@@ -51,10 +51,7 @@ import {
   PROMPT_DOCUMENT_ATTACHMENT_ACCEPT,
   TextAttachmentAdapter,
 } from "./attachment-accept.js";
-import {
-  AGENT_PROMPT_MAX_INLINE_IMAGE_BYTES,
-  escapePromptAttachmentAttribute,
-} from "./prompt-attachments.js";
+import { escapePromptAttachmentAttribute } from "./prompt-attachments.js";
 
 const MAX_INLINE_TEXT_FILE_CHARS = 60_000;
 
@@ -218,28 +215,6 @@ function formatInlineTextFile(name: string, text: string): string {
     .join("\n");
 }
 
-function readFileDataUrl(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result || ""));
-    reader.onerror = () =>
-      reject(reader.error ?? new Error("Could not read file"));
-    reader.readAsDataURL(file);
-  });
-}
-
-function formatInlineImageFile(
-  name: string,
-  contentType: string,
-  dataUrl: string,
-): string {
-  return [
-    `<uploaded-image name="${escapePromptAttachmentAttribute(name)}" contentType="${escapePromptAttachmentAttribute(contentType)}">`,
-    dataUrl,
-    "</uploaded-image>",
-  ].join("\n");
-}
-
 export async function buildPromptComposerSubmission(options: {
   text: string;
   attachments?: ReadonlyArray<unknown>;
@@ -267,23 +242,12 @@ export async function buildPromptComposerSubmission(options: {
           } catch {
             // Keep the upload path fallback below.
           }
-        } else if (
-          file.type.startsWith("image/") &&
-          file.size <= AGENT_PROMPT_MAX_INLINE_IMAGE_BYTES &&
-          !rawText.trim()
-        ) {
-          try {
-            pastedTextBlocks.push(
-              formatInlineImageFile(
-                file.name,
-                file.type,
-                await readFileDataUrl(file),
-              ),
-            );
-          } catch {
-            // Keep the upload path fallback below.
-          }
         }
+        // Note: images are NOT inlined into the prompt text even when small.
+        // Inlining a base64 data-URL into a text string consumes an enormous
+        // number of tokens (≈ 700 K per MB) and most hosts handle images via
+        // proper attachment channels. The `files` array below carries the image
+        // for the host to process through a dedicated attachment pipeline.
         files.push(file);
       }
     }

@@ -126,6 +126,7 @@ import {
   useSetPageTitle,
 } from "@/components/layout/HeaderActions";
 import { PlanContentRenderer } from "@/components/plan/PlanContentRenderer";
+import { GuestModeBanner } from "@/components/plan/GuestModeBanner";
 import type { PlanVisualSurfaceMode } from "@/components/plan/PlanVisualSurface";
 import {
   toggleWireframeStyle,
@@ -144,17 +145,26 @@ import {
   usePublishVisualPlan,
   useRestorePlanVersion,
   useUpdatePlan,
+  useUpdatePlanComments,
+  useUpdatePlanStatus,
   useExportPlan,
   type PlanCommentInput,
   type PublishVisualPlanResult,
 } from "@/hooks/use-plans";
 import { cn } from "@/lib/utils";
-import type {
-  PlanBundle,
-  PlanKind,
-  PlanSource,
-  PlanVersionSummary,
+import {
+  type PlanBundle,
+  type PlanKind,
+  type PlanSource,
+  type PlanStatus,
+  type PlanSummary,
+  type PlanVersionDetail,
+  type PlanVersionSummary,
 } from "@shared/types";
+import {
+  diffPlanVersions,
+  formatVersionDiffSummary,
+} from "@shared/plan-version-diff";
 import {
   extractCommentMentions,
   formatPlanCommentAnchorForAgent,
@@ -1834,6 +1844,146 @@ type PlanAccessResponse = {
   role?: PlanAccessRole | null;
 };
 
+/**
+ * Status options available in the reviewer approval workflow.
+ * "archived" is intentionally omitted — it lives in the kebab menu.
+ */
+const APPROVAL_STATUSES: PlanStatus[] = [
+  "draft",
+  "review",
+  "approved",
+  "in_progress",
+  "complete",
+];
+
+const STATUS_LABELS: Record<PlanStatus, string> = {
+  draft: "Draft",
+  review: "In review",
+  approved: "Approved",
+  in_progress: "In progress",
+  complete: "Complete",
+  archived: "Archived",
+};
+
+function statusBadgeClasses(status: PlanStatus): string {
+  if (status === "approved") {
+    return "border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400";
+  }
+  if (status === "complete") {
+    return "border-blue-500/40 bg-blue-500/10 text-blue-700 dark:text-blue-400";
+  }
+  if (status === "in_progress") {
+    return "border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-400";
+  }
+  // draft, review, archived — neutral
+  return "";
+}
+
+/**
+ * Compact status badge/chip for the plan detail toolbar.
+ *
+ * - Editors (owner/admin/editor): clicking the badge opens a DropdownMenu to
+ *   transition the plan's status. The update is optimistic with rollback.
+ * - Viewers / anonymous: the badge is inert (shows current status, no menu).
+ * - Recaps: the parent must not render this component at all.
+ */
+function PlanStatusControl({
+  planId,
+  status,
+  canEdit,
+}: {
+  planId: string;
+  status: PlanStatus;
+  canEdit: boolean;
+}) {
+  const qc = useQueryClient();
+  const updateStatus = useUpdatePlanStatus();
+
+  const handleSelect = useCallback(
+    (newStatus: PlanStatus) => {
+      if (newStatus === status) return;
+      // Optimistic: patch both the bundle cache and the list cache.
+      const bundleKey = planBundleQueryKey(planId);
+      const listKey = ["action", "list-visual-plans", {}] as const;
+      const prevBundle = qc.getQueryData<PlanBundleWithHtml>(bundleKey);
+      const prevList = qc.getQueryData<PlanSummary[]>(listKey);
+
+      qc.setQueryData(bundleKey, (prev: PlanBundleWithHtml | undefined) =>
+        prev ? { ...prev, plan: { ...prev.plan, status: newStatus } } : prev,
+      );
+      qc.setQueryData(listKey, (prev: PlanSummary[] | undefined) =>
+        prev?.map((p) => (p.id === planId ? { ...p, status: newStatus } : p)),
+      );
+
+      updateStatus.mutate(
+        { planId, status: newStatus },
+        {
+          onError: () => {
+            // Roll back optimistic updates.
+            if (prevBundle !== undefined)
+              qc.setQueryData(bundleKey, prevBundle);
+            if (prevList !== undefined) qc.setQueryData(listKey, prevList);
+            toast.error("Failed to update plan status.");
+          },
+        },
+      );
+    },
+    [planId, qc, status, updateStatus],
+  );
+
+  const badgeClassName = cn(
+    "pointer-events-auto flex h-7 items-center gap-1 rounded-md border px-2 text-xs font-medium",
+    statusBadgeClasses(status),
+    canEdit && "cursor-pointer select-none hover:opacity-80",
+  );
+  const badgeInner = (
+    <>
+      {status === "approved" && (
+        <IconCircleCheck className="size-3.5 shrink-0" />
+      )}
+      {STATUS_LABELS[status] ?? statusLabel(status)}
+      {canEdit && <IconChevronDown className="size-3 shrink-0 opacity-60" />}
+    </>
+  );
+
+  if (!canEdit) {
+    return <span className={badgeClassName}>{badgeInner}</span>;
+  }
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button
+          type="button"
+          aria-label="Set plan status"
+          className={badgeClassName}
+        >
+          {badgeInner}
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-44 rounded-xl">
+        <DropdownMenuLabel>Set status</DropdownMenuLabel>
+        <DropdownMenuGroup>
+          {APPROVAL_STATUSES.map((s) => (
+            <DropdownMenuItem
+              key={s}
+              className={cn("gap-2", s === status && "font-medium")}
+              onClick={() => handleSelect(s)}
+            >
+              {s === "approved" ? (
+                <IconCircleCheck className="size-4 text-emerald-600 dark:text-emerald-400" />
+              ) : (
+                <span className="size-4" />
+              )}
+              {STATUS_LABELS[s]}
+            </DropdownMenuItem>
+          ))}
+        </DropdownMenuGroup>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
 export function canEditPlanContentRole(role?: PlanAccessRole | null) {
   return role === "owner" || role === "admin" || role === "editor";
 }
@@ -1878,6 +2028,14 @@ export function PlansPage() {
   const [nativeMarkerVersion, setNativeMarkerVersion] = useState(0);
   // Session-level preference: hide comment markers even when threads exist.
   const [commentsHidden, setCommentsHidden] = useState(false);
+  // When a comment submit fails, stash the draft here so the popover can
+  // re-open with the user's text pre-filled (Issue 2a).
+  const [failedCommentDraft, setFailedCommentDraft] =
+    useState<CommentDraft | null>(null);
+  // Ref that signals the 3-second poll to pause while a comment mutation is
+  // in-flight. Prevents poll-driven cache replacement from evicting optimistic
+  // comments before the server write commits (Issue 4a).
+  const commentMutationPendingRef = useRef(false);
   const { session, isLoading: sessionLoading } = useSession();
   const plansQuery = usePlans({
     enabled: Boolean(session),
@@ -1958,7 +2116,7 @@ export function PlansPage() {
   const immersiveReader = Boolean(
     selectedId && (planFullscreen || prototypeOnly),
   );
-  const planQuery = usePlan(selectedId);
+  const planQuery = usePlan(selectedId, commentMutationPendingRef);
   const bundle = planQuery.data;
   const queryClient = useQueryClient();
   const selectedPlanQueryKey = useMemo(
@@ -2114,6 +2272,11 @@ export function PlansPage() {
   // mutate without needing to be in a dependency array.
   const updatePlanMutateRef = useRef(updatePlan.mutate);
   updatePlanMutateRef.current = updatePlan.mutate;
+  // Separate mutation instance for comment-only writes (reply / resolve /
+  // reopen). Keeping it separate from the prose-autosave `updatePlan` instance
+  // means the autosave `isPending` state cannot bleed into comment button
+  // disabled states (Issue 3).
+  const updateCommentMutation = useUpdatePlanComments();
 
   /**
    * Archive or unarchive a plan from the overview. Optimistically updates the
@@ -2581,6 +2744,7 @@ export function PlansPage() {
     setPendingAnnotation(null);
     setInlineCommentPosition(null);
     setNativeSelectionComment(null);
+    setFailedCommentDraft(null);
     window.getSelection()?.removeAllRanges();
   };
 
@@ -2802,6 +2966,9 @@ export function PlansPage() {
   const beginNativeSelectionComment = () => {
     if (!nativeSelectionComment) return;
     documentStateRef.current = readNativeDocumentState();
+    // Implicitly enter annotate mode when a selection comment is started
+    // outside of review mode so the inline comment popover renders correctly.
+    if (!annotateMode) setAnnotateMode(true);
     setPendingAnnotation(nativeSelectionComment.anchor);
     setInlineCommentPosition(nativeSelectionComment.position);
     setNativeSelectionComment(null);
@@ -2811,30 +2978,38 @@ export function PlansPage() {
   const handleNativeReaderPointerDown = (
     event: PointerEvent<HTMLDivElement>,
   ) => {
-    if (!annotateMode || event.button !== 0) return;
+    if (event.button !== 0) return;
     const target = event.target as HTMLElement;
     if (target.closest("[data-plan-interactive]")) return;
+    // Clear any previous selection comment tooltip on pointer-down so it
+    // doesn't linger while a new selection gesture starts.
+    setNativeSelectionComment(null);
+    if (!annotateMode) return;
     nativeCommentPointerRef.current = {
       clientX: event.clientX,
       clientY: event.clientY,
     };
-    setNativeSelectionComment(null);
   };
 
   const handleNativeReaderPointerUp = (event: PointerEvent<HTMLDivElement>) => {
-    if (!annotateMode || event.button !== 0) return;
+    if (event.button !== 0) return;
     const target = event.target as HTMLElement;
     if (target.closest("[data-plan-interactive]")) return;
     const reader = nativeReaderRef.current;
     if (!reader) return;
-    event.preventDefault();
+    // Text-selection "Comment" affordance: show the floating button whenever
+    // the user finishes a selection inside the reader, even outside annotate
+    // mode. Click-to-place annotations (the else branch) remain annotate-mode
+    // only because they don't have a visible target without the full review UI.
     const selectionComment = readNativeSelectionComment();
     if (selectionComment) {
+      event.preventDefault();
       setActiveAnnotation(null);
       setAnnotationsOpen(false);
       setNativeSelectionComment(selectionComment);
       return;
     }
+    if (!annotateMode) return;
     const start = nativeCommentPointerRef.current;
     nativeCommentPointerRef.current = null;
     if (
@@ -3163,6 +3338,8 @@ export function PlansPage() {
 
   const submitInlineComment = async (draft: CommentDraft) => {
     if (!bundle || !pendingAnnotation || !selectedPlanQueryKey) return;
+    // Capture the current position before clearing (used to restore on failure).
+    const capturedPosition = inlineCommentPosition;
     const anchor: PlanAnnotationAnchor = {
       ...pendingAnnotation,
       resolutionTarget: draft.resolutionTarget,
@@ -3219,8 +3396,10 @@ export function PlansPage() {
       (current: PlanBundleWithHtml | undefined) =>
         current ? addPlanCommentToBundle(current, optimisticComment) : current,
     );
+    setFailedCommentDraft(null);
     clearInlineCommentDraft();
     setAnnotateMode(true);
+    commentMutationPendingRef.current = true;
     void updatePlan
       .mutateAsync({
         planId: bundle.plan.id,
@@ -3240,6 +3419,17 @@ export function PlansPage() {
               : current,
         );
         clearPendingDocumentRestore();
+        // Restore the draft so the reviewer doesn't lose their typed text.
+        // Re-open the composer at the same anchor with the original draft
+        // pre-filled (Issue 2a).
+        setFailedCommentDraft(draft);
+        setPendingAnnotation(anchor);
+        setInlineCommentPosition(
+          getPositionFromAnchor(anchor) ?? capturedPosition,
+        );
+      })
+      .finally(() => {
+        commentMutationPendingRef.current = false;
       });
   };
 
@@ -3255,7 +3445,8 @@ export function PlansPage() {
         annotation.anchor.resolutionTarget,
       ),
     };
-    updatePlan.mutate(
+    commentMutationPendingRef.current = true;
+    updateCommentMutation.mutate(
       {
         planId: bundle.plan.id,
         comments: [
@@ -3278,6 +3469,10 @@ export function PlansPage() {
         onSuccess: () => {
           setActiveAnnotation(null);
           toast.success("Comment updated");
+          commentMutationPendingRef.current = false;
+        },
+        onError: () => {
+          commentMutationPendingRef.current = false;
         },
       },
     );
@@ -3287,47 +3482,77 @@ export function PlansPage() {
     threadRootId: string,
     message: string,
   ) => {
-    if (!bundle) return;
+    if (!bundle || !selectedPlanQueryKey) return;
     const thread = commentThreads.find((item) => item.id === threadRootId);
     if (!thread) {
       throw new Error("Comment thread is no longer available.");
     }
-    const updated = await updatePlan.mutateAsync({
+    // Optimistic reply: insert into cache immediately so the UI updates
+    // before the server round-trip completes (Issue 3).
+    const replyId = newCommentId();
+    const now = new Date().toISOString();
+    const optimisticReply: PlanCommentItem = {
+      id: replyId,
       planId: bundle.plan.id,
-      comments: [
-        {
-          parentCommentId: thread.root.id,
-          kind: thread.root.kind,
-          status: "open",
-          message,
-          sectionId: thread.root.sectionId ?? undefined,
-          anchor: thread.root.anchor ?? undefined,
-          createdBy: "human",
-          authorEmail: collabUser?.email,
-          authorName: collabUser?.name,
-        },
-      ],
-      note: "Human replied to visual plan feedback.",
-    });
-    const updatedThread = buildCommentThreads(updated.comments).find(
-      (item) => item.id === threadRootId,
+      parentCommentId: thread.root.id,
+      sectionId: thread.root.sectionId ?? null,
+      kind: thread.root.kind,
+      status: "open",
+      anchor: thread.root.anchor ?? null,
+      message,
+      createdBy: "human",
+      authorEmail: collabUser?.email ?? null,
+      authorName: collabUser?.name ?? null,
+      resolutionTarget: thread.root.resolutionTarget ?? null,
+      mentions: [],
+      mentionsJson: null,
+      resolvedBy: null,
+      resolvedAt: null,
+      consumedAt: null,
+      createdAt: now,
+      updatedAt: now,
+    };
+    await queryClient.cancelQueries({ queryKey: selectedPlanQueryKey });
+    queryClient.setQueryData(
+      selectedPlanQueryKey,
+      (current: PlanBundleWithHtml | undefined) =>
+        current ? addPlanCommentToBundle(current, optimisticReply) : current,
     );
-    const updatedAnnotation =
-      updatedThread &&
-      runtimeAnnotationFromThread(
-        updatedThread,
-        commentThreads.findIndex((item) => item.id === threadRootId),
-        commentAvatarUrls,
-        currentCommentAuthor,
+    commentMutationPendingRef.current = true;
+    try {
+      const updated = await updateCommentMutation.mutateAsync({
+        planId: bundle.plan.id,
+        comments: [
+          {
+            parentCommentId: thread.root.id,
+            kind: thread.root.kind,
+            status: "open",
+            message,
+            sectionId: thread.root.sectionId ?? undefined,
+            anchor: thread.root.anchor ?? undefined,
+            createdBy: "human",
+            authorEmail: collabUser?.email,
+            authorName: collabUser?.name,
+          },
+        ],
+        note: "Human replied to visual plan feedback.",
+      });
+      // Replace optimistic entry with the authoritative server response.
+      if (selectedPlanQueryKey) {
+        queryClient.setQueryData(selectedPlanQueryKey, updated);
+      }
+      toast.success("Reply added");
+    } catch {
+      // Roll back the optimistic reply on error.
+      queryClient.setQueryData(
+        selectedPlanQueryKey,
+        (current: PlanBundleWithHtml | undefined) =>
+          current ? removePlanCommentFromBundle(current, replyId) : current,
       );
-    if (updatedAnnotation) {
-      setActiveAnnotation((current) =>
-        current?.annotation.id === threadRootId
-          ? { ...current, annotation: updatedAnnotation }
-          : current,
-      );
+      throw new Error("Could not send reply. Try again.");
+    } finally {
+      commentMutationPendingRef.current = false;
     }
-    toast.success("Reply added");
   };
 
   const setCommentThreadStatus = (
@@ -3335,13 +3560,33 @@ export function PlansPage() {
     status: PlanBundle["comments"][number]["status"],
     fallbackAnchor?: PlanAnnotationAnchor | null,
   ) => {
-    if (!bundle || !canResolveCommentThreads) return;
+    if (!bundle || !canResolveCommentThreads || !selectedPlanQueryKey) return;
     const thread = commentThreads.find((item) => item.id === threadRootId);
     if (!thread) return;
     const fallbackAnchorJson = fallbackAnchor
       ? JSON.stringify(fallbackAnchor)
       : undefined;
-    updatePlan.mutate(
+    // Optimistic status flip: update the cache immediately so the marker and
+    // popover update without waiting for the server round-trip (Issue 3).
+    const prevBundle =
+      queryClient.getQueryData<PlanBundleWithHtml>(selectedPlanQueryKey);
+    queryClient.setQueryData(
+      selectedPlanQueryKey,
+      (current: PlanBundleWithHtml | undefined) => {
+        if (!current) return current;
+        return withPlanComments(
+          current,
+          current.comments.map((comment) =>
+            thread.comments.some((tc) => tc.id === comment.id)
+              ? { ...comment, status }
+              : comment,
+          ),
+        );
+      },
+    );
+    setActiveAnnotation(null);
+    commentMutationPendingRef.current = true;
+    updateCommentMutation.mutate(
       {
         planId: bundle.plan.id,
         comments: thread.comments.map((comment) => ({
@@ -3362,10 +3607,17 @@ export function PlansPage() {
       },
       {
         onSuccess: () => {
-          setActiveAnnotation(null);
           toast.success(
             status === "resolved" ? "Comment resolved" : "Comment reopened",
           );
+          commentMutationPendingRef.current = false;
+        },
+        onError: () => {
+          // Roll back the optimistic status change.
+          if (prevBundle !== undefined) {
+            queryClient.setQueryData(selectedPlanQueryKey, prevBundle);
+          }
+          commentMutationPendingRef.current = false;
         },
       },
     );
@@ -3403,6 +3655,7 @@ export function PlansPage() {
               onCreate={requestCreatePlan}
               canCreate={Boolean(session)}
               onArchive={handleArchivePlan}
+              onSignIn={() => openSignIn()}
             />
           ) : !bundle && planQuery.isError ? (
             <PlanLoadError
@@ -3459,27 +3712,6 @@ export function PlansPage() {
                   }
                 }}
               >
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      className="pointer-events-auto size-8"
-                      onClick={() => {
-                        if (session) {
-                          navigate("/plans");
-                        } else {
-                          window.location.href = appPath("/plans");
-                        }
-                      }}
-                      aria-label="All plans"
-                    >
-                      <IconArrowLeft className="size-4" />
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent>All plans</TooltipContent>
-                </Tooltip>
                 <PlanShareControl
                   planId={bundle.plan.id}
                   planTitle={bundle.plan.title}
@@ -3587,6 +3819,13 @@ export function PlansPage() {
                       </DropdownMenuGroup>
                     </DropdownMenuContent>
                   </DropdownMenu>
+                )}
+                {!isRecap && (
+                  <PlanStatusControl
+                    planId={bundle.plan.id}
+                    status={bundle.plan.status}
+                    canEdit={canEditPlanContent}
+                  />
                 )}
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
@@ -3883,6 +4122,7 @@ export function PlansPage() {
                       collabUser={collabUser}
                       prototypeOnly={prototypeOnly}
                       isRecap={isRecap}
+                      sourceUrl={bundle.plan.sourceUrl}
                       visualSurfaceMode={visualSurfaceMode}
                       onVisualSurfaceModeChange={setVisualSurfaceMode}
                       onVisualQuestionsSubmit={(summary) => {
@@ -3992,8 +4232,11 @@ export function PlansPage() {
                     />
                   ) : (
                     <InlineCommentPopover
+                      key={failedCommentDraft ? "retry" : "new"}
                       position={inlineCommentPosition}
-                      initialDraft={defaultInlineCommentDraft}
+                      initialDraft={
+                        failedCommentDraft ?? defaultInlineCommentDraft
+                      }
                       onCancel={closeInlineComment}
                       onSubmit={submitInlineComment}
                     />
@@ -4004,7 +4247,7 @@ export function PlansPage() {
                 <AnnotationPopover
                   annotation={activeAnnotation.annotation}
                   position={activeAnnotation.position}
-                  isPending={updatePlan.isPending}
+                  isPending={updateCommentMutation.isPending}
                   pendingAuthor={pendingCommentAuthor}
                   onSave={(message) =>
                     updateAnnotationComment(
@@ -4030,7 +4273,7 @@ export function PlansPage() {
                   avatarUrls={commentAvatarUrls}
                   currentUser={currentCommentAuthor}
                   pendingAuthor={pendingCommentAuthor}
-                  isPending={updatePlan.isPending}
+                  isPending={updateCommentMutation.isPending}
                   onReply={replyToCommentThread}
                   canResolve={canResolveCommentThreads}
                   onStatusChange={(thread, status) =>
@@ -4794,6 +5037,7 @@ function PlansOverview({
   onCreate,
   canCreate,
   onArchive,
+  onSignIn,
 }: {
   plans: Array<{
     id: string;
@@ -4808,6 +5052,7 @@ function PlansOverview({
   onCreate: () => void;
   canCreate: boolean;
   onArchive: (planId: string, archived: boolean) => void;
+  onSignIn?: () => void;
 }) {
   const [filter, setFilter] = useState<OverviewFilter>("all");
   const [search, setSearch] = useState("");
@@ -4827,47 +5072,51 @@ function PlansOverview({
     return true;
   });
 
+  const searchLower = search.trim().toLowerCase();
   const visiblePlans =
-    search.trim().length > 0
-      ? visibleBeforeSearch.filter((p) =>
-          p.title.toLowerCase().includes(search.trim().toLowerCase()),
+    searchLower.length > 0
+      ? visibleBeforeSearch.filter(
+          (p) =>
+            p.title.toLowerCase().includes(searchLower) ||
+            p.brief.toLowerCase().includes(searchLower),
         )
       : visibleBeforeSearch;
 
   const totalVisible = plans.filter((p) => p.status !== "archived").length;
 
   return (
-    <div className="min-h-0 flex-1 overflow-auto bg-muted/20 p-4 sm:p-6">
-      <div className="mx-auto flex w-full max-w-5xl flex-col gap-4">
-        <div className="flex items-center justify-between gap-3">
-          <div className="min-w-0">
-            <h1 className="truncate text-xl font-semibold tracking-tight">
-              Plans
-            </h1>
-            <p className="text-sm text-muted-foreground">
-              {totalVisible} document{totalVisible === 1 ? "" : "s"}
-            </p>
+    <div className="flex min-h-0 flex-1 flex-col">
+      {!canCreate && onSignIn && <GuestModeBanner onSignIn={onSignIn} />}
+      <div className="min-h-0 flex-1 overflow-auto bg-muted/20 p-4 sm:p-6">
+        <div className="mx-auto flex w-full max-w-5xl flex-col gap-4">
+          <div className="flex items-center justify-between gap-3">
+            <div className="min-w-0">
+              <h1 className="truncate text-xl font-semibold tracking-tight">
+                Plans
+              </h1>
+              <p className="text-sm text-muted-foreground">
+                {totalVisible} document{totalVisible === 1 ? "" : "s"}
+              </p>
+            </div>
+            <Button type="button" onClick={onCreate}>
+              <IconPlus className="size-4" />
+              {canCreate ? "New Plan" : "Sign in to create"}
+            </Button>
           </div>
-          <Button type="button" onClick={onCreate}>
-            <IconPlus className="size-4" />
-            {canCreate ? "New Plan" : "Sign in to create"}
-          </Button>
-        </div>
 
-        <div className="flex flex-wrap items-center gap-3">
-          <Tabs
-            value={filter}
-            onValueChange={(v) => setFilter(v as OverviewFilter)}
-          >
-            <TabsList>
-              <TabsTrigger value="all">All</TabsTrigger>
-              <TabsTrigger value="plans">Plans</TabsTrigger>
-              <TabsTrigger value="recaps">Recaps</TabsTrigger>
-              <TabsTrigger value="archived">Archived</TabsTrigger>
-            </TabsList>
-          </Tabs>
+          <div className="flex flex-wrap items-center gap-3">
+            <Tabs
+              value={filter}
+              onValueChange={(v) => setFilter(v as OverviewFilter)}
+            >
+              <TabsList>
+                <TabsTrigger value="all">All</TabsTrigger>
+                <TabsTrigger value="plans">Plans</TabsTrigger>
+                <TabsTrigger value="recaps">Recaps</TabsTrigger>
+                <TabsTrigger value="archived">Archived</TabsTrigger>
+              </TabsList>
+            </Tabs>
 
-          {plans.length > 8 && (
             <div className="relative min-w-0 flex-1">
               <IconSearch className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
               <Input
@@ -4878,105 +5127,105 @@ function PlansOverview({
                 className="h-9 pl-8 text-sm"
               />
             </div>
+          </div>
+
+          {visiblePlans.length === 0 ? (
+            <div className="py-12 text-center text-sm text-muted-foreground">
+              {search.trim()
+                ? "No plans match."
+                : filter === "archived"
+                  ? "No archived plans."
+                  : "No plans here yet."}
+            </div>
+          ) : (
+            <div className="grid gap-3 md:grid-cols-2">
+              {visiblePlans.map((plan) => (
+                <div
+                  key={plan.id}
+                  className="group relative rounded-lg border border-border bg-background transition-colors hover:bg-accent/35"
+                >
+                  <Link
+                    to={
+                      plan.kind === "recap"
+                        ? `/recaps/${plan.id}`
+                        : `/plans/${plan.id}`
+                    }
+                    className="block p-4"
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="flex min-w-0 items-center gap-2">
+                          <h2 className="truncate text-sm font-medium">
+                            {plan.title}
+                          </h2>
+                          {plan.kind === "recap" && (
+                            <Badge
+                              variant="outline"
+                              className="shrink-0 text-[10px]"
+                            >
+                              Recap
+                            </Badge>
+                          )}
+                        </div>
+                        <p className="mt-1 line-clamp-2 text-xs leading-5 text-muted-foreground">
+                          {plan.brief}
+                        </p>
+                      </div>
+                      {plan.openCommentCount > 0 && (
+                        <Badge variant="secondary" className="shrink-0">
+                          {plan.openCommentCount}
+                        </Badge>
+                      )}
+                    </div>
+                    <div className="mt-4 flex items-center gap-2 text-xs text-muted-foreground">
+                      <span>{statusLabel(plan.status)}</span>
+                      <span>·</span>
+                      <span>{shortDate(plan.updatedAt)}</span>
+                    </div>
+                  </Link>
+
+                  {/* Card-level archive dropdown — visible on hover/focus-within */}
+                  <div className="absolute right-2 top-2 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <button
+                          type="button"
+                          className="flex size-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                          aria-label="Plan actions"
+                        >
+                          <IconDots className="size-4" />
+                        </button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end" className="w-40">
+                        {plan.status === "archived" ? (
+                          <DropdownMenuItem
+                            onClick={(e) => {
+                              e.preventDefault();
+                              onArchive(plan.id, false);
+                            }}
+                          >
+                            <IconArchiveOff className="size-4" />
+                            Unarchive
+                          </DropdownMenuItem>
+                        ) : (
+                          <DropdownMenuItem
+                            onClick={(e) => {
+                              e.preventDefault();
+                              onArchive(plan.id, true);
+                            }}
+                          >
+                            <IconArchive className="size-4" />
+                            Archive
+                          </DropdownMenuItem>
+                        )}
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </div>
+                </div>
+              ))}
+            </div>
           )}
         </div>
-
-        {visiblePlans.length === 0 ? (
-          <div className="py-12 text-center text-sm text-muted-foreground">
-            {search.trim()
-              ? `No results for "${search}"`
-              : filter === "archived"
-                ? "No archived plans."
-                : "No plans here yet."}
-          </div>
-        ) : (
-          <div className="grid gap-3 md:grid-cols-2">
-            {visiblePlans.map((plan) => (
-              <div
-                key={plan.id}
-                className="group relative rounded-lg border border-border bg-background transition-colors hover:bg-accent/35"
-              >
-                <Link
-                  to={
-                    plan.kind === "recap"
-                      ? `/recaps/${plan.id}`
-                      : `/plans/${plan.id}`
-                  }
-                  className="block p-4"
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <div className="flex min-w-0 items-center gap-2">
-                        <h2 className="truncate text-sm font-medium">
-                          {plan.title}
-                        </h2>
-                        {plan.kind === "recap" && (
-                          <Badge
-                            variant="outline"
-                            className="shrink-0 text-[10px]"
-                          >
-                            Recap
-                          </Badge>
-                        )}
-                      </div>
-                      <p className="mt-1 line-clamp-2 text-xs leading-5 text-muted-foreground">
-                        {plan.brief}
-                      </p>
-                    </div>
-                    {plan.openCommentCount > 0 && (
-                      <Badge variant="secondary" className="shrink-0">
-                        {plan.openCommentCount}
-                      </Badge>
-                    )}
-                  </div>
-                  <div className="mt-4 flex items-center gap-2 text-xs text-muted-foreground">
-                    <span>{statusLabel(plan.status)}</span>
-                    <span>·</span>
-                    <span>{shortDate(plan.updatedAt)}</span>
-                  </div>
-                </Link>
-
-                {/* Card-level archive dropdown — visible on hover/focus-within */}
-                <div className="absolute right-2 top-2 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <button
-                        type="button"
-                        className="flex size-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                        aria-label="Plan actions"
-                      >
-                        <IconDots className="size-4" />
-                      </button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end" className="w-40">
-                      {plan.status === "archived" ? (
-                        <DropdownMenuItem
-                          onClick={(e) => {
-                            e.preventDefault();
-                            onArchive(plan.id, false);
-                          }}
-                        >
-                          <IconArchiveOff className="size-4" />
-                          Unarchive
-                        </DropdownMenuItem>
-                      ) : (
-                        <DropdownMenuItem
-                          onClick={(e) => {
-                            e.preventDefault();
-                            onArchive(plan.id, true);
-                          }}
-                        >
-                          <IconArchive className="size-4" />
-                          Archive
-                        </DropdownMenuItem>
-                      )}
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
       </div>
     </div>
   );
@@ -5048,13 +5297,26 @@ function PlanHistorySheet({
   const versions = versionsQuery.data?.versions ?? [];
   const selectedVersion = versionQuery.data;
 
+  // Cache of fully-loaded version details by version id. Populated as the
+  // user browses individual versions; used to compute block-level diff
+  // summaries on the list view without any extra network calls.
+  const versionDetailCache = useRef<Map<string, PlanVersionDetail>>(new Map());
+
   useEffect(() => {
     if (!open) setSelectedVersionId(null);
   }, [open]);
 
   useEffect(() => {
     setSelectedVersionId(null);
+    versionDetailCache.current = new Map();
   }, [planId]);
+
+  // Store the freshly loaded version detail in the cache whenever it arrives.
+  useEffect(() => {
+    if (versionQuery.data) {
+      versionDetailCache.current.set(versionQuery.data.id, versionQuery.data);
+    }
+  }, [versionQuery.data]);
 
   const close = (nextOpen: boolean) => {
     if (!nextOpen) setSelectedVersionId(null);
@@ -5195,39 +5457,78 @@ function PlanHistorySheet({
               </div>
             ) : versions.length ? (
               <div className="p-2">
-                {versions.map((version) => (
-                  <button
-                    key={version.id}
-                    type="button"
-                    onClick={() => setSelectedVersionId(version.id)}
-                    className="w-full rounded-lg px-3 py-2.5 text-left transition-colors hover:bg-accent"
-                  >
-                    <div className="flex min-w-0 items-start gap-3">
-                      <div className="mt-1 flex size-7 shrink-0 items-center justify-center rounded-md border border-border bg-muted/45">
-                        <IconHistory className="size-4 text-muted-foreground" />
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <div className="flex min-w-0 items-center gap-2">
-                          <p className="truncate text-sm font-medium">
-                            {version.title || "Untitled plan"}
-                          </p>
-                          <span className="shrink-0 text-[10px] text-muted-foreground">
-                            {planVersionSurfaceLabel(version)}
-                          </span>
+                {versions.map((version, index) => {
+                  // Compute a diff summary when both this version and its
+                  // predecessor have been loaded into the cache. Versions are
+                  // ordered newest-first, so index+1 is the older snapshot.
+                  // The oldest entry (no predecessor) shows "Initial version".
+                  const cache = versionDetailCache.current;
+                  const thisDetail = cache.get(version.id);
+                  const olderVersion = versions[index + 1];
+                  const olderDetail = olderVersion
+                    ? cache.get(olderVersion.id)
+                    : undefined;
+                  // Show a diff when: this version's detail is loaded AND
+                  // (it's the oldest OR the older neighbour's detail is loaded).
+                  const isOldest = index === versions.length - 1;
+                  const diffSummary =
+                    thisDetail && (isOldest || olderDetail)
+                      ? formatVersionDiffSummary(
+                          diffPlanVersions(
+                            {
+                              content: thisDetail.plan.content,
+                              sections: thisDetail.sections,
+                              html: thisDetail.html,
+                            },
+                            isOldest
+                              ? null
+                              : {
+                                  content: olderDetail!.plan.content,
+                                  sections: olderDetail!.sections,
+                                  html: olderDetail!.html,
+                                },
+                          ),
+                        )
+                      : null;
+
+                  return (
+                    <button
+                      key={version.id}
+                      type="button"
+                      onClick={() => setSelectedVersionId(version.id)}
+                      className="w-full rounded-lg px-3 py-2.5 text-left transition-colors hover:bg-accent"
+                    >
+                      <div className="flex min-w-0 items-start gap-3">
+                        <div className="mt-1 flex size-7 shrink-0 items-center justify-center rounded-md border border-border bg-muted/45">
+                          <IconHistory className="size-4 text-muted-foreground" />
                         </div>
-                        <p className="mt-0.5 text-[11px] text-muted-foreground">
-                          {shortDate(version.createdAt)}
-                          {version.label ? ` · ${version.label}` : ""}
-                        </p>
-                        {version.preview ? (
-                          <p className="mt-1 line-clamp-2 text-[11px] leading-4 text-muted-foreground/80">
-                            {version.preview}
+                        <div className="min-w-0 flex-1">
+                          <div className="flex min-w-0 items-center gap-2">
+                            <p className="truncate text-sm font-medium">
+                              {version.title || "Untitled plan"}
+                            </p>
+                            <span className="shrink-0 text-[10px] text-muted-foreground">
+                              {planVersionSurfaceLabel(version)}
+                            </span>
+                          </div>
+                          <p className="mt-0.5 text-[11px] text-muted-foreground">
+                            {shortDate(version.createdAt)}
+                            {version.label ? ` · ${version.label}` : ""}
                           </p>
-                        ) : null}
+                          {diffSummary ? (
+                            <p className="mt-0.5 truncate text-[11px] text-muted-foreground/70">
+                              {diffSummary}
+                            </p>
+                          ) : version.preview ? (
+                            <p className="mt-1 line-clamp-2 text-[11px] leading-4 text-muted-foreground/80">
+                              {version.preview}
+                            </p>
+                          ) : null}
+                        </div>
                       </div>
-                    </div>
-                  </button>
-                ))}
+                    </button>
+                  );
+                })}
               </div>
             ) : (
               <div className="px-6 py-14 text-center">
@@ -6222,13 +6523,21 @@ function AnnotationPopover({
     message: annotation.message,
     mentions: extractCommentMentions(annotation.message),
   });
+  // Reset edit state when the user opens a different comment pin.
   useEffect(() => {
+    setEditing(false);
+  }, [annotation.id]);
+  useEffect(() => {
+    // Don't clobber in-progress edits when poll-driven annotation refreshes
+    // arrive (Issue 4b). Only sync the display message while NOT editing.
+    // When editing ends (editing flips false), this effect re-runs and picks
+    // up any fresh server state that arrived during the edit session.
+    if (editing) return;
     setMessageDraft({
       message: annotation.message,
       mentions: extractCommentMentions(annotation.message),
     });
-    setEditing(false);
-  }, [annotation.id, annotation.message, annotation.commentCount]);
+  }, [annotation.id, annotation.message, annotation.commentCount, editing]);
   const rootComment = runtimeAnnotationRootComment(annotation);
   const replies = annotation.replies ?? [];
   const canSave = messageDraft.message.trim().length > 0 && !isPending;
@@ -6318,7 +6627,6 @@ function AnnotationPopover({
               {canResolve && (
                 <DropdownMenuItem
                   className="gap-2"
-                  disabled={isPending}
                   onClick={() =>
                     onStatusChange(isResolved ? "open" : "resolved")
                   }
@@ -6347,7 +6655,6 @@ function AnnotationPopover({
                   onClick={() =>
                     onStatusChange(isResolved ? "open" : "resolved")
                   }
-                  disabled={isPending}
                   aria-label={isResolved ? "Reopen thread" : "Mark as resolved"}
                 >
                   <IconCircleCheck className="size-4" />
@@ -6453,7 +6760,38 @@ function AnnotationsPanel({
   ) => void;
   onClose: () => void;
 }) {
+  const panelRef = useRef<HTMLElement>(null);
   const [filterTab, setFilterTab] = useState<"open" | "resolved">("open");
+
+  // Move focus into the panel when it opens.
+  useEffect(() => {
+    const panel = panelRef.current;
+    if (!panel) return;
+    const focusable = panel.querySelector<HTMLElement>(
+      'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])',
+    );
+    focusable?.focus();
+  }, []);
+
+  // Escape closes the panel and attempts to return focus to the toolbar
+  // trigger that opened it (the "Plan actions" dots button).
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      // Only handle Escape if focus is inside this panel.
+      if (!panelRef.current?.contains(document.activeElement)) return;
+      event.stopPropagation();
+      onClose();
+      // Return focus to the toolbar dots-menu trigger if reachable.
+      const trigger = document.querySelector<HTMLElement>(
+        '[aria-label="Plan actions"]',
+      );
+      trigger?.focus();
+    };
+    window.addEventListener("keydown", handleKeyDown, { capture: true });
+    return () =>
+      window.removeEventListener("keydown", handleKeyDown, { capture: true });
+  }, [onClose]);
   const openThreads = threads.filter(
     (thread) => commentThreadStatus(thread) === "open",
   );
@@ -6464,6 +6802,7 @@ function AnnotationsPanel({
     filterTab === "resolved" ? resolvedThreads : openThreads;
   return (
     <aside
+      ref={panelRef}
       data-plan-interactive
       className="absolute right-3 top-16 z-20 flex h-[min(640px,calc(100%-5rem))] w-[min(400px,calc(100vw-24px))] flex-col overflow-hidden rounded-xl border border-border/80 bg-background/96 shadow-2xl backdrop-blur-xl"
     >
@@ -6552,7 +6891,6 @@ function AnnotationsPanel({
                               size="icon"
                               variant={isResolved ? "secondary" : "ghost"}
                               className="size-8 shrink-0 rounded-full"
-                              disabled={isPending}
                               onClick={() =>
                                 onStatusChange(
                                   thread,

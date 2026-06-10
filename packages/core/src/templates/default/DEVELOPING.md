@@ -101,6 +101,8 @@ sendToAgentChat({
 
 For most UI handoffs, pass hidden context directly with `sendToAgentChat()`. Use
 `submit: false` when the user should review the draft first. Use
+`newTab: true, background: true, openSidebar: false` when a button should start
+a full agent run without opening or focusing the sidebar. Use
 `useAgentChatContext`, `setAgentChatContextItem`, `listAgentChatContext`,
 `removeAgentChatContextItem`, and `clearAgentChatContext` only for advanced UI
 that needs to read, mirror, stage, remove, or clear staged context chips as local
@@ -112,6 +114,23 @@ interface state.
 import { agentChat } from "@agent-native/core";
 agentChat.submit("Generate something");
 ```
+
+**Server-side one-shot text transforms:**
+
+```ts
+import { completeText } from "@agent-native/core/server";
+
+const result = await completeText({
+  systemPrompt: "Return exactly one category label.",
+  input: body,
+  maxOutputTokens: 16,
+  temperature: 0,
+});
+```
+
+Use this only for narrow transforms that intentionally need no tools, chat
+history, or run state. For user-facing operations, call it inside an action so
+the UI and agent share the same capability.
 
 ## Database
 

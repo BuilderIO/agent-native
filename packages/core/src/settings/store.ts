@@ -25,6 +25,16 @@ async function ensureTable(): Promise<void> {
           updated_at ${intType()} NOT NULL
         )
       `);
+      // Index for the poll watermark query: `SELECT MAX(updated_at) FROM settings`.
+      // MAX on an indexed column avoids a full-table scan on every poll cycle.
+      // IF NOT EXISTS makes it idempotent on existing databases.
+      try {
+        await client.execute(
+          `CREATE INDEX IF NOT EXISTS settings_updated_at_idx ON ${table} (updated_at)`,
+        );
+      } catch {
+        // Index already exists or the dialect rejected a duplicate.
+      }
     })().catch((err) => {
       // Retry init on the next call after a failed startup.
       _initPromise = undefined;

@@ -365,7 +365,7 @@ export function RegistryBlockNodeView(props: NodeViewProps) {
     const selfEdits =
       editable && Boolean(sideMap.legacyBlockSelfEdits?.(blockType));
     body = sideMap.renderLegacyBlock(block, { editing: selfEdits });
-    if (editable && sideMap.onBlockDataChange && !selfEdits) {
+    if (editable && !selfEdits) {
       // Prefer a host-provided schema/custom editor (a real form) over the raw
       // JSON fallback when the host knows how to edit this legacy block type.
       const customEditor = sideMap.renderLegacyBlockEditor?.(block, {

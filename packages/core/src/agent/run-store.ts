@@ -10,11 +10,12 @@ let _initPromise: Promise<void> | undefined;
 
 /**
  * Max time without a heartbeat before a "running" run is considered dead.
- * The run-manager heartbeats every 1.5s, so 6s tolerates 3 missed writes.
- * Short window is what makes reload recovery feel instant instead of
- * stranding the user on "Thinking..." for up to 90s after a process death.
+ * The run-manager heartbeats every 1.5s, so 15s tolerates ~9 missed writes.
+ * Widened from 6s to absorb real-world DB latency spikes and GC pauses that
+ * caused false-positive reaps: a live run whose heartbeat lagged 6s+ would be
+ * reaped and a zombie would keep running, eventually clobbering the new row.
  */
-export const RUN_STALE_MS = 6_000;
+export const RUN_STALE_MS = 15_000;
 
 export const STALE_RUN_ERROR_EVENT = {
   type: "error",
@@ -118,6 +119,20 @@ async function ensureRunTables(): Promise<void> {
           PRIMARY KEY (run_id, seq)
         )
       `);
+      // Tool-call result ledger: persists the outcome of write tool calls that
+      // completed AFTER their chunk was abandoned (zombie completions). A
+      // resumed continuation can recover the real result by matching
+      // thread_id + tool_key (name:stableInputHash) instead of re-executing
+      // the side effect. Entries are scoped to the thread and expire with it.
+      await client.execute(`
+        CREATE TABLE IF NOT EXISTS agent_tool_ledger (
+          thread_id TEXT NOT NULL,
+          tool_key TEXT NOT NULL,
+          result_summary TEXT NOT NULL,
+          completed_at ${intType()} NOT NULL,
+          PRIMARY KEY (thread_id, tool_key)
+        )
+      `);
     })().catch((err) => {
       // Retry init on the next call after a failed startup.
       _initPromise = undefined;
@@ -125,6 +140,93 @@ async function ensureRunTables(): Promise<void> {
     });
   }
   return _initPromise;
+}
+
+// ─── Tool-call result ledger ─────────────────────────────────────────────────
+//
+// When the run-level abort signal fires (soft timeout / user cancel) while a
+// write tool is in-flight, `Promise.race` abandons the call — but the action's
+// Promise continues running in the background (a "zombie"). If the zombie
+// resolves before the continuation's next tool dispatch, we record the result
+// here so the continuation can recover it without re-executing the side effect.
+//
+// Keyed by (thread_id, tool_key) where tool_key = "<toolName>:<stableJsonHash>".
+// The write is fire-and-forget from the hot path; reads are synchronous look-
+// ups at the start of each write-tool dispatch in the continuation.
+
+/** Max length for a persisted result summary (8 KB). */
+const LEDGER_RESULT_MAX_CHARS = 8_000;
+
+/**
+ * Persist a zombie tool-call completion to the ledger. Called by the detached
+ * promise continuation after `Promise.race` abandons it. Best-effort — never
+ * throws so a ledger write failure doesn't break any caller.
+ */
+export async function writeLedgerEntry(
+  threadId: string,
+  toolKey: string,
+  resultSummary: string,
+): Promise<void> {
+  try {
+    await ensureRunTables();
+    const client = getDbExec();
+    const capped =
+      resultSummary.length > LEDGER_RESULT_MAX_CHARS
+        ? resultSummary.slice(0, LEDGER_RESULT_MAX_CHARS) +
+          `\n...[ledger truncated at ${LEDGER_RESULT_MAX_CHARS} chars]`
+        : resultSummary;
+    await client.execute({
+      sql: `INSERT INTO agent_tool_ledger (thread_id, tool_key, result_summary, completed_at)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT (thread_id, tool_key) DO UPDATE SET
+              result_summary = excluded.result_summary,
+              completed_at = excluded.completed_at`,
+      args: [threadId, toolKey, capped, Date.now()],
+    });
+  } catch {
+    // Ledger is best-effort; never surface failures to the caller.
+  }
+}
+
+/**
+ * Look up a prior zombie completion for this thread + tool key. Returns the
+ * persisted result summary, or `null` when no entry exists.
+ */
+export async function readLedgerEntry(
+  threadId: string,
+  toolKey: string,
+): Promise<string | null> {
+  try {
+    await ensureRunTables();
+    const client = getDbExec();
+    const { rows } = await client.execute({
+      sql: `SELECT result_summary FROM agent_tool_ledger WHERE thread_id = ? AND tool_key = ?`,
+      args: [threadId, toolKey],
+    });
+    if (rows.length === 0) return null;
+    const row = rows[0] as { result_summary: string };
+    return row.result_summary;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Delete ledger entries for a thread. Called after a turn fully completes so
+ * old entries don't bleed into the next turn's disambiguation.
+ * Best-effort — never throws.
+ */
+export async function clearLedgerForThread(threadId: string): Promise<void> {
+  try {
+    await ensureRunTables();
+    const client = getDbExec();
+    await client.execute({
+      sql: `DELETE FROM agent_tool_ledger WHERE thread_id = ?`,
+      args: [threadId],
+    });
+  } catch {
+    // Best-effort.
+  }
 }
 
 export async function insertRun(
@@ -139,6 +241,38 @@ export async function insertRun(
     sql: `INSERT INTO agent_runs (id, thread_id, status, started_at, heartbeat_at, last_progress_at, turn_id) VALUES (?, ?, 'running', ?, ?, ?, ?)`,
     args: [id, threadId, now, now, now, turnId ?? id],
   });
+}
+
+/**
+ * Atomically acquire a run lease for a thread. Succeeds (returns true) only
+ * when no other run for the same thread is currently status='running' with a
+ * fresh heartbeat. Works for both Postgres and SQLite: the stale-cutoff
+ * comparison lets a dead producer's run be replaced without waiting for the
+ * reaper, mirroring the logic in `reapIfStale`.
+ *
+ * Callers that win the claim then insert the run row normally; callers that
+ * lose skip the run and return the existing active runId to the caller.
+ */
+export async function tryClaimRunSlot(
+  threadId: string,
+  maxStaleMs: number = RUN_STALE_MS,
+): Promise<{ claimed: boolean; activeRunId: string | null }> {
+  await ensureRunTables();
+  const client = getDbExec();
+  const heartbeatCutoff = Date.now() - maxStaleMs;
+  const { rows } = await client.execute({
+    sql: `SELECT id FROM agent_runs
+          WHERE thread_id = ?
+            AND status = 'running'
+            AND COALESCE(heartbeat_at, started_at) >= ?
+          ORDER BY started_at DESC LIMIT 1`,
+    args: [threadId, heartbeatCutoff],
+  });
+  if (rows.length > 0) {
+    const row = rows[0] as { id: string };
+    return { claimed: false, activeRunId: row.id };
+  }
+  return { claimed: true, activeRunId: null };
 }
 
 /**
@@ -244,6 +378,39 @@ export async function updateRunStatus(
     sql: `UPDATE agent_runs SET status = ?, completed_at = ? WHERE id = ?`,
     args: [status, Date.now(), runId],
   });
+}
+
+/**
+ * Conditional terminal status write: only updates if the row still belongs to
+ * this run AND is still status='running'. Returns true when the update landed.
+ *
+ * This is the safe variant used by the producer's finally block so a zombie run
+ * (reaped while executing) can never clobber the status written by the reaper
+ * or a replacement run.
+ */
+export async function updateRunStatusIfRunning(
+  runId: string,
+  status: "completed" | "errored" | "aborted",
+): Promise<boolean> {
+  await ensureRunTables();
+  const client = getDbExec();
+  const { rowsAffected } = await client.execute({
+    sql: `UPDATE agent_runs SET status = ?, completed_at = ? WHERE id = ? AND status = 'running'`,
+    args: [status, Date.now(), runId],
+  });
+  return (rowsAffected ?? 0) > 0;
+}
+
+/** Read the current status of a run row. Returns null when the row is missing. */
+export async function getRunStatus(runId: string): Promise<string | null> {
+  await ensureRunTables();
+  const client = getDbExec();
+  const { rows } = await client.execute({
+    sql: `SELECT status FROM agent_runs WHERE id = ?`,
+    args: [runId],
+  });
+  if (rows.length === 0) return null;
+  return String((rows[0] as { status: string }).status);
 }
 
 export async function markRunAborted(

@@ -295,7 +295,7 @@ export async function processBrainIngestQueueOnce(
           await runWithRequestContext(
             {
               userEmail: contextRows.source.ownerEmail,
-              orgId: contextRows.source.orgId,
+              orgId: contextRows.source.orgId ?? undefined,
             },
             () =>
               runner({

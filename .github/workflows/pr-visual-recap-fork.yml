@@ -1,0 +1,500 @@
+name: PR Visual Recap (fork, label-gated)
+
+# Label-gated fork-safe variant of pr-visual-recap.yml.
+#
+# PURPOSE: Fork PRs cannot run the main workflow (pull_request runs without
+# secrets, so publishing fails cleanly and is skipped). This workflow lets a
+# MAINTAINER opt specific fork PRs in by applying the `recap` label after
+# reviewing the diff for prompt-injection-shaped content.
+#
+# SECURITY MODEL:
+#   - Trigger: pull_request_target (has access to base-repo secrets).
+#   - Gate condition: PR is from a fork AND the `recap` label is present.
+#     Non-fork PRs are excluded — the main workflow covers them.
+#   - NO fork code is checked out or executed. We checkout only the BASE
+#     repository at the base ref. The diff is obtained by fetching the fork
+#     head ref as a remote ref (safe — fetching commits is not executing them)
+#     then running `git diff base...refs/recap/fork-head`.
+#   - The diff is attacker-controlled text fed as INPUT to the LLM; it is
+#     never executed. Mitigations: secret-scan (fail-closed), sensitive-path
+#     gate, and the prompt explicitly marks diff content as untrusted data.
+#   - On synchronize/reopened, the gate re-checks that the label is still
+#     present (label removal revokes consent).
+#   - Concurrency: per-PR, cancel-in-progress (mirror of main workflow).
+
+on:
+  pull_request_target:
+    types: [labeled, synchronize, reopened]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pr-visual-recap-fork-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+env:
+  VISUAL_RECAP_AGENT: ${{ vars.VISUAL_RECAP_AGENT || 'claude' }}
+  VISUAL_RECAP_SKILL_SOURCE: ${{ vars.VISUAL_RECAP_SKILL_SOURCE || 'auto' }}
+
+jobs:
+  gate:
+    name: Gate (fork label check)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: write
+    outputs:
+      run: ${{ steps.decide.outputs.run }}
+      agent: ${{ steps.decide.outputs.agent }}
+    steps:
+      - id: decide
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          # Presence-only signals — never expose secret VALUES to the gate.
+          HAS_PLAN: ${{ secrets.PLAN_RECAP_TOKEN != '' }}
+          HAS_ANTHROPIC: ${{ secrets.ANTHROPIC_API_KEY != '' }}
+          HAS_OPENAI: ${{ secrets.OPENAI_API_KEY != '' }}
+          AGENT: ${{ env.VISUAL_RECAP_AGENT }}
+          VISUAL_RECAP_MODEL: ${{ vars.VISUAL_RECAP_MODEL }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        with:
+          script: |
+            const pr = context.payload.pull_request;
+            const reasons = [];
+
+            if (!pr) { reasons.push('no pull_request payload'); }
+
+            // This workflow is ONLY for fork PRs. Non-fork PRs are covered by
+            // the main pr-visual-recap.yml workflow (pull_request trigger).
+            const headRepo = pr && pr.head && pr.head.repo && pr.head.repo.full_name;
+            const isFork = pr && headRepo && headRepo !== process.env.GITHUB_REPOSITORY;
+            if (!isFork) {
+              reasons.push('not a fork PR — handled by pr-visual-recap.yml');
+            }
+
+            // The `recap` label is the maintainer's explicit consent gate.
+            // On labeled events, confirm the label being added is `recap`.
+            // On synchronize/reopened, confirm the label is still present.
+            const labels = (pr && pr.labels || []).map((l) => l.name);
+            if (!labels.includes('recap')) {
+              reasons.push('recap label not present — maintainer must apply it to opt in');
+            }
+
+            if (pr && pr.draft) reasons.push('draft PR');
+
+            const login = (pr && pr.user && pr.user.login || '').toLowerCase();
+            const botAuthors = ['dependabot[bot]', 'dependabot', 'renovate[bot]', 'renovate'];
+            if (botAuthors.includes(login)) reasons.push(`bot author (${login})`);
+            if (pr && pr.user && pr.user.type === 'Bot') reasons.push('bot author (type=Bot)');
+
+            if (process.env.HAS_PLAN !== 'true') reasons.push('PLAN_RECAP_TOKEN not configured');
+
+            // Normalize + validate the agent.
+            const agent = (process.env.AGENT || 'claude').toLowerCase();
+            if (agent !== 'claude' && agent !== 'codex') {
+              reasons.push(`unsupported VISUAL_RECAP_AGENT "${process.env.AGENT}" (expected "claude" or "codex")`);
+            } else if (agent === 'codex') {
+              if (process.env.HAS_OPENAI !== 'true') reasons.push('OPENAI_API_KEY not configured (codex backend)');
+            } else {
+              if (process.env.HAS_ANTHROPIC !== 'true') reasons.push('ANTHROPIC_API_KEY not configured (claude backend)');
+            }
+
+            // Validate the model before it reaches the agent CLI.
+            const model = process.env.VISUAL_RECAP_MODEL || '';
+            if (model && !/^[a-zA-Z0-9._-]{1,80}$/.test(model)) {
+              reasons.push(`invalid VISUAL_RECAP_MODEL value (must match [a-zA-Z0-9._-]{1,80})`);
+            }
+
+            // Self-modifying guard: skip if the PR touches the workflow, skill,
+            // or any agent config the runner loads. Evaluated from the trusted
+            // gate using the GitHub API — no fork code runs here.
+            if (pr) {
+              try {
+                const files = await github.paginate(github.rest.pulls.listFiles, {
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  pull_number: pr.number,
+                  per_page: 100,
+                });
+                const isAgentNativeMonorepo = context.repo.owner === 'BuilderIO' && context.repo.repo === 'agent-native';
+                const isSensitive = (p) =>
+                  p === '.github/workflows/pr-visual-recap.yml' ||
+                  p === '.github/workflows/pr-visual-recap-fork.yml' ||
+                  /(^|\/)skills\/visual-(recap|plan|plans)\//.test(p) ||
+                  /(^|\/)\.claude\//.test(p) ||
+                  /(^|\/)CLAUDE\.md$/.test(p) ||
+                  /(^|\/)AGENTS\.md$/.test(p) ||
+                  /(^|\/)\.mcp\.json$/.test(p) ||
+                  (isAgentNativeMonorepo && /(^|\/)packages\/core\//.test(p));
+                const hits = files.map((f) => f.filename).filter(isSensitive);
+                if (hits.length) {
+                  reasons.push(`PR modifies recap-control files (${hits.slice(0, 3).join(', ')}${hits.length > 3 ? ', …' : ''}) — skipping so untrusted PR diff never runs with secrets`);
+                }
+              } catch (e) {
+                // Fail CLOSED: if the file list can't be read, skip.
+                reasons.push(`could not list PR files for the self-modifying guard (${e.message}); skipping to be safe`);
+              }
+            }
+
+            const run = reasons.length === 0;
+            core.setOutput('run', run ? 'true' : 'false');
+            core.setOutput('agent', agent);
+            core.info(run ? `Fork visual recap will run (${agent}).` : `Fork visual recap skipped: ${reasons.join('; ')}`);
+
+            // When skipping, refresh an EXISTING sticky recap comment — same
+            // pattern as the main workflow gate.
+            if (!run && pr) {
+              try {
+                const MARKER = '<!-- pr-visual-recap -->';
+                const { data: comments } = await github.rest.issues.listComments({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: pr.number,
+                  per_page: 100,
+                });
+                const existing = comments.find(
+                  (c) => c.user && c.user.type === 'Bot' && c.body && c.body.includes(MARKER)
+                );
+                if (existing) {
+                  const headShort = (process.env.HEAD_SHA || '').slice(0, 7);
+                  const shaRef = headShort ? `\`${headShort}\`` : 'latest push';
+                  const primaryReason = reasons.filter(
+                    (r) => !r.startsWith('could not list PR files for the self-modifying guard')
+                  )[0] || reasons[0] || 'skipped';
+                  const skipLine = `_Recap skipped for ${shaRef}: ${primaryReason}._`;
+                  const withoutPrev = (existing.body || '')
+                    .split('\n')
+                    .filter((l) => !/_Recap skipped for .+_$/.test(l.trim()))
+                    .join('\n')
+                    .trimEnd();
+                  await github.rest.issues.updateComment({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    comment_id: existing.id,
+                    body: `${withoutPrev}\n\n${skipLine}`,
+                  });
+                }
+              } catch (e) {
+                core.warning(`Could not update recap skip comment: ${e.message}`);
+              }
+            }
+
+  recap:
+    name: Generate visual recap (fork)
+    needs: gate
+    if: needs.gate.outputs.run == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      checks: write
+      contents: read
+      issues: write
+      pull-requests: write
+    env:
+      PLAN_RECAP_APP_URL: ${{ secrets.PLAN_RECAP_APP_URL || 'https://plan.agent-native.com' }}
+      PLAN_RECAP_TOKEN: ${{ secrets.PLAN_RECAP_TOKEN }}
+      GH_TOKEN: ${{ github.token }}
+      PR_NUMBER: ${{ github.event.pull_request.number }}
+      HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+      VISUAL_RECAP_MODEL: ${{ vars.VISUAL_RECAP_MODEL }}
+      VISUAL_RECAP_REASONING: ${{ vars.VISUAL_RECAP_REASONING }}
+      VISUAL_RECAP_SKILL_SOURCE: ${{ vars.VISUAL_RECAP_SKILL_SOURCE || 'auto' }}
+    steps:
+      # Checkout the BASE repository at the BASE ref ONLY.
+      # - `repository:` is pinned to GITHUB_REPOSITORY (the base repo) to rule
+      #   out any scenario where the expression resolves to the fork.
+      # - `ref:` is the PR base branch, not the fork head — no fork code on disk.
+      # - `persist-credentials: false` keeps the token out of .git/config.
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          repository: ${{ github.repository }}
+          ref: ${{ github.event.pull_request.base.ref }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      # Fetch the fork head as a read-only remote ref so we can diff against it.
+      # Fetching commits is safe — we are not executing or installing from them.
+      # The ref lands at refs/recap/fork-head (not merged into any branch).
+      - name: Fetch fork head ref
+        env:
+          PR_NUMBER_ENV: ${{ github.event.pull_request.number }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          git fetch origin "pull/${PR_NUMBER_ENV}/head:refs/recap/fork-head"
+          # Verify the fetched tip matches the event's head SHA so a race
+          # between label application and a new push cannot swap the diff.
+          FETCHED_SHA="$(git rev-parse refs/recap/fork-head)"
+          if [ "$FETCHED_SHA" != "$HEAD_SHA" ]; then
+            echo "FATAL: fetched fork head $FETCHED_SHA != event HEAD_SHA $HEAD_SHA — aborting to prevent TOCTOU execution of unreviewed commits"
+            exit 1
+          fi
+          # Export the two endpoints for the collect-diff step.
+          echo "FORK_BASE_SHA=${BASE_SHA}" >> "$GITHUB_ENV"
+          echo "FORK_HEAD_SHA=${FETCHED_SHA}" >> "$GITHUB_ENV"
+
+      # Dogfood local source inside this monorepo, else the published package.
+      - name: Resolve recap CLI
+        id: cli
+        env:
+          RECAP_CLI_VERSION: ${{ vars.RECAP_CLI_VERSION || 'latest' }}
+        run: |
+          if [ -f packages/core/src/cli/index.ts ]; then
+            echo "RECAP_CLI=pnpm exec tsx packages/core/src/cli/index.ts" >> "$GITHUB_ENV"
+            echo "local=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "RECAP_CLI=npx -y @agent-native/core@${RECAP_CLI_VERSION}" >> "$GITHUB_ENV"
+            echo "local=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
+        if: steps.cli.outputs.local == 'true'
+
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "22"
+          cache: ${{ steps.cli.outputs.local == 'true' && 'pnpm' || '' }}
+
+      - name: Install workspace (local source only)
+        if: steps.cli.outputs.local == 'true'
+        run: pnpm install --frozen-lockfile --ignore-scripts
+
+      - name: Start visual recap check
+        id: recap_check
+        continue-on-error: true
+        run: |
+          set -uo pipefail
+          $RECAP_CLI recap check start --sha "$HEAD_SHA" --workflow-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+
+      # Collect a bounded diff between the base and the fetched fork head.
+      # FORK_BASE_SHA / FORK_HEAD_SHA reference the trusted local-object-store
+      # refs — no fork code is involved in the diff collection itself.
+      - name: Collect bounded diff (fork)
+        id: diff
+        run: |
+          set -euo pipefail
+          $RECAP_CLI recap collect-diff --base "$FORK_BASE_SHA" --head "refs/recap/fork-head" --out recap.diff --stat recap.stat
+
+      - name: Probe plan-app auth
+        id: auth_probe
+        if: steps.diff.outputs.tiny != 'true'
+        continue-on-error: true
+        run: |
+          set -uo pipefail
+          HTTP_STATUS=$(node -e '
+            const https = require("https");
+            const url = new URL("/_agent-native/actions/record-recap-usage", process.env.PLAN_RECAP_APP_URL || "https://plan.agent-native.com");
+            const req = https.request(url, { method: "POST", headers: { "authorization": "Bearer " + process.env.PLAN_RECAP_TOKEN, "content-type": "application/json" }, timeout: 8000 }, (res) => { process.stdout.write(String(res.statusCode)); req.destroy(); });
+            req.on("error", () => process.stdout.write("0"));
+            req.end(JSON.stringify({ planId: "__probe__" }));
+          ' 2>/dev/null || echo "0")
+          if [ "$HTTP_STATUS" = "401" ]; then
+            echo "auth_failed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "auth_failed=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      # Secret-scan the fork diff BEFORE the agent ever sees it.
+      # Fail CLOSED: any scanner error treats the diff as suppressed.
+      - name: Secret scan
+        id: scan
+        if: steps.diff.outputs.tiny != 'true'
+        run: |
+          set -uo pipefail
+          if ! SCAN_JSON="$($RECAP_CLI recap scan --diff recap.diff)"; then
+            SCAN_JSON='{"suppressed":true,"reason":"secret scan failed to run; failing closed"}'
+          fi
+          {
+            SCAN_DELIM="$(openssl rand -hex 16)"
+            echo "json<<${SCAN_DELIM}"
+            echo "$SCAN_JSON"
+            echo "${SCAN_DELIM}"
+          } >> "$GITHUB_OUTPUT"
+          SUPPRESSED=$(node -e 'try{process.stdout.write(JSON.parse(process.argv[1]).suppressed?"true":"false")}catch{process.stdout.write("true")}' "$SCAN_JSON")
+          echo "suppressed=$SUPPRESSED" >> "$GITHUB_OUTPUT"
+
+      - name: Read previous plan id
+        id: prev
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          PLAN_ID="$($RECAP_CLI recap comment find-plan-id --repo "$GITHUB_REPOSITORY" --issue "$PR_NUMBER" --token "$GH_TOKEN")"
+          echo "plan_id=$PLAN_ID" >> "$GITHUB_OUTPUT"
+
+      # Build the recap prompt with --fork-pr so the agent is explicitly told
+      # that the diff is attacker-controlled untrusted text, not instructions.
+      - name: Build recap prompt
+        id: prompt
+        if: steps.diff.outputs.tiny != 'true' && steps.scan.outputs.suppressed != 'true'
+        env:
+          PREV_PLAN_ID: ${{ steps.prev.outputs.plan_id }}
+          DIFF_HUGE: ${{ steps.diff.outputs.huge }}
+        run: |
+          set -euo pipefail
+          ARGS=(--diff recap.diff --stat recap.stat --pr "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --head "$HEAD_SHA" --app-url "$PLAN_RECAP_APP_URL" --skill-source "$VISUAL_RECAP_SKILL_SOURCE" --fork-pr --out recap-prompt.md)
+          if [ "${DIFF_HUGE:-}" = "true" ]; then ARGS+=(--huge); fi
+          if [ -n "${PREV_PLAN_ID:-}" ]; then ARGS+=(--prev-plan-id "$PREV_PLAN_ID"); fi
+          $RECAP_CLI recap build-prompt "${ARGS[@]}"
+
+      - name: Run agent (Claude Code)
+        id: claude
+        if: needs.gate.outputs.agent == 'claude' && steps.diff.outputs.tiny != 'true' && steps.scan.outputs.suppressed != 'true'
+        continue-on-error: true
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          set -uo pipefail
+          MCP_CONFIG="$RUNNER_TEMP/plan-mcp.json"
+          $RECAP_CLI recap mcp-config --agent claude --app-url "$PLAN_RECAP_APP_URL" --out "$MCP_CONFIG"
+          CLAUDE_ARGS=(-p "$(cat recap-prompt.md)" --mcp-config "$MCP_CONFIG" --allowedTools "Read,Write,Bash(git diff:*),mcp__plan__get-plan-blocks,mcp__plan__create-visual-recap,mcp__plan__set-resource-visibility" --permission-mode dontAsk --output-format json)
+          if [ -n "${VISUAL_RECAP_MODEL:-}" ]; then CLAUDE_ARGS+=(--model "$VISUAL_RECAP_MODEL"); fi
+          npx -y @anthropic-ai/claude-code@2 "${CLAUDE_ARGS[@]}" > claude-result.json || true
+          rm -f "$MCP_CONFIG" || true
+
+      - name: Run agent (Codex)
+        id: codex
+        if: needs.gate.outputs.agent == 'codex' && steps.diff.outputs.tiny != 'true' && steps.scan.outputs.suppressed != 'true'
+        continue-on-error: true
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          set -uo pipefail
+          $RECAP_CLI recap mcp-config --agent codex --app-url "$PLAN_RECAP_APP_URL"
+          printenv OPENAI_API_KEY | npx -y @openai/codex@0 login --with-api-key || true
+          CODEX_ARGS=(exec --dangerously-bypass-approvals-and-sandbox --skip-git-repo-check)
+          if [ -n "${VISUAL_RECAP_MODEL:-}" ]; then CODEX_ARGS+=(--model "$VISUAL_RECAP_MODEL"); fi
+          case "${VISUAL_RECAP_REASONING:-}" in
+            none|minimal|low|medium|high|xhigh)
+              CODEX_ARGS+=(-c "model_reasoning_effort=\"$VISUAL_RECAP_REASONING\"") ;;
+            "") ;;
+            *) echo "Ignoring invalid VISUAL_RECAP_REASONING: $VISUAL_RECAP_REASONING" ;;
+          esac
+          npx -y @openai/codex@0 "${CODEX_ARGS[@]}" --json "$(cat recap-prompt.md)" | tee codex-events.jsonl || true
+
+      - name: Read plan URL
+        id: url
+        if: steps.diff.outputs.tiny != 'true' && steps.scan.outputs.suppressed != 'true'
+        run: |
+          set -uo pipefail
+          PLAN_URL=""
+          if [ -f recap-url.txt ]; then PLAN_URL="$(tr -d '\r\n' < recap-url.txt | tr -d ' ')"; fi
+          CANONICAL_URL=$(PLAN_URL="$PLAN_URL" node <<'NODE'
+          try {
+            const raw = process.env.PLAN_URL || "";
+            const trusted = new URL(process.env.PLAN_RECAP_APP_URL || "https://plan.agent-native.com");
+            const parsed = /^https?:\/\//i.test(raw)
+              ? new URL(raw)
+              : new URL(raw, trusted);
+            if (parsed.origin !== trusted.origin) {
+              process.exit(0);
+            }
+
+            const base = trusted.pathname.replace(/\/$/, "");
+            const paths = [parsed.pathname];
+            if (base && parsed.pathname.startsWith(`${base}/`)) {
+              paths.push(parsed.pathname.slice(base.length) || "/");
+            }
+
+            for (const path of paths) {
+              const match = path.match(/^\/(?:plans|recaps)\/([A-Za-z0-9_-]+)\/?$/);
+              if (match) {
+                process.stdout.write(`${trusted.origin}${base}/recaps/${match[1]}`);
+                break;
+              }
+            }
+          } catch {
+            process.exit(0);
+          }
+          NODE
+          )
+          if [ -n "$CANONICAL_URL" ]; then
+            echo "plan_url=$CANONICAL_URL" >> "$GITHUB_OUTPUT"; echo "ok=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "plan_url=" >> "$GITHUB_OUTPUT"; echo "ok=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Attach usage
+        if: steps.url.outputs.ok == 'true'
+        continue-on-error: true
+        env:
+          PLAN_URL: ${{ steps.url.outputs.plan_url }}
+          RECAP_AGENT: ${{ needs.gate.outputs.agent }}
+        run: |
+          set -uo pipefail
+          RESULT=claude-result.json
+          if [ "$RECAP_AGENT" = "codex" ]; then RESULT=codex-events.jsonl; fi
+          if [ -f "$RESULT" ]; then $RECAP_CLI recap usage --plan-url "$PLAN_URL" --agent "$RECAP_AGENT" --result-file "$RESULT" --model "${VISUAL_RECAP_MODEL:-}" --app-url "$PLAN_RECAP_APP_URL" --token "$PLAN_RECAP_TOKEN" || true; fi
+
+      - name: Cache Playwright browsers
+        if: steps.url.outputs.ok == 'true'
+        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-1-${{ runner.os }}
+
+      - name: Screenshot + upload
+        id: shot
+        if: steps.url.outputs.ok == 'true'
+        continue-on-error: true
+        env:
+          PLAN_URL: ${{ steps.url.outputs.plan_url }}
+        run: |
+          set -uo pipefail
+          pnpm exec playwright install --with-deps chromium 2>/dev/null || npx -y playwright@1 install --with-deps chromium || true
+          SHOT_JSON="$($RECAP_CLI recap shot --url "$PLAN_URL" --token "$PLAN_RECAP_TOKEN" --app-url "$PLAN_RECAP_APP_URL" --out recap.png || echo '{}')"
+          IMAGE_URL=$(node -e 'try{process.stdout.write(JSON.parse(process.argv[1]).imageUrl||"")}catch{process.stdout.write("")}' "$SHOT_JSON")
+          echo "image_url=$IMAGE_URL" >> "$GITHUB_OUTPUT"
+          if [ -f recap.png ]; then echo "captured=true" >> "$GITHUB_OUTPUT"; else echo "captured=false" >> "$GITHUB_OUTPUT"; fi
+
+      - name: Upload recap screenshot artifact
+        if: steps.shot.outputs.captured == 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: pr-visual-recap-fork-${{ github.event.pull_request.number }}
+          path: recap.png
+          if-no-files-found: ignore
+          retention-days: 14
+
+      - name: Upsert sticky comment
+        if: always()
+        continue-on-error: true
+        env:
+          PLAN_URL: ${{ steps.url.outputs.plan_url }}
+          RECAP_IMAGE_URL: ${{ steps.shot.outputs.image_url }}
+          SUPPRESSED: ${{ steps.scan.outputs.suppressed }}
+          SUPPRESSED_JSON: ${{ steps.scan.outputs.json }}
+          DIFF_HUGE: ${{ steps.diff.outputs.huge }}
+          DIFF_TINY: ${{ steps.diff.outputs.tiny }}
+          PREV_PLAN_ID: ${{ steps.prev.outputs.plan_id }}
+          RECAP_AUTH_FAILED: ${{ steps.auth_probe.outputs.auth_failed }}
+        run: |
+          set -euo pipefail
+          ARGS=(recap comment upsert --repo "$GITHUB_REPOSITORY" --issue "$PR_NUMBER" --token "$GH_TOKEN")
+          if [ "${DIFF_TINY:-}" = "true" ]; then ARGS+=(--update-only); fi
+          $RECAP_CLI "${ARGS[@]}"
+
+      - name: Complete visual recap check
+        if: always() && steps.recap_check.outputs.check_run_id != ''
+        continue-on-error: true
+        env:
+          CHECK_RUN_ID: ${{ steps.recap_check.outputs.check_run_id }}
+          PLAN_OK: ${{ steps.url.outputs.ok }}
+          PLAN_URL: ${{ steps.url.outputs.plan_url }}
+          SUPPRESSED: ${{ steps.scan.outputs.suppressed }}
+          SUPPRESSED_JSON: ${{ steps.scan.outputs.json }}
+          DIFF_HUGE: ${{ steps.diff.outputs.huge }}
+          DIFF_TINY: ${{ steps.diff.outputs.tiny }}
+        run: |
+          set -uo pipefail
+          $RECAP_CLI recap check complete \
+            --check-run-id "$CHECK_RUN_ID" \
+            --plan-ok "$PLAN_OK" \
+            --plan-url "$PLAN_URL" \
+            --suppressed "$SUPPRESSED" \
+            --suppressed-json "$SUPPRESSED_JSON" \
+            --huge "$DIFF_HUGE" \
+            --tiny "$DIFF_TINY" \
+            --workflow-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"

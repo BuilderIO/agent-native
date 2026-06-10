@@ -6,7 +6,7 @@
     {
       "name": "agent-native-visual-plans",
       "displayName": "Agent-Native Plan",
-      "description": "Generate and review coding-agent plans as structured documents with inline diagrams, implementation maps, annotations, feedback, and HTML export.",
+      "description": "Generate and review coding-agent plans as structured documents with inline diagrams, annotated code walkthroughs, file trees, annotations, feedback, and HTML export.",
       "source": "./.agents/plugins/agent-native-visual-plans",
       "autoUpdate": true,
       "homepage": "https://plan.agent-native.com",

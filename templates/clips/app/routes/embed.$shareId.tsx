@@ -15,14 +15,6 @@ export function meta() {
   return [{ title: "Clip" }];
 }
 
-export function HydrateFallback() {
-  return (
-    <div className="flex items-center justify-center h-screen w-full bg-black">
-      <Spinner className="h-8 w-8 text-white/70" />
-    </div>
-  );
-}
-
 const STORAGE_KEY_PREFIX = "clips-share-pw-";
 
 /**

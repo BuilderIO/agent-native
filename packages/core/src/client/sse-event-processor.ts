@@ -14,12 +14,20 @@ export type ContentPart =
       result?: string;
       mcpApp?: AgentMcpAppPayload;
       activity?: boolean;
+      /**
+       * Structured metadata from the coding-tools executor side-channel.
+       * Present only on code-agent tool calls from executors new enough to
+       * emit it.  The `toolKind` discriminant identifies the shape.
+       */
+      structuredMeta?: Record<string, unknown>;
     };
 
 export interface SSEEvent {
   type: string;
   text?: string;
   tool?: string;
+  /** Server-assigned call identifier emitted on tool_start / tool_done events. */
+  id?: string;
   label?: string;
   input?: Record<string, string>;
   result?: string;
@@ -79,7 +87,27 @@ type ActivityTrailEntry = AgentActivityTrailEntry;
 function findPendingToolCallIndex(
   content: ContentPart[],
   toolName: string,
+  toolCallId?: string,
 ): number {
+  // Prefer id-based match when the event carries an id: parallel same-name
+  // calls can be in flight simultaneously, and name-only matching would
+  // attach a result to the wrong call.
+  if (toolCallId) {
+    for (let i = content.length - 1; i >= 0; i--) {
+      const part = content[i];
+      if (
+        part.type === "tool-call" &&
+        part.toolCallId === toolCallId &&
+        part.result === undefined
+      ) {
+        return i;
+      }
+    }
+    // Fall through to name-matching: the start event may have arrived before
+    // the server started emitting ids (e.g. older server build), so the
+    // stored toolCallId is the locally-generated "tc_N" value rather than the
+    // server-assigned one. In that case match by name as a fallback.
+  }
   for (let i = content.length - 1; i >= 0; i--) {
     const part = content[i];
     if (
@@ -342,7 +370,9 @@ export function processEvent(
         }),
       );
     }
-    const pendingToolCallIndex = findPendingToolCallIndex(content, tool);
+    // Pass the server-assigned id so we upgrade the pending activity card
+    // using id-match when available (parallel same-name calls stay separate).
+    const pendingToolCallIndex = findPendingToolCallIndex(content, tool, ev.id);
     const pendingToolCall =
       pendingToolCallIndex >= 0 ? content[pendingToolCallIndex] : undefined;
     if (
@@ -352,9 +382,13 @@ export function processEvent(
       pendingToolCall.argsText === "" &&
       Object.keys(pendingToolCall.args).length === 0
     ) {
+      // Upgrade the pending activity card in place. Prefer the server-assigned
+      // id so the subsequent tool_done can match it precisely (parallel
+      // same-name calls each carry their own id). Fall back to the
+      // locally-generated id already on the card.
       content[pendingToolCallIndex] = {
         type: "tool-call",
-        toolCallId: pendingToolCall.toolCallId,
+        toolCallId: ev.id ?? pendingToolCall.toolCallId,
         toolName: tool,
         argsText: JSON.stringify(args),
         args,
@@ -362,7 +396,7 @@ export function processEvent(
     } else {
       content.push({
         type: "tool-call",
-        toolCallId: `tc_${++toolCallCounter.value}`,
+        toolCallId: ev.id ?? `tc_${++toolCallCounter.value}`,
         toolName: tool,
         argsText: JSON.stringify(args),
         args,
@@ -386,16 +420,14 @@ export function processEvent(
         }),
       );
     }
-    for (let i = content.length - 1; i >= 0; i--) {
-      const part = content[i];
-      if (
-        part.type === "tool-call" &&
-        part.toolName === doneTool &&
-        part.result === undefined
-      ) {
+    // Use id-based lookup when available so parallel same-name tool calls
+    // get their results correctly assigned; fall back to name-matching.
+    const doneIdx = findPendingToolCallIndex(content, doneTool, ev.id);
+    if (doneIdx >= 0) {
+      const part = content[doneIdx];
+      if (part.type === "tool-call") {
         part.result = ev.result ?? "";
         if (ev.mcpApp) part.mcpApp = ev.mcpApp;
-        break;
       }
     }
     return {

@@ -128,7 +128,7 @@ export default defineAction({
     };
   },
   run: async (args) => {
-    if (!args.q) return "Error: --q is required";
+    if (!args.q) throw new Error("--q is required");
     const view = args.view ?? "all";
     const limit = args.limit ?? 25;
     const includeCounts = args.includeCounts === true;
@@ -176,7 +176,7 @@ export default defineAction({
       }
 
       emails = emails
-        .filter((e: any) => emailMessageMatchesSearch(e, args.q))
+        .filter((e: any) => emailMessageMatchesSearch(e, args.q ?? ""))
         .sort(
           (a: any, b: any) =>
             new Date(b.date).getTime() - new Date(a.date).getTime(),
@@ -200,7 +200,7 @@ export default defineAction({
     }
 
     const clients = await getClients(ownerEmail);
-    if (clients.length === 0) return "Error: No Google account connected.";
+    if (clients.length === 0) throw new Error("No Google account connected.");
 
     const gmailQuery = buildGmailEmailSearchQuery({ view, q: args.q });
 
@@ -222,7 +222,7 @@ export default defineAction({
       { mode: "threads", threadCandidateLimit: 500 },
     );
     if (errors.length > 0 && messages.length === 0) {
-      return `Error: ${errors.map((e) => `${e.email}: ${e.error}`).join("; ")}`;
+      throw new Error(errors.map((e) => `${e.email}: ${e.error}`).join("; "));
     }
 
     let emails = messages

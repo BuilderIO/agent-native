@@ -167,7 +167,7 @@ describe("testConnection", () => {
     const { resolveCredential } = await import("./credentials");
     vi.mocked(resolveCredential).mockImplementation(async (key: string) => {
       if (key === "PROMETHEUS_URL") return "http://prom.test";
-      return null;
+      return undefined;
     });
     const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
       new Response(JSON.stringify({ status: "success", data: [] }), {
@@ -190,7 +190,7 @@ describe("testConnection", () => {
     const { resolveCredential } = await import("./credentials");
     vi.mocked(resolveCredential).mockImplementation(async (key: string) => {
       if (key === "PROMETHEUS_URL") return "http://prom.test";
-      return null;
+      return undefined;
     });
     const fetchSpy = vi
       .spyOn(globalThis, "fetch")
@@ -206,7 +206,7 @@ describe("testConnection", () => {
 
   it("returns ok:false when PROMETHEUS_URL is missing", async () => {
     const { resolveCredential } = await import("./credentials");
-    vi.mocked(resolveCredential).mockResolvedValue(null);
+    vi.mocked(resolveCredential).mockResolvedValue(undefined);
 
     const { testConnection } = await import("./prometheus");
     const result = await testConnection();

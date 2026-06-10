@@ -8,15 +8,13 @@ import {
 } from "react-router";
 import { useCallback, useEffect, useState } from "react";
 import { useNavigationState } from "@/hooks/use-navigation-state";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { DeckProvider } from "@/context/DeckContext";
-import { TooltipProvider } from "@/components/ui/tooltip";
 import { Toaster } from "@/components/ui/toaster";
 import {
-  ClientOnly,
+  AppProviders,
   CommandMenu,
-  DefaultSpinner,
   appPath,
+  createAgentNativeQueryClient,
   enterStyleEditing as coreEnterStyleEditing,
   enterTextEditing as coreEnterTextEditing,
   exitSelectionMode as coreExitSelectionMode,
@@ -25,7 +23,7 @@ import {
 } from "@agent-native/core/client";
 import { Layout as AppLayout } from "@/components/layout/Layout";
 import { IconSun, IconMoon } from "@tabler/icons-react";
-import { ThemeProvider, useTheme } from "next-themes";
+import { useTheme } from "next-themes";
 import { useQueryClient } from "@tanstack/react-query";
 import type { LinksFunction } from "react-router";
 import stylesheet from "./global.css?url";
@@ -188,7 +186,7 @@ function AppContent() {
 }
 
 export default function Root() {
-  const [queryClient] = useState(() => new QueryClient());
+  const [queryClient] = useState(() => createAgentNativeQueryClient());
   const location = useLocation();
 
   if (BARE_PREFIXES.some((p) => location.pathname.startsWith(p))) {
@@ -196,26 +194,13 @@ export default function Root() {
   }
 
   return (
-    <ClientOnly fallback={<DefaultSpinner />}>
-      <ThemeProvider
-        attribute="class"
-        defaultTheme="dark"
-        enableSystem
-        disableTransitionOnChange
-      >
-        <QueryClientProvider client={queryClient}>
-          <TooltipProvider>
-            <AppContent />
-            {/* Global Toaster — sibling of AppContent so toasts render on
-                every route (including bare /slide, /share/*, presentation
-                mode) and across both the editor and the home shell.
-                Without this mount, every toast() call queues but nothing
-                appears in the DOM (caught by browser tests TC-06–10). */}
-            <Toaster />
-          </TooltipProvider>
-        </QueryClientProvider>
-      </ThemeProvider>
-    </ClientOnly>
+    <AppProviders queryClient={queryClient} defaultTheme="dark">
+      <AppContent />
+      {/* useToast-based Toaster — separate from AppProviders' sonner Toaster.
+          Components throughout the app call toast() from @/hooks/use-toast,
+          which requires this Toaster to be mounted. */}
+      <Toaster />
+    </AppProviders>
   );
 }
 

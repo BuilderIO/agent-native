@@ -38,7 +38,7 @@ Usage:
   agent-native skills status [assets|design-exploration|visual-plan|visual-recap|context-xray] [--client codex|claude-code|all] [--scope user|project] [--json]
   agent-native skills update [assets|design-exploration|visual-plan|visual-recap|context-xray] [--client codex|claude-code|all] [--scope user|project] [--dry-run] [--json]
   agent-native skills add assets|design-exploration|visual-plan|visual-recap|context-xray [--client codex|claude-code|claude-code-cli|cowork|all] [--scope user|project] [--mcp-url <url>] [--no-connect] [--with-github-action] [--yes] [--dry-run] [--json]
-  agent-native skills add <manifest-or-app-dir> [--client ...] [--yes]
+  agent-native skills add <manifest-or-app-dir|skill-repo> [--skill <name>] [--client ...] [--yes]
 
 Examples:
   agent-native skills add assets
@@ -52,6 +52,8 @@ Examples:
   agent-native skills add assets --client claude-code
   agent-native skills add assets --mcp-url https://my-app.ngrok-free.dev
   agent-native skills add ./dist/assets-skill --client codex
+  agent-native skills add BuilderIO/skills --client codex --scope project
+  agent-native skills add BuilderIO/skills --with-github-action
 
 The add command installs the SKILL.md instructions, registers the app-backed
 MCP connector, and then authenticates it in one step so you do not hit an OAuth
@@ -61,8 +63,8 @@ prompt, while Codex / Cowork run the browser device-code flow. In a
 non-interactive shell or CI the auth step is skipped and the exact
 "agent-native connect <url>" command is printed instead.
 
-Running "npx skills add ..." directly installs instructions only; use this Agent
-Native CLI path when you want MCP setup and auth too. Pass --no-connect to
+Running "npx @agent-native/skills add ..." directly installs instructions only;
+use this Agent Native CLI path when you want MCP setup and auth too. Pass --no-connect to
 register the connector without authenticating (leave auth to the host or run
 "agent-native connect" later). Pass --mcp-url to register that connector against
 a custom origin (an ngrok tunnel, a local dev server, or a self-hosted
@@ -231,11 +233,11 @@ iteration, or a human-in-the-loop choice among design directions.
 `;
 
 /**
- * Shared setup/auth block for every Plans skill (`/visual-plan`,
- * `/visual-recap`). Interpolated into each skill markdown
- * so the install + one-step authenticate instructions never drift between them.
- * Keep this in sync with the copies under `templates/plan/.agents/skills/*` and
- * top-level `skills/*` (this skill's SKILL.md is triplicated with no sync test).
+ * Setup/auth block for the `/visual-plan` skill. Interpolated into
+ * `VISUAL_PLANS_SKILL_MD` below so the install + one-step authenticate
+ * instructions are single-sourced. The materialized SKILL.md copies under
+ * `templates/plan/.agents/skills/*`, top-level `skills/*`, and
+ * `.agents/skills/*` are guarded byte-identical by `skills.sync.spec.ts`.
  */
 const PLAN_SETUP_AUTH_MD = `## Setup & Authentication
 
@@ -251,11 +253,10 @@ agent-native skills add visual-plan
 \`\`\`
 
 After that, \`/visual-plan\` and \`/visual-recap\` are the two installed slash
-commands. Other planning modes — UI-first (\`create-ui-plan\`), prototype-first
-(\`create-prototype-plan\`), design-first (\`create-plan-design\`), and visual
-intake (\`create-visual-questions\`) — are MCP tools reachable from \`/visual-plan\`,
-not separate slash commands. Pass \`--no-connect\` to register the connector
-without authenticating, then run
+commands. The other planning modes (\`create-ui-plan\`, \`create-prototype-plan\`,
+\`create-plan-design\`, \`create-visual-questions\`) are MCP tools reachable from
+\`/visual-plan\`, not separate slash commands. Pass \`--no-connect\` to register
+the connector without authenticating, then run
 \`agent-native connect https://plan.agent-native.com\` whenever you are ready.
 
 **Browser (people you share with).** Open the Plans editor and create & edit
@@ -299,8 +300,8 @@ const WIREFRAME_QUALITY_CORE = `<!-- SHARED-CORE:wireframe-quality START -->
 content.** Set \`data.html\` to a self-contained, semantic HTML fragment of the
 screen and set \`data.surface\`. The renderer owns the surface footprint/aspect,
 the dark/light theme, the hand-drawn font, and the rough.js sketch overlay — you
-never write \`<html>\`/\`<body>\`/\`<script>\`/\`<style>\` tags, font-family, hex colors,
-or any width/height/coordinates. You write real HTML layout and real product
+never write \`<html>\`/\`<body>\`/\`<script>\`/\`<style>\` tags or any
+width/height/coordinates. You write real HTML layout and real product
 content; the renderer styles and roughens it.
 
 **A wireframe block's data is an HTML screen plus a surface:**
@@ -393,7 +394,7 @@ skeleton register automatically. Never escape to a \`custom-html\` document bloc
 to fake a loader.
 
 **Editing an existing mockup.** To change one element, text, or color in an
-existing html mockup, do NOT regenerate the frame — call \`update-visual-plan\`
+existing html mockup, call \`update-visual-plan\`
 with \`contentPatches: [{ op: "patch-wireframe-html", blockId, edits: [{ find,
 replace }] }]\`. Each \`find\` is a unique snippet of the current html (read it
 first with \`get-visual-plan\`); set \`all: true\` on an edit to replace every
@@ -451,15 +452,18 @@ the same frame size, scale, outer padding, border radius, and visual density on
 both sides unless the change itself alters those properties, and let the frame
 height fit the content rather than leaving a tall empty lower half.
 
-**Name the states with the column header, never inside the frame.** Put the two
+**Name the states with the column header, never inside the frame.** For
+document-body wireframes (recaps), put the two
 states in a \`columns\` block and set each column's \`label\` to \`Before\` and
 \`After\` — the renderer draws that label as an \`h4\` heading above each frame. Do
 NOT bake a \`Before\`/\`After\` pill, title, or heading into the wireframe \`html\`: a
 label placed inside reads as part of the product UI, lands in a random corner,
 and clutters the comparison. The column header is the one and only place the
-state name belongs.
+state name belongs. On a canvas, place the two state artboards as neighbors with
+frame labels — never encode Before/After inside the html.
 
-**Let the surface choose side-by-side vs. stacked.** The \`columns\` renderer lays
+**Let the surface choose side-by-side vs. stacked.** For document-body
+wireframes (recaps), the \`columns\` renderer lays
 narrow surfaces (\`mobile\`, \`popover\`, \`panel\`) out side by side, and
 automatically stacks wide surfaces (\`desktop\`, \`browser\`) vertically at full
 document width so a large frame is never crushed into a half-width column and
@@ -547,11 +551,10 @@ and \`/visual-recap\`. Do not author wireframes from memory.`;
 // (visual-recap renders standalone wireframes, not a canvas).
 const CANVAS_SURFACE_CORE = `<!-- SHARED-CORE:canvas-surface START -->
 
-**Artboard placement is locked by the \`surface\`, not by coordinates.** The
-surface locks the footprint and aspect; never set artboard width/height and
-never use coordinates inside the wireframe HTML. Let canvas auto-placement
-handle simple one-row boards. For mixed-footprint canvases, board-level artboard
-\`x\`/\`y\` is allowed and expected when it creates clear lanes.
+**The coordinate rule.** The \`surface\` locks each artboard's footprint and
+aspect — never set artboard width/height and never use coordinates inside the
+wireframe HTML; board-level artboard \`x\`/\`y\` IS allowed when it creates clear
+lanes. Let canvas auto-placement handle simple one-row boards.
 
 **Lay out mixed canvases in lanes.** When a canvas contains broad browser /
 desktop frames plus compact \`mobile\`, \`popover\`, or \`panel\` surfaces, do not put
@@ -612,9 +615,9 @@ prototype. When the user asks for a mockup, UI state, loading state, layout,
 screen, or visual comparison, make the canvas the primary home for that static
 visual. When the user asks for a prototype or the plan contains a sequence the
 reviewer must feel, keep the canvas artboards and add \`content.prototype\` so the
-top surface shows Wireframes / Prototype tabs. Architecture/code diagrams are
-different: keep them inline in the document, close to the recommendation they
-support, unless the user explicitly asks for a spatial board. Document blocks
+top surface shows Wireframes / Prototype tabs. Architecture/code diagrams stay
+inline in the document (the SKILL.md Visual Surface Choice section owns that
+rule) unless the user explicitly asks for a spatial board. Document blocks
 can explain, compare, or map implementation, but they should not host the
 primary UI mockup or prototype just because \`custom-html\`, screenshots, or prose
 are easier to produce. If the canvas/prototype surface cannot represent the
@@ -627,11 +630,9 @@ nodes instead of \`html\`; the renderer still accepts and displays it, but new
 plans emit \`html\`. Do not author fresh kit-tree screens - write the HTML mockup
 instead. Likewise, old or imported plans may carry coordinate-based regions or
 free-float x/y on notes; those are legacy escape hatches the renderer still
-shows but you must never produce. The \`surface\` drives each artboard's aspect
-and footprint, and the gutter parks notes by \`targetId\` + \`placement\`. The only
-new-plan coordinate exception is deliberate board-level artboard \`x\`/\`y\` for
-multi-lane mixed-surface canvases; never supply artboard width/height, note
-coordinates, or wireframe-internal coordinates.
+shows but you must never produce. The gutter parks notes by \`targetId\` +
+\`placement\`, and the coordinate rule at the top of this file governs all
+new-plan placement.
 
 <!-- SHARED-CORE:canvas-surface END -->`;
 
@@ -653,25 +654,14 @@ static inspection, plus prototype tabs when the flow should be functional. The
 document carries the technical depth the visuals cannot show — concrete
 file/symbol maps, API and data contracts, code snippets, migration or
 implementation phases, risks, and validation. For architecture/code reviews,
-invert that: the document is the visual surface, and each recommendation should
-carry its own nearby inline \`diagram\` / \`data-model\` block plus file evidence
-and terse Problem/Solution/Why text. For architecture/code diagrams, prefer
-standard two-dimensional layouts: paired before/after panels, layered diagrams,
-swimlanes, dependency maps, matrices, or grouped regions. Do not default to
-left-to-right chains; use a line only when the relationship is truly a sequence.
-Use native \`diagram\` blocks with \`data.html\` / \`data.css\` for these richer
-layouts; the fragment may use semantic HTML and inline SVG, and the renderer
-applies the viewer's sketch/clean style. Leave room for the sketch font: keep
-labels short, give nodes generous width, and place boundary/annotation labels in
-unused space instead of over nodes. For small text/SVG changes to an existing
-HTML diagram, use \`patch-diagram-html\` with a unique \`find\`/\`replace\` snippet
-instead of resending the whole \`data.html\` string. Legacy \`nodes\` / \`edges\` are
-only for tiny previews or genuinely linear step flows. Repeat a wireframe in the document only
-for a genuinely new detail view or comparison. Skip the visual surface entirely
-for non-visual work and write a clean rich document. For a simple binary UI
-visual choice, show the two directions in the canvas only; do not repeat the
-same options as body wireframes or prose. Put the actual
-choice in the bottom "Open Questions" form.
+invert that: the document is the visual surface, and each recommendation
+carries its own nearby inline \`diagram\` / \`data-model\` block plus file
+evidence (the \`diagram\` bullet below owns how to author those diagrams).
+Repeat a wireframe in the document only for a genuinely new detail view or
+comparison. Skip the visual surface entirely for non-visual work and write a
+clean rich document. For a simple binary UI visual choice, show the two
+directions in the canvas only; do not repeat the same options as body
+wireframes or prose. Put the actual choice in the bottom "Open Questions" form.
 
 **Use the right block, and make it carry substance.** For the authoritative,
 machine-checked list of block types and their data schemas, call \`get-plan-blocks\`
@@ -705,7 +695,11 @@ so you never emit a block the editor cannot render or round-trip:
   each side needs real nested blocks; label the columns clearly and avoid
   stacking comparison blocks vertically when parallel reading is the point.
 - \`diagram\` for two-dimensional architecture, dependency, data-flow, or state
-  relationships, only when it clarifies something real. For architecture/code
+  relationships, only when it clarifies something real. Prefer standard
+  two-dimensional layouts — paired before/after panels, layered diagrams,
+  swimlanes, dependency maps, matrices, or grouped regions; do not default to
+  left-to-right chains, and use a line only when the relationship is truly a
+  sequence. For architecture/code
   diagrams, prefer \`data.html\` / \`data.css\` with semantic HTML and inline SVG so
   the diagram can use panels, layers, matrices, arrows, annotations, and
   responsive layout directly. Author diagram HTML with renderer-owned primitives
@@ -715,12 +709,16 @@ so you never emit a block the editor cannot render or round-trip:
   \`--wf-paper\`, \`--wf-card\`, \`--wf-accent\`, \`--wf-accent-soft\`, \`--wf-warn\`, and
   \`--wf-ok\`, and switch to Excalifont plus rough.js outlines in sketchy mode. Do not
   set \`font-family\` and do not hard-code hex, rgb, or hsl colors in diagram HTML
-  or CSS. Use legacy \`nodes\` / \`edges\` only for small previews or truly
+  or CSS. Leave room for the sketch font: keep labels short, give nodes generous
+  width, and place boundary/annotation labels in unused space instead of over
+  nodes; labels must not overlap nodes, connectors, or each other. For small
+  text/SVG changes to an existing HTML diagram, use \`patch-diagram-html\` with a
+  unique \`find\`/\`replace\` snippet instead of resending the whole \`data.html\`
+  string. Use legacy \`nodes\` / \`edges\` only for small previews or truly
   sequential flows. In architecture/code plans, prefer a repeated section rhythm:
   recommendation title, confidence and category badges, code-path evidence, a
   local before/after or current/target spatial diagram, then concise
-  Problem/Solution/Why text. Labels must not overlap nodes, connectors, or each
-  other.
+  Problem/Solution/Why text.
 - \`tabs\` for multiple states, directions, or comparisons. A tab that reveals
   only prose usually means the plan is under-specified — include a relevant
   visual unless the tab is intentionally document-only.
@@ -844,8 +842,8 @@ ${EXEMPLAR_CORE}
 // cores in the SKILL.md body. Authoring detail lives in the sibling reference
 // files so the SKILL.md stays lean (progressive disclosure); the agent loads the
 // detail on demand.
-const CANVAS_REFERENCE_POINTER = `The canvas is the single source of truth for static UI mockups: artboard
-placement is locked by the \`surface\` (never coordinates), mixed surfaces lay out
+const CANVAS_REFERENCE_POINTER = `The canvas is the single source of truth for static UI mockups: the \`surface\`
+locks each artboard's footprint, mixed surfaces lay out
 in lanes, annotations are plain-text designer notes anchored by
 \`targetId\`/\`placement\`, and edits are surgical \`contentPatches\`. Before
 authoring or editing ANY canvas, artboard, or annotation, READ
@@ -866,9 +864,10 @@ directory before authoring a plan.`;
 export const VISUAL_PLANS_SKILL_MD = `---
 name: visual-plan
 description: >-
-  Use Agent-Native Plans when coding-agent work needs an interactive structured
-  plan document with inline diagrams, implementation maps, optional UI/product
-  wireframes or prototypes, annotations, and comments.
+  Use Agent-Native Plans when coding-agent work needs a reviewable plan
+  published as an interactive document — inline diagrams, annotated code
+  walkthroughs, file trees, optional UI wireframes or prototypes, open-question
+  forms, and comments — before implementation starts.
 metadata:
   visibility: exported
 ---
@@ -879,10 +878,9 @@ Agent-Native Plans is structured visual planning mode for coding agents. Build
 the plan you would normally write in Markdown, but as a scannable document with
 editable blocks mixed in: inline diagrams, code snippets,
 open questions, and an optional top visual review area (wireframe canvas, live
-prototype, or both in tabs). Architecture, backend, data, and refactor plans
-usually start in the document with local diagrams near each claim. UI and product
-plans should still start with the top canvas/prototype when screens or behavior
-are what the user needs to review.
+prototype, or both in tabs). Architecture and backend plans stay document-only;
+UI and product plans start with the top canvas/prototype (the Visual Surface
+Choice section owns that rule).
 
 \`/visual-plan\` is the packaged command and main entry point. Choose the review
 mode from the task: UI-first when the work is primarily product UI and review
@@ -933,9 +931,9 @@ plan needs a richer review surface.
   ambiguity would change the design and you cannot resolve it from the code; use
   the host agent's normal ask-user-question flow and batch 2-4 high-leverage
   questions before finalizing. Do not call \`create-visual-questions\` from
-  \`/visual-plan\`; keep any answerable follow-up inside the plan itself as a
-  bottom \`question-form\` Open Questions block. Otherwise state the assumption
-  explicitly and proceed, and put anything unresolved in an open-questions block.
+  \`/visual-plan\`. Otherwise state the assumption explicitly and proceed, and
+  keep anything unresolved in the plan's single bottom \`question-form\` Open
+  Questions block.
 - **The plan is the approval gate.** After surfacing it, ask the user to review
   and approve before you write code, and name which files/areas the work touches.
   Presenting the plan and requesting sign-off is the approval step — do not ask a
@@ -944,36 +942,19 @@ plan needs a richer review surface.
   update the plan with \`update-visual-plan\` rather than only changing course in
   chat, and re-read the approved plan before major steps.
 
-## Local-Files Privacy Mode
+## Always Publish As An Agent-Native Plan — Never Inline
 
-Use local-files privacy mode when the user explicitly asks for no DB writes,
-no hosted Plan app, no Plan MCP publish, fully local files, offline/private
-planning, or when \`AGENT_NATIVE_PLANS_MODE=local-files\` is set. In this mode the
-plan data must never be sent to the Plan MCP server or Plan app action surface.
-
-The local-files contract is:
-
-- Read source context from local files and shell commands only.
-- Write the plan as a local MDX folder under \`plans/<slug>/\`: \`plan.mdx\`,
-  optional \`canvas.mdx\`, optional \`prototype.mdx\`, and optional
-  \`.plan-state.json\`.
-- Run \`agent-native plan local preview --dir plans/<slug> --kind plan\` after
-  writing or updating the folder. Report the returned local URL or the
-  \`/local-plans/<slug>\` route if the local Plan app is running with the same
-  \`PLAN_LOCAL_DIR\`.
-- Do **not** call \`create-visual-plan\`, \`create-ui-plan\`,
-  \`create-prototype-plan\`, \`create-plan-design\`, \`import-visual-plan-source\`,
-  \`update-visual-plan\`, \`patch-visual-plan-source\`, \`get-plan-feedback\`,
-  \`export-visual-plan\`, or any hosted Plan tool for that plan.
-- Treat feedback as file or chat feedback: update the MDX files directly, rerun
-  the local preview command, and summarize the new local URL/path. Hosted
-  comments, sharing, history, and publish/export receipts are unavailable until
-  the user explicitly opts into publishing.
-
-Local-files mode prevents plan content from going to the Agent-Native Plan
-database. It does not by itself make the coding agent's language model local;
-for that stronger privacy boundary, the host agent/model must also be local or
-otherwise approved by the user.
+The deliverable is ALWAYS a published Agent-Native Plan created via the Plan
+MCP connector (\`plan\` server, or legacy \`agent-native-plans\`). NEVER hand the
+plan over as inline chat content — no Markdown prose, ASCII sketch, table, or
+fenced wireframe. If the connector's tools are missing, do NOT fall back to
+inline output: the usual cause is a connector that did not finish connecting
+this session (it registers zero tools), not auth. Stop and give the user the
+exact restore step — reconnect via \`/mcp\` (or restart the session); only if
+genuinely unauthenticated, run
+\`agent-native connect https://plan.agent-native.com\`. Publish once the tool is
+reachable. Local-files privacy mode (after Tool Guidance) is the only
+exception.
 
 ## Core Workflow
 
@@ -982,26 +963,29 @@ otherwise approved by the user.
    clarifying questions as needed before generating the plan. If a source plan
    already exists, gather its exact text from the user's paste, a referenced
    file, or recent visible agent context; do not invent source text.
-2. Decide whether the plan needs a top visual surface with the rules below, then call
-   \`create-visual-plan\` with the title, brief, source, repo path, and structured
-   \`content\` blocks. When a source plan already exists, pass it as \`planText\`
-   and preserve the original plan's intent while adding structured review
-   content.
-3. Compose or enrich any top UI/product visual surface from the kit and write the
-   document with native blocks (see the cores below). Keep the document close to
-   the Markdown plan the agent would normally output, or to the existing plan
-   when one was provided. For architecture, backend, refactor, API, data-model,
-   migration, or code plans, usually omit \`content.canvas\` and
-   \`content.prototype\`; put \`diagram\`, \`mermaid\`, \`api-endpoint\`,
-   \`openapi-spec\`, \`data-model\`, \`diff\`, \`file-tree\`, \`json-explorer\`,
-   \`code\` and \`annotated-code\` blocks directly next
-   to the relevant prose. Skip the top visual surface for non-visual work.
+2. Call \`get-plan-blocks\` for the authoritative block catalog — do not author
+   from memorized tags. Then call the mode-matched create tool:
+   \`create-visual-plan\` for document-first plans (architecture, backend, data,
+   refactor, API), \`create-ui-plan\` for UI-first plans, \`create-prototype-plan\`
+   for prototype-first plans, \`create-plan-design\` for design-first plans,
+   \`create-visual-questions\` only when the user explicitly asks for a visual
+   intake questionnaire. When a source plan already exists,
+   pass it as \`planText\` and preserve the original plan's intent while adding
+   structured review content.
+3. Compose or enrich any top UI/product visual surface and write the document
+   with native blocks (see \`references/canvas.md\` and
+   \`references/document-quality.md\`). Keep the document close to the Markdown
+   plan the agent would normally output, or to the existing plan when one was
+   provided. For non-visual plans, skip the top visual surface (Visual Surface
+   Choice below owns the rule) and put \`diagram\`, \`data-model\`,
+   \`api-endpoint\`, \`diff\`, \`file-tree\`, \`code\`, and \`annotated-code\` blocks
+   directly next to the relevant prose.
 4. Surface the returned Plans link or inline MCP App and ask the user to review.
    Always include the actual URL in chat so the next step is a click in CLI or
    other text-only hosts. When the host exposes an embedded browser/preview panel
    and a tool can open arbitrary URLs there, open the returned plan URL
-   automatically for convenient review; do not rely on this as the only handoff.
-   Treat that browser open as a convenience and smoke test, not as the access
+   automatically for convenient review — a convenience and smoke test, never the
+   only handoff or the access
    model. Plans should load out of the box for the local agent and local browser
    session; if a signed-in embedded browser cannot read a local plan that an
    anonymous/tool check can read, fix the app/action ownership or access path
@@ -1108,8 +1092,8 @@ ${EXEMPLAR_REFERENCE_POINTER}
   into a prototype plan.
 - \`create-visual-questions\`: use only when the user explicitly asks for a visual
   intake questionnaire, not as \`/visual-plan\` preflight.
-- \`update-visual-plan\`: revise content, status, or comments; prefer
-  \`contentPatches\` over regenerating the whole plan.
+- \`update-visual-plan\`: revise content, status, or comments with targeted
+  \`contentPatches\` (see Core Workflow step 6).
 - \`read-visual-plan-source\`: read the normalized plan as \`plan.mdx\`,
   optional \`canvas.mdx\`, optional \`.plan-state.json\`, and JSON.
 - \`patch-visual-plan-source\`: apply granular MDX AST patches by stable block,
@@ -1128,6 +1112,37 @@ ${EXEMPLAR_REFERENCE_POINTER}
 
 When the user critiques a plan's look or structure, fix the renderer or this
 skill — never hand-edit one stored plan. Turn feedback into better guidance.
+
+## Local-Files Privacy Mode
+
+Use local-files privacy mode when the user explicitly asks for no DB writes,
+no hosted Plan app, no Plan MCP publish, fully local files, offline/private
+planning, or when \`AGENT_NATIVE_PLANS_MODE=local-files\` is set. In this mode the
+plan data must never be sent to the Plan MCP server or Plan app action surface.
+
+The local-files contract is:
+
+- Read source context from local files and shell commands only.
+- Write the plan as a local MDX folder under \`plans/<slug>/\`: \`plan.mdx\`,
+  optional \`canvas.mdx\`, optional \`prototype.mdx\`, and optional
+  \`.plan-state.json\`.
+- Run \`agent-native plan local preview --dir plans/<slug> --kind plan\` after
+  writing or updating the folder. Report the returned local URL or the
+  \`/local-plans/<slug>\` route if the local Plan app is running with the same
+  \`PLAN_LOCAL_DIR\`.
+- Do **not** call \`create-visual-plan\`, \`create-ui-plan\`,
+  \`create-prototype-plan\`, \`create-plan-design\`, \`import-visual-plan-source\`,
+  \`update-visual-plan\`, \`patch-visual-plan-source\`, \`get-plan-feedback\`,
+  \`export-visual-plan\`, or any hosted Plan tool for that plan.
+- Treat feedback as file or chat feedback: update the MDX files directly, rerun
+  the local preview command, and summarize the new local URL/path. Hosted
+  comments, sharing, history, and publish/export receipts are unavailable until
+  the user explicitly opts into publishing.
+
+Local-files mode prevents plan content from going to the Agent-Native Plan
+database. It does not by itself make the coding agent's language model local;
+for that stronger privacy boundary, the host agent/model must also be local or
+otherwise approved by the user.
 
 ## Interpreting comment anchors
 
@@ -1166,46 +1181,7 @@ by email or role. Gate visibility before sharing any plan that covers
 unreleased or private work — default to the narrowest scope that meets the
 review need.
 
-## Setup & Authentication
-
-There are two ways into Plans.
-
-**Coding agent (CLI).** Install once with the Agent-Native CLI. The command
-installs the Plans skills, registers the hosted Plans MCP connector, and
-authenticates it in the same step (a one-time browser sign-in at setup — this is
-intended), so the first tool call does not hit an OAuth wall:
-
-\`\`\`bash
-agent-native skills add visual-plan
-\`\`\`
-
-After that, \`/visual-plan\` and \`/visual-recap\` are the two installed slash
-commands. Other planning modes — UI-first (\`create-ui-plan\`), prototype-first
-(\`create-prototype-plan\`), design-first (\`create-plan-design\`), and visual
-intake (\`create-visual-questions\`) — are MCP tools reachable from \`/visual-plan\`,
-not separate slash commands. Pass \`--no-connect\` to register the connector
-without authenticating, then run
-\`agent-native connect https://plan.agent-native.com\` whenever you are ready.
-
-**Browser (people you share with).** Open the Plans editor and create & edit
-with no sign-up — you work as a guest. Sign in only when you want to save or
-share; signing in claims the plans you made as a guest into your account.
-
-Sharing and commenting require an account: public/shared plans are viewable by
-anyone with the link, but commenting on them needs an agent-native account.
-
-For fully offline, no-account use, run the Plans app locally and sync plans to
-your repo as MDX. This local mode is a separate advanced path, not the default
-hosted flow.
-
-If a Plans tool returns \`needs auth\`, \`Unauthorized\`, or \`Session terminated\`,
-do not keep retrying the tool. Authenticate the connector with
-\`agent-native connect https://plan.agent-native.com\` (OAuth-capable hosts can
-instead re-run /mcp and choose Authenticate), then continue once the connector
-is available.
-
-Hosted default: connect \`https://plan.agent-native.com/_agent-native/mcp\`. Do
-not put shared secrets in skill files.
+${PLAN_SETUP_AUTH_MD}
 `;
 
 export const VISUAL_RECAP_SKILL_MD = `---
@@ -1323,7 +1299,8 @@ Do not add boilerplate intro, disclaimer, provenance, or summary prose blocks to
 the generated plan body. In particular, do not create a \`rich-text\` block just to
 say the recap is an aid, that the reviewer should still review the diff, how many
 files changed, or which ref/working tree generated the recap. The plan title,
-brief, \`file-tree\`, and optional \`diffstat\` already carry that context.
+brief, and \`file-tree\` (which carries the per-file change stats) already carry
+that context.
 
 Only add prose blocks when they tell the reviewer something specific about the
 change that the structured blocks do not: the objective, a real compatibility
@@ -1355,6 +1332,34 @@ Skip the diff appendix only for a genuinely tiny change that reviews faster as
 plain diff (see "When To Use"); for any change worth recapping, the file-tree and
 key-change diffs belong in the plan.
 
+## Canonical Shape And Budgets
+
+A strong recap follows one skeleton, top to bottom:
+
+1. UI-impact headline — wireframes first, when the diff changed rendered UI.
+2. Short outcome narrative (\`rich-text\`): what changed and why, 1-3 paragraphs.
+3. \`data-model\` / \`api-endpoint\` blocks for schema and contract changes.
+4. \`file-tree\` of the changed files with \`change\` flags.
+5. \`## Key changes\` — one horizontal \`tabs\` block of \`diff\` / \`annotated-code\`.
+
+Budgets that keep the recap reviewable:
+
+- 3-8 key-change tabs. Fewer than 3 on a large change under-serves the
+  reviewer; more than 8 stops being a summary.
+- Keep each diff/annotated-code excerpt focused — prefer under ~150 lines per
+  tab; summarize or link the rest of a long file instead of dumping it.
+- Title at most ~70 characters; brief 1-3 sentences.
+
+**GOOD.** A 25-file auth change: Before/After wireframes of the login surface,
+a two-paragraph narrative, a diff-aware \`data-model\` of the sessions table, an
+\`api-endpoint\` for the new refresh route, a \`file-tree\` with change flags, and
+\`## Key changes\` with five focused tabs, each with a one-line \`summary\` and a
+few annotations on the load-bearing hunks.
+
+**BAD.** One giant unsegmented diff dump with no summaries or annotations; or a
+sparse three-block recap of a 40-file change (one wireframe, one sentence, one
+file list) that forces the reviewer back into the raw diff anyway.
+
 ## UI Impact Needs Wireframes
 
 When the diff changes rendered UI, layout, density, visual state, interaction
@@ -1385,8 +1390,8 @@ Choose the smallest visual surface that makes the review clear:
 
 - Use a \`Before\` / \`After\` wireframe pair when the reviewer benefits from direct
   comparison, such as a removed or added control, a changed state, layout
-  density, ordering, navigation, or a visible component replacement. The
-  Wireframe Quality core below owns how to lay that pair out (columns vs.
+  density, ordering, navigation, or a visible component replacement.
+  \`references/wireframe.md\` owns how to lay that pair out (columns vs.
   vertical stack by geometry).
 - Use an after-only wireframe when the change is purely additive or the "before"
   state would only show absence without adding review value.
@@ -1422,10 +1427,12 @@ wireframes, keep \`renderMode\` unset or \`wireframe\` unless a design-only edit
 mockup is explicitly required, because \`renderMode="design"\` disables the
 sketchy rough overlay.
 
-Before sharing a UI-impact recap, render it in the Plan viewer and inspect it at
-the current theme. If any label, annotation, toolbar, or wireframe content
-overlaps another element, fix the MDX and re-import before reporting the link. A
-text-match screenshot is not enough; visually inspect the captured image.
+When a browser tool is available, render a UI-impact recap in the Plan viewer
+and visually inspect it at the current theme before sharing. If any label,
+annotation, toolbar, or wireframe content overlaps another element, fix the MDX
+and re-import before reporting the link. A text-match screenshot is not enough;
+visually inspect the captured image. When no browser is available (for example
+a headless CI agent), state that in the recap handoff instead.
 
 ## Open And Report The Recap
 
@@ -1555,14 +1562,10 @@ tags — resolve every conceptual name to its exact tag + prop schema with the
   quick graph. Use two-dimensional layouts; do not reduce a structural change to
   a left-to-right chain. Do not use \`diagram\` as a stand-in for rendered UI
   controls; UI changes need \`wireframe\` blocks.
-  Diagram HTML/CSS should use renderer-owned primitives such as
-  \`.diagram-panel\`, \`.diagram-card\`, \`.diagram-node\`, \`.diagram-box\`,
-  \`.diagram-pill\`, \`.diagram-muted\`, and \`[data-rough]\`; these map to the plan's
-  Tailwind theme variables through \`--wf-ink\`, \`--wf-muted\`, \`--wf-line\`,
-  \`--wf-paper\`, \`--wf-card\`, \`--wf-accent\`, \`--wf-accent-soft\`, \`--wf-warn\`, and
-  \`--wf-ok\`, and switch to Excalifont plus rough.js outlines in sketchy mode. Do not
-  set \`font-family\` and do not emit hex, rgb/hsl literals, or one-off dark/light
-  palettes in diagram CSS.
+  Author diagram HTML/CSS with the renderer-owned \`.diagram-*\` primitives
+  (\`.diagram-panel\`, \`.diagram-node\`, \`.diagram-pill\`, \`[data-rough]\`, …) and
+  the same \`--wf-*\` theme tokens \`references/wireframe.md\` defines — never
+  \`font-family\`, hex, rgb/hsl literals, or one-off dark/light palettes.
 - **Outcome-first narrative** → \`rich-text\` for the "what changed and why" prose:
   the objective the diff served, the key decisions visible in it, and the risks a
   reviewer should weigh. This is the only place the model writes freely.
@@ -1612,8 +1615,8 @@ A few recap-specific authoring rules the registry table cannot encode:
   JSON \`tabs={[…]}\` prop — there is NO nested \`<Tab>\` element.
 - \`WireframeBlock\`: its body is a single \`<Screen surface ... html=… />\` subtree
   (nested MDX, not a flat prop); \`html\` must be a single-quoted string or static
-  template literal, never a dynamic \`html={someVar}\` expression. See the
-  Wireframe Quality core above for the HTML rules.
+  template literal, never a dynamic \`html={someVar}\` expression. See
+  \`references/wireframe.md\` for the HTML rules.
 - \`Diagram\`: the whole payload is one \`data={{ html?, css?, nodes?, edges?, … }}\`
   attribute and requires either \`html\` or at least one node; \`Mermaid\` is its
   own separate block (\`source\` text), not a \`Diagram\` prop.
@@ -1641,7 +1644,7 @@ sequence when that better matches the change. The visual headline must show
 exact placement, realistic chrome, and adequate padding before any abstract
 explanation. Do not stop at the first visible affordance when the diff adds a
 flow; show the entry point, the opened surface, and the resulting state or page
-so the reviewer can trace the actual user path. The Wireframe Quality core owns
+so the reviewer can trace the actual user path. \`references/wireframe.md\` owns
 the before/after layout choice —
 the \`columns\` renderer keeps narrow surfaces side by side and auto-stacks wide
 \`desktop\`/\`browser\` frames vertically; never hand-build a side-by-side
@@ -1818,7 +1821,7 @@ export const BUILT_IN_APP_SKILLS = {
       id: "visual-plans",
       displayName: "Agent-Native Plan",
       description:
-        "Generate and review coding-agent plans as structured documents with inline diagrams, implementation maps, annotations, feedback, and HTML export.",
+        "Generate and review coding-agent plans as structured documents with inline diagrams, annotated code walkthroughs, file trees, annotations, feedback, and HTML export.",
       hosted: {
         url: "https://plan.agent-native.com",
         mcpUrl: "https://plan.agent-native.com/_agent-native/mcp",
@@ -1996,6 +1999,7 @@ export interface ParsedSkillsArgs {
   client: string;
   clientExplicit: boolean;
   clients?: ClientId[];
+  plainSkillNames?: string[];
   scope: string;
   scopeExplicit: boolean;
   yes: boolean;
@@ -2022,6 +2026,17 @@ export interface ParsedSkillsArgs {
    * recaps. Only applies to the `visual-plan` target.
    */
   withGithubAction?: boolean;
+  /**
+   * Plain skill repos can add a managed AGENTS.md / CLAUDE.md block for skills
+   * that only become automatic through project instructions.
+   */
+  updateInstructions?: boolean;
+  /**
+   * When `--with-github-action` is set and the existing workflow file differs
+   * from the bundled template, overwrite it. Without this flag the command
+   * refuses and prints a message.
+   */
+  force?: boolean;
 }
 
 export interface SkillsAddResult {
@@ -2693,6 +2708,10 @@ export function parseSkillsArgs(argv: string[]): ParsedSkillsArgs {
     if ((value = eat("--client")) !== undefined) {
       out.client = value;
       out.clientExplicit = true;
+    } else if ((value = eat("--skill")) !== undefined) {
+      out.plainSkillNames = [...(out.plainSkillNames ?? []), value];
+    } else if ((value = eat("-s")) !== undefined) {
+      out.plainSkillNames = [...(out.plainSkillNames ?? []), value];
     } else if ((value = eat("--scope")) !== undefined) {
       out.scope = value;
       out.scopeExplicit = true;
@@ -2707,6 +2726,9 @@ export function parseSkillsArgs(argv: string[]): ParsedSkillsArgs {
       out.connect = false;
     else if (arg === "--with-github-action" || arg === "--with-github-actions")
       out.withGithubAction = true;
+    else if (arg === "--update-instructions") out.updateInstructions = true;
+    else if (arg === "--no-update-instructions") out.updateInstructions = false;
+    else if (arg === "--force") out.force = true;
     else if (arg.startsWith("-")) throw new Error(`Unknown option: ${arg}`);
     else if (!out.target) out.target = arg;
     else throw new Error(`Unexpected argument: ${arg}`);
@@ -2846,6 +2868,9 @@ function dryRunInstallCommand(
   if (!parsed.instructions && parsed.mcp) args.push("--mcp-only");
   if (!parsed.connect) args.push("--no-connect");
   if (parsed.withGithubAction) args.push("--with-github-action");
+  if (parsed.updateInstructions === true) args.push("--update-instructions");
+  if (parsed.updateInstructions === false)
+    args.push("--no-update-instructions");
   if (parsed.yes || isKnownSkill(target)) args.push("--yes");
   return commandString("agent-native", args);
 }
@@ -2926,6 +2951,115 @@ function withMcpUrlOverride(
       ...target.loaded,
       manifest: { ...target.loaded.manifest, hosted: { url, mcpUrl } },
     },
+  };
+}
+
+function isPlainSkillRepoPath(target: string): boolean {
+  const resolved = path.resolve(target);
+  if (!fs.existsSync(resolved)) return false;
+  const stat = fs.statSync(resolved);
+  if (!stat.isDirectory()) return false;
+  const hasDirectSkill = fs.existsSync(path.join(resolved, "SKILL.md"));
+  const skillsDir = path.join(resolved, "skills");
+  const hasSkillsDir =
+    fs.existsSync(skillsDir) &&
+    fs
+      .readdirSync(skillsDir, { withFileTypes: true })
+      .some(
+        (entry) =>
+          entry.isDirectory() &&
+          fs.existsSync(path.join(skillsDir, entry.name, "SKILL.md")),
+      );
+  const hasAppSkillManifest = fs.existsSync(
+    path.join(resolved, "agent-native.app-skill.json"),
+  );
+  return !hasAppSkillManifest && (hasDirectSkill || hasSkillsDir);
+}
+
+function isGithubSkillRepoTarget(target: string): boolean {
+  if (/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+(?:#.+)?$/.test(target)) {
+    return true;
+  }
+  try {
+    const url = new URL(target);
+    return url.hostname === "github.com";
+  } catch {
+    return false;
+  }
+}
+
+function isPlainSkillRepoTarget(target: string): boolean {
+  return isPlainSkillRepoPath(target) || isGithubSkillRepoTarget(target);
+}
+
+function agentNativeSkillsInstallArgs(
+  parsed: ParsedSkillsArgs,
+  target: string,
+  clients: ClientId[],
+): string[] {
+  const args = [
+    "--yes",
+    "@agent-native/skills@latest",
+    "add",
+    target,
+    "--client",
+    clientArgForClients(clients),
+    "--scope",
+    parsed.scope,
+  ];
+  if (parsed.withGithubAction) args.push("--with-github-action");
+  if (parsed.force) args.push("--force");
+  for (const skill of parsed.plainSkillNames ?? []) {
+    args.push("--skill", skill);
+  }
+  if (parsed.updateInstructions === true) args.push("--update-instructions");
+  if (parsed.updateInstructions === false)
+    args.push("--no-update-instructions");
+  if (parsed.yes) args.push("--yes");
+  return args;
+}
+
+async function addPlainSkillRepo(
+  parsed: ParsedSkillsArgs,
+  options: RunSkillsOptions,
+): Promise<SkillsAddResult> {
+  const target = parsed.target!;
+  if (!parsed.instructions && parsed.mcp) {
+    throw new Error(
+      "Plain skill repositories only install skill instructions. Run without --mcp-only.",
+    );
+  }
+  if (parsed.mcpUrl) {
+    throw new Error(
+      "--mcp-url only applies to app-backed Agent Native skills.",
+    );
+  }
+
+  const clients = parsed.clients ?? resolveClients(parsed.client);
+  const skillsAgents = skillsAgentsForClients(clients);
+  if (skillsAgents.length === 0) {
+    throw new Error(
+      "Plain skill repositories can only install instructions for Codex or Claude Code clients.",
+    );
+  }
+  const args = agentNativeSkillsInstallArgs(parsed, target, clients);
+  if (!parsed.dryRun) {
+    const code = await (options.runCommand ?? runCommand)("npx", args, {
+      stdio: parsed.yes ? "silent" : "inherit",
+    });
+    if (code !== 0)
+      throw new Error(`npx @agent-native/skills add exited with ${code}.`);
+  }
+  return {
+    id: target,
+    displayName: target,
+    skillNames: [],
+    skillsAgents,
+    mcpUrl: "",
+    mcpClients: [],
+    dryRun: parsed.dryRun,
+    commands: [commandString("npx", args)],
+    local: true,
   };
 }
 
@@ -3016,6 +3150,9 @@ export async function addAgentNativeSkill(
 ): Promise<SkillsAddResult> {
   const target = parsed.target ?? "assets";
   const knownTarget = normalizeKnownSkillTarget(target);
+  if (!knownTarget && isPlainSkillRepoTarget(target)) {
+    return addPlainSkillRepo({ ...parsed, target }, options);
+  }
   if (!knownTarget && !fs.existsSync(path.resolve(target))) {
     throw new Error(
       `Unknown skill or manifest path: ${target}. Run "agent-native skills list".`,
@@ -3124,7 +3261,7 @@ export async function addAgentNativeSkill(
         instructionSource = installTarget.materializeInstructions(tmpRoot);
         const args = [
           "--yes",
-          "skills@latest",
+          "@agent-native/skills@latest",
           "add",
           instructionSource,
           "--copy",
@@ -3139,7 +3276,9 @@ export async function addAgentNativeSkill(
             stdio: "silent",
           });
           if (code !== 0)
-            throw new Error(`npx skills add exited with ${code}.`);
+            throw new Error(
+              `npx @agent-native/skills add exited with ${code}.`,
+            );
         }
       }
     }
@@ -3207,10 +3346,16 @@ export async function addAgentNativeSkill(
           "--with-github-action only applies to the visual-plan skill; skipping the workflow.",
         );
       } else {
-        const written = writePrVisualRecapWorkflow(baseDir);
-        githubActionPath = written.path;
-        githubActionExisted = written.existed;
-        commands.push(`write ${written.path}`);
+        const writeResult = writePrVisualRecapWorkflow(baseDir, {
+          force: Boolean(parsed.force),
+        });
+        if (writeResult.status === "refused") {
+          throw new Error(`recap workflow: ${writeResult.message}`);
+        }
+        githubActionPath = writeResult.path;
+        githubActionExisted =
+          writeResult.status === "written" ? writeResult.existed : false;
+        commands.push(`write ${writeResult.path}`);
       }
     }
 

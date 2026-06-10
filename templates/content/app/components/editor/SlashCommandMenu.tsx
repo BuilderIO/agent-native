@@ -531,9 +531,9 @@ export function SlashCommandMenu({
     () =>
       isTurnInto
         ? []
-        : buildRegistrySlashItems(contentBlockRegistry, {
+        : (buildRegistrySlashItems(contentBlockRegistry, {
             notionCompatibleOnly: !!notionPageId,
-          }),
+          }) as unknown as CommandItem[]),
     [isTurnInto, notionPageId],
   );
 

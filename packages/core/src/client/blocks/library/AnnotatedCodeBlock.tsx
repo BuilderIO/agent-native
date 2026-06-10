@@ -1,4 +1,4 @@
-import { useMemo, useRef } from "react";
+import { useMemo, useRef, useState } from "react";
 import { IconCode, IconPlus, IconTrash } from "@tabler/icons-react";
 import { cn } from "../../utils.js";
 import type { BlockEditProps, BlockReadProps } from "../types.js";
@@ -43,6 +43,104 @@ import { DevInput, DevLabel, DevTextarea } from "./dev-doc-ui.js";
  * Editing is panel-driven (config-style, like the diff/HTML blocks): a monospace
  * code Textarea, filename/language Inputs, and add/remove-able annotation rows.
  */
+
+/* ── Collapse helpers ──────────────────────────────────────────────────────── */
+
+/**
+ * Minimum total line count before collapse is considered. Short files render
+ * fully expanded regardless of annotation coverage.
+ */
+const COLLAPSE_MIN_TOTAL_LINES = 40;
+
+/**
+ * Number of unannotated lines in a run that triggers collapse. Runs at or
+ * below this threshold always stay expanded (no expander button).
+ */
+const COLLAPSE_THRESHOLD = 16;
+
+/**
+ * Context lines kept visible at each edge of a collapsed run (8 lines of
+ * breathing room so the collapsed region is clearly framed).
+ */
+const COLLAPSE_CONTEXT_EDGE = 8;
+
+type CollapsedSegment = {
+  kind: "collapsed";
+  startLine: number;
+  endLine: number;
+};
+type VisibleSegment = { kind: "visible"; startLine: number; endLine: number };
+type LineSegment = VisibleSegment | CollapsedSegment;
+
+/**
+ * Partition line numbers [1..lineCount] into visible and collapsed segments.
+ * Annotated lines (and COLLAPSE_CONTEXT_EDGE lines on either side of them) are
+ * always visible. Runs of unannotated lines longer than COLLAPSE_THRESHOLD are
+ * collapsed. The file header (first COLLAPSE_CONTEXT_EDGE lines) is always
+ * visible so context is preserved.
+ */
+function buildLineSegments(
+  lineCount: number,
+  lineMarkers: Map<number, Array<{ index: number }>>,
+): LineSegment[] {
+  if (lineCount <= COLLAPSE_MIN_TOTAL_LINES) {
+    return [{ kind: "visible", startLine: 1, endLine: lineCount }];
+  }
+
+  // Build a boolean array: true if the line must stay visible.
+  const mustShow = new Array<boolean>(lineCount + 1).fill(false);
+  // File header always visible.
+  for (let i = 1; i <= Math.min(COLLAPSE_CONTEXT_EDGE, lineCount); i += 1) {
+    mustShow[i] = true;
+  }
+  // Annotated lines and their context edges.
+  for (const lineNo of lineMarkers.keys()) {
+    for (
+      let i = Math.max(1, lineNo - COLLAPSE_CONTEXT_EDGE);
+      i <= Math.min(lineCount, lineNo + COLLAPSE_CONTEXT_EDGE);
+      i += 1
+    ) {
+      mustShow[i] = true;
+    }
+  }
+
+  // Compute initial segments.
+  const raw: LineSegment[] = [];
+  let segStart = 1;
+  let visible = mustShow[1] ?? false;
+  for (let i = 2; i <= lineCount; i += 1) {
+    const nextVisible = mustShow[i] ?? false;
+    if (nextVisible !== visible) {
+      raw.push(
+        visible
+          ? { kind: "visible", startLine: segStart, endLine: i - 1 }
+          : { kind: "collapsed", startLine: segStart, endLine: i - 1 },
+      );
+      segStart = i;
+      visible = nextVisible;
+    }
+  }
+  raw.push(
+    visible
+      ? { kind: "visible", startLine: segStart, endLine: lineCount }
+      : { kind: "collapsed", startLine: segStart, endLine: lineCount },
+  );
+
+  // Don't collapse short hidden runs — expand them in-place.
+  return raw.map((seg) => {
+    if (
+      seg.kind === "collapsed" &&
+      seg.endLine - seg.startLine + 1 <= COLLAPSE_THRESHOLD
+    ) {
+      return {
+        kind: "visible",
+        startLine: seg.startLine,
+        endLine: seg.endLine,
+      };
+    }
+    return seg;
+  });
+}
 
 /* ── Read ──────────────────────────────────────────────────────────────────── */
 
@@ -109,6 +207,108 @@ function AnnotatedCodeRead({
       [activeIndex, resolved],
     );
 
+  // Line-collapse state: a set of collapsed segment start lines that have been
+  // expanded by the reader. Starts empty (all segments in their default state).
+  const [expandedCollapsed, setExpandedCollapsed] = useState<Set<number>>(
+    () => new Set(),
+  );
+
+  const segments = useMemo(
+    () => buildLineSegments(lineCount, lineMarkers),
+    [lineCount, lineMarkers],
+  );
+
+  const renderLine = (lineNo: number) => {
+    const markers = lineMarkers.get(lineNo);
+    const isAnnotated = !!markers?.length;
+    const isActive =
+      activeIndex != null && !!markers?.some((m) => m.index === activeIndex);
+
+    const buildAnchorForRow = (el: HTMLElement) => {
+      if (!markers) return null;
+      const primaryMarker = markers[0];
+      const anchorLine = primaryMarker.range?.start ?? lineNo;
+      const anchorRow = lineRefs.current.get(anchorLine) ?? el;
+      return anchorFromElements(codeRef.current, anchorRow);
+    };
+
+    return (
+      <div
+        key={lineNo}
+        ref={(node) => setLineRef(lineNo, node)}
+        data-code-line={lineNo}
+        data-annot-row={isAnnotated ? markers?.[0].index : undefined}
+        tabIndex={isAnnotated ? 0 : undefined}
+        role={isAnnotated ? "button" : undefined}
+        aria-expanded={isAnnotated ? isActive : undefined}
+        aria-label={isAnnotated ? `Line ${lineNo} annotation` : undefined}
+        className={cn(
+          "flex w-full",
+          isAnnotated && "cursor-pointer",
+          isActive
+            ? "bg-amber-400/20 dark:bg-amber-300/15"
+            : isAnnotated
+              ? "bg-amber-400/[0.07] dark:bg-amber-300/[0.07]"
+              : null,
+        )}
+        onMouseEnter={
+          isAnnotated && markers
+            ? (event) => {
+                const anchor = buildAnchorForRow(event.currentTarget);
+                if (anchor) hover.open(markers[0].index, anchor);
+              }
+            : undefined
+        }
+        onMouseLeave={isAnnotated ? () => hover.scheduleClose() : undefined}
+        onClick={
+          isAnnotated && markers
+            ? (event) => {
+                const anchor = buildAnchorForRow(event.currentTarget);
+                if (anchor) hover.open(markers[0].index, anchor);
+              }
+            : undefined
+        }
+        onKeyDown={
+          isAnnotated && markers
+            ? (event) => {
+                if (event.key !== "Enter" && event.key !== " ") return;
+                event.preventDefault();
+                const anchor = buildAnchorForRow(event.currentTarget);
+                if (anchor) hover.open(markers[0].index, anchor);
+              }
+            : undefined
+        }
+        onFocus={
+          isAnnotated && markers
+            ? (event) => {
+                const anchor = buildAnchorForRow(event.currentTarget);
+                if (anchor) hover.open(markers[0].index, anchor);
+              }
+            : undefined
+        }
+        onBlur={isAnnotated ? () => hover.scheduleClose() : undefined}
+      >
+        <span
+          aria-hidden
+          className={cn(
+            "w-[3px] shrink-0 self-stretch",
+            isAnnotated
+              ? isActive
+                ? "bg-amber-500 dark:bg-amber-400"
+                : "bg-amber-400/45 dark:bg-amber-300/35"
+              : null,
+          )}
+        />
+        <span className="w-11 shrink-0 select-none px-3 text-right text-[11px] tabular-nums text-plan-muted/60">
+          {lineNo}
+        </span>
+        <span className="flex-1 whitespace-pre pr-4 text-plan-code-text">
+          {highlightedLines[lineNo - 1]}
+        </span>
+      </div>
+    );
+  };
+
   const codeSurface = (
     <div
       ref={codeRef}
@@ -132,103 +332,46 @@ function AnnotatedCodeRead({
       )}
       <div className="overflow-x-auto py-1.5" data-code-surface>
         <div className="min-w-full font-mono [font-size:var(--plan-doc-code-size)] leading-[22px]">
-          {lines.map((_text, idx) => {
-            const lineNo = idx + 1;
-            const markers = lineMarkers.get(lineNo);
-            const isAnnotated = !!markers?.length;
-            const isActive =
-              activeIndex != null &&
-              !!markers?.some((m) => m.index === activeIndex);
-
-            const buildAnchorForRow = (el: HTMLElement) => {
-              if (!markers) return null;
-              const primaryMarker = markers[0];
-              const anchorLine = primaryMarker.range?.start ?? lineNo;
-              const anchorRow = lineRefs.current.get(anchorLine) ?? el;
-              return anchorFromElements(codeRef.current, anchorRow);
-            };
-
+          {segments.map((seg) => {
+            if (seg.kind === "visible") {
+              const lineNos = Array.from(
+                { length: seg.endLine - seg.startLine + 1 },
+                (_, i) => seg.startLine + i,
+              );
+              return lineNos.map(renderLine);
+            }
+            // Collapsed segment — show an expander row.
+            const isExpanded = expandedCollapsed.has(seg.startLine);
+            const hiddenCount = seg.endLine - seg.startLine + 1;
+            if (isExpanded) {
+              const lineNos = Array.from(
+                { length: hiddenCount },
+                (_, i) => seg.startLine + i,
+              );
+              return lineNos.map(renderLine);
+            }
             return (
-              <div
-                key={lineNo}
-                ref={(node) => setLineRef(lineNo, node)}
-                data-code-line={lineNo}
-                data-annot-row={isAnnotated ? markers?.[0].index : undefined}
-                // tabIndex makes annotated rows keyboard-focusable so screen
-                // readers and keyboard users can access notes without a mouse.
-                tabIndex={isAnnotated ? 0 : undefined}
-                role={isAnnotated ? "button" : undefined}
-                aria-expanded={isAnnotated ? isActive : undefined}
-                aria-label={
-                  isAnnotated ? `Line ${lineNo} annotation` : undefined
+              <button
+                key={`collapse-${seg.startLine}`}
+                type="button"
+                data-plan-interactive
+                onClick={() =>
+                  setExpandedCollapsed((prev) => {
+                    const next = new Set(prev);
+                    next.add(seg.startLine);
+                    return next;
+                  })
                 }
-                className={cn(
-                  "flex w-full",
-                  isAnnotated && "cursor-pointer",
-                  isActive
-                    ? "bg-amber-400/20 dark:bg-amber-300/15"
-                    : isAnnotated
-                      ? "bg-amber-400/[0.07] dark:bg-amber-300/[0.07]"
-                      : null,
-                )}
-                onMouseEnter={
-                  isAnnotated && markers
-                    ? (event) => {
-                        const anchor = buildAnchorForRow(event.currentTarget);
-                        if (anchor) hover.open(markers[0].index, anchor);
-                      }
-                    : undefined
-                }
-                onMouseLeave={
-                  isAnnotated ? () => hover.scheduleClose() : undefined
-                }
-                onClick={
-                  isAnnotated && markers
-                    ? (event) => {
-                        const anchor = buildAnchorForRow(event.currentTarget);
-                        if (anchor) hover.open(markers[0].index, anchor);
-                      }
-                    : undefined
-                }
-                onKeyDown={
-                  isAnnotated && markers
-                    ? (event) => {
-                        if (event.key !== "Enter" && event.key !== " ") return;
-                        event.preventDefault();
-                        const anchor = buildAnchorForRow(event.currentTarget);
-                        if (anchor) hover.open(markers[0].index, anchor);
-                      }
-                    : undefined
-                }
-                onFocus={
-                  isAnnotated && markers
-                    ? (event) => {
-                        const anchor = buildAnchorForRow(event.currentTarget);
-                        if (anchor) hover.open(markers[0].index, anchor);
-                      }
-                    : undefined
-                }
-                onBlur={isAnnotated ? () => hover.scheduleClose() : undefined}
+                className="flex w-full cursor-pointer items-center gap-2 border-y border-plan-line/50 bg-plan-block/20 px-3 py-0.5 text-left hover:bg-plan-block/40"
               >
-                {/* Accent rail: amber on annotated lines, brighter when active. */}
-                <span
-                  aria-hidden
-                  className={cn(
-                    "w-[3px] shrink-0 self-stretch",
-                    isAnnotated
-                      ? isActive
-                        ? "bg-amber-500 dark:bg-amber-400"
-                        : "bg-amber-400/45 dark:bg-amber-300/35"
-                      : null,
-                  )}
-                />
-                <span className="w-11 shrink-0 select-none px-3 text-right text-[11px] tabular-nums text-plan-muted/60">
-                  {lineNo}
+                <span aria-hidden className="w-[3px] shrink-0 self-stretch" />
+                <span className="w-8 shrink-0 select-none text-right text-[11px] tabular-nums text-plan-muted/40">
+                  ···
                 </span>
-                <span className="flex-1 whitespace-pre pr-4 text-plan-code-text">
-                  {highlightedLines[idx]}
+                <span className="flex-1 text-[11px] text-plan-muted/70">
+                  {hiddenCount} lines — click to expand
                 </span>
-              </div>
+              </button>
             );
           })}
         </div>
@@ -251,7 +394,7 @@ function AnnotatedCodeRead({
           ctx={ctx}
           onMouseEnter={hover.cancelClose}
           onMouseLeave={hover.scheduleClose}
-          onClose={hover.close}
+          onClose={hover.closeForScroll}
         />
       )}
       {summary && <p className="mt-5 text-plan-muted">{summary}</p>}

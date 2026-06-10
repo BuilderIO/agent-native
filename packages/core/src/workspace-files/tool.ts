@@ -181,7 +181,6 @@ export function createWorkspaceFilesTool(): Record<string, ActionEntry> {
                 });
               }
 
-              const totalChars = file.sizeBytes; // approx
               const truncated = file.content.length >= maxChars;
               return JSON.stringify({
                 ok: true,

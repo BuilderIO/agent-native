@@ -19,7 +19,7 @@ export default defineAction({
   readOnly: true,
   run: async ({ provider }) => {
     return {
-      providers: listProviderApiCatalog(provider),
+      providers: await listProviderApiCatalog(provider),
       guidance:
         "Specific actions like hubspot-deals or gong-calls are convenience shortcuts, not capability limits. When an action cannot express the needed endpoint/filter/body, inspect docs/spec URLs here and call provider-api-request with the exact provider API method/path/query/body.",
     };

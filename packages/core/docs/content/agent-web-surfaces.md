@@ -5,9 +5,9 @@ description: "Make public routes crawlable, readable, citable, and optionally ca
 
 # Agent Web Surfaces
 
-Agent Web surfaces make public Agent-Native routes easy for agents to crawl, read, cite, and eventually call. The goal is not to make every app endpoint public. The goal is to publish a clean public surface for pages that are already public, while keeping private data and tool access behind explicit controls.
+Agent Web surfaces make public Agent-Native routes easy for agents to crawl, read, cite, and call. The goal is not to make every app endpoint public. The goal is to publish a clean public surface for pages that are already public, while keeping private data and tool access behind explicit controls.
 
-The docs site is the reference implementation. It publishes:
+The docs site is the reference implementation. Today it ships:
 
 - `/robots.txt` with a crawler policy that allows retrieval but disallows training by default.
 - `/sitemap.xml` with absolute canonical URLs and `lastmod` when the source file exposes it.
@@ -15,10 +15,13 @@ The docs site is the reference implementation. It publishes:
 - Markdown mirrors such as `/docs/getting-started.md`.
 - `Accept: text/markdown` responses for public docs pages after a production build.
 - JSON-LD for base organization, website, and page metadata.
+- An audit CLI (`agent-native audit-agent-web`) that checks all of the above.
 
-## Configuration
+Setting `publicMcp: true` additionally exposes opted-in actions as a public MCP endpoint, allowing external agents to call them directly (see [MCP Protocol](/docs/mcp-protocol)).
 
-Add `agentWeb` under the existing workspace app config. The public route list is still derived from the app's route access settings; `agentWeb` controls how that public surface is represented to agents.
+## Configuration {#config}
+
+Add `agentWeb` under the existing workspace app config (in your app's `package.json` under the `agent-native` key — or equivalently `workspace.agentWeb`, `agentWeb`, or `root.agentWeb`). The public route list is still derived from the app's route access settings; `agentWeb` controls how that public surface is represented to agents.
 
 ```json
 {
@@ -49,7 +52,7 @@ Add `agentWeb` under the existing workspace app config. The public route list is
 
 For most apps, leave the defaults alone. If an app has any public route, `discoverable` defaults on. The default crawler policy is "discoverable, not trainable": search, user-triggered retrieval, coding agents, and autonomous browsing agents are allowed; training crawlers are disallowed.
 
-## Route Source Of Truth
+## Route source of truth {#route-source}
 
 Agent Web discovery follows the route access model:
 
@@ -60,11 +63,11 @@ Agent Web discovery follows the route access model:
 
 This keeps mixed apps natural. A forms app can expose a public form page and keep submissions private. A content app can expose published posts and keep the editor private. A docs site can expose everything except admin tools.
 
-## Public Pages Are Not Public Tools
+## Public pages are not public tools {#public-tools}
 
 Public page access and public tool access are separate. A route being public only means agents can read that route as HTML, Markdown, sitemap entries, llms entries, and structured data.
 
-To expose an action through a public agent protocol later, the action must opt in:
+To expose an action through a public agent protocol, the action must opt in:
 
 ```ts
 export default defineAction({
@@ -85,7 +88,7 @@ export default defineAction({
 
 `agentWeb.publicMcp` stays `false` by default. When public MCP is enabled, the server should expose only actions with `publicAgent.expose === true`, and should still exclude consequential or write actions unless the action and auth policy explicitly allow them.
 
-## Build-Time Files
+## Build-time files {#build-time}
 
 Framework utilities in `@agent-native/core/agent-web` generate the common files from one page list:
 
@@ -120,7 +123,7 @@ const files = buildAgentWebStaticFiles({
 
 Vite apps can use `createAgentWebVitePlugin` from `@agent-native/core/vite` to write those files into `public`, `dist`, `dist/client`, `dist/server/public`, or `build/client` during production builds.
 
-## Audit A Site
+## Audit a site {#audit}
 
 Use the CLI audit against a deployed site or a local production server:
 
@@ -141,3 +144,9 @@ The audit checks for:
 - No accidental 401/403 blocks for common agent retrieval user agents.
 
 The audit exits non-zero if a required public surface is missing.
+
+## What's next
+
+- [**Actions**](/docs/actions) — how to opt actions into the public agent protocol
+- [**MCP Protocol**](/docs/mcp-protocol) — the MCP surface that `publicMcp: true` enables
+- [**Deployment**](/docs/deployment) — where these static files are written during builds

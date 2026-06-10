@@ -487,8 +487,8 @@ function parseWorkspaceAppsManifest(parsed: any): WorkspaceAppSummary[] | null {
       : null;
   if (!rawApps) return null;
 
-  const apps = rawApps
-    .map((entry): WorkspaceAppSummary | null => {
+  const apps: WorkspaceAppSummary[] = rawApps
+    .map((entry: any): WorkspaceAppSummary | null => {
       if (!entry || typeof entry !== "object") return null;
       const id = typeof entry.id === "string" ? entry.id.trim() : "";
       const pathValue = typeof entry.path === "string" ? entry.path.trim() : "";
@@ -516,7 +516,10 @@ function parseWorkspaceAppsManifest(parsed: any): WorkspaceAppSummary[] | null {
         status: "ready",
       } satisfies WorkspaceAppSummary;
     })
-    .filter((app): app is WorkspaceAppSummary => !!app)
+    .filter(
+      (app: WorkspaceAppSummary | null): app is WorkspaceAppSummary =>
+        app !== null,
+    )
     .sort(sortWorkspaceApps);
 
   return apps.length ? apps : null;

@@ -11,8 +11,8 @@ author wireframes from memory or paraphrase these rules per command.
 content.** Set `data.html` to a self-contained, semantic HTML fragment of the
 screen and set `data.surface`. The renderer owns the surface footprint/aspect,
 the dark/light theme, the hand-drawn font, and the rough.js sketch overlay — you
-never write `<html>`/`<body>`/`<script>`/`<style>` tags, font-family, hex colors,
-or any width/height/coordinates. You write real HTML layout and real product
+never write `<html>`/`<body>`/`<script>`/`<style>` tags or any
+width/height/coordinates. You write real HTML layout and real product
 content; the renderer styles and roughens it.
 
 **A wireframe block's data is an HTML screen plus a surface:**
@@ -105,7 +105,7 @@ skeleton register automatically. Never escape to a `custom-html` document block
 to fake a loader.
 
 **Editing an existing mockup.** To change one element, text, or color in an
-existing html mockup, do NOT regenerate the frame — call `update-visual-plan`
+existing html mockup, call `update-visual-plan`
 with `contentPatches: [{ op: "patch-wireframe-html", blockId, edits: [{ find,
 replace }] }]`. Each `find` is a unique snippet of the current html (read it
 first with `get-visual-plan`); set `all: true` on an edit to replace every
@@ -163,15 +163,18 @@ the same frame size, scale, outer padding, border radius, and visual density on
 both sides unless the change itself alters those properties, and let the frame
 height fit the content rather than leaving a tall empty lower half.
 
-**Name the states with the column header, never inside the frame.** Put the two
+**Name the states with the column header, never inside the frame.** For
+document-body wireframes (recaps), put the two
 states in a `columns` block and set each column's `label` to `Before` and
 `After` — the renderer draws that label as an `h4` heading above each frame. Do
 NOT bake a `Before`/`After` pill, title, or heading into the wireframe `html`: a
 label placed inside reads as part of the product UI, lands in a random corner,
 and clutters the comparison. The column header is the one and only place the
-state name belongs.
+state name belongs. On a canvas, place the two state artboards as neighbors with
+frame labels — never encode Before/After inside the html.
 
-**Let the surface choose side-by-side vs. stacked.** The `columns` renderer lays
+**Let the surface choose side-by-side vs. stacked.** For document-body
+wireframes (recaps), the `columns` renderer lays
 narrow surfaces (`mobile`, `popover`, `panel`) out side by side, and
 automatically stacks wide surfaces (`desktop`, `browser`) vertically at full
 document width so a large frame is never crushed into a half-width column and

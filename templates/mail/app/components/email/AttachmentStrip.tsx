@@ -6,7 +6,7 @@ import {
   IconX,
 } from "@tabler/icons-react";
 import type { ComposeAttachment } from "@shared/types";
-import { appApiPath } from "@/lib/api-path";
+import { appApiPath } from "@agent-native/core/client";
 import { cn } from "@/lib/utils";
 import { formatFileSize } from "@/lib/upload";
 

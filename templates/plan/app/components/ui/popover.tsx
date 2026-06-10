@@ -7,17 +7,21 @@ const Popover = PopoverPrimitive.Root;
 
 const PopoverTrigger = PopoverPrimitive.Trigger;
 
+const PopoverAnchor = PopoverPrimitive.Anchor;
+
 const PopoverContent = React.forwardRef<
   React.ElementRef<typeof PopoverPrimitive.Content>,
   React.ComponentPropsWithoutRef<typeof PopoverPrimitive.Content> & {
-    portalContainer?: HTMLElement | null;
+    // When false, renders inline without a portal — useful inside overflow-hidden
+    // containers where a portalled overlay would escape the clip boundary.
+    portalled?: boolean;
   }
 >(
   (
-    { className, align = "center", sideOffset = 4, portalContainer, ...props },
+    { className, align = "center", sideOffset = 4, portalled = true, ...props },
     ref,
-  ) => (
-    <PopoverPrimitive.Portal container={portalContainer ?? undefined}>
+  ) => {
+    const content = (
       <PopoverPrimitive.Content
         ref={ref}
         align={align}
@@ -28,9 +32,13 @@ const PopoverContent = React.forwardRef<
         )}
         {...props}
       />
-    </PopoverPrimitive.Portal>
-  ),
+    );
+
+    if (!portalled) return content;
+
+    return <PopoverPrimitive.Portal>{content}</PopoverPrimitive.Portal>;
+  },
 );
 PopoverContent.displayName = PopoverPrimitive.Content.displayName;
 
-export { Popover, PopoverTrigger, PopoverContent };
+export { Popover, PopoverTrigger, PopoverAnchor, PopoverContent };

@@ -9,7 +9,7 @@ import {
 } from "./plans.js";
 import { buildUiPlanHtml } from "./ui-plan-html.js";
 import { buildVisualQuestionsHtml } from "./visual-questions-html.js";
-import createVisualQuestionsAction from "../actions/create-visual-questions.js";
+import { createVisualQuestionsSchema } from "../actions/create-visual-questions.js";
 import type { PlanBundle, PlanComment, PlanSection } from "../shared/types.js";
 
 function section(
@@ -544,7 +544,7 @@ describe("Plans helpers", () => {
   });
 
   it("rejects duplicate custom visual question ids", () => {
-    const result = createVisualQuestionsAction.schema.safeParse({
+    const result = createVisualQuestionsSchema.safeParse({
       brief: "Clarify the UI before planning.",
       questions: [
         {

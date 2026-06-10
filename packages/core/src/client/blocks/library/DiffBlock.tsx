@@ -945,7 +945,7 @@ function DiffRead({
           showMarker
           onMouseEnter={hover.cancelClose}
           onMouseLeave={hover.scheduleClose}
-          onClose={hover.close}
+          onClose={hover.closeForScroll}
         />
       )}
     </section>

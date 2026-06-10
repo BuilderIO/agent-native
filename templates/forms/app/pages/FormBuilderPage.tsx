@@ -106,6 +106,11 @@ const fieldTypeLabels: Record<FormFieldType, string> = {
   scale: "Scale",
 };
 
+type FieldOp =
+  | { op: "upsert"; field: Record<string, any> }
+  | { op: "remove"; id: string }
+  | { op: "reorder"; ids: string[] };
+
 export function FormBuilderPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -235,9 +240,11 @@ export function FormBuilderPage() {
   // Debounced field-op save — uses patch-form-fields (server-side merge) so
   // concurrent edits to different fields both survive.
   const fieldOpTimeout = useRef<ReturnType<typeof setTimeout>>(undefined);
-  const pendingOps = useRef<Array<{ op: string; [k: string]: unknown }>>([]);
+  const pendingOps = useRef<FieldOp[]>([]);
   const saveFieldOps = useCallback(
-    (ops: Array<{ op: string; [k: string]: unknown }>) => {
+    (ops: FieldOp[]) => {
+      const formId = form?.id;
+      if (!formId) return;
       pendingOps.current = [...pendingOps.current, ...ops];
       clearTimeout(fieldOpTimeout.current);
       clearTimeout(savedTimeout.current);
@@ -246,7 +253,7 @@ export function FormBuilderPage() {
         const opsToSend = pendingOps.current;
         pendingOps.current = [];
         patchFormFields.mutate(
-          { id: form.id, ops: opsToSend },
+          { id: formId, ops: opsToSend },
           {
             onSettled: () => {
               fieldsDirty.current = false;
@@ -352,6 +359,9 @@ export function FormBuilderPage() {
     );
   }
 
+  if (!form) return null;
+  const loadedForm = form;
+
   const fields = localFields;
   const selectedField = fields.find((f) => f.id === selectedFieldId);
   // Viewers can see the form but not edit it or peek at responses / settings /
@@ -428,7 +438,7 @@ export function FormBuilderPage() {
   function submitAgentPrompt() {
     const trimmed = agentPrompt.trim();
     if (!trimmed || promptRun.isActivePrompt(trimmed)) return;
-    const context = `Current form:\nTitle: ${form.title}\nDescription: ${form.description || "None"}\nFields: ${JSON.stringify(fields, null, 2)}`;
+    const context = `Current form:\nTitle: ${loadedForm.title}\nDescription: ${loadedForm.description || "None"}\nFields: ${JSON.stringify(fields, null, 2)}`;
     const result = send({ message: trimmed, context, submit: true });
     if (result === null) return;
     promptRun.trackRun(trimmed, result);
@@ -437,14 +447,14 @@ export function FormBuilderPage() {
   }
 
   function handleTogglePublish() {
-    const newStatus = form.status === "published" ? "draft" : "published";
+    const newStatus = loadedForm.status === "published" ? "draft" : "published";
     if (newStatus === "published" && isLocal) {
       setShowCloudUpgrade(true);
       return;
     }
     setPendingStatus(newStatus);
     updateForm.mutate(
-      { id: form.id, status: newStatus },
+      { id: loadedForm.id, status: newStatus },
       {
         onSuccess: () =>
           toast.success(
@@ -458,7 +468,7 @@ export function FormBuilderPage() {
   }
 
   function copyShareLink() {
-    if (form.status !== "published") {
+    if (loadedForm.status !== "published") {
       toast.info("Publish this form before copying its public link");
       return;
     }
@@ -466,7 +476,7 @@ export function FormBuilderPage() {
       setShowCloudUpgrade(true);
       return;
     }
-    const url = `${window.location.origin}${appPath(`/f/${form.slug}`)}`;
+    const url = `${window.location.origin}${appPath(`/f/${loadedForm.slug}`)}`;
     navigator.clipboard.writeText(url);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
@@ -1031,7 +1041,7 @@ function ResultsContent({ formId, form }: { formId: string; form: any }) {
   const total = data?.total ?? 0;
 
   const filtered = search.trim()
-    ? allResponses.filter((r) => {
+    ? allResponses.filter((r: any) => {
         const needle = search.toLowerCase();
         return fields.some((f) => {
           const val = r.data[f.id];

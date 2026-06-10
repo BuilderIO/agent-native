@@ -559,6 +559,7 @@ const content: PlanContent = {
 
 export default defineAction({
   description: "DEV-ONLY: seed a public vertical-tabs bug-repro plan.",
+  agentTool: false,
   schema: z.object({}).optional(),
   run: async () => {
     if (process.env.NODE_ENV !== "development") {

@@ -7,6 +7,7 @@ import {
   DEFAULT_ANTHROPIC_MODEL,
   DEFAULT_MODEL,
   DEFAULT_OPENAI_MODEL,
+  getContextWindowForModel,
 } from "./model-config.js";
 
 describe("agent model config catalog", () => {
@@ -79,5 +80,106 @@ describe("agent model config catalog", () => {
       expect(typeof cfg.defaultModel).toBe("string");
       expect(cfg.defaultModel.length).toBeGreaterThan(0);
     }
+  });
+
+  it("includes claude-fable-5 in Anthropic-based catalogs", () => {
+    expect(ANTHROPIC_MODEL_CONFIG.supportedModels).toContain("claude-fable-5");
+    expect(AI_SDK_MODEL_CONFIG.anthropic.supportedModels).toContain(
+      "claude-fable-5",
+    );
+    expect(BUILDER_MODEL_CONFIG.supportedModels).toContain("claude-fable-5");
+  });
+
+  it("includes claude-opus-4-8 in Anthropic-based catalogs", () => {
+    expect(ANTHROPIC_MODEL_CONFIG.supportedModels).toContain("claude-opus-4-8");
+    expect(AI_SDK_MODEL_CONFIG.anthropic.supportedModels).toContain(
+      "claude-opus-4-8",
+    );
+    expect(BUILDER_MODEL_CONFIG.supportedModels).toContain("claude-opus-4-8");
+  });
+
+  it("keeps Opus 4.7 out of current picker catalogs", () => {
+    expect(ANTHROPIC_MODEL_CONFIG.supportedModels).not.toContain(
+      "claude-opus-4-7",
+    );
+    expect(AI_SDK_MODEL_CONFIG.anthropic.supportedModels).not.toContain(
+      "claude-opus-4-7",
+    );
+    expect(BUILDER_MODEL_CONFIG.supportedModels).not.toContain(
+      "claude-opus-4-7",
+    );
+  });
+
+  it("does not contain decommissioned Groq models", () => {
+    const groqModels = AI_SDK_MODEL_CONFIG.groq
+      .supportedModels as readonly string[];
+    // Both were decommissioned (errors since Jan/Mar 2025)
+    expect(groqModels).not.toContain("llama-3.1-70b-versatile");
+    expect(groqModels).not.toContain("mixtral-8x7b-32768");
+    // Current production model must be present
+    expect(groqModels).toContain("llama-3.3-70b-versatile");
+  });
+
+  it("uses the current cohere model ID as default", () => {
+    expect(AI_SDK_MODEL_CONFIG.cohere.defaultModel).toBe(
+      "command-r-plus-08-2024",
+    );
+    expect(AI_SDK_MODEL_CONFIG.cohere.supportedModels).toContain(
+      "command-r-plus-08-2024",
+    );
+  });
+
+  it("includes current OpenRouter gemini entry", () => {
+    const openrouterModels = AI_SDK_MODEL_CONFIG.openrouter
+      .supportedModels as readonly string[];
+    expect(openrouterModels).toContain("google/gemini-2.5-flash");
+  });
+});
+
+// ─── getContextWindowForModel ─────────────────────────────────────────────────
+
+describe("getContextWindowForModel", () => {
+  it("returns 200K for standard Claude Haiku models", () => {
+    expect(getContextWindowForModel("claude-haiku-4-5")).toBe(200_000);
+    expect(getContextWindowForModel("claude-haiku-4-5-20251001")).toBe(200_000);
+  });
+
+  it("returns 1M for Claude Fable 5, Sonnet 4.6, and Opus 4.x", () => {
+    expect(getContextWindowForModel("claude-fable-5")).toBe(1_000_000);
+    expect(getContextWindowForModel("claude-sonnet-4-6")).toBe(1_000_000);
+    expect(getContextWindowForModel("claude-opus-4-7")).toBe(1_000_000);
+    expect(getContextWindowForModel("claude-opus-4-8")).toBe(1_000_000);
+  });
+
+  it("returns 1.05M for GPT-5.x models", () => {
+    expect(getContextWindowForModel("gpt-5.5")).toBe(1_050_000);
+    expect(getContextWindowForModel("gpt-5.4")).toBe(1_050_000);
+    expect(getContextWindowForModel("gpt-5.4-mini")).toBe(400_000);
+    // Builder gateway dashed form
+    expect(getContextWindowForModel("gpt-5-5")).toBe(1_050_000);
+    expect(getContextWindowForModel("gpt-5-4")).toBe(1_050_000);
+    expect(getContextWindowForModel("gpt-5-4-mini")).toBe(400_000);
+  });
+
+  it("returns 1M for Gemini 2.x / 3.x models", () => {
+    expect(getContextWindowForModel("gemini-3.5-flash")).toBe(1_048_576);
+    expect(getContextWindowForModel("gemini-3.1-pro-preview")).toBe(1_048_576);
+    expect(getContextWindowForModel("gemini-3-5-flash")).toBe(1_048_576);
+    expect(getContextWindowForModel("google/gemini-2.5-flash")).toBe(1_048_576);
+  });
+
+  it("returns 128K safe default for unknown models", () => {
+    expect(getContextWindowForModel("unknown-model-xyz")).toBe(128_000);
+    expect(getContextWindowForModel("")).toBe(128_000);
+  });
+
+  it("uses heuristic fallback for unlisted claude-opus-4 variants", () => {
+    // Future models not yet in the explicit table
+    expect(getContextWindowForModel("claude-opus-4-9")).toBe(1_000_000);
+  });
+
+  it("uses heuristic fallback for unlisted gpt-5 variants", () => {
+    expect(getContextWindowForModel("gpt-5.6")).toBe(1_050_000);
+    expect(getContextWindowForModel("openai/gpt-5.6")).toBe(1_050_000);
   });
 });

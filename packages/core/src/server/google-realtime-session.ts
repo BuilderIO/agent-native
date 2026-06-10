@@ -88,10 +88,12 @@ export async function resolveGoogleRealtimeCredentials(opts: {
     if (fromSecret) return fromSecret;
   }
 
-  const stored = await resolveCredential("GOOGLE_APPLICATION_CREDENTIALS", {
-    userEmail: opts.userEmail ?? undefined,
-    orgId: opts.orgId ?? undefined,
-  }).catch(() => undefined);
+  const stored = opts.userEmail
+    ? await resolveCredential("GOOGLE_APPLICATION_CREDENTIALS", {
+        userEmail: opts.userEmail,
+        orgId: opts.orgId ?? undefined,
+      }).catch(() => undefined)
+    : undefined;
   const fromSettings = stored?.trim();
   if (fromSettings) return fromSettings;
 

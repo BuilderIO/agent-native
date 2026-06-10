@@ -541,6 +541,20 @@ export async function mergeCoreSharingActions(
       () => import("../appearance/actions/change-appearance.js"),
     ],
     ["toggle-demo-mode", () => import("../demo/actions/toggle-demo-mode.js")],
+    // Org service tokens (CI credentials, e.g. PLAN_RECAP_TOKEN). Mint/revoke
+    // are toolCallable:false — preserved via preserveActionFlags below.
+    [
+      "create-org-service-token",
+      () => import("../mcp/actions/create-org-service-token.js"),
+    ],
+    [
+      "list-org-service-tokens",
+      () => import("../mcp/actions/list-org-service-tokens.js"),
+    ],
+    [
+      "revoke-org-service-token",
+      () => import("../mcp/actions/revoke-org-service-token.js"),
+    ],
   ];
   for (const [name, loader] of entries) {
     if (registry[name]) continue;

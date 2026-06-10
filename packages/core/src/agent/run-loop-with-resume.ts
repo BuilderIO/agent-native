@@ -107,6 +107,9 @@ export async function runAgentLoopDirectWithSoftTimeout(
       return usage;
     } catch (err) {
       if (softTimedOut && !upstreamSignal.aborted) {
+        // Clear partial text the client received before the abort so the
+        // resumed model doesn't re-emit it and produce duplicated output.
+        opts.send({ type: "clear" });
         appendAgentLoopContinuation(opts.messages, "run_timeout");
         continue;
       }
@@ -117,7 +120,14 @@ export async function runAgentLoopDirectWithSoftTimeout(
       // and let the loop run another LLM call. The conversation prefix up to
       // the cut-off is preserved in opts.messages, and Anthropic's prompt
       // cache makes the resume call much faster.
+      //
+      // Emit 'clear' so any partial streamed text is discarded on the client
+      // before the model resumes. Without this the model restarts its sentence
+      // from scratch and the fold produces duplicated text in one message
+      // (the partial text was already sent to the client but never entered
+      // the in-memory messages array, so the next attempt re-emits it).
       if (!upstreamSignal.aborted && isResumableEngineError(err)) {
+        opts.send({ type: "clear" });
         appendAgentLoopContinuation(
           opts.messages,
           continuationReasonForResumableError(err),

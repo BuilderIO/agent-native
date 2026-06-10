@@ -118,6 +118,22 @@ import { deleteAppState } from "@agent-native/core/application-state";
 await deleteAppState("compose-draft1");
 ```
 
+## Attaching Files
+
+The `send-email` action accepts an optional `attachments` array. Each entry must reference a file that was previously uploaded via the media-upload endpoint (`/api/media/upload`). Pass the server-side `filename` (the key returned by the upload endpoint, e.g. `abc123.pdf`), and optionally `originalName` (display name for the recipient) and `mimeType`. The attachment plumbing resolves the file from the upload store (falling back to `data/uploads/`) and includes it as a MIME multipart attachment in the outgoing Gmail message. Files are never sent speculatively — only attach what the user has explicitly provided and confirmed.
+
+Example:
+```json
+{
+  "to": "recipient@example.com",
+  "subject": "Q2 Report",
+  "body": "Please find the report attached.",
+  "attachments": [
+    { "filename": "abc123.pdf", "originalName": "Q2-Report.pdf", "mimeType": "application/pdf" }
+  ]
+}
+```
+
 ## Important Notes
 
 - The `id` field in the JSON MUST match the `{id}` in the key name (`compose-{id}`)

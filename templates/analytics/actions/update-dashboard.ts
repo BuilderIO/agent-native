@@ -16,7 +16,7 @@ import {
 } from "@agent-native/core/collab";
 
 /**
- * Same shape as the server-side validator in `server/handlers/sql-dashboards.ts`.
+ * Same validation shape used in the sql-dashboard save path.
  * Variables declared on the dashboard take priority; filter `default` values
  * fill in anything missing so parametric SQL validates against a real value.
  *
@@ -449,10 +449,12 @@ export default defineAction({
   },
   run: async (args) => {
     if (!args.ops && !args.config) {
-      return "Error: provide either `ops` (for surgical edits) or `config` (for full replace).";
+      throw new Error(
+        "provide either `ops` (for surgical edits) or `config` (for full replace).",
+      );
     }
     if (args.ops && args.config) {
-      return "Error: provide `ops` OR `config`, not both.";
+      throw new Error("provide `ops` OR `config`, not both.");
     }
 
     const scope = resolveScope();
@@ -460,9 +462,9 @@ export default defineAction({
 
     if (args.config) {
       const validation = validateDashboardConfig(args.config);
-      if (validation) return `Error: ${validation}`;
+      if (validation) throw new Error(validation);
       const sqlError = await validatePanelSql(args.config);
-      if (sqlError) return `Error: ${sqlError}`;
+      if (sqlError) throw new Error(sqlError);
       await upsertDashboard(args.dashboardId, "sql", args.config, ctx);
       await syncToCollab(args.dashboardId, args.config);
       return {
@@ -485,7 +487,9 @@ export default defineAction({
 
     const existing = await getDashboard(args.dashboardId, ctx);
     if (!existing) {
-      return `Error: dashboard "${args.dashboardId}" not found (or you don't have access).`;
+      throw new Error(
+        `dashboard "${args.dashboardId}" not found (or you don't have access).`,
+      );
     }
 
     const root = existing.config as any;
@@ -494,12 +498,12 @@ export default defineAction({
       try {
         details.push(applyJsonOp(root, op as JsonOp));
       } catch (err: any) {
-        return `Error applying op ${JSON.stringify(op)}: ${err.message}`;
+        throw new Error(`applying op ${JSON.stringify(op)}: ${err.message}`);
       }
     }
 
     const sqlError = await validatePanelSql(root);
-    if (sqlError) return `Error: ${sqlError}`;
+    if (sqlError) throw new Error(sqlError);
 
     await upsertDashboard(
       args.dashboardId,

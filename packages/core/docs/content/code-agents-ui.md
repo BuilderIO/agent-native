@@ -13,13 +13,7 @@ There are three layers:
 - **Desktop**: the left-sidebar Code tab adds native terminal launch, app webviews, and desktop deep links while using the same run model.
 - **Shared UI**: `@agent-native/code-agents-ui` renders the reusable React surface.
 
-The current split is intentionally converging: the standard agent sidebar and
-Agent Teams run on the core `run-manager` lifecycle, while Agent-Native Code
-uses local long-running sessions backed by the file-based Code run store and the
-shared background-run controller vocabulary. New surfaces should build on the
-shared background-run adapter/foundation instead of inventing another
-lifecycle, so CLI, Desktop, background sessions, and sub-agents keep moving
-toward one run model.
+The current split is intentionally converging: the standard agent sidebar and Agent Teams run on the core `run-manager` lifecycle, while Agent-Native Code uses local long-running sessions backed by the file-based Code run store and the shared background-run controller vocabulary.
 
 The shared UI is host-driven. It does not know whether it is running in Electron, a browser template, or a future hosted shell. Hosts provide a `CodeAgentsHost` implementation.
 
@@ -105,10 +99,6 @@ agent-native
 agent-native "fix the failing auth tests"
 agent-native code
 ```
-
-Inside the framework checkout, use `pnpm dev:cli ...` to exercise the source
-CLI before a build, for example `pnpm dev:cli --help` or
-`pnpm dev:cli code goals`.
 
 Use `agent-native code` when you want the explicit namespace. Built-in slash
 goals and project commands can run inside the interactive workspace or directly
@@ -221,7 +211,8 @@ Browser hosts should return a graceful `openTerminal` error instead of trying to
 ## Shared Composer
 
 Agent-Native Code uses the same `AgentComposerFrame` + `PromptComposer` /
-`TiptapComposer` stack as the framework agent sidebar. Do not fork a separate
+`TiptapComposer` stack exported from `@agent-native/core/client/composer` as the
+framework agent sidebar. Do not fork a separate
 textarea, coding-tool picker, upload picker, voice button, model picker, or Enter-to-submit
 implementation for Code-like surfaces. If a host needs one extra control, pass
 it through the shared composer extension points so the sidebar, Code UI, and
@@ -300,11 +291,6 @@ Do not add a parallel background-agent runner just because a new surface needs a
 different layout. Build a host adapter or UI slot on top of the shared
 run-manager foundation instead.
 
-Regression rule for new prompt or background surfaces: Code, Brain, and the
-standard sidebar must keep using `PromptComposer` through the shared composer
-stack, and background work must use the Code run store, the background-run
-adapter, `run-manager`, or `agent-teams` rather than a bespoke queue/runner.
-
 ## Follow-Ups
 
 Follow-ups on active runs support two delivery modes:
@@ -364,20 +350,6 @@ Telegram uses the same relay through Dispatch. Supported commands are:
 /code deny <id>
 /code stop <run>
 ```
-
-### Smoke checklist
-
-Before shipping a remote-control change, run the automated relay route smoke in
-`remote-plugin.spec.ts`, then do one real-device pass:
-
-1. Pair Desktop from Settings and confirm the host appears in mobile Sessions.
-2. Start a session from mobile and confirm Desktop claims it.
-3. Send `/code <prompt>` from Telegram and confirm it queues to the same host.
-4. Verify transcript mirroring, follow-up, approve or deny, and stop.
-5. Revoke the host from mobile and confirm new commands stay queued/offline
-   instead of being sent to the revoked device.
-6. Enable mobile push alerts and confirm command completion creates a push
-   outbox row.
 
 ## Styling
 

@@ -11,6 +11,9 @@ interface TokenRow {
   owner_email: string;
   org_id: string | null;
   label: string | null;
+  kind: string;
+  service_name: string | null;
+  created_by: string | null;
   created_at: number | null;
   last_used_at: number | null;
   revoked_at: number | null;
@@ -42,6 +45,10 @@ const exec = async (input: string | { sql: string; args?: unknown[] }) => {
     }
     return { rows: [], rowsAffected: 0 };
   }
+  // Additive org-service-token columns — already part of the in-memory shape.
+  if (/^ALTER TABLE mcp_connect_tokens ADD COLUMN/i.test(sql)) {
+    return { rows: [], rowsAffected: 0 };
+  }
 
   // --- mcp_connect_tokens ---
   if (/^INSERT INTO mcp_connect_tokens/i.test(sql)) {
@@ -51,9 +58,12 @@ const exec = async (input: string | { sql: string; args?: unknown[] }) => {
       owner_email: args[2],
       org_id: args[3],
       label: args[4],
-      created_at: args[5],
-      last_used_at: args[6],
-      revoked_at: args[7],
+      kind: args[5],
+      service_name: args[6],
+      created_by: args[7],
+      created_at: args[8],
+      last_used_at: args[9],
+      revoked_at: args[10],
     });
     return { rows: [], rowsAffected: 1 };
   }
@@ -70,6 +80,32 @@ const exec = async (input: string | { sql: string; args?: unknown[] }) => {
       .filter((r) => r.owner_email === args[0])
       .sort((a, b) => (b.created_at ?? 0) - (a.created_at ?? 0));
     return { rows, rowsAffected: 0 };
+  }
+  if (
+    /^SELECT id, jti, owner_email.* FROM mcp_connect_tokens WHERE org_id = \? AND kind = 'service'/i.test(
+      sql,
+    )
+  ) {
+    const rows = tokens
+      .filter((r) => r.org_id === args[0] && r.kind === "service")
+      .sort((a, b) => (b.created_at ?? 0) - (a.created_at ?? 0));
+    return { rows, rowsAffected: 0 };
+  }
+  if (
+    /^UPDATE mcp_connect_tokens SET revoked_at = \? WHERE id = \? AND org_id = \? AND kind = 'service'/i.test(
+      sql,
+    )
+  ) {
+    const t = tokens.find(
+      (r) =>
+        r.id === args[1] &&
+        r.org_id === args[2] &&
+        r.kind === "service" &&
+        r.revoked_at == null,
+    );
+    if (!t) return { rows: [], rowsAffected: 0 };
+    t.revoked_at = args[0];
+    return { rows: [], rowsAffected: 1 };
   }
   if (/^UPDATE mcp_connect_tokens SET revoked_at = \?/i.test(sql)) {
     const t = tokens.find(
@@ -285,6 +321,135 @@ describe("connect-store", () => {
       expect(tokens[0].last_used_at).not.toBeNull();
       // Unknown jti is a silent no-op (best-effort telemetry).
       await expect(store.touchTokenUsed("missing")).resolves.toBeUndefined();
+    });
+
+    it("personal tokens default to kind 'personal' with no service fields", async () => {
+      await store.recordMintedToken({
+        jti: "j-personal",
+        ownerEmail: "a@example.com",
+      });
+      expect(tokens[0]).toMatchObject({
+        kind: "personal",
+        service_name: null,
+        created_by: null,
+      });
+      const list = await store.listTokens("a@example.com");
+      expect(list[0].kind).toBe("personal");
+      expect(list[0].serviceName).toBeNull();
+      expect(list[0].createdBy).toBeNull();
+    });
+  });
+
+  describe("org service tokens", () => {
+    it("serviceIdentityEmail builds a normalized, email-shaped synthetic identity", () => {
+      expect(store.serviceIdentityEmail("ci", "org-1")).toBe(
+        "svc-ci@service.org-1",
+      );
+      expect(store.serviceIdentityEmail("PR Recap!", "org-1")).toBe(
+        "svc-pr-recap@service.org-1",
+      );
+      expect(store.isServiceIdentityEmail("svc-ci@service.org-1")).toBe(true);
+      expect(store.isServiceIdentityEmail("steve@example.com")).toBe(false);
+      expect(store.isServiceIdentityEmail(undefined)).toBe(false);
+      expect(() => store.normalizeServiceName("!!!")).toThrow();
+    });
+
+    it("records a service token with kind/service_name/created_by and never the value", async () => {
+      const email = store.serviceIdentityEmail("ci", "org-1");
+      const id = await store.recordMintedToken({
+        jti: "jti-svc",
+        ownerEmail: email,
+        orgId: "org-1",
+        label: "Service token: ci",
+        kind: "service",
+        serviceName: "ci",
+        createdBy: "admin@example.com",
+      });
+      expect(id).toBeTruthy();
+      expect(tokens[0]).toMatchObject({
+        jti: "jti-svc",
+        owner_email: "svc-ci@service.org-1",
+        org_id: "org-1",
+        kind: "service",
+        service_name: "ci",
+        created_by: "admin@example.com",
+        revoked_at: null,
+      });
+      expect(Object.keys(tokens[0])).not.toContain("token");
+    });
+
+    it("listOrgServiceTokens returns only the org's service tokens, newest first", async () => {
+      vi.spyOn(Date, "now").mockReturnValue(1000);
+      await store.recordMintedToken({
+        jti: "j-personal",
+        ownerEmail: "human@example.com",
+        orgId: "org-1",
+      });
+      await store.recordMintedToken({
+        jti: "j-svc-1",
+        ownerEmail: store.serviceIdentityEmail("ci", "org-1"),
+        orgId: "org-1",
+        kind: "service",
+        serviceName: "ci",
+        createdBy: "admin@example.com",
+      });
+      vi.spyOn(Date, "now").mockReturnValue(2000);
+      await store.recordMintedToken({
+        jti: "j-svc-2",
+        ownerEmail: store.serviceIdentityEmail("recap", "org-1"),
+        orgId: "org-1",
+        kind: "service",
+        serviceName: "recap",
+        createdBy: "admin@example.com",
+      });
+      await store.recordMintedToken({
+        jti: "j-other-org",
+        ownerEmail: store.serviceIdentityEmail("ci", "org-2"),
+        orgId: "org-2",
+        kind: "service",
+        serviceName: "ci",
+        createdBy: "other@example.com",
+      });
+
+      const list = await store.listOrgServiceTokens("org-1");
+      expect(list.map((t) => t.jti)).toEqual(["j-svc-2", "j-svc-1"]);
+      expect(list.every((t) => t.kind === "service")).toBe(true);
+      expect(list[0].serviceName).toBe("recap");
+      expect(list[0].createdBy).toBe("admin@example.com");
+    });
+
+    it("revokeOrgServiceToken is org-scoped and kills the jti via the shared gate", async () => {
+      const id = await store.recordMintedToken({
+        jti: "jti-svc",
+        ownerEmail: store.serviceIdentityEmail("ci", "org-1"),
+        orgId: "org-1",
+        kind: "service",
+        serviceName: "ci",
+        createdBy: "admin@example.com",
+      });
+
+      // Another org can't revoke it.
+      expect(await store.revokeOrgServiceToken("org-2", id)).toBe(false);
+      expect(await store.isJtiRevoked("jti-svc")).toBe(false);
+
+      // The owning org can; the shared revocation gate then rejects the jti.
+      expect(await store.revokeOrgServiceToken("org-1", id)).toBe(true);
+      expect(await store.isJtiRevoked("jti-svc")).toBe(true);
+
+      // Idempotent: re-revoking keeps the first timestamp.
+      const first = tokens[0].revoked_at;
+      expect(await store.revokeOrgServiceToken("org-1", id)).toBe(false);
+      expect(tokens[0].revoked_at).toBe(first);
+    });
+
+    it("revokeOrgServiceToken never touches personal tokens (kind mismatch)", async () => {
+      const id = await store.recordMintedToken({
+        jti: "j-personal",
+        ownerEmail: "human@example.com",
+        orgId: "org-1",
+      });
+      expect(await store.revokeOrgServiceToken("org-1", id)).toBe(false);
+      expect(tokens[0].revoked_at).toBeNull();
     });
   });
 

@@ -1,7 +1,11 @@
 const MIN_MAX_OUTPUT_TOKENS = 256;
-const MAX_MAX_OUTPUT_TOKENS = 32_768;
+// Raise the global clamp to 64K to support models like claude-sonnet-4-6
+// (64K) and GPT-5.x (up to 128K). Callers can still set higher explicit
+// per-call values; this clamp only applies when no explicit value is given.
+const MAX_MAX_OUTPUT_TOKENS = 64_000;
 
-export const DEFAULT_OPENROUTER_MAX_OUTPUT_TOKENS = 1024;
+// OpenRouter default raised from 1024 (truncation-prone) to 8192.
+export const DEFAULT_OPENROUTER_MAX_OUTPUT_TOKENS = 8192;
 export const DEFAULT_AI_SDK_MAX_OUTPUT_TOKENS = 4096;
 export const DEFAULT_ANTHROPIC_MAX_OUTPUT_TOKENS = 8192;
 export const DEFAULT_BUILDER_MAX_OUTPUT_TOKENS = 8192;

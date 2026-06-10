@@ -33,8 +33,21 @@ const nanoid = (): string =>
  *   per deployment so templates that don't use orgs don't accrue phantom
  *   default orgs in their DB. The <RequireActiveOrg> client guard remains
  *   the safety net for pre-existing accounts or provisioning failures.
+ *
+ * Per-request memoized on `event.context` — mirrors the `getSession`
+ * pattern so multiple callers in the same request (e.g. ssr-handler +
+ * a loader) share a single org_members round trip.
  */
 export async function getOrgContext(event: H3Event): Promise<OrgContext> {
+  // Per-request memoization. Multiple call sites per request (action wrappers,
+  // SSR handler, loaders) must not each pay a separate org_members query.
+  const ctx = event.context as {
+    __anOrgContextCache?: Promise<OrgContext>;
+  };
+  return (ctx.__anOrgContextCache ??= resolveOrgContextUncached(event));
+}
+
+async function resolveOrgContextUncached(event: H3Event): Promise<OrgContext> {
   const session = await getSession(event);
   const email = session?.email;
   if (!email) return EMPTY_CONTEXT;

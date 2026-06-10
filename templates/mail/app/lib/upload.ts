@@ -1,4 +1,4 @@
-import { appApiPath } from "@/lib/api-path";
+import { appApiPath } from "@agent-native/core/client";
 import type { ComposeAttachment } from "@shared/types";
 
 export interface UploadResult {

@@ -104,7 +104,7 @@ export default function DestinationsRoute() {
             Saved destinations
           </h2>
           <div className="mt-4 space-y-3">
-            {(data || []).map((destination) => (
+            {(data || []).map((destination: any) => (
               <div
                 key={destination.id}
                 className="rounded-xl border bg-muted/30 p-4"

@@ -257,6 +257,21 @@ export async function writePlanLocalFiles(
       await fs.rm(path.join(folder, ".plan-state.json"), { force: true });
     }
 
+    // Write binary assets to the local assets/ directory.
+    const assetEntries = Object.entries(mdx["assets/"] ?? {});
+    if (assetEntries.length > 0) {
+      const assetsDir = path.join(folder, "assets");
+      await fs.mkdir(assetsDir, { recursive: true });
+      for (const [filename, base64] of assetEntries) {
+        // Sanitize: no path traversal, no absolute paths.
+        const safe = path.basename(filename);
+        if (!safe || safe !== filename) continue;
+        const bytes = Buffer.from(base64, "base64");
+        await fs.writeFile(path.join(assetsDir, safe), bytes);
+        written.push(`assets/${safe}`);
+      }
+    }
+
     await Promise.all(
       resolved.existingFolders
         .filter((existingFolder) => existingFolder !== folder)
@@ -294,6 +309,23 @@ export async function readPlanLocalFolder(
     } catch {
       // Optional local source file.
     }
+  }
+
+  // Read local binary assets from the assets/ directory (if present).
+  try {
+    const assetsDir = path.join(folder, "assets");
+    const entries = await fs.readdir(assetsDir, { withFileTypes: true });
+    const assets: Record<string, string> = {};
+    for (const entry of entries) {
+      if (!entry.isFile()) continue;
+      const bytes = await fs.readFile(path.join(assetsDir, entry.name));
+      assets[entry.name] = bytes.toString("base64");
+    }
+    if (Object.keys(assets).length > 0) {
+      mdx["assets/"] = assets;
+    }
+  } catch {
+    // assets/ directory absent or unreadable — skip.
   }
 
   return {

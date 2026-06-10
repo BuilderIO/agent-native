@@ -49,11 +49,9 @@ Three things change when you reach rung 3:
 
 That's rung 3. That's agent-native.
 
-It also explains why agent-native can support so many protocols without making every app author become a protocol expert. MCP tools, MCP Apps, remote MCP OAuth, A2A, typed React mutations, HTTP action endpoints, CLI actions, deep links, instructions, skills, memory, jobs, and connected MCP servers all hang off the same action and workspace model. Build the domain operation once as an action; the framework projects it into the surfaces each host understands.
+See [Key Concepts — Protocols](/docs/key-concepts#protocols) for how all of this hangs off the same action definition.
 
 ## Why every agent needs a UI {#why-every-agent-needs-a-ui}
-
-The hot take in 2026 is "apps are dead, agents will replace UIs, everyone will just text an agent in Telegram." Eh.
 
 Even when the agent does all the heavy lifting, humans still need to:
 
@@ -71,7 +69,7 @@ The flip side is just as important. Existing SaaS products keep hitting the same
 
 Agent-native flips that. Because every action in the app is defined once and exposed as both a button and an agent tool, the agent can do everything the buttons can — and more — without a separate "AI world" to maintain. Natural language becomes a first-class input alongside clicks.
 
-The argument isn't "agents replace UI." It's "**agents belong inside applications, with a UI on top, as equal partners**." Neither can stand alone.
+The argument isn't "agents replace UI." It's "**agents belong inside applications, with a UI on top, as equal partners**." See [Pure-Agent Apps](/docs/pure-agent-apps) for the full discussion of why agents still need a UI.
 
 ## Agent + UI parity {#agent-ui-parity}
 
@@ -153,14 +151,15 @@ export default defineAction({
   description: "Reply to an email thread",
   schema: z.object({ emailId: z.string(), body: z.string() }),
   run: async ({ emailId, body }) => {
-    await db.replies.insert({ emailId, body });
+    // db and schema come from your app's server/db setup
+    await db.insert(schema.replies).values({ emailId, body });
   },
 });
 ```
 
 ```tsx
 // In any React component — same action, called from a button
-const { mutate } = useActionMutation("replyToEmail");
+const { mutate } = useActionMutation("reply-to-email");
 
 <Button onClick={() => mutate({ emailId, body: "Thanks!" })}>
   Send Reply

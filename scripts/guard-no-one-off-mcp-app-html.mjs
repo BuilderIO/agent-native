@@ -130,10 +130,13 @@ for (const file of files) {
         reason: "defines direct MCP App HTML instead of embedApp()",
       });
     }
-    if (!block.includes("embedApp(")) {
+    // Catalog-only configs (e.g. `{ compactCatalog: true }`) define no UI
+    // surface, so the full-app embed helper is not required for them.
+    if (/\bresource\s*:/.test(block) && !block.includes("embedApp(")) {
       failures.push({
         file: rel,
-        reason: "defines an MCP App without the shared full-app embed helper",
+        reason:
+          "defines an MCP App resource without the shared full-app embed helper",
       });
     }
   }

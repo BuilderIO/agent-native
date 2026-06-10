@@ -222,6 +222,16 @@ function findCoreSrcDir(cwd: string): string | null {
 const CORE_CLIENT_SUBPATHS = [
   "@agent-native/core",
   "@agent-native/core/client",
+  "@agent-native/core/client/chat",
+  "@agent-native/core/client/collab",
+  "@agent-native/core/client/composer",
+  "@agent-native/core/client/conversation",
+  "@agent-native/core/client/editor",
+  "@agent-native/core/client/resources",
+  // Dedicated subpath that exports ONLY appBasePath/agentNativePath/appPath.
+  // entry.client.tsx imports from here so it never pulls the full client barrel
+  // (and its transitive ~650-700 KB gzip chat stack) onto the critical path.
+  "@agent-native/core/client/api-path",
   "@agent-native/core/blocks",
   "@agent-native/core/blocks/server",
   "@agent-native/core/client/extensions",
@@ -248,6 +258,30 @@ function getDefaultOptimizeDeps(cwd: string): string[] {
           { specifier: "@agent-native/core" },
           {
             specifier: "@agent-native/core/client",
+            packageName: "@agent-native/core",
+          },
+          {
+            specifier: "@agent-native/core/client/chat",
+            packageName: "@agent-native/core",
+          },
+          {
+            specifier: "@agent-native/core/client/collab",
+            packageName: "@agent-native/core",
+          },
+          {
+            specifier: "@agent-native/core/client/composer",
+            packageName: "@agent-native/core",
+          },
+          {
+            specifier: "@agent-native/core/client/conversation",
+            packageName: "@agent-native/core",
+          },
+          {
+            specifier: "@agent-native/core/client/editor",
+            packageName: "@agent-native/core",
+          },
+          {
+            specifier: "@agent-native/core/client/resources",
             packageName: "@agent-native/core",
           },
           {
@@ -335,6 +369,35 @@ function getCoreSourceAliases(
     "@agent-native/core": path.join(coreSrc, "index.browser.ts"),
     "@agent-native/core/server": path.join(coreSrc, "server/index.ts"),
     "@agent-native/core/client": path.join(coreSrc, "client/index.ts"),
+    "@agent-native/core/client/chat": path.join(
+      coreSrc,
+      "client/chat/index.ts",
+    ),
+    "@agent-native/core/client/collab": path.join(
+      coreSrc,
+      "client/collab/index.ts",
+    ),
+    "@agent-native/core/client/composer": path.join(
+      coreSrc,
+      "client/composer/index.ts",
+    ),
+    "@agent-native/core/client/conversation": path.join(
+      coreSrc,
+      "client/conversation/index.ts",
+    ),
+    "@agent-native/core/client/editor": path.join(
+      coreSrc,
+      "client/editor/index.ts",
+    ),
+    "@agent-native/core/client/resources": path.join(
+      coreSrc,
+      "client/resources/index.ts",
+    ),
+    // Dedicated thin subpath — only the URL helpers, no chat stack in the closure.
+    "@agent-native/core/client/api-path": path.join(
+      coreSrc,
+      "client/api-path.ts",
+    ),
     "@agent-native/core/blocks": path.join(coreSrc, "client/blocks/index.ts"),
     "@agent-native/core/blocks/server": path.join(
       coreSrc,
@@ -423,6 +486,10 @@ function getCoreSourceAliases(
     "@agent-native/core/server/design-token-utils": path.join(
       coreSrc,
       "server/design-token-utils.ts",
+    ),
+    "@agent-native/core/server/entry-server": path.join(
+      coreSrc,
+      "server/entry-server.tsx",
     ),
     // Shared stylesheet — alias to src so CSS edits (composer/theme rules)
     // take effect live in dev instead of silently loading the stale built
@@ -1032,7 +1099,7 @@ export function isFrameworkDevPath(
 function rolldownInputFix(): Plugin {
   return {
     name: "agent-native-rolldown-input-fix",
-    configEnvironment(name, config) {
+    configEnvironment(_name, config) {
       const input = config.build?.rollupOptions?.input;
       if (!Array.isArray(input)) return;
       // Flatten any object entries to just their string values
@@ -1170,7 +1237,7 @@ function silenceConnectionResets(): Plugin {
     configureServer(server) {
       // Swallow socket-level resets so Node doesn't surface them as uncaught.
       server.httpServer?.on("connection", (socket) => {
-        socket.on("error", (err) => {
+        socket.on("error", (err: Error) => {
           if (!isBenign(err)) throw err;
         });
       });

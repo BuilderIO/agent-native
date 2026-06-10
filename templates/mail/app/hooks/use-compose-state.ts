@@ -4,7 +4,7 @@ import { agentNativePath } from "@agent-native/core/client";
 import { nanoid } from "nanoid";
 import type { ComposeState, UserSettings } from "@shared/types";
 import { appendSignatureToBody } from "@shared/signature";
-import { appApiPath } from "@/lib/api-path";
+import { appApiPath } from "@agent-native/core/client";
 import { TAB_ID } from "@/lib/tab-id";
 
 export const FOCUS_COMPOSE_DRAFT_EVENT = "mail:focus-compose-draft";

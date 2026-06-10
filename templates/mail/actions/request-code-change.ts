@@ -27,7 +27,7 @@ export default defineAction({
     const { description, files } = args;
 
     if (!description?.trim()) {
-      return "Error: --description is required.";
+      throw new Error("--description is required.");
     }
 
     const isProduction = process.env.NODE_ENV === "production";

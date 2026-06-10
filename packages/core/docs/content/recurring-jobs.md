@@ -7,6 +7,8 @@ description: "Cron-scheduled prompts the agent runs on its own — daily digests
 
 A **recurring job** is a prompt that runs on a cron schedule. It's how the agent does things on its own: "every morning at 7 summarize my overnight emails," "every Monday post last week's signup numbers to Slack," "every hour sweep for stale drafts and delete them."
 
+Recurring jobs fire on a clock. To react to _events_ (a booking created, an email received) — same `jobs/` file format plus conditions — see [Automations](/docs/automations).
+
 Jobs live in the [workspace](/docs/workspace) at `jobs/<name>.md` — just a Markdown file with YAML frontmatter. No registration, no wiring. Drop the file in and the framework picks it up.
 
 ## A job file {#job-file}
@@ -99,13 +101,26 @@ The scheduler is a framework plugin (the internal `processRecurringJobs()` routi
 4. The agent runs its loop — calling actions, writing to SQL, sending A2A messages, emailing, whatever the prompt asks for.
 5. On completion, writes `lastRun`, `lastStatus`, `lastError`, and recomputes `nextRun` from the cron.
 
-If the runtime is serverless/edge, trigger the tick from an external cron (Cloudflare Cron Triggers, Vercel Cron, GitHub Actions on a schedule, etc.) by hitting the framework's scheduler endpoint. If you're on Node, the scheduler can run in-process on a `setInterval`.
+The scheduler runs in-process: a `setInterval` fires every 60 seconds (with a 10-second startup delay) inside the agent chat plugin, wherever the server is running. On scale-to-zero serverless hosts, jobs only fire while an instance is warm — if reliable scheduling matters, keep an instance warm with keep-alive pings or use an always-on host (Fly, Render, a VPS).
 
 ## Debugging a job {#debugging}
 
 - Open `jobs/<name>.md` in the workspace — the frontmatter shows `lastRun`, `lastStatus`, `lastError`, `nextRun`.
 - **Test it without waiting:** there's no force-fire tool. To exercise the same work on demand, either paste the job's prompt into the agent chat and let it run there, or temporarily set the schedule to the next minute so the scheduler picks it up on the next tick (then restore the real cron).
 - **Pause it:** flip `enabled: false`. The file stays put, just stops running.
+
+## Agent tool {#agent-tool}
+
+A single `manage-jobs` tool is registered in every template. The `action` parameter selects the operation:
+
+| Action   | Parameters                                                        | Purpose                                                      |
+| -------- | ----------------------------------------------------------------- | ------------------------------------------------------------ |
+| `create` | `name`, `schedule`, `instructions` (required); `scope`, `runAs`   | Create a new recurring job                                   |
+| `list`   | `scope` (`personal`, `shared`, or all)                            | List all jobs with status (schedule, enabled, last/next run) |
+| `update` | `name` (required); `schedule`, `instructions`, `enabled`, `runAs` | Edit an existing job                                         |
+| `delete` | `name` (required)                                                 | Delete a job — always confirm with the user first            |
+
+**Personal vs shared scope.** Each job lives in either personal scope (runs as and is visible only to the creator) or shared/org scope (runs on behalf of the creator but is visible to org members). The `scope` and `runAs` parameters control this at create time. Org admins can update or delete any shared job; non-admin members can only manage their own.
 
 ## Different from the scheduling package {#vs-scheduling-package}
 
@@ -118,6 +133,7 @@ Recurring jobs are "how do I make the agent act on its own?" The scheduling pack
 
 ## What's next
 
+- [**Automations**](/docs/automations) — add event triggers and conditions to the same `jobs/` format
 - [**Workspace**](/docs/workspace) — where jobs live alongside skills, memory, and custom agents
 - [**Actions**](/docs/actions) — the tools a job calls
 - [**Agent Teams**](/docs/agent-teams) — jobs often spawn sub-agents to do parallel work

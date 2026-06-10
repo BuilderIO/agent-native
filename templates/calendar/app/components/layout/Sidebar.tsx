@@ -670,9 +670,9 @@ export function Sidebar({ open, onClose }: SidebarProps) {
             <GoogleConnectSidebarButton />
           )}
 
-          {isConnected && googleStatus.data?.accounts?.length > 0 && (
+          {isConnected && (googleStatus.data?.accounts?.length ?? 0) > 0 && (
             <GoogleAccountsSection
-              accounts={googleStatus.data.accounts}
+              accounts={googleStatus.data!.accounts!}
               onClose={onClose}
             />
           )}

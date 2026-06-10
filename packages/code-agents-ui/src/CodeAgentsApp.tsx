@@ -8,6 +8,8 @@ import {
 } from "react";
 import {
   IconAlertCircle,
+  IconBan,
+  IconBrain,
   IconCheck,
   IconClock,
   IconCode,
@@ -29,6 +31,7 @@ import {
   IconRoute,
   IconSearch,
   IconSettings,
+  IconShieldCheck,
   IconTerminal2,
 } from "@tabler/icons-react";
 import { QRCodeSVG } from "qrcode.react";
@@ -771,9 +774,19 @@ export default function CodeAgentsApp({
         }
       },
     );
+    // When the push subscription is active it delivers events as they arrive.
+    // Keep a long-interval fallback poll so we reconcile any gaps (e.g. if the
+    // file watch fires before the write is fully flushed, or on first load).
+    const pollMs = unsubscribe
+      ? selectedRunIsActive
+        ? 10_000
+        : 30_000
+      : selectedRunIsActive
+        ? 1_000
+        : 5_000;
     const interval = window.setInterval(
       () => void loadTranscript(selectedRunId),
-      selectedRunIsActive ? 1_000 : 5_000,
+      pollMs,
     );
     return () => {
       unsubscribe?.();
@@ -1570,6 +1583,8 @@ export default function CodeAgentsApp({
                     onResume={() => controlRun("resume")}
                     onStop={() => controlRun("stop")}
                     onApprove={() => controlRun("approve")}
+                    onApproveAlways={() => controlRun("approve-always")}
+                    onDeny={() => controlRun("deny")}
                     onRetry={host.retryRun ? retrySelectedRun : undefined}
                     onRerun={host.rerunRun ? rerunSelectedRun : undefined}
                     builderConnecting={builderConnecting}
@@ -3190,6 +3205,8 @@ function RunDetailCard({
   onResume,
   onStop,
   onApprove,
+  onApproveAlways,
+  onDeny,
   onRetry,
   onRerun,
   builderConnecting,
@@ -3216,6 +3233,8 @@ function RunDetailCard({
   onResume: () => void;
   onStop: () => void;
   onApprove: () => void;
+  onApproveAlways: () => void;
+  onDeny: () => void;
   onRetry?: () => void;
   onRerun?: () => void;
   builderConnecting: boolean;
@@ -3349,14 +3368,34 @@ function RunDetailCard({
             <span>{pendingApproval.reason}</span>
             {pendingApproval.command && <code>{pendingApproval.command}</code>}
           </div>
-          <button
-            type="button"
-            className="code-agents-button code-agents-button--primary"
-            onClick={onApprove}
-          >
-            <IconPlayerPlay size={14} strokeWidth={1.8} />
-            Approve
-          </button>
+          <div className="code-agents-approval-actions">
+            <button
+              type="button"
+              className="code-agents-button code-agents-button--ghost code-agents-button--danger"
+              onClick={onDeny}
+              title="Deny — model will adapt its plan"
+            >
+              <IconBan size={14} strokeWidth={1.8} />
+              Deny
+            </button>
+            <button
+              type="button"
+              className="code-agents-button"
+              onClick={onApproveAlways}
+              title="Approve and always allow this exact command"
+            >
+              <IconShieldCheck size={14} strokeWidth={1.8} />
+              Always allow
+            </button>
+            <button
+              type="button"
+              className="code-agents-button code-agents-button--primary"
+              onClick={onApprove}
+            >
+              <IconPlayerPlay size={14} strokeWidth={1.8} />
+              Approve
+            </button>
+          </div>
         </div>
       )}
 
@@ -3378,6 +3417,8 @@ function RunDetailCard({
             </button>
           </div>
         )}
+
+      <TokenUsageMeter run={run} />
 
       <TranscriptPanel
         host={host}
@@ -3558,6 +3599,79 @@ function TranscriptPanel({
           onConnectProvider={onConnectProvider}
         />
       )}
+    </div>
+  );
+}
+
+// --------------- Token / context meter ---------------
+
+/**
+ * Context window size (in tokens) keyed by model-name substring.
+ * Used to compute approximate context-used % when the model is known.
+ * This is a local approximation; a more precise table can replace it later.
+ */
+const MODEL_CONTEXT_WINDOWS: Array<[RegExp, number]> = [
+  [/claude-3-7|claude-sonnet-4|claude-opus-4/i, 200_000],
+  [/claude-3-5|claude-3-opus|claude-3-haiku/i, 200_000],
+  [/claude-2|claude-instant/i, 100_000],
+  [/gpt-4o|gpt-4-turbo|gpt-4\.1/i, 128_000],
+  [/gpt-4/i, 8_192],
+  [/gpt-3\.5/i, 16_385],
+  [/gemini-1\.5|gemini-2/i, 1_000_000],
+  [/gemini-pro/i, 32_760],
+];
+
+function contextWindowForModel(model: string | undefined): number | null {
+  if (!model) return null;
+  for (const [pattern, size] of MODEL_CONTEXT_WINDOWS) {
+    if (pattern.test(model)) return size;
+  }
+  return null;
+}
+
+function formatTokenCount(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(0)}K`;
+  return String(n);
+}
+
+function TokenUsageMeter({ run }: { run: CodeAgentRun }) {
+  const usage = run.metadata?.tokenUsage;
+  if (!usage || typeof usage !== "object" || Array.isArray(usage)) return null;
+  const u = usage as Record<string, unknown>;
+  const input = typeof u.inputTokens === "number" ? u.inputTokens : 0;
+  const output = typeof u.outputTokens === "number" ? u.outputTokens : 0;
+  if (input + output === 0) return null;
+
+  const model =
+    typeof run.metadata?.model === "string" ? run.metadata.model : undefined;
+  const contextWindow = contextWindowForModel(model);
+  const contextPct =
+    contextWindow && input > 0
+      ? Math.min(100, Math.round((input / contextWindow) * 100))
+      : null;
+
+  return (
+    <div className="code-agents-token-meter">
+      <IconBrain
+        size={12}
+        strokeWidth={1.8}
+        className="code-agents-token-meter__icon"
+      />
+      <span className="code-agents-token-meter__label">
+        {formatTokenCount(input + output)} tokens
+      </span>
+      {contextPct !== null && (
+        <span
+          className="code-agents-token-meter__ctx"
+          title={`~${contextPct}% of ${formatTokenCount(contextWindow!)} context window used`}
+        >
+          {contextPct}% ctx
+        </span>
+      )}
+      <span className="code-agents-token-meter__detail">
+        {formatTokenCount(input)} in / {formatTokenCount(output)} out
+      </span>
     </div>
   );
 }

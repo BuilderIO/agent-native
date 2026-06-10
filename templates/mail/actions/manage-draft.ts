@@ -94,7 +94,9 @@ export default defineAction({
   run: async (args) => {
     const action = args.action;
     if (!action)
-      return "Error: --action is required (create, update, delete, delete-all)";
+      throw new Error(
+        "--action is required (create, update, delete, delete-all)",
+      );
 
     if (action === "delete-all") {
       const count = await deleteAppStateByPrefix("compose-");
@@ -102,13 +104,12 @@ export default defineAction({
     }
 
     if (action === "delete") {
-      if (!args.id) return "Error: --id is required for delete";
+      if (!args.id) throw new Error("--id is required for delete");
       const safeId = sanitizeDraftId(args.id);
-      if (!safeId) return `Error: Invalid draft ID "${args.id}"`;
+      if (!safeId) throw new Error(`Invalid draft ID "${args.id}"`);
       const deleted = await deleteAppState(`compose-${safeId}`);
-      return deleted
-        ? `Deleted draft ${safeId}`
-        : `Error: Draft "${safeId}" not found`;
+      if (!deleted) throw new Error(`Draft "${safeId}" not found`);
+      return `Deleted draft ${safeId}`;
     }
 
     if (action === "create") {
@@ -137,11 +138,11 @@ export default defineAction({
     }
 
     if (action === "update") {
-      if (!args.id) return "Error: --id is required for update";
+      if (!args.id) throw new Error("--id is required for update");
       const safeId = sanitizeDraftId(args.id);
-      if (!safeId) return `Error: Invalid draft ID "${args.id}"`;
+      if (!safeId) throw new Error(`Invalid draft ID "${args.id}"`);
       const draft = await readAppState(`compose-${safeId}`);
-      if (!draft) return `Error: Draft "${safeId}" not found`;
+      if (!draft) throw new Error(`Draft "${safeId}" not found`);
       for (const key of [
         "to",
         "cc",
@@ -153,7 +154,8 @@ export default defineAction({
         "replyToThreadId",
         "accountEmail",
       ]) {
-        if (args[key] !== undefined) (draft as any)[key] = args[key];
+        if ((args as any)[key] !== undefined)
+          (draft as any)[key] = (args as any)[key];
       }
       await writeAppState(`compose-${safeId}`, draft);
       return {
@@ -164,7 +166,9 @@ export default defineAction({
       };
     }
 
-    return `Error: Unknown action "${action}". Valid: create, update, delete, delete-all`;
+    throw new Error(
+      `Unknown action "${action}". Valid: create, update, delete, delete-all`,
+    );
   },
   link: ({ result }) => {
     if (!result || typeof result !== "object") return null;

@@ -82,9 +82,10 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
       : 0;
 
     // Resolved range end — defaults to full duration
-    const rangeEnd = Number.isFinite(viewEnd)
-      ? Math.min(viewEnd, composition.durationInFrames)
-      : composition.durationInFrames;
+    const rangeEnd =
+      viewEnd !== undefined && Number.isFinite(viewEnd)
+        ? Math.min(viewEnd, composition.durationInFrames)
+        : composition.durationInFrames;
 
     // Keep a ref so the frameupdate handler always sees the latest range
     // without needing to be re-registered on every change.

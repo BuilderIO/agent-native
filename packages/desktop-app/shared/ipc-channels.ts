@@ -496,7 +496,13 @@ export interface CodeAgentProviderSettingsUpdateResult {
   error?: string;
 }
 
-export type CodeAgentControlCommand = "resume" | "status" | "stop" | "approve";
+export type CodeAgentControlCommand =
+  | "resume"
+  | "status"
+  | "stop"
+  | "approve"
+  | "approve-always"
+  | "deny";
 
 export type CodeAgentHostControlCommand =
   | CodeAgentControlCommand

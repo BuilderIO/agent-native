@@ -94,6 +94,8 @@ The card endpoint is public, so the framework redacts skills whose IDs reveal pe
 }
 ```
 
+_(Version may differ; fetch your app's live card at `/.well-known/agent-card.json` for the current `protocolVersion`.)_
+
 When `A2A_SECRET` is set (the recommended path), the card advertises a
 `jwtBearer` scheme as above. The `apiKey` scheme is only added when a legacy
 `apiKeyEnv` is also configured, so a card with just `A2A_SECRET` set publishes
@@ -303,18 +305,22 @@ A mail agent needs analytics data. The analytics agent exposes a "run-query" ski
 
 ```ts
 // In the mail agent's actions/get-analytics.ts
+import { defineAction } from "@agent-native/core/server";
 import { callAgent } from "@agent-native/core/a2a";
+import { z } from "zod";
 
-export default async function (args: string[]) {
-  const response = await callAgent(
-    "https://analytics.example.com",
-    "How many emails were sent last week by category?",
-    { apiKey: process.env.ANALYTICS_API_KEY },
-  );
-
-  console.log(response);
-  // The mail agent can now use this data in its response
-}
+export default defineAction({
+  description: "Ask the analytics agent a question.",
+  schema: z.object({ question: z.string() }),
+  async run({ question }) {
+    const response = await callAgent(
+      "https://analytics.example.com",
+      question,
+      { apiKey: process.env.ANALYTICS_API_KEY },
+    );
+    return { answer: response };
+  },
+});
 ```
 
-The analytics agent receives the message, runs the query via its handler, and returns the result. The mail agent's script gets the text response back. No shared database, no direct API calls — just agent-to-agent communication.
+The analytics agent receives the message, runs the query via its handler, and returns the result. The mail action gets the text response back. No shared database, no direct API calls — just agent-to-agent communication.

@@ -7,7 +7,7 @@ import {
   useChatModels,
   useChangeVersions,
 } from "@agent-native/core/client";
-import { appApiPath } from "@/lib/api-path";
+import { appApiPath } from "@agent-native/core/client";
 import {
   IconUsers,
   IconPlus,

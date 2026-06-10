@@ -15,6 +15,7 @@ import type { EventHandler, H3Event } from "h3";
 import { setResponseHeader, setResponseStatus } from "h3";
 import { getMissingDefaultPlugins } from "../deploy/route-discovery.js";
 import { captureError } from "./capture-error.js";
+import { getConfiguredAppBasePath } from "./app-base-path.js";
 
 const BOOTSTRAPPED = new WeakSet<object>();
 const IN_BOOTSTRAP = new WeakSet<object>();
@@ -33,17 +34,8 @@ interface PluginReadyEntry {
   paths?: string[];
 }
 
-function normalizeAppBasePath(value: string | undefined): string {
-  if (!value || value === "/") return "";
-  const trimmed = value.trim();
-  if (!trimmed || trimmed === "/") return "";
-  return `/${trimmed.replace(/^\/+/, "").replace(/\/+$/, "")}`;
-}
-
 function getAppBasePath(): string {
-  return normalizeAppBasePath(
-    process.env.VITE_APP_BASE_PATH || process.env.APP_BASE_PATH,
-  );
+  return getConfiguredAppBasePath();
 }
 
 function pathMatchesPrefix(reqPath: string, prefix: string): boolean {
@@ -303,7 +295,6 @@ function installPluginReadyPlaceholders(
   const installed = existing ?? new Set<string>();
   nitroApp[PLUGIN_READY_PLACEHOLDERS_KEY] = installed;
 
-  const app = getH3App(nitroApp);
   for (const path of paths) {
     if (!path || installed.has(path)) continue;
     installed.add(path);

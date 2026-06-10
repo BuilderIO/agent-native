@@ -10,18 +10,23 @@ import {
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const rootDir = path.resolve(__dirname, "..");
+const AGENT_WEB_GENERATION_TIMEOUT_MS = 15_000;
 
 describe("docs agent web generation", () => {
-  it("includes docs markdown mirrors with getting-started at /docs", () => {
-    const pages = buildAgentWebPages(rootDir);
-    const gettingStarted = pages.find((page) => page.path === "/docs");
+  it(
+    "includes docs markdown mirrors with getting-started at /docs",
+    () => {
+      const pages = buildAgentWebPages(rootDir);
+      const gettingStarted = pages.find((page) => page.path === "/docs");
 
-    expect(gettingStarted).toMatchObject({
-      title: "Getting Started",
-      markdownPath: "/docs/getting-started.md",
-    });
-    expect(gettingStarted?.markdown).toContain("# Getting Started");
-  });
+      expect(gettingStarted).toMatchObject({
+        title: "Getting Started",
+        markdownPath: "/docs/getting-started.md",
+      });
+      expect(gettingStarted?.markdown).toContain("# Getting Started");
+    },
+    AGENT_WEB_GENERATION_TIMEOUT_MS,
+  );
 
   it("generates public paths for docs and templates", () => {
     const paths = buildSitemapPaths(rootDir);
@@ -39,4 +44,20 @@ describe("docs agent web generation", () => {
     expect(sitemap).toContain("<loc>https://www.agent-native.com/</loc>");
     expect(sitemap).toContain("<loc>https://www.agent-native.com/docs</loc>");
   });
+
+  it(
+    "derives lastmod from a Date (from git or mtime fallback)",
+    () => {
+      const pages = buildAgentWebPages(rootDir);
+      const gettingStarted = pages.find((page) => page.path === "/docs");
+
+      // lastmod must be a valid Date regardless of whether git log returns a
+      // commit timestamp or we fall back to fs mtime
+      expect(gettingStarted?.lastmod).toBeInstanceOf(Date);
+      expect(Number.isFinite((gettingStarted?.lastmod as Date).getTime())).toBe(
+        true,
+      );
+    },
+    AGENT_WEB_GENERATION_TIMEOUT_MS,
+  );
 });

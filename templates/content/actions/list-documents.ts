@@ -107,7 +107,7 @@ export default defineAction({
           and(
             eq(schema.documentShares.principalType, "user"),
             eq(schema.documentShares.principalId, userEmail),
-          ),
+          )!,
         );
       }
       if (orgId) {
@@ -115,7 +115,7 @@ export default defineAction({
           and(
             eq(schema.documentShares.principalType, "org"),
             eq(schema.documentShares.principalId, orgId),
-          ),
+          )!,
         );
       }
 

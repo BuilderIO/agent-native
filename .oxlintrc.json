@@ -1,0 +1,52 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "plugins": ["react", "react-hooks"],
+  "categories": {
+    "correctness": "warn"
+  },
+  "rules": {
+    "react-hooks/rules-of-hooks": "error",
+    "react-hooks/exhaustive-deps": "warn",
+    "eslint/eqeqeq": "warn",
+    "eslint/no-unused-vars": "warn"
+  },
+  "ignorePatterns": [
+    "**/dist/**",
+    "**/build/**",
+    "**/.output/**",
+    "**/node_modules/**",
+    "**/*.spec.ts",
+    "**/*.spec.tsx",
+    "**/*.e2e-host.tsx",
+    "packages/core/src/cli/**",
+    "packages/core/src/provider-api/**",
+    "templates/plan/**",
+    "templates/analytics/actions/provider-api-request.ts",
+    ".github/**",
+    "scripts/**",
+    ".changeset/**",
+    ".agents/**"
+  ],
+  "overrides": [
+    {
+      "files": ["packages/*/src/**/*.ts", "packages/*/src/**/*.tsx"],
+      "rules": {}
+    },
+    {
+      "files": [
+        "templates/*/app/**/*.ts",
+        "templates/*/app/**/*.tsx",
+        "templates/*/actions/**/*.ts",
+        "templates/*/server/**/*.ts",
+        "templates/*/shared/**/*.ts"
+      ],
+      "rules": {}
+    },
+    {
+      "files": ["templates/videos/app/remotion/library-components/**/*.tsx"],
+      "rules": {
+        "react-hooks/rules-of-hooks": "warn"
+      }
+    }
+  ]
+}

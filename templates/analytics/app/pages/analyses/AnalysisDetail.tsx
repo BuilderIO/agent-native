@@ -31,10 +31,10 @@ import {
 import { Link, useNavigate } from "react-router";
 import {
   ShareButton,
-  appApiPath,
+  callAction,
+  useActionMutation,
   useChangeVersions,
 } from "@agent-native/core/client";
-import { getIdToken } from "@/lib/auth";
 import { useSendToAgentChat } from "@agent-native/core/client";
 import Markdown from "@/components/Markdown";
 import LegacyFusionAnalysis, {
@@ -71,20 +71,15 @@ interface Analysis extends ResourceAccess {
 }
 
 async function fetchAnalysis(id: string): Promise<Analysis | null> {
-  const token = await getIdToken();
-  const res = await fetch(appApiPath(`/api/analyses/${id}`), {
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
-  });
-  if (!res.ok) return null;
-  return res.json();
-}
-
-async function deleteAnalysis(id: string): Promise<void> {
-  const token = await getIdToken();
-  await fetch(appApiPath(`/api/analyses/${id}`), {
-    method: "DELETE",
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
-  });
+  try {
+    const data = await callAction("get-analysis", { id });
+    if (!data || typeof data !== "object") return null;
+    const a = data as Record<string, unknown>;
+    if (a.error) return null;
+    return a as unknown as Analysis;
+  } catch {
+    return null;
+  }
 }
 
 function formatDate(iso: string): string {
@@ -132,6 +127,9 @@ export default function AnalysisDetail() {
   });
   const canEdit = resourceCanEdit(analysis);
   const canManage = resourceCanManage(analysis);
+  const { mutateAsync: deleteAnalysis } = useActionMutation("delete-analysis", {
+    method: "DELETE",
+  });
 
   useEffect(() => {
     if (analysis?.id) incrementItemView("analysis", analysis.id);
@@ -154,7 +152,7 @@ export default function AnalysisDetail() {
 
   const handleDelete = async () => {
     if (!id || !canManage) return;
-    await deleteAnalysis(id);
+    await deleteAnalysis({ id });
     queryClient.removeQueries({ queryKey: analysisDetailPrefetchKey(id) });
     queryClient.invalidateQueries({ queryKey: ["analyses-list"] });
     navigate("/analyses");

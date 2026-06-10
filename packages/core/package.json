@@ -21,7 +21,7 @@
     "provenance": true
   },
   "bin": {
-    "agent-native": "dist/cli/index.js"
+    "agent-native": "bin/agent-native.js"
   },
   "exports": {
     ".": {
@@ -30,6 +30,7 @@
     },
     "./vite": "./dist/vite/index.js",
     "./server": "./dist/server/index.js",
+    "./server/entry-server": "./dist/server/entry-server.js",
     "./server/ssr-handler": "./dist/server/ssr-handler.js",
     "./server/agent-discovery": "./dist/server/agent-discovery.js",
     "./server/request-context": "./dist/server/request-context.js",
@@ -41,6 +42,12 @@
     "./db/schema": "./dist/db/schema.js",
     "./db/drizzle-config": "./dist/db/drizzle-config.js",
     "./client": "./dist/client/index.js",
+    "./client/chat": "./dist/client/chat/index.js",
+    "./client/collab": "./dist/client/collab/index.js",
+    "./client/composer": "./dist/client/composer/index.js",
+    "./client/conversation": "./dist/client/conversation/index.js",
+    "./client/editor": "./dist/client/editor/index.js",
+    "./client/resources": "./dist/client/resources/index.js",
     "./blocks": "./dist/client/blocks/index.js",
     "./blocks/server": "./dist/client/blocks/server.js",
     "./client/AgentPanel": "./dist/client/AgentPanel.js",
@@ -97,6 +104,12 @@
     "./usage": "./dist/usage/store.js",
     "./connections": "./dist/connections/index.js",
     "./provider-api": "./dist/provider-api/index.js",
+    "./provider-api/staging": "./dist/provider-api/staging.js",
+    "./provider-api/staged-datasets-store": "./dist/provider-api/staged-datasets-store.js",
+    "./provider-api/staged-datasets-aggregate": "./dist/provider-api/staged-datasets-aggregate.js",
+    "./provider-api/actions/query-staged-dataset": "./dist/provider-api/actions/query-staged-dataset.js",
+    "./provider-api/actions/list-staged-datasets": "./dist/provider-api/actions/list-staged-datasets.js",
+    "./provider-api/actions/delete-staged-dataset": "./dist/provider-api/actions/delete-staged-dataset.js",
     "./workspace-files": "./dist/workspace-files/index.js",
     "./code-agents": "./dist/code-agents/index.js",
     "./code-agents/transcript-normalizer": "./dist/code-agents/transcript-normalizer.js",
@@ -113,14 +126,18 @@
     "./agent/engine": "./dist/agent/engine/index.js",
     "./tsconfig.base.json": "./tsconfig.base.json"
   },
+  "sideEffects": [
+    "*.css"
+  ],
   "files": [
+    "bin",
     "dist",
     "docs",
     "tsconfig.base.json",
     "src/templates"
   ],
   "scripts": {
-    "build": "tsc && node scripts/finalize-build.mjs",
+    "build": "tsc && tsc -p tsconfig.cli.json && node scripts/finalize-build.mjs",
     "dev": "tsc --watch",
     "typecheck": "tsc --noEmit",
     "test": "vitest --run src",
@@ -154,7 +171,6 @@
     "@sentry/browser": "^10.50.0",
     "@sentry/node": "^10.50.0",
     "@standard-schema/spec": "^1.1.0",
-    "@tabler/icons-react": "^3",
     "@tailwindcss/typography": "^0.5.19",
     "@tanstack/react-table": "^8.21.3",
     "@tiptap/core": "^3.26.0",
@@ -175,7 +191,7 @@
     "@tiptap/starter-kit": "^3.26.0",
     "@tiptap/y-tiptap": "^3.0.4",
     "@uiw/react-codemirror": "^4.25.10",
-    "better-auth": "1.6.0",
+    "better-auth": "1.6.16",
     "better-sqlite3": "^12.8.0",
     "clsx": "^2.1.1",
     "cron-parser": "^5.5.0",
@@ -198,7 +214,7 @@
     "prettier": "^3.8.3",
     "react-markdown": "^10.1.0",
     "react-router": "^7.16.0",
-    "recharts": "3.8.1",
+    "recharts": "^3.8.1",
     "remark-gfm": "^4.0.1",
     "roughjs": "4.6.6",
     "shiki": "^4.0.2",
@@ -354,6 +370,7 @@
     "@types/node": "^24.2.1",
     "@types/pako": "^2.0.4",
     "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
     "@types/ws": "^8.18.1",
     "@vitejs/plugin-react-swc": "^4.0.0",
     "@vitest/coverage-v8": "4.1.5",
@@ -364,6 +381,8 @@
     "autoprefixer": "^10.4.21",
     "drizzle-kit": "^0.31.10",
     "express": "^5.2.1",
+    "next-themes": "^0.4.6",
+    "sonner": "^2.0.7",
     "mermaid": "11.15.0",
     "node-pty": "^1.1.0",
     "playwright": "^1.60.0",

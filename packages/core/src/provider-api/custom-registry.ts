@@ -20,7 +20,6 @@
  * cannot be expressed in the simple header/key model.
  */
 
-import { randomUUID } from "node:crypto";
 import { getDbExec, isPostgres } from "../db/client.js";
 import { isBlockedExtensionUrlWithDns } from "../extensions/url-safety.js";
 

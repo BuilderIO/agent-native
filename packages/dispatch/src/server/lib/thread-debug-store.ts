@@ -30,7 +30,7 @@ export interface ThreadDebugSource {
   canInspectAll: boolean;
 }
 
-interface DebugAccess {
+export interface DebugAccess {
   viewerEmail: string;
   orgId: string | null;
   role: string | null;

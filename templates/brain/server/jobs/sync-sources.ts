@@ -117,7 +117,13 @@ export async function syncDueBrainSourcesOnce(
   } = {},
 ) {
   const due = await listDueBrainSources(options);
-  const results = [];
+  const results: Array<{
+    sourceId: string;
+    provider: BrainSourceProvider;
+    status: string;
+    capturesCreated: number;
+    message?: string;
+  }> = [];
   for (const source of due) {
     const run = async () => {
       try {
@@ -141,7 +147,7 @@ export async function syncDueBrainSourcesOnce(
     };
     if (options.system) {
       await runWithRequestContext(
-        { userEmail: source.ownerEmail, orgId: source.orgId },
+        { userEmail: source.ownerEmail, orgId: source.orgId ?? undefined },
         run,
       );
     } else {

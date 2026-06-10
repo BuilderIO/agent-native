@@ -125,7 +125,7 @@ export function CompositionCard({
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction
-              onClick={() => onDelete(composition.id)}
+              onClick={() => onDelete?.(composition.id)}
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
               Delete

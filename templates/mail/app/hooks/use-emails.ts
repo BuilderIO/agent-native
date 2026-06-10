@@ -14,7 +14,7 @@ import type {
 } from "@shared/types";
 import { markdownPreviewSnippet } from "@shared/markdown";
 import { TAB_ID } from "@/lib/tab-id";
-import { appApiPath } from "@/lib/api-path";
+import { appApiPath } from "@agent-native/core/client";
 import { bodyToHtml } from "@/lib/utils";
 import {
   useThreadCache,
@@ -619,10 +619,9 @@ export function useMarkRead() {
       isRead: boolean;
       accountEmail?: string;
     }) =>
-      apiFetch(`/api/emails/${id}/read`, {
-        method: "PATCH",
-        body: JSON.stringify({ isRead, accountEmail }),
-      }),
+      callAction("mark-read", { id, unread: !isRead, accountEmail }).then(
+        assertActionSuccess,
+      ),
     onMutate: async ({ id, isRead }) => {
       await qc.cancelQueries({ queryKey: ["emails"] });
       const previous = qc.getQueriesData<InfiniteEmails>({
@@ -656,13 +655,10 @@ export function useMarkThreadRead() {
       const entries = pendingByThread.current.get(threadId) ?? [];
       pendingByThread.current.delete(threadId);
       if (entries.length > 0) {
-        await apiFetch(`/api/threads/${threadId}/read`, {
-          method: "PATCH",
-          body: JSON.stringify({
-            isRead: true,
-            accountEmail: entries[0]?.accountEmail,
-          }),
-        });
+        await callAction("mark-thread-read", {
+          threadId,
+          accountEmail: entries[0]?.accountEmail,
+        }).then(assertActionSuccess);
       }
     },
     onMutate: async (threadId) => {
@@ -715,10 +711,11 @@ export function useToggleStar() {
       accountEmail?: string;
       threadId?: string;
     }) =>
-      apiFetch(`/api/emails/${id}/star`, {
-        method: "PATCH",
-        body: JSON.stringify({ isStarred, accountEmail }),
-      }),
+      callAction("star-email", {
+        id,
+        unstar: !isStarred,
+        accountEmail,
+      }).then(assertActionSuccess),
     onMutate: async ({ id, isStarred, threadId }) => {
       await qc.cancelQueries({ queryKey: ["emails"] });
       const previous = qc.getQueriesData<InfiniteEmails>({
@@ -772,10 +769,12 @@ export function useArchiveEmail() {
       removeLabel?: string;
       threadId?: string;
     }) =>
-      apiFetch(`/api/emails/${id}/archive`, {
-        method: "PATCH",
-        body: JSON.stringify({ accountEmail, removeLabel, threadId }),
-      }),
+      callAction("archive-email", {
+        id,
+        accountEmail,
+        removeLabel,
+        threadId,
+      }).then(assertActionSuccess),
     onMutate: async ({
       id,
     }: {
@@ -813,7 +812,7 @@ export function useUnarchiveEmail() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (id: string) =>
-      apiFetch(`/api/emails/${id}/unarchive`, { method: "PATCH" }),
+      callAction("unarchive-email", { id }).then(assertActionSuccess),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["emails"] }),
   });
 }
@@ -822,7 +821,7 @@ export function useUntrashEmail() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (id: string) =>
-      apiFetch(`/api/emails/${id}/untrash`, { method: "PATCH" }),
+      callAction("untrash-email", { id }).then(assertActionSuccess),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["emails"] }),
   });
 }

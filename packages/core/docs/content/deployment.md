@@ -121,7 +121,9 @@ RUN pnpm build
 FROM node:24-slim
 WORKDIR /app
 COPY --from=build /app/.output .output
-COPY --from=build /app/data data
+# data/ is a runtime-created SQLite directory — do not copy a dev DB into prod.
+# For production, set DATABASE_URL to a hosted Postgres or Turso instance.
+RUN mkdir -p /app/data
 ENV PORT=3000
 EXPOSE 3000
 CMD ["node", ".output/server/index.mjs"]

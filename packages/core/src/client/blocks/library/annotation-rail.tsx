@@ -269,6 +269,7 @@ export interface AnnotationAnchor {
 const HOVER_CARD_WIDTH = 280;
 const HOVER_CARD_GAP = 12;
 const VIEWPORT_MARGIN = 8;
+const SCROLL_HOVER_SUPPRESS_MS = 260;
 
 export function resolveAnnotationHoverCardPosition(
   anchor: AnnotationAnchor,
@@ -368,10 +369,21 @@ export function AnnotationHoverCard<A extends RailAnnotation>({
     item.index,
   ]);
 
-  // Close the card when the user scrolls so it doesn't float detached.
+  // Close the card when the user scrolls so it doesn't float detached. Scrolls
+  // inside a long hover card are local to the card and should not dismiss it.
   useEffect(() => {
     if (!onClose || typeof window === "undefined") return;
-    const handler = () => onClose();
+    const handler = (event: Event) => {
+      const target = event.target;
+      if (
+        target instanceof Node &&
+        cardRef.current &&
+        cardRef.current.contains(target)
+      ) {
+        return;
+      }
+      onClose();
+    };
     window.addEventListener("scroll", handler, {
       capture: true,
       passive: true,
@@ -389,11 +401,12 @@ export function AnnotationHoverCard<A extends RailAnnotation>({
       data-annotation-hover-card
       onMouseEnter={onMouseEnter}
       onMouseLeave={onMouseLeave}
-      className="pointer-events-auto fixed z-50"
+      className="pointer-events-auto fixed z-50 overflow-y-auto overscroll-contain"
       style={{
         top: pos?.top ?? anchor.lineCenter,
         left: pos?.left ?? anchor.codeRight + HOVER_CARD_GAP,
         width: HOVER_CARD_WIDTH,
+        maxHeight: `calc(100vh - ${VIEWPORT_MARGIN * 2}px)`,
         // Hide until measured to avoid a one-frame jump from the fallback spot.
         visibility: pos ? "visible" : "hidden",
       }}
@@ -430,6 +443,7 @@ export function useAnnotationHover(delay = 130) {
     anchor: AnnotationAnchor;
   } | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const suppressHoverUntil = useRef(0);
 
   const cancelClose = () => {
     if (timer.current) {
@@ -438,6 +452,7 @@ export function useAnnotationHover(delay = 130) {
     }
   };
   const open = (index: number, anchor: AnnotationAnchor) => {
+    if (Date.now() < suppressHoverUntil.current) return;
     cancelClose();
     setActive({ index, anchor });
   };
@@ -448,6 +463,10 @@ export function useAnnotationHover(delay = 130) {
   const close = () => {
     cancelClose();
     setActive(null);
+  };
+  const closeForScroll = () => {
+    suppressHoverUntil.current = Date.now() + SCROLL_HOVER_SUPPRESS_MS;
+    close();
   };
   const scheduleClose = () => {
     cancelClose();
@@ -462,6 +481,7 @@ export function useAnnotationHover(delay = 130) {
     open,
     toggle,
     close,
+    closeForScroll,
     scheduleClose,
     cancelClose,
   } as const;

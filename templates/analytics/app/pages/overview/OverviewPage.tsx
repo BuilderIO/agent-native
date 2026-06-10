@@ -15,8 +15,7 @@ import {
   IconClock,
   IconBuilding,
 } from "@tabler/icons-react";
-import { getIdToken } from "@/lib/auth";
-import { appApiPath, useChangeVersions } from "@agent-native/core/client";
+import { callAction, useChangeVersions } from "@agent-native/core/client";
 
 type OrgItem = {
   id: string;
@@ -29,23 +28,18 @@ type OrgItem = {
 };
 
 async function fetchOrgSharedContent(): Promise<OrgItem[]> {
-  const token = await getIdToken();
-  const headers: Record<string, string> = token
-    ? { Authorization: `Bearer ${token}` }
-    : {};
-
-  const [dashRes, analysisRes] = await Promise.all([
-    fetch(appApiPath("/api/sql-dashboards"), { headers }),
-    fetch(appApiPath("/api/analyses"), { headers }),
+  const [dashRows, analysisRows] = await Promise.allSettled([
+    callAction("list-sql-dashboards", {}),
+    callAction("list-analyses", {}),
   ]);
 
   const items: OrgItem[] = [];
 
-  if (dashRes.ok) {
-    const data = await dashRes.json();
-    const dashboards: OrgItem[] = (data.dashboards ?? [])
-      .filter((d: any) => d.visibility === "org" || d.visibility === "public")
-      .map((d: any) => ({
+  if (dashRows.status === "fulfilled") {
+    const rows = Array.isArray(dashRows.value) ? dashRows.value : [];
+    const dashboards: OrgItem[] = (rows as any[])
+      .filter((d) => d.visibility === "org" || d.visibility === "public")
+      .map((d) => ({
         id: d.id,
         name:
           typeof d.name === "string" && d.name.trim()
@@ -59,11 +53,11 @@ async function fetchOrgSharedContent(): Promise<OrgItem[]> {
     items.push(...dashboards);
   }
 
-  if (analysisRes.ok) {
-    const data = await analysisRes.json();
-    const analyses: OrgItem[] = (data.analyses ?? [])
-      .filter((a: any) => a.visibility === "org" || a.visibility === "public")
-      .map((a: any) => ({
+  if (analysisRows.status === "fulfilled") {
+    const rows = Array.isArray(analysisRows.value) ? analysisRows.value : [];
+    const analyses: OrgItem[] = (rows as any[])
+      .filter((a) => a.visibility === "org" || a.visibility === "public")
+      .map((a) => ({
         id: a.id,
         name:
           typeof a.name === "string" && a.name.trim()

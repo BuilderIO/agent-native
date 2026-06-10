@@ -228,38 +228,39 @@ Actions can use CLI adapters directly for structured access:
 
 ```ts
 // actions/list-prs.ts
+import { defineAction } from "@agent-native/core/server";
 import { ShellCliAdapter } from "@agent-native/core/adapters/cli";
+import { z } from "zod";
 
 const gh = new ShellCliAdapter({
   command: "gh",
   description: "GitHub CLI",
 });
 
-export default async function listPrs() {
-  if (!(await gh.isAvailable())) {
-    console.error("GitHub CLI not installed. Run: brew install gh");
-    process.exit(1);
-  }
+export default defineAction({
+  description: "List open pull requests via the GitHub CLI.",
+  schema: z.object({}),
+  async run() {
+    if (!(await gh.isAvailable())) {
+      throw new Error("GitHub CLI not installed. Run: brew install gh");
+    }
 
-  const result = await gh.execute([
-    "pr",
-    "list",
-    "--json",
-    "title,url,state",
-    "--limit",
-    "10",
-  ]);
+    const result = await gh.execute([
+      "pr",
+      "list",
+      "--json",
+      "title,url,state",
+      "--limit",
+      "10",
+    ]);
 
-  if (result.exitCode !== 0) {
-    console.error(result.stderr);
-    process.exit(1);
-  }
+    if (result.exitCode !== 0) {
+      throw new Error(result.stderr || "gh pr list failed");
+    }
 
-  const prs = JSON.parse(result.stdout);
-  console.error(`Fetched ${prs.length} PRs`);
-  // Return the data (or persist it to SQL) — don't write durable state to data/.
-  return prs;
-}
+    return JSON.parse(result.stdout);
+  },
+});
 ```
 
-Or skip the adapter entirely and call the CLI directly in a script — adapters are useful when you want discovery, availability checks, and consistent error handling, but they're not required. Use whichever approach fits.
+Or use CLI adapters directly in a script under `scripts/` — adapters are useful when you want discovery, availability checks, and consistent error handling, but `defineAction` is required when the code runs inside the server action surface. Never call `process.exit` in an action; throw an error instead.

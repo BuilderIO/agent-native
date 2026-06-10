@@ -4,9 +4,10 @@ import { captureError } from "../server/capture-error.js";
 import {
   insertRun,
   insertRunEvent,
-  updateRunStatus,
+  updateRunStatusIfRunning,
   markRunAborted,
   getRunAbortState,
+  getRunStatus,
   getRunEventsSince,
   getRunById,
   getRunByThread,
@@ -247,6 +248,13 @@ export function startRun(
     () => {},
   );
 
+  // Per-run event persistence chain: events are chained so SQL inserts commit
+  // in seq order. Without this, a fast seq=5 commit before a slow seq=4 means
+  // the SQL poller advances its cursor past seq=4 (lastSeq = 5+1 = 6) and
+  // reconnecting clients permanently miss that event (silent gap). Chaining
+  // per run ensures order without blocking the fast in-memory SSE path.
+  let persistenceChain: Promise<void> = Promise.resolve();
+
   // Throttle the durable progress timestamp to at most once per second so
   // a chatty token-by-token stream doesn't translate into one DB write per
   // chunk. The stuck-detector threshold is on the order of tens of seconds,
@@ -259,16 +267,29 @@ export function startRun(
     bumpRunProgress(runId).catch(() => {});
   };
 
-  // Periodic SQL abort check interval (for cross-isolate abort on Workers)
+  // Periodic SQL abort check interval (for cross-isolate abort on Workers).
+  // Also self-aborts when our row is no longer status='running' — catches the
+  // false-stale-reap zombie scenario where the reaper flipped the row while
+  // this isolate was briefly unable to heartbeat (DB latency / GC pause).
   let lastAbortCheck = Date.now() - 3000;
   const checkSqlAbort = () => {
     const now = Date.now();
     if (now - lastAbortCheck < 3000) return;
     lastAbortCheck = now;
     getRunAbortState(runId)
-      .then((state) => {
+      .then(async (state) => {
         if (state.aborted && !abort.signal.aborted) {
           abortInMemoryRun(run, state.reason ?? "user");
+          return;
+        }
+        // If the row is no longer 'running' (reaped / replaced) and we're
+        // still executing, self-abort so we stop executing and don't overwrite
+        // the newer state with our terminal write.
+        if (!abort.signal.aborted) {
+          const status = await getRunStatus(runId);
+          if (status !== null && status !== "running") {
+            abortInMemoryRun(run, "displaced");
+          }
         }
       })
       .catch(() => {});
@@ -354,14 +375,16 @@ export function startRun(
     // a hung run from a healthy one.
     bumpProgressIfDue();
 
-    // Persist event to SQL. Ordinary streaming events are fire-and-forget, but
-    // terminal events are awaited before final status is persisted so reconnects
-    // never observe status='errored' without the actual terminal error payload.
-    const persistence = insertRunEvent(
-      runId,
-      runEvent.seq,
-      JSON.stringify(runEvent.event),
+    // Persist event to SQL. Events are chained through persistenceChain so
+    // inserts commit in seq order — an out-of-order commit would advance the
+    // SQL poller's cursor past the slow row, permanently dropping it for
+    // reconnecting clients. Terminal events surface persistence errors so the
+    // caller can decide how to handle a failed final write.
+    const thisInsert = persistenceChain.then(() =>
+      insertRunEvent(runId, runEvent.seq, JSON.stringify(runEvent.event)),
     );
+    persistenceChain = thisInsert.catch(() => {});
+    const persistence = thisInsert;
     if (!options?.surfacePersistenceError) {
       persistence.catch(() => {});
     }
@@ -517,11 +540,13 @@ export function startRun(
       clearInterval(heartbeatTimer);
       if (softTimeoutTimer) clearTimeout(softTimeoutTimer);
 
-      // 5. Persist final status to SQL.
+      // 5. Persist final status to SQL. Use the conditional write so a zombie
+      //    run (reaped or displaced while executing) cannot clobber the newer
+      //    status written by the reaper or a replacement run.
       try {
         await insertRunPromise;
         if (!terminalPersistenceError) {
-          await updateRunStatus(runId, finalStatus);
+          await updateRunStatusIfRunning(runId, finalStatus);
         }
       } catch {
         // Best-effort — reapIfStale will eventually clean this up via
@@ -995,3 +1020,6 @@ export function abortRun(runId: string, reason: string = "user"): boolean {
   markRunAborted(runId, reason).catch(() => {});
   return !!run;
 }
+
+// Re-export so callers can avoid importing from run-store directly.
+export { tryClaimRunSlot } from "./run-store.js";

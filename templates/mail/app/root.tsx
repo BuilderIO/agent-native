@@ -8,19 +8,17 @@ import {
   useRouteError,
 } from "react-router";
 import { useEffect, useRef, useState } from "react";
-import {
-  QueryClient,
-  QueryClientProvider,
-  useQueryClient,
-} from "@tanstack/react-query";
-import { ThemeProvider } from "next-themes";
+import { useQueryClient } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/sonner";
-import { TooltipProvider } from "@/components/ui/tooltip";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { useDbSync } from "@agent-native/core";
-import { ClientOnly, DefaultSpinner, appPath } from "@agent-native/core/client";
-import { getThemeInitScript } from "@agent-native/core/client";
-import { appApiPath } from "@/lib/api-path";
+import {
+  AppProviders,
+  appPath,
+  appApiPath,
+  createAgentNativeQueryClient,
+  getThemeInitScript,
+} from "@agent-native/core/client";
 import { TAB_ID } from "@/lib/tab-id";
 import { markExternalEmailRefresh } from "@/hooks/use-emails";
 import { Button } from "@/components/ui/button";
@@ -51,16 +49,6 @@ function getHydrationStableThemeInitScript() {
 }
 
 const THEME_INIT_SCRIPT = getHydrationStableThemeInitScript();
-
-function isAuthFailure(error: unknown): boolean {
-  return (
-    !!error &&
-    typeof error === "object" &&
-    "status" in error &&
-    ((error as { status?: unknown }).status === 401 ||
-      (error as { status?: unknown }).status === 403)
-  );
-}
 
 export function Layout({ children }: { children: React.ReactNode }) {
   return (
@@ -249,42 +237,38 @@ function DbSyncSetup() {
   return null;
 }
 
+// Mail supplies its own styled Toaster from @/components/ui/sonner, so the
+// AppProviders built-in toaster is suppressed via toaster={null}.
+const MAIL_TOASTER = <Toaster richColors position="bottom-left" />;
+
 export default function Root() {
-  const [queryClient] = useState(
-    () =>
-      new QueryClient({
-        defaultOptions: {
-          queries: {
-            staleTime: 30_000,
-            retry: (failureCount, error) =>
-              !isAuthFailure(error) && failureCount < 1,
-            refetchOnWindowFocus: true,
-          },
+  const [queryClient] = useState(() =>
+    createAgentNativeQueryClient({
+      defaultOptions: {
+        queries: {
+          // Mail's VisibilityRefresh handles the focus-based refresh with a
+          // 60 s throttle, so we also want React Query's focus refetch to
+          // fire for other query keys (labels, settings, etc.).
+          refetchOnWindowFocus: true,
         },
-      }),
+      },
+    }),
   );
   return (
-    <ClientOnly fallback={<DefaultSpinner />}>
-      <QueryClientProvider client={queryClient}>
-        <ThemeProvider
-          attribute={["class", "data-theme"]}
-          defaultTheme="system"
-          enableSystem
-          disableTransitionOnChange
-        >
-          <TooltipProvider delayDuration={300}>
-            <Toaster richColors position="bottom-left" />
-            <AutoFocus />
-            <AutomationTrigger />
-            <VisibilityRefresh />
-            <DbSyncSetup />
-            <AppLayout>
-              <Outlet />
-            </AppLayout>
-          </TooltipProvider>
-        </ThemeProvider>
-      </QueryClientProvider>
-    </ClientOnly>
+    <AppProviders
+      queryClient={queryClient}
+      themeAttribute={["class", "data-theme"]}
+      tooltipDelayDuration={300}
+      toaster={MAIL_TOASTER}
+    >
+      <AutoFocus />
+      <AutomationTrigger />
+      <VisibilityRefresh />
+      <DbSyncSetup />
+      <AppLayout>
+        <Outlet />
+      </AppLayout>
+    </AppProviders>
   );
 }
 

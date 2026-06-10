@@ -219,6 +219,23 @@ ALTER TABLE plans ADD COLUMN usage_cost_source TEXT;
 ALTER TABLE plans ADD COLUMN usage_recorded_at TEXT`,
       },
     },
+    {
+      version: 22,
+      sql: `CREATE TABLE IF NOT EXISTS plan_assets (
+  id TEXT PRIMARY KEY,
+  plan_id TEXT NOT NULL REFERENCES plans(id),
+  filename TEXT NOT NULL,
+  mime_type TEXT NOT NULL,
+  data TEXT NOT NULL,
+  byte_size INTEGER NOT NULL,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS plan_assets_plan_idx ON plan_assets(plan_id, created_at)`,
+    },
+    {
+      version: 23,
+      sql: `ALTER TABLE plans ADD COLUMN IF NOT EXISTS source_url TEXT`,
+    },
   ],
   { table: "plans_migrations" },
 );

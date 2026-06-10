@@ -65,11 +65,47 @@ async function ensureTable(): Promise<void> {
           owner_email TEXT NOT NULL,
           org_id TEXT,
           label TEXT,
+          kind TEXT NOT NULL DEFAULT 'personal',
+          service_name TEXT,
+          created_by TEXT,
           created_at ${intType()},
           last_used_at ${intType()},
           revoked_at ${intType()}
         )
       `);
+      // Additive columns for org service tokens (deployments that created the
+      // table before these columns existed; fresh DBs get them via the CREATE
+      // TABLE above). kind='personal' (default) preserves the original
+      // per-user token; kind='service' marks tokens minted for an org service
+      // principal (e.g. CI) rather than a person. service_name is the
+      // human-readable service label (e.g. "ci"); created_by records the
+      // human who minted it, for audit.
+      for (const [withIfNotExists, plain] of [
+        [
+          `ALTER TABLE mcp_connect_tokens ADD COLUMN IF NOT EXISTS kind TEXT NOT NULL DEFAULT 'personal'`,
+          `ALTER TABLE mcp_connect_tokens ADD COLUMN kind TEXT NOT NULL DEFAULT 'personal'`,
+        ],
+        [
+          `ALTER TABLE mcp_connect_tokens ADD COLUMN IF NOT EXISTS service_name TEXT`,
+          `ALTER TABLE mcp_connect_tokens ADD COLUMN service_name TEXT`,
+        ],
+        [
+          `ALTER TABLE mcp_connect_tokens ADD COLUMN IF NOT EXISTS created_by TEXT`,
+          `ALTER TABLE mcp_connect_tokens ADD COLUMN created_by TEXT`,
+        ],
+      ]) {
+        try {
+          await client.execute(withIfNotExists);
+        } catch {
+          // SQLite doesn't support "ADD COLUMN IF NOT EXISTS" — retry the
+          // plain form and swallow "duplicate column" when it already exists.
+          try {
+            await client.execute(plain);
+          } catch {
+            // Column already exists (or was created by CREATE TABLE above).
+          }
+        }
+      }
       await client.execute(`
         CREATE TABLE IF NOT EXISTS mcp_device_codes (
           device_code TEXT PRIMARY KEY,
@@ -106,6 +142,51 @@ export interface MintedTokenRow {
   createdAt: number | null;
   lastUsedAt: number | null;
   revokedAt: number | null;
+  /** `'personal'` (default) or `'service'` for org service tokens. */
+  kind: "personal" | "service";
+  /** Human-readable service principal name, e.g. `"ci"`. Only set when `kind === 'service'`. */
+  serviceName: string | null;
+  /** Email of the human who minted a service token. Only set when `kind === 'service'`. */
+  createdBy: string | null;
+}
+
+/**
+ * Synthetic identity for an org service token: `svc-<name>@service.<orgId>`.
+ * It is email-shaped so the entire existing identity plumbing (JWT `sub`,
+ * `runWithRequestContext({ userEmail })`, ownable-row `owner_email` columns,
+ * display surfaces that render an email) works unchanged, while remaining
+ * clearly distinguishable from a human account. Ownable rows created under
+ * this identity carry the org's `orgId`, so org members can see them.
+ */
+export function serviceIdentityEmail(
+  serviceName: string,
+  orgId: string,
+): string {
+  return `svc-${normalizeServiceName(serviceName)}@service.${orgId}`;
+}
+
+/** True when an email is a synthetic org-service-token identity. */
+export function isServiceIdentityEmail(email: string | undefined): boolean {
+  return !!email && /^svc-[a-z0-9-]+@service\./.test(email);
+}
+
+/**
+ * Normalize a user-supplied service name to a DNS-label-ish slug so the
+ * synthetic identity stays a valid email local part: lowercase, `a-z0-9-`,
+ * max 48 chars. Throws on names that normalize to nothing.
+ */
+export function normalizeServiceName(raw: string): string {
+  const slug = (raw ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9-]+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "")
+    .slice(0, 48);
+  if (!slug) {
+    throw new Error("Service name must contain at least one letter or number.");
+  }
+  return slug;
 }
 
 /**
@@ -117,18 +198,27 @@ export async function recordMintedToken(params: {
   ownerEmail: string;
   orgId?: string | null;
   label?: string | null;
+  /** Defaults to `'personal'`. Pass `'service'` for org service tokens. */
+  kind?: "personal" | "service";
+  /** Service principal name — required semantics when kind === 'service'. */
+  serviceName?: string | null;
+  /** The human who minted a service token (audit trail). */
+  createdBy?: string | null;
 }): Promise<string> {
   await ensureTable();
   const client = getDbExec();
   const id = randomUUID();
   await client.execute({
-    sql: `INSERT INTO mcp_connect_tokens (id, jti, owner_email, org_id, label, created_at, last_used_at, revoked_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    sql: `INSERT INTO mcp_connect_tokens (id, jti, owner_email, org_id, label, kind, service_name, created_by, created_at, last_used_at, revoked_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     args: [
       id,
       params.jti,
       params.ownerEmail,
       params.orgId ?? null,
       params.label ?? null,
+      params.kind ?? "personal",
+      params.serviceName ?? null,
+      params.createdBy ?? null,
       Date.now(),
       null,
       null,
@@ -162,6 +252,22 @@ export async function isJtiRevoked(jti: string): Promise<boolean> {
   }
 }
 
+function mapTokenRow(r: any): MintedTokenRow {
+  return {
+    id: r.id as string,
+    jti: r.jti as string,
+    ownerEmail: (r.owner_email ?? r.ownerEmail) as string,
+    orgId: (r.org_id ?? r.orgId ?? null) as string | null,
+    label: (r.label ?? null) as string | null,
+    createdAt: numOrNull(r.created_at ?? r.createdAt),
+    lastUsedAt: numOrNull(r.last_used_at ?? r.lastUsedAt),
+    revokedAt: numOrNull(r.revoked_at ?? r.revokedAt),
+    kind: r.kind === "service" ? "service" : "personal",
+    serviceName: (r.service_name ?? r.serviceName ?? null) as string | null,
+    createdBy: (r.created_by ?? r.createdBy ?? null) as string | null,
+  };
+}
+
 export async function listTokens(
   ownerEmail: string,
 ): Promise<MintedTokenRow[]> {
@@ -169,23 +275,56 @@ export async function listTokens(
     await ensureTable();
     const client = getDbExec();
     const { rows } = await client.execute({
-      sql: `SELECT id, jti, owner_email, org_id, label, created_at, last_used_at, revoked_at FROM mcp_connect_tokens WHERE owner_email = ? ORDER BY created_at DESC`,
+      sql: `SELECT id, jti, owner_email, org_id, label, kind, service_name, created_by, created_at, last_used_at, revoked_at FROM mcp_connect_tokens WHERE owner_email = ? ORDER BY created_at DESC`,
       args: [ownerEmail],
     });
-    return rows.map((r: any) => ({
-      id: r.id as string,
-      jti: r.jti as string,
-      ownerEmail: (r.owner_email ?? r.ownerEmail) as string,
-      orgId: (r.org_id ?? r.orgId ?? null) as string | null,
-      label: (r.label ?? null) as string | null,
-      createdAt: numOrNull(r.created_at ?? r.createdAt),
-      lastUsedAt: numOrNull(r.last_used_at ?? r.lastUsedAt),
-      revokedAt: numOrNull(r.revoked_at ?? r.revokedAt),
-    }));
+    return rows.map(mapTokenRow);
   } catch (err) {
     if (isConnectionError(err)) return [];
     throw err;
   }
+}
+
+/**
+ * List the org's service tokens (kind = 'service'), newest first. Scoped by
+ * `org_id` — callers must already have established the caller is a member of
+ * `orgId` (the actions in `mcp/actions/` gate on org role).
+ */
+export async function listOrgServiceTokens(
+  orgId: string,
+): Promise<MintedTokenRow[]> {
+  try {
+    await ensureTable();
+    const client = getDbExec();
+    const { rows } = await client.execute({
+      sql: `SELECT id, jti, owner_email, org_id, label, kind, service_name, created_by, created_at, last_used_at, revoked_at FROM mcp_connect_tokens WHERE org_id = ? AND kind = 'service' ORDER BY created_at DESC`,
+      args: [orgId],
+    });
+    return rows.map(mapTokenRow);
+  } catch (err) {
+    if (isConnectionError(err)) return [];
+    throw err;
+  }
+}
+
+/**
+ * Revoke an org service token by id, scoped to `orgId` AND `kind = 'service'`
+ * so a caller can never revoke another org's token (or someone's personal
+ * token) through this path. Uses the same `revoked_at` gate `isJtiRevoked`
+ * checks, so revocation takes effect on the next request like personal
+ * tokens. Idempotent; returns true when a row actually transitioned.
+ */
+export async function revokeOrgServiceToken(
+  orgId: string,
+  id: string,
+): Promise<boolean> {
+  await ensureTable();
+  const client = getDbExec();
+  const result = await client.execute({
+    sql: `UPDATE mcp_connect_tokens SET revoked_at = ? WHERE id = ? AND org_id = ? AND kind = 'service' AND revoked_at IS NULL`,
+    args: [Date.now(), id, orgId],
+  });
+  return result.rowsAffected > 0;
 }
 
 /**

@@ -8,7 +8,7 @@ import {
 } from "react";
 import { useTimelineState } from "@/state";
 import type { AnimationTrack } from "@/types";
-import { useComposition } from "./CompositionContext";
+import { useCompositionOptional } from "./CompositionContext";
 import type { CompositionCollabData } from "@/hooks/use-composition-collab";
 import { debug } from "@/utils/debug";
 
@@ -182,20 +182,18 @@ export function TimelineProvider({
   collabData,
   collabSynced,
 }: TimelineProviderProps) {
-  let compositionContext;
-  try {
-    compositionContext = useComposition();
-  } catch (error) {
-    debug.error("HMR context error detected. Please refresh the page.", error);
-    return (
-      <TimelineContext.Provider value={null}>
-        {children}
-      </TimelineContext.Provider>
-    );
-  }
+  // Use the non-throwing variant so hooks are called unconditionally.
+  // A null return means the context is absent (e.g. HMR teardown); we still
+  // call all other hooks before checking and returning the fallback provider.
+  const compositionContext = useCompositionOptional();
 
   const { compositionId, effectiveComposition, selected, compSettings } =
-    compositionContext;
+    compositionContext ?? {
+      compositionId: undefined,
+      effectiveComposition: undefined,
+      selected: undefined,
+      compSettings: undefined,
+    };
   const timeline = useTimelineState([]);
   const prevFpsRef = useRef<Record<string, number>>({});
 
@@ -405,6 +403,17 @@ export function TimelineProvider({
     }),
     [timeline],
   );
+
+  // If composition context is absent (e.g. HMR context teardown), surface a
+  // null-value provider so children can still render without crashing.
+  if (!compositionContext) {
+    debug.error("HMR context error detected. Please refresh the page.");
+    return (
+      <TimelineContext.Provider value={null}>
+        {children}
+      </TimelineContext.Provider>
+    );
+  }
 
   return (
     <TimelineContext.Provider value={value}>

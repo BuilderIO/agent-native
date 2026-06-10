@@ -18,7 +18,7 @@ interface CumulativeNetChartProps {
   error?: string;
 }
 
-const formatDate = (value: string) => {
+const formatDate = (value: any) => {
   try {
     const d = new Date(value);
     return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
@@ -102,8 +102,8 @@ export function CumulativeNetChart({
                     color: "#fafafa",
                   }}
                   labelFormatter={formatDate}
-                  formatter={(value: number) => [
-                    `$${value.toLocaleString(undefined, { maximumFractionDigits: 0 })}`,
+                  formatter={(value: any) => [
+                    `$${Number(value).toLocaleString(undefined, { maximumFractionDigits: 0 })}`,
                     "Cumulative Net ARR",
                   ]}
                 />

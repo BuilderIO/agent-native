@@ -7,6 +7,9 @@ const NATIVE_APP_ORIGIN_RE =
 export interface CorsOriginOptions {
   allowedOrigins?: string[];
   allowAnyOriginWhenNoAllowlist?: boolean;
+  // When true, a localhost origin is echoed back even without an explicit
+  // allowlist. Callers must NOT pass true in production — the default resolves
+  // to NODE_ENV === "development" so the fallback is dev-only.
   allowLocalhostWhenNoAllowlist?: boolean;
 }
 
@@ -43,7 +46,13 @@ export function getAllowedCorsOrigin(
 
   if (options.allowAnyOriginWhenNoAllowlist) return origin;
 
-  if (options.allowLocalhostWhenNoAllowlist !== false) {
+  // Default: allow localhost only in development. Production with no allowlist
+  // must deny localhost callers — an arbitrary process on the user's machine
+  // must not make readable credentialed cross-origin calls to a production API.
+  const allowLocalhost =
+    options.allowLocalhostWhenNoAllowlist ??
+    process.env.NODE_ENV === "development";
+  if (allowLocalhost) {
     return isLocalhostOrigin(origin) ? origin : null;
   }
 

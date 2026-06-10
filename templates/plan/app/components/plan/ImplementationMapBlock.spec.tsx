@@ -3,39 +3,43 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { BlockRegistryProvider } from "@agent-native/core/blocks";
 import type { PlanBlock } from "@shared/plan-content";
 import { PlanBlockView } from "./DocumentArea";
+import { createPlanBlockRenderContext, planBlockRegistry } from "./planBlocks";
 
 /**
- * Regression guard for the implementation-map ("Files to touch") selection bug:
- * a single file legitimately appears in several rows (one workflow file touched
- * three different ways). The block used to key the active row AND the React list
- * key on `file.path`, so every row sharing a path highlighted together and
- * selected as one. Selection is now tracked by index, which is always unique.
+ * Contract guard for the deprecated `implementation-map` block: `PlanBlockView`
+ * display-converts it to a `file-tree` block at render time (storage stays
+ * intact — no write-back), so old stored plans get the modern file explorer
+ * instead of the retired two-pane layout.
  *
- * `implementation-map` is NOT in the block registry, so `PlanBlockView` renders
- * the legacy block even with no `BlockRegistryProvider` mounted here.
+ * This also preserves the spirit of the original selection regression: a single
+ * file legitimately appears in several rows (one workflow file touched three
+ * different ways). The legacy block once keyed selection on `file.path`, so
+ * same-path rows selected together. The file-tree keys per-row disclosure on the
+ * flat entry INDEX, so duplicate paths stay independent rows.
+ *
+ * `file-tree` renders through the block registry, so the spec mounts
+ * `BlockRegistryProvider` with the real plan registry — the same way
+ * `PlanContentRenderer` mounts it in the app.
  */
 
-const SELECTED_CLASS = "bg-primary/10";
-
-function railButtons(container: HTMLElement): HTMLButtonElement[] {
+function fileRowButtons(container: HTMLElement): HTMLButtonElement[] {
   return Array.from(
-    container.querySelectorAll<HTMLButtonElement>(
-      "button[data-plan-interactive]",
-    ),
+    container.querySelectorAll<HTMLButtonElement>("button[data-file-path]"),
   );
 }
 
-function selectedIndexes(buttons: HTMLButtonElement[]): number[] {
+function expandedRowIndexes(buttons: HTMLButtonElement[]): number[] {
   return buttons
     .map((button, index) =>
-      button.className.includes(SELECTED_CLASS) ? index : -1,
+      button.getAttribute("aria-expanded") === "true" ? index : -1,
     )
     .filter((index) => index >= 0);
 }
 
-describe("ImplementationMapBlock selection", () => {
+describe("implementation-map display-time conversion to file-tree", () => {
   let container: HTMLDivElement;
   let root: Root;
 
@@ -63,6 +67,19 @@ describe("ImplementationMapBlock selection", () => {
     },
   } as unknown as PlanBlock;
 
+  function renderBlock() {
+    act(() => {
+      root.render(
+        <BlockRegistryProvider
+          registry={planBlockRegistry}
+          ctx={createPlanBlockRenderContext({})}
+        >
+          <PlanBlockView block={block} />
+        </BlockRegistryProvider>,
+      );
+    });
+  }
+
   beforeEach(() => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     container = document.createElement("div");
@@ -78,37 +95,46 @@ describe("ImplementationMapBlock selection", () => {
     vi.unstubAllGlobals();
   });
 
-  it("highlights exactly one row even when several rows share a path", () => {
-    act(() => {
-      root.render(<PlanBlockView block={block} />);
-    });
+  it("renders as a file-tree with one row per entry, even when rows share a path", () => {
+    renderBlock();
 
-    const buttons = railButtons(container);
-    expect(buttons).toHaveLength(3);
+    // The conversion keeps the block id and renders the file-tree explorer —
+    // never the "Unsupported block" placeholder.
+    const section = container.querySelector('[data-block-id="impl-1"]');
+    expect(section).not.toBeNull();
+    expect(container.textContent).not.toContain("Unsupported block");
 
-    // Only the first row is active to start, despite all three sharing a path.
-    expect(selectedIndexes(buttons)).toEqual([0]);
+    // Three same-path files stay three distinct rows (index-keyed, not
+    // path-keyed), and each carries its note.
+    const rows = fileRowButtons(container);
+    expect(rows).toHaveLength(3);
+    expect(container.textContent).toContain("3 files");
     expect(container.textContent).toContain("NOTE_REWRITE");
-    expect(container.textContent).not.toContain("NOTE_CLAUDE");
-
-    // Clicking the second row selects ONLY the second — not every same-path row.
-    act(() => {
-      buttons[1]?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
-    });
-
-    expect(selectedIndexes(railButtons(container))).toEqual([1]);
     expect(container.textContent).toContain("NOTE_CLAUDE");
-    expect(container.textContent).not.toContain("NOTE_REWRITE");
+    expect(container.textContent).toContain("NOTE_CODEX");
   });
 
-  it("renders the file note at the shared document body size", () => {
+  it("expands exactly one row's detail even when several rows share a path", () => {
+    renderBlock();
+
+    const rows = fileRowButtons(container);
+    expect(rows).toHaveLength(3);
+
+    // All rows start collapsed.
+    expect(expandedRowIndexes(rows)).toEqual([]);
+
+    // Clicking the second row expands ONLY the second — not every same-path row.
     act(() => {
-      root.render(<PlanBlockView block={block} />);
+      rows[1]?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
 
-    // The detail note uses the canonical `.plan-doc-body` size so it matches the
-    // rest of the document body instead of the old oversized `text-xl`.
-    const note = container.querySelector(".plan-doc-body");
-    expect(note?.textContent).toContain("NOTE_REWRITE");
+    const afterClick = fileRowButtons(container);
+    expect(expandedRowIndexes(afterClick)).toEqual([1]);
+
+    // The expanded detail paragraph carries the second row's note.
+    const detail = Array.from(container.querySelectorAll("p")).find((p) =>
+      p.textContent?.includes("NOTE_CLAUDE"),
+    );
+    expect(detail).toBeDefined();
   });
 });

@@ -410,7 +410,7 @@ async function dispatchAgentic(
           _deps!.model ??
           (await getStoredModelForEngine(engine, { appId: _deps!.appId })) ??
           engine.defaultModel;
-        const thread = await createThread(jobUserEmail, {
+        await createThread(jobUserEmail, {
           title: `Trigger: ${triggerName} — ${now.toLocaleDateString()}`,
         });
 

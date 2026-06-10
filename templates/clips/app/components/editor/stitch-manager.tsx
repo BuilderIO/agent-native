@@ -67,8 +67,8 @@ export function StitchManager({
   const [title, setTitle] = useState("Stitched recording");
   const [dragIndex, setDragIndex] = useState<number | null>(null);
 
-  const listQuery = useActionQuery("list-recordings" as any, {} as any);
-  const stitch = useActionMutation("stitch-recordings" as any);
+  const listQuery = useActionQuery("list-recordings", {});
+  const stitch = useActionMutation("stitch-recordings");
 
   useEffect(() => {
     if (!open) {
@@ -79,14 +79,16 @@ export function StitchManager({
   }, [open]);
 
   const available = useMemo(() => {
-    const rows: RecordingLite[] = (listQuery.data as any)?.recordings ?? [];
+    const rows: RecordingLite[] = (listQuery.data?.recordings ??
+      []) as RecordingLite[];
     return rows.filter((r) => !queue.some((q) => q.id === r.id));
   }, [listQuery.data, queue]);
 
   // Pre-seed the queue with the current recording when provided.
   useEffect(() => {
     if (!open || !seedRecordingId) return;
-    const rows: RecordingLite[] = (listQuery.data as any)?.recordings ?? [];
+    const rows: RecordingLite[] = (listQuery.data?.recordings ??
+      []) as RecordingLite[];
     const seed = rows.find((r) => r.id === seedRecordingId);
     if (seed && !queue.some((q) => q.id === seed.id)) {
       setQueue([seed]);
@@ -127,7 +129,7 @@ export function StitchManager({
       const blob = await exportConcat(
         queue.map((r) => ({
           url: r.videoUrl!,
-          format: (r.videoFormat ?? "webm") as any,
+          format: r.videoFormat ?? "webm",
         })),
         (p) => setProgress(p.progress),
       );
@@ -150,7 +152,7 @@ export function StitchManager({
         sourceRecordingIds: queue.map((r) => r.id),
         videoUrl,
         durationMs: totalDuration,
-      } as any);
+      });
       toast.success(`Stitched recording created`);
       onOpenChange(false);
       return result;

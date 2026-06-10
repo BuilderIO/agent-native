@@ -15,6 +15,9 @@ const request = vi.hoisted(() => ({
   name: undefined as string | undefined,
 }));
 const assertPlanEditorMock = vi.hoisted(() => vi.fn());
+const exportPlanContentToMdxFolderMock = vi.hoisted(() =>
+  vi.fn(async () => ({ "plan.mdx": "# Plan" })),
+);
 const getDbMock = vi.hoisted(() => vi.fn());
 const loadPlanBundleMock = vi.hoisted(() => vi.fn());
 const notifyPlanCommentRecipientsMock = vi.hoisted(() => vi.fn());
@@ -82,7 +85,8 @@ vi.mock("../server/plan-content.js", () => ({
 }));
 
 vi.mock("../server/plan-mdx.js", () => ({
-  exportPlanContentToMdxFolder: vi.fn(),
+  exportPlanContentToMdxFolder: (...args: unknown[]) =>
+    exportPlanContentToMdxFolderMock(...args),
 }));
 
 vi.mock("../server/lib/local-plan-files.js", () => ({
@@ -201,6 +205,8 @@ beforeEach(() => {
   request.name = undefined;
   assertPlanEditorMock.mockReset();
   assertPlanEditorMock.mockResolvedValue(undefined);
+  exportPlanContentToMdxFolderMock.mockReset();
+  exportPlanContentToMdxFolderMock.mockResolvedValue({ "plan.mdx": "# Plan" });
   getDbMock.mockReset();
   loadPlanBundleMock.mockReset();
   notifyPlanCommentRecipientsMock.mockReset();
@@ -578,5 +584,390 @@ describe("update-visual-plan comment path (integration)", () => {
     ).rejects.toThrow("editor gate");
     // createdBy:"agent" means it's NOT onlyAddsNewComments -> editor gate.
     expect(assertPlanEditorMock).toHaveBeenCalledWith("plan_1");
+  });
+
+  // ── New tests covering remaining fixes ──────────────────────────────────────
+
+  describe("mixed resolve+consume preserves anchor/resolutionTarget/mentionsJson", () => {
+    it("keeps stored anchor, resolutionTarget, and mentionsJson when caller omits them in a combined resolve+consume request", async () => {
+      request.email = "reviewer@example.com";
+      const capturedRows: CapturedRow[] = [];
+      const capturedUpdates: CapturedCommentUpdate[] = [];
+      const storedAnchor = JSON.stringify({
+        x: 10,
+        y: 20,
+        sectionTitle: "Spec",
+      });
+      const storedMentions = JSON.stringify(["agent@example.com"]);
+      getDbMock.mockReturnValue(
+        buildTransactionDb(capturedRows, capturedUpdates, [
+          {
+            id: "cmt_abc",
+            sectionId: null,
+            kind: "comment",
+            anchor: storedAnchor,
+            message: "Needs more detail",
+            createdBy: "human",
+            authorEmail: "author@example.com",
+            resolutionTarget: "agent",
+            mentionsJson: storedMentions,
+          },
+        ]),
+      );
+      loadPlanBundleMock.mockResolvedValue(baseBundle);
+
+      // Caller passes only { id, status, message } — no anchor/resolutionTarget/mentions
+      await run({
+        planId: "plan_1",
+        contentPatches: [],
+        sections: [],
+        consumedCommentIds: ["cmt_xyz"],
+        comments: [
+          {
+            id: "cmt_abc",
+            message: "Needs more detail",
+            kind: "comment",
+            status: "resolved",
+            createdBy: "human",
+          },
+        ],
+      });
+
+      expect(capturedUpdates).toHaveLength(1);
+      const updated = capturedUpdates[0];
+      expect(updated.anchor).toBe(storedAnchor);
+      expect(updated.resolutionTarget).toBe("agent");
+      expect(updated.mentionsJson).toBe(storedMentions);
+      expect(updated.status).toBe("resolved");
+    });
+  });
+
+  describe("status demotion nulls approvedAt", () => {
+    it("sets approvedAt:null when status is changed from approved to review", async () => {
+      request.email = "editor@example.com";
+      // Full plan-authoring call (status change), so we need the editor gate
+      // and the plans UPDATE to fire; capture what `set()` receives.
+      const planSetCalls: Record<string, unknown>[] = [];
+      const txUpdate = vi.fn(() => ({
+        set: vi.fn((row: Record<string, unknown>) => {
+          planSetCalls.push(row);
+          return {
+            where: vi.fn(() => ({
+              returning: vi.fn(async () => [{ id: "plan_1" }]),
+            })),
+          };
+        }),
+      }));
+      const txInsert = vi.fn(() => ({
+        values: vi.fn(async () => undefined),
+      }));
+      const txSelect = vi.fn(() => ({
+        from: vi.fn(() => ({ where: vi.fn(async () => []) })),
+      }));
+      getDbMock.mockReturnValue({
+        insert: txInsert,
+        update: txUpdate,
+        select: vi.fn(() => ({
+          from: vi.fn(() => ({ where: vi.fn(async () => []) })),
+        })),
+      });
+      loadPlanBundleMock.mockResolvedValue({
+        ...baseBundle,
+        plan: {
+          ...baseBundle.plan,
+          updatedAt: "2026-01-01T00:00:00.000Z",
+          approvedAt: "2026-01-02T00:00:00.000Z",
+          status: "approved",
+        },
+      });
+
+      await run({
+        planId: "plan_1",
+        status: "review",
+        contentPatches: [],
+        sections: [],
+        consumedCommentIds: [],
+        comments: [],
+      });
+
+      // planPatch must include approvedAt:null when status != "approved"
+      const planUpdate = planSetCalls.find(
+        (row) =>
+          !Object.prototype.hasOwnProperty.call(row, "message") &&
+          Object.prototype.hasOwnProperty.call(row, "status"),
+      );
+      expect(planUpdate).toBeDefined();
+      expect(planUpdate!.status).toBe("review");
+      expect(planUpdate!.approvedAt).toBeNull();
+    });
+  });
+
+  describe("cross-plan comment id safety", () => {
+    it("does not update another plan's comment when the id exists only on a different plan", async () => {
+      request.email = "reviewer@example.com";
+      const capturedRows: CapturedRow[] = [];
+      const capturedUpdates: CapturedCommentUpdate[] = [];
+      // The SELECT returns nothing (the id+planId pair does not match), so the
+      // comment is treated as a new insert — not an update to the other plan.
+      getDbMock.mockReturnValue(
+        buildTransactionDb(capturedRows, capturedUpdates, [
+          // Empty: comment "other_plan_cmt" exists on plan_OTHER, not plan_1.
+          // The mock SELECT always uses the existingComments array for all queries,
+          // so returning an empty array simulates the planId mismatch.
+        ]),
+      );
+      loadPlanBundleMock.mockResolvedValue(baseBundle);
+
+      // Ask to resolve a comment that belongs to a different plan.
+      // Because the SELECT (scoped to plan_1) finds nothing, the comment goes
+      // into pendingCommentInserts (status:"resolved" → treated as a resolve
+      // of a missing comment) → should throw the missing-target error.
+      await expect(
+        run({
+          planId: "plan_1",
+          contentPatches: [],
+          sections: [],
+          consumedCommentIds: [],
+          comments: [
+            {
+              id: "other_plan_cmt",
+              message: "Fix the design",
+              kind: "comment",
+              status: "resolved",
+              createdBy: "human",
+            },
+          ],
+        }),
+      ).rejects.toThrow("Comment status update target was not found.");
+
+      // The comment from the other plan must never appear in captured updates.
+      expect(capturedUpdates).toHaveLength(0);
+    });
+  });
+
+  describe("sectionId validation for new comments", () => {
+    it("rejects a new comment that references a sectionId not on the target plan", async () => {
+      request.email = "reviewer@example.com";
+      const captured: CapturedRow[] = [];
+      getDbMock.mockReturnValue(buildTransactionDb(captured));
+      // Bundle with one known section.
+      loadPlanBundleMock.mockResolvedValue({
+        ...baseBundle,
+        sections: [{ id: "sec_real", title: "Overview", type: "custom" }],
+      });
+
+      await expect(
+        run({
+          planId: "plan_1",
+          contentPatches: [],
+          sections: [],
+          consumedCommentIds: [],
+          comments: [
+            {
+              sectionId: "sec_bogus",
+              message: "Comment on a nonexistent section",
+              kind: "comment",
+              status: "open",
+              createdBy: "human",
+            },
+          ],
+        }),
+      ).rejects.toThrow("Section sec_bogus was not found on plan plan_1.");
+
+      expect(captured).toHaveLength(0);
+      expect(notifyPlanCommentRecipientsMock).not.toHaveBeenCalled();
+    });
+
+    it("allows a new comment referencing a valid sectionId on the plan", async () => {
+      request.email = "reviewer@example.com";
+      const captured: CapturedRow[] = [];
+      getDbMock.mockReturnValue(buildTransactionDb(captured));
+      loadPlanBundleMock.mockResolvedValue({
+        ...baseBundle,
+        sections: [{ id: "sec_real", title: "Overview", type: "custom" }],
+      });
+
+      await run({
+        planId: "plan_1",
+        contentPatches: [],
+        sections: [],
+        consumedCommentIds: [],
+        comments: [
+          {
+            sectionId: "sec_real",
+            message: "Comment on the real section",
+            kind: "comment",
+            status: "open",
+            createdBy: "human",
+          },
+        ],
+      });
+
+      expect(captured).toHaveLength(1);
+      expect(captured[0].message).toBe("Comment on the real section");
+    });
+  });
+
+  describe("comment-only update does not bump plans.updatedAt", () => {
+    it("skips the plans UPDATE when the request has only new comments", async () => {
+      request.email = "reviewer@example.com";
+      const capturedRows: CapturedRow[] = [];
+      const planUpdateCalls: unknown[] = [];
+
+      // Custom txUpdate that tracks calls AND distinguishes plan vs comment updates.
+      const txUpdate = vi.fn((table: unknown) => {
+        return {
+          set: vi.fn((row: Record<string, unknown>) => {
+            // Identify a plan-row update by checking it targets schema.plans.
+            if (
+              table === "plans.id" ||
+              JSON.stringify(table).includes("plans")
+            ) {
+              planUpdateCalls.push(row);
+            }
+            return {
+              where: vi.fn(() => ({
+                returning: vi.fn(async () => [{ id: "plan_1" }]),
+              })),
+            };
+          }),
+        };
+      });
+      const txInsert = vi.fn(() => ({
+        values: vi.fn(async (row: CapturedRow) => {
+          if (row && Object.prototype.hasOwnProperty.call(row, "authorEmail")) {
+            capturedRows.push(row);
+          }
+        }),
+      }));
+      const txSelect = vi.fn(() => ({
+        from: vi.fn(() => ({ where: vi.fn(async () => []) })),
+      }));
+      getDbMock.mockReturnValue({
+        insert: txInsert,
+        update: txUpdate,
+        select: vi.fn(() => ({
+          from: vi.fn(() => ({ where: vi.fn(async () => []) })),
+        })),
+      });
+
+      const planUpdatedAt = "2026-05-01T00:00:00.000Z";
+      loadPlanBundleMock.mockResolvedValue({
+        ...baseBundle,
+        plan: { ...baseBundle.plan, updatedAt: planUpdatedAt },
+      });
+
+      await run({
+        planId: "plan_1",
+        contentPatches: [],
+        sections: [],
+        consumedCommentIds: [],
+        comments: [
+          {
+            message: "Just a reviewer comment",
+            kind: "comment",
+            status: "open",
+            createdBy: "human",
+          },
+        ],
+      });
+
+      // The plans row must NOT have been updated.
+      expect(planUpdateCalls).toHaveLength(0);
+      // But the comment must have been inserted.
+      expect(capturedRows).toHaveLength(1);
+    });
+
+    it("allows a subsequent contentPatches call using the pre-comment updatedAt to succeed (no false conflict)", async () => {
+      // This simulates an agent that:
+      //  1. reads plan (updatedAt = T0)
+      //  2. a reviewer comments (comment-only → updatedAt stays T0)
+      //  3. agent applies contentPatches with versionAtLoad=T0 → should succeed
+      request.email = "editor@example.com";
+      const planUpdatedAt = "2026-05-01T00:00:00.000Z";
+
+      // Step 1: reviewer comment-only call (no authoring changes).
+      const commentDb = buildTransactionDb([], [], []);
+      getDbMock.mockReturnValue(commentDb);
+      loadPlanBundleMock.mockResolvedValue({
+        ...baseBundle,
+        plan: { ...baseBundle.plan, updatedAt: planUpdatedAt },
+      });
+      await run({
+        planId: "plan_1",
+        contentPatches: [],
+        sections: [],
+        consumedCommentIds: [],
+        comments: [
+          {
+            message: "Reviewer note",
+            kind: "comment",
+            status: "open",
+            createdBy: "human",
+          },
+        ],
+      });
+
+      // After the comment-only call, the plan updatedAt is still planUpdatedAt
+      // because the plans UPDATE was skipped. Now the agent's contentPatches
+      // call should succeed.
+      const planPatches_updateReturnedPlan = vi.fn(async () => [
+        { id: "plan_1" },
+      ]);
+      const txUpdate2 = vi.fn(() => ({
+        set: vi.fn(() => ({
+          where: vi.fn(() => ({
+            returning: planPatches_updateReturnedPlan,
+          })),
+        })),
+      }));
+      const txInsert2 = vi.fn(() => ({
+        values: vi.fn(async () => undefined),
+      }));
+      const txSelect2 = vi.fn(() => ({
+        from: vi.fn(() => ({ where: vi.fn(async () => []) })),
+      }));
+      getDbMock.mockReturnValue({
+        insert: txInsert2,
+        update: txUpdate2,
+        select: vi.fn(() => ({
+          from: vi.fn(() => ({ where: vi.fn(async () => []) })),
+        })),
+      });
+      const planContent = { version: 2, title: "Plan", brief: "", blocks: [] };
+      loadPlanBundleMock.mockResolvedValue({
+        ...baseBundle,
+        plan: {
+          ...baseBundle.plan,
+          updatedAt: planUpdatedAt,
+          // content is needed for contentPatches
+          content: planContent,
+        },
+      });
+
+      // Agent's contentPatches with versionAtLoad = planUpdatedAt should succeed
+      // (returning a non-empty rows array = no conflict).
+      await expect(
+        run({
+          planId: "plan_1",
+          contentPatches: [
+            {
+              op: "append-block",
+              block: {
+                id: "block_new",
+                type: "rich-text",
+                data: { markdown: "New block" },
+              },
+            },
+          ],
+          sections: [],
+          consumedCommentIds: [],
+          comments: [],
+        }),
+      ).resolves.toBeDefined();
+
+      // The plans UPDATE was called and returned a row → no conflict error.
+      expect(planPatches_updateReturnedPlan).toHaveBeenCalled();
+    });
   });
 });

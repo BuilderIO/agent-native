@@ -122,6 +122,41 @@ describe("verifyAuth — connect-token revoke check", () => {
     expect(touchTokenUsedMock).toHaveBeenCalledWith("jti-active");
   });
 
+  it("resolves an org SERVICE token to a synthetic service identity with orgId", async () => {
+    isJtiRevokedMock.mockResolvedValue(false);
+    // Org service tokens (mintOrgServiceToken) carry the org id directly as
+    // an `org_id` claim — no org_domain mapping required — so ownable rows
+    // created by CI get the org scoping and org members can see them.
+    const token = await sign({
+      sub: "svc-ci@service.org_123",
+      scope: "mcp-connect",
+      jti: "jti-svc",
+      org_id: "org_123",
+    });
+    const res = await verifyAuth(`Bearer ${token}`);
+    expect(res.authed).toBe(true);
+    expect(res.identity).toEqual({
+      userEmail: "svc-ci@service.org_123",
+      orgId: "org_123",
+      orgDomain: undefined,
+    });
+    expect(res.fullSurface).toBe(true);
+    expect(isJtiRevokedMock).toHaveBeenCalledWith("jti-svc");
+  });
+
+  it("rejects a revoked org SERVICE token (same revocation gate as personal)", async () => {
+    isJtiRevokedMock.mockResolvedValue(true);
+    const token = await sign({
+      sub: "svc-ci@service.org_123",
+      scope: "mcp-connect",
+      jti: "jti-svc-revoked",
+      org_id: "org_123",
+    });
+    const res = await verifyAuth(`Bearer ${token}`);
+    expect(res.authed).toBe(false);
+    expect(isJtiRevokedMock).toHaveBeenCalledWith("jti-svc-revoked");
+  });
+
   it("accepts an audience-bound standard MCP OAuth access token", async () => {
     const resource = "https://mail.agent-native.com/_agent-native/mcp";
     const token = await signMcpOAuthAccessToken({

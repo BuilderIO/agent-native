@@ -17,7 +17,10 @@ import {
   type CodeAgentRunRecord,
   type CodeAgentTranscriptEvent,
 } from "./code-agent-runs.js";
-import { executePendingCodeAgentApproval } from "./code-agent-executor.js";
+import {
+  executeDenyCodeAgentApproval,
+  executePendingCodeAgentApproval,
+} from "./code-agent-executor.js";
 
 export interface RemoteCodeAgentDeviceConfig {
   token: string;
@@ -373,12 +376,13 @@ class RemoteCodeAgentConnector {
     if (!runId) return { ok: false, error: "Missing runId." };
     const run = getCodeAgentRunRecord(runId);
     if (!run) return { ok: false, error: `Run not found: ${runId}` };
+    // executePendingCodeAgentApproval now auto-resumes inline after running the
+    // approved command, so no separate spawnRunner call is needed.
     const result = await executePendingCodeAgentApproval(runId);
-    this.spawnRunner(runId, run.cwd, run.permissionMode);
     return { ok: true, runId, run: result ?? getCodeAgentRunRecord(runId) };
   }
 
-  private deny(command: RemoteCommand) {
+  private async deny(command: RemoteCommand) {
     const runId = firstStringValue(command.params.runId);
     if (!runId) return { ok: false, error: "Missing runId." };
     const run = getCodeAgentRunRecord(runId);
@@ -389,16 +393,9 @@ class RemoteCodeAgentConnector {
       message: "Remote approval denied.",
       metadata: { source: "remote-connector", commandId: command.id },
     });
-    const updated = updateCodeAgentRunRecord(runId, {
-      status: "paused",
-      phase: "approval-denied",
-      needsApproval: false,
-      metadata: {
-        pendingApproval: undefined,
-        approvalDeniedAt: new Date().toISOString(),
-      },
-    });
-    return { ok: true, runId, run: updated };
+    // Auto-resume so the model can adapt its plan after the denial.
+    const result = await executeDenyCodeAgentApproval(runId);
+    return { ok: true, runId, run: result ?? getCodeAgentRunRecord(runId) };
   }
 
   private stop(command: RemoteCommand) {

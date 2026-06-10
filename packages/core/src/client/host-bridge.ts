@@ -1032,7 +1032,8 @@ function requestFromHost<TValue>(
     }, timeoutMs);
 
     function onMessage(event: MessageEvent) {
-      if (!isTrustedHostResponse(event, targetWindow, options.hostOrigin)) {
+      // targetWindow is non-null: the null branch returned early above
+      if (!isTrustedHostResponse(event, targetWindow!, options.hostOrigin)) {
         return;
       }
       if (!isRecord(event.data)) return;
@@ -1209,7 +1210,8 @@ export function onAgentNativeHostInit(
   if (!targetWindow) return () => {};
 
   function onMessage(event: MessageEvent) {
-    if (!isTrustedHostResponse(event, targetWindow, options.hostOrigin)) {
+    // targetWindow is non-null: the null branch returned early above
+    if (!isTrustedHostResponse(event, targetWindow!, options.hostOrigin)) {
       return;
     }
     if (!isRecord(event.data)) return;

@@ -1,6 +1,7 @@
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
+import { execSync } from "child_process";
 import type { Plugin } from "vite";
 import {
   buildSitemapXml as buildAgentWebSitemapXml,
@@ -10,6 +11,23 @@ import { createAgentWebVitePlugin } from "../../core/src/vite/agent-web-plugin";
 
 export const SITE_URL = "https://www.agent-native.com";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+/**
+ * Returns the last git commit date for a file path, falling back to fs mtime
+ * when git is unavailable (non-git contexts such as Docker/CI without history).
+ */
+function gitLastmod(filePath: string): Date {
+  try {
+    const iso = execSync(`git log -1 --format=%cI -- "${filePath}"`, {
+      encoding: "utf8",
+      stdio: ["pipe", "pipe", "pipe"],
+    }).trim();
+    if (iso) return new Date(iso);
+  } catch {
+    // git unavailable or not a git repo — fall through
+  }
+  return fs.statSync(filePath).mtime;
+}
 
 /**
  * Vite plugin that auto-generates the public agent-web surface for the docs:
@@ -61,7 +79,7 @@ export function buildAgentWebPages(rootDir: string): AgentWebPage[] {
         description: data.description,
         markdown: body.trim() + "\n",
         markdownPath: `/docs/${slug}.md`,
-        lastmod: fs.statSync(filePath).mtime,
+        lastmod: gitLastmod(filePath),
       } satisfies AgentWebPage;
     });
 
@@ -85,7 +103,7 @@ export function buildAgentWebPages(rootDir: string): AgentWebPage[] {
     ]
       .filter((line): line is string => typeof line === "string")
       .join("\n"),
-    lastmod: fs.statSync(templateCardPath).mtime,
+    lastmod: gitLastmod(templateCardPath),
   }));
 
   return sortPages([
@@ -98,8 +116,7 @@ export function buildAgentWebPages(rootDir: string): AgentWebPage[] {
 
 Agent-Native is an open source framework for building apps where AI agents and UI share the same database, actions, and application state.
 `,
-      lastmod: fs.statSync(path.resolve(rootDir, "app/routes/_index.tsx"))
-        .mtime,
+      lastmod: gitLastmod(path.resolve(rootDir, "app/routes/_index.tsx")),
     },
     {
       path: "/download",
@@ -107,8 +124,7 @@ Agent-Native is an open source framework for building apps where AI agents and U
       description: "Download the Agent Native desktop app.",
       markdown:
         "# Download Agent Native\n\nDownload the Agent Native desktop app.\n",
-      lastmod: fs.statSync(path.resolve(rootDir, "app/routes/download.tsx"))
-        .mtime,
+      lastmod: gitLastmod(path.resolve(rootDir, "app/routes/download.tsx")),
     },
     {
       path: "/templates",
@@ -116,8 +132,7 @@ Agent-Native is an open source framework for building apps where AI agents and U
       description: "Ready-to-fork app templates built with Agent-Native.",
       markdown:
         "# Agent-Native Templates\n\nReady-to-fork app templates built with Agent-Native.\n",
-      lastmod: fs.statSync(path.resolve(rootDir, "app/routes/templates.tsx"))
-        .mtime,
+      lastmod: gitLastmod(path.resolve(rootDir, "app/routes/templates.tsx")),
     },
     {
       path: "/skills",
@@ -126,8 +141,7 @@ Agent-Native is an open source framework for building apps where AI agents and U
         "Install app-backed skills your coding agent runs as slash commands: /visual-plan and /visual-recap.",
       markdown:
         "# Agent Skills\n\nInstall app-backed skills your coding agent runs as slash commands. `/visual-plan` opens structured visual plans before you build; `/visual-recap` turns a PR diff into a high-altitude review. Install with `npx @agent-native/core@latest skills add visual-plan`.\n",
-      lastmod: fs.statSync(path.resolve(rootDir, "app/routes/skills.tsx"))
-        .mtime,
+      lastmod: gitLastmod(path.resolve(rootDir, "app/routes/skills.tsx")),
     },
     ...docsPages,
     ...templatePages,

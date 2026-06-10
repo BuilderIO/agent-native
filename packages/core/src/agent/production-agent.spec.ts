@@ -5,9 +5,12 @@ import {
   buildUserContentWithAttachments,
   createPlanModeActionRegistry,
   isPlanModeToolCallAllowed,
+  isContextTooLongError,
+  isRetryableError,
   resolveAgentOwnerEmail,
   runAgentLoop,
   structuredHistoryToEngineMessages,
+  trimOldToolResults,
   type ActionEntry,
   type AgentLoopFinalResponseGuardContext,
 } from "./production-agent.js";
@@ -17,6 +20,7 @@ import {
   runWithRequestContext,
 } from "../server/request-context.js";
 import type { AgentEngine, EngineEvent } from "./engine/types.js";
+import { EngineError } from "./engine/types.js";
 import { MCP_ACTION_RESULT_MARKER } from "../mcp-client/app-result.js";
 
 function actionEntry(opts: {
@@ -154,20 +158,44 @@ describe("buildUserContentWithAttachments", () => {
     ]);
   });
 
-  it("skips unsupported image media types instead of sending invalid engine content", () => {
-    expect(
-      buildUserContentWithAttachments({
-        text: "Can you read this SVG?",
-        attachments: [
-          {
-            type: "image",
-            name: "icon.svg",
-            contentType: "image/svg+xml",
-            data: "data:image/svg+xml;base64,PHN2Zz48L3N2Zz4=",
-          },
-        ],
-      }),
-    ).toEqual([{ type: "text", text: "Can you read this SVG?" }]);
+  it("injects a text placeholder for unsupported image media types instead of silently dropping them", () => {
+    const result = buildUserContentWithAttachments({
+      text: "Can you read this SVG?",
+      attachments: [
+        {
+          type: "image",
+          name: "icon.svg",
+          contentType: "image/svg+xml",
+          data: "data:image/svg+xml;base64,PHN2Zz48L3N2Zz4=",
+        },
+      ],
+    });
+    // Should be a single text part that contains both the placeholder and the user prompt
+    expect(result).toHaveLength(1);
+    expect(result[0].type).toBe("text");
+    const text = (result[0] as { type: "text"; text: string }).text;
+    expect(text).toContain('"icon.svg"');
+    expect(text).toContain("image/svg+xml");
+    expect(text).toContain("unsupported image format");
+    expect(text).toContain("Can you read this SVG?");
+  });
+
+  it("injects a placeholder for HEIC images (common iPhone format)", () => {
+    const result = buildUserContentWithAttachments({
+      text: "Here is my photo",
+      attachments: [
+        {
+          type: "image",
+          name: "photo.heic",
+          contentType: "image/heic",
+          data: "data:image/heic;base64,abc123",
+        },
+      ],
+    });
+    expect(result).toHaveLength(1);
+    const text = (result[0] as { type: "text"; text: string }).text;
+    expect(text).toContain("image/heic");
+    expect(text).toContain("unsupported image format");
   });
 
   it("preserves orphan tool-results as text so history is not lost before backfill", () => {
@@ -519,7 +547,8 @@ describe("runAgentLoop", () => {
       signal: new AbortController().signal,
     });
 
-    expect(seenMaxOutputTokens).toBe(1024);
+    // OpenRouter default was raised from 1024 to 8192 to avoid truncation.
+    expect(seenMaxOutputTokens).toBe(8192);
   });
 
   it("continues internally when a response reaches the output token cap", async () => {
@@ -1223,6 +1252,75 @@ describe("runAgentLoop", () => {
 
     expect(writeAction).toHaveBeenCalledOnce();
     expect(receivedAttachments).toEqual(turnAttachments);
+  });
+
+  it("forwards the run abort signal into each tool action's run context", async () => {
+    // P1: ActionRunContext.signal must be populated so well-behaved actions can
+    // cancel in-flight work when the run is soft-timed out or user-cancelled.
+    let receivedSignal: unknown;
+    const writeAction = vi.fn(async (_args: unknown, ctx: any) => {
+      receivedSignal = ctx?.signal;
+      return "done";
+    });
+    let streamCalls = 0;
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        streamCalls++;
+        if (streamCalls === 1) {
+          yield {
+            type: "assistant-content",
+            parts: [
+              {
+                type: "tool-call" as const,
+                id: "sig-1",
+                name: "do-work",
+                input: {},
+              },
+            ],
+          };
+          yield { type: "stop", reason: "tool_use" };
+          return;
+        }
+        yield {
+          type: "assistant-content",
+          parts: [{ type: "text" as const, text: "done" }],
+        };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+
+    const runAbort = new AbortController();
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions: {
+        "do-work": {
+          ...actionEntry({ readOnly: false }),
+          run: writeAction,
+        },
+      },
+      send: () => {},
+      signal: runAbort.signal,
+    });
+
+    expect(writeAction).toHaveBeenCalledOnce();
+    // The signal passed to the action must be the same AbortSignal given to runAgentLoop
+    expect(receivedSignal).toBe(runAbort.signal);
+    expect(receivedSignal).toBeInstanceOf(AbortSignal);
   });
 
   it("still runs identical read-only tools on a fresh user turn", async () => {
@@ -2206,5 +2304,266 @@ describe("runAgentLoop", () => {
     expect(streamCalls).toBe(2);
     expect(events).toContainEqual({ type: "clear" });
     expect(events).toContainEqual({ type: "text", text: "Recovered" });
+  });
+});
+
+// ─── isContextTooLongError ────────────────────────────────────────────────────
+
+describe("isContextTooLongError", () => {
+  it("returns false for non-Error values", () => {
+    expect(isContextTooLongError("string")).toBe(false);
+    expect(isContextTooLongError(null)).toBe(false);
+    expect(isContextTooLongError(429)).toBe(false);
+  });
+
+  it("matches OpenAI / Anthropic phrasing", () => {
+    expect(isContextTooLongError(new Error("context_length_exceeded"))).toBe(
+      true,
+    );
+    expect(isContextTooLongError(new Error("input_too_long"))).toBe(true);
+    expect(
+      isContextTooLongError(new Error("too many tokens in the prompt")),
+    ).toBe(true);
+    expect(isContextTooLongError(new Error("prompt is too long"))).toBe(true);
+    expect(isContextTooLongError(new Error("Please reduce the length"))).toBe(
+      true,
+    );
+  });
+
+  it("matches Gemini phrasing", () => {
+    expect(
+      isContextTooLongError(new Error("input token count exceeds the limit")),
+    ).toBe(true);
+    expect(isContextTooLongError(new Error("Request too large"))).toBe(true);
+  });
+
+  it("matches EngineError with context_length errorCode", () => {
+    const err = new EngineError("context error", {
+      errorCode: "context_length_exceeded",
+    });
+    expect(isContextTooLongError(err)).toBe(true);
+  });
+
+  it("returns false for unrelated errors", () => {
+    expect(isContextTooLongError(new Error("rate limit reached"))).toBe(false);
+    expect(isContextTooLongError(new Error("overloaded"))).toBe(false);
+  });
+});
+
+// ─── isRetryableError ────────────────────────────────────────────────────────
+
+describe("isRetryableError", () => {
+  it("returns false for non-Error values", () => {
+    expect(isRetryableError("string")).toBe(false);
+    expect(isRetryableError(null)).toBe(false);
+  });
+
+  it("retries on HTTP 429 from statusCode field", () => {
+    const err = new EngineError("rate limited", { statusCode: 429 });
+    expect(isRetryableError(err)).toBe(true);
+  });
+
+  it("retries on HTTP 529 (Anthropic overloaded) from statusCode field", () => {
+    const err = new EngineError("overloaded", { statusCode: 529 });
+    expect(isRetryableError(err)).toBe(true);
+  });
+
+  it("retries on HTTP 500/502/503 from statusCode field", () => {
+    expect(isRetryableError(new EngineError("e", { statusCode: 500 }))).toBe(
+      true,
+    );
+    expect(isRetryableError(new EngineError("e", { statusCode: 502 }))).toBe(
+      true,
+    );
+    expect(isRetryableError(new EngineError("e", { statusCode: 503 }))).toBe(
+      true,
+    );
+  });
+
+  it("retries when providerRetryable is true", () => {
+    const err = new EngineError("transient", { providerRetryable: true });
+    expect(isRetryableError(err)).toBe(true);
+  });
+
+  it("does not retry when providerRetryable is false and no other signals", () => {
+    const err = new EngineError("not retryable", { providerRetryable: false });
+    expect(isRetryableError(err)).toBe(false);
+  });
+
+  it("retries on Anthropic 'overloaded' message keyword", () => {
+    expect(isRetryableError(new Error("Anthropic API overloaded"))).toBe(true);
+  });
+
+  it("retries on OpenAI 'Rate limit reached' phrasing", () => {
+    expect(
+      isRetryableError(new Error("Rate limit reached for model gpt-5.5")),
+    ).toBe(true);
+  });
+
+  it("retries on Google 'resource_exhausted' phrasing", () => {
+    expect(
+      isRetryableError(new Error("RESOURCE_EXHAUSTED: quota exceeded")),
+    ).toBe(true);
+  });
+
+  it("retries on 'quota exceeded' phrasing", () => {
+    expect(isRetryableError(new Error("quota exceeded for project"))).toBe(
+      true,
+    );
+  });
+
+  it("does NOT retry builder_gateway_timeout", () => {
+    const err = new EngineError("timed out", {
+      errorCode: "builder_gateway_timeout",
+    });
+    expect(isRetryableError(err)).toBe(false);
+  });
+
+  it("does NOT retry rate_limit_exceeded (daily cap)", () => {
+    const err = new EngineError("daily cap hit", {
+      errorCode: "rate_limit_exceeded",
+    });
+    expect(isRetryableError(err)).toBe(false);
+  });
+
+  it("does NOT retry daily gateway request cap message", () => {
+    expect(
+      isRetryableError(new Error("daily gateway request cap exceeded")),
+    ).toBe(false);
+  });
+
+  it("retries on builder_gateway_error code", () => {
+    const err = new EngineError("gateway error", {
+      errorCode: "builder_gateway_error",
+    });
+    expect(isRetryableError(err)).toBe(true);
+  });
+
+  it("retries on 'too many requests' in message", () => {
+    expect(isRetryableError(new Error("too many requests, please wait"))).toBe(
+      true,
+    );
+  });
+});
+
+// ─── trimOldToolResults ───────────────────────────────────────────────────────
+
+describe("trimOldToolResults", () => {
+  type Msg = Parameters<typeof trimOldToolResults>[0][number];
+
+  function userTextMsg(text: string): Msg {
+    return { role: "user", content: [{ type: "text", text }] };
+  }
+
+  function assistantTextMsg(text: string): Msg {
+    return { role: "assistant", content: [{ type: "text", text }] };
+  }
+
+  /** Build a user message carrying a single tool-result part (real EngineToolResultPart shape). */
+  function toolResultMsg(toolCallId: string, result: string): Msg {
+    return {
+      role: "user",
+      content: [
+        {
+          type: "tool-result",
+          toolCallId,
+          toolName: "some_tool",
+          toolInput: "{}",
+          content: result,
+        },
+      ],
+    };
+  }
+
+  function toolCallMsg(id: string, name: string): Msg {
+    return {
+      role: "assistant",
+      content: [{ type: "tool-call", id, name, input: {} }],
+    };
+  }
+
+  it("returns null when there are no tool-result messages to trim", () => {
+    const messages: Msg[] = [userTextMsg("hi"), assistantTextMsg("hello")];
+    expect(trimOldToolResults(messages)).toBeNull();
+  });
+
+  it("returns null when all tool results are in the protected tail", () => {
+    const messages: Msg[] = [
+      userTextMsg("start"),
+      toolCallMsg("tc1", "read_file"),
+      toolResultMsg("tc1", "file content"),
+    ];
+    // keepTail=10 protects all 3 messages
+    expect(trimOldToolResults(messages, 10)).toBeNull();
+  });
+
+  it("stubs old tool results and leaves recent tail intact", () => {
+    const messages: Msg[] = [
+      toolCallMsg("old-tc", "read_file"),
+      toolResultMsg("old-tc", "old huge file content"),
+      userTextMsg("second turn"),
+      toolCallMsg("new-tc", "run_tests"),
+      toolResultMsg("new-tc", "recent result"),
+    ];
+    const result = trimOldToolResults(messages, 3);
+    expect(result).not.toBeNull();
+
+    // Old tool result (index 1, outside protected tail of 3) must be stubbed
+    const oldResultMsg = result![1];
+    expect(oldResultMsg.role).toBe("user");
+    const oldPart = oldResultMsg.content[0] as {
+      type: string;
+      content: string;
+    };
+    expect(oldPart.type).toBe("tool-result");
+    expect(oldPart.content).toContain("trimmed");
+
+    // Recent tool result (index 4, inside tail) must be preserved
+    const newResultMsg = result![4];
+    const newPart = newResultMsg.content[0] as {
+      type: string;
+      content: string;
+    };
+    expect(newPart.type).toBe("tool-result");
+    expect(newPart.content).toBe("recent result");
+  });
+
+  it("preserves user text messages even outside the tail", () => {
+    const messages: Msg[] = [
+      userTextMsg("original user question"),
+      toolCallMsg("tc1", "tool"),
+      toolResultMsg("tc1", "big result"),
+      assistantTextMsg("assistant reply"),
+      userTextMsg("followup"),
+      assistantTextMsg("final"),
+    ];
+    const result = trimOldToolResults(messages, 2);
+    expect(result).not.toBeNull();
+
+    // User text message at index 0 must be preserved
+    const firstPart = result![0].content[0] as { type: string; text: string };
+    expect(firstPart.text).toBe("original user question");
+
+    // Assistant text at index 3 must be preserved
+    const thirdPart = result![3].content[0] as { type: string; text: string };
+    expect(thirdPart.text).toBe("assistant reply");
+  });
+
+  it("does not mutate the input array", () => {
+    const messages: Msg[] = [
+      toolCallMsg("tc1", "tool"),
+      toolResultMsg("tc1", "important data"),
+      userTextMsg("turn 2"),
+    ];
+    const original = JSON.stringify(messages);
+    trimOldToolResults(messages, 1);
+    expect(JSON.stringify(messages)).toBe(original);
+  });
+
+  it("returns null when there is nothing to trim (only user/assistant text)", () => {
+    const messages: Msg[] = Array.from({ length: 20 }, (_, i) =>
+      i % 2 === 0 ? userTextMsg(`u${i}`) : assistantTextMsg(`a${i}`),
+    );
+    expect(trimOldToolResults(messages, 10)).toBeNull();
   });
 });

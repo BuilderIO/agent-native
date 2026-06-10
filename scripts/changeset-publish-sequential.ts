@@ -40,6 +40,7 @@ const npmPublishAllowlist = new Set([
   "@agent-native/dispatch",
   "@agent-native/pinpoint",
   "@agent-native/scheduling",
+  "@agent-native/skills",
 ]);
 
 async function readJson<T>(filePath: string): Promise<T> {

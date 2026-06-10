@@ -37,9 +37,10 @@ describe("clips navigate action", () => {
   });
 
   it("still rejects empty commands", async () => {
-    const result = await action.run({});
+    await expect(action.run({})).rejects.toThrow(
+      "at least --view or --path is required.",
+    );
 
     expect(mockWriteAppState).not.toHaveBeenCalled();
-    expect(result).toBe("Error: at least --view or --path is required.");
   });
 });

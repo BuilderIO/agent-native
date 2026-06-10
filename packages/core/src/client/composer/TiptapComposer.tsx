@@ -6,11 +6,7 @@ import React, {
   useImperativeHandle,
   useMemo,
 } from "react";
-import {
-  ComposerPrimitive,
-  useComposer,
-  useComposerRuntime,
-} from "@assistant-ui/react";
+import { useComposer, useComposerRuntime } from "@assistant-ui/react";
 import { useEditor, EditorContent } from "@tiptap/react";
 import type { EditorView } from "@tiptap/pm/view";
 import StarterKit from "@tiptap/starter-kit";
@@ -23,7 +19,6 @@ import { useMentionSearch } from "./use-mention-search.js";
 import { useSkills } from "./use-skills.js";
 import {
   IconArrowUp,
-  IconPlus,
   IconCheck,
   IconChevronDown,
   IconChevronRight,
@@ -306,7 +301,7 @@ function ComposerModeChip({
 
 type ExecMode = "build" | "plan";
 
-interface TiptapComposerProps {
+export interface TiptapComposerProps {
   placeholder?: string;
   disabled?: boolean;
   focusRef?: React.Ref<TiptapComposerHandle>;
@@ -413,6 +408,12 @@ interface TiptapComposerProps {
    * text lacks.
    */
   interceptBuildRequestsForBuilder?: boolean;
+  /**
+   * Called when a drag-drop or paste attachment fails (e.g. unsupported format,
+   * size cap). Use this to surface a visible error in the parent chat surface
+   * rather than silently swallowing the problem.
+   */
+  onAttachmentError?: (message: string) => void;
 }
 
 function plainTextToDoc(text: string) {
@@ -450,7 +451,7 @@ export function createTiptapComposerExtensions(
       underline: false,
     }),
     Placeholder.configure({
-      placeholder: getPlaceholder,
+      placeholder: () => getPlaceholder() ?? "",
       emptyEditorClass: "is-editor-empty",
       showOnlyCurrent: false,
     }),
@@ -551,6 +552,7 @@ function ModeSelector({
 
 const FRIENDLY_MODEL_NAMES: Record<string, string> = {
   auto: "Default model",
+  "claude-fable-5": "Fable 5",
   "grok-code-fast": "Grok Code Fast",
   "qwen3-coder": "Qwen3 Coder",
   "kimi-k2-5": "Kimi K2.5",
@@ -965,6 +967,7 @@ export function TiptapComposer({
   onRemoveContextItem,
   plusMenuMode = "full",
   interceptBuildRequestsForBuilder = false,
+  onAttachmentError,
 }: TiptapComposerProps) {
   const [popover, setPopover] = useState<PopoverState>(null);
   const popoverRef = useRef<MentionPopoverRef>(null);
@@ -986,6 +989,8 @@ export function TiptapComposer({
 
   // Refs for values accessed in handleKeyDown (ProseMirror doesn't re-bind)
   const popoverStateRef = useRef<PopoverState>(null);
+  const onAttachmentErrorRef = useRef(onAttachmentError);
+  onAttachmentErrorRef.current = onAttachmentError;
   const execModeRef = useRef(execMode);
   execModeRef.current = execMode;
   const onExecModeChangeRef = useRef(onExecModeChange);
@@ -1170,7 +1175,11 @@ export function TiptapComposer({
           void Promise.all(
             attachments.map((file) => composerRuntime.addAttachment(file)),
           ).catch((error) => {
-            console.error("Error adding pasted attachment:", error);
+            const msg =
+              error instanceof Error
+                ? error.message
+                : "Could not attach the pasted image. Try a different format.";
+            onAttachmentErrorRef.current?.(msg);
           });
           return true;
         }
@@ -1187,7 +1196,11 @@ export function TiptapComposer({
           void composerRuntime
             .addAttachment(createPastedAttachmentFile(paste))
             .catch((error) => {
-              console.error("Error adding pasted-text attachment:", error);
+              const msg =
+                error instanceof Error
+                  ? error.message
+                  : "Could not attach the pasted text.";
+              onAttachmentErrorRef.current?.(msg);
             });
           return true;
         }
@@ -1202,7 +1215,11 @@ export function TiptapComposer({
           event: event as DragEvent,
           addAttachment: (file) => composerRuntime.addAttachment(file),
           onError: (error) => {
-            console.error("Error adding dropped attachment:", error);
+            const msg =
+              error instanceof Error
+                ? error.message
+                : "Could not attach the dropped file. Try a different format.";
+            onAttachmentErrorRef.current?.(msg);
           },
         });
       },
@@ -1715,7 +1732,7 @@ export function TiptapComposer({
   // Helper functions that operate on the editor view directly
   // These are called from handleKeyDown which can't use React state
   function selectMention(
-    view: any,
+    _view: any,
     pop: NonNullable<PopoverState>,
     item: MentionItem,
   ) {
@@ -1745,7 +1762,7 @@ export function TiptapComposer({
   }
 
   function executeCommand(
-    view: any,
+    _view: any,
     pop: NonNullable<PopoverState>,
     command: SlashCommand,
   ) {
@@ -1760,7 +1777,7 @@ export function TiptapComposer({
   }
 
   function selectSkill(
-    view: any,
+    _view: any,
     pop: NonNullable<PopoverState>,
     skill: SkillResult,
   ) {

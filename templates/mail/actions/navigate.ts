@@ -39,7 +39,9 @@ export default defineAction({
       !args.settingsSection &&
       !args.composeDraftId
     ) {
-      return "Error: At least --view, --threadId, --queuedDraftId, --composeDraftId, or --settingsSection is required.";
+      throw new Error(
+        "At least --view, --threadId, --queuedDraftId, --composeDraftId, or --settingsSection is required.",
+      );
     }
     const nav: Record<string, string> = {};
     if (args.view) nav.view = args.view;

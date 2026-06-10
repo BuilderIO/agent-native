@@ -126,8 +126,7 @@ export interface SqlDashboardConfig {
 
 /**
  * Lower / upper bounds for the per-section column count. Keep in sync with
- * the validators in `actions/update-dashboard.ts` and
- * `server/handlers/sql-dashboards.ts`.
+ * the validators in `actions/update-dashboard.ts`.
  */
 export const MIN_DASHBOARD_COLUMNS = 1;
 export const MAX_DASHBOARD_COLUMNS = 6;

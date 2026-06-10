@@ -387,6 +387,7 @@ export {
   clearChatStorage,
   type AssistantChatProps,
   type AssistantChatHandle,
+  type AssistantChatAdapterContext,
 } from "./AssistantChat.js";
 export {
   MultiTabAssistantChat,
@@ -400,11 +401,16 @@ export {
   type RunStuckState,
   type UseRunStuckDetectionOptions,
 } from "./use-run-stuck-detection.js";
-export { createAgentChatAdapter } from "./agent-chat-adapter.js";
+export {
+  createAgentChatAdapter,
+  type AgentChatSurfaceKind,
+  type CreateAgentChatAdapterOptions,
+} from "./agent-chat-adapter.js";
 export {
   AgentComposerFrame,
   type AgentComposerFrameProps,
   PromptComposer,
+  TiptapComposer,
   AGENT_PROMPT_MAX_INLINE_IMAGE_BYTES,
   AGENT_PROMPT_MAX_INLINE_TEXT_CHARS,
   escapePromptAttachmentAttribute,
@@ -414,13 +420,16 @@ export {
   type PromptComposerProps,
   type PromptComposerFile,
   type PromptComposerSubmitOptions,
+  type ComposerSubmitIntent,
   type AgentPromptAttachment,
   type ReadAgentPromptAttachmentOptions,
   type AgentComposerLayoutVariant,
   type SlashCommand,
   type SkillResult,
+  type TiptapComposerHandle,
+  type TiptapComposerProps,
+  type TiptapComposerSubmitOptions,
 } from "./composer/index.js";
-export type { TiptapComposerHandle } from "./composer/TiptapComposer.js";
 export {
   GuidedQuestionFlow,
   useGuidedQuestionFlow,
@@ -446,6 +455,7 @@ export {
 export {
   useChatThreads,
   type ChatThreadScope,
+  type ChatThreadSnapshot,
   type ChatThreadSummary,
   type ChatThreadData,
   type UseChatThreadsOptions,
@@ -541,6 +551,7 @@ export {
   isReconcileLeadClient,
   emailToColor,
   emailToName,
+  dedupeCollabUsersByEmail,
   type UseCollaborativeDocOptions,
   type UseCollaborativeDocResult,
   type CollabUser,
@@ -625,6 +636,8 @@ export {
   type ClientActionCallOptions,
   type ClientActionMethod,
 } from "./use-action.js";
+export { createAgentNativeQueryClient } from "./create-query-client.js";
+export { AppProviders, type AppProvidersProps } from "./app-providers.js";
 export { usePinchZoom, type UsePinchZoomOptions } from "./use-pinch-zoom.js";
 export {
   ShareButton,

@@ -91,7 +91,7 @@ export function getOptionalCredentialKeys(source: DataSource): Set<string> {
     source.walkthroughSteps
       .filter((step) => step.optional)
       .map((step) => step.inputKey)
-      .filter(Boolean),
+      .filter((k): k is string => Boolean(k)),
   );
 }
 

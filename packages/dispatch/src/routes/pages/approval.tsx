@@ -79,7 +79,7 @@ export default function ApprovalPreviewRoute() {
 
   const inEmbed = isInAgentEmbed();
 
-  const approval = approvals?.find((item) => item.id === id) ?? null;
+  const approval = approvals?.find((item: any) => item.id === id) ?? null;
 
   if (!id) {
     return (

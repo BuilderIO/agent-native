@@ -49,10 +49,9 @@ import {
   useChangeVersions,
   useActionMutation,
   agentNativePath,
-  appApiPath,
+  callAction,
   type CollabUser,
 } from "@agent-native/core/client";
-import { getIdToken } from "@/lib/auth";
 import {
   resourceCanEdit,
   resourceCanManage,
@@ -102,18 +101,6 @@ interface SavedConfig {
 
 const TAB_ID = generateTabId();
 
-async function fetchWithAuth(url: string, options?: RequestInit) {
-  const token = await getIdToken();
-  return fetch(appApiPath(url), {
-    ...options,
-    headers: {
-      "Content-Type": "application/json",
-      ...(token && { Authorization: `Bearer ${token}` }),
-      ...options?.headers,
-    },
-  });
-}
-
 type FetchedExplorerDashboard = {
   data: ExplorerDashboardData;
   archivedAt: string | null;
@@ -124,37 +111,42 @@ type FetchedExplorerDashboard = {
 async function fetchDashboard(
   id: string,
 ): Promise<FetchedExplorerDashboard | null> {
-  const res = await fetchWithAuth(`/api/explorer-dashboards/${id}`);
-  if (!res.ok) return null;
-  const data = await res.json();
-  return {
-    data: {
-      name: data.name ?? "Untitled Dashboard",
-      charts: data.charts ?? [],
-    },
-    archivedAt: typeof data.archivedAt === "string" ? data.archivedAt : null,
-    hiddenAt: typeof data.hiddenAt === "string" ? data.hiddenAt : null,
-    hiddenBy: typeof data.hiddenBy === "string" ? data.hiddenBy : null,
-    role: typeof data.role === "string" ? data.role : undefined,
-    canEdit: typeof data.canEdit === "boolean" ? data.canEdit : undefined,
-    canManage: typeof data.canManage === "boolean" ? data.canManage : undefined,
-  };
+  try {
+    const raw: any = await callAction("get-explorer-dashboard", { id });
+    if (!raw) return null;
+    return {
+      data: {
+        name: raw.name ?? "Untitled Dashboard",
+        charts: raw.charts ?? [],
+      },
+      archivedAt: typeof raw.archivedAt === "string" ? raw.archivedAt : null,
+      hiddenAt: typeof raw.hiddenAt === "string" ? raw.hiddenAt : null,
+      hiddenBy: typeof raw.hiddenBy === "string" ? raw.hiddenBy : null,
+      role: typeof raw.role === "string" ? raw.role : undefined,
+      canEdit: typeof raw.canEdit === "boolean" ? raw.canEdit : undefined,
+      canManage: typeof raw.canManage === "boolean" ? raw.canManage : undefined,
+    };
+  } catch {
+    return null;
+  }
 }
 
 async function saveDashboard(id: string, data: ExplorerDashboardData) {
-  await fetchWithAuth(`/api/explorer-dashboards/${id}`, {
-    method: "POST",
-    body: JSON.stringify(data),
+  await callAction("save-explorer-dashboard", {
+    id,
+    data: data as unknown as Record<string, unknown>,
   });
 }
 
 async function fetchSavedConfigs(): Promise<SavedConfig[]> {
-  const res = await fetchWithAuth("/api/explorer-configs");
-  if (!res.ok) return [];
-  const data = await res.json();
-  return (data.configs ?? [])
-    .filter((c: any) => c.id !== "_autosave")
-    .map((c: any) => ({ id: c.id, name: c.name }));
+  try {
+    const rows = await callAction("list-explorer-configs", {});
+    return (Array.isArray(rows) ? rows : [])
+      .filter((c: any) => c.id !== "_autosave")
+      .map((c: any) => ({ id: c.id, name: c.name }));
+  } catch {
+    return [];
+  }
 }
 
 export default function ExplorerDashboardPage() {
@@ -315,11 +307,10 @@ export default function ExplorerDashboardPage() {
     if (!dashboardId || !canEdit) return;
     if (archivedAt) return;
     try {
-      const res = await fetchWithAuth(
-        `/api/explorer-dashboards/${dashboardId}/archive`,
-        { method: "POST" },
-      );
-      if (!res.ok) throw new Error(`Archive failed (${res.status})`);
+      await callAction("archive-dashboard", {
+        id: dashboardId,
+        archived: true,
+      });
       queryClient.invalidateQueries({
         queryKey: ["explorer-dashboards-sidebar"],
       });
@@ -647,24 +638,25 @@ export default function ExplorerDashboardPage() {
                   <AlertDialogAction
                     onClick={async () => {
                       if (!dashboardId || !canManage) return;
-                      const token = await getIdToken();
-                      await fetch(
-                        appApiPath(`/api/explorer-dashboards/${dashboardId}`),
-                        {
-                          method: "DELETE",
-                          headers: token
-                            ? { Authorization: `Bearer ${token}` }
-                            : {},
-                        },
-                      );
-                      queryClient.invalidateQueries({
-                        queryKey: ["explorer-dashboards-sidebar"],
-                      });
-                      queryClient.invalidateQueries({
-                        queryKey: ["explorer-dashboards-palette"],
-                      });
-                      setConfirmDeleteOpen(false);
-                      navigate("/adhoc/explorer");
+                      try {
+                        await callAction("delete-explorer-dashboard", {
+                          id: dashboardId,
+                        });
+                        queryClient.invalidateQueries({
+                          queryKey: ["explorer-dashboards-sidebar"],
+                        });
+                        queryClient.invalidateQueries({
+                          queryKey: ["explorer-dashboards-palette"],
+                        });
+                        setConfirmDeleteOpen(false);
+                        navigate("/adhoc/explorer");
+                      } catch (err) {
+                        toast.error(
+                          err instanceof Error
+                            ? err.message
+                            : "Couldn't delete dashboard",
+                        );
+                      }
                     }}
                     className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
                   >

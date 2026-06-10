@@ -44,6 +44,26 @@
       "autoPort": true
     },
     {
+      "name": "plan-smoke",
+      "runtimeExecutable": "bash",
+      "runtimeArgs": [
+        "-c",
+        "NODE_ENV=development APP_NAME=plan AGENT_USER_EMAIL=dev@local.test PLAN_DATABASE_URL=file:/tmp/plan-smoke-0610.db pnpm --filter plan exec agent-native dev"
+      ],
+      "port": 8080,
+      "autoPort": true
+    },
+    {
+      "name": "starter-smoke",
+      "runtimeExecutable": "bash",
+      "runtimeArgs": [
+        "-c",
+        "NODE_ENV=development APP_NAME=starter AGENT_USER_EMAIL=dev@local.test STARTER_DATABASE_URL=file:/tmp/starter-smoke-0610.db pnpm --filter starter exec agent-native dev"
+      ],
+      "port": 8080,
+      "autoPort": true
+    },
+    {
       "name": "docs",
       "runtimeExecutable": "pnpm",
       "runtimeArgs": ["--filter", "@agent-native/docs", "dev"],
