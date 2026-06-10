@@ -955,7 +955,7 @@ async function runShot(args: Record<string, string | boolean>): Promise<void> {
     // Zoom out slightly so more content fits. Keep the plan title (h1) in frame:
     // the recap reads better led by its own title than cropped to the body.
     await page.evaluate(() => {
-      (document.documentElement as HTMLElement).style.zoom = "80%";
+      (document.documentElement as HTMLElement).style.zoom = "90%";
     });
     await page.screenshot({ path: out });
     captured = true;
