@@ -899,8 +899,8 @@ export function useCollaborativeDoc(
             }
           }
           const changes = reconcileRemoteAwarenessStates(
-            awareness.getStates() as Map<number, unknown>,
-            ydoc.clientID,
+            capturedAwareness.getStates() as Map<number, unknown>,
+            capturedYdoc.clientID,
             remoteStates,
           );
           if (
@@ -908,7 +908,7 @@ export function useCollaborativeDoc(
             changes.updated.length ||
             changes.removed.length
           ) {
-            awareness.emit("change", [changes, "remote"]);
+            capturedAwareness.emit("change", [changes, "remote"]);
           }
         } catch {
           // Ignore malformed SSE frames; poll cycle is the safety net.
