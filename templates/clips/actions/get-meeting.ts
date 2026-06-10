@@ -121,6 +121,13 @@ export default defineAction({
       transcript = tr ?? null;
     }
 
-    return { meeting, participants, actionItems, recording, transcript };
+    return {
+      meeting,
+      participants,
+      actionItems,
+      recording,
+      transcript,
+      role: access.role,
+    };
   },
 });

@@ -1,21 +1,6 @@
 import { useMemo, useState, type ReactNode } from "react";
-import { useQueryClient } from "@tanstack/react-query";
-import {
-  IconTrash,
-  IconLock,
-  IconBuilding,
-  IconWorld,
-  IconCheck,
-  IconCopy,
-  IconLink,
-  IconMail,
-  IconCode,
-} from "@tabler/icons-react";
-import {
-  appPath,
-  useActionQuery,
-  useActionMutation,
-} from "@agent-native/core/client";
+import { IconLink, IconMail, IconCode } from "@tabler/icons-react";
+import { appPath, useActionQuery } from "@agent-native/core/client";
 import {
   Popover,
   PopoverTrigger,
@@ -24,71 +9,29 @@ import {
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { cn } from "@/lib/utils";
+  CopyField,
+  GeneralAccessSelect,
+  MakePublicCard,
+  ShareCardHeader,
+  SharePeopleTab,
+  VIS_META,
+  copyToClipboard,
+  useResourceVisibilityMutation,
+  type SharesQuery,
+  type SharesResponse,
+  type Visibility,
+} from "@/components/sharing/share-ui";
 
-type Visibility = "private" | "org" | "public";
-type Role = "viewer" | "editor" | "admin";
-
-interface Share {
-  id: string;
-  principalType: "user" | "org";
-  principalId: string;
-  role: Role;
-}
-
-interface SharesResponse {
-  ownerEmail: string | null;
-  orgId: string | null;
-  visibility: Visibility | null;
-  role?: "owner" | Role;
-  shares: Share[];
-}
-
-const VIS_META: Record<
-  Visibility,
-  { label: string; description: string; Icon: typeof IconLock }
-> = {
-  private: {
-    label: "Private",
-    description: "Only people with access can view",
-    Icon: IconLock,
-  },
-  org: {
-    label: "Organization",
-    description: "Anyone in your organization can view",
-    Icon: IconBuilding,
-  },
-  public: {
-    label: "Public",
-    description: "Anyone with the link can view — sign in to comment or react",
-    Icon: IconWorld,
-  },
-};
-
-const ROLE_OPTIONS: Array<{ value: Role; label: string }> = [
-  { value: "viewer", label: "Viewer" },
-  { value: "editor", label: "Editor" },
-  { value: "admin", label: "Admin" },
-];
+const PUBLIC_DESCRIPTION =
+  "Anyone with the link can view — sign in to comment or react";
 
 function absoluteAppUrl(path: string): string {
   if (typeof window === "undefined") return "";
   return new URL(appPath(path), window.location.origin).toString();
-}
-
-function copyToClipboard(value: string): void {
-  navigator.clipboard.writeText(value).catch(() => {});
 }
 
 export interface ShareRecordingPopoverProps {
@@ -198,30 +141,19 @@ function ShareRecordingContent({
     resourceId: recordingId,
   });
 
+  const data = sharesQuery.data;
+  const canManage = data?.role === "owner" || data?.role === "admin";
   const titleText = recordingTitle
     ? `Share "${recordingTitle}"`
     : "Share recording";
 
   return (
     <>
-      <div
-        className={cn(
-          "min-w-0 border-b border-border px-4 pb-3 pt-3",
-          reserveCloseButton && "pr-12",
-        )}
-      >
-        <div
-          className="min-w-0 truncate text-sm font-semibold"
-          title={titleText}
-        >
-          {titleText}
-        </div>
-        {sharesQuery.data?.ownerEmail ? (
-          <div className="mt-0.5 truncate text-xs text-muted-foreground">
-            Owner: {sharesQuery.data.ownerEmail}
-          </div>
-        ) : null}
-      </div>
+      <ShareCardHeader
+        title={titleText}
+        ownerEmail={data?.ownerEmail}
+        reserveCloseButton={reserveCloseButton}
+      />
 
       <Tabs defaultValue="link" className="min-w-0 px-4 py-3">
         <TabsList className="grid w-full grid-cols-3">
@@ -244,16 +176,19 @@ function ShareRecordingContent({
             recordingId={recordingId}
             shareUrl={shareUrl}
             sharesQuery={sharesQuery}
+            canManage={canManage}
             videoUrl={videoUrl}
             animatedThumbnailUrl={animatedThumbnailUrl}
           />
         </TabsContent>
 
         <TabsContent value="invite" className="mt-3">
-          <InviteTab
-            recordingId={recordingId}
+          <SharePeopleTab
+            resourceType="recording"
+            resourceId={recordingId}
             resourceUrl={absoluteAppUrl(`/r/${recordingId}`)}
             sharesQuery={sharesQuery}
+            canManage={canManage}
           />
         </TabsContent>
 
@@ -261,6 +196,7 @@ function ShareRecordingContent({
           <ClipsEmbedConfigurator
             recordingId={recordingId}
             sharesQuery={sharesQuery}
+            canManage={canManage}
           />
         </TabsContent>
       </Tabs>
@@ -269,23 +205,26 @@ function ShareRecordingContent({
 }
 
 // ---------------------------------------------------------------------------
-// Link tab — visibility + copy link + extras
+// Link tab — visibility + copy link + Clips extras (GIF / MP4)
 // ---------------------------------------------------------------------------
 
 function LinkTab({
   recordingId,
   shareUrl,
   sharesQuery,
+  canManage,
   videoUrl,
   animatedThumbnailUrl,
 }: {
   recordingId: string;
   shareUrl: string;
-  sharesQuery: ReturnType<typeof useActionQuery<SharesResponse>>;
+  sharesQuery: SharesQuery;
+  canManage: boolean;
   videoUrl?: string | null;
   animatedThumbnailUrl?: string | null;
 }) {
-  const { setRecordingVisibility, isPending } = useRecordingVisibilityMutation(
+  const { setResourceVisibility, isPending } = useResourceVisibilityMutation(
+    "recording",
     recordingId,
     sharesQuery,
   );
@@ -293,49 +232,16 @@ function LinkTab({
   const visibility: Visibility =
     (data?.visibility as Visibility | null) ?? "private";
   const isPublic = visibility === "public";
-  const canManage =
-    data?.role === "owner" || data?.role === "admin" || !data?.role;
-  const meta = VIS_META[visibility];
-
-  const handleVisibility = (next: string) => {
-    if (next === visibility) return;
-    setRecordingVisibility(next as Visibility);
-  };
 
   return (
     <div className="space-y-4">
-      <div>
-        <div className="mb-2 text-xs font-semibold">General access</div>
-        <div className="flex items-center gap-3">
-          <span
-            aria-hidden
-            className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground"
-          >
-            <meta.Icon size={16} strokeWidth={1.75} />
-          </span>
-          <div className="min-w-0 flex-1">
-            <Select
-              value={visibility}
-              onValueChange={handleVisibility}
-              disabled={!canManage || isPending}
-            >
-              <SelectTrigger className="h-8 border-0 -ml-2 bg-transparent px-2 shadow-none focus:ring-0 [&>span]:text-left">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {(Object.keys(VIS_META) as Visibility[]).map((k) => (
-                  <SelectItem key={k} value={k}>
-                    {VIS_META[k].label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <div className="mt-0.5 text-xs text-muted-foreground">
-              {meta.description}
-            </div>
-          </div>
-        </div>
-      </div>
+      <GeneralAccessSelect
+        visibility={visibility}
+        canManage={canManage}
+        isPending={isPending}
+        onChange={(next) => setResourceVisibility(next)}
+        publicDescription={PUBLIC_DESCRIPTION}
+      />
 
       <CopyField
         label="Share link"
@@ -344,24 +250,14 @@ function LinkTab({
       />
 
       {!isPublic && canManage ? (
-        <div className="rounded-md border border-border bg-muted/40 px-3 py-2.5">
-          <p className="text-xs text-muted-foreground">
-            This link will only work for people who already have access.
-          </p>
-          <Button
-            type="button"
-            size="sm"
-            className="mt-2 h-7"
-            onClick={() =>
-              setRecordingVisibility("public", {
-                onSuccess: () => copyToClipboard(shareUrl),
-              })
-            }
-            disabled={isPending}
-          >
-            {isPending ? "Making public…" : "Make public and copy"}
-          </Button>
-        </div>
+        <MakePublicCard
+          isPending={isPending}
+          onMakePublic={() =>
+            setResourceVisibility("public", {
+              onSuccess: () => copyToClipboard(shareUrl),
+            })
+          }
+        />
       ) : null}
 
       {videoUrl || animatedThumbnailUrl ? (
@@ -391,161 +287,17 @@ function LinkTab({
 }
 
 // ---------------------------------------------------------------------------
-// Invite tab — invite-by-email + shares list
-// ---------------------------------------------------------------------------
-
-function InviteTab({
-  recordingId,
-  resourceUrl,
-  sharesQuery,
-}: {
-  recordingId: string;
-  resourceUrl: string;
-  sharesQuery: ReturnType<typeof useActionQuery<SharesResponse>>;
-}) {
-  const share = useActionMutation("share-resource");
-  const unshare = useActionMutation("unshare-resource");
-
-  const [email, setEmail] = useState("");
-  const [role, setRole] = useState<Role>("viewer");
-  const [notifyPeople, setNotifyPeople] = useState(true);
-  const hasInviteEmail = email.trim().length > 0;
-
-  const data = sharesQuery.data;
-  const shares = data?.shares ?? [];
-  const canManage =
-    data?.role === "owner" || data?.role === "admin" || !data?.role;
-
-  const handleAdd = () => {
-    const trimmed = email.trim();
-    if (!trimmed) return;
-    share.mutate(
-      {
-        resourceType: "recording",
-        resourceId: recordingId,
-        principalType: "user",
-        principalId: trimmed,
-        role,
-        notify: notifyPeople,
-        resourceUrl,
-      },
-      {
-        onSuccess: () => {
-          setEmail("");
-          sharesQuery.refetch();
-        },
-      },
-    );
-  };
-
-  const handleRemove = (s: Share) => {
-    unshare.mutate(
-      {
-        resourceType: "recording",
-        resourceId: recordingId,
-        principalType: s.principalType,
-        principalId: s.principalId,
-      },
-      { onSuccess: () => sharesQuery.refetch() },
-    );
-  };
-
-  return (
-    <div className="space-y-3">
-      {canManage ? (
-        <div className="space-y-2">
-          <div className="flex items-stretch gap-2">
-            <Input
-              type="email"
-              placeholder="Add people by email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") handleAdd();
-              }}
-              autoComplete="off"
-              className="flex-1 h-9"
-            />
-            <Select value={role} onValueChange={(v) => setRole(v as Role)}>
-              <SelectTrigger className="h-9 w-[110px]">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {ROLE_OPTIONS.map((opt) => (
-                  <SelectItem key={opt.value} value={opt.value}>
-                    {opt.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          {hasInviteEmail ? (
-            <label className="flex items-center gap-2 text-xs text-muted-foreground">
-              <Checkbox
-                checked={notifyPeople}
-                onCheckedChange={(checked) => setNotifyPeople(checked === true)}
-              />
-              Notify people
-            </label>
-          ) : null}
-        </div>
-      ) : null}
-
-      <div>
-        <div className="mb-2 text-xs font-semibold">People with access</div>
-        <ul className="flex max-h-56 flex-col gap-1 overflow-y-auto p-0 m-0">
-          {data?.ownerEmail ? (
-            <li className="flex items-center gap-3 px-1 py-1.5 text-sm">
-              <Avatar label={data.ownerEmail} />
-              <span className="flex-1 min-w-0 truncate">{data.ownerEmail}</span>
-              <span className="text-xs text-muted-foreground">Owner</span>
-            </li>
-          ) : null}
-          {shares.map((s) => (
-            <li
-              key={`${s.principalType}:${s.principalId}`}
-              className="flex items-center gap-3 px-1 py-1.5 text-sm"
-            >
-              <Avatar label={s.principalId} org={s.principalType === "org"} />
-              <span className="flex-1 min-w-0 truncate">{s.principalId}</span>
-              <span className="text-xs text-muted-foreground">
-                {cap(s.role)}
-              </span>
-              {canManage ? (
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  aria-label="Remove"
-                  onClick={() => handleRemove(s)}
-                  className="h-7 w-7"
-                >
-                  <IconTrash size={14} />
-                </Button>
-              ) : null}
-            </li>
-          ))}
-          {!shares.length && !data?.ownerEmail ? (
-            <li className="px-1 py-1.5 text-sm text-muted-foreground">
-              No one has access yet.
-            </li>
-          ) : null}
-        </ul>
-      </div>
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
 // Embed tab — Clips-specific configurator
 // ---------------------------------------------------------------------------
 
 function ClipsEmbedConfigurator({
   recordingId,
   sharesQuery,
+  canManage,
 }: {
   recordingId: string;
-  sharesQuery: ReturnType<typeof useActionQuery<SharesResponse>>;
+  sharesQuery: SharesQuery;
+  canManage: boolean;
 }) {
   const [autoplay, setAutoplay] = useState(false);
   const [startMs, setStartMs] = useState(0);
@@ -557,13 +309,12 @@ function ClipsEmbedConfigurator({
   const visibility: Visibility =
     (data?.visibility as Visibility | null) ?? "private";
   const isPublic = visibility === "public";
-  const canManage =
-    data?.role === "owner" || data?.role === "admin" || !data?.role;
-  const { setRecordingVisibility, isPending } = useRecordingVisibilityMutation(
+  const { setResourceVisibility, isPending } = useResourceVisibilityMutation(
+    "recording",
     recordingId,
     sharesQuery,
   );
-  const makePublic = () => setRecordingVisibility("public");
+  const makePublic = () => setResourceVisibility("public");
 
   const src = useMemo(() => {
     const params: string[] = [];
@@ -673,118 +424,4 @@ function ClipsEmbedConfigurator({
       </div>
     </div>
   );
-}
-
-// ---------------------------------------------------------------------------
-// Primitives
-// ---------------------------------------------------------------------------
-
-function CopyField({
-  label,
-  value,
-  disabled,
-}: {
-  label: string;
-  value: string;
-  disabled?: boolean;
-}) {
-  const [copied, setCopied] = useState(false);
-  const copy = () => {
-    if (disabled) return;
-    copyToClipboard(value);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 1400);
-  };
-  return (
-    <div>
-      <div className="mb-1 text-xs font-medium text-muted-foreground">
-        {label}
-      </div>
-      <div className="flex items-stretch gap-2">
-        <Input
-          readOnly
-          value={value}
-          className="flex-1 h-9 font-mono text-xs"
-        />
-        <Button
-          type="button"
-          variant="outline"
-          size="icon"
-          onClick={copy}
-          aria-label="Copy"
-          disabled={disabled}
-          className="h-9 w-9"
-        >
-          {copied ? <IconCheck size={14} /> : <IconCopy size={14} />}
-        </Button>
-      </div>
-    </div>
-  );
-}
-
-function useRecordingVisibilityMutation(
-  recordingId: string,
-  sharesQuery: ReturnType<typeof useActionQuery<SharesResponse>>,
-) {
-  const queryClient = useQueryClient();
-  const setVisibility = useActionMutation("set-resource-visibility");
-  const shareQueryKey = useMemo(
-    () =>
-      [
-        "action",
-        "list-resource-shares",
-        { resourceType: "recording", resourceId: recordingId },
-      ] as const,
-    [recordingId],
-  );
-
-  const setRecordingVisibility = (
-    next: Visibility,
-    options?: { onSuccess?: () => void },
-  ) => {
-    const previous = queryClient.getQueryData<SharesResponse>(shareQueryKey);
-    queryClient.setQueryData<SharesResponse>(shareQueryKey, (current) =>
-      current ? { ...current, visibility: next } : current,
-    );
-    setVisibility.mutate(
-      {
-        resourceType: "recording",
-        resourceId: recordingId,
-        visibility: next,
-      } as any,
-      {
-        onSuccess: () => {
-          void sharesQuery.refetch().finally(() => options?.onSuccess?.());
-        },
-        onError: () => {
-          if (previous) {
-            queryClient.setQueryData(shareQueryKey, previous);
-          } else {
-            queryClient.invalidateQueries({ queryKey: shareQueryKey });
-          }
-        },
-      },
-    );
-  };
-
-  return { setRecordingVisibility, isPending: setVisibility.isPending };
-}
-
-function Avatar({ label, org }: { label: string; org?: boolean }) {
-  return (
-    <span
-      aria-hidden
-      className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-muted text-[11px] font-semibold text-muted-foreground"
-    >
-      {org ? (
-        <IconBuilding size={14} strokeWidth={1.75} />
-      ) : (
-        (label.split("@")[0]?.[0] ?? label[0] ?? "?").toUpperCase()
-      )}
-    </span>
-  );
-}
-
-function cap(s: string): string {
-  return s.charAt(0).toUpperCase() + s.slice(1);
 }

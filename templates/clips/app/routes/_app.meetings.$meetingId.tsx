@@ -12,6 +12,7 @@ import {
   IconExternalLink,
   IconLoader2,
   IconNotes,
+  IconShare3,
   IconTrash,
   IconUsers,
   IconWand,
@@ -46,6 +47,7 @@ import {
   type AttendeeStackParticipant,
 } from "@/components/meetings/attendee-stack";
 import { PageHeader } from "@/components/library/page-header";
+import { ShareMeetingPopover } from "@/components/meetings/share-meeting-dialog";
 import {
   TranscriptBubbles,
   type TranscriptSegment,
@@ -125,10 +127,12 @@ function TitleEditor({
   value,
   onChange,
   compact = false,
+  readOnly = false,
 }: {
   value: string;
   onChange: (next: string) => void;
   compact?: boolean;
+  readOnly?: boolean;
 }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(value);
@@ -146,6 +150,12 @@ function TitleEditor({
     ? "text-base font-semibold tracking-tight truncate"
     : "text-2xl font-semibold tracking-tight";
   const editIconCls = compact ? "h-3.5 w-3.5" : "h-4 w-4";
+
+  if (readOnly) {
+    return (
+      <h1 className={cn(textCls, "min-w-0")}>{value || "Untitled meeting"}</h1>
+    );
+  }
 
   if (!editing) {
     return (
@@ -198,9 +208,11 @@ function TitleEditor({
 function ActionItemsByPerson({
   items,
   onToggle,
+  readOnly = false,
 }: {
   items: ActionItem[];
   onToggle: (index: number, completed: boolean) => void;
+  readOnly?: boolean;
 }) {
   // Preserve original index for toggle callback while grouping.
   const grouped = useMemo(() => {
@@ -251,12 +263,18 @@ function ActionItemsByPerson({
                     type="button"
                     role="checkbox"
                     aria-checked={done}
-                    onClick={() => onToggle(index, !done)}
+                    disabled={readOnly}
+                    onClick={() => {
+                      if (!readOnly) onToggle(index, !done);
+                    }}
                     className={cn(
-                      "mt-0.5 h-3.5 w-3.5 shrink-0 rounded border flex items-center justify-center cursor-pointer transition-colors",
+                      "mt-0.5 h-3.5 w-3.5 shrink-0 rounded border flex items-center justify-center transition-colors",
+                      readOnly ? "cursor-default" : "cursor-pointer",
                       done
                         ? "bg-foreground border-foreground"
-                        : "border-border hover:border-foreground/60",
+                        : readOnly
+                          ? "border-border"
+                          : "border-border hover:border-foreground/60",
                     )}
                   >
                     {done && (
@@ -292,6 +310,7 @@ export default function MeetingDetailRoute() {
     actionItems?: ActionItem[];
     transcript?: { segmentsJson?: TranscriptSegment[] | null } | null;
     recording?: { id: string; durationMs?: number | null } | null;
+    role?: "owner" | "admin" | "editor" | "viewer";
   };
 
   const { data, isLoading, isError } = useActionQuery<GetMeetingResp>(
@@ -357,6 +376,11 @@ export default function MeetingDetailRoute() {
     ((meeting.actualStart && !meeting.actualEnd) ||
       meeting.transcriptStatus === "in_progress")
   );
+
+  // Viewer-role shares are read-only: gate every edit affordance. Server
+  // actions also enforce an `editor` minimum, so this is purely UX.
+  const canEdit =
+    data?.role === "owner" || data?.role === "admin" || data?.role === "editor";
 
   const hasNotes =
     !!meeting?.summaryMd ||
@@ -426,23 +450,6 @@ export default function MeetingDetailRoute() {
     updateMeeting.mutate({ id: meeting.id, userNotesMd: next });
   };
 
-  /**
-   * Granola-signature behavior: when the user edits an AI block, "promote"
-   * its content into userNotesMd so it survives re-generation. The AI block
-   * is cleared on the server in the same mutation.
-   */
-  const handleTransferAiToUser = (transferred: string) => {
-    if (!meeting) return;
-    const merged =
-      [meeting.userNotesMd, transferred].filter(Boolean).join("\n\n") || "";
-    patchCachedMeeting({ userNotesMd: merged, summaryMd: "" });
-    updateMeeting.mutate({
-      id: meeting.id,
-      userNotesMd: merged,
-      summaryMd: "",
-    });
-  };
-
   const handleToggleActionItem = (index: number, completed: boolean) => {
     if (!meeting) return;
     const items = meeting.actionItemsJson ?? [];
@@ -471,11 +478,11 @@ export default function MeetingDetailRoute() {
 
   const handleFinalize = () => {
     if (!meeting) return;
-    // Notes the user edited are promoted to userNotesMd (see
-    // handleTransferAiToUser) and survive regeneration, so this stays
-    // one-click — we just reassure the user their own notes are kept.
+    // "My notes" (userNotesMd) is a separate field and is untouched by
+    // regeneration; only the AI summary/bullets are overwritten. Reassure
+    // the user their own notes are kept.
     if (hasNotes) {
-      toast.info("Regenerating notes — your own edits are kept");
+      toast.info("Regenerating notes — your own notes are kept");
     }
     autoFinalizedRef.current = true;
     finalize.mutate({ meetingId: meeting.id });
@@ -506,6 +513,7 @@ export default function MeetingDetailRoute() {
   const meetingIdForFinalize = meeting?.id;
   const transcriptStatusForFinalize = meeting?.transcriptStatus;
   useEffect(() => {
+    if (!canEdit) return; // viewers can't finalize — would 403
     if (!meetingIdForFinalize) return;
     if (autoFinalizedRef.current) return;
     if (hasNotes) return;
@@ -513,7 +521,13 @@ export default function MeetingDetailRoute() {
     if (transcriptStatusForFinalize !== "ready") return;
     autoFinalizedRef.current = true;
     finalize.mutate({ meetingId: meetingIdForFinalize });
-  }, [meetingIdForFinalize, transcriptStatusForFinalize, hasNotes, finalize]);
+  }, [
+    canEdit,
+    meetingIdForFinalize,
+    transcriptStatusForFinalize,
+    hasNotes,
+    finalize,
+  ]);
 
   if (isLoading || !meeting) {
     return (
@@ -582,6 +596,7 @@ export default function MeetingDetailRoute() {
             value={meeting.title || ""}
             onChange={handleTitleChange}
             compact
+            readOnly={!canEdit}
           />
           {isLive && (
             <Badge
@@ -597,7 +612,7 @@ export default function MeetingDetailRoute() {
           )}
         </div>
         <div className="ml-auto flex items-center gap-2">
-          {finalize.isPending ? (
+          {!canEdit ? null : finalize.isPending ? (
             <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
               <IconLoader2 className="h-3.5 w-3.5 animate-spin" />
               Generating notes…
@@ -612,56 +627,67 @@ export default function MeetingDetailRoute() {
               Regenerate notes
             </Button>
           ) : null}
-          <AlertDialog open={deleteOpen} onOpenChange={setDeleteOpen}>
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button
-                  size="icon"
-                  variant="ghost"
-                  className="h-8 w-8 cursor-pointer"
-                  aria-label="Meeting options"
-                >
-                  <IconDots className="h-4 w-4" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-44">
-                <DropdownMenuItem
-                  onSelect={(event) => {
-                    event.preventDefault();
-                    setDeleteOpen(true);
-                  }}
-                  className="text-destructive focus:text-destructive"
-                >
-                  <IconTrash className="mr-2 h-4 w-4" />
-                  Remove meeting
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-            <AlertDialogContent>
-              <AlertDialogHeader>
-                <AlertDialogTitle>Remove this meeting?</AlertDialogTitle>
-                <AlertDialogDescription>
-                  This removes the meeting from Clips. It will not delete any
-                  linked transcript or change your Google Calendar.
-                </AlertDialogDescription>
-              </AlertDialogHeader>
-              <AlertDialogFooter>
-                <AlertDialogCancel disabled={deleteMeeting.isPending}>
-                  Cancel
-                </AlertDialogCancel>
-                <AlertDialogAction
-                  onClick={(event) => {
-                    event.preventDefault();
-                    handleDeleteMeeting();
-                  }}
-                  disabled={deleteMeeting.isPending}
-                  className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                >
-                  {deleteMeeting.isPending ? "Removing..." : "Remove"}
-                </AlertDialogAction>
-              </AlertDialogFooter>
-            </AlertDialogContent>
-          </AlertDialog>
+          <ShareMeetingPopover
+            meetingId={meeting.id}
+            meetingTitle={meeting.title}
+          >
+            <Button size="sm" className="shrink-0 gap-1.5">
+              <IconShare3 className="h-4 w-4" />
+              Share
+            </Button>
+          </ShareMeetingPopover>
+          {canEdit && (
+            <AlertDialog open={deleteOpen} onOpenChange={setDeleteOpen}>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    className="h-8 w-8 cursor-pointer"
+                    aria-label="Meeting options"
+                  >
+                    <IconDots className="h-4 w-4" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-44">
+                  <DropdownMenuItem
+                    onSelect={(event) => {
+                      event.preventDefault();
+                      setDeleteOpen(true);
+                    }}
+                    className="text-destructive focus:text-destructive"
+                  >
+                    <IconTrash className="mr-2 h-4 w-4" />
+                    Remove meeting
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Remove this meeting?</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    This removes the meeting from Clips. It will not delete any
+                    linked transcript or change your Google Calendar.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel disabled={deleteMeeting.isPending}>
+                    Cancel
+                  </AlertDialogCancel>
+                  <AlertDialogAction
+                    onClick={(event) => {
+                      event.preventDefault();
+                      handleDeleteMeeting();
+                    }}
+                    disabled={deleteMeeting.isPending}
+                    className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                  >
+                    {deleteMeeting.isPending ? "Removing..." : "Remove"}
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+          )}
         </div>
       </PageHeader>
 
@@ -782,6 +808,7 @@ export default function MeetingDetailRoute() {
                 view="user"
                 userNotesMd={meeting.userNotesMd ?? ""}
                 onUserNotesChange={handleUserNotesChange}
+                readOnly={!canEdit}
               />
             </TabsContent>
 
@@ -794,7 +821,7 @@ export default function MeetingDetailRoute() {
                 summaryMd={meeting.summaryMd ?? ""}
                 bullets={bullets.map((b) => b.text)}
                 onSummaryChange={handleSummaryChange}
-                onTransferAiToUser={handleTransferAiToUser}
+                readOnly={!canEdit}
                 renderBullet={(b) => (
                   <BulletLink
                     bullet={b}
@@ -818,6 +845,7 @@ export default function MeetingDetailRoute() {
                 <ActionItemsByPerson
                   items={actionItems}
                   onToggle={handleToggleActionItem}
+                  readOnly={!canEdit}
                 />
               ) : (
                 <p className="text-sm leading-relaxed text-muted-foreground/50 italic">
