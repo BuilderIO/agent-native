@@ -1,0 +1,5 @@
+---
+"@agent-native/core": patch
+---
+
+Cut O(n²) streaming render cost to O(tail) per commit with three targeted fixes: (1) block-memoized markdown — split streaming text into stable completed blocks + a live tail; completed blocks are wrapped in React.memo and skipped by React on every commit, only the tail re-renders; on completion a single-pass ReactMarkdown render guarantees identical final output. (2) Incremental grapheme segmentation — the Intl.Segmenter singleton is already cached at module level; now only the appended suffix is segmented per target change with a 16-char overlap to handle ZWJ/emoji cluster boundaries; falls back to full re-segmentation on non-append resets. (3) Debounced Shiki highlighting — while a code block is growing the Shiki codeToHtml call is debounced to 150 ms trailing, keeping the previous highlight visible between fires; a content-hash gate prevents redundant re-highlights on identical re-renders; a final immediate highlight fires when streaming ends. The shared HighlightedCodeBlock component is extracted to packages/core/src/client/HighlightedCodeBlock.tsx and used by both AssistantChat and AgentConversation.

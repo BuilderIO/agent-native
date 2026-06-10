@@ -155,5 +155,58 @@ describe("streaming text smoothing helpers", () => {
       const second = splitStreamingTextGraphemes(text);
       expect(second).toBe(first); // referential equality — same array
     });
+
+    // ─── CJK ─────────────────────────────────────────────────────────────────
+
+    it("counts CJK characters as individual graphemes", () => {
+      const text = "日本語テスト";
+      const graphemes = splitStreamingTextGraphemes(text);
+      // Each CJK ideograph / kana is a single grapheme cluster
+      expect(graphemes).toEqual(["日", "本", "語", "テ", "ス", "ト"]);
+    });
+
+    it("incremental append of CJK text yields same count as full segmentation", () => {
+      const base = "Hello ";
+      const extended = base + "世界！";
+
+      const fullResult = splitStreamingTextGraphemes(extended);
+
+      resetSegmenterCache();
+      splitStreamingTextGraphemes(base);
+      const incrementalResult = splitStreamingTextGraphemes(extended);
+
+      expect(incrementalResult).toEqual(fullResult);
+    });
+
+    it("multi-step CJK append gives identical offsets to full segmentation", () => {
+      const chunks = ["こんにちは", "、", "世界", "！"];
+      let accumulated = "";
+
+      resetSegmenterCache();
+      for (const chunk of chunks) {
+        accumulated += chunk;
+        splitStreamingTextGraphemes(accumulated);
+      }
+      const incrementalFinal = splitStreamingTextGraphemes(accumulated);
+
+      resetSegmenterCache();
+      const fullFinal = splitStreamingTextGraphemes(accumulated);
+
+      expect(incrementalFinal).toEqual(fullFinal);
+    });
+
+    it("mixed ASCII + CJK + emoji incremental append is correct", () => {
+      const base = "Hello 世界 ";
+      const extended = base + "\u{1F600}";
+
+      const fullResult = splitStreamingTextGraphemes(extended);
+
+      resetSegmenterCache();
+      splitStreamingTextGraphemes(base);
+      const incrementalResult = splitStreamingTextGraphemes(extended);
+
+      expect(incrementalResult).toEqual(fullResult);
+      expect(incrementalResult).toContain("\u{1F600}");
+    });
   });
 });

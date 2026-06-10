@@ -134,6 +134,34 @@ describe("splitMarkdownBlocks", () => {
   });
 });
 
+// ─── CRLF line endings ───────────────────────────────────────────────────────
+
+describe("CRLF line endings", () => {
+  it("splits two CRLF paragraphs separated by a blank CRLF line", () => {
+    const text = "First.\r\n\r\nSecond.";
+    const result = splitMarkdownBlocks(text);
+    // The blank line "\r\n" splits on "\n" → "\r" which trimStart() reduces
+    // to "" — so splitting is detected correctly.
+    expect(result.completedBlocks).toHaveLength(1);
+    expect(result.tail).toBe("Second.");
+  });
+
+  it("does not split on blank lines inside a CRLF fenced code block", () => {
+    const text =
+      "Before.\r\n\r\n```js\r\nconst a = 1;\r\n\r\nconst b = 2;\r\n```\r\n\r\nAfter.";
+    const result = splitMarkdownBlocks(text);
+    expect(result.completedBlocks).toHaveLength(2);
+    expect(result.tail).toBe("After.");
+  });
+
+  it("treats an unterminated CRLF fence as part of the tail", () => {
+    const text = "Before.\r\n\r\n```ts\r\nconst x = ";
+    const result = splitMarkdownBlocks(text);
+    expect(result.completedBlocks).toHaveLength(1);
+    expect(result.tail).toContain("```ts");
+  });
+});
+
 describe("joinMarkdownBlocks", () => {
   it("rejoins with double newlines to recover original structure", () => {
     const original = "First.\n\nSecond.\n\nThird.";
