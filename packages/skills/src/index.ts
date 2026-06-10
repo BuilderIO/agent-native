@@ -604,7 +604,30 @@ Every response that completes a unit of work must end with this exact three-line
 🟢 Actual concise status sentence
 \`\`\`
 
-Use 🟢 when the requested work is finished. Use 🟡 when non-routine follow-up work or a manual step remains, and name that pending item. Use 🔴 only when blocked on user input. Keep the status line under 100 characters.`;
+Use 🟢 when the requested work is finished. Use 🟡 when non-routine follow-up work or a manual step remains, and name that pending item. Use 🔴 only when blocked on user input. Keep the status line under 100 characters.
+
+Examples:
+
+\`\`\`md
+---
+
+⠀
+🟢 Updated quick recap docs with output examples
+\`\`\`
+
+\`\`\`md
+---
+
+⠀
+🟡 Set PROVIDER_WEBHOOK_SECRET before testing webhooks
+\`\`\`
+
+\`\`\`md
+---
+
+⠀
+🔴 Need the production API key to continue
+\`\`\``;
   }
   if (skillName === "efficient-fable") {
     return `## Efficient Fable
