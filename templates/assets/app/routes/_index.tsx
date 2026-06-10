@@ -876,7 +876,7 @@ function HomeGeneratePanel({
                 ))}
               </div>
             ) : (
-              <div className="p-5">
+              <div className="py-5">
                 <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                   <div>
                     <h3 className="text-sm font-semibold">
