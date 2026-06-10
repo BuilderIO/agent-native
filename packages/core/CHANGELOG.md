@@ -1,5 +1,14 @@
 # @agent-native/core
 
+## 0.47.1
+
+### Patch Changes
+
+- 0ec6ded: Add "Interpreting comment anchors" section to the visual-plan skill and a
+  matching pointer in visual-recap, teaching agents how to read coordinate
+  frames, wireframe node ids, text-quote disambiguation, detached threads,
+  routing via resolutionTarget, and two-axis consumed/resolved state.
+
 ## 0.47.0
 
 ### Minor Changes
