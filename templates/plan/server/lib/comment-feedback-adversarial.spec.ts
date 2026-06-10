@@ -276,7 +276,7 @@ describe("get-plan-feedback aggregation", () => {
     loadPlanBundleMock.mockResolvedValueOnce(feedbackBundle([c]));
     const result = await getPlanFeedback.run({ planId: "plan_1" });
     expect(result.comments[0].anchorContext).toBe(
-      "Submit button at 73% across / 13% down",
+      "Submit button at 73% across / 13% down within the target",
     );
   });
 
@@ -294,7 +294,7 @@ describe("get-plan-feedback aggregation", () => {
     loadPlanBundleMock.mockResolvedValueOnce(feedbackBundle([c]));
     const result = await getPlanFeedback.run({ planId: "plan_1" });
     expect(result.comments[0].anchorContext).toBe(
-      "Login screen callout at canvas 121, 240",
+      "Login screen callout at canvas 121, 240 (board px)",
     );
   });
 
@@ -781,14 +781,16 @@ describe("get-plan-feedback anchor + deep thread edges", () => {
     expect(result.comments[0].anchorContext).toBe("Risks");
   });
 
-  it("returns null context for a point anchor with only x/y and no section/quote", async () => {
+  it("returns document coordinates for a point anchor with only x/y and no section/quote", async () => {
     const c = fbComment({
       id: "bare-point",
       anchor: JSON.stringify({ anchorKind: "point", x: 10, y: 20 }),
     });
     loadPlanBundleMock.mockResolvedValueOnce(feedbackBundle([c]));
     const result = await getPlanFeedback.run({ planId: "plan_1" });
-    expect(result.comments[0].anchorContext).toBeNull();
+    expect(result.comments[0].anchorContext).toBe(
+      "Pinned at 10% across / 20% down of the full plan document",
+    );
   });
 
   it("groups a 3-level deep thread under the top-most root", async () => {

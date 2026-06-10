@@ -55,6 +55,8 @@ export type CanvasMarkupCreateContext = {
     visualY: number;
     canvasX: number;
     canvasY: number;
+    canvasWidth?: number;
+    canvasHeight?: number;
     markupType: "text" | "callout";
   };
 };
@@ -398,6 +400,8 @@ export function CanvasArea({
           visualY: y,
           canvasX: Math.round(point.x),
           canvasY: Math.round(point.y),
+          canvasWidth: Math.round(board.width),
+          canvasHeight: Math.round(board.height),
           markupType: mode,
         },
       };

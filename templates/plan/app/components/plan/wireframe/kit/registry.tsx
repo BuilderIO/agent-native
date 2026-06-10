@@ -201,7 +201,23 @@ export function renderNode(
     // not blank the whole frame.
     return children ? <div key={key}>{children}</div> : null;
   }
-  const rendered = renderer(node, children);
+  let rendered = renderer(node, children);
+  // Wrap identified nodes in a layout-transparent element carrying stable node
+  // identity so UI click handlers can walk ancestors for wireframe comment
+  // anchoring. The kit primitives do not forward unknown props to the DOM, so
+  // a real wrapper element (display: contents keeps flex layout intact) is the
+  // only reliable way to land the data attributes.
+  if (node.id && rendered != null) {
+    rendered = (
+      <div
+        style={{ display: "contents" }}
+        data-wire-node-id={node.id}
+        data-wire-node-el={node.el}
+      >
+        {rendered}
+      </div>
+    );
+  }
   // Attach a stable key by wrapping in a Fragment.
   return <KeyedNode key={key ?? node.id}>{rendered}</KeyedNode>;
 }

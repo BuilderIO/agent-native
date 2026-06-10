@@ -55,6 +55,14 @@ export type PlanCommentAnchor = {
   blockType?: string;
   ambiguous?: boolean;
   markerSeq?: number;
+  /** Stable wireframe/design node id (addressable by wireframe/design patch ops). */
+  targetNodeId?: string;
+  /** Human-readable path of ancestor wireframe nodes, e.g. `card > list > listItem "Acme Inc"`. */
+  targetNodePath?: string;
+  /** Board world width in px (for canvas comments). */
+  canvasWidth?: number;
+  /** Board world height in px (for canvas comments). */
+  canvasHeight?: number;
 };
 
 const mentionTokenPattern = /@\[([^\]]+)\]\(mailto:([^)]+)\)/g;
@@ -179,20 +187,37 @@ export function formatPlanCommentAnchorForAgent(
         : anchor.markupType === "text"
           ? "note"
           : "markup";
-    const canvasPoint =
-      anchor.canvasX !== undefined && anchor.canvasY !== undefined
-        ? ` at canvas ${Math.round(anchor.canvasX)}, ${Math.round(anchor.canvasY)}`
-        : "";
+    let canvasPoint = "";
+    if (anchor.canvasX !== undefined && anchor.canvasY !== undefined) {
+      const cx = Math.round(anchor.canvasX);
+      const cy = Math.round(anchor.canvasY);
+      canvasPoint =
+        anchor.canvasWidth !== undefined && anchor.canvasHeight !== undefined
+          ? ` at canvas ${cx}, ${cy} of ${Math.round(anchor.canvasWidth)} x ${Math.round(anchor.canvasHeight)} board px`
+          : ` at canvas ${cx}, ${cy} (board px)`;
+    }
     return `${prefix}${target || "canvas"} ${kind}${canvasPoint}`;
   }
 
   if (anchor.anchorKind === "visual") {
     const x = Math.round(anchor.visualX ?? anchor.targetX ?? anchor.x ?? 0);
     const y = Math.round(anchor.visualY ?? anchor.targetY ?? anchor.y ?? 0);
-    return `${prefix}${target || anchor.targetKind || "visual"} at ${x}% across / ${y}% down`;
+    const nodePart = anchor.targetNodePath
+      ? `${anchor.targetNodePath} `
+      : `${target || anchor.targetKind || "visual"} `;
+    const coordPart = `${x}% across / ${y}% down within the ${anchor.targetKind || "target"}`;
+    return `${prefix}${nodePart}at ${coordPart}`;
   }
 
-  return prefix ? prefix.replace(/: $/, "") : "Pinned to plan";
+  if (prefix) return prefix.replace(/: $/, "");
+
+  // Enriched pinned fallback: document-level coordinates are better than a
+  // bare "Pinned to plan" — they at least localize the pin on the page.
+  if (anchor.x !== undefined && anchor.y !== undefined) {
+    return `Pinned at ${Math.round(anchor.x)}% across / ${Math.round(anchor.y)}% down of the full plan document`;
+  }
+
+  return "Pinned to plan";
 }
 
 export function planCommentAnchorDetails(
@@ -226,15 +251,27 @@ export function planCommentAnchorDetails(
     lines.push(
       `Target point: ${Math.round(anchor.targetX)}% across / ${Math.round(
         anchor.targetY,
-      )}% down`,
+      )}% down within the ${anchor.targetKind || "target"}`,
     );
   }
   if (anchor.canvasX !== undefined && anchor.canvasY !== undefined) {
-    lines.push(
-      `Canvas point: ${Math.round(anchor.canvasX)}, ${Math.round(
-        anchor.canvasY,
-      )}`,
-    );
+    const cx = Math.round(anchor.canvasX);
+    const cy = Math.round(anchor.canvasY);
+    const canvasPointLine =
+      anchor.canvasWidth !== undefined && anchor.canvasHeight !== undefined
+        ? `Canvas point: canvas ${cx}, ${cy} of ${Math.round(anchor.canvasWidth)} x ${Math.round(anchor.canvasHeight)} board px`
+        : `Canvas point: canvas ${cx}, ${cy} (board px)`;
+    lines.push(canvasPointLine);
+  }
+  if (anchor.targetNodeId || anchor.targetNodePath) {
+    const idPart = anchor.targetNodeId
+      ? `id="${anchor.targetNodeId}" (addressable by wireframe/design patch ops)`
+      : "";
+    const pathPart = anchor.targetNodePath
+      ? `path: ${anchor.targetNodePath}`
+      : "";
+    const nodeLine = [idPart, pathPart].filter(Boolean).join(", ");
+    lines.push(`Wireframe node: ${nodeLine}`);
   }
   if (anchor.contextBefore) {
     lines.push(`Text before: "${clean(anchor.contextBefore)}"`);
