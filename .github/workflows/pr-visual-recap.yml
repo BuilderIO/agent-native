@@ -368,9 +368,13 @@ jobs:
                 const parsed = new URL(rawUrl);
                 const trusted = new URL(appUrl || 'https://plan.agent-native.com');
                 if (parsed.origin !== trusted.origin) return '';
-
-                const match = parsed.pathname.match(/^\/(?:plans|recaps)\/([A-Za-z0-9_-]+)$/);
-                return match ? `${trusted.origin}/recaps/${match[1]}` : '';
+                // Honor a path-prefixed mount (e.g. https://host/agent-native):
+                // strip the trusted base path before matching /plans|recaps/<id>.
+                const base = trusted.pathname.replace(/\/$/, '');
+                let rest = parsed.pathname;
+                if (base && rest.startsWith(base)) rest = rest.slice(base.length);
+                const match = rest.match(/^\/(?:plans|recaps)\/([A-Za-z0-9_-]+)\/?$/);
+                return match ? `${trusted.origin}${base}/recaps/${match[1]}` : '';
               } catch {
                 return '';
               }
@@ -392,6 +396,12 @@ jobs:
                   : 'A visual code-review recap was generated for this PR.';
                 detailsUrl = recapUrl;
                 text = `**[Open visual recap](${recapUrl})**`;
+              } else {
+                // Agent reported success but the URL didn't validate against the
+                // trusted plan origin — don't claim "not generated"; the recap is
+                // linked in the sticky comment.
+                title = 'Visual recap published';
+                summary = 'A recap was published; see the visual recap comment on this PR for the link.';
               }
             } else if (process.env.DIFF_TINY === 'true') {
               conclusion = 'skipped';
@@ -405,6 +415,7 @@ jobs:
               } catch {
                 // Keep the default reason.
               }
+              conclusion = 'skipped';
               title = 'Visual recap suppressed';
               summary = `No recap was published because ${reason}.`;
             }
