@@ -1,5 +1,132 @@
 # @agent-native/core
 
+## 0.47.0
+
+### Minor Changes
+
+- 600f83d: **Production code execution modes** (`codeExecution` plugin option + `AGENT_PROD_CODE_EXECUTION` env var)
+
+  The agent chat plugin now accepts a `codeExecution` option to enable code-execution tools in production:
+  - `"off"` (default) — no change to existing behaviour.
+  - `"sandboxed"` — registers the new `run-code` tool in the production agent's tool registry.
+  - `"trusted"` — registers both `run-code` and the full coding tool registry (`bash`, `read`, `edit`, `write`) in production.
+
+  The `AGENT_PROD_CODE_EXECUTION` environment variable (`"trusted"`, `"sandboxed"`, or `"off"`) takes precedence over the plugin option, allowing per-deployment overrides without code changes.
+
+  Dev-mode behaviour is unchanged.
+
+  ***
+
+  **Sandboxed `run-code` tool** (new `packages/core/src/coding-tools/run-code.ts`)
+
+  A new `run-code` action lets the agent execute JavaScript (Node.js, ESM, top-level await) in an isolated child process:
+  - Scrubbed environment: only `PATH`, `HOME`, `TMPDIR`, and similar safe POSIX vars are passed to the child. No app env vars or secrets.
+  - Fresh temporary working directory per invocation.
+  - Configurable timeout (default 120 s, max 600 s) and output cap (default 50 000 chars, max 200 000).
+  - Ephemeral bridge HTTP server on `127.0.0.1` with a per-invocation random bearer token so the child can call allowlisted registered tools (`provider-api-request`, `provider-api-docs`, `provider-api-catalog`, `web-request`) with the parent's request context — without leaking secrets.
+  - Child globals: `providerFetch(provider, path, init?)` and `webFetch(url, init?)`.
+  - `run-code` is registered in dev mode unconditionally and in production when the mode is `"sandboxed"` or `"trusted"`.
+
+  ***
+
+  **Per-action tool limits** (`ActionEntry.timeoutMs`, `ActionEntry.maxResultChars`)
+
+  `ActionEntry` now accepts optional `timeoutMs` and `maxResultChars` fields. When present, `runAgentLoop` uses these values instead of the global 60 s / 50 000-char defaults for that action.
+
+  App-level defaults can be set via `toolLimits: { timeoutMs?, maxResultChars? }` on `createProductionAgentHandler` or `createAgentChatPlugin`. Per-action values take precedence.
+
+  ***
+
+  **`web-request` optional `maxChars` input**
+
+  The `web-request` (fetch) tool now accepts an optional `maxChars` parameter (default 32 000, max 200 000) so the agent can request larger response bodies when needed without hitting the hard-coded 32 k truncation.
+
+- 600f83d: **Custom provider registry** — register any API provider at runtime
+
+  A new `custom_api_providers` SQL table (created on first use, additive) stores
+  user/org-scoped provider registrations so the agent can call APIs that are not
+  in the 24 built-in PROVIDER_CONFIGS:
+  - `upsertCustomProvider`, `deleteCustomProvider`, `listCustomProviders`,
+    `getCustomProvider` — CRUD helpers exported from `@agent-native/core/provider-api`.
+  - `validateCustomBaseUrl` — SSRF-safe URL validation for registration time.
+  - `createProviderApiRuntime` now accepts `getCustomProviders?: () => Promise<CustomProviderConfig[]>`.
+    Custom providers are merged into the catalog after built-ins; they cannot
+    shadow built-in ids.
+  - Auth kinds supported for custom providers: `none`, `bearer`, `basic`,
+    `api-key-header`. `google-service-account` and `oauth-bearer` are not
+    supported (require out-of-band setup).
+  - Credentials live in the existing secrets/credentials store — the provider
+    row stores only credential key NAMES, never values.
+  - SSRF guard (`isBlockedExtensionUrlWithDns`) is enforced at registration time
+    and again at every request.
+
+  **New Dispatch action: `provider-api-register`**
+
+  Register, update, delete, or list custom providers:
+
+  ```
+  { operation: "upsert"|"delete"|"list"|"get",
+    id, label, baseUrl, auth, docsUrls?,
+    allowedHostSuffixes?, defaultHeaders?, notes?, scope? }
+  ```
+
+  **Updated Dispatch actions**
+
+  `provider-api-catalog`, `provider-api-docs`, and `provider-api-request` now
+  accept any provider id (built-in or custom) — the `provider` field is relaxed
+  from `z.enum(BUILT_IN_IDS)` to `z.string()` with runtime validation against the
+  merged registry. Unknown provider errors include the list of known provider ids.
+
+  ***
+
+  **Open docs fetching** in `provider-api-docs`
+
+  `fetchProviderApiDocs` now allows ANY public `https`/`http` URL — not just
+  URLs same-origin with registered `docsUrls`/`specUrls`. The SSRF guard and
+  byte caps still apply. Registered docs/spec URLs remain available as curated
+  starting points in the catalog output. The Dispatch `provider-api-docs` action
+  description is updated to reflect this.
+
+  ***
+
+  **New `web-search` agent tool** (`packages/core/src/extensions/web-search-tool.ts`)
+
+  Registers a `web-search` tool in dev and prod agent tool registries:
+  - Input: `{ query: string, count?: number (default 5, max 10) }`.
+  - **Pluggable backends** — at call time the first configured key wins:
+    1. `BRAVE_SEARCH_API_KEY` → Brave Search API
+    2. `TAVILY_API_KEY` → Tavily
+    3. `EXA_API_KEY` → Exa
+       Keys are resolved from the per-user/org credentials store first, then env vars.
+  - Returns a title / URL / snippet list with guidance to follow up via
+    `web-request` or `provider-api-docs`.
+  - If no backend is configured, returns a helpful message listing the three keys.
+  - Description: "Search the public web — use to find API docs, endpoints, or
+    current information, then fetch promising URLs with web-request or
+    provider-api-docs."
+
+  **Framework secret registrations** (`register-framework-secrets.ts`)
+
+  `BRAVE_SEARCH_API_KEY`, `TAVILY_API_KEY`, and `EXA_API_KEY` are registered as
+  optional workspace-scoped secrets so they surface in the settings UI.
+
+- 600f83d: Add `saveToFile` and `fetchAllPages` to `provider-api-request` and `saveToFile` to `web-request`.
+  - `saveToFile?: string` on `provider-api-request` and `web-request`: writes full response
+    body to a workspace file path instead of returning it in context. Allows up to 20 MB
+    (vs normal 4 MB). Returns compact summary `{ savedToFile, savedTo, status, bytes, contentType, preview }`.
+  - `fetchAllPages?: { cursorPath, cursorParam, itemsPath?, maxPages? }` on `provider-api-request`:
+    generic cursor pagination — re-issues requests until cursor is empty or maxPages (default 10,
+    max 50) is reached; accumulates items from `itemsPath`. Combines naturally with `saveToFile`.
+  - `workspace-files` tool added to sandbox bridge default allowlist.
+
+- 600f83d: Add `workspace-files` module: SQL-backed durable scratch storage for the agent.
+  - New `workspace_files` table (scope/scope_id/path/content, unique per scope+path).
+  - Per-file 2 MB cap, per-scope 200 MB cap with clear errors.
+  - `workspace-files` agent tool (write/append/read/list/delete/grep actions).
+  - Tool auto-registered in both dev and prod agent loops.
+  - `workspaceRead`, `workspaceWrite`, `workspaceAppend`, `workspaceList` helpers
+    available inside `run-code` sandbox via bridge.
+
 ## 0.46.0
 
 ### Minor Changes
