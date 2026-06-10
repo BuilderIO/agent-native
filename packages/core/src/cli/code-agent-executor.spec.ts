@@ -619,3 +619,126 @@ describe("buildStructuredMessagesFromEvents", () => {
     expect(readResult?.toolCallId).toBe(readCall?.id);
   });
 });
+
+// ---------------------------------------------------------------------------
+// buildRepoInstructionsBlock + buildCodeAgentSystemPrompt unit tests
+// ---------------------------------------------------------------------------
+
+describe("buildRepoInstructionsBlock", () => {
+  it("returns empty string when content is empty", () => {
+    expect(buildRepoInstructionsBlock("")).toBe("");
+    expect(buildRepoInstructionsBlock("   ")).toBe("");
+  });
+
+  it("wraps content under a Repository instructions heading", () => {
+    const result = buildRepoInstructionsBlock("Always use TypeScript.");
+    expect(result).toContain("## Repository instructions");
+    expect(result).toContain("Always use TypeScript.");
+  });
+
+  it("truncates content longer than 16,000 characters with a note", () => {
+    const longContent = "x".repeat(20_000);
+    const result = buildRepoInstructionsBlock(longContent);
+    expect(result.length).toBeLessThan(longContent.length);
+    expect(result).toContain(
+      "[Note: AGENTS.md was truncated to 16000 characters",
+    );
+  });
+
+  it("does not truncate content under the cap", () => {
+    const shortContent = "y".repeat(100);
+    const result = buildRepoInstructionsBlock(shortContent);
+    expect(result).not.toContain("[Note:");
+    expect(result).toContain(shortContent);
+  });
+});
+
+describe("buildCodeAgentSystemPrompt", () => {
+  it("inlines AGENTS.md content when the file exists in cwd", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "an-prompt-agents-"));
+    tmpRoots.push(root);
+    fs.writeFileSync(
+      path.join(root, "AGENTS.md"),
+      "Always run pnpm typecheck before committing.",
+    );
+
+    const prompt = await buildCodeAgentSystemPrompt(root, "full-auto");
+
+    expect(prompt).toContain("## Repository instructions");
+    expect(prompt).toContain("Always run pnpm typecheck before committing.");
+  });
+
+  it("falls back to CLAUDE.md when AGENTS.md is absent", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "an-prompt-claude-"));
+    tmpRoots.push(root);
+    fs.writeFileSync(
+      path.join(root, "CLAUDE.md"),
+      "Project-specific Claude instructions.",
+    );
+
+    const prompt = await buildCodeAgentSystemPrompt(root, "full-auto");
+
+    expect(prompt).toContain("## Repository instructions");
+    expect(prompt).toContain("Project-specific Claude instructions.");
+  });
+
+  it("omits the repo instructions section when neither AGENTS.md nor CLAUDE.md exists", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "an-prompt-empty-"));
+    tmpRoots.push(root);
+
+    const prompt = await buildCodeAgentSystemPrompt(root, "full-auto");
+
+    expect(prompt).not.toContain("## Repository instructions");
+  });
+
+  it("inlines a skills index when .agents/skills/ skills exist", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "an-prompt-skills-"));
+    tmpRoots.push(root);
+    const skillDir = path.join(root, ".agents", "skills", "my-feature");
+    fs.mkdirSync(skillDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(skillDir, "SKILL.md"),
+      [
+        "---",
+        "name: my-feature",
+        "description: Explains how to add new features.",
+        "---",
+        "# My Feature Skill",
+      ].join("\n"),
+    );
+
+    const prompt = await buildCodeAgentSystemPrompt(root, "full-auto");
+
+    expect(prompt).toContain("my-feature");
+    expect(prompt).toContain("Explains how to add new features.");
+    expect(prompt).toContain("SKILL.md");
+  });
+
+  it("omits skills section when no skills directory exists", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "an-prompt-noskills-"));
+    tmpRoots.push(root);
+
+    const prompt = await buildCodeAgentSystemPrompt(root, "full-auto");
+
+    expect(prompt).not.toContain("<skills>");
+  });
+
+  it("includes nested AGENTS.md precedence note in every prompt", () => {
+    const prompt = codeAgentSystemPrompt("/tmp/repo", "full-auto");
+    expect(prompt).toContain(
+      "More deeply nested AGENTS.md files take precedence",
+    );
+  });
+
+  it("caps truncated AGENTS.md and adds a note", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "an-prompt-cap-"));
+    tmpRoots.push(root);
+    fs.writeFileSync(path.join(root, "AGENTS.md"), "z".repeat(20_000));
+
+    const prompt = await buildCodeAgentSystemPrompt(root, "full-auto");
+
+    expect(prompt).toContain(
+      "[Note: AGENTS.md was truncated to 16000 characters",
+    );
+  });
+});
