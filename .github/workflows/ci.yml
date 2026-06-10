@@ -4,6 +4,15 @@ on:
   pull_request:
     branches: [main]
 
+# Cancel an in-progress CI run when a new commit is pushed to the same PR.
+# Without this, every push starts a fresh ~20-min matrix while the prior one
+# keeps running, stacking 3-4 overlapping runs on a busy PR. Keyed on the PR
+# number (falling back to the ref) so runs on different PRs never cancel each
+# other.
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 
@@ -261,3 +270,29 @@ jobs:
       # No install needed — the guard script only uses Node builtins.
       - name: Scan netlify.toml + package.json for `drizzle-kit push`
         run: node scripts/guard-no-drizzle-push.mjs
+
+  qa-static:
+    name: QA — static template checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "22"
+          cache: "pnpm"
+
+      # These checks read source files only — no DB, browser, network, or
+      # secrets — so they're safe to run on every PR. (The heavier harnesses —
+      # test:mcp:e2e, qa:public-share, qa:composer-geometry — need a live
+      # server / DB / browser and belong in a separate, set-up job.)
+      - run: pnpm install --frozen-lockfile --ignore-scripts
+
+      - name: Template route matrix (fails on drift)
+        run: pnpm qa:template-routes
+
+      - name: Template action audit (advisory)
+        run: pnpm actions:audit

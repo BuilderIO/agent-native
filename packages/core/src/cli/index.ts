@@ -17,6 +17,21 @@ try {
   _version = pkg.version;
 } catch {}
 
+// Fail fast on unsupported Node versions. `engines.node: ">=22"` is only
+// advisory — npx/pnpm merely warn — so without this an older Node (18/20)
+// first fails deep inside a scaffold dynamic import with a cryptic
+// ERR_MODULE / syntax error that `handleScaffoldImportError` misreports as a
+// corrupt npx cache. A clear up-front message saves that whole detour.
+const REQUIRED_NODE_MAJOR = 22;
+const _nodeMajor = Number(process.versions.node.split(".")[0]);
+if (Number.isFinite(_nodeMajor) && _nodeMajor < REQUIRED_NODE_MAJOR) {
+  console.error(
+    `agent-native requires Node.js ${REQUIRED_NODE_MAJOR} or newer, but you're on Node ${process.versions.node}.\n` +
+      `Upgrade Node (https://nodejs.org) and re-run. With nvm: \`nvm install ${REQUIRED_NODE_MAJOR}\`.`,
+  );
+  process.exit(1);
+}
+
 /**
  * Build a redacted "command" tag from process.argv. Strips the value that
  * follows any --token / --key / --secret / --password / --api-key flag so
@@ -819,10 +834,32 @@ Bugs:      ${BUGS_URL}`);
 
   default:
     if (command && !command.startsWith("-")) {
-      import("./code.js")
-        .then((m) => m.runCode([command, ...args]))
-        .catch(handleScaffoldImportError);
-      break;
+      // A bare, single command-like token with no further args is almost
+      // always a mistyped subcommand (e.g. `agent-native destory`). Silently
+      // forwarding it to the coding agent would run an LLM with file-write
+      // powers on a typo — a real footgun on a code-modifying tool. Refuse it
+      // and point at the explicit forms. Intentional natural-language tasks
+      // are still dispatched: a quoted phrase (`agent-native "fix tests"`,
+      // which arrives as one argv token containing a space) or multi-word
+      // input (`agent-native fix the tests`, which has trailing args).
+      const looksLikeMistypedSubcommand =
+        args.length === 0 && /^[a-z][a-z0-9-]*$/i.test(command);
+      if (!looksLikeMistypedSubcommand) {
+        import("./code.js")
+          .then((m) => m.runCode([command, ...args]))
+          .catch(handleScaffoldImportError);
+        break;
+      }
+      console.error(`Unknown command: ${command}`);
+      console.error(
+        `If you meant to start a coding session with this as the task, run:\n` +
+          `  agent-native code ${JSON.stringify(command)}\n` +
+          `or quote a natural-language task:\n` +
+          `  agent-native "fix the failing tests"`,
+      );
+      console.error('Run "agent-native --help" for usage.');
+      console.error(`Bugs: ${BUGS_URL}`);
+      process.exit(1);
     }
     console.error(`Unknown command: ${command}`);
     console.error('Run "agent-native --help" for usage.');
