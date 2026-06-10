@@ -222,7 +222,7 @@ export default defineAction({
       { mode: "threads", threadCandidateLimit: 500 },
     );
     if (errors.length > 0 && messages.length === 0) {
-      return `Error: ${errors.map((e) => `${e.email}: ${e.error}`).join("; ")}`;
+      throw new Error(errors.map((e) => `${e.email}: ${e.error}`).join("; "));
     }
 
     let emails = messages

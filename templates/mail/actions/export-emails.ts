@@ -45,7 +45,9 @@ export default defineAction({
       case "all":
         break;
       default:
-        return `Error: Unknown view "${view}". Valid: inbox, starred, sent, drafts, archive, trash, all`;
+        throw new Error(
+          `Unknown view "${view}". Valid: inbox, starred, sent, drafts, archive, trash, all`,
+        );
     }
 
     return JSON.stringify(filtered, null, 2);

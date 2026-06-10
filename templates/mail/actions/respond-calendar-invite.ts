@@ -34,7 +34,7 @@ export default defineAction({
     const ownerEmail = getRequestUserEmail();
     if (!ownerEmail) throw new Error("no authenticated user");
     if (!(await isConnected(ownerEmail))) {
-      return "Error: No Google account connected.";
+      throw new Error("No Google account connected.");
     }
 
     const accounts = await getAccessTokens();
@@ -45,9 +45,11 @@ export default defineAction({
         )
       : accounts;
     if (targetAccounts.length === 0) {
-      return accountEmail
-        ? `Error: Google account ${accountEmail} is not connected.`
-        : "Error: No Google account connected.";
+      throw new Error(
+        accountEmail
+          ? `Google account ${accountEmail} is not connected.`
+          : "No Google account connected.",
+      );
     }
 
     const settings = (await getUserSetting(ownerEmail, "mail-settings")) as
@@ -117,6 +119,6 @@ export default defineAction({
       }
     }
 
-    return `Error: Could not update calendar invite. ${errors.join("; ")}`;
+    throw new Error(`Could not update calendar invite. ${errors.join("; ")}`);
   },
 });

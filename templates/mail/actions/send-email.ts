@@ -138,7 +138,9 @@ export default defineAction({
           ownerEmail,
         );
       } catch {
-        return "Error: One or more attachments could not be read. Make sure each file was uploaded via the media-upload endpoint before sending.";
+        throw new Error(
+          "One or more attachments could not be read. Make sure each file was uploaded via the media-upload endpoint before sending.",
+        );
       }
     }
 
@@ -218,7 +220,7 @@ export default defineAction({
 
     if (args.account) {
       const match = accounts.find((a) => a.email === args.account);
-      if (!match) return `Error: Account ${args.account} not connected`;
+      if (!match) throw new Error(`Account ${args.account} not connected`);
       selectedToken = match.accessToken;
       selectedEmail = match.email;
     }
@@ -310,7 +312,7 @@ export default defineAction({
 
       return `Email sent successfully (id: ${sent.id})`;
     } catch (err: any) {
-      return `Error sending email: ${err?.message}`;
+      throw new Error(`sending email: ${err?.message}`);
     }
   },
 });
