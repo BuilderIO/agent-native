@@ -13,6 +13,13 @@
  *  - The bridge binds to 127.0.0.1 only; no external exposure.
  *  - The allowlist of callable bridge tools is enforced server-side.
  *  - Secret values are NEVER included in the env passed to the child.
+ *  - When the Node permission model is available (`--permission`, or
+ *    `--experimental-permission` on Node 20), the child is denied filesystem
+ *    access outside its own temp dir, child processes, workers, and native
+ *    addons. Outbound network from the child is NOT blocked by the permission
+ *    model; the env scrub means such requests carry no credentials, and all
+ *    authenticated calls must go through the bridge (which applies the
+ *    registered tools' host allowlists and SSRF guards).
  */
 
 import crypto from "node:crypto";
@@ -20,7 +27,7 @@ import fs from "node:fs";
 import http from "node:http";
 import os from "node:os";
 import path from "node:path";
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 
 import type { ActionEntry } from "../agent/production-agent.js";
 import type { ActionRunContext } from "../action.js";
@@ -29,6 +36,33 @@ const DEFAULT_TIMEOUT_MS = 120_000;
 const MAX_TIMEOUT_MS = 600_000;
 const DEFAULT_MAX_OUTPUT_CHARS = 50_000;
 const MAX_OUTPUT_CHARS = 200_000;
+
+/**
+ * Resolve the Node permission-model flag supported by the current runtime,
+ * probing once and caching. Returns null when the permission model is
+ * unavailable (the sandbox then falls back to env-scrub isolation only).
+ */
+let cachedPermissionFlag: string | null | undefined;
+function resolvePermissionFlag(): string | null {
+  if (cachedPermissionFlag !== undefined) return cachedPermissionFlag;
+  for (const flag of ["--permission", "--experimental-permission"]) {
+    try {
+      const probe = spawnSync(
+        process.execPath,
+        [flag, "-e", "process.exit(0)"],
+        { timeout: 10_000, stdio: "ignore" },
+      );
+      if (probe.status === 0) {
+        cachedPermissionFlag = flag;
+        return flag;
+      }
+    } catch {
+      // Probe failure means the flag is unsupported; try the next one.
+    }
+  }
+  cachedPermissionFlag = null;
+  return null;
+}
 
 /** Tools callable via the sandbox bridge by default. */
 const DEFAULT_BRIDGE_TOOLS = new Set([
@@ -70,7 +104,7 @@ export function createRunCodeEntry(
       description: [
         "Execute JavaScript (Node.js, ESM, top-level await supported) in an isolated sandbox.",
         "Use this to fetch, join, aggregate, and reduce large datasets, returning only printed output to the conversation.",
-        "The sandbox has NO access to app source files, environment secrets, or the database.",
+        "The sandbox runs with a scrubbed environment (no secrets) and, where the Node permission model is available, no filesystem access outside its own temp dir, no child processes, and no workers. Authenticated calls must go through the provided globals; direct network requests carry no credentials.",
         "Available globals:",
         "  - `providerFetch(provider, path, init?)` — authenticated call to a registered provider via the provider-api-request action.",
         "    Returns the parsed JSON result (or throws on error).",
@@ -162,10 +196,26 @@ export function createRunCodeEntry(
         ]) {
           if (process.env[key]) safeEnv[key] = process.env[key]!;
         }
-        // Provide TMPDIR if not already set so Node has a writable temp.
-        if (!safeEnv.TMPDIR) safeEnv.TMPDIR = os.tmpdir();
+        // Point TMPDIR inside the sandbox dir so in-sandbox temp writes stay
+        // within the permission-model allow list.
+        safeEnv.TMPDIR = tmpDir;
+        safeEnv.TEMP = tmpDir;
+        safeEnv.TMP = tmpDir;
 
-        const child = spawn(process.execPath, [tmpFile], {
+        // Lock the child down with the Node permission model when available:
+        // filesystem restricted to the sandbox temp dir, and child processes,
+        // workers, and native addons denied entirely.
+        const permissionFlag = resolvePermissionFlag();
+        const nodeArgs = permissionFlag
+          ? [
+              permissionFlag,
+              `--allow-fs-read=${tmpDir}`,
+              `--allow-fs-write=${tmpDir}`,
+              tmpFile,
+            ]
+          : [tmpFile];
+
+        const child = spawn(process.execPath, nodeArgs, {
           cwd: tmpDir,
           env: safeEnv,
           stdio: ["ignore", "pipe", "pipe"],

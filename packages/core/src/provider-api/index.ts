@@ -1278,6 +1278,64 @@ async function executeCustomProviderApiRequest(
     ? SAVE_TO_FILE_MAX_BYTES
     : clampMaxBytes(args.maxBytes);
 
+  // --- fetchAllPages mode (same cursor pagination as built-in providers) ---
+  if (args.fetchAllPages) {
+    const pageCfg = args.fetchAllPages;
+    const { items, pageCount, lastStatus, lastContentType } =
+      await fetchAllPages(pageCfg, async (extraQuery) => {
+        const queryWithCursor = extraQuery
+          ? mergeQueryObjects(args.query, extraQuery)
+          : args.query;
+        const pageUrl = buildProviderUrl({
+          config: syntheticConfig,
+          baseUrl,
+          rawPath: args.path,
+          query: queryWithCursor,
+        });
+        const pageBody = prepareBody(args.body, { ...headers });
+        const resp = await fetchWithTimeout(pageUrl.href, {
+          method,
+          headers,
+          body: pageBody,
+          maxBytes: effectiveMaxBytes,
+          timeoutMs: clampTimeout(args.timeoutMs),
+          secretValues: auth.secretValues,
+        });
+        return {
+          text:
+            resp.text ??
+            (resp.json !== undefined ? JSON.stringify(resp.json) : ""),
+          contentType: resp.contentType,
+          status: resp.status,
+          ok: resp.ok,
+        };
+      });
+
+    const allItemsJson = JSON.stringify(items, null, 2);
+    const metadata = {
+      provider: {
+        id: customConfig.id,
+        label: customConfig.label,
+        custom: true,
+      },
+      pagesRead: pageCount,
+      totalItems: Array.isArray(items) ? items.length : 0,
+      lastStatus,
+    };
+
+    if (args.saveToFile) {
+      const saved = (await handleSaveToFile(
+        args.saveToFile,
+        allItemsJson,
+        lastContentType ?? "application/json",
+        lastStatus,
+      )) as Record<string, unknown>;
+      return { ...metadata, ...saved };
+    }
+
+    return { ...metadata, items };
+  }
+
   const response = await fetchWithTimeout(url.href, {
     method,
     headers,

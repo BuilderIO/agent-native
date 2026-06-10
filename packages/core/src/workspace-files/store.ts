@@ -279,19 +279,22 @@ export async function listWorkspaceFiles(
   const db = getDbExec();
 
   if (prefix) {
-    const pathErr = validatePath(
-      prefix.endsWith("/") ? prefix.slice(0, -1) : prefix,
-    );
-    if (pathErr && prefix !== "") {
-      // Allow trailing slash as list prefix.
+    // Allow a trailing slash on list prefixes, but reject traversal and
+    // other invalid path shapes before they reach the LIKE pattern.
+    const normalizedPrefix = prefix.endsWith("/")
+      ? prefix.slice(0, -1)
+      : prefix;
+    const pathErr = validatePath(normalizedPrefix);
+    if (pathErr) {
+      throw new Error(pathErr);
     }
     const result = await db.execute({
-      sql: `SELECT id, path, content_type, size_bytes, created_at, updated_at FROM workspace_files WHERE scope = ? AND scope_id = ? AND (path = ? OR path LIKE ?) ORDER BY path ASC`,
+      sql: `SELECT id, path, content_type, size_bytes, created_at, updated_at FROM workspace_files WHERE scope = ? AND scope_id = ? AND (path = ? OR path LIKE ? ESCAPE '\\') ORDER BY path ASC`,
       args: [
         scope.scope,
         scope.scopeId,
-        prefix,
-        `${prefix.replace(/%/g, "\\%").replace(/_/g, "\\_")}/%`,
+        normalizedPrefix,
+        `${normalizedPrefix.replace(/\\/g, "\\\\").replace(/%/g, "\\%").replace(/_/g, "\\_")}/%`,
       ],
     });
     return result.rows.map(rowToMeta);

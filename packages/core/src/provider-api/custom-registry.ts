@@ -162,6 +162,84 @@ function validateAuth(auth: CustomProviderAuthKind): void {
   }
 }
 
+/**
+ * Public suffixes that must never be used as an allowed host suffix — a
+ * suffix like "com" would attach the provider's credentials to requests for
+ * any host under that TLD, creating a credential-exfiltration vector. Not an
+ * exhaustive public-suffix list; combined with the structural checks below.
+ */
+const FORBIDDEN_HOST_SUFFIXES = new Set([
+  "com",
+  "net",
+  "org",
+  "io",
+  "co",
+  "dev",
+  "app",
+  "ai",
+  "cloud",
+  "info",
+  "biz",
+  "xyz",
+  "me",
+  "us",
+  "uk",
+  "eu",
+  "co.uk",
+  "org.uk",
+  "ac.uk",
+  "gov.uk",
+  "com.au",
+  "net.au",
+  "org.au",
+  "co.nz",
+  "co.jp",
+  "com.br",
+  "com.cn",
+  "co.in",
+  "com.mx",
+  "co.za",
+  "github.io",
+  "herokuapp.com",
+  "vercel.app",
+  "netlify.app",
+  "pages.dev",
+  "workers.dev",
+  "azurewebsites.net",
+  "cloudfront.net",
+  "amazonaws.com",
+  "ngrok.io",
+  "ngrok.app",
+]);
+
+const HOST_SUFFIX_RE =
+  /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/;
+
+/**
+ * Validate user-supplied allowed host suffixes. Each suffix must look like a
+ * real registrable domain (at least two labels) and must not be a bare TLD or
+ * shared-hosting public suffix where unrelated parties control subdomains.
+ */
+export function validateAllowedHostSuffixes(suffixes: string[]): string[] {
+  const normalized: string[] = [];
+  for (const raw of suffixes) {
+    const suffix = String(raw).trim().toLowerCase().replace(/^\.+/, "");
+    if (!suffix) continue;
+    if (!HOST_SUFFIX_RE.test(suffix)) {
+      throw new Error(
+        `Invalid allowed host suffix "${raw}": must be a domain like "api.example.com" with at least two labels.`,
+      );
+    }
+    if (FORBIDDEN_HOST_SUFFIXES.has(suffix)) {
+      throw new Error(
+        `Allowed host suffix "${raw}" is too broad: it would attach this provider's credentials to any host under a public suffix. Use the provider's own registrable domain (e.g. "example.com").`,
+      );
+    }
+    normalized.push(suffix);
+  }
+  return normalized;
+}
+
 // ---------------------------------------------------------------------------
 // CRUD
 // ---------------------------------------------------------------------------
@@ -178,6 +256,9 @@ export async function upsertCustomProvider(
   validateAuth(args.auth);
   const url = await validateCustomBaseUrl(args.baseUrl);
   const baseUrl = url.href.replace(/\/+$/, "");
+  const allowedHostSuffixes = validateAllowedHostSuffixes(
+    args.allowedHostSuffixes ?? [],
+  );
 
   const now = Date.now();
   const client = getDbExec();
@@ -195,7 +276,7 @@ export async function upsertCustomProvider(
         baseUrl,
         JSON.stringify(args.auth),
         JSON.stringify(args.docsUrls ?? []),
-        JSON.stringify(args.allowedHostSuffixes ?? []),
+        JSON.stringify(allowedHostSuffixes),
         JSON.stringify(args.defaultHeaders ?? {}),
         args.notes ?? "",
         now,
@@ -215,7 +296,7 @@ export async function upsertCustomProvider(
         baseUrl,
         JSON.stringify(args.auth),
         JSON.stringify(args.docsUrls ?? []),
-        JSON.stringify(args.allowedHostSuffixes ?? []),
+        JSON.stringify(allowedHostSuffixes),
         JSON.stringify(args.defaultHeaders ?? {}),
         args.notes ?? "",
         now,
