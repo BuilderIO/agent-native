@@ -250,6 +250,13 @@ interface SlideEditorProps {
    *  `_await-fit-check` can build correct `update-slide --deckId=<id>`
    *  agent retry commands. */
   deckId?: string;
+  /**
+   * Called the moment the user enters contentEditable inline edit mode.
+   * The parent should call `markDeckDirty(deckId)` here so the SSE/poll
+   * reconcile path knows not to replace the deck under an active in-progress
+   * edit, even before a `content` update has been flushed.
+   */
+  onInlineEditStart?: () => void;
   /** Other users (besides the current user) currently viewing/editing THIS
    *  slide. Drives the soft same-slide-edit indicator on the canvas so a user
    *  knows before they clobber someone else's last-writer-wins text edit. */
@@ -504,6 +511,7 @@ export default function SlideEditor({
   slideId,
   slideTitle,
   deckId,
+  onInlineEditStart,
   presentUsers = [],
 }: SlideEditorProps) {
   const content = typeof slide.content === "string" ? slide.content : "";
@@ -766,6 +774,10 @@ export default function SlideEditor({
       el.contentEditable = "true";
       el.setAttribute("data-editing-block", "true");
       captureInlineEditDraft(slide.id);
+      // Mark the deck dirty immediately so SSE/poll refreshes do not replace
+      // the deck under an active contentEditable edit, even before the user
+      // types and triggers an onUpdateSlide flush.
+      onInlineEditStart?.();
       // Don't override the selection. The browser's native double-click
       // word-select (or single-click caret) is already on the element from the
       // user's gesture; re-selecting from JS clobbers it. focus() on an
@@ -774,7 +786,7 @@ export default function SlideEditor({
       el.focus({ preventScroll: true });
       setEditingEl(el);
     },
-    [captureInlineEditDraft, slide.id],
+    [captureInlineEditDraft, onInlineEditStart, slide.id],
   );
 
   // Exit edit mode when switching slides — save pending content first so
