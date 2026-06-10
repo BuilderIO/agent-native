@@ -96,6 +96,7 @@ conversation can do, including reading large unstructured text and producing
 long-form memo-style output.
 
 **NEVER suggest the user move to a separate AI tool, project, or external service for:**
+
 - Reasoning or synthesis over data fetched in this session
 - Deep analysis across multiple accounts, calls, or data points
 - Holding context and judgment across a complex multi-step investigation
@@ -110,16 +111,18 @@ to "check the dashboard" — actually run the query, get the data, and present i
 ### Incident / Metric Investigations
 
 When investigating a production incident, metric anomaly, or performance issue:
+
 1. **Query real metrics FIRST** — Prometheus/Grafana for service metrics, Sentry
    for errors, BigQuery for event trends. Real data tells you what happened.
 2. **Check upstream dependencies** — many incidents are caused by provider-side
    degradation (LLM APIs, external services), not local code.
-3. **Only analyze code/config after you have data** — code tells you what *could*
-   happen; metrics tell you what *did* happen.
+3. **Only analyze code/config after you have data** — code tells you what _could_
+   happen; metrics tell you what _did_ happen.
 
 ### Batch / Large Fan-Out Analyses
 
 For analyses spanning 30+ accounts, deals, or calls:
+
 1. Define the cohort and chunk into groups of 5-10 items.
 2. Process each chunk, writing per-item findings as intermediate notes.
 3. Synthesize across all chunks in a final pass.
@@ -130,6 +133,7 @@ Do not try to hold 30+ full records in one context pass.
 
 After completing any significant analysis, record discoveries to `LEARNINGS.md`
 via the `resources` tool (`action: "read"` then `action: "write"`). Capture:
+
 - Confirmed metric definitions
 - Provider gotchas discovered
 - Schema discoveries (table/column names, join patterns that worked)

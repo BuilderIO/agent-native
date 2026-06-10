@@ -4,15 +4,15 @@ import {
   deleteWorkspaceFile,
   type WorkspaceFilesScope,
 } from "@agent-native/core/workspace-files";
-import { resolveSettingsScope } from "../server/lib/scoped-settings";
+import { resolveRequestScope } from "../server/lib/scoped-settings";
 
 export default defineAction({
   description: "Delete a workspace file by path.",
   schema: z.object({
     path: z.string().min(1).describe("File path to delete."),
   }),
-  run: async (args, event) => {
-    const { email, orgId } = await resolveSettingsScope(event);
+  run: async (args) => {
+    const { email, orgId } = resolveRequestScope();
     const scope: WorkspaceFilesScope = orgId
       ? { scope: "org", scopeId: orgId }
       : { scope: "user", scopeId: email };

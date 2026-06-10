@@ -4,7 +4,7 @@ import {
   listWorkspaceFiles,
   type WorkspaceFilesScope,
 } from "@agent-native/core/workspace-files";
-import { resolveSettingsScope } from "../server/lib/scoped-settings";
+import { resolveRequestScope } from "../server/lib/scoped-settings";
 
 export default defineAction({
   description: "List workspace files in the analysis workspace.",
@@ -16,8 +16,8 @@ export default defineAction({
         "Optional path prefix to filter files, e.g. 'analysis/' to list only files under that directory.",
       ),
   }),
-  run: async (args, event) => {
-    const { email, orgId } = await resolveSettingsScope(event);
+  run: async (args) => {
+    const { email, orgId } = resolveRequestScope();
     const scope: WorkspaceFilesScope = orgId
       ? { scope: "org", scopeId: orgId }
       : { scope: "user", scopeId: email };

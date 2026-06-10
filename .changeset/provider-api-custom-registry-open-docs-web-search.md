@@ -26,6 +26,7 @@ in the 24 built-in PROVIDER_CONFIGS:
 **New Dispatch action: `provider-api-register`**
 
 Register, update, delete, or list custom providers:
+
 ```
 { operation: "upsert"|"delete"|"list"|"get",
   id, label, baseUrl, auth, docsUrls?,
@@ -54,12 +55,13 @@ description is updated to reflect this.
 **New `web-search` agent tool** (`packages/core/src/extensions/web-search-tool.ts`)
 
 Registers a `web-search` tool in dev and prod agent tool registries:
+
 - Input: `{ query: string, count?: number (default 5, max 10) }`.
 - **Pluggable backends** — at call time the first configured key wins:
   1. `BRAVE_SEARCH_API_KEY` → Brave Search API
   2. `TAVILY_API_KEY` → Tavily
   3. `EXA_API_KEY` → Exa
-  Keys are resolved from the per-user/org credentials store first, then env vars.
+     Keys are resolved from the per-user/org credentials store first, then env vars.
 - Returns a title / URL / snippet list with guidance to follow up via
   `web-request` or `provider-api-docs`.
 - If no backend is configured, returns a helpful message listing the three keys.
