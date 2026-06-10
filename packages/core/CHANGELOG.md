@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.48.1
+
+### Patch Changes
+
+- 60355cc: Fix recharts/es-toolkit default export error in dev
+
 ## 0.48.0
 
 ### Minor Changes
