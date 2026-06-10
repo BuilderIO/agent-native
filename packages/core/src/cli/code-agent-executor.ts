@@ -81,6 +81,20 @@ const DEFAULT_COMMAND_TIMEOUT_MS = 120_000;
 const MAX_TOOL_OUTPUT_CHARS = 50_000;
 const MAX_FILE_READ_CHARS = 120_000;
 
+/**
+ * Number of most-recent transcript events reconstructed as native
+ * EngineMessage objects (with proper tool-call / tool-result pairing).
+ * Events older than this cap are summarised into a single compact text
+ * preamble so the model retains broad context without token waste.
+ */
+const STRUCTURED_HISTORY_RECENT_EVENTS = 40;
+
+/**
+ * Per-tool-result text cap when reconstructing history.  Matches the overall
+ * tool-output cap so old results don't balloon the context.
+ */
+const STRUCTURED_HISTORY_RESULT_CAP = MAX_TOOL_OUTPUT_CHARS;
+
 export async function executeCodeAgentRun(
   options: ExecuteCodeAgentRunOptions,
 ): Promise<CodeAgentRunRecord | null> {
@@ -854,21 +868,59 @@ function buildCodeAgentMessages(
   prompt: string,
   attachments?: AgentPromptAttachment[],
 ): EngineMessage[] {
-  const transcript = listCodeAgentTranscriptEvents(run.id)
-    .slice(-40)
-    .map((event) => {
-      const label =
-        event.kind === "user"
-          ? "User"
-          : event.metadata?.role === "assistant"
-            ? "Assistant"
-            : event.kind;
-      return `${label}: ${event.message}`;
-    })
-    .join("\n");
-  const context = transcript
-    ? `\n\nPrevious session transcript:\n${transcript}`
-    : "";
+  const allEvents = listCodeAgentTranscriptEvents(run.id);
+
+  // Split events into an "older" prefix (summarised) and a "recent" tail
+  // (reconstructed as native structured messages).
+  const splitAt = Math.max(
+    0,
+    allEvents.length - STRUCTURED_HISTORY_RECENT_EVENTS,
+  );
+  const olderEvents = allEvents.slice(0, splitAt);
+  const recentEvents = allEvents.slice(splitAt);
+
+  // Build a compact text preamble from any events that pre-date the recent
+  // window.  Reuses the old flat-text approach so the model still has broad
+  // context without paying for full token cost on every old tool result.
+  let preamble = "";
+  if (olderEvents.length > 0) {
+    const summaryLines = olderEvents
+      .filter(
+        (e) =>
+          e.kind === "user" ||
+          (e.kind === "system" && e.metadata?.role === "assistant") ||
+          (e.kind === "status" &&
+            (e.metadata?.type === "tool_done" ||
+              e.metadata?.role === "assistant")),
+      )
+      .map((e) => {
+        if (e.kind === "user") return `User: ${e.message}`;
+        if (e.metadata?.role === "assistant") return `Assistant: ${e.message}`;
+        if (e.metadata?.type === "tool_done") {
+          const tool = e.metadata?.tool;
+          const result = e.metadata?.result;
+          const resultText =
+            typeof result === "string"
+              ? truncateCodingOutput(result, 500)
+              : result != null
+                ? truncateCodingOutput(String(result), 500)
+                : "";
+          return tool ? `Tool[${tool}]: ${resultText}` : `Tool: ${resultText}`;
+        }
+        return null;
+      })
+      .filter((line): line is string => line !== null);
+    if (summaryLines.length > 0) {
+      preamble = `Earlier conversation summary:\n${summaryLines.join("\n")}`;
+    }
+  }
+
+  // Reconstruct the recent events as native EngineMessage objects.
+  // We build up a sequence of user/assistant messages, pairing tool-call
+  // events (from tool_start metadata) with their matching tool-result events
+  // (from tool_done metadata), and accumulating assistant text from system
+  // events with role=assistant.
+  const structuredMessages = buildStructuredMessagesFromEvents(recentEvents);
 
   // Separate image attachments from text attachments. Images are passed as
   // proper EngineImagePart entries rather than inlined base64 text (which
@@ -903,17 +955,230 @@ function buildCodeAgentMessages(
       ? `\n\n${unsupportedImageNotes.join("\n")}`
       : "";
 
-  const textContent: import("../agent/engine/types.js").EngineContentPart = {
-    type: "text",
-    text: `${prompt}${context}${notesBlock}`,
-  };
+  // The current prompt (plus optional preamble) becomes the final user message.
+  const promptText = [preamble, prompt, notesBlock]
+    .filter(Boolean)
+    .join("\n\n");
 
-  return [
-    {
-      role: "user",
-      content: [...imageParts, textContent],
-    },
-  ];
+  const promptContent: import("../agent/engine/types.js").EngineContentPart[] =
+    [...imageParts, { type: "text", text: promptText }];
+
+  // If there are structured messages from the recent window and the last one
+  // is a user message that already contains the current prompt (happens when
+  // appendUserEvent added a "user" event that got included), de-duplicate by
+  // using the structured messages as-is but replacing the last user message's
+  // content with the enriched content (images + prompt).
+  if (structuredMessages.length > 0) {
+    const lastMsg = structuredMessages[structuredMessages.length - 1];
+    if (lastMsg.role === "user") {
+      // Replace last user message content with the enriched prompt content.
+      structuredMessages[structuredMessages.length - 1] = {
+        role: "user",
+        content: promptContent,
+      };
+      return structuredMessages;
+    }
+    // Last message is assistant — append a new user message.
+    return [...structuredMessages, { role: "user", content: promptContent }];
+  }
+
+  return [{ role: "user", content: promptContent }];
+}
+
+/**
+ * Reconstruct a sequence of EngineMessage objects from transcript events,
+ * preserving the native tool-call / tool-result pair structure that models
+ * expect when replaying multi-turn conversations.
+ *
+ * Event mapping:
+ *   kind=user                          → user message with text content
+ *   kind=system, role=assistant        → assistant message with text content
+ *   kind=status, type=tool_start       → assistant message with a tool-call part
+ *                                        (grouped with any preceding assistant text)
+ *   kind=status, type=tool_done        → user message with a tool-result part
+ *   kind=status, type=thinking         → excluded (ephemeral reasoning)
+ *   everything else                    → excluded from model history
+ *
+ * Each tool_start generates a synthetic toolCallId derived from the event id so
+ * that the matching tool_done can reference it.  Old events that lack tool/input
+ * metadata fall back gracefully to text content.
+ */
+function buildStructuredMessagesFromEvents(
+  events: readonly import("./code-agent-runs.js").CodeAgentTranscriptEvent[],
+): EngineMessage[] {
+  // We accumulate into a flat list and then merge adjacent same-role messages.
+  type PendingMessage =
+    | {
+        role: "user";
+        content: import("../agent/engine/types.js").EngineContentPart[];
+      }
+    | {
+        role: "assistant";
+        content: import("../agent/engine/types.js").EngineContentPart[];
+      };
+
+  const pending: PendingMessage[] = [];
+
+  // Track in-flight tool-call IDs keyed by event id so tool_done can
+  // reference the corresponding call.
+  const toolCallIdByEventOrder = new Map<string, string>();
+
+  for (const event of events) {
+    // Exclude thinking — ephemeral reasoning, never replayed to model.
+    if (event.kind === "status" && event.metadata?.type === "thinking") {
+      continue;
+    }
+
+    if (event.kind === "user") {
+      const text = event.message.trim();
+      if (!text) continue;
+      appendOrMerge(pending, "user", { type: "text", text });
+      continue;
+    }
+
+    // Assistant text (persisted after a turn completes).
+    if (event.kind === "system" && event.metadata?.role === "assistant") {
+      const text = event.message.trim();
+      if (!text) continue;
+      appendOrMerge(pending, "assistant", { type: "text", text });
+      continue;
+    }
+
+    // Tool call start — emit an assistant tool-call part.
+    if (event.kind === "status" && event.metadata?.type === "tool_start") {
+      const tool =
+        typeof event.metadata?.tool === "string" && event.metadata.tool
+          ? event.metadata.tool
+          : null;
+      if (!tool) continue;
+
+      // Generate a stable ID from the event id so tool_done can reference it.
+      const toolCallId = `tc-${event.id}`;
+      toolCallIdByEventOrder.set(event.id, toolCallId);
+
+      const input: unknown =
+        event.metadata?.input != null ? event.metadata.input : {};
+
+      appendOrMerge(pending, "assistant", {
+        type: "tool-call",
+        id: toolCallId,
+        name: tool,
+        input,
+      });
+      continue;
+    }
+
+    // Tool result — emit a user tool-result part paired with the last
+    // unmatched tool_start for the same tool name.
+    if (event.kind === "status" && event.metadata?.type === "tool_done") {
+      const tool =
+        typeof event.metadata?.tool === "string" && event.metadata.tool
+          ? event.metadata.tool
+          : null;
+      if (!tool) continue;
+
+      // Find the most recent tool_start event id for this tool.
+      const matchedCallId = findMatchingToolCallId(
+        toolCallIdByEventOrder,
+        events,
+        event,
+        tool,
+      );
+
+      const rawResult = event.metadata?.result;
+      const resultText = truncateCodingOutput(
+        typeof rawResult === "string"
+          ? rawResult
+          : rawResult != null
+            ? String(rawResult)
+            : "(no output)",
+        STRUCTURED_HISTORY_RESULT_CAP,
+      );
+
+      if (matchedCallId) {
+        const toolInput =
+          event.metadata?.input != null
+            ? safeJsonStringify(event.metadata.input)
+            : "{}";
+        appendOrMerge(pending, "user", {
+          type: "tool-result",
+          toolCallId: matchedCallId,
+          toolName: tool,
+          toolInput,
+          content: resultText,
+        });
+      } else {
+        // Orphaned tool result (no matching call in the recent window) — fall
+        // back to plain text so the model still sees the output.
+        appendOrMerge(pending, "user", {
+          type: "text",
+          text: `[Tool result for ${tool}]: ${resultText}`,
+        });
+      }
+      continue;
+    }
+  }
+
+  return pending;
+}
+
+/**
+ * Append a content part to the last message if it has the same role, or
+ * start a new message otherwise.
+ */
+function appendOrMerge(
+  pending: Array<{
+    role: "user" | "assistant";
+    content: import("../agent/engine/types.js").EngineContentPart[];
+  }>,
+  role: "user" | "assistant",
+  part: import("../agent/engine/types.js").EngineContentPart,
+): void {
+  const last = pending[pending.length - 1];
+  if (last && last.role === role) {
+    last.content.push(part);
+  } else {
+    pending.push({ role, content: [part] });
+  }
+}
+
+/**
+ * Find the toolCallId generated for the most recent tool_start event that
+ * matches the given tool name and precedes the current tool_done event.
+ * Returns null if no match exists in the recent window.
+ */
+function findMatchingToolCallId(
+  toolCallIdByEventOrder: Map<string, string>,
+  events: readonly import("./code-agent-runs.js").CodeAgentTranscriptEvent[],
+  doneEvent: import("./code-agent-runs.js").CodeAgentTranscriptEvent,
+  toolName: string,
+): string | null {
+  // Walk backwards from doneEvent's position to find the nearest unmatched start.
+  const doneIndex = events.indexOf(doneEvent);
+  for (let i = doneIndex - 1; i >= 0; i--) {
+    const e = events[i];
+    if (
+      e.kind === "status" &&
+      e.metadata?.type === "tool_start" &&
+      e.metadata?.tool === toolName
+    ) {
+      const id = toolCallIdByEventOrder.get(e.id);
+      if (id) {
+        // Consume it so a second done for the same tool gets the next start.
+        toolCallIdByEventOrder.delete(e.id);
+        return id;
+      }
+    }
+  }
+  return null;
+}
+
+function safeJsonStringify(value: unknown): string {
+  try {
+    return JSON.stringify(value) ?? "{}";
+  } catch {
+    return "{}";
+  }
 }
 
 function codeAgentSystemPrompt(

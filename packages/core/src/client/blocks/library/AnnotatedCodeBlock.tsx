@@ -394,7 +394,7 @@ function AnnotatedCodeRead({
           ctx={ctx}
           onMouseEnter={hover.cancelClose}
           onMouseLeave={hover.scheduleClose}
-          onClose={hover.close}
+          onClose={hover.closeForScroll}
         />
       )}
       {summary && <p className="mt-5 text-plan-muted">{summary}</p>}
