@@ -1643,6 +1643,13 @@ export const BUILT_IN_APP_SKILLS = {
     extraSkills: {
       "visual-recap": VISUAL_RECAP_SKILL_MD,
     },
+    // Sibling reference files materialized alongside each skill's SKILL.md
+    // (progressive disclosure). Keyed by skill name -> relative path -> content.
+    // Both plan skills ship the same canonical wireframe-quality reference.
+    extraFiles: {
+      "visual-plan": { "references/wireframe.md": WIREFRAME_REFERENCE_MD },
+      "visual-recap": { "references/wireframe.md": WIREFRAME_REFERENCE_MD },
+    },
     manifest: normalizeAppSkillManifest({
       schemaVersion: 1,
       id: "visual-plans",
@@ -1738,6 +1745,12 @@ export const BUILT_IN_APP_SKILLS = {
     skillMarkdown: string;
     skillName: string;
     extraSkills?: Record<string, string>;
+    /**
+     * Extra sibling files materialized alongside a skill's SKILL.md, for
+     * progressive disclosure (e.g. `references/wireframe.md`). Keyed by skill
+     * name, then by skill-relative path -> file content.
+     */
+    extraFiles?: Record<string, Record<string, string>>;
     localOnly?: boolean;
   }
 >;
@@ -1947,6 +1960,16 @@ function builtInExtraSkills(
   entry: (typeof BUILT_IN_APP_SKILLS)[BuiltInAppSkillId],
 ): Record<string, string> {
   return "extraSkills" in entry && entry.extraSkills ? entry.extraSkills : {};
+}
+
+/**
+ * Sibling reference files for a skill (skill name -> relative path -> content),
+ * materialized alongside its SKILL.md for progressive disclosure.
+ */
+function builtInExtraFiles(
+  entry: (typeof BUILT_IN_APP_SKILLS)[BuiltInAppSkillId],
+): Record<string, Record<string, string>> {
+  return "extraFiles" in entry && entry.extraFiles ? entry.extraFiles : {};
 }
 
 function builtInSkillNames(
@@ -2165,6 +2188,7 @@ function loadSkillTarget(target: string): SkillInstallTarget {
           [builtIn.skillName]: builtIn.skillMarkdown,
           ...builtInExtraSkills(builtIn),
         };
+        const extraFiles = builtInExtraFiles(builtIn);
         for (const [skillName, skillMarkdown] of Object.entries(skills)) {
           const skillDir = path.join(outDir, "skills", skillName);
           fs.mkdirSync(skillDir, { recursive: true });
@@ -2173,6 +2197,15 @@ function loadSkillTarget(target: string): SkillInstallTarget {
             skillMarkdown,
             "utf-8",
           );
+          // Materialize sibling reference files (e.g. references/wireframe.md)
+          // alongside the SKILL.md, creating any parent dirs they declare.
+          for (const [rel, content] of Object.entries(
+            extraFiles[skillName] ?? {},
+          )) {
+            const target = path.join(skillDir, rel);
+            fs.mkdirSync(path.dirname(target), { recursive: true });
+            fs.writeFileSync(target, content, "utf-8");
+          }
         }
         return outDir;
       },
