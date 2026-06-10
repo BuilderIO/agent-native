@@ -20,10 +20,18 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { captureAnchor, type CommentTextAnchor } from "./comment-anchors";
 
-interface BubbleToolbarProps {
+export type CommentRange = { from: number; to: number };
+
+export interface BubbleToolbarProps {
   editor: Editor;
-  onComment?: (quotedText: string, offsetTop: number) => void;
+  onComment?: (
+    quotedText: string,
+    offsetTop: number,
+    anchor?: CommentTextAnchor,
+    range?: CommentRange,
+  ) => void;
 }
 
 const MEDIA_NODE_TYPES = new Set(["image", "video", "audio"]);
@@ -143,6 +151,9 @@ export function BubbleToolbar({ editor, onComment }: BubbleToolbarProps) {
               const { from, to } = editor.state.selection;
               const text = editor.state.doc.textBetween(from, to, " ");
               if (!text.trim()) return;
+              // Capture a robust anchor (quote + surrounding context + offset)
+              // for the exact selection before we collapse it.
+              const anchor = captureAnchor(editor.state.doc, from, to);
               // Get the Y position of the selection relative to the scroll container
               const coords = editor.view.coordsAtPos(from);
               const scrollContainer = editor.view.dom.closest(
@@ -153,9 +164,11 @@ export function BubbleToolbar({ editor, onComment }: BubbleToolbarProps) {
                 : 0;
               const scrollTop = scrollContainer ? scrollContainer.scrollTop : 0;
               const offsetTop = coords.top - containerTop + scrollTop;
-              // Clear selection so bubble toolbar hides
+              // Collapse the selection so the bubble toolbar hides — the pending
+              // highlight (rendered by the CommentHighlight plugin) keeps the
+              // range visible while the comment is composed.
               editor.commands.setTextSelection(from);
-              onComment(text.trim(), offsetTop);
+              onComment(text.trim(), offsetTop, anchor, { from, to });
             },
             isActive: () => false,
           },

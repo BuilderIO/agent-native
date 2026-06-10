@@ -2180,6 +2180,37 @@ audio.media-block__content {
     0 0 0 1px rgb(255 255 255 / 0.06);
 }
 
+/* ===== Inline comment highlights ===== */
+.notion-editor .comment-highlight {
+  background-color: hsl(45 93% 47% / 0.2);
+  border-bottom: 2px solid hsl(45 93% 47% / 0.55);
+  border-radius: 2px;
+  cursor: pointer;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+  transition: background-color 0.12s ease;
+}
+.notion-editor .comment-highlight:hover {
+  background-color: hsl(45 93% 47% / 0.32);
+}
+.notion-editor .comment-highlight--active {
+  background-color: hsl(45 93% 47% / 0.42);
+}
+.notion-editor .comment-highlight--pending {
+  background-color: hsl(210 100% 52% / 0.2);
+  border-bottom-color: hsl(210 100% 52% / 0.55);
+  cursor: default;
+}
+
+/* @mention tokens inside comment bodies */
+.comment-mention {
+  border-radius: 3px;
+  padding: 0 2px;
+  font-weight: 500;
+  color: hsl(var(--primary));
+  background-color: hsl(var(--primary) / 0.1);
+}
+
 /* ===== Slash Command Menu ===== */
 .slash-command-menu {
   background: hsl(var(--popover));

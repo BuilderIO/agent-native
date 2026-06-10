@@ -54,6 +54,13 @@ import {
   type UseCollabReconcileResult,
 } from "@agent-native/core/client";
 import { RegistryBlockNode } from "./extensions/registryBlocks";
+import {
+  CommentHighlight,
+  setCommentHighlights,
+  type CommentHighlightSpec,
+} from "./extensions/CommentHighlight";
+import { resolveAnchor, type CommentTextAnchor } from "./comment-anchors";
+import type { CommentThread } from "@/hooks/use-comments";
 import { contentBlockRegistry } from "@/blocks/contentBlockRegistry";
 import {
   getImageFiles,
@@ -728,7 +735,20 @@ interface VisualEditorProps {
   user?: { name: string; color: string; email?: string };
   editable?: boolean;
   /** Called when user selects text and clicks "Comment" in bubble toolbar. */
-  onComment?: (quotedText: string, offsetTop: number) => void;
+  onComment?: (
+    quotedText: string,
+    offsetTop: number,
+    anchor?: CommentTextAnchor,
+    range?: { from: number; to: number },
+  ) => void;
+  /** Open comment threads, used to render inline highlights. */
+  commentThreads?: CommentThread[];
+  /** Currently focused thread — its highlight is emphasized. */
+  activeThreadId?: string | null;
+  /** Selection range of the in-progress (not yet saved) comment, if any. */
+  pendingHighlight?: { from: number; to: number } | null;
+  /** Called when the user clicks an inline highlight in the document. */
+  onActivateThread?: (threadId: string) => void;
   onJoinTitle?: (text: string) => void;
   notionPageLinks?: NotionPageLink[];
   onOpenNotionPageLink?: (documentId: string) => void;
@@ -1236,6 +1256,7 @@ export function createVisualEditorExtensions({
       // `VisualEditor` below. Mounted after the Notion nodes and before the
       // Markdown extension so the NFM <-> doc round-trip recognizes the node.
       RegistryBlockNode,
+      CommentHighlight,
       DragHandle,
       TypographyReplacements,
       NotionMarkdownShortcuts,
@@ -1502,6 +1523,10 @@ export function VisualEditor({
   user,
   editable = true,
   onComment,
+  commentThreads,
+  activeThreadId,
+  pendingHighlight,
+  onActivateThread,
   onJoinTitle,
   notionPageLinks = [],
   onOpenNotionPageLink,
@@ -1778,6 +1803,82 @@ export function VisualEditor({
     if (!editor || editor.isDestroyed) return;
     editor.setEditable(editable);
   }, [editor, editable]);
+
+  // Resolve each open thread's stored anchor to a live range and push the
+  // highlight specs into the CommentHighlight plugin. Reads threads through a
+  // ref (the query returns a new array each poll) and re-runs on a cheap
+  // signature so we don't thrash, while the plugin maps ranges through edits in
+  // between so highlights track the text live.
+  const threadsRef = useRef(commentThreads);
+  threadsRef.current = commentThreads;
+  const threadsSignature = useMemo(
+    () =>
+      (commentThreads ?? [])
+        .map((t) => `${t.threadId}:${t.resolved ? 1 : 0}:${t.quotedText ?? ""}`)
+        .join("|"),
+    [commentThreads],
+  );
+  const pendingKey = pendingHighlight
+    ? `${pendingHighlight.from}-${pendingHighlight.to}`
+    : "";
+
+  useEffect(() => {
+    if (!editor || editor.isDestroyed) return;
+    const view = editor.view;
+    const apply = () => {
+      if (editor.isDestroyed) return;
+      const specs: CommentHighlightSpec[] = [];
+      for (const thread of threadsRef.current ?? []) {
+        if (thread.resolved) continue;
+        const range = resolveAnchor(view.state.doc, {
+          quotedText: thread.quotedText,
+          prefix: thread.prefix ?? undefined,
+          suffix: thread.suffix ?? undefined,
+          startOffset: thread.startOffset ?? undefined,
+        });
+        if (range) {
+          specs.push({
+            threadId: thread.threadId,
+            from: range.from,
+            to: range.to,
+          });
+        }
+      }
+      setCommentHighlights(view, {
+        specs,
+        pending: pendingHighlight ?? null,
+        activeId: activeThreadId ?? null,
+      });
+    };
+    // Defer a frame so a fresh setContent / collab seed has settled first.
+    const raf = requestAnimationFrame(apply);
+    return () => cancelAnimationFrame(raf);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    editor,
+    threadsSignature,
+    activeThreadId,
+    pendingKey,
+    content,
+    contentUpdatedAt,
+  ]);
+
+  // Clicking an inline highlight focuses its thread in the sidebar.
+  useEffect(() => {
+    if (!editor || editor.isDestroyed || !onActivateThread) return;
+    const dom = editor.view.dom;
+    const handleClick = (event: Event) => {
+      const target = event.target as HTMLElement | null;
+      const el = target?.closest?.(
+        "[data-comment-thread]",
+      ) as HTMLElement | null;
+      if (!el) return;
+      const id = el.getAttribute("data-comment-thread");
+      if (id) onActivateThread(id);
+    };
+    dom.addEventListener("click", handleClick);
+    return () => dom.removeEventListener("click", handleClick);
+  }, [editor, onActivateThread]);
 
   if (!editor) {
     return (
