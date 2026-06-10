@@ -257,6 +257,9 @@ describe("recap comment body", () => {
     expect(body).toContain(
       "[![Visual recap](https://plan.agent-native.com/_agent-native/recap-image/a1b2c3d4e5f6.png)](https://plan.agent-native.com/recaps/plan-abc123)",
     );
+    expect(body).toContain("### Visual recap\n");
+    expect(body).not.toContain("review at a higher altitude");
+    expect(body).not.toContain("Updated for");
     expect(body).toContain("Open the interactive recap");
     expect(body).toContain("<!-- plan-id: plan-abc123 -->");
     expect(body).toContain("<!-- pr-visual-recap -->");
@@ -296,6 +299,7 @@ describe("recap comment body", () => {
     } as NodeJS.ProcessEnv);
     expect(body).toContain("skipped");
     expect(body).toContain("too small");
+    expect(body).not.toContain("Updated for");
     expect(body).not.toContain("Open the interactive recap");
   });
 
@@ -319,6 +323,7 @@ describe("recap comment body", () => {
     } as NodeJS.ProcessEnv);
     expect(body).toContain("generation failed");
     expect(body).not.toContain("Open the interactive recap");
+    expect(body).not.toContain("Updated for");
     expect(body).not.toContain("evil.example.com");
   });
 
@@ -332,6 +337,8 @@ describe("recap comment body", () => {
       HEAD_SHA: "abcdef1",
     } as NodeJS.ProcessEnv);
     expect(body).toContain("suppressed");
+    expect(body).toContain("Reason: `potential secret in diff`.");
+    expect(body).not.toContain("Updated for");
     expect(body).not.toContain("Open the interactive recap");
   });
 
@@ -341,6 +348,7 @@ describe("recap comment body", () => {
       HEAD_SHA: "abcdef1",
     } as NodeJS.ProcessEnv);
     expect(body).toContain("generation failed");
+    expect(body).not.toContain("Updated for");
   });
 });
 

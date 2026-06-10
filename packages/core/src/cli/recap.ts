@@ -646,7 +646,6 @@ function originOf(url: string): string {
 
 /** Build the sticky comment body from the workflow's environment. */
 export function buildCommentBody(env: NodeJS.ProcessEnv = process.env): string {
-  const headShort = (env.HEAD_SHA || "").slice(0, 7);
   const lines: string[] = [MARKER];
 
   if (env.SUPPRESSED === "true") {
@@ -663,7 +662,7 @@ export function buildCommentBody(env: NodeJS.ProcessEnv = process.env): string {
       "The recap was **suppressed** because the diff matched a secret/credential pattern. No plan was published.",
     );
     lines.push("");
-    lines.push(`Reason: \`${reason}\`. Updated for \`${headShort}\`.`);
+    lines.push(`Reason: \`${reason}\`.`);
     return lines.join("\n");
   }
 
@@ -676,8 +675,6 @@ export function buildCommentBody(env: NodeJS.ProcessEnv = process.env): string {
     lines.push(
       "The change in this push is too small to be worth a visual recap. This is informational only and does **not** block the PR.",
     );
-    lines.push("");
-    lines.push(`Updated for \`${headShort}\`.`);
     return lines.join("\n");
   }
 
@@ -700,8 +697,6 @@ export function buildCommentBody(env: NodeJS.ProcessEnv = process.env): string {
     lines.push(
       "The visual recap could not be generated for this push. This is informational only and does **not** block the PR.",
     );
-    lines.push("");
-    lines.push(`Updated for \`${headShort}\`.`);
     return lines.join("\n");
   }
 
@@ -715,7 +710,7 @@ export function buildCommentBody(env: NodeJS.ProcessEnv = process.env): string {
     /\/_agent-native\/recap-image\/[0-9a-f]+\.png$/.test(imageUrlRaw)
       ? imageUrlRaw
       : "";
-  lines.push("### Visual recap — review at a higher altitude");
+  lines.push("### Visual recap");
   lines.push("");
   if (imageUrl) {
     lines.push(`[![Visual recap](${imageUrl})](${safeUrl})`);
@@ -728,8 +723,6 @@ export function buildCommentBody(env: NodeJS.ProcessEnv = process.env): string {
       "> Large diff — this recap is a **summarized** view (top files + schema/API deltas).",
     );
   }
-  lines.push("");
-  lines.push(`Updated for \`${headShort}\`.`);
   lines.push("");
   lines.push(`<!-- plan-id: ${planId} -->`);
   return lines.join("\n");
