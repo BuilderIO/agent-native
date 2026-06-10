@@ -1,4 +1,4 @@
-import { cloneElement, isValidElement, type ReactNode } from "react";
+import { type ReactNode } from "react";
 import type {
   PlanWireframeElName,
   PlanWireframeNode,
@@ -202,13 +202,21 @@ export function renderNode(
     return children ? <div key={key}>{children}</div> : null;
   }
   let rendered = renderer(node, children);
-  // Inject stable node identity onto the root DOM element so UI click handlers
-  // can walk ancestors for wireframe comment anchoring.
-  if (node.id && isValidElement(rendered)) {
-    rendered = cloneElement(rendered, {
-      "data-wire-node-id": node.id,
-      "data-wire-node-el": node.el,
-    } as Record<string, string>);
+  // Wrap identified nodes in a layout-transparent element carrying stable node
+  // identity so UI click handlers can walk ancestors for wireframe comment
+  // anchoring. The kit primitives do not forward unknown props to the DOM, so
+  // a real wrapper element (display: contents keeps flex layout intact) is the
+  // only reliable way to land the data attributes.
+  if (node.id && rendered != null) {
+    rendered = (
+      <div
+        style={{ display: "contents" }}
+        data-wire-node-id={node.id}
+        data-wire-node-el={node.el}
+      >
+        {rendered}
+      </div>
+    );
   }
   // Attach a stable key by wrapping in a Fragment.
   return <KeyedNode key={key ?? node.id}>{rendered}</KeyedNode>;

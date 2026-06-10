@@ -320,4 +320,98 @@ describe("get-plan-feedback action", () => {
       "Comments marked detached no longer match their quoted text",
     );
   });
+
+  it("matches quotes against markdown-formatted prose without false detachment", async () => {
+    const formatted = comment("formatted-quote", "human");
+    formatted.anchor = JSON.stringify({
+      anchorKind: "text",
+      textQuote: "Initialize npm project",
+      sectionTitle: "Steps",
+    });
+
+    loadPlanBundleMock.mockResolvedValueOnce({
+      plan: {
+        ...plan,
+        content: {
+          version: 2,
+          blocks: [
+            {
+              id: "block_1",
+              type: "rich-text" as const,
+              data: {
+                markdown:
+                  "## Steps\n\n**Initialize** [npm](https://npmjs.com) `project`\n\nRun the tests",
+              },
+            },
+          ],
+        },
+      },
+      sections: [section],
+      comments: [formatted],
+      events: [],
+      summary: {
+        sectionCounts: { summary: 1 },
+        commentCount: 1,
+        openCommentCount: 1,
+      },
+    });
+
+    const result = (await action.run({ planId: "plan_1" })) as {
+      comments: Array<{ id: string; detached: boolean }>;
+      feedbackSummary: { detachedCount: number };
+    };
+
+    expect(result.comments[0]?.detached).toBe(false);
+    expect(result.feedbackSummary.detachedCount).toBe(0);
+  });
+
+  it("never marks visual or point anchors detached even when their snippet is not in prose", async () => {
+    const visual = comment("visual-pin", "human");
+    visual.anchor = JSON.stringify({
+      anchorKind: "visual",
+      targetKind: "wireframe",
+      snippet: "Submit button label not present in prose",
+      visualX: 40,
+      visualY: 60,
+    });
+    const point = comment("point-pin", "human");
+    point.anchor = JSON.stringify({
+      anchorKind: "point",
+      snippet: "Some stray snippet",
+      x: 10,
+      y: 20,
+    });
+
+    loadPlanBundleMock.mockResolvedValueOnce({
+      plan: {
+        ...plan,
+        content: {
+          version: 2,
+          blocks: [
+            {
+              id: "block_1",
+              type: "rich-text" as const,
+              data: { markdown: "## Steps\n\nCompletely unrelated prose" },
+            },
+          ],
+        },
+      },
+      sections: [section],
+      comments: [visual, point],
+      events: [],
+      summary: {
+        sectionCounts: { summary: 1 },
+        commentCount: 2,
+        openCommentCount: 2,
+      },
+    });
+
+    const result = (await action.run({ planId: "plan_1" })) as {
+      comments: Array<{ id: string; detached: boolean }>;
+      feedbackSummary: { detachedCount: number };
+    };
+
+    expect(result.comments.every((c) => c.detached === false)).toBe(true);
+    expect(result.feedbackSummary.detachedCount).toBe(0);
+  });
 });

@@ -19,9 +19,22 @@ function commentAnchorContext(anchor: PlanCommentAnchor | null) {
   return context && context !== "Pinned to plan" ? context : null;
 }
 
-/** Normalize whitespace the same way both sides of quote comparisons use. */
-function normalizeWhitespace(text: string): string {
-  return text.replace(/\s+/g, " ").trim();
+/**
+ * Normalize text for quote matching. Quotes are captured from rendered DOM
+ * text while block fragments are raw markdown, so inline markdown syntax
+ * (emphasis markers, code ticks, link wrappers) must be stripped before
+ * comparing. The same normalization is applied to both sides, so aggressive
+ * stripping stays symmetric and safe.
+ */
+function normalizeForQuoteMatch(text: string): string {
+  return text
+    .replace(/!\[([^\]]*)\]\([^)]*\)/g, "$1")
+    .replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")
+    .replace(/[*_~`]/g, "")
+    .replace(/^#{1,6}\s+/gm, "")
+    .replace(/^>\s?/gm, "")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 /**
@@ -116,7 +129,7 @@ function quoteExistsInContent(
   sectionId: string | null | undefined,
 ): boolean {
   if (!content?.blocks?.length) return true; // can't determine — be conservative
-  const needle = normalizeWhitespace(quote);
+  const needle = normalizeForQuoteMatch(quote);
   if (!needle) return true;
 
   let blocks = content.blocks;
@@ -132,7 +145,7 @@ function quoteExistsInContent(
   for (const block of blocks) {
     const frags = blockTextFragments(block);
     for (const frag of frags) {
-      if (normalizeWhitespace(frag).includes(needle)) return true;
+      if (normalizeForQuoteMatch(frag).includes(needle)) return true;
     }
   }
   return false;
@@ -156,7 +169,13 @@ function withAgentAnchorContext<T extends PlanComment>(
   content?: PlanContent | null,
 ) {
   const anchor = commentAnchorForAgent(comment);
-  const quote = anchor?.textQuote || anchor?.snippet;
+  // Detach detection only applies to text anchors: visual/point anchors carry
+  // a snippet (button labels, section titles) that legitimately may not appear
+  // in prose blocks, so checking them would produce false positives.
+  const quote =
+    anchor?.anchorKind !== "visual" && anchor?.anchorKind !== "point"
+      ? anchor?.textQuote
+      : undefined;
   const detached =
     typeof quote === "string" && quote.length > 0 && content !== undefined
       ? !quoteExistsInContent(quote, content, anchor?.sectionId)
