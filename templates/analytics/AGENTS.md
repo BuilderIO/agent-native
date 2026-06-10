@@ -84,8 +84,12 @@ details live in `.agents/skills/`.
   SQL-backed dashboards. Required: `templateId`. Optional: `dashboardId`,
   `name`, `overwrite`, and `forceNew`.
 - Node Exporter ships as `node-exporter-macos` for Darwin/Homebrew
-  node_exporter scrapes and `node-exporter-full` for the Linux-focused Grafana
-  1860 revision 45 full dashboard converted into native Analytics panels.
+  `node_exporter` scrapes and `node-exporter-full` for the Linux-focused
+  Grafana 1860 revision 45 full dashboard converted into native Analytics
+  panels. `node-exporter-full` also includes grouped `App / ...` tabs for the
+  Prometheus Observability Demo app metrics (`demo_http_*`, `demo_chaos_mode`,
+  and synthetic CPU/disk/memory workload metrics); the dashboard renderer treats
+  tab labels in the form `Group / Tab` as primary and secondary tabs.
 
 ## Deep Analysis Rules
 

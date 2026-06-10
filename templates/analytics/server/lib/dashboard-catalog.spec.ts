@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
@@ -17,6 +17,27 @@ function interpolate(input: string, values: Record<string, string>): string {
   );
 }
 
+function collectCssVariables(value: unknown, variables = new Set<string>()) {
+  if (typeof value === "string") {
+    const matches = value.matchAll(/var\(--([A-Za-z0-9-]+)\)/g);
+    for (const match of matches) variables.add(match[1]);
+    return variables;
+  }
+
+  if (Array.isArray(value)) {
+    for (const item of value) collectCssVariables(item, variables);
+    return variables;
+  }
+
+  if (value && typeof value === "object") {
+    for (const item of Object.values(value)) {
+      collectCssVariables(item, variables);
+    }
+  }
+
+  return variables;
+}
+
 describe("dashboard catalog", () => {
   it("loads shipped dashboard seeds independently of process cwd", () => {
     const originalCwd = process.cwd();
@@ -27,7 +48,7 @@ describe("dashboard catalog", () => {
       const seed = loadDashboardSeed("node-exporter-full");
       expect(seed?.name).toBe("Node Exporter Full");
       expect(Array.isArray(seed?.panels)).toBe(true);
-      expect((seed?.panels as unknown[]).length).toBe(140);
+      expect((seed?.panels as unknown[]).length).toBe(155);
     } finally {
       process.chdir(originalCwd);
       rmSync(tempDir, { recursive: true, force: true });
@@ -57,12 +78,34 @@ describe("dashboard catalog", () => {
     const prometheusPanels = config.panels.filter(
       (panel) => panel.source === "prometheus",
     );
-    expect(prometheusPanels).toHaveLength(124);
+    expect(prometheusPanels).toHaveLength(135);
 
     for (const panel of prometheusPanels) {
       expect(() =>
         parsePanelDescriptor(interpolate(panel.sql, values)),
       ).not.toThrow();
     }
+  });
+
+  it("uses defined theme variables in Node Exporter Full chart colors", () => {
+    const entry = getDashboardCatalogEntry("node-exporter-full");
+    expect(entry).not.toBeNull();
+
+    const config = cloneDashboardConfig(entry!);
+    const usedVariables = collectCssVariables(config);
+    const globalCss = readFileSync(
+      new URL("../../app/global.css", import.meta.url),
+      "utf8",
+    );
+    const definedVariables = new Set(
+      Array.from(globalCss.matchAll(/--([A-Za-z0-9-]+)\s*:/g)).map(
+        (match) => match[1],
+      ),
+    );
+
+    const missingVariables = Array.from(usedVariables).filter(
+      (variable) => !definedVariables.has(variable),
+    );
+    expect(missingVariables).toEqual([]);
   });
 });

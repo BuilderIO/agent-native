@@ -73,6 +73,8 @@ export interface SqlPanelConfig {
   stacked?: boolean;
   /** Show the chart legend. Defaults to true for chart renderers. */
   legend?: boolean;
+  /** Optional display labels for exact metric values, e.g. {"0":"normal"}. */
+  valueLabels?: Record<string, string>;
   sortable?: boolean;
   columns?: TableColumnConfig[];
   limit?: number;
@@ -102,8 +104,9 @@ export interface SqlPanel {
    * Optional tab assignment. When any panel in a dashboard declares a `tab`,
    * the dashboard renders a tab strip and shows only panels matching the
    * selected tab. Tabs are derived from the distinct `tab` values across
-   * panels in declaration order. Section panels can also carry a tab to
-   * group their header under the right tab.
+   * panels in declaration order. Use "Group / Tab" to render grouped primary
+   * and secondary tabs without changing the storage model. Section panels can
+   * also carry a tab to group their header under the right tab.
    */
   tab?: string;
 }

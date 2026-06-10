@@ -51,6 +51,10 @@
 
   /* Brand colors — bright stops from the agent-native gradient, suited to dark backgrounds */
   --brand-blue: #00b5ff;
+  --brand-green: #22c55e;
+  --brand-orange: #f59e0b;
+  --brand-purple: #a78bfa;
+  --brand-red: #ef4444;
   --brand-teal: #48ffe4;
 
   --radius: 0.5rem;
@@ -98,6 +102,10 @@
 
   /* Brand colors — darker variants for readability on white */
   --brand-blue: #0284c7;
+  --brand-green: #16a34a;
+  --brand-orange: #d97706;
+  --brand-purple: #7c3aed;
+  --brand-red: #dc2626;
   --brand-teal: #0d9488;
 
   --sidebar-background: 0 0% 98%;

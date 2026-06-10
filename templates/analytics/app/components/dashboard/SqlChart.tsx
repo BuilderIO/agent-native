@@ -157,6 +157,10 @@ function formatSeriesLabel(value: string): string {
     "state",
     "collector",
     "name",
+    "route",
+    "status",
+    "phase",
+    "dependency",
     "type",
     "quantile",
     "le",
@@ -613,10 +617,12 @@ function MetricRenderer({
   } else {
     raw = row[valueCol];
   }
+  const valueLabel = panel.config?.valueLabels?.[String(raw)];
   const value =
-    typeof raw === "number"
+    valueLabel ??
+    (typeof raw === "number"
       ? formatYValue(raw, panel.config?.yFormatter)
-      : String(raw ?? "-");
+      : String(raw ?? "-"));
 
   return (
     <div className="flex flex-1 flex-col items-center justify-center py-2 text-center">

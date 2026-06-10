@@ -1,6 +1,6 @@
 {
   "name": "Node Exporter Full",
-  "description": "Linux-focused Prometheus node_exporter dashboard converted from Grafana dashboard 1860 revision 45. Set Job and Instance to match node_uname_info labels; macOS exporters omit many Linux-only panels.",
+  "description": "Linux-focused Prometheus node_exporter dashboard converted from Grafana dashboard 1860 revision 45, with grouped app tabs for the Prometheus Observability Demo metrics. Set Job and Instance to match node_uname_info labels; macOS exporters omit many Linux-only panels.",
   "columns": 6,
   "filters": [
     {
@@ -3376,6 +3376,342 @@
         "yKey": "value",
         "legend": false,
         "yFormatter": "number"
+      }
+    },
+    {
+      "id": "section-app-overview",
+      "title": "App Overview",
+      "chartType": "section",
+      "width": 1,
+      "columns": 6,
+      "tab": "App / Overview",
+      "config": {
+        "description": "Prometheus Observability Demo app state and current workload phase."
+      }
+    },
+    {
+      "id": "app-overview-chaos-mode",
+      "title": "Chaos Mode",
+      "chartType": "metric",
+      "source": "prometheus",
+      "width": 1,
+      "sql": "{\"promql\":\"label_replace((demo_chaos_mode), \\\"grafana_target\\\", \\\"chaos mode\\\", \\\"__name__\\\", \\\".*\\\")\",\"mode\":\"instant\"}",
+      "tab": "App / Overview",
+      "config": {
+        "xKey": "series",
+        "yKey": "value",
+        "legend": false,
+        "yFormatter": "number",
+        "valueLabels": {
+          "0": "normal",
+          "1": "error storm",
+          "2": "latency spike",
+          "3": "degraded"
+        },
+        "description": "Current injected failure mode."
+      }
+    },
+    {
+      "id": "app-overview-active-workload-phase",
+      "title": "Active Workload Phase",
+      "chartType": "line",
+      "source": "prometheus",
+      "width": 5,
+      "sql": "{\"promql\":\"label_replace((demo_workload_phase), \\\"grafana_target\\\", \\\"$1\\\", \\\"phase\\\", \\\"(.*)\\\")\",\"mode\":\"range\",\"range\":\"{{range}}\"}",
+      "tab": "App / Overview",
+      "config": {
+        "xKey": "timestamp",
+        "yKey": "value",
+        "pivot": {
+          "xKey": "timestamp",
+          "seriesKey": "series",
+          "valueKey": "value"
+        },
+        "legend": true,
+        "colors": [
+          "var(--brand-blue)",
+          "var(--brand-green)",
+          "var(--brand-orange)",
+          "var(--brand-purple)",
+          "var(--brand-red)",
+          "var(--brand-teal)"
+        ],
+        "yFormatter": "number"
+      }
+    },
+    {
+      "id": "section-app-traffic",
+      "title": "App Traffic",
+      "chartType": "section",
+      "width": 1,
+      "columns": 6,
+      "tab": "App / Traffic",
+      "config": {
+        "description": "Route volume, status mix, current concurrency, and 5xx ratio."
+      }
+    },
+    {
+      "id": "app-traffic-request-rate-by-route",
+      "title": "Request Rate by Route",
+      "chartType": "line",
+      "source": "prometheus",
+      "width": 3,
+      "sql": "{\"promql\":\"label_replace((sum by (route) (rate(demo_http_requests_total[1m]))), \\\"grafana_target\\\", \\\"$1\\\", \\\"route\\\", \\\"(.*)\\\")\",\"mode\":\"range\",\"range\":\"{{range}}\"}",
+      "tab": "App / Traffic",
+      "config": {
+        "xKey": "timestamp",
+        "yKey": "value",
+        "pivot": {
+          "xKey": "timestamp",
+          "seriesKey": "series",
+          "valueKey": "value"
+        },
+        "legend": true,
+        "colors": [
+          "var(--brand-blue)",
+          "var(--brand-green)",
+          "var(--brand-orange)",
+          "var(--brand-purple)",
+          "var(--brand-red)",
+          "var(--brand-teal)"
+        ]
+      }
+    },
+    {
+      "id": "app-traffic-status-code-mix",
+      "title": "Status Code Mix",
+      "chartType": "line",
+      "source": "prometheus",
+      "width": 3,
+      "sql": "{\"promql\":\"label_replace((sum by (status) (rate(demo_http_requests_total[1m]))), \\\"grafana_target\\\", \\\"HTTP $1\\\", \\\"status\\\", \\\"(.*)\\\")\",\"mode\":\"range\",\"range\":\"{{range}}\"}",
+      "tab": "App / Traffic",
+      "config": {
+        "xKey": "timestamp",
+        "yKey": "value",
+        "pivot": {
+          "xKey": "timestamp",
+          "seriesKey": "series",
+          "valueKey": "value"
+        },
+        "legend": true,
+        "colors": [
+          "var(--brand-blue)",
+          "var(--brand-green)",
+          "var(--brand-orange)",
+          "var(--brand-purple)",
+          "var(--brand-red)",
+          "var(--brand-teal)"
+        ]
+      }
+    },
+    {
+      "id": "app-traffic-error-rate",
+      "title": "Error Rate",
+      "chartType": "line",
+      "source": "prometheus",
+      "width": 3,
+      "sql": "{\"promql\":\"label_replace((sum(rate(demo_http_requests_total{status=~\\\"5..\\\"}[5m])) / clamp_min(sum(rate(demo_http_requests_total[5m])), 0.001)), \\\"grafana_target\\\", \\\"5xx error ratio\\\", \\\"__name__\\\", \\\".*\\\")\",\"mode\":\"range\",\"range\":\"{{range}}\"}",
+      "tab": "App / Traffic",
+      "config": {
+        "xKey": "timestamp",
+        "yKey": "value",
+        "pivot": {
+          "xKey": "timestamp",
+          "seriesKey": "series",
+          "valueKey": "value"
+        },
+        "legend": true,
+        "colors": [
+          "var(--brand-red)",
+          "var(--brand-orange)",
+          "var(--brand-blue)"
+        ],
+        "yFormatter": "percent"
+      }
+    },
+    {
+      "id": "app-traffic-in-flight-requests",
+      "title": "In-Flight Requests",
+      "chartType": "line",
+      "source": "prometheus",
+      "width": 3,
+      "sql": "{\"promql\":\"label_replace((demo_http_requests_in_flight), \\\"grafana_target\\\", \\\"in flight\\\", \\\"__name__\\\", \\\".*\\\")\",\"mode\":\"range\",\"range\":\"{{range}}\"}",
+      "tab": "App / Traffic",
+      "config": {
+        "xKey": "timestamp",
+        "yKey": "value",
+        "pivot": {
+          "xKey": "timestamp",
+          "seriesKey": "series",
+          "valueKey": "value"
+        },
+        "legend": true,
+        "colors": [
+          "var(--brand-blue)",
+          "var(--brand-green)",
+          "var(--brand-orange)",
+          "var(--brand-purple)",
+          "var(--brand-red)",
+          "var(--brand-teal)"
+        ],
+        "yFormatter": "number"
+      }
+    },
+    {
+      "id": "section-app-latency",
+      "title": "App Latency",
+      "chartType": "section",
+      "width": 1,
+      "columns": 6,
+      "tab": "App / Latency",
+      "config": {
+        "description": "Request percentiles and the synthetic dependency latency that drives degraded modes."
+      }
+    },
+    {
+      "id": "app-latency-request-latency",
+      "title": "Request Latency",
+      "chartType": "line",
+      "source": "prometheus",
+      "width": 4,
+      "sql": "{\"promql\":\"label_replace((histogram_quantile(0.50, sum by (le, route) (rate(demo_http_request_duration_seconds_bucket[5m])))), \\\"grafana_target\\\", \\\"p50 $1\\\", \\\"route\\\", \\\"(.*)\\\") or label_replace((histogram_quantile(0.95, sum by (le, route) (rate(demo_http_request_duration_seconds_bucket[5m])))), \\\"grafana_target\\\", \\\"p95 $1\\\", \\\"route\\\", \\\"(.*)\\\") or label_replace((histogram_quantile(0.99, sum by (le, route) (rate(demo_http_request_duration_seconds_bucket[5m])))), \\\"grafana_target\\\", \\\"p99 $1\\\", \\\"route\\\", \\\"(.*)\\\")\",\"mode\":\"range\",\"range\":\"{{range}}\"}",
+      "tab": "App / Latency",
+      "config": {
+        "xKey": "timestamp",
+        "yKey": "value",
+        "pivot": {
+          "xKey": "timestamp",
+          "seriesKey": "series",
+          "valueKey": "value"
+        },
+        "legend": true,
+        "colors": [
+          "var(--brand-blue)",
+          "var(--brand-green)",
+          "var(--brand-orange)",
+          "var(--brand-purple)",
+          "var(--brand-red)",
+          "var(--brand-teal)"
+        ]
+      }
+    },
+    {
+      "id": "app-latency-synthetic-dependency-latency",
+      "title": "Synthetic Dependency Latency",
+      "chartType": "line",
+      "source": "prometheus",
+      "width": 2,
+      "sql": "{\"promql\":\"label_replace((histogram_quantile(0.95, sum by (le, dependency) (rate(demo_dependency_duration_seconds_bucket[5m])))), \\\"grafana_target\\\", \\\"p95 $1\\\", \\\"dependency\\\", \\\"(.*)\\\")\",\"mode\":\"range\",\"range\":\"{{range}}\"}",
+      "tab": "App / Latency",
+      "config": {
+        "xKey": "timestamp",
+        "yKey": "value",
+        "pivot": {
+          "xKey": "timestamp",
+          "seriesKey": "series",
+          "valueKey": "value"
+        },
+        "legend": true,
+        "colors": [
+          "var(--brand-blue)",
+          "var(--brand-green)",
+          "var(--brand-orange)",
+          "var(--brand-purple)",
+          "var(--brand-red)",
+          "var(--brand-teal)"
+        ]
+      }
+    },
+    {
+      "id": "section-app-workload",
+      "title": "App Workload",
+      "chartType": "section",
+      "width": 1,
+      "columns": 6,
+      "tab": "App / Workload",
+      "config": {
+        "description": "Synthetic pressure generators for correlating app behavior with node CPU, disk, and memory signals."
+      }
+    },
+    {
+      "id": "app-workload-synthetic-cpu-work",
+      "title": "Synthetic CPU Work",
+      "chartType": "line",
+      "source": "prometheus",
+      "width": 2,
+      "sql": "{\"promql\":\"label_replace((rate(demo_cpu_work_seconds_total[1m])), \\\"grafana_target\\\", \\\"CPU work seconds/sec\\\", \\\"__name__\\\", \\\".*\\\")\",\"mode\":\"range\",\"range\":\"{{range}}\"}",
+      "tab": "App / Workload",
+      "config": {
+        "xKey": "timestamp",
+        "yKey": "value",
+        "pivot": {
+          "xKey": "timestamp",
+          "seriesKey": "series",
+          "valueKey": "value"
+        },
+        "legend": true,
+        "colors": [
+          "var(--brand-blue)",
+          "var(--brand-green)",
+          "var(--brand-orange)",
+          "var(--brand-purple)",
+          "var(--brand-red)",
+          "var(--brand-teal)"
+        ]
+      }
+    },
+    {
+      "id": "app-workload-synthetic-disk-io",
+      "title": "Synthetic Disk I/O",
+      "chartType": "line",
+      "source": "prometheus",
+      "width": 2,
+      "sql": "{\"promql\":\"label_replace((rate(demo_io_work_bytes_total[1m])), \\\"grafana_target\\\", \\\"disk write bytes/sec\\\", \\\"__name__\\\", \\\".*\\\")\",\"mode\":\"range\",\"range\":\"{{range}}\"}",
+      "tab": "App / Workload",
+      "config": {
+        "xKey": "timestamp",
+        "yKey": "value",
+        "pivot": {
+          "xKey": "timestamp",
+          "seriesKey": "series",
+          "valueKey": "value"
+        },
+        "legend": true,
+        "colors": [
+          "var(--brand-blue)",
+          "var(--brand-green)",
+          "var(--brand-orange)",
+          "var(--brand-purple)",
+          "var(--brand-red)",
+          "var(--brand-teal)"
+        ]
+      }
+    },
+    {
+      "id": "app-workload-synthetic-memory-allocation",
+      "title": "Synthetic Memory Allocation",
+      "chartType": "line",
+      "source": "prometheus",
+      "width": 2,
+      "sql": "{\"promql\":\"label_replace((rate(demo_memory_work_bytes_total[1m])), \\\"grafana_target\\\", \\\"allocated bytes/sec\\\", \\\"__name__\\\", \\\".*\\\")\",\"mode\":\"range\",\"range\":\"{{range}}\"}",
+      "tab": "App / Workload",
+      "config": {
+        "xKey": "timestamp",
+        "yKey": "value",
+        "pivot": {
+          "xKey": "timestamp",
+          "seriesKey": "series",
+          "valueKey": "value"
+        },
+        "legend": true,
+        "colors": [
+          "var(--brand-blue)",
+          "var(--brand-green)",
+          "var(--brand-orange)",
+          "var(--brand-purple)",
+          "var(--brand-red)",
+          "var(--brand-teal)"
+        ]
       }
     }
   ]

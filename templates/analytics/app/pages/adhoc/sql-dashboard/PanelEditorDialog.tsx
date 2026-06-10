@@ -224,11 +224,11 @@ function PanelEditorContent({
         `If no source can answer, report the exact unavailable/error result instead of saving a panel with guessed schema or metrics. ` +
         `Use the \`update-dashboard\` action with ops=[{op:'insert', path:'/panels/-', value: <panel>}] ` +
         `to append, or an appropriate index to place the panel in the right spot. ` +
-        `Panel shape: { id (unique slug), title, sql, source ('bigquery'|'ga4'|'amplitude'|'first-party'|'prometheus'), chartType ('line'|'area'|'bar'|'metric'|'table'|'pie'|'section'), width (number of grid columns to span, 1..6), columns? (section panels only — 1..6 grid columns for the panels following this section), config? }. ` +
+        `Panel shape: { id (unique slug), title, sql, source ('bigquery'|'ga4'|'amplitude'|'first-party'|'prometheus'), chartType ('line'|'area'|'bar'|'metric'|'table'|'pie'|'section'), width (number of grid columns to span, 1..6), tab? (use 'Group / Tab' for grouped tabs), columns? (section panels only — 1..6 grid columns for the panels following this section), config? }. ` +
         `For amplitude panels, sql is a JSON descriptor: {"event":"event name","groupBy":"property","days":30}. ` +
         `For first-party panels, sql is read-only SQL over analytics_events only; use source 'first-party' and do not call db-query for this datasource. ` +
         `For prometheus panels, sql is a JSON descriptor: {"promql":"rate(http_requests_total[5m])","mode":"range","range":"1h","step":"30s"}. mode defaults to "range"; range defaults to "1h"; step is auto if omitted. Returned rows have shape {timestamp, series, value} — set config.xKey="timestamp", config.yKey="value", and a single series in config.yKeys for clean charting. ` +
-        `Config is optional: { xKey, yKey, yKeys, yFormatter ('number'|'currency'|'percent'), description, columns, pivot, limit, color, colors, stacked, legend }. ` +
+        `Config is optional: { xKey, yKey, yKeys, yFormatter ('number'|'currency'|'percent'), description, columns, pivot, limit, color, colors, stacked, legend, valueLabels }. ` +
         `Chart legends render automatically; set config.legend=false only when the user explicitly asks to hide the legend. ` +
         `Consult the data dictionary first via \`list-data-dictionary --search <topic>\`, then use AGENTS.md, .agents/skills, and connected data-source instructions before writing SQL. ` +
         `Every BigQuery panel is dry-run validated on save — if columns/tables are wrong the save returns a 400 with the BQ error and you must fix the SQL and retry. ` +

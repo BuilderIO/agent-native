@@ -115,6 +115,35 @@ import {
 
 const TAB_ID = generateTabId();
 
+type DashboardTabGroup = {
+  name: string;
+  tabs: Array<{ value: string; label: string }>;
+};
+
+function groupDashboardTabs(tabs: string[]): {
+  groups: DashboardTabGroup[];
+  hasNestedTabs: boolean;
+} {
+  const hasNestedTabs = tabs.some((tab) => tab.includes(" / "));
+  const groups: DashboardTabGroup[] = [];
+  const byName = new Map<string, DashboardTabGroup>();
+
+  for (const tab of tabs) {
+    const [rawGroup, ...rest] = tab.split(/\s*\/\s*/);
+    const name = hasNestedTabs && rest.length > 0 ? rawGroup : "Server";
+    const label = hasNestedTabs && rest.length > 0 ? rest.join(" / ") : tab;
+    let group = byName.get(name);
+    if (!group) {
+      group = { name, tabs: [] };
+      byName.set(name, group);
+      groups.push(group);
+    }
+    group.tabs.push({ value: tab, label });
+  }
+
+  return { groups, hasNestedTabs };
+}
+
 type FetchedDashboard = {
   id: string;
   config: SqlDashboardConfig;
@@ -677,6 +706,12 @@ export default function SqlDashboardPage() {
         ? requestedTab
         : tabs[0]
       : null;
+  const groupedTabs = useMemo(() => groupDashboardTabs(tabs), [tabs]);
+  const activeTabGroup = activeTab
+    ? groupedTabs.groups.find((group) =>
+        group.tabs.some((tab) => tab.value === activeTab),
+      )
+    : null;
 
   const handleTabChange = useCallback(
     (value: string) => {
@@ -690,6 +725,14 @@ export default function SqlDashboardPage() {
       );
     },
     [setSearchParams],
+  );
+  const handleTabGroupChange = useCallback(
+    (groupName: string) => {
+      const group = groupedTabs.groups.find((item) => item.name === groupName);
+      const firstTab = group?.tabs[0]?.value;
+      if (firstTab) handleTabChange(firstTab);
+    },
+    [groupedTabs.groups, handleTabChange],
   );
 
   // Panels visible under the current tab. Untagged panels appear on every
@@ -1130,18 +1173,42 @@ export default function SqlDashboardPage() {
 
       {/* Tabs */}
       {tabs.length > 0 && activeTab && (
-        <Tabs value={activeTab} onValueChange={handleTabChange}>
-          <TabsList
-            className="grid w-full"
-            style={{ gridTemplateColumns: `repeat(${tabs.length}, 1fr)` }}
-          >
-            {tabs.map((t) => (
-              <TabsTrigger key={t} value={t}>
-                {t}
-              </TabsTrigger>
-            ))}
-          </TabsList>
-        </Tabs>
+        <div className="space-y-2">
+          {groupedTabs.hasNestedTabs && groupedTabs.groups.length > 1 ? (
+            <Tabs
+              value={activeTabGroup?.name ?? groupedTabs.groups[0]?.name}
+              onValueChange={handleTabGroupChange}
+            >
+              <TabsList className="inline-flex max-w-full justify-start overflow-x-auto">
+                {groupedTabs.groups.map((group) => (
+                  <TabsTrigger
+                    key={group.name}
+                    value={group.name}
+                    className="shrink-0 whitespace-nowrap"
+                  >
+                    {group.name}
+                  </TabsTrigger>
+                ))}
+              </TabsList>
+            </Tabs>
+          ) : null}
+          <Tabs value={activeTab} onValueChange={handleTabChange}>
+            <TabsList className="flex h-auto w-full justify-start overflow-x-auto">
+              {(groupedTabs.hasNestedTabs
+                ? (activeTabGroup?.tabs ?? [])
+                : tabs.map((tab) => ({ value: tab, label: tab }))
+              ).map((tab) => (
+                <TabsTrigger
+                  key={tab.value}
+                  value={tab.value}
+                  className="shrink-0 whitespace-nowrap"
+                >
+                  {tab.label}
+                </TabsTrigger>
+              ))}
+            </TabsList>
+          </Tabs>
+        </div>
       )}
 
       {/* Filters */}
