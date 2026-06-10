@@ -57,6 +57,7 @@ import { RegistryBlockNode } from "./extensions/registryBlocks";
 import {
   CommentHighlight,
   setCommentHighlights,
+  commentHighlightKey,
   type CommentHighlightSpec,
 } from "./extensions/CommentHighlight";
 import { resolveAnchor, type CommentTextAnchor } from "./comment-anchors";
@@ -1822,14 +1823,28 @@ export function VisualEditor({
     ? `${pendingHighlight.from}-${pendingHighlight.to}`
     : "";
 
-  useEffect(() => {
-    if (!editor || editor.isDestroyed) return;
-    const view = editor.view;
-    const apply = () => {
-      if (editor.isDestroyed) return;
+  // Push the resolved highlight specs into the plugin. When `force` is false we
+  // KEEP the positions of highlights the plugin is already tracking (so they
+  // stay live-mapped while typing) and only resolve threads that are missing —
+  // this is what establishes highlights after the collaborative doc seeds.
+  // `force` re-resolves everything from scratch (used when the loaded content is
+  // swapped wholesale by an agent / Notion pull).
+  const applyHighlights = useCallback(
+    (force: boolean) => {
+      if (!editor || editor.isDestroyed) return;
+      const view = editor.view;
+      const current = commentHighlightKey.getState(view.state);
+      const mapped = force
+        ? new Map<string, CommentHighlightSpec>()
+        : new Map((current?.specs ?? []).map((s) => [s.threadId, s]));
       const specs: CommentHighlightSpec[] = [];
       for (const thread of threadsRef.current ?? []) {
         if (thread.resolved) continue;
+        const existing = mapped.get(thread.threadId);
+        if (existing) {
+          specs.push(existing);
+          continue;
+        }
         const range = resolveAnchor(view.state.doc, {
           quotedText: thread.quotedText,
           prefix: thread.prefix ?? undefined,
@@ -1844,24 +1859,74 @@ export function VisualEditor({
           });
         }
       }
+      // eslint-disable-next-line no-console
+      console.log("[cmt] applyHighlights", {
+        force,
+        threads: (threadsRef.current ?? []).length,
+        docSize: view.state.doc.content.size,
+        resolved: specs.length,
+      });
       setCommentHighlights(view, {
         specs,
         pending: pendingHighlight ?? null,
         activeId: activeThreadId ?? null,
       });
+    },
+    [editor, pendingHighlight?.from, pendingHighlight?.to, activeThreadId],
+  );
+
+  const applyRef = useRef(applyHighlights);
+  applyRef.current = applyHighlights;
+  const rafRef = useRef(0);
+  const scheduleApply = useCallback((force: boolean) => {
+    cancelAnimationFrame(rafRef.current);
+    rafRef.current = requestAnimationFrame(() => applyRef.current(force));
+  }, []);
+  useEffect(() => () => cancelAnimationFrame(rafRef.current), []);
+
+  // Establish highlights when the thread set changes. The collaborative doc
+  // seeds asynchronously, so resolving once on mount can race ahead of the
+  // content — retry over the first second to reliably catch the seed. Each pass
+  // keeps already-tracked ranges and only fills in missing ones, so the retries
+  // are idempotent no-ops once every highlight is established.
+  useEffect(() => {
+    const timers = [0, 150, 400, 800].map((d) =>
+      setTimeout(() => scheduleApply(false), d),
+    );
+    return () => timers.forEach(clearTimeout);
+  }, [scheduleApply, threadsSignature]);
+
+  // Active card / pending selection just update the existing highlights.
+  useEffect(() => {
+    scheduleApply(false);
+  }, [scheduleApply, activeThreadId, pendingKey]);
+
+  // Re-resolve from scratch when the loaded content changes wholesale.
+  useEffect(() => {
+    scheduleApply(true);
+  }, [scheduleApply, content, contentUpdatedAt]);
+
+  // After the collaborative doc seeds (or any edit), establish any highlight
+  // that isn't being tracked yet. Gated on "something missing" so steady-state
+  // typing doesn't dispatch extra transactions.
+  useEffect(() => {
+    if (!editor || editor.isDestroyed) return;
+    const onUpdate = () => {
+      const present = new Set(
+        (commentHighlightKey.getState(editor.view.state)?.specs ?? []).map(
+          (s) => s.threadId,
+        ),
+      );
+      const anyMissing = (threadsRef.current ?? []).some(
+        (t) => !t.resolved && !present.has(t.threadId),
+      );
+      if (anyMissing) scheduleApply(false);
     };
-    // Defer a frame so a fresh setContent / collab seed has settled first.
-    const raf = requestAnimationFrame(apply);
-    return () => cancelAnimationFrame(raf);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [
-    editor,
-    threadsSignature,
-    activeThreadId,
-    pendingKey,
-    content,
-    contentUpdatedAt,
-  ]);
+    editor.on("update", onUpdate);
+    return () => {
+      editor.off("update", onUpdate);
+    };
+  }, [editor, scheduleApply]);
 
   // Clicking an inline highlight focuses its thread in the sidebar.
   useEffect(() => {
