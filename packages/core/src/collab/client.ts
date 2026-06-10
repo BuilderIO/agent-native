@@ -252,6 +252,40 @@ function calcBackoff(consecutiveErrors: number): number {
   return Math.min(delay + jitter, BACKOFF_MAX_MS);
 }
 
+// ---------------------------------------------------------------------------
+// Fast awareness helper — throttled per (docId, ydocId) pair so multiple
+// setLocalStateField calls within a 150ms window are coalesced into one POST.
+// ---------------------------------------------------------------------------
+
+const _awarenessThrottleTimers = new Map<
+  string,
+  ReturnType<typeof setTimeout>
+>();
+
+function scheduleAwarenessPush(
+  baseUrl: string,
+  docId: string,
+  clientId: number,
+  getState: () => Record<string, unknown> | null,
+): void {
+  if (typeof window === "undefined") return;
+  const key = `${docId}::${clientId}`;
+  if (_awarenessThrottleTimers.has(key)) return; // already scheduled
+
+  const timer = setTimeout(() => {
+    _awarenessThrottleTimers.delete(key);
+    const state = getState();
+    if (!state) return;
+    fetch(`${baseUrl}/${docId}/awareness`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ clientId, state: JSON.stringify(state) }),
+    }).catch(() => {}); // best-effort; poll cycle is the baseline fallback
+  }, 150);
+
+  _awarenessThrottleTimers.set(key, timer);
+}
+
 export function useCollaborativeDoc(
   options: UseCollaborativeDocOptions,
 ): UseCollaborativeDocResult {
@@ -302,6 +336,30 @@ export function useCollaborativeDoc(
     });
     awareness.setLocalStateField("visible", !isDocumentHidden());
   }, [awareness, user?.name, user?.email, user?.color]);
+
+  // Fast awareness push: whenever local state changes (e.g. cursor moves,
+  // setPresence() calls), schedule a throttled POST so peers receive updates
+  // at ~150ms instead of waiting for the next 2s poll cycle. The poll cycle
+  // remains the authoritative baseline (cursors degrade gracefully without SSE).
+  useEffect(() => {
+    if (!awareness || !ydoc || !docId || !user) return;
+    const clientId = ydoc.clientID;
+
+    const onLocalStateChange = () => {
+      scheduleAwarenessPush(
+        baseUrl,
+        docId,
+        clientId,
+        () => awareness.getLocalState() as Record<string, unknown> | null,
+      );
+    };
+
+    // awareness emits "change" for local state changes too (when origin is "local").
+    awareness.on("change", onLocalStateChange);
+    return () => {
+      awareness.off("change", onLocalStateChange);
+    };
+  }, [awareness, ydoc, docId, baseUrl, user]);
 
   // Track active users from awareness changes
   useEffect(() => {
@@ -791,6 +849,91 @@ export function useCollaborativeDoc(
     baseUrl,
     docMissing,
   ]);
+
+  // SSE fast-path for awareness: subscribe to the poll-events stream and
+  // apply any awareness-change events immediately so peers receive cursor
+  // moves push-style without waiting for the next poll cycle.
+  // Polling fallback keeps working when SSE is unavailable.
+  useEffect(() => {
+    if (!ydoc || !docId || !awareness || typeof EventSource === "undefined") {
+      return;
+    }
+    const sseUrl = agentNativePath("/_agent-native/poll-events");
+    let source: EventSource | null = null;
+    let stopped = false;
+
+    function connect() {
+      if (stopped || source) return;
+      source = new EventSource(sseUrl);
+      source.onmessage = (msg) => {
+        if (stopped) return;
+        try {
+          const data = JSON.parse(msg.data as string) as {
+            source?: string;
+            type?: string;
+            docId?: string;
+            states?: Array<{ clientId: number; state: string }>;
+          };
+          if (
+            data.source !== "awareness" ||
+            data.type !== "awareness-change" ||
+            data.docId !== docId
+          ) {
+            return;
+          }
+          const remoteStates: RemoteAwarenessSnapshot[] = [];
+          for (const remote of data.states ?? []) {
+            try {
+              remoteStates.push({
+                clientId: Number(remote.clientId),
+                state: JSON.parse(remote.state),
+              });
+            } catch {
+              // Invalid state entry — skip
+            }
+          }
+          const changes = reconcileRemoteAwarenessStates(
+            awareness.getStates() as Map<number, unknown>,
+            ydoc.clientID,
+            remoteStates,
+          );
+          if (
+            changes.added.length ||
+            changes.updated.length ||
+            changes.removed.length
+          ) {
+            awareness.emit("change", [changes, "remote"]);
+          }
+        } catch {
+          // Ignore malformed SSE frames; poll cycle is the safety net.
+        }
+      };
+      source.onerror = () => {
+        // On permanent close let go of the ref so re-focus can reconnect.
+        if (source && source.readyState === EventSource.CLOSED) {
+          source = null;
+        }
+      };
+    }
+
+    connect();
+
+    function onFocus() {
+      if (!source || source.readyState === EventSource.CLOSED) {
+        source?.close();
+        source = null;
+        connect();
+      }
+    }
+
+    window.addEventListener("focus", onFocus);
+    return () => {
+      stopped = true;
+      source?.close();
+      source = null;
+      window.removeEventListener("focus", onFocus);
+    };
+  }, [ydoc, docId, awareness]);
 
   return {
     ydoc,

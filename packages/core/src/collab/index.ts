@@ -84,4 +84,30 @@ export {
 } from "./agent-presence.js";
 
 // Awareness (re-export for agent-presence consumers)
-export { getDocAwareness, type AwarenessEntry } from "./awareness.js";
+export {
+  getDocAwareness,
+  getAwarenessEmitter,
+  emitAwarenessChange,
+  AWARENESS_CHANGE_EVENT,
+  type AwarenessEntry,
+  type AwarenessChangeEvent,
+} from "./awareness.js";
+
+// Presence kit
+export {
+  usePresence,
+  toNormalized,
+  fromNormalized,
+  type OtherPresence,
+  type PresencePayload,
+  type UsePresenceResult,
+  type NormalizedPoint,
+} from "./presence.js";
+
+// Follow mode
+export {
+  useFollowUser,
+  type UseFollowUserOptions,
+  type UseFollowUserResult,
+  type ViewportDescriptor,
+} from "./follow-mode.js";

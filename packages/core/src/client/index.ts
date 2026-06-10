@@ -546,6 +546,22 @@ export {
   type CollabUser,
 } from "../collab/client.js";
 export { AGENT_CLIENT_ID } from "../collab/agent-identity.js";
+// Presence kit
+export {
+  usePresence,
+  toNormalized,
+  fromNormalized,
+  type OtherPresence,
+  type PresencePayload,
+  type UsePresenceResult,
+  type NormalizedPoint,
+} from "../collab/presence.js";
+export {
+  useFollowUser,
+  type UseFollowUserOptions,
+  type UseFollowUserResult,
+  type ViewportDescriptor,
+} from "../collab/follow-mode.js";
 export {
   ResourcesPanel,
   ResourceTree,
@@ -643,6 +659,15 @@ export {
   AgentPresenceChip,
   type AgentPresenceChipProps,
 } from "./components/AgentPresenceChip.js";
+export {
+  LiveCursorOverlay,
+  type LiveCursorOverlayProps,
+  type CursorMapFn,
+} from "./components/LiveCursorOverlay.js";
+export {
+  RemoteSelectionRings,
+  type RemoteSelectionRingsProps,
+} from "./components/RemoteSelectionRings.js";
 // Structured data collaboration hooks
 export {
   useCollaborativeMap,
