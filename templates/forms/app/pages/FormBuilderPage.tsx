@@ -37,7 +37,7 @@ import {
 import { FieldRenderer } from "@/components/builder/FieldRenderer";
 import { FieldPropertiesPanel } from "@/components/builder/FieldPropertiesPanel";
 import { useAgentPromptRun } from "@/hooks/use-agent-prompt-run";
-import { useForm, useUpdateForm } from "@/hooks/use-forms";
+import { useForm, useUpdateForm, usePatchFormFields } from "@/hooks/use-forms";
 import { useFormResponses } from "@/hooks/use-responses";
 import { useDbStatus } from "@/hooks/use-db-status";
 import { CloudUpgrade } from "@/components/CloudUpgrade";
@@ -111,6 +111,7 @@ export function FormBuilderPage() {
   const navigate = useNavigate();
   const { data: form, isLoading, error, refetch } = useForm(id!);
   const updateForm = useUpdateForm();
+  const patchFormFields = usePatchFormFields();
 
   const [selectedFieldId, setSelectedFieldId] = useState<string | null>(null);
   const [dragIdx, setDragIdx] = useState<number | null>(null);
@@ -204,7 +205,8 @@ export function FormBuilderPage() {
     }
   }, [localDescription]);
 
-  // Debounced save
+  // Debounced save for non-field form properties (title, description, status,
+  // settings). Full-array field saves are handled by saveFieldOps below.
   const saveTimeout = useRef<ReturnType<typeof setTimeout>>(undefined);
   const savedTimeout = useRef<ReturnType<typeof setTimeout>>(undefined);
   const save = useCallback(
@@ -230,10 +232,47 @@ export function FormBuilderPage() {
     [updateForm],
   );
 
+  // Debounced field-op save — uses patch-form-fields (server-side merge) so
+  // concurrent edits to different fields both survive.
+  const fieldOpTimeout = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const pendingOps = useRef<Array<{ op: string; [k: string]: unknown }>>([]);
+  const saveFieldOps = useCallback(
+    (ops: Array<{ op: string; [k: string]: unknown }>) => {
+      pendingOps.current = [...pendingOps.current, ...ops];
+      clearTimeout(fieldOpTimeout.current);
+      clearTimeout(savedTimeout.current);
+      setSaveState("saving");
+      fieldOpTimeout.current = setTimeout(() => {
+        const opsToSend = pendingOps.current;
+        pendingOps.current = [];
+        patchFormFields.mutate(
+          { id: form.id, ops: opsToSend },
+          {
+            onSettled: () => {
+              fieldsDirty.current = false;
+            },
+            onSuccess: () => {
+              setSaveState("saved");
+              savedTimeout.current = setTimeout(
+                () => setSaveState("idle"),
+                2000,
+              );
+            },
+            onError: () => {
+              setSaveState("idle");
+            },
+          },
+        );
+      }, 500);
+    },
+    [patchFormFields, form?.id],
+  );
+
   useEffect(
     () => () => {
       clearTimeout(saveTimeout.current);
       clearTimeout(savedTimeout.current);
+      clearTimeout(fieldOpTimeout.current);
     },
     [],
   );
@@ -325,12 +364,6 @@ export function FormBuilderPage() {
     | undefined;
   const canEdit = role === "owner" || role === "editor" || role === "admin";
 
-  function updateFields(newFields: FormField[]) {
-    setLocalFields(newFields);
-    fieldsDirty.current = true;
-    save({ id: form.id, fields: newFields });
-  }
-
   function addField(type: FormFieldType) {
     const defaults = fieldTypeDefaults[type] || {};
     const newField: FormField = {
@@ -343,27 +376,37 @@ export function FormBuilderPage() {
       validation: defaults.validation,
       width: "full",
     };
-    const newFields = [...fields, newField];
-    updateFields(newFields);
+    setLocalFields((prev) => [...prev, newField]);
+    fieldsDirty.current = true;
+    saveFieldOps([{ op: "upsert", field: newField }]);
     setSelectedFieldId(newField.id);
   }
 
   function updateField(updated: FormField) {
-    const newFields = fields.map((f) => (f.id === updated.id ? updated : f));
-    updateFields(newFields);
+    setLocalFields((prev) =>
+      prev.map((f) => (f.id === updated.id ? updated : f)),
+    );
+    fieldsDirty.current = true;
+    saveFieldOps([{ op: "upsert", field: updated }]);
   }
 
   function deleteField(fieldId: string) {
-    const newFields = fields.filter((f) => f.id !== fieldId);
-    updateFields(newFields);
+    setLocalFields((prev) => prev.filter((f) => f.id !== fieldId));
+    fieldsDirty.current = true;
+    saveFieldOps([{ op: "remove", id: fieldId }]);
     if (selectedFieldId === fieldId) setSelectedFieldId(null);
   }
 
   function moveField(from: number, to: number) {
-    const newFields = [...fields];
-    const [moved] = newFields.splice(from, 1);
-    newFields.splice(to, 0, moved);
-    updateFields(newFields);
+    setLocalFields((prev) => {
+      const next = [...prev];
+      const [moved] = next.splice(from, 1);
+      next.splice(to, 0, moved);
+      // Emit a reorder op with the new order.
+      saveFieldOps([{ op: "reorder", ids: next.map((f) => f.id) }]);
+      return next;
+    });
+    fieldsDirty.current = true;
   }
 
   function handleDragStart(idx: number) {
