@@ -32,6 +32,15 @@ const SUGGESTED_GRANT_APPS = [
   { id: "mail", label: "Mail" },
 ] as const;
 
+type GrantSummary = {
+  id: string;
+  connectionId: string;
+  provider: string;
+  appId: string;
+  access: "all-apps" | "selected-app" | "explicit-grant";
+  lastUsedAt?: string | null;
+};
+
 function unique(values: string[]) {
   return Array.from(
     new Set(values.map((value) => value.trim()).filter(Boolean)),
@@ -87,7 +96,7 @@ export default defineAction({
       provider: args.provider,
       appId: args.appId,
     });
-    const legacyGrants = connections.flatMap((connection) => {
+    const legacyGrants = connections.flatMap<GrantSummary>((connection) => {
       if (connection.allowedApps.length === 0) {
         return [
           {
@@ -99,15 +108,17 @@ export default defineAction({
           },
         ];
       }
-      return connection.allowedApps.map((appId) => ({
-        id: `${connection.id}:${appId}`,
-        connectionId: connection.id,
-        provider: connection.provider,
-        appId,
-        access: "selected-app" as const,
-      }));
+      return connection.allowedApps.map(
+        (appId): GrantSummary => ({
+          id: `${connection.id}:${appId}`,
+          connectionId: connection.id,
+          provider: connection.provider,
+          appId,
+          access: "selected-app" as const,
+        }),
+      );
     });
-    const grants = [
+    const grants: GrantSummary[] = [
       ...legacyGrants,
       ...explicitGrants.map((grant) => {
         const lastUsedAt = optionalTimestamp(grant, "lastUsedAt");

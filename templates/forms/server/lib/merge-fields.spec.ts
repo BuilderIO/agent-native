@@ -3,25 +3,15 @@
  * for form fields.
  *
  * Run with:
- *   node_modules/.bin/tsx templates/forms/server/lib/merge-fields.spec.ts
+ *   pnpm --filter forms exec vitest --run --config vitest.config.ts server/lib/merge-fields.spec.ts
  */
 
+import { it } from "vitest";
 import type { FormField } from "../../shared/types.js";
 import { applyFieldOps } from "./merge-fields.js";
 
-let passed = 0;
-const failures: string[] = [];
-
 function check(name: string, fn: () => void) {
-  try {
-    fn();
-    passed += 1;
-    console.log(`  ok  ${name}`);
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    failures.push(`${name}: ${msg}`);
-    console.log(`  FAIL ${name}: ${msg}`);
-  }
+  it(name, fn);
 }
 
 function assert(cond: unknown, message: string) {
@@ -33,8 +23,6 @@ function field(id: string, label = `Field ${id}`): FormField {
 }
 
 const base: FormField[] = [field("a"), field("b"), field("c")];
-
-console.log("applyFieldOps");
 
 // ---------------------------------------------------------------------------
 // upsert
@@ -152,18 +140,3 @@ check("does not mutate the input array", () => {
   assert(original.length === copy.length, "input length changed");
   assert(original[0].id === "x", "input[0] changed");
 });
-
-// ---------------------------------------------------------------------------
-// summary
-// ---------------------------------------------------------------------------
-
-const total = passed + failures.length;
-console.log("");
-if (failures.length === 0) {
-  console.log(`PASS  ${passed}/${total} assertions passed`);
-  process.exit(0);
-} else {
-  console.log(`FAIL  ${failures.length}/${total} assertions failed`);
-  for (const f of failures) console.log(`  - ${f}`);
-  process.exit(1);
-}
