@@ -175,6 +175,17 @@ elementId, styles }]`. Elements must have `data-design-id` or
   delta. Use those fields before changing code or updating the plan, especially
   to distinguish comments the agent should act on from comments intended for a
   human reviewer.
+- **Anchor interpretation.** `targetX`/`targetY` are percentages within the
+  named element; bare `x`/`y` are percentages of the whole document;
+  `canvasX`/`canvasY` are board-world pixels. Wireframe anchors carry
+  `targetNodeId`/`targetNodePath` — prefer those over raw coordinates; fall back
+  to coordinates plus the focused screenshot only when no node id is present.
+  Resolve `textQuote` with `contextBefore`/`contextAfter`; if `ambiguous: true`,
+  ask the user. Threads in `detachedThreads` no longer match current prose —
+  reconcile, never drop. Act on `resolutionTarget=agent`; treat `human` as
+  context only; `@mentions` are notification signals, not routing. Mark ingested
+  comments consumed (`consumedCommentIds`); set `status=resolved` only on
+  agent-targeted comments you actually addressed.
 - New human comments send best-effort transactional email when email is
   configured: root comments and replies notify the plan owner, @mentioned
   members, and replies also notify prior human participants in that thread.
