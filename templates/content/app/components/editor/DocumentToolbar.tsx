@@ -459,6 +459,7 @@ export function DocumentToolbar({
           open={historyOpen}
           onOpenChange={setHistoryOpen}
           canRestore={canEdit}
+          activeUsers={activeUsers}
         />
 
         <DropdownMenu>
