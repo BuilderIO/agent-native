@@ -1,6 +1,4 @@
 // Shared types and constants for the database module.
-// All items here are module-internal unless explicitly exported.
-
 import type {
   ContentDatabaseColumnCalculation,
   ContentDatabaseFilter,
@@ -14,6 +12,7 @@ import type {
   ContentDatabaseViewType,
   DocumentProperty,
   DocumentPropertyType,
+  DocumentPropertyValue,
 } from "@shared/api";
 
 // Re-exported type aliases used across modules and by consumers.
@@ -116,10 +115,27 @@ export type DatabaseQuickFilterOperator = Extract<
 >;
 
 // Board group structure (exported to consumers via DocumentDatabase.tsx).
+export const BOARD_UNGROUPED_VALUE = "__ungrouped__";
+
 export interface DatabaseBoardGroup {
   id: string;
   label: string;
   property: DocumentProperty | null;
-  value: unknown;
+  value: DocumentPropertyValue | typeof BOARD_UNGROUPED_VALUE;
   items: ContentDatabaseItem[];
+}
+
+export interface DatabaseTimelineSpan {
+  item: ContentDatabaseItem;
+  startKey: string;
+  endKey: string;
+  label: string;
+  startIndex: number;
+  endIndex: number;
+}
+
+export interface DatabaseDateViewRange {
+  start: string;
+  end: string;
+  label: string;
 }

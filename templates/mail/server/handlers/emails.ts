@@ -16,7 +16,6 @@ import { readBody, getSession } from "@agent-native/core/server";
 import {
   getOAuthTokens,
   saveOAuthTokens,
-  listOAuthAccounts,
   listOAuthAccountsByOwner,
   setOAuthDisplayName,
 } from "@agent-native/core/oauth-tokens";
@@ -63,8 +62,6 @@ import {
 import {
   bodyToHtml as outgoingBodyToHtml,
   buildRawEmail as buildOutgoingRawEmail,
-  encodeAddressHeader,
-  encodeMimeHeaderValue,
   resolveComposeAttachments,
   splitReplyQuote,
 } from "../lib/outgoing-email.js";
@@ -73,15 +70,10 @@ import { normalizeSignature } from "../../shared/signature.js";
 import { emailMessageMatchesSearch } from "@shared/search.js";
 import { getAppProductionUrl } from "@agent-native/core/server";
 import { ssrfSafeFetch } from "@agent-native/core/extensions/url-safety";
-import {
-  archiveEmail as archiveEmailCore,
-  unarchiveEmail as unarchiveEmailCore,
-  toggleStar as toggleStarCore,
-  trashEmail as trashEmailCore,
-  untrashEmail as untrashEmailCore,
-  markRead as markReadCore,
-  markThreadRead as markThreadReadCore,
-} from "../lib/email-state.js";
+// State-change operations (archive/unarchive/star/trash/untrash/markRead) have
+// been migrated to the action surface; their handlers have been removed. The
+// shared lib functions in ../lib/email-state.js remain the single source of
+// truth and are called directly from the action definitions.
 import {
   threadMessagesCache,
   THREAD_CACHE_TTL,
@@ -725,166 +717,6 @@ export const getEmail = defineEventHandler(async (event: H3Event) => {
     return { error: "Email not found" };
   }
   return found;
-});
-
-// ─── Mark read ────────────────────────────────────────────────────────────────
-
-export const markRead = defineEventHandler(async (event: H3Event) => {
-  const ownerEmail = await userEmail(event);
-  const id = getRouterParam(event, "id") as string;
-  const body = ((await readBody(event).catch(() => ({}))) ?? {}) as {
-    isRead?: boolean;
-    accountEmail?: string;
-  };
-  const isRead = body.isRead ?? true;
-  try {
-    return await markReadCore({
-      id,
-      ownerEmail,
-      isRead,
-      accountEmail: body.accountEmail,
-    });
-  } catch (error: any) {
-    console.error("[markRead] error:", error.message);
-    setResponseStatus(event, 500);
-    return { error: error.message };
-  }
-});
-
-export const markThreadRead = defineEventHandler(async (event: H3Event) => {
-  const ownerEmail = await userEmail(event);
-  const threadId = getRouterParam(event, "threadId") as string;
-  const body = ((await readBody(event).catch(() => ({}))) ?? {}) as {
-    isRead?: boolean;
-    accountEmail?: string;
-  };
-  const isRead = body.isRead !== false;
-  try {
-    return await markThreadReadCore({
-      threadId,
-      ownerEmail,
-      isRead,
-      accountEmail: body.accountEmail,
-    });
-  } catch (error: any) {
-    console.error("[markThreadRead] error:", error.message);
-    setResponseStatus(event, 500);
-    return { error: error.message };
-  }
-});
-
-// ─── Toggle star ──────────────────────────────────────────────────────────────
-
-export const toggleStar = defineEventHandler(async (event: H3Event) => {
-  const ownerEmail = await userEmail(event);
-  const id = getRouterParam(event, "id") as string;
-  const body = ((await readBody(event).catch(() => ({}))) ?? {}) as {
-    isStarred?: boolean;
-    accountEmail?: string;
-    threadId?: string;
-  };
-  const isStarred = body.isStarred ?? false;
-  try {
-    return await toggleStarCore({
-      id,
-      ownerEmail,
-      isStarred,
-      accountEmail: body.accountEmail,
-      threadId: body.threadId,
-    });
-  } catch (error: any) {
-    console.error("[toggleStar] error:", error.message);
-    setResponseStatus(event, 500);
-    return { error: error.message };
-  }
-});
-
-// ─── Archive ──────────────────────────────────────────────────────────────────
-
-export const archiveEmail = defineEventHandler(async (event: H3Event) => {
-  const ownerEmail = await userEmail(event);
-  const id = getRouterParam(event, "id") as string;
-  const body = ((await readBody(event).catch(() => ({}))) ?? {}) as {
-    accountEmail?: string;
-    removeLabel?: string;
-    threadId?: string;
-  };
-  try {
-    return await archiveEmailCore({
-      id,
-      ownerEmail,
-      accountEmail: body.accountEmail,
-      removeLabel: body.removeLabel,
-      threadId: body.threadId,
-    });
-  } catch (error: any) {
-    console.error("[archiveEmail] error:", error.message);
-    setResponseStatus(event, 500);
-    return { error: error.message };
-  }
-});
-
-// ─── Unarchive ───────────────────────────────────────────────────────────────
-
-export const unarchiveEmail = defineEventHandler(async (event: H3Event) => {
-  const ownerEmail = await userEmail(event);
-  const id = getRouterParam(event, "id") as string;
-  const body = ((await readBody(event).catch(() => ({}))) ?? {}) as {
-    accountEmail?: string;
-  };
-  try {
-    return await unarchiveEmailCore({
-      id,
-      ownerEmail,
-      accountEmail: body.accountEmail,
-    });
-  } catch (error: any) {
-    console.error("[unarchiveEmail] error:", error.message);
-    setResponseStatus(event, 500);
-    return { error: error.message };
-  }
-});
-
-// ─── Trash ────────────────────────────────────────────────────────────────────
-
-export const trashEmail = defineEventHandler(async (event: H3Event) => {
-  const ownerEmail = await userEmail(event);
-  const id = getRouterParam(event, "id") as string;
-  const body = ((await readBody(event).catch(() => ({}))) ?? {}) as {
-    accountEmail?: string;
-  };
-  try {
-    return await trashEmailCore({
-      id,
-      ownerEmail,
-      accountEmail: body.accountEmail,
-    });
-  } catch (error: any) {
-    console.error("[trashEmail] error:", error.message);
-    setResponseStatus(event, 500);
-    return { error: error.message };
-  }
-});
-
-// ─── Untrash ─────────────────────────────────────────────────────────────────
-
-export const untrashEmail = defineEventHandler(async (event: H3Event) => {
-  const ownerEmail = await userEmail(event);
-  const id = getRouterParam(event, "id") as string;
-  const body = ((await readBody(event).catch(() => ({}))) ?? {}) as {
-    accountEmail?: string;
-  };
-  try {
-    return await untrashEmailCore({
-      id,
-      ownerEmail,
-      accountEmail: body.accountEmail,
-    });
-  } catch (error: any) {
-    console.error("[untrashEmail] error:", error.message);
-    setResponseStatus(event, 500);
-    return { error: error.message };
-  }
 });
 
 // ─── Report spam ──────────────────────────────────────────────────────────────

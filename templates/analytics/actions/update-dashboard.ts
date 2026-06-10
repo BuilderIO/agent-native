@@ -16,7 +16,7 @@ import {
 } from "@agent-native/core/collab";
 
 /**
- * Same shape as the server-side validator in `server/handlers/sql-dashboards.ts`.
+ * Same validation shape used in the sql-dashboard save path.
  * Variables declared on the dashboard take priority; filter `default` values
  * fill in anything missing so parametric SQL validates against a real value.
  *

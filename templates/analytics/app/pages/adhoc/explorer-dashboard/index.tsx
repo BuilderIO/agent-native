@@ -50,6 +50,7 @@ import {
   useActionMutation,
   agentNativePath,
   appApiPath,
+  callAction,
   type CollabUser,
 } from "@agent-native/core/client";
 import { getIdToken } from "@/lib/auth";
@@ -149,12 +150,14 @@ async function saveDashboard(id: string, data: ExplorerDashboardData) {
 }
 
 async function fetchSavedConfigs(): Promise<SavedConfig[]> {
-  const res = await fetchWithAuth("/api/explorer-configs");
-  if (!res.ok) return [];
-  const data = await res.json();
-  return (data.configs ?? [])
-    .filter((c: any) => c.id !== "_autosave")
-    .map((c: any) => ({ id: c.id, name: c.name }));
+  try {
+    const rows = await callAction("list-explorer-configs", {});
+    return (Array.isArray(rows) ? rows : [])
+      .filter((c: any) => c.id !== "_autosave")
+      .map((c: any) => ({ id: c.id, name: c.name }));
+  } catch {
+    return [];
+  }
 }
 
 export default function ExplorerDashboardPage() {
