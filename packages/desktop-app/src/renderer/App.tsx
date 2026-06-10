@@ -87,6 +87,7 @@ function isShellShortcut(e: KeyboardEvent): boolean {
   const key = (e.key ?? "").toLowerCase();
   if (e.altKey && (key === "arrowup" || key === "arrowdown")) return true;
   if (isAgentSidebarToggleShortcut(e)) return true;
+  if (isCodeTabShortcut(e)) return true;
 
   return (
     key === "f" ||
@@ -105,6 +106,15 @@ function isAgentSidebarToggleShortcut(e: KeyboardEvent): boolean {
     !e.altKey &&
     !e.shiftKey &&
     (e.key === "\\" || e.code === "Backslash")
+  );
+}
+
+function isCodeTabShortcut(e: KeyboardEvent): boolean {
+  return (
+    (e.metaKey || e.ctrlKey) &&
+    e.shiftKey &&
+    !e.altKey &&
+    (e.key ?? "").toLowerCase() === "c"
   );
 }
 
@@ -558,6 +568,11 @@ export default function App() {
         return;
       }
 
+      if (shiftKey && k === "c") {
+        handleCodeAgentsClick();
+        return;
+      }
+
       if (k === "r") {
         setRefreshKey((n) => n + 1);
         return;
@@ -599,6 +614,7 @@ export default function App() {
       handleCopyCurrentUrl,
       handleNewTab,
       handleReopenTab,
+      handleCodeAgentsClick,
       appDefs,
     ],
   );
