@@ -12,6 +12,24 @@ import * as manager from "./ydoc-manager.js";
 import { readBody } from "../server/h3-helpers.js";
 import type { PatchOp } from "./json-to-yjs.js";
 
+/** Default maximum payload size (2 MB). Overridden by plugin via event.context. */
+const DEFAULT_MAX_BYTES = 2 * 1024 * 1024;
+
+function getMaxPayloadBytes(event: H3Event): number {
+  return (event.context as any)?._collabMaxPayloadBytes ?? DEFAULT_MAX_BYTES;
+}
+
+function enforcePayloadLimit(event: H3Event, body: unknown): boolean {
+  const maxBytes = getMaxPayloadBytes(event);
+  const encoded =
+    typeof body === "string" ? body : JSON.stringify(body ?? "");
+  if (encoded.length > maxBytes) {
+    setResponseStatus(event, 413);
+    return false;
+  }
+  return true;
+}
+
 /**
  * POST /_agent-native/collab/:docId/json
  *
@@ -27,8 +45,11 @@ export const postCollabJson = defineEventHandler(async (event: H3Event) => {
     return { error: "docId required" };
   }
 
-  const body = await readBody(event);
-  const { json, fieldName, type, requestSource } = body as {
+  const rawBody = await readBody(event);
+  if (!enforcePayloadLimit(event, rawBody)) {
+    return { error: "Payload too large" };
+  }
+  const { json, fieldName, type, requestSource } = rawBody as {
     json?: any;
     fieldName?: string;
     type?: "map" | "array";
@@ -65,8 +86,11 @@ export const postCollabPatch = defineEventHandler(async (event: H3Event) => {
     return { error: "docId required" };
   }
 
-  const body = await readBody(event);
-  const { ops, fieldName, requestSource } = body as {
+  const rawBody = await readBody(event);
+  if (!enforcePayloadLimit(event, rawBody)) {
+    return { error: "Payload too large" };
+  }
+  const { ops, fieldName, requestSource } = rawBody as {
     ops?: PatchOp[];
     fieldName?: string;
     requestSource?: string;

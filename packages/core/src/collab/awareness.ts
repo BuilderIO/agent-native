@@ -80,8 +80,14 @@ export const postAwareness = defineEventHandler(async (event: H3Event) => {
   // Store this client's state
   map.set(clientId, { clientId, state, lastSeen: Date.now() });
 
-  // Clean expired entries
+  // Clean expired entries, then prune the outer-map entry if it becomes empty.
+  // Without pruning, a deployment with many transient docIds (e.g. one per
+  // session) would grow _awarenessMap without bound.
   cleanExpired(map);
+  // map has at least the sender's entry so size >= 1 here; pruneIfEmpty is a
+  // no-op in the normal path but guards against edge cases (e.g. clientId 0
+  // that was immediately evicted by a concurrent cleanExpired run).
+  pruneIfEmpty(docId, map);
 
   // Return other clients' states (exclude the sender)
   const states: Array<{ clientId: number; state: string }> = [];

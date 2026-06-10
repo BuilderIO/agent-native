@@ -16,6 +16,28 @@ import { searchAndReplace as doSearchAndReplace } from "./ydoc-manager.js";
 import { uint8ArrayToBase64, base64ToUint8Array } from "./storage.js";
 import { readBody } from "../server/h3-helpers.js";
 
+/** Default maximum payload size (2 MB). Overridden by plugin via event.context. */
+const DEFAULT_MAX_BYTES = 2 * 1024 * 1024;
+
+function getMaxPayloadBytes(event: H3Event): number {
+  return (event.context as any)?._collabMaxPayloadBytes ?? DEFAULT_MAX_BYTES;
+}
+
+/**
+ * Check the serialized body length against the configured limit.
+ * Returns true if within limits; sets 413 status and returns false otherwise.
+ */
+function enforcePayloadLimit(event: H3Event, body: unknown): boolean {
+  const maxBytes = getMaxPayloadBytes(event);
+  const encoded =
+    typeof body === "string" ? body : JSON.stringify(body ?? "");
+  if (encoded.length > maxBytes) {
+    setResponseStatus(event, 413);
+    return false;
+  }
+  return true;
+}
+
 /**
  * GET /_agent-native/collab/:docId/state
  *
@@ -66,8 +88,11 @@ export const postCollabUpdate = defineEventHandler(async (event: H3Event) => {
     return { error: "docId required" };
   }
 
-  const body = await readBody(event);
-  const { update, requestSource } = body as {
+  const rawBody = await readBody(event);
+  if (!enforcePayloadLimit(event, rawBody)) {
+    return { error: "Payload too large" };
+  }
+  const { update, requestSource } = rawBody as {
     update?: string;
     requestSource?: string;
   };
@@ -98,8 +123,11 @@ export const postCollabText = defineEventHandler(async (event: H3Event) => {
     return { error: "docId required" };
   }
 
-  const body = await readBody(event);
-  const { text, fieldName, requestSource } = body as {
+  const rawBody = await readBody(event);
+  if (!enforcePayloadLimit(event, rawBody)) {
+    return { error: "Payload too large" };
+  }
+  const { text, fieldName, requestSource } = rawBody as {
     text?: string;
     fieldName?: string;
     requestSource?: string;
@@ -136,8 +164,11 @@ export const postCollabSearchReplace = defineEventHandler(
       return { error: "docId required" };
     }
 
-    const body = await readBody(event);
-    const { find, replace, requestSource } = body as {
+    const rawBody = await readBody(event);
+    if (!enforcePayloadLimit(event, rawBody)) {
+      return { error: "Payload too large" };
+    }
+    const { find, replace, requestSource } = rawBody as {
       find?: string;
       replace?: string;
       requestSource?: string;
