@@ -278,23 +278,25 @@ jobs:
           try {
             const raw = process.env.PLAN_URL || "";
             const trusted = new URL(process.env.PLAN_RECAP_APP_URL || "https://plan.agent-native.com");
-            const parsed = new URL(raw, trusted);
+            const parsed = /^https?:\/\//i.test(raw)
+              ? new URL(raw)
+              : new URL(raw, trusted);
             if (parsed.origin !== trusted.origin) {
               process.exit(0);
             }
 
             const base = trusted.pathname.replace(/\/$/, "");
-            let path = parsed.pathname;
-            if (base) {
-              if (path !== base && !path.startsWith(`${base}/`)) {
-                process.exit(0);
-              }
-              path = path.slice(base.length) || "/";
+            const paths = [parsed.pathname];
+            if (base && parsed.pathname.startsWith(`${base}/`)) {
+              paths.push(parsed.pathname.slice(base.length) || "/");
             }
 
-            const match = path.match(/^\/(?:plans|recaps)\/([A-Za-z0-9_-]+)\/?$/);
-            if (match) {
-              process.stdout.write(`${trusted.origin}${base}/recaps/${match[1]}`);
+            for (const path of paths) {
+              const match = path.match(/^\/(?:plans|recaps)\/([A-Za-z0-9_-]+)\/?$/);
+              if (match) {
+                process.stdout.write(`${trusted.origin}${base}/recaps/${match[1]}`);
+                break;
+              }
             }
           } catch {
             process.exit(0);
