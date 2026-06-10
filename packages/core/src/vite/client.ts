@@ -1559,17 +1559,6 @@ export function defineConfig(options: ClientConfigOptions = {}): UserConfig {
       // serves stale code even after the source / dist is updated.
       exclude: [
         ...(findCoreSrcDir(cwd) !== null ? CORE_CLIENT_SUBPATHS : []),
-        // Vite 8's Rolldown dep optimizer can mis-bundle recharts' nested
-        // es-toolkit compat CJS (require_isUnsafeProperty is not a function),
-        // leaving the app stuck on the ClientOnly spinner after sign-in.
-        // Serve them as native ESM instead; workspaceNodeModulesAllow above
-        // lets pnpm-resolved transitive deps load in workspace apps.
-        // recharts is also a direct dep of @agent-native/core, so apps that
-        // depend on core transitively carry recharts even if they don't list
-        // it directly. Check both to cover the transitive case.
-        ...(hasDep("recharts", cwd) || hasDep("@agent-native/core", cwd)
-          ? ["recharts", "es-toolkit"]
-          : []),
         ...(options.optimizeDeps?.exclude ?? []),
       ],
     },
