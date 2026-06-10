@@ -36,6 +36,12 @@ agent-native skills add visual-plan --with-github-action
 
 This installs the `visual-plan` skill (which includes the `visual-recap` skill the action runs) and writes `.github/workflows/pr-visual-recap.yml` into your repo. The workflow calls **published CLI subcommands** — `agent-native recap scan|build-prompt|shot|comment` — so nothing is copied into your repo as helper scripts. Commit the generated workflow file, set the secrets below, and open a PR to see it run.
 
+By default, the workflow builds its agent prompt from the latest bundled
+`visual-recap` guidance in `@agent-native/core@latest`, including any sibling
+reference files the skill ships with. If your repo intentionally customizes and
+pins its committed `visual-recap` folder, set the repository variable
+`VISUAL_RECAP_SKILL_SOURCE=repo`.
+
 ## Backend selection
 
 Choose which coding agent runs the skill with the `VISUAL_RECAP_AGENT` repository variable:
@@ -53,6 +59,7 @@ Beyond the backend, two repository variables tune _how_ the agent runs:
 
 - **`VISUAL_RECAP_MODEL`** pins the model passed to the CLI (`--model`) — for example `gpt-5.5` for Codex, or a Claude model id. Leave it unset to use the CLI's own default model.
 - **`VISUAL_RECAP_REASONING`** sets the reasoning depth: `none`, `minimal`, `low`, `medium`, `high`, or `xhigh`. It applies to the Codex backend; Claude's reasoning is model-driven, so this variable is ignored there.
+- **`VISUAL_RECAP_SKILL_SOURCE`** controls prompt freshness: `auto`/unset uses the latest bundled skill guidance, while `repo` pins to the committed repo-local `visual-recap` skill folder.
 
 For example, to run the recap on Codex with GPT-5.5 at high reasoning, set the repository variables `VISUAL_RECAP_AGENT=codex`, `VISUAL_RECAP_MODEL=gpt-5.5`, and `VISUAL_RECAP_REASONING=high`.
 

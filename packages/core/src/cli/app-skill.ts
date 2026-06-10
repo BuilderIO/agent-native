@@ -652,7 +652,8 @@ export function exportedSkillContentHash(
       // the content hash and bumps the Codex plugin version for auto-upgrade.
       const body = collectSkillFiles(skillDir)
         .map(
-          (rel) => `${rel}\n${fs.readFileSync(path.join(skillDir, rel), "utf-8")}`,
+          (rel) =>
+            `${rel}\n${fs.readFileSync(path.join(skillDir, rel), "utf-8")}`,
         )
         .join("\n \n");
       return `${skillExportName(skill)}\n${body}`;

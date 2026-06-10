@@ -17,7 +17,8 @@
  *   mcp-config    Write the plan MCP client config for the chosen backend
  *                 (Claude Code JSON or Codex config.toml).
  *   scan          Refuse to hand a secret-leaking diff to the agent.
- *   build-prompt  Assemble the agent prompt = repo SKILL.md + a task wrapper.
+ *   build-prompt  Assemble the agent prompt = latest visual-recap skill bundle
+ *                 + a task wrapper (or repo-pinned skill with --skill-source).
  *   shot          Screenshot the published plan and upload it to the plan app's
  *                 signed public image route (for an inline PR-comment image).
  *   comment       Find the previous plan id / upsert the sticky PR comment.
@@ -34,6 +35,7 @@ import os from "node:os";
 import path from "node:path";
 
 import { PR_VISUAL_RECAP_WORKFLOW_YML } from "./pr-visual-recap-workflow.js";
+import { BUILT_IN_APP_SKILLS, VISUAL_RECAP_SKILL_MD } from "./skills.js";
 
 /* -------------------------------------------------------------------------- */
 /* Arg parsing                                                                */
@@ -86,6 +88,7 @@ export const PR_VISUAL_RECAP_SETUP: string[] = [
   "Optional (only if you change defaults):",
   "  OPENAI_API_KEY (secret) + VISUAL_RECAP_AGENT=codex (variable) — use Codex instead of Claude",
   "  VISUAL_RECAP_MODEL / VISUAL_RECAP_REASONING (variables) — pin the model (e.g. gpt-5.5) and reasoning depth (none|minimal|low|medium|high|xhigh; Codex only)",
+  "  VISUAL_RECAP_SKILL_SOURCE=repo (variable) — pin CI to the repo-local visual-recap skill instead of latest bundled guidance",
   "  PLAN_RECAP_APP_URL (secret) — only when self-hosting the plan app (defaults to https://plan.agent-native.com)",
 ];
 
@@ -402,6 +405,82 @@ export function readRepoSkillMd(cwd: string = process.cwd()): {
   );
 }
 
+type RecapSkillSourceMode = "auto" | "latest" | "repo";
+
+function listRecapSkillReferenceFiles(
+  skillDir: string,
+): Record<string, string> {
+  const out: Record<string, string> = {};
+  const walk = (current: string, prefix = "") => {
+    for (const entry of fs.readdirSync(current, { withFileTypes: true })) {
+      const rel = prefix ? `${prefix}/${entry.name}` : entry.name;
+      const abs = path.join(current, entry.name);
+      if (entry.isDirectory()) {
+        walk(abs, rel);
+        continue;
+      }
+      if (!entry.isFile() || rel === "SKILL.md") continue;
+      if (rel === "agent-native-skill.json") continue;
+      out[rel] = fs.readFileSync(abs, "utf8");
+    }
+  };
+  if (fs.existsSync(skillDir)) walk(skillDir);
+  return out;
+}
+
+function recapSkillBundleText(
+  skillMd: string,
+  referenceFiles: Record<string, string>,
+): string {
+  const refs = Object.keys(referenceFiles).sort();
+  if (refs.length === 0) return skillMd;
+  const lines = [skillMd.trim(), "", "# Bundled visual-recap reference files"];
+  lines.push(
+    "These files live next to visual-recap/SKILL.md in a normal install. Treat them as part of the skill instructions.",
+  );
+  for (const rel of refs) {
+    lines.push("", `## ${rel}`, "", referenceFiles[rel].trim());
+  }
+  return lines.join("\n");
+}
+
+function readRepoSkillBundle(cwd: string = process.cwd()): {
+  text: string;
+  source: string;
+} {
+  const skill = readRepoSkillMd(cwd);
+  const skillDir = path.dirname(path.resolve(cwd, skill.source));
+  return {
+    text: recapSkillBundleText(
+      skill.text,
+      listRecapSkillReferenceFiles(skillDir),
+    ),
+    source: skill.source,
+  };
+}
+
+function latestVisualRecapSkillBundle(): { text: string; source: string } {
+  const planSkill = BUILT_IN_APP_SKILLS["visual-plans"];
+  const references =
+    "extraFiles" in planSkill
+      ? (planSkill.extraFiles?.["visual-recap"] ?? {})
+      : {};
+  return {
+    text: recapSkillBundleText(VISUAL_RECAP_SKILL_MD, references),
+    source: "bundled:@agent-native/core/visual-recap",
+  };
+}
+
+export function readVisualRecapSkillBundle(
+  cwd: string = process.cwd(),
+  mode: RecapSkillSourceMode = "auto",
+): { text: string; source: string } {
+  if (mode === "latest" || mode === "auto") {
+    return latestVisualRecapSkillBundle();
+  }
+  return readRepoSkillBundle(cwd);
+}
+
 export function buildRecapPrompt(input: {
   skillMd: string;
   pr: string;
@@ -491,6 +570,14 @@ export function buildRecapPrompt(input: {
   lines.push("");
   lines.push(
     "Do not invent file names, schema fields, or endpoints. Redact anything that looks like a secret. If the diff has no reviewable substance, still publish a minimal recap and write recap-url.txt.",
+  );
+  lines.push("");
+  lines.push("## Depth preflight");
+  lines.push(
+    "Before authoring the recap, read the diff/stat and make a quick private inventory of changed files, routes/actions, rendered UI surfaces, popovers/dialogs, role/access states, empty/error states, and shared abstractions. The published recap must cover each meaningful item with a structured block or intentionally omit it because it is tiny, redundant, or not user-visible.",
+  );
+  lines.push(
+    "For UI PRs, do not stop at one before/after. Show the entry point, the changed interaction surface, and the resulting/destination state; add role/access or empty/error states when the diff implements them. Then include the key file-tree and key-change diff tabs.",
   );
   lines.push("");
   lines.push("---");
@@ -747,7 +834,21 @@ function runScan(args: Record<string, string | boolean>): void {
 }
 
 function runBuildPrompt(args: Record<string, string | boolean>): void {
-  const skill = readRepoSkillMd();
+  const skillSource =
+    optionalArg(args, "skill-source") ??
+    process.env.VISUAL_RECAP_SKILL_SOURCE ??
+    "auto";
+  if (
+    skillSource !== "auto" &&
+    skillSource !== "latest" &&
+    skillSource !== "repo"
+  ) {
+    throw new Error("--skill-source must be auto, latest, or repo.");
+  }
+  const skill = readVisualRecapSkillBundle(
+    process.cwd(),
+    skillSource as RecapSkillSourceMode,
+  );
   const prompt = buildRecapPrompt({
     skillMd: skill.text,
     pr: stringArg(args, "pr"),
@@ -1746,7 +1847,7 @@ Usage:
   agent-native recap collect-diff --base <baseSha> --head <headSha> [--out recap.diff] [--stat recap.stat]
   agent-native recap mcp-config --agent claude|codex --app-url <url> [--out <path>]
   agent-native recap scan --diff <path>
-  agent-native recap build-prompt --pr <n> [--repo owner/name] [--head <sha>] [--app-url <url>] [--diff <path>] [--stat <path>] [--prev-plan-id <id>] [--huge] [--local-files] [--local-dir <folder>] [--out <path>]
+  agent-native recap build-prompt --pr <n> [--repo owner/name] [--head <sha>] [--app-url <url>] [--diff <path>] [--stat <path>] [--prev-plan-id <id>] [--huge] [--local-files] [--local-dir <folder>] [--skill-source auto|latest|repo] [--out <path>]
   agent-native recap shot --url <planUrl> [--token <planToken>] [--app-url <url>] [--out recap.png]
   agent-native recap usage --plan-url <planUrl> --result-file <path> --app-url <url> --token <planToken> [--agent claude|codex] [--model <id>]
   agent-native recap comment <find-plan-id|upsert> --repo owner/name --issue <n> --token <github-token>

@@ -93,7 +93,7 @@ The plugin routes auto-update — you do not re-pack or re-add the marketplace f
 
 - **Claude Code** — the marketplace entry sets `autoUpdate: true` and the plugin uses commit-SHA versioning, so Claude Code pulls new versions from the repo at startup; run `/reload-plugins` to activate. Every push to the repo's default branch reaches installed users automatically.
 - **Codex** — the plugin `version` embeds a content hash of the bundled skills and MCP endpoint (e.g. `1.0.0+codex.<hash>`), so any skill or endpoint change yields a new version. Codex's startup auto-upgrade re-installs configured git marketplaces on its own; just **start a new thread** to pick up the change. No manual `codex plugin marketplace upgrade` is needed for routine updates.
-- **Universal CLI route** — re-run `npx @agent-native/core@latest skills add visual-plan` to refresh the skills and re-register the connector. `@latest` always pulls the current skills from the published `@agent-native/core` package.
+- **Universal CLI route** — run `npx @agent-native/core@latest skills status visual-plan` to check copied skill folders, or `npx @agent-native/core@latest skills update visual-plan` to refresh them in place. Re-running `skills add visual-plan` still works when you also want to re-register/authenticate the connector. `@latest` always pulls the current skills from the published `@agent-native/core` package.
 
 The connector points at a **hosted** app, so the Plan app's actions and live tool surface always reflect the deployed version regardless of when you installed; only the bundled skill instructions follow the update mechanisms above.
 

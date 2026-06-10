@@ -18,6 +18,7 @@ import {
   parseClaudeUsage,
   parseCodexUsage,
   recapCheckOutcome,
+  readVisualRecapSkillBundle,
   truncateDiffAtLineBoundary,
   waitForPublicRecapImage,
 } from "./recap.js";
@@ -243,6 +244,14 @@ describe("recap prompt builder", () => {
     expect(prompt).not.toContain(
       "https://plan.agent-native.com/recaps/<the returned plan id>",
     );
+  });
+
+  it("builds the latest bundled skill with sibling reference files", () => {
+    const bundle = readVisualRecapSkillBundle(repoRoot, "latest");
+    expect(bundle.source).toBe("bundled:@agent-native/core/visual-recap");
+    expect(bundle.text).toContain("Bundled visual-recap reference files");
+    expect(bundle.text).toContain("references/wireframe.md");
+    expect(bundle.text).toContain("HTML wireframe quality");
   });
 });
 
@@ -874,6 +883,8 @@ describe("bundled PR visual recap workflow", () => {
     expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain(
       "steps.recap_check.outputs.check_run_id != ''",
     );
+    expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain("VISUAL_RECAP_SKILL_SOURCE");
+    expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain("--skill-source");
   });
 });
 

@@ -124,6 +124,11 @@ them. Alongside the visual/structural headline (wireframes, `data-model`,
 `api-endpoint`, `diagram`), a substantial recap also carries the implementation
 evidence:
 
+- A short surface/state inventory before authoring: list the changed routes,
+  components, popovers/dialogs, role/access states, empty/error states, and
+  shared abstractions visible in the diff. The final recap must either represent
+  each meaningful item with a block or intentionally omit it because it is tiny,
+  redundant, or not user-visible.
 - A `file-tree` of the changed files with each entry's `change` flag, so the
   reviewer sees the footprint of the work at a glance.
 - The split `diff` of the KEY changed files, grouped under a `## Key changes`
@@ -143,6 +148,25 @@ When the diff changes rendered UI, layout, density, visual state, interaction
 affordances, navigation, controls, menus, dialogs, or design tokens, the recap
 MUST include one or more wireframes. Prose and file diffs are not a substitute
 for showing what changed visually.
+
+Before choosing wireframes, make a UI coverage pass from the diff:
+
+- Identify the entry surface where the change appears, such as a page header,
+  list row, toolbar, route shell, or menu trigger.
+- Identify the interaction surface that opens or changes, such as a popover,
+  dialog, tab, sheet, dropdown, inline editor, or toast.
+- Identify the resulting destination or persistent state, such as a public page,
+  read-only view, empty state, error state, loading state, permission-denied
+  state, or saved/shared state.
+- Identify access or role variants when permissions change. Owner/admin/editor
+  versus viewer/non-manager differences are visual behavior and need a compact
+  matrix, paired wireframes, or clearly labeled state sequence.
+
+For UI-heavy PRs, a single before/after of the entry surface is not enough.
+Show the changed entry point, the main changed interaction surface, and the
+resulting/destination state. Add more states when the diff adds tabs, role-based
+controls, public/private visibility, invite/manage flows, destructive controls,
+or empty/error branches.
 
 Choose the smallest visual surface that makes the review clear:
 
@@ -307,9 +331,12 @@ tags — resolve every conceptual name to its exact tag + prop schema with the
   wireframes when the comparison clarifies the change; otherwise use after-only
   or a short state/flow sequence. Use realistic UI surfaces: for a popover
   change, show a popover with its title row, top-right actions, options/fields,
-  and any opened prompt/menu anchored to the correct trigger. Keep the body lean:
-  the wireframe carries the UI story, while the file tree and `diff`
-  blocks carry implementation evidence.
+  tabs, selected/disabled states, people/lists/rows, and any opened prompt/menu
+  anchored to the correct trigger. If a route was added, show the route body and
+  the unavailable/empty state when the diff implements one. If permissions
+  changed, show what managers can do and what viewers/non-managers see instead.
+  Keep the body lean: the wireframe carries the UI story, while the file tree
+  and `diff` blocks carry implementation evidence.
 - **Architecture or data-flow shift** → `diagram` with `data.html` / `data.css`
   as a two-panel before/after, layered, or swimlane layout, or `mermaid` for a
   quick graph. Use two-dimensional layouts; do not reduce a structural change to
@@ -398,7 +425,10 @@ For UI diffs, wireframes are the visual comparison primitive. Use before/after
 wireframes when the comparison clarifies the change; use after-only or a state
 sequence when that better matches the change. The visual headline must show
 exact placement, realistic chrome, and adequate padding before any abstract
-explanation. The Wireframe Quality core owns the before/after layout choice —
+explanation. Do not stop at the first visible affordance when the diff adds a
+flow; show the entry point, the opened surface, and the resulting state or page
+so the reviewer can trace the actual user path. The Wireframe Quality core owns
+the before/after layout choice —
 the `columns` renderer keeps narrow surfaces side by side and auto-stacks wide
 `desktop`/`browser` frames vertically; never hand-build a side-by-side
 wireframe layout in `custom-html`. For document-body

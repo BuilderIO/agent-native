@@ -4,7 +4,12 @@ import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { addAgentNativeSkill, parseSkillsArgs, runSkills } from "./skills.js";
+import {
+  addAgentNativeSkill,
+  AGENT_NATIVE_SKILL_METADATA_FILE,
+  parseSkillsArgs,
+  runSkills,
+} from "./skills.js";
 
 const tmpRoots: string[] = [];
 const PLANS_SKILL_NAMES = ["visual-plan", "visual-recap"];
@@ -62,6 +67,22 @@ describe("agent-native skills", () => {
     expect(parseSkillsArgs(["add", "assets", "--skip-connect"]).connect).toBe(
       false,
     );
+  });
+
+  it("parses status/update without prompting for add defaults", () => {
+    expect(parseSkillsArgs(["status", "visual-plan"])).toMatchObject({
+      command: "status",
+      target: "visual-plan",
+      scopeExplicit: false,
+    });
+    expect(
+      parseSkillsArgs(["update", "visual-plan", "--scope", "project"]),
+    ).toMatchObject({
+      command: "update",
+      target: "visual-plan",
+      scope: "project",
+      scopeExplicit: true,
+    });
   });
 
   it("skips the auth flow when --no-connect is passed", async () => {
@@ -192,6 +213,7 @@ describe("agent-native skills", () => {
     const previousCodexHome = process.env.CODEX_HOME;
     const commands: { cmd: string; args: string[] }[] = [];
     let materializedVisualPlan = "";
+    let materializedMetadata = "";
 
     process.env.CODEX_HOME = codexHome;
     try {
@@ -213,6 +235,15 @@ describe("agent-native skills", () => {
               if (source) {
                 materializedVisualPlan = fs.readFileSync(
                   path.join(source, "skills", "visual-plan", "SKILL.md"),
+                  "utf-8",
+                );
+                materializedMetadata = fs.readFileSync(
+                  path.join(
+                    source,
+                    "skills",
+                    "visual-plan",
+                    "agent-native-skill.json",
+                  ),
                   "utf-8",
                 );
               }
@@ -244,10 +275,77 @@ describe("agent-native skills", () => {
       expect(materializedVisualPlan).toContain("pass it as `planText`");
       expect(materializedVisualPlan).toContain("contentPatches");
       expect(materializedVisualPlan).not.toContain("data-plan-tabs");
+      expect(JSON.parse(materializedMetadata)).toMatchObject({
+        source: "agent-native",
+        appSkillId: "visual-plans",
+        skillName: "visual-plan",
+      });
     } finally {
       if (previousCodexHome === undefined) delete process.env.CODEX_HOME;
       else process.env.CODEX_HOME = previousCodexHome;
     }
+  });
+
+  it("reports and refreshes stale project skill folders", async () => {
+    const root = tmpDir();
+    const skillDir = path.join(root, ".agents", "skills", "visual-recap");
+    fs.mkdirSync(skillDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(skillDir, "SKILL.md"),
+      "---\nname: visual-recap\n---\n\nstale body\n",
+      "utf-8",
+    );
+    const stdout: string[] = [];
+    vi.spyOn(process.stdout, "write").mockImplementation((chunk) => {
+      stdout.push(String(chunk));
+      return true;
+    });
+
+    await runSkills(
+      ["status", "visual-recap", "--scope", "project", "--json"],
+      { baseDir: root },
+    );
+    const status = JSON.parse(stdout.splice(0).join(""));
+    expect(status.found).toBe(1);
+    expect(status.stale).toBe(1);
+    expect(status.skills[0]).toMatchObject({
+      skillName: "visual-recap",
+      status: "stale",
+      managed: false,
+    });
+
+    await runSkills(
+      ["update", "visual-recap", "--scope", "project", "--json"],
+      { baseDir: root },
+    );
+    const updated = JSON.parse(stdout.splice(0).join(""));
+    expect(updated.updated).toBe(1);
+    expect(updated.skills[0]).toMatchObject({
+      skillName: "visual-recap",
+      status: "current",
+      managed: true,
+    });
+    expect(fs.readFileSync(path.join(skillDir, "SKILL.md"), "utf-8")).toContain(
+      "create-visual-recap",
+    );
+    expect(
+      fs.readFileSync(
+        path.join(skillDir, "references", "wireframe.md"),
+        "utf-8",
+      ),
+    ).toContain("HTML wireframe quality");
+    expect(
+      JSON.parse(
+        fs.readFileSync(
+          path.join(skillDir, "agent-native-skill.json"),
+          "utf-8",
+        ),
+      ),
+    ).toMatchObject({
+      source: "agent-native",
+      appSkillId: "visual-plans",
+      skillName: "visual-recap",
+    });
   });
 
   it("keeps exported Plans skill copies aligned with template skills", () => {
@@ -706,6 +804,111 @@ describe("agent-native skills", () => {
     ]);
     expect(result.commands.join("\n")).not.toContain(os.tmpdir());
     expect(fs.existsSync(path.join(root, ".mcp.json"))).toBe(false);
+  });
+
+  it("reports installed skill status without running the add flow", async () => {
+    const root = tmpDir();
+    const skillDir = path.join(root, ".agents", "skills", "visual-plan");
+    fs.mkdirSync(skillDir, { recursive: true });
+    fs.writeFileSync(path.join(skillDir, "SKILL.md"), "old visual plan\n");
+    fs.writeFileSync(
+      path.join(skillDir, AGENT_NATIVE_SKILL_METADATA_FILE),
+      `${JSON.stringify(
+        {
+          schemaVersion: 1,
+          source: "agent-native",
+          appSkillId: "visual-plans",
+          displayName: "Agent-Native Plans",
+          skillName: "visual-plan",
+          contentHash: "old",
+          mcpUrl: "https://plan.agent-native.com/_agent-native/mcp",
+          installedAt: "2026-01-01T00:00:00.000Z",
+          updateCommand: "agent-native skills update visual-plan",
+        },
+        null,
+        2,
+      )}\n`,
+    );
+    const stdout: string[] = [];
+    const runCommand = vi.fn(async () => 0);
+    vi.spyOn(process.stdout, "write").mockImplementation((chunk) => {
+      stdout.push(String(chunk));
+      return true;
+    });
+
+    await runSkills(
+      [
+        "status",
+        "visual-plan",
+        "--client",
+        "codex",
+        "--scope",
+        "project",
+        "--json",
+      ],
+      { baseDir: root, runCommand },
+    );
+
+    expect(runCommand).not.toHaveBeenCalled();
+    const json = JSON.parse(stdout.join(""));
+    expect(json).toMatchObject({ command: "status", found: 1, stale: 1 });
+    expect(json.skills[0]).toMatchObject({
+      skillName: "visual-plan",
+      status: "stale",
+      managed: true,
+    });
+  });
+
+  it("updates managed copied skill folders in place", async () => {
+    const root = tmpDir();
+    const skillDir = path.join(root, ".agents", "skills", "visual-plan");
+    fs.mkdirSync(skillDir, { recursive: true });
+    fs.writeFileSync(path.join(skillDir, "SKILL.md"), "old visual plan\n");
+    fs.writeFileSync(
+      path.join(skillDir, AGENT_NATIVE_SKILL_METADATA_FILE),
+      `${JSON.stringify(
+        {
+          schemaVersion: 1,
+          source: "agent-native",
+          appSkillId: "visual-plans",
+          displayName: "Agent-Native Plans",
+          skillName: "visual-plan",
+          contentHash: "old",
+          mcpUrl: "https://plan.agent-native.com/_agent-native/mcp",
+          installedAt: "2026-01-01T00:00:00.000Z",
+          updateCommand: "agent-native skills update visual-plan",
+        },
+        null,
+        2,
+      )}\n`,
+    );
+    const stdout: string[] = [];
+    const runCommand = vi.fn(async () => 0);
+    vi.spyOn(process.stdout, "write").mockImplementation((chunk) => {
+      stdout.push(String(chunk));
+      return true;
+    });
+
+    await runSkills(
+      ["update", "visual-plan", "--client", "codex", "--scope", "project"],
+      { baseDir: root, runCommand },
+    );
+
+    expect(runCommand).not.toHaveBeenCalled();
+    expect(stdout.join("")).toContain("Updated 1 skill folder");
+    expect(fs.readFileSync(path.join(skillDir, "SKILL.md"), "utf-8")).toContain(
+      "# Agent-Native Plans",
+    );
+    expect(
+      fs.existsSync(path.join(skillDir, "references", "wireframe.md")),
+    ).toBe(true);
+    const metadata = JSON.parse(
+      fs.readFileSync(
+        path.join(skillDir, AGENT_NATIVE_SKILL_METADATA_FILE),
+        "utf-8",
+      ),
+    );
+    expect(metadata.contentHash).not.toBe("old");
   });
 
   it("registers the skill against a --mcp-url override (bare origin gets the mcp path)", async () => {

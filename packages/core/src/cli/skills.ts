@@ -8,6 +8,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { spawn } from "node:child_process";
+import { createHash } from "node:crypto";
 
 import {
   buildAppSkillPack,
@@ -34,6 +35,8 @@ const HELP = `agent-native skills
 
 Usage:
   agent-native skills list
+  agent-native skills status [assets|design-exploration|visual-plan|visual-recap] [--client codex|claude-code|all] [--scope user|project] [--json]
+  agent-native skills update [assets|design-exploration|visual-plan|visual-recap] [--client codex|claude-code|all] [--scope user|project] [--dry-run] [--json]
   agent-native skills add assets|design-exploration|visual-plan|visual-recap|context-xray [--client codex|claude-code|claude-code-cli|cowork|all] [--scope user|project] [--mcp-url <url>] [--no-connect] [--with-github-action] [--yes] [--dry-run] [--json]
   agent-native skills add <manifest-or-app-dir> [--client ...] [--yes]
 
@@ -42,6 +45,8 @@ Examples:
   agent-native skills add design-exploration
   agent-native skills add visual-plan
   agent-native skills add visual-plan --with-github-action
+  agent-native skills status visual-plan
+  agent-native skills update visual-plan
   agent-native skills add visual-plan --no-connect
   agent-native skills add context-xray --client all
   agent-native skills add assets --client claude-code
@@ -63,7 +68,10 @@ register the connector without authenticating (leave auth to the host or run
 a custom origin (an ngrok tunnel, a local dev server, or a self-hosted
 deployment) instead of the built-in hosted default — a bare origin gets the
 standard /_agent-native/mcp path appended. Use app-skill pack for marketplace
-bundles and custom adapter output.`;
+bundles and custom adapter output.
+
+The status/update commands inspect copied Agent Native skill folders and refresh
+their instruction files from the current @agent-native/core package.`;
 
 const ASSETS_SKILL_MD = `---
 name: assets
@@ -1225,6 +1233,11 @@ them. Alongside the visual/structural headline (wireframes, \`data-model\`,
 \`api-endpoint\`, \`diagram\`), a substantial recap also carries the implementation
 evidence:
 
+- A short surface/state inventory before authoring: list the changed routes,
+  components, popovers/dialogs, role/access states, empty/error states, and
+  shared abstractions visible in the diff. The final recap must either represent
+  each meaningful item with a block or intentionally omit it because it is tiny,
+  redundant, or not user-visible.
 - A \`file-tree\` of the changed files with each entry's \`change\` flag, so the
   reviewer sees the footprint of the work at a glance.
 - The split \`diff\` of the KEY changed files, grouped under a \`## Key changes\`
@@ -1244,6 +1257,25 @@ When the diff changes rendered UI, layout, density, visual state, interaction
 affordances, navigation, controls, menus, dialogs, or design tokens, the recap
 MUST include one or more wireframes. Prose and file diffs are not a substitute
 for showing what changed visually.
+
+Before choosing wireframes, make a UI coverage pass from the diff:
+
+- Identify the entry surface where the change appears, such as a page header,
+  list row, toolbar, route shell, or menu trigger.
+- Identify the interaction surface that opens or changes, such as a popover,
+  dialog, tab, sheet, dropdown, inline editor, or toast.
+- Identify the resulting destination or persistent state, such as a public page,
+  read-only view, empty state, error state, loading state, permission-denied
+  state, or saved/shared state.
+- Identify access or role variants when permissions change. Owner/admin/editor
+  versus viewer/non-manager differences are visual behavior and need a compact
+  matrix, paired wireframes, or clearly labeled state sequence.
+
+For UI-heavy PRs, a single before/after of the entry surface is not enough.
+Show the changed entry point, the main changed interaction surface, and the
+resulting/destination state. Add more states when the diff adds tabs, role-based
+controls, public/private visibility, invite/manage flows, destructive controls,
+or empty/error branches.
 
 Choose the smallest visual surface that makes the review clear:
 
@@ -1270,7 +1302,13 @@ so the rendered recap opens with the UI visual available.
 
 ## Wireframe Quality — read \`references/wireframe.md\`
 
-${WIREFRAME_REFERENCE_POINTER}
+UI recap/plan wireframes must meet a strict quality bar — full-width chrome,
+pinned bottom bars, real product content, before/after comparability, the right
+\`surface\` preset, \`--wf-*\` tokens instead of hex, and no \`<html>\`/\`<style>\`/font
+tags. Before authoring ANY wireframe / \`<Screen>\` / \`WireframeBlock\`, READ
+\`references/wireframe.md\` in this skill directory — it is the single source of
+truth for HTML wireframe quality, shared word for word with \`/visual-plan\`,
+\`/ui-plan\`, and \`/visual-recap\`. Do not author wireframes from memory.
 
 Use the standard \`WireframeBlock\` / \`<Screen>\` format so the Plan viewer owns the
 surface frame, theme, and sketchy/clean toggle. HTML wireframes are appropriate
@@ -1402,9 +1440,12 @@ tags — resolve every conceptual name to its exact tag + prop schema with the
   wireframes when the comparison clarifies the change; otherwise use after-only
   or a short state/flow sequence. Use realistic UI surfaces: for a popover
   change, show a popover with its title row, top-right actions, options/fields,
-  and any opened prompt/menu anchored to the correct trigger. Keep the body lean:
-  the wireframe carries the UI story, while the file tree and \`diff\`
-  blocks carry implementation evidence.
+  tabs, selected/disabled states, people/lists/rows, and any opened prompt/menu
+  anchored to the correct trigger. If a route was added, show the route body and
+  the unavailable/empty state when the diff implements one. If permissions
+  changed, show what managers can do and what viewers/non-managers see instead.
+  Keep the body lean: the wireframe carries the UI story, while the file tree
+  and \`diff\` blocks carry implementation evidence.
 - **Architecture or data-flow shift** → \`diagram\` with \`data.html\` / \`data.css\`
   as a two-panel before/after, layered, or swimlane layout, or \`mermaid\` for a
   quick graph. Use two-dimensional layouts; do not reduce a structural change to
@@ -1493,7 +1534,10 @@ For UI diffs, wireframes are the visual comparison primitive. Use before/after
 wireframes when the comparison clarifies the change; use after-only or a state
 sequence when that better matches the change. The visual headline must show
 exact placement, realistic chrome, and adequate padding before any abstract
-explanation. The Wireframe Quality core owns the before/after layout choice —
+explanation. Do not stop at the first visible affordance when the diff adds a
+flow; show the entry point, the opened surface, and the resulting state or page
+so the reviewer can trace the actual user path. The Wireframe Quality core owns
+the before/after layout choice —
 the \`columns\` renderer keeps narrow surfaces side by side and auto-stacks wide
 \`desktop\`/\`browser\` frames vertically; never hand-build a side-by-side
 wireframe layout in \`custom-html\`. For document-body
@@ -1757,6 +1801,8 @@ export const BUILT_IN_APP_SKILLS = {
 
 type BuiltInAppSkillId = keyof typeof BUILT_IN_APP_SKILLS;
 
+export const AGENT_NATIVE_SKILL_METADATA_FILE = "agent-native-skill.json";
+
 const BUILT_IN_APP_SKILL_ALIASES = {
   assets: "assets",
   asset: "assets",
@@ -1823,7 +1869,7 @@ const CLIENT_HINTS: Record<ClientId, string> = {
   cowork: "~/.cowork/mcp.json",
 };
 
-type SkillsCommand = "list" | "add" | "help";
+type SkillsCommand = "list" | "add" | "status" | "update" | "help";
 
 export interface ParsedSkillsArgs {
   command: SkillsCommand;
@@ -1832,6 +1878,7 @@ export interface ParsedSkillsArgs {
   clientExplicit: boolean;
   clients?: ClientId[];
   scope: string;
+  scopeExplicit: boolean;
   yes: boolean;
   dryRun: boolean;
   printJson: boolean;
@@ -1890,6 +1937,42 @@ export interface SkillsAddResult {
    */
   githubActionPath?: string;
   githubActionExisted?: boolean;
+}
+
+interface SkillInstallMetadata {
+  schemaVersion: 1;
+  source: "agent-native";
+  appSkillId: string;
+  displayName: string;
+  skillName: string;
+  contentHash: string;
+  mcpUrl: string;
+  installedAt: string;
+  updateCommand: string;
+}
+
+interface SkillFolderBundle {
+  appSkillId: BuiltInAppSkillId;
+  displayName: string;
+  skillName: string;
+  mcpUrl: string;
+  files: Record<string, string>;
+  contentHash: string;
+}
+
+interface SkillInstallState {
+  appSkillId: BuiltInAppSkillId;
+  displayName: string;
+  skillName: string;
+  path: string;
+  root: string;
+  scope: "project" | "user";
+  client: string;
+  latestHash: string;
+  installedHash: string | null;
+  metadataHash?: string;
+  current: boolean;
+  managed: boolean;
 }
 
 interface SkillInstallTarget {
@@ -1976,6 +2059,303 @@ function builtInSkillNames(
   entry: (typeof BUILT_IN_APP_SKILLS)[BuiltInAppSkillId],
 ): string[] {
   return [entry.skillName, ...Object.keys(builtInExtraSkills(entry))];
+}
+
+function stableSkillHash(files: Record<string, string>): string {
+  const hash = createHash("sha256");
+  for (const rel of Object.keys(files).sort()) {
+    if (rel === AGENT_NATIVE_SKILL_METADATA_FILE) continue;
+    hash.update(rel);
+    hash.update("\0");
+    hash.update(files[rel]);
+    hash.update("\0");
+  }
+  return hash.digest("hex").slice(0, 16);
+}
+
+function skillFilesForBuiltIn(
+  appSkillId: BuiltInAppSkillId,
+): Record<string, SkillFolderBundle> {
+  const entry = BUILT_IN_APP_SKILLS[appSkillId];
+  const skills: Record<string, string> = {
+    [entry.skillName]: entry.skillMarkdown,
+    ...builtInExtraSkills(entry),
+  };
+  const extraFiles = builtInExtraFiles(entry);
+  const out: Record<string, SkillFolderBundle> = {};
+  for (const [skillName, skillMarkdown] of Object.entries(skills)) {
+    const files = {
+      "SKILL.md": skillMarkdown,
+      ...(extraFiles[skillName] ?? {}),
+    };
+    out[skillName] = {
+      appSkillId,
+      displayName: entry.manifest.displayName,
+      skillName,
+      mcpUrl: isLocalOnlyBuiltInSkill(entry)
+        ? ""
+        : entry.manifest.hosted.mcpUrl,
+      files,
+      contentHash: stableSkillHash(files),
+    };
+  }
+  return out;
+}
+
+function latestSkillBundlesForTargets(
+  appSkillIds: BuiltInAppSkillId[],
+): Record<string, SkillFolderBundle> {
+  const out: Record<string, SkillFolderBundle> = {};
+  for (const appSkillId of appSkillIds) {
+    Object.assign(out, skillFilesForBuiltIn(appSkillId));
+  }
+  return out;
+}
+
+function writeSkillFolder(
+  dir: string,
+  bundle: SkillFolderBundle,
+  installedAt = new Date().toISOString(),
+): void {
+  fs.rmSync(dir, { recursive: true, force: true });
+  fs.mkdirSync(dir, { recursive: true });
+  for (const [rel, content] of Object.entries(bundle.files)) {
+    const target = path.join(dir, rel);
+    fs.mkdirSync(path.dirname(target), { recursive: true });
+    fs.writeFileSync(target, content, "utf-8");
+  }
+  const metadata: SkillInstallMetadata = {
+    schemaVersion: 1,
+    source: "agent-native",
+    appSkillId: bundle.appSkillId,
+    displayName: bundle.displayName,
+    skillName: bundle.skillName,
+    contentHash: bundle.contentHash,
+    mcpUrl: bundle.mcpUrl,
+    installedAt,
+    updateCommand: `agent-native skills update ${bundle.skillName}`,
+  };
+  fs.writeFileSync(
+    path.join(dir, AGENT_NATIVE_SKILL_METADATA_FILE),
+    `${JSON.stringify(metadata, null, 2)}\n`,
+    "utf-8",
+  );
+}
+
+function listSkillFolderFiles(dir: string): Record<string, string> {
+  const out: Record<string, string> = {};
+  const walk = (current: string, prefix = "") => {
+    for (const entry of fs.readdirSync(current, { withFileTypes: true })) {
+      const rel = prefix ? `${prefix}/${entry.name}` : entry.name;
+      const abs = path.join(current, entry.name);
+      if (entry.isDirectory()) {
+        walk(abs, rel);
+        continue;
+      }
+      if (!entry.isFile() || rel === AGENT_NATIVE_SKILL_METADATA_FILE) continue;
+      out[rel] = fs.readFileSync(abs, "utf-8");
+    }
+  };
+  if (fs.existsSync(dir)) walk(dir);
+  return out;
+}
+
+function readSkillInstallMetadata(
+  dir: string,
+): SkillInstallMetadata | undefined {
+  const file = path.join(dir, AGENT_NATIVE_SKILL_METADATA_FILE);
+  if (!fs.existsSync(file)) return undefined;
+  try {
+    const parsed = JSON.parse(fs.readFileSync(file, "utf-8"));
+    if (
+      parsed &&
+      parsed.source === "agent-native" &&
+      typeof parsed.skillName === "string" &&
+      typeof parsed.contentHash === "string"
+    ) {
+      return parsed as SkillInstallMetadata;
+    }
+  } catch {}
+  return undefined;
+}
+
+function homeDir(): string | undefined {
+  return process.env.HOME || os.homedir();
+}
+
+function skillSearchRoots(input: {
+  baseDir: string;
+  clients: ClientId[];
+  scopes: Array<"project" | "user">;
+}): Array<{
+  root: string;
+  scope: "project" | "user";
+  client: string;
+}> {
+  const roots: Array<{
+    root: string;
+    scope: "project" | "user";
+    client: string;
+  }> = [];
+  const clientSet = new Set(input.clients);
+  const includeAll = input.clients.length === 0;
+  const hasClient = (client: ClientId) => includeAll || clientSet.has(client);
+  const add = (
+    root: string | undefined,
+    scope: "project" | "user",
+    client: string,
+  ) => {
+    if (root) roots.push({ root, scope, client });
+  };
+
+  if (input.scopes.includes("project")) {
+    if (hasClient("codex")) {
+      add(path.join(input.baseDir, ".agents", "skills"), "project", "codex");
+    }
+    if (hasClient("claude-code") || hasClient("claude-code-cli")) {
+      add(
+        path.join(input.baseDir, ".claude", "skills"),
+        "project",
+        "claude-code",
+      );
+    }
+    if (includeAll) add(path.join(input.baseDir, "skills"), "project", "repo");
+  }
+
+  if (input.scopes.includes("user")) {
+    const home = homeDir();
+    if (hasClient("codex")) {
+      add(
+        process.env.CODEX_HOME
+          ? path.join(process.env.CODEX_HOME, "skills")
+          : undefined,
+        "user",
+        "codex",
+      );
+      add(
+        home ? path.join(home, ".codex", "skills") : undefined,
+        "user",
+        "codex",
+      );
+    }
+    if (hasClient("claude-code") || hasClient("claude-code-cli")) {
+      add(
+        home ? path.join(home, ".claude", "skills") : undefined,
+        "user",
+        "claude-code",
+      );
+    }
+  }
+
+  const seen = new Set<string>();
+  return roots.filter((entry) => {
+    const key = `${entry.scope}:${entry.client}:${path.resolve(entry.root)}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function targetIdsForStatus(parsed: ParsedSkillsArgs): BuiltInAppSkillId[] {
+  if (!parsed.target) {
+    return (Object.keys(BUILT_IN_APP_SKILLS) as BuiltInAppSkillId[]).filter(
+      (id) => !isLocalOnlyBuiltInSkill(BUILT_IN_APP_SKILLS[id]),
+    );
+  }
+  const known = normalizeKnownSkillTarget(parsed.target);
+  if (!known) {
+    throw new Error(
+      `Unknown built-in skill: ${parsed.target}. Run "agent-native skills list".`,
+    );
+  }
+  if (isLocalOnlyBuiltInSkill(BUILT_IN_APP_SKILLS[known])) {
+    throw new Error(
+      `${BUILT_IN_APP_SKILLS[known].manifest.displayName} is installed as a local command and cannot be refreshed with skills update yet.`,
+    );
+  }
+  return [known];
+}
+
+function scopeFilterForStatus(
+  parsed: ParsedSkillsArgs,
+): Array<"project" | "user"> {
+  return parsed.scopeExplicit
+    ? [parsed.scope as "project" | "user"]
+    : ["project", "user"];
+}
+
+function clientFilterForStatus(parsed: ParsedSkillsArgs): ClientId[] {
+  return parsed.clientExplicit ? resolveClients(parsed.client) : [];
+}
+
+function collectSkillInstallStates(
+  parsed: ParsedSkillsArgs,
+  options: RunSkillsOptions,
+): SkillInstallState[] {
+  const appSkillIds = targetIdsForStatus(parsed);
+  const latest = latestSkillBundlesForTargets(appSkillIds);
+  const roots = skillSearchRoots({
+    baseDir: options.baseDir ?? process.cwd(),
+    clients: clientFilterForStatus(parsed),
+    scopes: scopeFilterForStatus(parsed),
+  });
+  const states: SkillInstallState[] = [];
+  const seenDirs = new Set<string>();
+
+  for (const root of roots) {
+    for (const bundle of Object.values(latest)) {
+      const dir = path.join(root.root, bundle.skillName);
+      const resolvedDir = path.resolve(dir);
+      if (seenDirs.has(resolvedDir) || !fs.existsSync(dir)) continue;
+      if (!fs.existsSync(path.join(dir, "SKILL.md"))) continue;
+      seenDirs.add(resolvedDir);
+      const files = listSkillFolderFiles(dir);
+      const installedHash =
+        Object.keys(files).length > 0 ? stableSkillHash(files) : null;
+      const metadata = readSkillInstallMetadata(dir);
+      states.push({
+        appSkillId: bundle.appSkillId,
+        displayName: bundle.displayName,
+        skillName: bundle.skillName,
+        path: dir,
+        root: root.root,
+        scope: root.scope,
+        client: root.client,
+        latestHash: bundle.contentHash,
+        installedHash,
+        metadataHash: metadata?.contentHash,
+        current: installedHash === bundle.contentHash,
+        managed: metadata?.source === "agent-native",
+      });
+    }
+  }
+
+  return states.sort((a, b) =>
+    `${a.skillName}:${a.path}`.localeCompare(`${b.skillName}:${b.path}`),
+  );
+}
+
+function updateSkillInstallStates(
+  states: SkillInstallState[],
+  dryRun: boolean,
+): SkillInstallState[] {
+  const latest = latestSkillBundlesForTargets([
+    ...new Set(states.map((state) => state.appSkillId)),
+  ]);
+  const updated: SkillInstallState[] = [];
+  for (const state of states) {
+    if (state.current) continue;
+    const bundle = latest[state.skillName];
+    if (!bundle) continue;
+    if (!dryRun) writeSkillFolder(state.path, bundle);
+    updated.push({
+      ...state,
+      current: !dryRun,
+      installedHash: dryRun ? state.installedHash : bundle.contentHash,
+      metadataHash: dryRun ? state.metadataHash : bundle.contentHash,
+    });
+  }
+  return updated;
 }
 
 function normalizeClientIds(values: unknown): ClientId[] {
@@ -2105,7 +2485,12 @@ export function parseSkillsArgs(argv: string[]): ParsedSkillsArgs {
   if (first === "help" || first === "--help" || first === "-h") {
     command = "help";
     args = argv.slice(1);
-  } else if (first === "list" || first === "add") {
+  } else if (
+    first === "list" ||
+    first === "add" ||
+    first === "status" ||
+    first === "update"
+  ) {
     command = first;
     args = argv.slice(1);
   } else if (first) {
@@ -2117,6 +2502,7 @@ export function parseSkillsArgs(argv: string[]): ParsedSkillsArgs {
     client: "codex",
     clientExplicit: false,
     scope: "user",
+    scopeExplicit: false,
     yes: false,
     dryRun: false,
     printJson: false,
@@ -2146,8 +2532,10 @@ export function parseSkillsArgs(argv: string[]): ParsedSkillsArgs {
     if ((value = eat("--client")) !== undefined) {
       out.client = value;
       out.clientExplicit = true;
-    } else if ((value = eat("--scope")) !== undefined) out.scope = value;
-    else if ((value = eat("--mcp-url")) !== undefined) out.mcpUrl = value;
+    } else if ((value = eat("--scope")) !== undefined) {
+      out.scope = value;
+      out.scopeExplicit = true;
+    } else if ((value = eat("--mcp-url")) !== undefined) out.mcpUrl = value;
     else if (arg === "--yes" || arg === "-y") out.yes = true;
     else if (arg === "--dry-run") out.dryRun = true;
     else if (arg === "--json") out.printJson = true;
@@ -2184,28 +2572,12 @@ function loadSkillTarget(target: string): SkillInstallTarget {
       },
       skillNames,
       materializeInstructions(outDir) {
-        const skills: Record<string, string> = {
-          [builtIn.skillName]: builtIn.skillMarkdown,
-          ...builtInExtraSkills(builtIn),
-        };
-        const extraFiles = builtInExtraFiles(builtIn);
-        for (const [skillName, skillMarkdown] of Object.entries(skills)) {
-          const skillDir = path.join(outDir, "skills", skillName);
-          fs.mkdirSync(skillDir, { recursive: true });
-          fs.writeFileSync(
-            path.join(skillDir, "SKILL.md"),
-            skillMarkdown,
-            "utf-8",
+        const bundles = skillFilesForBuiltIn(knownTarget);
+        for (const bundle of Object.values(bundles)) {
+          writeSkillFolder(
+            path.join(outDir, "skills", bundle.skillName),
+            bundle,
           );
-          // Materialize sibling reference files (e.g. references/wireframe.md)
-          // alongside the SKILL.md, creating any parent dirs they declare.
-          for (const [rel, content] of Object.entries(
-            extraFiles[skillName] ?? {},
-          )) {
-            const target = path.join(skillDir, rel);
-            fs.mkdirSync(path.dirname(target), { recursive: true });
-            fs.writeFileSync(target, content, "utf-8");
-          }
         }
         return outDir;
       },
@@ -2681,6 +3053,92 @@ function listSkills() {
   }));
 }
 
+function skillStateJson(state: SkillInstallState) {
+  return {
+    appSkillId: state.appSkillId,
+    displayName: state.displayName,
+    skillName: state.skillName,
+    path: state.path,
+    scope: state.scope,
+    client: state.client,
+    status: state.current ? "current" : "stale",
+    managed: state.managed,
+    installedHash: state.installedHash,
+    latestHash: state.latestHash,
+    metadataHash: state.metadataHash,
+  };
+}
+
+function formatSkillState(state: SkillInstallState): string {
+  const status = state.current ? "current" : "stale";
+  const managed = state.managed ? "managed" : "unmarked";
+  const hashes =
+    state.installedHash && !state.current
+      ? ` (${state.installedHash} -> ${state.latestHash})`
+      : "";
+  return `${state.skillName.padEnd(22)} ${status.padEnd(7)} ${state.scope}/${state.client} ${managed}${hashes}\n  ${state.path}`;
+}
+
+function runSkillsStatusOrUpdate(
+  parsed: ParsedSkillsArgs,
+  options: RunSkillsOptions,
+  update: boolean,
+): void {
+  const before = collectSkillInstallStates(parsed, options);
+  const changed = update ? updateSkillInstallStates(before, parsed.dryRun) : [];
+  const after =
+    update && !parsed.dryRun
+      ? collectSkillInstallStates(parsed, options)
+      : before;
+
+  if (parsed.printJson) {
+    const outputStates = update && !parsed.dryRun ? after : before;
+    process.stdout.write(
+      `${JSON.stringify(
+        {
+          ok: true,
+          command: parsed.command,
+          dryRun: parsed.dryRun,
+          found: before.length,
+          stale: outputStates.filter((state) => !state.current).length,
+          updated: changed.length,
+          skills: outputStates.map(skillStateJson),
+        },
+        null,
+        2,
+      )}\n`,
+    );
+    return;
+  }
+
+  if (before.length === 0) {
+    const target = parsed.target ? ` for ${parsed.target}` : "";
+    process.stdout.write(
+      `No installed Agent Native skill copies found${target}.\nRun "agent-native skills add ${parsed.target ?? "visual-plan"}" to install one.\n`,
+    );
+    return;
+  }
+
+  if (update) {
+    if (parsed.dryRun) {
+      process.stdout.write(
+        changed.length
+          ? `Would update ${changed.length} skill folder${changed.length === 1 ? "" : "s"}:\n`
+          : "All discovered skill folders are already current.\n",
+      );
+    } else {
+      process.stdout.write(
+        changed.length
+          ? `Updated ${changed.length} skill folder${changed.length === 1 ? "" : "s"}.\n`
+          : "All discovered skill folders are already current.\n",
+      );
+    }
+  }
+
+  const rows = (update && parsed.dryRun ? before : after).map(formatSkillState);
+  process.stdout.write(`${rows.join("\n")}\n`);
+}
+
 export async function runSkills(
   argv: string[],
   options: RunSkillsOptions = {},
@@ -2711,6 +3169,11 @@ export async function runSkills(
         `${skill.id.padEnd(12)} ${description}${aliases} (${target})\n`,
       );
     }
+    return;
+  }
+
+  if (parsed.command === "status" || parsed.command === "update") {
+    runSkillsStatusOrUpdate(parsed, options, parsed.command === "update");
     return;
   }
 
