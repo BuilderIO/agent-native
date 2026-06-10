@@ -1,55 +1,117 @@
 ---
 title: "Real-Time Collaboration"
-description: "Multi-user collaborative editing with Yjs CRDT, live cursors, and AI agent real-time edits."
+description: "Multi-user collaborative editing where the AI agent is a first-class peer: CRDT merging, live presence, SSE fast-path, and granular server-side merge — on any SQL database and any host."
 ---
 
 # Real-Time Collaboration
 
-Multi-user collaborative editing where the AI agent and human users are equal participants — like Google Docs, but with an AI collaborator.
+Imagine opening a document and seeing a peer's cursor scroll to a paragraph,
+then the text rewrite itself — surgically, without losing your place. That
+peer might be a teammate. It might be the agent. From the framework's
+perspective they are identical: both produce Yjs operations that merge
+conflict-free into the shared document. This is the keystone of the
+agent-native collaboration model.
 
-## Overview {#overview}
+## Vision {#vision}
 
-The framework provides a Yjs-based collaborative editing system in `@agent-native/core/collab`. Multiple users can edit the same document simultaneously with live cursor positions, and the AI agent can make surgical edits that appear in real-time without disrupting the user's cursor, selection, or undo history.
+Editing alongside the agent feels like working in Google Docs or Figma with
+a coworker who is both instant and tireless:
 
-This is built on three battle-tested technologies: **Yjs** (CRDT for conflict-free merging), **TipTap** (rich text editor), and **polling-based sync** (works in all deployment environments including serverless and edge).
+- **CRDT merging** — Concurrent edits from humans and agents merge without
+  conflicts. You type in one paragraph; the agent rewrites another; both
+  land cleanly.
+- **Presence** — A `PresenceBar` shows who is in the document right now,
+  including an agent presence indicator when the agent is actively editing.
+- **The agent as a peer editor** — Agent edits flow through the same Yjs
+  infrastructure as human edits. They appear live, without disrupting cursor
+  positions, selections, or the undo stack.
+- **Works everywhere** — Any SQL database Drizzle supports (SQLite, Postgres).
+  Any hosting target Nitro supports, including serverless and edge.
 
-## How it works {#how-it-works}
+## Architecture {#architecture}
 
-The collaboration system has three layers:
+The collaboration system has five interlocking layers.
 
-- **Yjs Y.Doc** — stores the document as a `Y.XmlFragment` (ProseMirror node tree). This is the CRDT that enables conflict-free merging of concurrent edits.
-- **TipTap Collaboration extension** — binds the editor to the Y.XmlFragment via `ySyncPlugin`. Remote changes are applied as minimal ProseMirror transactions that preserve cursor position.
-- **Polling sync** — clients poll `/_agent-native/poll` every 2 seconds for Yjs updates. Awareness state (cursor positions, user info) is synced via a separate `/_agent-native/collab/:docId/awareness` endpoint.
+### 1. Yjs Y.Doc (CRDT layer)
 
-The Yjs state is persisted in a `_collab_docs` SQL table as base64-encoded binary, compatible with both SQLite and Postgres.
+Each collaborative document is a `Y.Doc` containing shared types — usually a
+`Y.XmlFragment` for rich text (the ProseMirror node tree that TipTap reads) or
+`Y.Map` / `Y.Array` for structured JSON data. Yjs merges concurrent updates
+with no central coordinator; any two clients that exchange their state reach
+the same result regardless of order.
 
-## Agent + human collaboration {#agent-human-collab}
+### 2. SQL canonical content (durable source of truth)
 
-The agent and human users are equal participants in collaborative editing. The key insight is that both produce Yjs operations that merge cleanly:
+Yjs state is persisted in a `_collab_docs` table as base64-encoded binary.
+The table is framework-managed and provider-agnostic (SQLite and Postgres use
+identical schemas). Each row carries an optimistic-concurrency version column
+to prevent concurrent write races. Tombstone compaction runs opportunistically
+when the stored blob exceeds 4× the freshly encoded state — no background job
+required.
 
-- **Human edits** flow through TipTap → ySyncPlugin → Y.XmlFragment → server via HTTP
-- **Agent edits** flow through the `edit-document` action → server search-replace endpoint → Y.XmlFragment mutation → poll update → all clients
+### 3. `updatedAt`-gated reconcile (agent-edit propagation)
 
-The agent's `edit-document` action uses surgical search-and-replace on Y.XmlText nodes within the Y.XmlFragment tree. This produces the smallest possible Yjs update — only the changed text is modified, not the entire document. The result: the user sees the agent's change appear in their editor without losing their place.
+Agent actions do not push into Yjs in-process. Instead, the action edits the
+canonical SQL content column and bumps `updatedAt`. The change-sync system
+detects the bump, the open editor refetches the record, and the lead client
+applies the new content into the shared Y.Doc via `setContent`. An `updatedAt`
+gate ensures only genuinely newer content is adopted — lagging poll responses
+cannot revert the edit.
 
-```bash
-# Agent makes a surgical edit — user sees it appear live
-pnpm action edit-document --id doc123 --find "Big Projects" --replace "Proyectos Grandes"
+### 4. Lead-client election (deduplication)
 
-# The action:
-# 1. Updates SQL content column (for search/API compat)
-# 2. Calls POST /_agent-native/collab/doc123/search-replace
-# 3. Server walks Y.XmlFragment, finds text, modifies Y.XmlText node
-# 4. Minimal Yjs update emitted via poll system
-# 5. Client receives update → ySyncPlugin applies targeted PM transaction
-# 6. User's cursor stays in place ✓
+When multiple tabs are open, exactly one applies an authoritative SQL snapshot
+into the shared Y.Doc. The lead is the tab with the lowest Yjs `clientID`
+among currently visible peers. The agent's awareness entry uses
+`AGENT_CLIENT_ID` (max int) so it can never be the lead. A client editing
+alone is always the lead. The election is deterministic with no coordination
+round-trip (`isReconcileLeadClient` from `@agent-native/core/client`).
+
+### 5. SSE fast-path + polling fallback (transport)
+
+Collab update events travel via two paths:
+
+- **SSE fast-path** — The client subscribes to `/_agent-native/poll-events`
+  (the same `EventSource` used by `useDbSync`). Collab update events arrive
+  push-style, typically in tens of milliseconds. While SSE is healthy the
+  poll loop relaxes to a slow cadence (~12 s by default).
+- **Polling fallback** — `/_agent-native/poll?since=N` is polled every 2 s
+  when SSE is unavailable. This makes collaboration work on any deployment
+  target — including serverless functions where persistent connections are
+  impossible and different invocations can handle different requests.
+
+Local Yjs updates are debounced and coalesced with `Y.mergeUpdates` (~80 ms)
+before being sent to the server, reducing keystroke-level network traffic.
+The batch is flushed immediately on `visibilitychange` or `pagehide`. A
+state-vector diff (`GET /:docId/state?stateVector=…`) is fetched only on
+reconnect, ring-buffer overflow, or every 15th poll cycle — not on every
+cycle.
+
+Network errors use exponential backoff with jitter, capped at ~15 s.
+
+```
+Browser                Server             SQL
+──────                 ──────             ───
+[Human edits]
+  → Y.Doc update
+  → debounce ~80ms
+  → POST /collab/:docId/update ──────→ apply + persist
+                                       emitCollabUpdate
+                       ← SSE push ──── poll-events stream
+  ← Y.applyUpdate
+
+[Agent action]
+  action writes SQL content + bumps updatedAt
+  ← change-sync detects updatedAt bump
+  ← lead client calls setContent
+  → Y.Doc update
+  → POST /collab/:docId/update ──────→ apply + persist
+  ← SSE push to all other clients
 ```
 
-## Enabling collaboration {#enabling-collab}
+## Quickstart {#quickstart}
 
-Templates opt into collaboration with five steps:
-
-### 1. Install dependencies
+### 1. Install packages
 
 ```bash
 pnpm add @tiptap/extension-collaboration @tiptap/extension-collaboration-caret @tiptap/y-tiptap @tiptap/core
@@ -78,6 +140,11 @@ export default defineConfig({
 
 ### 3. Add the collab server plugin
 
+Always set `resourceType` to the name of the shareable resource registered
+via `registerShareableResource`. Without it, collab push events are delivered
+to all authenticated users without document-level scoping, and the server
+logs a one-time warning.
+
 ```typescript
 // server/plugins/collab.ts
 import { createCollabPlugin } from "@agent-native/core/server";
@@ -86,22 +153,31 @@ export default createCollabPlugin({
   table: "documents",
   contentColumn: "content",
   idColumn: "id",
-  autoSeed: false, // Client-side seeding on first load
+  resourceType: "document", // required for access-scoped event delivery
 });
 ```
 
 ### 4. Use the client hook
 
 ```typescript
-import { useCollaborativeDoc, generateTabId } from "@agent-native/core/client";
+import {
+  useCollaborativeDoc,
+  emailToColor,
+  emailToName,
+} from "@agent-native/core/client";
 
-const TAB_ID = generateTabId();
+const TAB_ID = generateTabId(); // or Math.random().toString(36)
 
-const { ydoc, awareness, isLoading, activeUsers } = useCollaborativeDoc({
-  docId: documentId,
-  requestSource: TAB_ID,
-  user: { name: "Steve", email: "steve@example.com", color: "#60a5fa" },
-});
+const { ydoc, awareness, isLoading, activeUsers, agentActive, agentPresent } =
+  useCollaborativeDoc({
+    docId: documentId,
+    requestSource: TAB_ID,
+    user: {
+      name: emailToName(session.email),
+      email: session.email,
+      color: emailToColor(session.email),
+    },
+  });
 ```
 
 ### 5. Add TipTap extensions
@@ -109,77 +185,228 @@ const { ydoc, awareness, isLoading, activeUsers } = useCollaborativeDoc({
 ```typescript
 import Collaboration from "@tiptap/extension-collaboration";
 import CollaborationCaret from "@tiptap/extension-collaboration-caret";
-import { Awareness } from "y-protocols/awareness";
-
-// Create awareness for cursor sync
-const awareness = new Awareness(ydoc);
-awareness.setLocalStateField("user", { name, color });
 
 const editor = useEditor({
   extensions: [
-    StarterKit.configure({ history: false }), // Yjs handles undo
+    StarterKit.configure({ history: false }), // Yjs owns undo
     Collaboration.configure({ document: ydoc }),
     CollaborationCaret.configure({
       provider: { awareness },
       user: { name, color },
     }),
   ],
-  content: initialContent,
+  // Do NOT pass content here — Yjs owns the content
 });
 ```
 
-## Live cursors & presence {#live-cursors}
+### 6. Seed on first load (if content exists)
 
-The `CollaborationCaret` extension renders colored cursor lines with user name labels for each connected user. The `useCollaborativeDoc` hook provides an `activeUsers` array that can be used to render a presence bar with user avatars.
+The Collaboration extension does not auto-seed from a `content` prop. If the
+Y.Doc is empty and the document has existing content, seed it:
 
-User identity is derived from the session email. The framework provides `emailToColor()` and `emailToName()` helpers to generate consistent cursor colors and display names from email addresses.
-
-## Comments {#comments}
-
-Templates can add a comments system with threaded discussions on documents. The content template includes a full implementation with:
-
-- `document_comments` SQL table (threads, replies, resolved status)
-- REST routes for update/delete at `/api/comments/:id`; create and list run through the `add-comment` / `list-comments` actions
-- Comments sidebar with threaded view and reply UI
-- Resolve/unresolve threads
-- **Send to AI** button — sends the comment thread context to the agent chat via `sendToAgentChat()`
-- Agent actions: `list-comments`, `add-comment`
-- Notion comment sync: `sync-notion-comments` action for bidirectional pull/push
-
-## Collab routes {#collab-routes}
-
-All collab routes are auto-mounted under `/_agent-native/collab/` by the collab plugin:
-
-| Route                         | Purpose                                  |
-| ----------------------------- | ---------------------------------------- |
-| `GET /:docId/state`           | Fetch full Y.Doc state (base64)          |
-| `POST /:docId/update`         | Apply client Yjs update                  |
-| `POST /:docId/text`           | Apply full text replacement (diff-based) |
-| `POST /:docId/search-replace` | Surgical find/replace in Y.XmlFragment   |
-| `POST /:docId/awareness`      | Sync cursor/presence state               |
-| `GET /:docId/users`           | List active users on a document          |
-
-## Agent edit action {#edit-document}
-
-The `edit-document` action is the primary way agents make changes to documents in collaborative mode:
-
-```bash
-# Single edit
-pnpm action edit-document --id doc123 --find "old text" --replace "new text"
-
-# Batch edits
-pnpm action edit-document --id doc123 --edits '[{"find":"old","replace":"new"}]'
-
-# Delete text
-pnpm action edit-document --id doc123 --find "delete me" --replace ""
+```typescript
+useEffect(() => {
+  if (!ydoc || !editor || !isLoaded) return;
+  const fragment = ydoc.getXmlFragment("default");
+  if (fragment.length === 0 && initialContent) {
+    editor.commands.setContent(initialContent);
+  }
+}, [ydoc, editor, isLoaded]);
 ```
 
-When collab state exists for the document, the action calls the server's `search-replace` endpoint via HTTP (not the collab module directly, since actions run in a separate process). The server walks the Y.XmlFragment tree, finds the text in Y.XmlText nodes, and applies minimal delete/insert operations. The resulting Yjs update is broadcast to all connected clients via the poll system.
+## Route table {#routes}
 
-## Common pitfalls {#pitfalls}
+All routes are auto-mounted under `/_agent-native/collab/` by the collab
+plugin:
 
-- **TipTap version mismatch** — All `@tiptap/*` packages must be the same version. The Collaboration extension requires `editor.utils` which was added in v3.22.2. Add `@tiptap/core` as an explicit dependency.
-- **Empty editor on first load** — The Collaboration extension does NOT auto-seed from the `content` prop. Seed manually with `editor.commands.setContent()` when the Y.XmlFragment is empty.
-- **Data loss from empty saves** — Guard against saving empty content in the `onUpdate` handler when the editor is in collab mode but hasn't been seeded yet.
-- **Vite dep optimization** — Always add Yjs-related packages to `optimizeDeps.include` to prevent Vite from re-bundling TipTap in incompatible ways.
-- **Separate process for actions** — Actions run via `pnpm action` in a new Node.js process. Use the server's HTTP endpoints (not the collab module directly) so updates reach the poll system.
+| Route                         | Purpose                                                     |
+| ----------------------------- | ----------------------------------------------------------- |
+| `GET /:docId/state`           | Full Y.Doc state (base64). Accepts `?stateVector=` for diff |
+| `POST /:docId/update`         | Apply client Yjs update (base64). Max 2 MB by default       |
+| `POST /:docId/text`           | Apply full text replacement (diff-based)                    |
+| `POST /:docId/search-replace` | Surgical find/replace in Y.XmlFragment                      |
+| `POST /:docId/json`           | Apply full JSON diff to Y.Map/Y.Array                       |
+| `GET /:docId/json`            | Read current JSON state                                     |
+| `POST /:docId/patch`          | Apply surgical JSON patch ops (upsert/remove/reorder)       |
+| `POST /:docId/awareness`      | Sync cursor/presence state                                  |
+| `GET /:docId/users`           | List active users on a document                             |
+
+## Transport and performance {#transport}
+
+| Property                     | Value                                                      |
+| ---------------------------- | ---------------------------------------------------------- |
+| Update debounce              | ~80 ms (coalesces rapid keystrokes via `Y.mergeUpdates`)   |
+| Poll interval (no SSE)       | 2 s (configurable via `pollInterval`)                      |
+| Poll interval (SSE healthy)  | ~12 s (configurable via `pollIntervalWithSse`)             |
+| State-vector fetch frequency | On reconnect, ring-buffer gap, or every 15th poll cycle    |
+| Backoff on error             | Exponential with jitter, cap ~15 s                         |
+| Max payload (writes)         | 2 MB default, configurable via `maxPayloadBytes`           |
+| Compaction threshold         | Stored blob > 4× fresh encoding triggers tombstone compact |
+| Per-write DB reads           | 1 (CAS version read inside `persistMergedState` only)      |
+
+## Security {#security}
+
+### Always set `resourceType`
+
+```typescript
+createCollabPlugin({
+  resourceType: "document", // the name passed to registerShareableResource
+});
+```
+
+Without `resourceType` the plugin logs a warning and broadcasts collab push
+events to all authenticated users on the deployment without document-level
+scoping. Non-owners fall back to state-vector catch-up (safe but higher
+latency) regardless of whether `resourceType` is set.
+
+### Access checks
+
+All collab routes require authentication. When `resourceType` is set, reads
+require at least viewer access and writes require editor access, using the
+same `resolveAccess` / `assertAccess` helpers as the sharing system. A 404
+(not 403) is returned on access failures to avoid leaking document existence.
+
+### Payload limits
+
+Write routes (`update`, `text`, `json`, `patch`, `search-replace`) reject
+payloads exceeding the configured limit with HTTP 413. The default is 2 MB.
+Override per-plugin:
+
+```typescript
+createCollabPlugin({
+  resourceType: "document",
+  maxPayloadBytes: 512 * 1024, // 512 KB
+});
+```
+
+### Awareness scoping
+
+Awareness routes (`POST /awareness`, `GET /users`) are gated by the same
+access check as reads — a user who lacks viewer access cannot learn who else
+is editing a document.
+
+## Patterns {#patterns}
+
+### Granular server-side merge for structured data
+
+For structured documents (slide decks, form builders, design files) the Yjs
+body collab model can conflict when two agents or users rewrite the same
+top-level record simultaneously. The safer pattern is **granular server-side
+merge**: define an action that accepts a set of targeted operations and
+applies them atomically, so concurrent edits to different items both survive.
+
+**Slides (`patch-deck`)** — Instead of replacing the entire deck JSON on every
+change, the action accepts per-slide operations:
+
+```typescript
+// Conceptual patch-deck action shape
+type PatchDeckOp =
+  | { type: "patch"; slideId: string; fields: Partial<SlideFields> }
+  | { type: "add"; position: number; slide: SlideData }
+  | { type: "delete"; slideId: string }
+  | { type: "reorder"; slideId: string; newIndex: number };
+```
+
+Two users editing different slides both succeed; there is no LWW clobber at
+the deck level.
+
+**Forms (`patch-form-fields`)** — Field-level merge with upsert/remove/reorder
+ops so concurrent edits to different form fields both survive.
+
+Use this pattern when:
+
+- The document is structured (items inside a container).
+- Concurrent edits target different items.
+- Body collab (Yjs `Y.XmlFragment`) is overkill or inapplicable.
+
+Use body collab (Y.XmlFragment + TipTap) when:
+
+- The document is free-form rich text where any region can be edited.
+- Cursor-level CRDT merge matters.
+
+### Collaborative undo scoping (Y.UndoManager)
+
+The Design template uses `Y.UndoManager` to scope undo/redo to the local
+user's own edits. Remote peer edits and agent edits are never undone by a
+user's Cmd+Z.
+
+```typescript
+import * as Y from "yjs";
+
+const LOCAL_EDIT_ORIGIN = "local";
+
+const undoManager = new Y.UndoManager(ydoc.getText("content"), {
+  trackedOrigins: new Set([LOCAL_EDIT_ORIGIN]),
+  captureTimeout: 800, // coalesce rapid slider drags into one undo step
+});
+
+// Wrap local edits with the tracked origin
+ydoc.transact(() => {
+  // apply local style change
+}, LOCAL_EDIT_ORIGIN);
+
+// Undo/redo — only reverses LOCAL_EDIT_ORIGIN transactions
+undoManager.undo(); // Cmd+Z
+undoManager.redo(); // Shift+Cmd+Z
+```
+
+Key properties:
+
+- `trackedOrigins` must be a `Set`. Only transactions with a matching origin
+  are captured in the undo stack.
+- Remote updates (origin `"remote"`) and agent updates (origin `"agent"`) are
+  never captured.
+- Recreate and dispose the manager when the active document changes; stale
+  managers hold references that can grow unboundedly.
+
+## Known limitations {#limitations}
+
+- **Same-region simultaneous rewrite is LWW** — If the agent rewrites a
+  passage and a human has unsaved edits in the exact same region, the
+  lead-client snapshot can overwrite the human's in-flight changes. Edits in
+  different regions merge correctly via the CRDT. Granular server-side merge
+  (see above) avoids this for structured documents.
+- **In-process write locks on serverless** — The `_writeLocks` map is
+  process-local. Concurrent requests landing on different serverless
+  invocations serialize at the SQL CAS layer (optimistic concurrency) rather
+  than the in-memory lock. This is safe but means high-throughput scenarios on
+  serverless may see more CAS retries.
+- **Awareness is per-process** — The awareness in-memory store is
+  process-local. Serverless / multi-process deployments see partial awareness
+  state per invocation. Clients still receive full awareness snapshots on each
+  poll cycle, so presence indicators update within one poll interval.
+
+## Presence {#presence}
+
+The `useCollaborativeDoc` hook returns:
+
+- `activeUsers` — array of `CollabUser` (name, email, color) for all peers
+  currently in the document (sourced from awareness).
+- `agentActive` — `true` briefly after the agent makes an edit (use for a
+  transient visual indicator).
+- `agentPresent` — `true` while the agent has an active awareness entry
+  (durable presence heartbeat).
+
+Use `emailToColor(email)` and `emailToName(email)` from
+`@agent-native/core/client` to generate consistent cursor colors and display
+names from email addresses.
+
+A `PresenceBar` rendered with `activeUsers` shows live human and agent
+collaborators. Per-slide presence (which users are viewing a given slide)
+layers on top of the same awareness state.
+
+## Related docs {#related}
+
+- [Real-Time Sync](/docs/real-time-sync) — the `useDbSync` + `useChangeVersion`
+  system that delivers the `updatedAt` bump driving editor reconciliation.
+- [Security](/docs/security) — `registerShareableResource`, `resolveAccess`,
+  and `assertAccess` for the access model referenced by `resourceType`.
+- [Sharing](/docs/sharing) — how documents are shared and how access is granted.
+- [Template: Content](/docs/template-content) — reference implementation of
+  collaborative rich-text editing.
+- [Template: Slides](/docs/template-slides) — granular `patch-deck` action for
+  structured concurrent editing.
+- [Template: Forms](/docs/template-forms) — field-level `patch-form-fields`
+  server-side merge.
+- [Template: Design](/docs/template-design) — `Y.UndoManager` undo/redo scoped
+  to local user edits.
