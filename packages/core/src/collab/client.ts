@@ -730,7 +730,7 @@ export function useCollaborativeDoc(
                   method: "POST",
                   headers: { "Content-Type": "application/json" },
                   body: JSON.stringify({
-                    clientId: ydoc.clientID,
+                    clientId: doc.clientID,
                     state: JSON.stringify(localState),
                   }),
                 },
@@ -751,7 +751,7 @@ export function useCollaborativeDoc(
                 }
                 const changes = reconcileRemoteAwarenessStates(
                   awareness.getStates() as Map<number, unknown>,
-                  ydoc.clientID,
+                  doc.clientID,
                   remoteStates,
                 );
                 if (
@@ -861,6 +861,9 @@ export function useCollaborativeDoc(
     if (!ydoc || !docId || !awareness || typeof EventSource === "undefined") {
       return;
     }
+    // Non-null captures for closures: null branches returned early above.
+    const capturedYdoc = ydoc;
+    const capturedAwareness = awareness;
     const sseUrl = agentNativePath("/_agent-native/poll-events");
     let source: EventSource | null = null;
     let stopped = false;
