@@ -1,5 +1,22 @@
 # @agent-native/core
 
+## 0.45.0
+
+### Minor Changes
+
+- 06397b2: Add DB-free local-files helpers for Agent-Native Plans and Visual Recap prompts.
+
+### Patch Changes
+
+- 06397b2: Fix the Cloudflare Pages deploy build failing on every attempt: externalize `@anthropic-ai/tokenizer` (tiktoken `.wasm`) and `@resvg/resvg-js` (native `.node`) from the worker bundle — esbuild has no loaders for those files, and both import sites already degrade gracefully (char/4 token estimates, SVG OG-image fallback). Teach `isResvgRuntimeUnavailableError` workerd's "No such module" wording so the OG route falls back to SVG instead of erroring. Also guard `e.key.toLowerCase()` keyboard shortcut handlers against undefined `e.key` (autofill/IME keydown events), which crashed the composer in production.
+- 06397b2: Prefer the left gutter for annotation hover cards when the right side overflows.
+- 06397b2: Stop Neon WebSocket drops from surfacing as unhandled `[object ErrorEvent]` promise rejections. Fire-and-forget DB writes (agent-team run heartbeats and progress saves, desktop-exchange cleanup) now catch and log connection failures with context via a new `describeDbError` helper — which also makes the Neon pool/client error logger print the ErrorEvent's actual message instead of `[object ErrorEvent]`. The server Sentry filter now recognizes bundled SDK chunks (e.g. `/var/task/_libs/@sentry/...`) as non-application frames so SDK-only rejection stacks from serverless bundles are dropped as intended.
+- 06397b2: Hide redundant language badges on read-only code surfaces when a filename is already shown, and render code filenames with a muted path prefix.
+- 06397b2: Add a lightweight `agent-native reconnect` CLI reauth path and harden remote MCP OAuth auth handling.
+- 06397b2: Pass repository context into PR visual recap prompts so generated recaps can link back to their source pull requests.
+- 06397b2: Restore split diff defaults for visual recaps and steer key-file recap diffs back to horizontal tabs.
+- 06397b2: Show PR Visual Recap generation as an informational GitHub check run while it is running.
+
 ## 0.44.4
 
 ### Patch Changes
