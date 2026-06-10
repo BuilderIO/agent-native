@@ -581,7 +581,8 @@
 }
 
 /* Streaming caret appended after last non-code paragraph while text is live. */
-.agent-markdown[data-streaming="true"] > :last-child:not(pre):not(table)::after {
+.agent-markdown[data-streaming="true"]
+  > :last-child:not(pre):not(table)::after {
   content: "";
   display: inline-block;
   width: 0.42em;
@@ -605,7 +606,8 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .agent-markdown[data-streaming="true"] > :last-child:not(pre):not(table)::after {
+  .agent-markdown[data-streaming="true"]
+    > :last-child:not(pre):not(table)::after {
     animation: none;
     opacity: 0.28;
   }

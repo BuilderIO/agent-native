@@ -735,7 +735,9 @@ describe("Brain knowledge quality gates", () => {
       },
       importedBy: "[redacted]",
     });
-    expect(redacted.source.title).toBe("Slack source [redacted]");
+    expect(redacted.source).toMatchObject({
+      title: "Slack source [redacted]",
+    });
 
     const raw = await getCaptureAction.run({
       id: "capture-1",
@@ -755,7 +757,9 @@ describe("Brain knowledge quality gates", () => {
       },
       importedBy: "owner@example.test",
     });
-    expect(raw.source.title).toBe("Slack source alice@example.com");
+    expect(raw.source).toMatchObject({
+      title: "Slack source alice@example.com",
+    });
   });
 
   it("requires signed ingest payload sourceKey to match the source config", async () => {
