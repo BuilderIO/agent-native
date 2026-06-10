@@ -1,17 +1,42 @@
 // Shared UI primitives used by multiple database view modules.
+import type { ReactNode } from "react";
 import { useState } from "react";
 import {
+  IconCalendar,
   IconCheck,
   IconChevronRight,
+  IconCopy,
+  IconDots,
+  IconExternalLink,
   IconFileText,
   IconFilter,
+  IconLayoutGrid,
+  IconLayoutKanban,
+  IconList,
   IconMinus,
   IconSearch,
+  IconTable,
+  IconTimeline,
+  IconTrash,
   IconX,
 } from "@tabler/icons-react";
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuSubContent,
+  DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
@@ -23,14 +48,32 @@ import type {
   DocumentPropertyOption,
   DocumentPropertyType,
 } from "@shared/api";
-import { type DatabaseDropSide } from "./types";
-import { databasePropertyPickerItems } from "./filter-sort";
+import { useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
+import { OPTION_COLOR_CLASSES, TYPE_ICONS } from "../DocumentProperties";
+import { useDuplicateDatabaseItem } from "@/hooks/use-content-database";
+import { useDeleteDocument } from "@/hooks/use-documents";
+import type { DatabaseBoardGroup, DatabaseDropSide } from "./types";
+import { databaseDuplicatedItemFromResponse } from "./navigation-state";
+
+// ---------------------------------------------------------------------------
+// View icon (returns the React component constructor for a view type)
+// ---------------------------------------------------------------------------
+
+export function databaseViewIcon(type: ContentDatabaseViewType) {
+  if (type === "board") return IconLayoutKanban;
+  if (type === "list") return IconList;
+  if (type === "gallery") return IconLayoutGrid;
+  if (type === "calendar") return IconCalendar;
+  if (type === "timeline") return IconTimeline;
+  return IconTable;
+}
 
 // ---------------------------------------------------------------------------
 // Drag preview / drop indicator
 // ---------------------------------------------------------------------------
 
-type DatabaseDragPreviewState =
+export type DatabaseDragPreviewState =
   | {
       kind: "view";
       label: string;
@@ -47,30 +90,6 @@ type DatabaseDragPreviewState =
       y: number;
       width: number;
     };
-
-// Import TYPE_ICONS lazily to avoid circular dep — callers pass the icon map
-import { TYPE_ICONS } from "../DocumentProperties";
-
-export { databasePropertyPickerItems };
-export type { DatabaseDragPreviewState };
-
-function databaseViewIcon(type: ContentDatabaseViewType) {
-  // Inline here so shared.tsx doesn't depend on view-tabs.tsx
-  const {
-    IconTable,
-    IconLayoutKanban,
-    IconList,
-    IconLayoutGrid,
-    IconCalendar,
-    IconTimeline,
-  } = require("@tabler/icons-react") as typeof import("@tabler/icons-react");
-  if (type === "board") return IconLayoutKanban;
-  if (type === "list") return IconList;
-  if (type === "gallery") return IconLayoutGrid;
-  if (type === "calendar") return IconCalendar;
-  if (type === "timeline") return IconTimeline;
-  return IconTable;
-}
 
 export function DatabaseDragPreview({
   preview,
@@ -170,8 +189,6 @@ export function DatabaseItemPageIcon({
 // Group header (used by table, list, gallery grouped sections)
 // ---------------------------------------------------------------------------
 
-import type { DatabaseBoardGroup } from "./types";
-
 export function DatabaseGroupHeader({
   group,
   collapsed,
@@ -266,8 +283,6 @@ export function DatabaseRowSelectionControl({
 // Bulk option pill
 // ---------------------------------------------------------------------------
 
-import { OPTION_COLOR_CLASSES } from "../DocumentProperties";
-
 export function DatabaseBulkOptionPill({
   option,
 }: {
@@ -326,7 +341,7 @@ export function DatabaseConstraintChip({
   label,
   onRemove,
 }: {
-  icon: React.ReactNode;
+  icon: ReactNode;
   label: string;
   onRemove: () => void;
 }) {
@@ -350,11 +365,36 @@ export function DatabaseConstraintChip({
 // Property picker (shared by SortMenu, FilterMenu, settings panels)
 // ---------------------------------------------------------------------------
 
-type DatabasePropertyPickerOption = {
+export type DatabasePropertyPickerOption = {
   key: string;
   label: string;
   type: DocumentPropertyType | "name";
 };
+
+export function databasePropertyPickerItems(
+  properties: DocumentProperty[],
+  query: string,
+  { includeName = true }: { includeName?: boolean } = {},
+): DatabasePropertyPickerOption[] {
+  const normalizedQuery = query.trim().toLowerCase();
+  const items: DatabasePropertyPickerOption[] = [
+    ...(includeName
+      ? [{ key: "name", label: "Name", type: "name" as const }]
+      : []),
+    ...properties.map((property) => ({
+      key: property.definition.id,
+      label: property.definition.name,
+      type: property.definition.type,
+    })),
+  ];
+
+  if (!normalizedQuery) return items;
+  return items.filter((item) =>
+    [item.key, item.label, item.type].some((value) =>
+      String(value).toLowerCase().includes(normalizedQuery),
+    ),
+  );
+}
 
 export function DatabasePropertyPickerSearch({
   value,
@@ -449,42 +489,13 @@ export function databaseToolbarIconButtonClass(active = false) {
   );
 }
 
+// Suppress unused-import lint warning for IconFilter — it's re-exported via
+// this module so callers can import it from one place.
+export { IconFilter };
+
 // ---------------------------------------------------------------------------
 // Row actions cell (used by all 6 views)
 // ---------------------------------------------------------------------------
-
-import { useState as useStateFull } from "react";
-import { useQueryClient } from "@tanstack/react-query";
-import { toast } from "sonner";
-import {
-  IconCopy,
-  IconDots,
-  IconExternalLink,
-  IconTrash,
-} from "@tabler/icons-react";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import {
-  useDeleteDocument,
-  useDuplicateDatabaseItem,
-} from "@/hooks/use-content-database";
-import { useDeleteDocument as useDeleteDocumentHook } from "@/hooks/use-documents";
-import { databaseDuplicatedItemFromResponse } from "./navigation-state";
 
 export function RowActionsCell({
   item,
@@ -495,20 +506,15 @@ export function RowActionsCell({
 }: {
   item: ContentDatabaseItem;
   databaseDocumentId: string;
-  rowIndex: number;
-  canReorder: boolean;
-  canMoveUp: boolean;
-  canMoveDown: boolean;
-  showReorderActions?: boolean;
   onPreviewItem?: (item: ContentDatabaseItem) => void;
   onDeletedPreviewItem?: (item: ContentDatabaseItem) => boolean;
   onOpenPage: () => void;
 }) {
   const queryClient = useQueryClient();
-  const deleteDocument = useDeleteDocumentHook();
+  const deleteDocument = useDeleteDocument();
   const duplicateItem = useDuplicateDatabaseItem(databaseDocumentId);
-  const [menuOpen, setMenuOpen] = useStateFull(false);
-  const [confirmDeleteOpen, setConfirmDeleteOpen] = useStateFull(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
   const title = item.document.title || "Untitled";
 
   async function duplicateRow() {
