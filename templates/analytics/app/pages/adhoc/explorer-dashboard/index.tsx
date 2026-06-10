@@ -112,7 +112,11 @@ async function fetchDashboard(
   id: string,
 ): Promise<FetchedExplorerDashboard | null> {
   try {
-    const raw: any = await callAction("get-explorer-dashboard", { id });
+    const raw: any = await callAction(
+      "get-explorer-dashboard",
+      { id },
+      { method: "GET" },
+    );
     if (!raw) return null;
     return {
       data: {
@@ -140,7 +144,11 @@ async function saveDashboard(id: string, data: ExplorerDashboardData) {
 
 async function fetchSavedConfigs(): Promise<SavedConfig[]> {
   try {
-    const rows = await callAction("list-explorer-configs", {});
+    const rows = await callAction(
+      "list-explorer-configs",
+      {},
+      { method: "GET" },
+    );
     return (Array.isArray(rows) ? rows : [])
       .filter((c: any) => c.id !== "_autosave")
       .map((c: any) => ({ id: c.id, name: c.name }));

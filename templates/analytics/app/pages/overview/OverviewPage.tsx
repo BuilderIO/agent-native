@@ -29,8 +29,8 @@ type OrgItem = {
 
 async function fetchOrgSharedContent(): Promise<OrgItem[]> {
   const [dashRows, analysisRows] = await Promise.allSettled([
-    callAction("list-sql-dashboards", {}),
-    callAction("list-analyses", {}),
+    callAction("list-sql-dashboards", {}, { method: "GET" }),
+    callAction("list-analyses", {}, { method: "GET" }),
   ]);
 
   const items: OrgItem[] = [];

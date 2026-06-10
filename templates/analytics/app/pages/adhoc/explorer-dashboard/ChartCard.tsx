@@ -44,7 +44,11 @@ interface ChartCardProps {
 
 async function fetchConfig(id: string): Promise<ExplorerConfig | null> {
   try {
-    const data = await callAction("get-explorer-config", { id });
+    const data = await callAction(
+      "get-explorer-config",
+      { id },
+      { method: "GET" },
+    );
     if (!data || typeof data !== "object") return null;
     const { id: _id, ...rest } = data as Record<string, unknown>;
     return rest as unknown as ExplorerConfig;

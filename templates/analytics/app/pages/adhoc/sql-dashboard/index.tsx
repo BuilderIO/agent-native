@@ -128,7 +128,11 @@ type FetchedDashboard = {
 
 async function fetchDashboard(id: string): Promise<FetchedDashboard | null> {
   try {
-    const data: any = await callAction("get-sql-dashboard", { id });
+    const data: any = await callAction(
+      "get-sql-dashboard",
+      { id },
+      { method: "GET" },
+    );
     if (!data || data.error) return null;
     return {
       id,

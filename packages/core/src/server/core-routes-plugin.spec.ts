@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { H3Event } from "h3";
 import {
   resolveBuilderOwnerContextForRequest,
+  resolveFrameworkSseRoutes,
   resolveLegacyToolsRedirect,
   AVATAR_RASTER_MIME,
 } from "./core-routes-plugin.js";
@@ -33,6 +34,30 @@ function createMockEvent(url: string): H3Event {
     path: parsed.pathname,
   } as unknown as H3Event;
 }
+
+describe("resolveFrameworkSseRoutes", () => {
+  it("mounts the default and legacy SSE routes", () => {
+    expect(resolveFrameworkSseRoutes()).toEqual([
+      "/_agent-native/events",
+      "/_agent-native/poll-events",
+    ]);
+  });
+
+  it("keeps custom SSE routes while preserving compatibility aliases", () => {
+    expect(resolveFrameworkSseRoutes("/_agent-native/sse")).toEqual([
+      "/_agent-native/sse",
+      "/_agent-native/events",
+      "/_agent-native/poll-events",
+    ]);
+  });
+
+  it("deduplicates when the custom route is already a compatibility route", () => {
+    expect(resolveFrameworkSseRoutes("/_agent-native/poll-events")).toEqual([
+      "/_agent-native/poll-events",
+      "/_agent-native/events",
+    ]);
+  });
+});
 
 describe("resolveLegacyToolsRedirect", () => {
   afterEach(() => {
