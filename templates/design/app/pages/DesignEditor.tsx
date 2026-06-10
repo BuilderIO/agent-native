@@ -24,7 +24,10 @@ import {
   IconChevronDown,
   IconCheck,
   IconDotsVertical,
+  IconArrowBackUp,
+  IconArrowForwardUp,
 } from "@tabler/icons-react";
+import * as Y from "yjs";
 import {
   useActionQuery,
   useActionMutation,
@@ -107,6 +110,10 @@ import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 
 const TAB_ID = generateTabId();
+// Stable symbol used as the Yjs transaction origin for all local user edits.
+// The UndoManager tracks only this origin so remote peers' and the agent's
+// edits are never undone by this user's Cmd+Z.
+const LOCAL_EDIT_ORIGIN = TAB_ID + ":local";
 const MAX_GENERATION_ATTEMPTS = 3;
 const AUTO_RETRY_DELAY_MS = 1200;
 
@@ -297,6 +304,10 @@ export default function DesignEditor() {
   );
   const [activeFileId, setActiveFileId] = useState<string | null>(null);
   const [tweaksVisible, setTweaksVisible] = useState(false);
+  // Undo/redo state driven by Y.UndoManager
+  const [canUndo, setCanUndo] = useState(false);
+  const [canRedo, setCanRedo] = useState(false);
+  const undoManagerRef = useRef<Y.UndoManager | null>(null);
   const [tweakSaveActive, setTweakSaveActive] = useState(false);
   // Shared visual-editor modes (overlays the iframe). drawMode toggles the
   // pencil overlay, pinMode lets the user drop comment pins. They're
@@ -955,7 +966,13 @@ export default function DesignEditor() {
     const handler = (_event: unknown, transaction?: { origin?: unknown }) => {
       const next = ytext.toString();
       setCollabContent(next);
-      if (transaction?.origin === TAB_ID) {
+      // UndoManager fires with itself as the origin; treat those as local too
+      // so the reconcile watermark and stale-selection fix are consistent.
+      const isLocalEdit =
+        transaction?.origin === TAB_ID ||
+        transaction?.origin === LOCAL_EDIT_ORIGIN ||
+        transaction?.origin === undoManagerRef.current;
+      if (isLocalEdit) {
         lastLocalContentRef.current = next;
       }
       // Only advance the DB reconcile watermark when the live CRDT text
@@ -966,10 +983,84 @@ export default function DesignEditor() {
           documentFileUpdatedAtRef.current ??
           lastAppliedFileUpdatedAtRef.current;
       }
+      // Stale-selection fix: when a remote/agent edit changes the document,
+      // verify the selected element still exists in the new DOM. If not, clear
+      // selection and hover so the Edit panel doesn't operate on a ghost element.
+      if (!isLocalEdit) {
+        setSelectedElement((prev) => {
+          if (!prev) return prev;
+          try {
+            const iframe = document.querySelector<HTMLIFrameElement>(
+              'iframe[title="Design Preview"]',
+            );
+            const doc = iframe?.contentDocument;
+            if (doc && !doc.querySelector(prev.selector)) {
+              return null;
+            }
+          } catch {
+            // iframe not accessible yet — clear defensively
+            return null;
+          }
+          return prev;
+        });
+        setHoveredElement((prev) => {
+          if (!prev) return prev;
+          try {
+            const iframe = document.querySelector<HTMLIFrameElement>(
+              'iframe[title="Design Preview"]',
+            );
+            const doc = iframe?.contentDocument;
+            if (doc && !doc.querySelector(prev.selector)) {
+              return null;
+            }
+          } catch {
+            return null;
+          }
+          return prev;
+        });
+      }
     };
     ytext.observe(handler);
     return () => {
       ytext.unobserve(handler);
+    };
+  }, [ydoc, isSynced]);
+
+  // Create / recreate the UndoManager whenever the active file's ydoc changes.
+  // Tracks only LOCAL_EDIT_ORIGIN so remote peers' and agent edits are never
+  // undone by this user's Cmd+Z. captureTimeout=800ms coalesces rapid slider
+  // drags into a single undo step.
+  useEffect(() => {
+    if (!ydoc || !isSynced) {
+      undoManagerRef.current?.destroy();
+      undoManagerRef.current = null;
+      setCanUndo(false);
+      setCanRedo(false);
+      return;
+    }
+    const ytext = ydoc.getText("content");
+    const um = new Y.UndoManager(ytext, {
+      trackedOrigins: new Set([LOCAL_EDIT_ORIGIN]),
+      captureTimeout: 800,
+    });
+
+    const syncState = () => {
+      setCanUndo(um.canUndo());
+      setCanRedo(um.canRedo());
+    };
+    um.on("stack-item-added", syncState);
+    um.on("stack-item-updated", syncState);
+    um.on("stack-item-popped", syncState);
+    um.on("stack-cleared", syncState);
+
+    undoManagerRef.current = um;
+    syncState();
+
+    return () => {
+      um.destroy();
+      undoManagerRef.current = null;
+      setCanUndo(false);
+      setCanRedo(false);
     };
   }, [ydoc, isSynced]);
 
@@ -1268,13 +1359,14 @@ export default function DesignEditor() {
       lastLocalContentRef.current = nextContent;
       // Write the edit into the shared Y.Doc so other open clients see it live
       // through Yjs (not only via the slower update-file → applyText round-trip).
+      // Use LOCAL_EDIT_ORIGIN so the UndoManager captures this transaction.
       if (ydoc && isSynced) {
         const ytext = ydoc.getText("content");
         if (ytext.toString() !== nextContent) {
           ydoc.transact(() => {
             ytext.delete(0, ytext.length);
             ytext.insert(0, nextContent);
-          }, TAB_ID);
+          }, LOCAL_EDIT_ORIGIN);
         }
       }
       queueFileContentSave(activeFile.id, nextContent);
@@ -1296,6 +1388,71 @@ export default function DesignEditor() {
       isSynced,
     ],
   );
+
+  // Handle undo: pop from UndoManager, then queue SQL persist.
+  // The Y.Text observer already calls setCollabContent when the doc changes,
+  // but undo/redo transactions use the UndoManager as origin so we must also
+  // advance lastLocalContentRef and trigger the debounced save here.
+  const handleUndo = useCallback(() => {
+    const um = undoManagerRef.current;
+    if (!um || !um.canUndo()) return;
+    um.undo();
+    if (ydoc && activeFile) {
+      const next = ydoc.getText("content").toString();
+      lastLocalContentRef.current = next;
+      queueFileContentSave(activeFile.id, next);
+    }
+  }, [ydoc, activeFile, queueFileContentSave]);
+
+  const handleRedo = useCallback(() => {
+    const um = undoManagerRef.current;
+    if (!um || !um.canRedo()) return;
+    um.redo();
+    if (ydoc && activeFile) {
+      const next = ydoc.getText("content").toString();
+      lastLocalContentRef.current = next;
+      queueFileContentSave(activeFile.id, next);
+    }
+  }, [ydoc, activeFile, queueFileContentSave]);
+
+  // Keyboard shortcuts for undo (Cmd/Ctrl+Z) and redo (Shift+Cmd/Ctrl+Z or Ctrl+Y).
+  // Guards: does not fire when focus is inside an input, textarea, select, or
+  // contentEditable element (title editing, prompt composer, etc.).
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      // Skip if focus is in a text input / editable area in the parent app.
+      const target = e.target as HTMLElement | null;
+      if (target) {
+        const tag = target.tagName.toLowerCase();
+        if (
+          tag === "input" ||
+          tag === "textarea" ||
+          tag === "select" ||
+          target.isContentEditable
+        ) {
+          return;
+        }
+      }
+
+      const isMac = navigator.platform.toLowerCase().startsWith("mac");
+      const modKey = isMac ? e.metaKey : e.ctrlKey;
+
+      const isUndo = modKey && !e.shiftKey && e.key === "z";
+      const isRedo =
+        (modKey && e.shiftKey && e.key === "z") ||
+        (e.ctrlKey && !e.shiftKey && e.key === "y");
+
+      if (isUndo) {
+        e.preventDefault();
+        handleUndo();
+      } else if (isRedo) {
+        e.preventDefault();
+        handleRedo();
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [handleUndo, handleRedo]);
 
   const handleZoomIn = useCallback(() => {
     setZoom((z) => {
@@ -1853,6 +2010,38 @@ ${serializedHtml}
                     </TabsTrigger>
                   </TabsList>
                 </Tabs>
+
+                {/* Undo / redo */}
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-7 w-7 cursor-pointer"
+                      onClick={handleUndo}
+                      disabled={!canUndo}
+                      aria-label="Undo"
+                    >
+                      <IconArrowBackUp className="w-3.5 h-3.5" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>Undo (⌘Z)</TooltipContent>
+                </Tooltip>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-7 w-7 cursor-pointer"
+                      onClick={handleRedo}
+                      disabled={!canRedo}
+                      aria-label="Redo"
+                    >
+                      <IconArrowForwardUp className="w-3.5 h-3.5" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>Redo (⇧⌘Z)</TooltipContent>
+                </Tooltip>
 
                 <div className="w-px h-5 bg-accent mx-1" />
               </>

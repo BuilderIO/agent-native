@@ -26,6 +26,7 @@
     "jszip": "^3.10.1",
     "nanoid": "^5.1.9",
     "pdf-parse": "^2.4.5",
+    "yjs": "^13.6.31",
     "zod": "^4.3.6"
   },
   "devDependencies": {
