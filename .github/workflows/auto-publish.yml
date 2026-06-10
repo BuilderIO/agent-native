@@ -103,6 +103,35 @@ jobs:
       - name: Build all packages
         run: pnpm -r build
 
+      # OIDC trusted publishing cannot create a package that does not yet
+      # exist on npm — its first version must be published with a token
+      # (npm/cli#8544, npmjs.com requires the package to exist before a
+      # trusted publisher can be configured for it). So every brand-new
+      # `@agent-native/*` package's FIRST publish needs token auth; after
+      # that, OIDC trusted publishing takes over.
+      #
+      # This step is a no-op unless the `NPM_TOKEN` secret is set: with the
+      # secret present we write it into the npm userconfig (replacing
+      # setup-node's placeholder auth line) so `npm publish` can bootstrap
+      # new packages; without it we leave the OIDC path completely untouched.
+      # `--provenance` (NPM_CONFIG_PROVENANCE below) still works alongside
+      # token auth because provenance is signed from the OIDC id-token.
+      - name: Configure npm token auth (bootstrap for brand-new packages)
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          if [ -n "$NPM_TOKEN" ]; then
+            npmrc="${NPM_CONFIG_USERCONFIG:-$HOME/.npmrc}"
+            if [ -f "$npmrc" ]; then
+              grep -v '_authToken=' "$npmrc" > "$npmrc.tmp" || true
+              mv "$npmrc.tmp" "$npmrc"
+            fi
+            echo "//registry.npmjs.org/:_authToken=${NPM_TOKEN}" >> "$npmrc"
+            echo "Configured npm token auth for first-publish bootstrap."
+          else
+            echo "NPM_TOKEN not set; relying on OIDC trusted publishing (cannot create new packages)."
+          fi
+
       - name: Create Release PR or publish to npm
         id: changesets
         uses: changesets/action@63a615b9cd06ba9a3e6d13796c7fbcb080a60a0b # v1
