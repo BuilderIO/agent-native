@@ -21,7 +21,7 @@ export default defineAction({
       ?.split(",")
       .map((s) => s.trim())
       .filter(Boolean);
-    if (!ids || ids.length === 0) return "Error: --id is required";
+    if (!ids || ids.length === 0) throw new Error("--id is required");
     const markUnread = args.unread === true;
 
     const ownerEmail = getRequestUserEmail();
@@ -44,7 +44,7 @@ export default defineAction({
     }
 
     const accounts = await getAccessTokens();
-    if (accounts.length === 0) return "Error: No Google account connected.";
+    if (accounts.length === 0) throw new Error("No Google account connected.");
 
     const results: { id: string; success: boolean; error?: string }[] = [];
     for (const id of ids) {

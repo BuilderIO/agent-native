@@ -33,7 +33,7 @@ export default defineAction({
     };
   },
   run: async (args) => {
-    if (!args.id) return "Error: --id is required";
+    if (!args.id) throw new Error("--id is required");
     const compact = args.compact === true;
 
     const ownerEmail = getRequestUserEmail();
@@ -48,7 +48,7 @@ export default defineAction({
           (a: any, b: any) =>
             new Date(a.date).getTime() - new Date(b.date).getTime(),
         );
-      if (messages.length === 0) return "Error: Thread not found.";
+      if (messages.length === 0) throw new Error("Thread not found.");
       const result = compact
         ? messages.map((m: any) => ({
             id: m.id,
@@ -64,7 +64,7 @@ export default defineAction({
     }
 
     const accounts = await getAccessTokens();
-    if (accounts.length === 0) return "Error: No Google account connected.";
+    if (accounts.length === 0) throw new Error("No Google account connected.");
 
     const labelMap = new Map<string, string>();
     await Promise.all(
@@ -107,9 +107,9 @@ export default defineAction({
         return JSON.stringify(result, null, 2);
       } catch (err: any) {
         if (err?.message?.includes("404")) continue;
-        return `Error: ${err?.message}`;
+        throw new Error(err?.message ?? "Gmail API error");
       }
     }
-    return "Error: Thread not found in any connected account.";
+    throw new Error("Thread not found in any connected account.");
   },
 });

@@ -17,11 +17,13 @@ export default defineAction({
   run: async (args) => {
     const days = args["older-than"] ?? 30;
     if (isNaN(days) || days < 1)
-      return "Error: --older-than must be a positive integer (days)";
+      throw new Error("--older-than must be a positive integer (days)");
 
     const data = await getSetting("local-emails");
     if (!data || !Array.isArray((data as any).emails)) {
-      return "Error: No local emails data found. This tool only works with local data.";
+      throw new Error(
+        "No local emails data found. This tool only works with local data.",
+      );
     }
 
     const emails: any[] = (data as any).emails;

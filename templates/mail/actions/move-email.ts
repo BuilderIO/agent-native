@@ -72,8 +72,8 @@ export default defineAction({
       .map((s) => s.trim())
       .filter(Boolean);
     const targetLabel = args.label?.trim();
-    if (!ids || ids.length === 0) return "Error: --id is required";
-    if (!targetLabel) return "Error: --label is required";
+    if (!ids || ids.length === 0) throw new Error("--id is required");
+    if (!targetLabel) throw new Error("--label is required");
 
     const ownerEmail = getRequestUserEmail();
     if (!ownerEmail) throw new Error("no authenticated user");
@@ -109,7 +109,7 @@ export default defineAction({
     }
 
     const accounts = await getAccessTokens();
-    if (accounts.length === 0) return "Error: No Google account connected.";
+    if (accounts.length === 0) throw new Error("No Google account connected.");
 
     const results: { id: string; success: boolean; error?: string }[] = [];
     for (const id of ids) {

@@ -26,7 +26,7 @@ export default defineAction({
   http: false,
   run: async (args) => {
     if (!args.view && !args.path) {
-      return "Error: At least --view or --path is required.";
+      throw new Error("At least --view or --path is required.");
     }
     const nav: Record<string, string> = {};
     if (args.view) nav.view = args.view;

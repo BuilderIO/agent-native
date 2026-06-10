@@ -29,7 +29,7 @@ export default defineAction({
 
       const access = await resolveAccess("design-system", designSystemId);
       if (!access) {
-        return "Error: Design system not found";
+        throw new Error("Design system not found");
       }
 
       const row = access.resource;
@@ -59,7 +59,7 @@ export default defineAction({
 
     const access = await resolveAccess("design", designId);
     if (!access) {
-      return "Error: Design not found";
+      throw new Error("Design not found");
     }
 
     const design = access.resource;

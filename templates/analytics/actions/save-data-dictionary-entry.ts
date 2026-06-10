@@ -116,7 +116,9 @@ export default defineAction({
     if (!email) throw new Error("no authenticated user");
     const id = args.id?.trim() || slugify(args.metric);
     if (!id) {
-      return "Error: could not derive an id — provide one or a non-empty `metric`.";
+      throw new Error(
+        "could not derive an id — provide one or a non-empty `metric`.",
+      );
     }
     const key = `${KEY_PREFIX}${id}`;
     const now = new Date().toISOString();

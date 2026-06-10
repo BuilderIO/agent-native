@@ -39,7 +39,7 @@ export default defineAction({
   http: false,
   run: async (args) => {
     if (!args.view && !args.path) {
-      return "Error: view or path is required.";
+      throw new Error("view or path is required.");
     }
     await writeAppState("navigate", args);
     return { navigating: true, ...args };

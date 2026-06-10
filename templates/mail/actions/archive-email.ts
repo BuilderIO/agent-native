@@ -14,19 +14,16 @@ export default defineAction({
   description:
     "Archive one or more emails by ID. The UI handles navigation to the next email automatically.",
   schema: z.object({
-    id: z
-      .string()
-      .optional()
-      .describe("Email ID(s) to archive, comma-separated"),
+    id: z.string().describe("Email ID(s) to archive, comma-separated"),
   }),
   run: async (args) => {
     const ids = args.id
-      ?.split(",")
+      .split(",")
       .map((s) => s.trim())
       .filter(Boolean);
 
-    if (!ids || ids.length === 0) {
-      return "Error: --id is required";
+    if (ids.length === 0) {
+      throw new Error("--id is required");
     }
 
     const ownerEmail = getRequestUserEmail();
@@ -49,7 +46,9 @@ export default defineAction({
 
     const accounts = await getAccessTokens();
     if (accounts.length === 0) {
-      return "Error: No Google account connected. Connect an account in the app first.";
+      throw new Error(
+        "No Google account connected. Connect an account in the app first.",
+      );
     }
 
     const results: { id: string; success: boolean; error?: string }[] = [];
