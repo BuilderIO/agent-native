@@ -7,7 +7,6 @@ import {
   useThread,
   useMessageRuntime,
   useComposer,
-  useComposerRuntime as _useComposerRuntime,
   MessagePrimitive,
   ActionBarPrimitive,
   BranchPickerPrimitive,

@@ -17,6 +17,7 @@ import {
   IconCheck,
   IconCopy,
   IconX,
+  IconChevronDown,
   IconExternalLink,
   IconKey,
   IconGitFork,
@@ -163,30 +164,6 @@ function isConnectionRecoveryRunError(info: RunErrorInfo): boolean {
     code === "connection_error" ||
     message.includes("connection kept failing") ||
     message.includes("automatic recovery attempts")
-  );
-}
-
-// ─── ThinkingIndicator ────────────────────────────────────────────────────────
-// Exported here for use by AssistantChatInner; also re-exported from
-// message-components for historical consumers.
-
-export function ThinkingIndicator({
-  label = "Thinking",
-}: { label?: string } = {}) {
-  const [dots, setDots] = useState(0);
-  useEffect(() => {
-    const interval = setInterval(() => {
-      setDots((d) => (d + 1) % 4);
-    }, 400);
-    return () => clearInterval(interval);
-  }, []);
-  return (
-    <div className="flex items-center text-muted-foreground">
-      <span className="text-xs">
-        {label}
-        {".".repeat(dots)}
-      </span>
-    </div>
   );
 }
 
@@ -565,7 +542,7 @@ export function RunErrorRecoveryCard({
               onClick={() => setDetailsOpen((v) => !v)}
               className="mt-2 inline-flex items-center gap-1 text-[11px] font-medium text-muted-foreground hover:text-foreground"
             >
-              <IconX
+              <IconChevronDown
                 size={12}
                 className={cn(
                   "transition-transform",

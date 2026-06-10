@@ -17,6 +17,8 @@ import { AgentSidebar } from "@agent-native/core/client";
 import { PromptComposer } from "@agent-native/core/client/composer";
 import { AgentConversation } from "@agent-native/core/client/conversation";
 import { usePresence } from "@agent-native/core/client/collab";
+import { SharedRichEditor } from "@agent-native/core/client/editor";
+import { ResourcesPanel } from "@agent-native/core/client/resources";
 ```
 
 Avoid importing UI components from the bare `@agent-native/core` package. Use
@@ -141,16 +143,141 @@ import {
 } from "@agent-native/core/collab";
 ```
 
+## Rich Editor {#rich-editor}
+
+Use `@agent-native/core/client/editor` when you need the shared markdown editor
+surface used by plans, content, resources, and collaborative document
+experiences.
+
+| API                              | Use when                                                                                             |
+| -------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| `<SharedRichEditor>`             | You need the current, configurable editor with markdown serialization, optional Yjs, and app extras. |
+| `<RichMarkdownEditor>`           | You need the backwards-compatible alias for the shared rich editor.                                  |
+| `createSharedEditorExtensions()` | You are building your own Tiptap editor but want the framework schema and markdown dialects.         |
+| `<SlashCommandMenu>`             | You need the shared slash-command UI for a custom Tiptap surface.                                    |
+| `<BubbleToolbar>`                | You need the shared selection toolbar for marks, links, and custom inline actions.                   |
+| `createRegistryBlockNode()`      | You need registry-backed block nodes inside a rich editor.                                           |
+| `uploadEditorImage()`            | You want the framework upload-image action behind the editor's shared image block.                   |
+| `useCollabReconcile()`           | You are binding a custom editor surface to a Yjs doc while preserving markdown as saved state.       |
+
+The basic controlled editor is just markdown in and markdown out:
+
+```tsx
+import { SharedRichEditor } from "@agent-native/core/client/editor";
+
+<SharedRichEditor
+  value={markdown}
+  onChange={setMarkdown}
+  placeholder="Write notes..."
+  features={{ tables: true, tasks: true, link: true }}
+/>;
+```
+
+For realtime editing, pair it with the collab subpath:
+
+```tsx
+import {
+  emailToColor,
+  useCollaborativeDoc,
+} from "@agent-native/core/client/collab";
+import { SharedRichEditor } from "@agent-native/core/client/editor";
+
+const editorUser = {
+  name: user.name,
+  email: user.email,
+  color: emailToColor(user.email),
+};
+const collab = useCollaborativeDoc({
+  docId,
+  user: editorUser,
+});
+
+<SharedRichEditor
+  value={markdown}
+  onChange={setMarkdown}
+  ydoc={collab.ydoc}
+  awareness={collab.awareness}
+  user={editorUser}
+/>;
+```
+
+## Workspace Resources {#resources}
+
+Use `@agent-native/core/client/resources` when you want to expose the same
+workspace resource model that powers the agent panel's Workspace tab.
+
+| API                                                                   | Use when                                                                |
+| --------------------------------------------------------------------- | ----------------------------------------------------------------------- |
+| `<ResourcesPanel>`                                                    | You want the complete Workspace tab as a page, drawer, or custom panel. |
+| `<ResourceTree>`                                                      | You want to render your own resource browser around framework data.     |
+| `<ResourceEditor>`                                                    | You want the framework editor for a selected resource.                  |
+| `useResourceTree()`                                                   | You need a scoped tree for personal, shared, or workspace resources.    |
+| `useResource()`                                                       | You need the content and metadata for one selected resource.            |
+| `useCreateResource()` / `useUpdateResource()` / `useDeleteResource()` | You need custom controls around the resource lifecycle.                 |
+| `useUploadResource()`                                                 | You need file upload into the framework resource store.                 |
+
+The complete panel needs no props:
+
+```tsx
+import { ResourcesPanel } from "@agent-native/core/client/resources";
+
+<ResourcesPanel />;
+```
+
+For custom resource chrome, keep the hooks and primitives together:
+
+```tsx
+import { useState } from "react";
+import {
+  ResourceEditor,
+  ResourceTree,
+  useResource,
+  useResourceTree,
+  useUpdateResource,
+} from "@agent-native/core/client/resources";
+
+function WorkspaceResources() {
+  const tree = useResourceTree("workspace");
+  const updateResource = useUpdateResource();
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const resource = useResource(selectedId);
+
+  return (
+    <div className="grid h-full grid-cols-[260px_1fr]">
+      <ResourceTree
+        tree={tree.data ?? []}
+        selectedId={selectedId}
+        onSelect={(item) => setSelectedId(item.id)}
+        onCreateFile={() => {}}
+        onCreateFolder={() => {}}
+        onDelete={() => {}}
+        onRename={() => {}}
+        onDrop={() => {}}
+      />
+      {resource.data ? (
+        <ResourceEditor
+          resource={resource.data}
+          onSave={(content) =>
+            updateResource.mutate({ id: resource.data.id, content })
+          }
+        />
+      ) : null}
+    </div>
+  );
+}
+```
+
 ## Other Public UI {#other-ui}
 
-| Area          | APIs                                                                             | Import path                               |
-| ------------- | -------------------------------------------------------------------------------- | ----------------------------------------- |
-| Sharing       | `<ShareButton>`, `<ShareDialog>`, `<VisibilityBadge>`                            | `@agent-native/core/client/sharing`       |
-| Notifications | `<NotificationsBell>`                                                            | `@agent-native/core/client/notifications` |
-| Progress      | `<RunsTray>`, progress hooks and types                                           | `@agent-native/core/client/progress`      |
-| Onboarding    | `useOnboarding()`, onboarding panel hooks                                        | `@agent-native/core/client/onboarding`    |
-| Observability | `<ObservabilityDashboard>`, `<ThumbsFeedback>`                                   | `@agent-native/core/client/observability` |
-| Rich editor   | `<SharedRichEditor>`, `<RichMarkdownEditor>`, block nodes, slash-command helpers | `@agent-native/core/client`               |
+| Area          | APIs                                                   | Import path                               |
+| ------------- | ------------------------------------------------------ | ----------------------------------------- |
+| Sharing       | `<ShareButton>`, `<ShareDialog>`, `<VisibilityBadge>`  | `@agent-native/core/client/sharing`       |
+| Notifications | `<NotificationsBell>`                                  | `@agent-native/core/client/notifications` |
+| Progress      | `<RunsTray>`, progress hooks and types                 | `@agent-native/core/client/progress`      |
+| Onboarding    | `useOnboarding()`, onboarding panel hooks              | `@agent-native/core/client/onboarding`    |
+| Observability | `<ObservabilityDashboard>`, `<ThumbsFeedback>`         | `@agent-native/core/client/observability` |
+| Resources     | `<ResourcesPanel>`, `<ResourceTree>`, resource hooks   | `@agent-native/core/client/resources`     |
+| Rich editor   | `<SharedRichEditor>`, slash commands, block node hooks | `@agent-native/core/client/editor`        |
 
 ## One-Off Text Completion {#one-off-text-completion}
 

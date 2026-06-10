@@ -226,6 +226,8 @@ const CORE_CLIENT_SUBPATHS = [
   "@agent-native/core/client/collab",
   "@agent-native/core/client/composer",
   "@agent-native/core/client/conversation",
+  "@agent-native/core/client/editor",
+  "@agent-native/core/client/resources",
   // Dedicated subpath that exports ONLY appBasePath/agentNativePath/appPath.
   // entry.client.tsx imports from here so it never pulls the full client barrel
   // (and its transitive ~650-700 KB gzip chat stack) onto the critical path.
@@ -272,6 +274,14 @@ function getDefaultOptimizeDeps(cwd: string): string[] {
           },
           {
             specifier: "@agent-native/core/client/conversation",
+            packageName: "@agent-native/core",
+          },
+          {
+            specifier: "@agent-native/core/client/editor",
+            packageName: "@agent-native/core",
+          },
+          {
+            specifier: "@agent-native/core/client/resources",
             packageName: "@agent-native/core",
           },
           {
@@ -374,6 +384,14 @@ function getCoreSourceAliases(
     "@agent-native/core/client/conversation": path.join(
       coreSrc,
       "client/conversation/index.ts",
+    ),
+    "@agent-native/core/client/editor": path.join(
+      coreSrc,
+      "client/editor/index.ts",
+    ),
+    "@agent-native/core/client/resources": path.join(
+      coreSrc,
+      "client/resources/index.ts",
     ),
     // Dedicated thin subpath — only the URL helpers, no chat stack in the closure.
     "@agent-native/core/client/api-path": path.join(

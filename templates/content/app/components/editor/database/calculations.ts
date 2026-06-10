@@ -237,20 +237,24 @@ export function databaseViewHasNoMatchingPages(
 }
 
 export function databaseCalculationSummaries(
-  calculations: Record<string, DatabaseColumnCalculation>,
-  visibleItems: ContentDatabaseItem[],
+  calculations: Record<string, DatabaseColumnCalculation> | undefined,
+  items: ContentDatabaseItem[],
   visibleProperties: DocumentProperty[],
 ) {
-  return Object.fromEntries(
-    Object.entries(calculations)
-      .map(([key, calculation]) => {
-        const property = visibleProperties.find((p) => p.definition.id === key);
-        if (!property) return null;
-        return [
-          key,
-          databaseColumnCalculationResult(calculation, visibleItems, property),
-        ];
-      })
-      .filter((entry): entry is [string, string] => !!entry),
-  );
+  if (!calculations) return [];
+  return Object.entries(calculations).flatMap(([propertyId, calculation]) => {
+    const property = visibleProperties.find(
+      (candidate) => candidate.definition.id === propertyId,
+    );
+    if (!property) return [];
+    return [
+      {
+        propertyId,
+        name: property.definition.name,
+        type: property.definition.type,
+        calculation,
+        result: databaseColumnCalculationResult(calculation, items, property),
+      },
+    ];
+  });
 }

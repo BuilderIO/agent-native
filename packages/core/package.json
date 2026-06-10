@@ -46,6 +46,8 @@
     "./client/collab": "./dist/client/collab/index.js",
     "./client/composer": "./dist/client/composer/index.js",
     "./client/conversation": "./dist/client/conversation/index.js",
+    "./client/editor": "./dist/client/editor/index.js",
+    "./client/resources": "./dist/client/resources/index.js",
     "./blocks": "./dist/client/blocks/index.js",
     "./blocks/server": "./dist/client/blocks/server.js",
     "./client/AgentPanel": "./dist/client/AgentPanel.js",
