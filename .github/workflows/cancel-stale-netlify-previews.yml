@@ -55,17 +55,31 @@ jobs:
 
             const results = await Promise.all(SITES.map(async ([name, id]) => {
               const url = `https://api.netlify.com/api/v1/sites/${id}/deploys?branch=${encodeURIComponent(branch)}&per_page=100`;
-              const r = await fetch(url, { headers });
+              let r;
+              try {
+                r = await fetch(url, { headers });
+              } catch (err) {
+                return { name, error: `list fetch failed: ${err?.message || err}` };
+              }
               if (!r.ok) return { name, error: `list ${r.status}` };
-              const deploys = await r.json();
+              let deploys;
+              try {
+                deploys = await r.json();
+              } catch (err) {
+                return { name, error: `list json failed: ${err?.message || err}` };
+              }
               const stale = deploys.filter(d =>
                 d.context === 'deploy-preview' &&
                 STALE_STATES.has(d.state) &&
                 (closed || d.commit_ref !== latestSha)
               );
               const cancelled = await Promise.all(stale.map(async d => {
-                const c = await fetch(`https://api.netlify.com/api/v1/deploys/${d.id}/cancel`, { method: 'POST', headers });
-                return { id: d.id, ok: c.ok, status: c.status, sha: (d.commit_ref || '').slice(0, 7), state: d.state };
+                try {
+                  const c = await fetch(`https://api.netlify.com/api/v1/deploys/${d.id}/cancel`, { method: 'POST', headers });
+                  return { id: d.id, ok: c.ok, status: c.status, sha: (d.commit_ref || '').slice(0, 7), state: d.state };
+                } catch (err) {
+                  return { id: d.id, ok: false, status: err?.message || 'fetch failed', sha: (d.commit_ref || '').slice(0, 7), state: d.state };
+                }
               }));
               return { name, total: stale.length, cancelled };
             }));
