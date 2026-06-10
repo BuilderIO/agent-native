@@ -2,11 +2,7 @@ import { Link, useNavigate } from "react-router";
 import { useMemo, useState } from "react";
 import { useActionMutation, useActionQuery } from "@agent-native/core/client";
 import { toast } from "sonner";
-import {
-  IconLibraryPhoto,
-  IconPhotoPlus,
-  IconSearch,
-} from "@tabler/icons-react";
+import { IconPalette, IconPhotoPlus, IconSearch } from "@tabler/icons-react";
 import { Button } from "@/components/ui/button";
 import { CreateLibraryDialog } from "@/components/library/CreateLibraryDialog";
 import { EditLibraryDialog } from "@/components/library/EditLibraryDialog";
@@ -70,15 +66,25 @@ export default function BrandKitsIndexPage() {
       description="Organize references, generated assets, folders, and reusable style guidance."
     >
       <section className="space-y-4">
-        <div className="flex flex-wrap items-end justify-between gap-4">
-          <div>
-            <h2 className="text-lg font-semibold tracking-tight">
-              Your brand kits
-            </h2>
-            <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
-              Brand references, product imagery, videos, diagrams, and generated
-              candidates that other agents can reuse.
-            </p>
+        <div>
+          <h2 className="text-lg font-semibold tracking-tight">
+            Your brand kits
+          </h2>
+          <p className="mt-1 w-full text-sm text-muted-foreground">
+            Brand references, product imagery, videos, diagrams, and generated
+            candidates that other agents can reuse
+          </p>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-4">
+          <div className="flex h-10 flex-1 items-center gap-2 rounded-md border border-border bg-background px-3">
+            <IconSearch className="h-4 w-4 text-muted-foreground" />
+            <input
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="Search brand kits"
+              className="h-full flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
+            />
           </div>
           <Button
             variant="outline"
@@ -86,18 +92,8 @@ export default function BrandKitsIndexPage() {
             className="gap-2"
           >
             <IconPhotoPlus className="h-4 w-4" />
-            New brand kit
+            New Brand Kit
           </Button>
-        </div>
-
-        <div className="flex h-10 items-center gap-2 rounded-md border border-border bg-background px-3">
-          <IconSearch className="h-4 w-4 text-muted-foreground" />
-          <input
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            placeholder="Search brand kits"
-            className="h-full flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
-          />
         </div>
 
         {isLoading ? (
@@ -122,9 +118,9 @@ export default function BrandKitsIndexPage() {
             ))}
           </div>
         ) : (
-          <div className="rounded-lg border border-dashed bg-muted/20 p-6">
+          <div className="p-6">
             <div className="mx-auto max-w-2xl text-center">
-              <IconLibraryPhoto className="mx-auto h-10 w-10 text-muted-foreground" />
+              <IconPalette className="mx-auto h-10 w-10 text-muted-foreground" />
               <h3 className="mt-4 text-base font-semibold">
                 No brand kits yet
               </h3>

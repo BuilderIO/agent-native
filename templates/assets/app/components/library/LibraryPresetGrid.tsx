@@ -82,7 +82,7 @@ export function LibraryPresetGrid({
             ) : null}
 
             {!compact && preset.samplePrompts[0] ? (
-              <p className="mt-3 line-clamp-1 text-xs text-muted-foreground">
+              <p className="mt-3 mb-3 line-clamp-1 text-xs text-muted-foreground">
                 Try: {preset.samplePrompts[0]}
               </p>
             ) : null}
