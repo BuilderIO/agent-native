@@ -1,5 +1,46 @@
 # @agent-native/core
 
+## 0.45.1
+
+### Patch Changes
+
+- a2a3e52: Add CLI guardrails for unsupported Node versions and typo-like bare commands.
+- a2a3e52: Encrypt OAuth tokens at rest. The `oauth_tokens` table previously stored the
+  full bundle — including long-lived Google refresh tokens — as plaintext JSON,
+  so a leaked DB backup / pg_dump / read replica exposed usable credentials.
+  `saveOAuthTokens` now AES-256-GCM-encrypts the bundle with the same key story
+  as the secrets vault and per-user credentials; reads decrypt transparently and
+  fall back to plaintext for rows written before this change (and for Better
+  Auth's mirrored `account` rows). Adds an optional, idempotent
+  `db-migrate-encrypt-oauth-tokens` script to re-encrypt existing rows in place.
+
+  Also exposes the AES-256-GCM helpers (`encryptSecretValue`,
+  `decryptSecretValue`, `isEncryptedSecretValue`) from `@agent-native/core/secrets`
+  and a focused `@agent-native/core/secrets/crypto` subpath, so templates can
+  encrypt per-row secret values (e.g. a per-recording share password) that don't
+  fit the keyed app_secrets / credentials stores.
+
+- a2a3e52: Harden extension SQL filtering and expose shared secret encryption helpers.
+- a2a3e52: fix(mcp): throw on corrupt JSON config instead of silently overwriting with empty object
+
+  `readJsonFile` in `mcp-config-writers.ts` previously swallowed all read/parse errors and returned `{}`, meaning a corrupt or partially-written `~/.claude.json` (or `.mcp.json` / `~/.cowork/mcp.json`) would be silently replaced with only the new `mcpServers` entry — destroying the user's entire Claude Code state. Now only a missing or empty file yields `{}`; a non-empty file that fails to parse throws a descriptive error pointing to the file path and asking the user to fix or move it before re-running.
+
+- a2a3e52: Allow `mcpApp: { compactCatalog: true }` without a `resource` so non-UI actions (read, update, list, share) can be flagged into the compact MCP Apps catalog independently of an iframe embed. Makes `resource` optional on `ActionMcpAppConfig` and updates `defineAction` to preserve the flag when no resource is provided.
+- a2a3e52: Clean up ghost slash-command references in plan skills, fix Bidirectional Loop self-contradiction in visual-recap, add get-plan-blocks and Visibility & Sharing guidance to visual-plan, reword legacy "implementation maps" and "proof gates" framing, fix skill index and entry-point descriptions in AGENTS.md, align templates-meta.ts with shared-app-config, add publish-visual-plan and chat-host connector docs, and add context-xray to skills status/update usage.
+- a2a3e52: Fix plan install flow: OAuth clients now get a publish token after `agent-native connect`, DEVELOPING.md is kept in standalone scaffolds, the Netlify `ignore` script line is stripped in scaffolds, and migration permission errors point to the app-prefixed DATABASE_URL workaround.
+- a2a3e52: Fix nested interactive elements in question-form option previews, theme-aware iframe ink in the html block, click/focus/scroll fixes for annotated-code and diff annotation popovers.
+- a2a3e52: Fix CLI safety issues: scope isFirstPartyPlanHost to plan.agent-native.com only, exclude diff headers from countDiffLines, raise waitForPublicRecapImage retry budget to ~20s, detect git failures in collect-diff, guard codex mcp-config against clobbering existing config, require PLAN_RECAP_TOKEN for claude mcp-config, and fix plan-local unknown-area exit code.
+- a2a3e52: Fix several PR Visual Recap pipeline reliability issues:
+  - **playwright optionalDependency**: add `playwright@^1` as an `optionalDependency` of `@agent-native/core` so consumer repos running `npx @agent-native/core@latest` can take screenshots without manual install steps; the existing dynamic-import fallback chain is preserved.
+  - **plan-id continuity**: `buildCommentBody` now threads the last-known plan id (`PREV_PLAN_ID`) into every comment branch (failure, suppressed, tiny) so a transient error never orphans the plan; the failure branch also keeps a labeled stale link to the previous recap.
+  - **freshness line**: all comment branches that have a `HEAD_SHA` now emit `_As of \`<short-sha>\`\_` so reviewers can tell whether the recap matches the latest push.
+  - **deterministic visibility**: `create-visual-recap` action accepts a `visibility` input (enum `private|org|public`, default `org`) and applies it server-side after import, so the recap is never accidentally private; the agent prompt now passes `visibility: "org"` in the `create-visual-recap` call and demotes `set-resource-visibility` to a fallback note.
+  - **playwright browser cache**: adds an `actions/cache` step for `~/.cache/ms-playwright` (keyed on runner OS + playwright major) to avoid re-downloading Chromium on every workflow run.
+  - **guard scoping**: the `packages/core/**` self-modifying guard in the gate now only triggers for the `BuilderIO/agent-native` monorepo; consumer repos with an unrelated `packages/core/` directory no longer have their recaps silently gated.
+
+- a2a3e52: Remove legacy Plan skill variants from packaged skill installs, move wireframe guidance into references, add copied-skill status/update metadata, and harden visual recap comments and image embeds.
+- a2a3e52: Improve PR Visual Recap setup UX with an optional Plans install prompt, `agent-native recap setup`, and `agent-native recap doctor`.
+
 ## 0.45.0
 
 ### Minor Changes
