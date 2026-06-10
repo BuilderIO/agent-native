@@ -384,7 +384,13 @@ type CodeAgentTerminalResult = {
   error?: string;
 };
 
-type CodeAgentControlCommand = "resume" | "status" | "stop" | "approve";
+type CodeAgentControlCommand =
+  | "resume"
+  | "status"
+  | "stop"
+  | "approve"
+  | "approve-always"
+  | "deny";
 
 type CodeAgentHostControlCommand = CodeAgentControlCommand | "retry" | "rerun";
 
