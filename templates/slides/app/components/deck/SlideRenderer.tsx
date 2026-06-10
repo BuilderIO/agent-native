@@ -555,7 +555,9 @@ export function SlideInner({
         "--ds-text": designSystem.colors.text,
         "--ds-text-muted": designSystem.colors.textMuted,
         "--ds-heading-font": designSystem.typography.headingFont,
+        "--ds-heading-weight": designSystem.typography.headingWeight,
         "--ds-body-font": designSystem.typography.bodyFont,
+        "--ds-body-weight": designSystem.typography.bodyWeight,
         "--ds-primary": designSystem.colors.primary,
         "--ds-radius": designSystem.borders.radius,
       } as React.CSSProperties)

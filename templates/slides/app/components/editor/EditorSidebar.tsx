@@ -16,6 +16,7 @@ import {
 } from "@tabler/icons-react";
 import type { Slide } from "@/context/DeckContext";
 import type { AspectRatio } from "@/lib/aspect-ratios";
+import type { DesignSystemData } from "../../../shared/api";
 import SlideRenderer from "@/components/deck/SlideRenderer";
 import { useAgentGenerating } from "@/hooks/use-agent-generating";
 import type { UploadedFile } from "@/components/editor/PromptDialog";
@@ -47,6 +48,8 @@ interface EditorSidebarProps {
   slidePresence?: Map<string, CollabUser[]>;
   /** Deck aspect ratio (defaults to 16:9 when omitted) */
   aspectRatio?: AspectRatio;
+  /** Design system to forward to SlideRenderer for CSS custom properties */
+  designSystem?: DesignSystemData;
 }
 
 const MAX_SOURCE_CONTEXT_CHARS = 60_000;
@@ -159,6 +162,7 @@ function SortableSlideThumb({
   registerButtonRef,
   presenceUsers = [],
   aspectRatio,
+  designSystem,
 }: {
   slide: Slide;
   index: number;
@@ -169,6 +173,7 @@ function SortableSlideThumb({
   registerButtonRef: (slideId: string, node: HTMLButtonElement | null) => void;
   presenceUsers?: CollabUser[];
   aspectRatio?: AspectRatio;
+  designSystem?: DesignSystemData;
 }) {
   const {
     attributes,
@@ -239,7 +244,7 @@ function SortableSlideThumb({
                   : "rgba(255,255,255,0.06)",
             }}
           >
-            <SlideRenderer slide={slide} aspectRatio={aspectRatio} />
+            <SlideRenderer slide={slide} aspectRatio={aspectRatio} designSystem={designSystem} />
           </div>
         </div>
       </button>
@@ -535,6 +540,7 @@ export default function EditorSidebar({
   onAddEmptySlide,
   slidePresence,
   aspectRatio,
+  designSystem,
 }: EditorSidebarProps) {
   const activeIndex = slides.findIndex((s) => s.id === activeSlideId);
   const [addOpen, setAddOpen] = useState(false);
@@ -638,6 +644,7 @@ export default function EditorSidebar({
               registerButtonRef={registerSlideButton}
               presenceUsers={slidePresence?.get(slide.id) ?? []}
               aspectRatio={aspectRatio}
+              designSystem={designSystem}
             />
           ))}
         </SortableContext>

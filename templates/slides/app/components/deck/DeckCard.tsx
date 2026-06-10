@@ -9,6 +9,7 @@ import {
 import { useState, useRef, useEffect } from "react";
 import type { Deck } from "@/context/DeckContext";
 import SlideRenderer from "./SlideRenderer";
+import type { DesignSystemData } from "../../../shared/api";
 import { VisibilityBadge } from "@agent-native/core/client";
 import {
   DropdownMenu,
@@ -25,6 +26,7 @@ interface DeckCardProps {
   onDuplicate: (id: string) => void;
   isDuplicating?: boolean;
   designSystemTitle?: string | null;
+  designSystem?: DesignSystemData;
 }
 
 export default function DeckCard({
@@ -34,6 +36,7 @@ export default function DeckCard({
   onDuplicate,
   isDuplicating = false,
   designSystemTitle,
+  designSystem,
 }: DeckCardProps) {
   const firstSlide = deck.slides?.[0];
   const [isRenaming, setIsRenaming] = useState(false);
@@ -93,6 +96,7 @@ export default function DeckCard({
               slide={firstSlide}
               className="rounded-none"
               aspectRatio={deck.aspectRatio}
+              designSystem={designSystem}
             />
           )}
           <div className="absolute inset-0 bg-gradient-to-t from-[hsl(240,5%,8%)] via-transparent to-transparent opacity-60" />
