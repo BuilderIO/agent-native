@@ -1859,13 +1859,6 @@ export function VisualEditor({
           });
         }
       }
-      // eslint-disable-next-line no-console
-      console.log("[cmt] applyHighlights", {
-        force,
-        threads: (threadsRef.current ?? []).length,
-        docSize: view.state.doc.content.size,
-        resolved: specs.length,
-      });
       setCommentHighlights(view, {
         specs,
         pending: pendingHighlight ?? null,
@@ -1894,17 +1887,17 @@ export function VisualEditor({
       setTimeout(() => scheduleApply(false), d),
     );
     return () => timers.forEach(clearTimeout);
-  }, [scheduleApply, threadsSignature]);
+  }, [editor, scheduleApply, threadsSignature]);
 
   // Active card / pending selection just update the existing highlights.
   useEffect(() => {
     scheduleApply(false);
-  }, [scheduleApply, activeThreadId, pendingKey]);
+  }, [editor, scheduleApply, activeThreadId, pendingKey]);
 
   // Re-resolve from scratch when the loaded content changes wholesale.
   useEffect(() => {
     scheduleApply(true);
-  }, [scheduleApply, content, contentUpdatedAt]);
+  }, [editor, scheduleApply, content, contentUpdatedAt]);
 
   // After the collaborative doc seeds (or any edit), establish any highlight
   // that isn't being tracked yet. Gated on "something missing" so steady-state
