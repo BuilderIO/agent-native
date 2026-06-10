@@ -540,20 +540,14 @@ describe("VisualEditor markdown round-tripping", () => {
 
   it("optimistically inserts a pending audio block before upload resolves", async () => {
     const editor = createFullEditor();
-    let resolveFetch:
-      | ((response: {
-          ok: boolean;
-          status: number;
-          json: () => Promise<{ url: string }>;
-        }) => void)
-      | null = null;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const fetchCtx: { resolve: any } = { resolve: null };
     vi.stubGlobal(
       "fetch",
       vi.fn(
         () =>
           new Promise((resolve) => {
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            resolveFetch = resolve as any;
+            fetchCtx.resolve = resolve;
           }),
       ),
     );
@@ -570,7 +564,7 @@ describe("VisualEditor markdown round-tripping", () => {
       expect(audioNode?.attrs?.src).toBeNull();
       expect(audioNode?.attrs?.uploadId).toMatch(/^audio-upload-/);
 
-      resolveFetch?.({
+      fetchCtx.resolve?.({
         ok: true,
         status: 201,
         json: async () => ({ url: "https://cdn.example.com/demo.mp3" }),
