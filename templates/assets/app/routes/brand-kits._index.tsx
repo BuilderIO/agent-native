@@ -74,7 +74,7 @@ export default function BrandKitsIndexPage() {
           <h2 className="text-lg font-semibold tracking-tight">
             Your brand kits
           </h2>
-          <p className="mt-1 w-full whitespace-nowrap text-sm text-muted-foreground">
+          <p className="mt-1 w-full text-sm text-muted-foreground">
             Brand references, product imagery, videos, diagrams, and generated
             candidates that other agents can reuse
           </p>
