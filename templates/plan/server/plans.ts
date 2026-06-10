@@ -673,23 +673,34 @@ export async function summarizePlans(
   if (plans.length === 0) return [];
   const ids = plans.map((plan) => plan.id);
   const db = getDb();
+  // Project only the columns summarizePlan() actually uses — `type` for
+  // section counts and `status` for open/total comment counts. A bare
+  // `.select()` would pull every column including large html/body/anchor blobs
+  // for all comments across all listed plans, which is pure waste here.
   const [sectionRows, commentRows] = await Promise.all([
     db
-      .select()
+      .select({
+        planId: schema.planSections.planId,
+        type: schema.planSections.type,
+      })
       .from(schema.planSections)
       .where(inArray(schema.planSections.planId, ids)),
     db
-      .select()
+      .select({
+        planId: schema.planComments.planId,
+        status: schema.planComments.status,
+      })
       .from(schema.planComments)
       .where(inArray(schema.planComments.planId, ids)),
   ]);
   return plans.map((plan) => {
+    // summarizePlan only needs type (sections) and status (comments).
     const sections = sectionRows
       .filter((section) => section.planId === plan.id)
-      .map(toSection);
+      .map((row) => ({ type: row.type }) as PlanSection);
     const comments = commentRows
       .filter((comment) => comment.planId === plan.id)
-      .map(toComment);
+      .map((row) => ({ status: row.status }) as PlanComment);
     return {
       id: plan.id,
       title: plan.title,

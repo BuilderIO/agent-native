@@ -124,6 +124,22 @@ The workflow uses the plain `pull_request` trigger, **not** `pull_request_target
 
 This also means you can merge the workflow file **before** the secrets exist: with no token configured, every run is a quiet no-op until you set the secrets.
 
+## Self-modifying guard (sensitive paths)
+
+The workflow's gate job skips the recap entirely if a PR touches any of the following paths, so a PR can never rewrite what the trusted recap job runs and exfiltrate secrets:
+
+| Path pattern                               | Reason                                                    |
+| ------------------------------------------ | --------------------------------------------------------- |
+| `.github/workflows/pr-visual-recap.yml`    | The workflow itself                                       |
+| `**/skills/visual-(recap\|plan\|plans)/**` | The visual-recap skill the agent follows                  |
+| `**/.claude/**`                            | Agent settings the runner loads                           |
+| `**/CLAUDE.md`                             | Agent instructions the runner loads                       |
+| `**/AGENTS.md`                             | Agent instructions the runner loads                       |
+| `**/.mcp.json`                             | MCP server config the runner loads                        |
+| `packages/core/**`                         | Recap CLI source _(BuilderIO/agent-native monorepo only)_ |
+
+The `packages/core/**` rule applies only in the `BuilderIO/agent-native` monorepo where `packages/core` is the recap CLI source. In consumer repos an unrelated `packages/core/` directory does not trigger the guard.
+
 ## Local-files privacy mode
 
 The GitHub Action is designed for hosted, shareable PR review. If you want a

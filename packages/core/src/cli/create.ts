@@ -797,11 +797,10 @@ function postProcessStandalone(
 
   renameGitignore(targetDir);
 
-  // Drop monorepo-only files that standalone apps shouldn't ship.
-  for (const f of ["DEVELOPING.md"]) {
-    const p = path.join(targetDir, f);
-    if (fs.existsSync(p)) fs.unlinkSync(p);
-  }
+  // No monorepo-only files to drop for standalone scaffolds.
+  // DEVELOPING.md is intentionally kept: it documents `pnpm dev`,
+  // DATABASE_URL defaults, and other local-run instructions that are equally
+  // valid for standalone apps.
 
   // Resolve workspace:* and catalog: deps for standalone projects.
   // catalog: references only resolve inside a pnpm workspace with a catalog
@@ -1530,7 +1529,11 @@ function rewriteNetlifyToml(
       .replace(
         /functions = "templates\/[^"]+\/\.netlify\/functions-internal"/g,
         `functions = "${functionsPath}"`,
-      );
+      )
+      // Strip the `ignore` script line: it references a monorepo script path
+      // (scripts/netlify-ignore-build.mjs) that doesn't exist in scaffolds, so
+      // skip-unchanged would never work and every deploy logs a not-found error.
+      .replace(/^\s*ignore\s*=\s*"[^"]*"\s*\n/m, "");
 
     if (mode === "workspace") {
       content = addWorkspaceMountNetlifyConfig(content, appName);

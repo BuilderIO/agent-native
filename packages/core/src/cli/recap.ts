@@ -1067,20 +1067,20 @@ export function buildRecapPrompt(input: {
       `The \`plan\` MCP server is configured for you. Call its tools by name (your host may expose them as \`get-plan-blocks\` / \`create-visual-recap\` or \`mcp__plan__get-plan-blocks\` / \`mcp__plan__create-visual-recap\` — same tools).`,
     );
     lines.push(
-      "First call `get-plan-blocks`, then call `create-visual-recap` and `set-resource-visibility`. If `create-visual-recap` or `set-resource-visibility` is available but `get-plan-blocks` is not, the Plan MCP is connected but the workflow/tool allowlist is stale. Report that `.github/workflows/pr-visual-recap.yml` must allow `mcp__plan__get-plan-blocks`; do not describe that case as a disconnected Plan MCP.",
+      "First call `get-plan-blocks`, then call `create-visual-recap`. If `create-visual-recap` is available but `get-plan-blocks` is not, the Plan MCP is connected but the workflow/tool allowlist is stale. Report that `.github/workflows/pr-visual-recap.yml` must allow `mcp__plan__get-plan-blocks`; do not describe that case as a disconnected Plan MCP.",
     );
     lines.push(
-      `1. Call the **create-visual-recap** tool on the \`plan\` MCP server with grounded MDX derived ONLY from the real diff${
+      `1. Call the **create-visual-recap** tool on the \`plan\` MCP server with grounded MDX derived ONLY from the real diff, passing \`visibility: "org"\` so the recap is published org-scoped (never public) server-side${
         input.prevPlanId
-          ? `, passing \`planId: "${input.prevPlanId}"\` so this REPLACES the existing recap plan`
+          ? `, and also passing \`planId: "${input.prevPlanId}"\` so this REPLACES the existing recap plan`
           : ""
       }.`,
     );
     lines.push(
-      `2. Call the **set-resource-visibility** tool on the \`plan\` MCP server with \`{ resourceType: "plan", resourceId: <the returned plan id>, visibility: "org" }\` so the recap is login-gated to the org, never public.`,
+      `2. Write the plan URL to a file named \`recap-url.txt\` at the repo root, containing exactly one line: \`${appUrl}/recaps/<the returned plan id>\`. This file is the workflow's only hand-off — do not print anything else as the deliverable.`,
     );
     lines.push(
-      `3. Write the plan URL to a file named \`recap-url.txt\` at the repo root, containing exactly one line: \`${appUrl}/recaps/<the returned plan id>\`. This file is the workflow's only hand-off — do not print anything else as the deliverable.`,
+      `3. (Fallback only — skip if step 1 succeeded) If \`create-visual-recap\` does not accept a \`visibility\` parameter (older server), call the **set-resource-visibility** tool with \`{ resourceType: "plan", resourceId: <the returned plan id>, visibility: "org" }\` after publishing.`,
     );
   }
   lines.push("");
@@ -1253,6 +1253,16 @@ function originOf(url: string): string {
 export function buildCommentBody(env: NodeJS.ProcessEnv = process.env): string {
   const lines: string[] = [MARKER];
 
+  // Short head SHA for the "as of" freshness line.
+  const headSha = (env.HEAD_SHA || "").trim();
+  const headShort = headSha ? headSha.slice(0, 7) : "";
+
+  // Last-known plan id threaded from the previous run (supplied via PREV_PLAN_ID
+  // when the comment is rebuilt from scratch, or parsed from the env on upsert).
+  // We always emit the plan-id marker when any plan id is known so that a
+  // transient failure does not orphan the plan.
+  const prevPlanId = (env.PREV_PLAN_ID || "").trim() || null;
+
   if (env.SUPPRESSED === "true") {
     let reason = "potential secret in diff";
     try {
@@ -1268,6 +1278,8 @@ export function buildCommentBody(env: NodeJS.ProcessEnv = process.env): string {
     );
     lines.push("");
     lines.push(`Reason: \`${reason}\`.`);
+    if (headShort) lines.push("", `_As of \`${headShort}\`_`);
+    if (prevPlanId) lines.push("", `<!-- plan-id: ${prevPlanId} -->`);
     return lines.join("\n");
   }
 
@@ -1280,6 +1292,8 @@ export function buildCommentBody(env: NodeJS.ProcessEnv = process.env): string {
     lines.push(
       "The change in this push is too small to be worth a visual recap. This is informational only and does **not** block the PR.",
     );
+    if (headShort) lines.push("", `_As of \`${headShort}\`_`);
+    if (prevPlanId) lines.push("", `<!-- plan-id: ${prevPlanId} -->`);
     return lines.join("\n");
   }
 
@@ -1296,12 +1310,30 @@ export function buildCommentBody(env: NodeJS.ProcessEnv = process.env): string {
   const base = (appUrl || originOf(planUrl)).replace(/\/$/, "");
   const safeUrl =
     planId && base && sameOriginOk ? `${base}/recaps/${planId}` : "";
+
+  // The plan id to embed in the marker — prefer the freshly-published one when
+  // the origin is trusted, fall back to the previous run's id so the next push
+  // can still replace in-place. Never use a plan id extracted from a bad-origin
+  // URL as the marker (it would mask the last-good known id).
+  const trustedPlanId = planId && sameOriginOk ? planId : null;
+  const markerPlanId = trustedPlanId ?? prevPlanId;
+
   if (!safeUrl) {
     lines.push("### Visual recap — generation failed");
     lines.push("");
     lines.push(
       "The visual recap could not be generated for this push. This is informational only and does **not** block the PR.",
     );
+    if (headShort) lines.push("", `_As of \`${headShort}\`_`);
+    // Keep a link to the last-good recap so reviewers are not left in the dark.
+    if (prevPlanId && base) {
+      const prevSafeUrl = `${base}/recaps/${prevPlanId}`;
+      lines.push(
+        "",
+        `Previous recap (from an earlier push): [Open recap](${prevSafeUrl})`,
+      );
+    }
+    if (markerPlanId) lines.push("", `<!-- plan-id: ${markerPlanId} -->`);
     return lines.join("\n");
   }
 
@@ -1328,8 +1360,8 @@ export function buildCommentBody(env: NodeJS.ProcessEnv = process.env): string {
       "> Large diff — this recap is a **summarized** view (top files + schema/API deltas).",
     );
   }
-  lines.push("");
-  lines.push(`<!-- plan-id: ${planId} -->`);
+  if (headShort) lines.push("", `_As of \`${headShort}\`_`);
+  lines.push("", `<!-- plan-id: ${planId} -->`);
   return lines.join("\n");
 }
 
@@ -1686,17 +1718,32 @@ export interface RecapGateInput {
  * recap job runs (the workflow itself, the skill, the local CLI, or any agent
  * config the runner loads) — so the whole job is skipped, not just the agent
  * step, to keep untrusted PR code away from the publish/API secrets.
+ *
+ * The `packages/core/**` rule is scoped to the BuilderIO/agent-native monorepo
+ * (where packages/core IS the recap CLI source) so that consumer repos with an
+ * unrelated `packages/core/` directory are not silently gated. Pass the
+ * `repository` ("owner/name") to apply that scoping; omit it to match the old
+ * unconditional behaviour (safe for the gate's self-test).
  */
-export function isRecapSensitivePath(p: string): boolean {
-  return (
+export function isRecapSensitivePath(p: string, repository?: string): boolean {
+  if (
     p === ".github/workflows/pr-visual-recap.yml" ||
     /(^|\/)skills\/visual-(recap|plan|plans)\//.test(p) ||
     /(^|\/)\.claude\//.test(p) ||
     /(^|\/)CLAUDE\.md$/.test(p) ||
     /(^|\/)AGENTS\.md$/.test(p) ||
-    /(^|\/)\.mcp\.json$/.test(p) ||
-    /(^|\/)packages\/core\//.test(p)
-  );
+    /(^|\/)\.mcp\.json$/.test(p)
+  ) {
+    return true;
+  }
+  // packages/core is the recap-CLI source only in the agent-native monorepo.
+  // In consumer repos an unrelated packages/core/ must not gate recaps.
+  const isAgentNativeMonorepo =
+    !repository || repository === "BuilderIO/agent-native";
+  if (isAgentNativeMonorepo && /(^|\/)packages\/core\//.test(p)) {
+    return true;
+  }
+  return false;
 }
 
 /**
@@ -1770,7 +1817,9 @@ export function evaluateRecapGate(input: RecapGateInput): {
   // config the runner would load (.claude/**, CLAUDE.md, .mcp.json), skip the
   // ENTIRE job — not just the agent — so a PR can never rewrite what runs
   // (skill, hooks, settings, CLI) and exfiltrate the publish/API secrets.
-  const hits = input.changedFiles.filter(isRecapSensitivePath);
+  const hits = input.changedFiles.filter((p) =>
+    isRecapSensitivePath(p, input.repository),
+  );
   if (hits.length) {
     reasons.push(
       `PR modifies recap-control files (${hits.slice(0, 3).join(", ")}${

@@ -241,6 +241,9 @@
     "vite": ">=5",
     "ws": ">=8"
   },
+  "optionalDependencies": {
+    "playwright": "^1.60.0"
+  },
   "peerDependenciesMeta": {
     "ai": {
       "optional": true

@@ -6,14 +6,14 @@ app operations and tools, see AGENTS.md.
 ## Tech Stack
 
 - **Framework:** @agent-native/core + React Router v7 (framework mode)
-- **Frontend:** React 18, Vite, TailwindCSS, shadcn/ui
+- **Frontend:** React 19, Vite, TailwindCSS, shadcn/ui
 - **Routing:** File-based via `flatRoutes()` — SSR shell + client rendering
 - **Backend:** Nitro (via @agent-native/core) — file-based API routing, server plugins, deploy-anywhere presets
 - **State:** SQL-backed (SSE for real-time updates)
 
 ## Commands
 
-- **Dev:** `pnpm dev` (Vite dev server with both React Router + Nitro plugins)
+- **Dev:** `pnpm dev` (Vite dev server with both React Router + Nitro plugins — defaults to http://localhost:8080)
 - **Build:** `pnpm build` (React Router build — client + SSR + Nitro server)
 - **Start:** `node .output/server/index.mjs` (production)
 
@@ -157,6 +157,8 @@ When adding app data, define tables with `@agent-native/core/db/schema` helpers 
 | --------------------- | ------------------------------- | -------------------------------------------------------------------------- |
 | `DATABASE_URL`        | Production yes, local dev no    | Persistent SQL connection string (local dev default: `file:./data/app.db`) |
 | `DATABASE_AUTH_TOKEN` | Only when the provider needs it | Auth token for providers such as Turso/libSQL                              |
+
+**Database overrides:** `<APP_NAME>_DATABASE_URL` (e.g. `PLAN_DATABASE_URL`) takes precedence over `DATABASE_URL` and is checked first on startup. A `file:` prefix selects the SQLite driver — useful when the shared Postgres database's tables are owned by another role and migrations halt due to insufficient privilege.
 
 ## Extensions (Framework Feature)
 

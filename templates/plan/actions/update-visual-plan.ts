@@ -403,6 +403,9 @@ export default defineAction({
     description:
       "Patch structured plan content, add visual sections, record comments, or mark feedback consumed.",
   },
+  mcpApp: {
+    compactCatalog: true,
+  },
   run: async (args) => {
     const requesterEmail = getRequestUserEmail();
     const requesterName = getRequestUserName();

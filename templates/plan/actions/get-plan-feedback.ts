@@ -232,7 +232,7 @@ function feedbackThreadManifest(
 
 export default defineAction({
   description:
-    "Get unconsumed human comments, corrections, questions, and annotations for an active Agent-Native Plan.",
+    "Get unconsumed human comments, corrections, questions, and annotations for an Agent-Native Plan. Call this before acting on a plan to surface reviewer feedback, open threads, and recent edit events.",
   schema: z.object({
     planId: z.string().describe("Plan ID"),
   }),
@@ -245,6 +245,9 @@ export default defineAction({
     title: "Get Plan Feedback",
     description:
       "Read plan annotations and feedback the agent has not consumed yet.",
+  },
+  mcpApp: {
+    compactCatalog: true,
   },
   run: async (args) => {
     const bundle = await loadPlanBundle(args.planId);

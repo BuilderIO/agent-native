@@ -90,6 +90,7 @@ jobs:
                   pull_number: pr.number,
                   per_page: 100,
                 });
+                const isAgentNativeMonorepo = context.repo.owner === 'BuilderIO' && context.repo.repo === 'agent-native';
                 const isSensitive = (p) =>
                   p === '.github/workflows/pr-visual-recap.yml' ||
                   /(^|\/)skills\/visual-(recap|plan|plans)\//.test(p) ||
@@ -97,7 +98,7 @@ jobs:
                   /(^|\/)CLAUDE\.md$/.test(p) ||
                   /(^|\/)AGENTS\.md$/.test(p) ||
                   /(^|\/)\.mcp\.json$/.test(p) ||
-                  /(^|\/)packages\/core\//.test(p);
+                  (isAgentNativeMonorepo && /(^|\/)packages\/core\//.test(p));
                 const hits = files.map((f) => f.filename).filter(isSensitive);
                 if (hits.length) {
                   reasons.push(`PR modifies recap-control files (${hits.slice(0, 3).join(', ')}${hits.length > 3 ? ', …' : ''}) — skipping so untrusted PR code never runs with secrets`);
@@ -319,6 +320,13 @@ jobs:
           if [ "$RECAP_AGENT" = "codex" ]; then RESULT=codex-events.jsonl; fi
           if [ -f "$RESULT" ]; then $RECAP_CLI recap usage --plan-url "$PLAN_URL" --agent "$RECAP_AGENT" --result-file "$RESULT" --model "${VISUAL_RECAP_MODEL:-}" --app-url "$PLAN_RECAP_APP_URL" --token "$PLAN_RECAP_TOKEN" || true; fi
 
+      - name: Cache Playwright browsers
+        if: steps.url.outputs.ok == 'true'
+        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-1-${{ runner.os }}
+
       - name: Screenshot + upload
         id: shot
         if: steps.url.outputs.ok == 'true'
@@ -353,6 +361,7 @@ jobs:
           SUPPRESSED_JSON: ${{ steps.scan.outputs.json }}
           DIFF_HUGE: ${{ steps.diff.outputs.huge }}
           DIFF_TINY: ${{ steps.diff.outputs.tiny }}
+          PREV_PLAN_ID: ${{ steps.prev.outputs.plan_id }}
         run: |
           set -euo pipefail
           ARGS=(recap comment upsert --repo "$GITHUB_REPOSITORY" --issue "$PR_NUMBER" --token "$GH_TOKEN")

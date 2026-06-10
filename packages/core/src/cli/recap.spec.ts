@@ -383,6 +383,8 @@ describe("recap comment body", () => {
     expect(body).toContain("Open the interactive recap");
     expect(body).toContain("<!-- plan-id: plan-abc123 -->");
     expect(body).toContain("<!-- pr-visual-recap -->");
+    // Freshness line should include the shortened head SHA.
+    expect(body).toContain("_As of `abcdef1`_");
   });
 
   it("rebuilds a canonical /recaps/ link from a legacy /plans/ URL, dropping any crafted path/query", () => {
@@ -433,6 +435,17 @@ describe("recap comment body", () => {
     expect(body).toContain("too small");
     expect(body).not.toContain("Updated for");
     expect(body).not.toContain("Open the interactive recap");
+    // Freshness line present even on tiny.
+    expect(body).toContain("_As of `abcdef1`_");
+  });
+
+  it("tiny diff preserves the previous plan-id marker so the next push can replace in-place", () => {
+    const body = buildCommentBody({
+      DIFF_TINY: "true",
+      HEAD_SHA: "abcdef1",
+      PREV_PLAN_ID: "plan-deadbeef",
+    } as NodeJS.ProcessEnv);
+    expect(body).toContain("<!-- plan-id: plan-deadbeef -->");
   });
 
   it("falls back to a link-only comment when the screenshot upload failed", () => {
@@ -459,6 +472,37 @@ describe("recap comment body", () => {
     expect(body).not.toContain("evil.example.com");
   });
 
+  it("failure branch keeps the last-good plan link labeled as stale when PREV_PLAN_ID is set", () => {
+    const body = buildCommentBody({
+      PLAN_URL: "",
+      PLAN_RECAP_APP_URL: "https://plan.agent-native.com",
+      PREV_PLAN_ID: "plan-deadbeef",
+      HEAD_SHA: "abcdef1",
+    } as NodeJS.ProcessEnv);
+    expect(body).toContain("generation failed");
+    // Stale link to the previous recap should be present.
+    expect(body).toContain(
+      "[Open recap](https://plan.agent-native.com/recaps/plan-deadbeef)",
+    );
+    // Plan-id marker preserved so next success replaces in-place.
+    expect(body).toContain("<!-- plan-id: plan-deadbeef -->");
+  });
+
+  it("failure branch emits plan-id marker when a fresh plan URL failed origin check but PREV_PLAN_ID is known", () => {
+    // Bad-origin URL on this push, but we know the previous good plan id.
+    const body = buildCommentBody({
+      PLAN_URL: "https://evil.example.com/recaps/plan-fresh",
+      PLAN_RECAP_APP_URL: "https://plan.agent-native.com",
+      PREV_PLAN_ID: "plan-deadbeef",
+      HEAD_SHA: "abcdef1",
+    } as NodeJS.ProcessEnv);
+    expect(body).toContain("generation failed");
+    expect(body).not.toContain("evil.example.com");
+    // Stale link uses the previous plan, not the rejected fresh URL.
+    expect(body).toContain("plan-deadbeef");
+    expect(body).toContain("<!-- plan-id: plan-deadbeef -->");
+  });
+
   it("explains a suppressed (secret) diff without echoing the secret", () => {
     const body = buildCommentBody({
       SUPPRESSED: "true",
@@ -472,6 +516,17 @@ describe("recap comment body", () => {
     expect(body).toContain("Reason: `potential secret in diff`.");
     expect(body).not.toContain("Updated for");
     expect(body).not.toContain("Open the interactive recap");
+    // Freshness line still present.
+    expect(body).toContain("_As of `abcdef1`_");
+  });
+
+  it("suppressed branch preserves plan-id marker from previous run", () => {
+    const body = buildCommentBody({
+      SUPPRESSED: "true",
+      PREV_PLAN_ID: "plan-prev123",
+      HEAD_SHA: "abcdef1",
+    } as NodeJS.ProcessEnv);
+    expect(body).toContain("<!-- plan-id: plan-prev123 -->");
   });
 
   it("reports a generation failure when no plan URL was produced", () => {
@@ -481,6 +536,15 @@ describe("recap comment body", () => {
     } as NodeJS.ProcessEnv);
     expect(body).toContain("generation failed");
     expect(body).not.toContain("Updated for");
+  });
+
+  it("omits the freshness line when no HEAD_SHA is available", () => {
+    const body = buildCommentBody({
+      PLAN_URL: "https://plan.agent-native.com/recaps/plan-abc123",
+      PLAN_RECAP_APP_URL: "https://plan.agent-native.com",
+    } as NodeJS.ProcessEnv);
+    expect(body).not.toContain("_As of `");
+    expect(body).toContain("Open the interactive recap");
   });
 });
 
@@ -788,7 +852,16 @@ describe("recap gate decision", () => {
 
   it("skips when the PR modifies packages/core (self-modifying guard)", () => {
     const result = evaluateRecapGate(
-      ok({ changedFiles: ["packages/core/src/cli/recap.ts"] }),
+      ok({
+        repository: "BuilderIO/agent-native",
+        pr: {
+          number: 7,
+          draft: false,
+          head: { repo: { full_name: "BuilderIO/agent-native" } },
+          user: { login: "octocat", type: "User" },
+        },
+        changedFiles: ["packages/core/src/cli/recap.ts"],
+      }),
     );
     expect(result.run).toBe(false);
     expect(
@@ -799,6 +872,13 @@ describe("recap gate decision", () => {
     expect(result.reasons.join(" ")).toContain(
       "packages/core/src/cli/recap.ts",
     );
+  });
+
+  it("does not treat consumer packages/core paths as recap-control files", () => {
+    const result = evaluateRecapGate(
+      ok({ changedFiles: ["packages/core/src/index.ts"] }),
+    );
+    expect(result.run).toBe(true);
   });
 
   it("skips when the PR modifies a .claude config file", () => {
@@ -859,7 +939,18 @@ describe("recap sensitive-path guard", () => {
         "templates/plan/.agents/skills/visual-recap/SKILL.md",
       ),
     ).toBe(true);
-    expect(isRecapSensitivePath("packages/core/src/cli/recap.ts")).toBe(true);
+    expect(
+      isRecapSensitivePath(
+        "packages/core/src/cli/recap.ts",
+        "BuilderIO/agent-native",
+      ),
+    ).toBe(true);
+    expect(
+      isRecapSensitivePath(
+        "packages/core/src/cli/recap.ts",
+        "BuilderIO/ai-services",
+      ),
+    ).toBe(false);
     expect(isRecapSensitivePath(".claude/settings.json")).toBe(true);
     expect(isRecapSensitivePath("CLAUDE.md")).toBe(true);
     expect(isRecapSensitivePath("apps/foo/AGENTS.md")).toBe(true);

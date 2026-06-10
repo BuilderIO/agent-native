@@ -10,7 +10,7 @@ import {
 
 export default defineAction({
   description:
-    "Get an Agent-Native Plan bundle, including structured editable content with stable block IDs, source-control friendly MDX, exported HTML, sections, comments, and recent activity. Use this before targeted contentPatches, source patches, or resolving feedback.",
+    "Get an Agent-Native Plan bundle, including structured editable content with stable block IDs, source-control friendly MDX, exported HTML, sections, comments, and recent activity. Call this before targeted contentPatches, source patches, or resolving feedback on a specific plan.",
   schema: z.object({
     id: z.string().describe("Plan ID"),
   }),
@@ -22,6 +22,9 @@ export default defineAction({
     requiresAuth: true,
     title: "Get Visual Plan",
     description: "Read the current visual plan content and annotations.",
+  },
+  mcpApp: {
+    compactCatalog: true,
   },
   run: async (args, ctx) => {
     const bundle = await loadPlanBundle(args.id);

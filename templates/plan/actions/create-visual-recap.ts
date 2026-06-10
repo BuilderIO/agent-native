@@ -1,4 +1,5 @@
 import { defineAction, embedApp } from "@agent-native/core";
+import { eq } from "drizzle-orm";
 import { z } from "zod";
 import importVisualPlanSourceAction from "./import-visual-plan-source.js";
 import { planMdxFileSchema } from "../server/plan-mdx.js";
@@ -7,6 +8,7 @@ import {
   planSourceSchema,
   planStatusSchema,
 } from "../server/plans.js";
+import { getDb, schema } from "../server/db/index.js";
 
 export default defineAction({
   description:
@@ -22,6 +24,13 @@ export default defineAction({
       .optional()
       .describe(
         "Optional one-line recap summary shown under the title. Keep it to a single short sentence.",
+      ),
+    visibility: z
+      .enum(["private", "org", "public"])
+      .optional()
+      .default("org")
+      .describe(
+        "Visibility for the published recap. Defaults to 'org' (login-gated to the publishing org) so the recap is never accidentally public. Pass 'private' to keep it owner-only.",
       ),
     source: planSourceSchema.optional().default("imported"),
     repoPath: z.string().optional().describe("Repository path for the recap."),
@@ -55,14 +64,29 @@ export default defineAction({
       height: 860,
     }),
   },
-  run: async (args) =>
-    importVisualPlanSourceAction.run({
+  run: async (args) => {
+    const result = await importVisualPlanSourceAction.run({
       ...args,
       kind: "recap",
       source: args.source ?? "imported",
       currentFocus: args.currentFocus ?? "visual recap review",
       status: args.status ?? "review",
-    }),
+    });
+    // Apply requested visibility server-side so the recap is never left private
+    // (the import action always creates with visibility='private'). Doing it here
+    // avoids requiring a separate set-resource-visibility agent call and
+    // guarantees the recap is accessible even if the agent skips the second step.
+    const planId = (result as { planId?: string } | null)?.planId;
+    const visibility = args.visibility ?? "org";
+    if (planId && visibility !== "private") {
+      const db = getDb();
+      await db
+        .update(schema.plans)
+        .set({ visibility })
+        .where(eq(schema.plans.id, planId));
+    }
+    return result;
+  },
   link: ({ result }) => {
     const plan = (result as { plan?: { id?: string } } | null)?.plan;
     if (!plan?.id) return null;
