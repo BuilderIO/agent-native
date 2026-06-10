@@ -53,9 +53,11 @@ export function splitMarkdownBlocks(text: string): MarkdownBlockSplit {
       if (fenceMatch) {
         inFence = true;
         fenceMarker = fenceMatch[1].charAt(0).repeat(fenceMatch[1].length);
-        // Restore pending blanks into the current block (they belong to it)
-        for (let b = 0; b < pendingBlanks; b++) {
-          currentBlockLines.push("");
+        // If there are pending blanks and existing content, flush the current
+        // block before starting the fence block.
+        if (pendingBlanks > 0 && currentBlockLines.length > 0) {
+          completedBlocks.push(currentBlockLines.join("\n"));
+          currentBlockLines = [];
         }
         pendingBlanks = 0;
         currentBlockLines.push(line);
@@ -98,11 +100,16 @@ export function splitMarkdownBlocks(text: string): MarkdownBlockSplit {
     }
   }
 
-  // Whatever remains in currentBlockLines (plus any pending blanks that are
-  // truly trailing, i.e. the text ends with blank lines) becomes the tail.
-  // Trailing blank lines after current content are NOT included in the tail
-  // because they don't affect rendered output and would cause spurious re-renders.
-  const tail = currentBlockLines.join("\n");
+  // If we ended outside a fence with trailing blank lines, the last content
+  // block is complete — flush it and return an empty tail.
+  let tail: string;
+  if (!inFence && pendingBlanks > 0 && currentBlockLines.length > 0) {
+    completedBlocks.push(currentBlockLines.join("\n"));
+    tail = "";
+  } else {
+    // Whatever remains is the in-progress tail.
+    tail = currentBlockLines.join("\n");
+  }
 
   return { completedBlocks, tail };
 }
