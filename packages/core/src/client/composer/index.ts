@@ -5,7 +5,18 @@ export {
   AgentComposerFrame,
   type AgentComposerFrameProps,
 } from "./AgentComposerFrame.js";
-export { TiptapComposer, type TiptapComposerHandle } from "./TiptapComposer.js";
+export {
+  TiptapComposer,
+  canSubmitComposerContent,
+  displayableComposerModeMessage,
+  getComposerSubmitIntentForEnterKey,
+  handleComposerFileDrop,
+  insertComposerHardBreakAndScrollIntoView,
+  type ComposerSubmitIntent,
+  type TiptapComposerHandle,
+  type TiptapComposerProps,
+  type TiptapComposerSubmitOptions,
+} from "./TiptapComposer.js";
 export {
   PromptComposer,
   type PromptComposerProps,

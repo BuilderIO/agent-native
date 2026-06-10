@@ -301,7 +301,7 @@ function ComposerModeChip({
 
 type ExecMode = "build" | "plan";
 
-interface TiptapComposerProps {
+export interface TiptapComposerProps {
   placeholder?: string;
   disabled?: boolean;
   focusRef?: React.Ref<TiptapComposerHandle>;
