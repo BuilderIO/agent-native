@@ -247,12 +247,77 @@ describe("get-plan-feedback action", () => {
       expect.arrayContaining([
         expect.objectContaining({
           id: "visual-8",
-          anchorDetails: expect.arrayContaining(["Canvas point: 80, 40"]),
+          anchorDetails: expect.arrayContaining([
+            "Canvas point: canvas 80, 40 (board px)",
+          ]),
         }),
       ]),
     );
     expect(result.instructions.join("\n")).toContain(
       "Focused screenshot attachments",
+    );
+  });
+
+  it("marks a text-anchor comment detached when the quoted text no longer exists in content", async () => {
+    const attached = comment("attached", "human");
+    attached.anchor = JSON.stringify({
+      anchorKind: "text",
+      textQuote: "Initialize npm project",
+      sectionTitle: "Steps",
+    });
+    const detachedComment = comment("detached", "human");
+    detachedComment.anchor = JSON.stringify({
+      anchorKind: "text",
+      textQuote: "This phrase was deleted",
+      sectionTitle: "Steps",
+    });
+
+    const planWithContent = {
+      ...plan,
+      content: {
+        version: 2,
+        blocks: [
+          {
+            id: "block_1",
+            type: "rich-text" as const,
+            data: {
+              markdown: "## Steps\n\nInitialize npm project\n\nRun the tests",
+            },
+          },
+        ],
+      },
+    };
+
+    loadPlanBundleMock.mockResolvedValueOnce({
+      plan: planWithContent,
+      sections: [section],
+      comments: [attached, detachedComment],
+      events: [],
+      summary: {
+        sectionCounts: { summary: 1 },
+        commentCount: 2,
+        openCommentCount: 2,
+      },
+    });
+
+    const result = (await action.run({ planId: "plan_1" })) as {
+      comments: Array<{ id: string; detached: boolean }>;
+      threads: Array<{ id: string; detached: boolean }>;
+      feedbackSummary: { detachedCount: number };
+      detachedThreads: Array<{ id: string; messageExcerpt: string }>;
+      instructions: string[];
+    };
+
+    const attachedComment = result.comments.find((c) => c.id === "attached");
+    const detachedResult = result.comments.find((c) => c.id === "detached");
+    expect(attachedComment?.detached).toBe(false);
+    expect(detachedResult?.detached).toBe(true);
+    expect(result.feedbackSummary.detachedCount).toBe(1);
+    expect(result.detachedThreads).toEqual([
+      expect.objectContaining({ id: "detached" }),
+    ]);
+    expect(result.instructions.join("\n")).toContain(
+      "Comments marked detached no longer match their quoted text",
     );
   });
 });

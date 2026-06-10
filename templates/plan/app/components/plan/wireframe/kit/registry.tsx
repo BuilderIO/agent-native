@@ -1,4 +1,4 @@
-import { type ReactNode } from "react";
+import { cloneElement, isValidElement, type ReactNode } from "react";
 import type {
   PlanWireframeElName,
   PlanWireframeNode,
@@ -201,7 +201,15 @@ export function renderNode(
     // not blank the whole frame.
     return children ? <div key={key}>{children}</div> : null;
   }
-  const rendered = renderer(node, children);
+  let rendered = renderer(node, children);
+  // Inject stable node identity onto the root DOM element so UI click handlers
+  // can walk ancestors for wireframe comment anchoring.
+  if (node.id && isValidElement(rendered)) {
+    rendered = cloneElement(rendered, {
+      "data-wire-node-id": node.id,
+      "data-wire-node-el": node.el,
+    } as Record<string, string>);
+  }
   // Attach a stable key by wrapping in a Fragment.
   return <KeyedNode key={key ?? node.id}>{rendered}</KeyedNode>;
 }
