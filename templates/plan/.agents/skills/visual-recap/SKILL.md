@@ -418,7 +418,9 @@ artifacts, not as the main way to open the recap.
 ## Diff → Block Mapping
 
 Map each kind of change to the block that carries it, derived mechanically from
-the actual diff:
+the actual diff. The names below are the CONCEPTUAL block types, not the JSX
+tags — resolve every conceptual name to its exact tag + prop schema with the
+`get-plan-blocks` tool (see "Block reference" below) before authoring.
 
 - **Schema / migration change** → `data-model` for the resulting entities,
   fields, and relations. Flag what moved per field/entity with
@@ -455,18 +457,15 @@ the actual diff:
   code so the reviewer reads intent first. Never leave a diff unlabeled.
   For the KEY changed files, attach `annotations` to the `diff` so the recap
   calls out what each important hunk does — this is the headline affordance for
-  annotating the key files updated. Each annotation is
-  `{ side?: "before" | "after"; lines: "13" | "13-15"; label?: string; note }`
-  and anchors to the AFTER-side line numbers by default (set `side: "before"` to
-  point at removed lines). Keep it to a few high-signal notes per file, not one
-  per line.
+  annotating the key files updated. Each annotation anchors to the AFTER-side
+  line numbers by default (set `side: "before"` to point at removed lines). Keep
+  it to a few high-signal notes per file, not one per line.
   When several key files each need a substantial diff, introduce the group with a
   `rich-text` heading block whose markdown is `## Key changes`, then place the
-  `diff` blocks under it in a reusable `tabs` block with
-  horizontal orientation (omit `orientation`, or set `orientation:
-  "horizontal"` only if being explicit) so the selected file's split diff gets
-  the full document width. Let that heading label the section — do NOT also set
-  a `title` on the `tabs` block. Keep each tab label to the file path or a short
+  `diff` blocks under it in a reusable `tabs` block with horizontal orientation
+  (the default — omit `orientation`) so the selected file's split diff gets the
+  full document width. Let that heading label the section — do NOT also set a
+  `title` on the `tabs` block. Keep each tab label to the file path or a short
   basename plus directory hint.
   If the recap ends with more than one supporting diff, that trailing diff
   appendix should be one horizontal `tabs` block under its own `## Key changes`
@@ -474,11 +473,10 @@ the actual diff:
 - **Brand-new file or a substantial added block with no meaningful "before"** →
   `annotated-code` rather than a one-sided split `diff`. Carry the real new code
   with its `filename` / `language` and anchor a few high-signal notes to the lines
-  that matter (`{ lines: "12" | "12-18"; label?; note }`) so the reviewer reads
-  what the new code does, not code for code's sake. Keep split `diff` for true
-  before/after hunks where the removed lines still carry meaning, and group
-  several annotated walkthroughs in a horizontal `tabs` block the same way diffs
-  are grouped.
+  that matter so the reviewer reads what the new code does, not code for code's
+  sake. Keep split `diff` for true before/after hunks where the removed lines
+  still carry meaning, and group several annotated walkthroughs in a horizontal
+  `tabs` block the same way diffs are grouped.
 - **Files added / removed / renamed** → `file-tree` with each entry's `change`
   flag (`added`, `removed`, `modified`, `renamed`) and a short `note`; attach a
   `snippet` only when one tells the reviewer something the path does not.
@@ -492,10 +490,9 @@ the actual diff:
   blocks carry implementation evidence.
 - **Architecture or data-flow shift** → `diagram` with `data.html` / `data.css`
   as a two-panel before/after, layered, or swimlane layout, or `mermaid` for a
-  quick graph. Use the two-dimensional layouts the Document Quality core
-  prescribes; do not reduce a structural change to a left-to-right chain.
-  Do not use `diagram` as a stand-in for rendered UI controls; UI changes need
-  `wireframe` blocks.
+  quick graph. Use two-dimensional layouts; do not reduce a structural change to
+  a left-to-right chain. Do not use `diagram` as a stand-in for rendered UI
+  controls; UI changes need `wireframe` blocks.
   Diagram HTML/CSS should use renderer-owned primitives such as
   `.diagram-panel`, `.diagram-card`, `.diagram-node`, `.diagram-box`,
   `.diagram-pill`, `.diagram-muted`, and `[data-rough]`; these map to the plan's
@@ -508,347 +505,55 @@ the actual diff:
   the objective the diff served, the key decisions visible in it, and the risks a
   reviewer should weigh. This is the only place the model writes freely.
 
-## Block MDX reference
-
-This is the authoritative tag + prop shape for every importable block. Author the
-recap source against THESE tags and props — do not guess from the conceptual
-names above (the conceptual name like `api-endpoint` is NOT the JSX tag). A wrong
-tag or prop shape either 500s the import with a ZodError or, for an unrecognized
-capitalized tag, now **fails the import with a clear "Unknown plan block" error**
-(it used to silently render as raw `<JsonExplorer …>` text — that footgun is
-fixed). Every block also takes the shared envelope attributes `id` (REQUIRED,
-unique across the whole plan), and optional `title`, `summary`, `editable` —
-those are omitted from the per-block prop lists below.
-
-The complete set of real block tags is exactly: `RichText`, `FileTree`,
-`DataModel`, `Endpoint`, `Diff`, `AnnotatedCode`, `WireframeBlock` (body
-`<Screen>` + wireframe-kit children), `Columns`/`Column`, `TabsBlock`, `Callout`,
-`Diagram`, `Mermaid`, `Json`, `HtmlBlock`, `Table`, `Checklist`, `Code`,
-`OpenApi`. Any other capitalized tag at the block level is rejected on import.
-
-Quick tag map (conceptual name → real JSX tag):
-
-| Conceptual | Real tag | Conceptual | Real tag |
-| --- | --- | --- | --- |
-| api-endpoint | `Endpoint` | diff | `Diff` |
-| data-model | `DataModel` | annotated-code | `AnnotatedCode` |
-| file-tree | `FileTree` | code | `Code` |
-| mermaid | `Mermaid` | rich-text | `RichText` |
-| diagram | `Diagram` | callout | `Callout` |
-| json-explorer | `Json` | columns | `Columns` (cols are `Column`) |
-| openapi-spec | `OpenApi` | tabs | `TabsBlock` |
-| wireframe | `WireframeBlock` (body `<Screen>`) | table | `Table` |
-| custom-html | `HtmlBlock` | checklist | `Checklist` |
-
-### Common mistakes (these now error on import)
-
-These WRONG tags used to be swallowed as raw text. Common synonyms are now
-auto-corrected to the canonical tag on import; anything not in this map is
-rejected with a "did you mean" hint. Always author with the canonical tag —
-do not rely on the aliases.
-
-| WRONG tag | → use |
-| --- | --- |
-| `JsonExplorer` | `Json` |
-| `Tabs` (or a nested `Tab` child) | `TabsBlock` (tabs are ONE JSON `tabs={[…]}` prop — there is NO nested `<Tab>` element) |
-| `ApiEndpoint` | `Endpoint` |
-| `DiffBlock` | `Diff` |
-| `AnnotatedCodeBlock` | `AnnotatedCode` |
-| `Wireframe` | `WireframeBlock` |
-
-Lowercase HTML tags inside `RichText`/markdown prose (`<div>`, `<span>`,
-`<code>`, `<br>`, …) are always fine — only capitalized component-style tags at
-the block level are validated.
-
-### `Endpoint` (API / route)
-
-Tag is `Endpoint` — NOT `ApiEndpoint`. Required attrs: `method`, `path`. Optional
-attrs: `summary` (the short title — NOT `title`), `auth`, `deprecated` (bool),
-`change`, `params`, `request`, `responses`. The prose `description` is the MDX
-**children** (body between the tags), NOT an attribute.
-
-- `method` ∈ `GET | POST | PUT | PATCH | DELETE | HEAD | OPTIONS`. For a
-  WebSocket upgrade use `GET`.
-- `change` (and per-param/per-response `change`) ∈ `added | modified | removed | renamed`.
-- `params={[{ name, in, type?, required?, description?, change?, was? }]}` where
-  `in` ∈ `path | query | header | body`.
-- `request={{ contentType?, example? }}` — `example` is a JSON **string**, not a
-  nested object.
-- `responses={[{ status, description?, example?, change? }]}` — each `example` is
-  a JSON **string** (the renderer parses it into the collapsible JsonExplorer).
-  Give each distinct message shape (e.g. success vs error, or separate WS frame
-  types) its OWN response entry, not one merged body.
-
-```mdx
-<Endpoint
-  id="ep-create-task"
-  method="POST"
-  path="/api/tasks"
-  summary="Create a task"
-  request={{ contentType: "application/json", example: '{"title":"Ship recap"}' }}
-  responses={[{ status: "201", description: "Created", example: '{"id":"t_1","title":"Ship recap"}' }]}
->
-
-Creates a task scoped to the caller's org.
-
-</Endpoint>
-```
-
-### `DataModel` (schema / ER)
-
-Tag is `DataModel`. Required attr: `entities` (>= 1). Optional attr: `relations`.
-There is NO top-level `fields=` attribute — fields live inside each entity. There
-is NO per-field `required` or `description` key; fold either into `note`.
-
-- `entities={[{ id, name, note?, change?, fields: [...] }]}` — `id` is referenced
-  by relations.
-- each field: `{ name, type?, pk?, fk?, nullable?, default?, note?, change?, was? }`.
-  `pk`/`nullable` are booleans; `fk` is a string target like `"User.id"`;
-  `change` ∈ `added | modified | removed | renamed`; `was` is the prior value
-  when `change` is `modified`.
-- `relations={[{ from, to, kind?, label? }]}` (optional — the renderer infers
-  simple `1-n` from `fk` when omitted); `kind` ∈ `1-1 | 1-n | n-n`.
-
-```mdx
-<DataModel
-  id="dm-tasks"
-  entities={[
-    {
-      id: "task",
-      name: "Task",
-      fields: [
-        { name: "id", type: "uuid", pk: true },
-        { name: "title", type: "text" },
-        { name: "status", type: "text", change: "added", note: "open|done" }
-      ]
-    }
-  ]}
-/>
-```
-
-### `FileTree` (changed files)
-
-Tag is `FileTree`. Required attr: `entries` (>= 1). Optional attr: `title`. The
-tree is built from the leaf `path`s — do NOT pass an ASCII tree in children; the
-block is self-closing.
-
-- `entries={[{ path, change?, note?, snippet?, language? }]}` — `path` is
-  slash-delimited; `change` ∈ `added | modified | removed | renamed`. Add a
-  `snippet` (with optional `language`) only when it says something the path does
-  not.
-
-```mdx
-<FileTree
-  id="ft-changed"
-  title="Files touched"
-  entries={[
-    { path: "server/routes/tasks.ts", change: "modified", note: "add POST handler" },
-    { path: "server/db/schema.ts", change: "modified" },
-    { path: "tests/tasks.test.ts", change: "added" }
-  ]}
-/>
-```
-
-### `Mermaid` (graph)
-
-Tag is `Mermaid` — this is its OWN block, separate from `Diagram`. Required attr:
-`source` (the diagram text). Optional attr: `caption`. Do NOT put mermaid text
-inside a `Diagram` block, and do NOT use `<Diagram mermaid={...}>` — that is not a
-real prop and will not render.
-
-```mdx
-<Mermaid
-  id="mm-flow"
-  source={`flowchart LR
-  Client --> API
-  API --> DB`}
-  caption="Request path"
-/>
-```
-
-### `Diagram` (HTML/SVG or node graph)
-
-Tag is `Diagram`. The whole payload is ONE `data` attribute:
-`data={{ html?, css?, caption?, nodes?, edges?, notes? }}`. It requires either
-`html` (an inert HTML/SVG fragment) OR at least one node — a `Diagram` with
-neither fails validation. This is for architecture / data-flow / dependency
-relationships, NOT rendered UI (use a wireframe for UI) and NOT mermaid (use
-`Mermaid`). Use `.diagram-*` primitives + `--wf-*` tokens in `html`/`css`; never
-hex colors or `font-family`.
-
-```mdx
-<Diagram
-  id="dg-arch"
-  data={{
-    nodes: [
-      { id: "ui", label: "UI" },
-      { id: "api", label: "API" },
-      { id: "db", label: "DB" }
-    ],
-    edges: [
-      { from: "ui", to: "api" },
-      { from: "api", to: "db" }
-    ]
-  }}
-/>
-```
-
-### `Json` (JSON explorer)
-
-Tag is `Json`. Required attr: `json` — a **string** containing the JSON.
-Optional attrs: `title`, `collapsedDepth` (number, default 2).
-
-```mdx
-<Json
-  id="json-config"
-  title="Resolved config"
-  json={'{"flags":{"recap":true},"limit":50}'}
-/>
-```
-
-### `Diff` (before/after)
-
-Tag is `Diff`. Required attrs: `before`, `after` (multiline source strings).
-Optional attrs: `filename`, `language`, `mode` (`unified | split`), `annotations`.
-Use `mode: "split"` for recap code diffs. Unset mode also starts split in normal
-full-width document flow, but explicit split keeps generated recaps predictable.
-Use `mode: "unified"` only for a narrow standalone hunk where side-by-side would
-hide the code. The reader exposes a Unified/Split toggle when there is room, so a
-viewer can still switch either way. Give every diff a `summary` (the shared
-envelope attr) so the reviewer reads intent first.
-
-- `annotations={[{ side?, lines, label?, note }]}` — `side` ∈ `before | after`
-  (default `after`); `lines` is a 1-based ref like `"13"` or `"13-15"`.
-
-```mdx
-<Diff
-  id="diff-handler"
-  filename="server/routes/tasks.ts"
-  language="ts"
-  summary="Add the POST /api/tasks handler"
-  before={`router.get("/api/tasks", list);`}
-  after={`router.get("/api/tasks", list);\nrouter.post("/api/tasks", create);`}
-  annotations={[{ side: "after", lines: "2", label: "New route", note: "Creates a task" }]}
-/>
-```
-
-### `AnnotatedCode` (new-file walkthrough)
-
-Tag is `AnnotatedCode`. Required attr: `code` (multiline string). Optional attrs:
-`filename`, `language`, `annotations`. Use this for a brand-new file with no
-meaningful "before".
-
-- `annotations={[{ lines, label?, note }]}` — 1-based `lines` ref (no `side`,
-  unlike `Diff`).
-
-```mdx
-<AnnotatedCode
-  id="ac-create"
-  filename="server/tasks/create.ts"
-  language="ts"
-  code={`export async function create(input: NewTask) {\n  return db.tasks.insert(input);\n}`}
-  annotations={[{ lines: "1-3", label: "Handler", note: "Inserts and returns the row" }]}
-/>
-```
-
-### `RichText` (prose)
-
-Tag is `RichText`. The markdown is the MDX **children** (body between the tags),
-NOT an attribute. Use `## Key changes` here as the heading above a grouped diff
-`TabsBlock`.
-
-```mdx
-<RichText id="rt-why">
-
-## Why
-
-Adds a create endpoint so the agent can author tasks directly.
-
-</RichText>
-```
-
-### `Callout` (tone note)
-
-Tag is `Callout`. Optional attr: `tone` ∈ `info | decision | risk | warning | success`.
-The body markdown is the MDX **children**, NOT an attribute.
-
-```mdx
-<Callout id="co-risk" tone="risk">
-
-The new column is non-nullable with no default — existing rows need a backfill.
-
-</Callout>
-```
-
-### `Columns` (side-by-side)
-
-Tag is `Columns`; each column is a nested `<Column label="...">` whose body is
-markdown and/or block components. 1–4 columns. Use labels `Before` / `After` for
-structured comparisons.
-
-```mdx
-<Columns id="cols-schema">
-<Column label="Before">
-
-`status` did not exist.
-
-</Column>
-<Column label="After">
-
-<DataModel id="dm-after" entities={[{ id: "task", name: "Task", fields: [{ name: "status", type: "text", change: "added" }] }]} />
-
-</Column>
-</Columns>
-```
-
-### `TabsBlock` (tab rail)
-
-Tag is `TabsBlock` — NOT `Tabs`, and there is NO nested `<Tab>` element. Required
-attr: `tabs` (1–12). Optional attr: `orientation` (`horizontal | vertical`; use
-the default horizontal orientation for key-file code/diff tabs; reserve
-`vertical` for compact non-code side rails). The whole `tabs` array (including
-nested child blocks) is ONE JSON prop; do NOT nest the tabs or their child blocks
-as MDX elements. Label the section with a preceding `## Key changes` `RichText`
-heading rather than a `title` on the block.
-
-```mdx
-<TabsBlock
-  id="tabs-key"
-  tabs={[
-    { id: "t-route", label: "routes/tasks.ts", blocks: [ /* Diff block objects */ ] },
-    { id: "t-schema", label: "db/schema.ts", blocks: [ /* Diff block objects */ ] }
-  ]}
-/>
-```
-
-### `WireframeBlock` + `<Screen>` (UI)
-
-Tag is `WireframeBlock`; its body is a single `<Screen surface ... >` subtree
-(this is nested MDX, not a flat prop). On `<Screen>`, `html` must be a
-single-quoted string or a static template literal — NEVER a dynamic expression
-(`html={someVar}` throws on import). `surface` ∈
-`desktop | mobile | popover | panel | browser`. Optional `<Screen>` attrs:
-`renderMode` (`wireframe | design`), `caption`, `css`, `skeleton`. See the
-Wireframe Quality core above for the HTML rules.
-
-```mdx
-<WireframeBlock id="wf-tasks">
-<Screen surface="browser" html={'<div style="display:flex;flex-direction:column;gap:12px;padding:16px;height:100%"><h1>Tasks</h1><button class="primary">New task</button></div>'} />
-</WireframeBlock>
-```
-
-### Other blocks
-
-- `HtmlBlock` (custom-html) — flat attrs `html` (required, bounded fragment),
-  `css?`, `caption?`. Prefer a wireframe for UI; this is an escape hatch.
-- `Table` — flat attrs `columns={["A","B"]}` and `rows={[["1","2"]]}` (both arrays
-  of strings), optional `density` (`compact | normal | relaxed`).
-- `Checklist` — flat attr `items={[{ id, label, checked?, note? }]}`.
-- `Code` — flat attrs `code` (required string), `language?`, `filename?`,
-  `caption?`, `maxLines?`. For a multi-file rail use a `TabsBlock` of `Code`
-  blocks.
-- `OpenApi` — flat attrs `spec` (required JSON string of a whole OpenAPI/Swagger
-  doc), `title?`. The whole-document counterpart to `Endpoint`.
+## Block reference — call `get-plan-blocks`, do not memorize tags
+
+The conceptual block names above (`api-endpoint`, `data-model`, `json-explorer`,
+`tabs`, …) are NOT the JSX tags you author with, and the exact tags, required
+fields, and prop shapes change as the block library evolves. Do not author from
+memorized tags — they drift and silently produce a wrong tag (`ApiEndpoint`
+instead of `Endpoint`, `JsonExplorer` instead of `Json`, `Tabs` instead of
+`TabsBlock`) that errors on import.
+
+**Before writing any structured plan content, call `get-plan-blocks` on the
+`plan` MCP server.** It returns the authoritative, always-current block
+vocabulary generated live from the app's own block registry — the same config
+the renderer and MDX round-trip use — so it can never be stale even if this
+SKILL.md is an old installed copy:
+
+- `get-plan-blocks` (default `format: "reference"`) → a compact table of every
+  block's runtime `type`, exact MDX `<Tag>`, placement, and key data fields.
+  This is your map from each conceptual name above to its real tag and props.
+- `get-plan-blocks` with `format: "schema"` → the full per-block JSON Schema
+  plus a worked example for each block, when you need exact field types,
+  enums, or nesting (e.g. `Diff.annotations`, `Endpoint.params[].in`,
+  `DataModel.entities[].fields[]`).
+
+Author the recap source against the tags and schemas that call returns. The
+complete set of valid block-level tags is whatever `get-plan-blocks` lists;
+any other capitalized tag at the block level is rejected on import with an
+"Unknown plan block" / "did you mean" error. Lowercase HTML tags inside
+`rich-text`/markdown prose (`<div>`, `<span>`, `<code>`, `<br>`, …) are always
+fine — only capitalized component-style block tags are validated.
+
+A few recap-specific authoring rules the registry table cannot encode:
+
+- Every block takes a REQUIRED `id` (unique across the whole plan) plus the
+  shared optional `summary` / `editable` envelope; give a block a heading by
+  placing a `rich-text` block with a Markdown `###` heading directly above it
+  (blocks no longer take a `title`).
+- `Endpoint`: prose `description` is the MDX **children** (body between the
+  tags), not an attribute; for a WebSocket upgrade use `method="GET"`. Each
+  request/response `example` is a JSON **string** (the renderer parses it into
+  the JSON explorer), so keep it a single parseable JSON value.
+- `TabsBlock`: the whole `tabs` array (including nested child blocks) is ONE
+  JSON `tabs={[…]}` prop — there is NO nested `<Tab>` element.
+- `WireframeBlock`: its body is a single `<Screen surface ... html=… />` subtree
+  (nested MDX, not a flat prop); `html` must be a single-quoted string or static
+  template literal, never a dynamic `html={someVar}` expression. See the
+  Wireframe Quality core above for the HTML rules.
+- `Diagram`: the whole payload is one `data={{ html?, css?, nodes?, edges?, … }}`
+  attribute and requires either `html` or at least one node; `Mermaid` is its
+  own separate block (`source` text), not a `Diagram` prop.
 
 ## Before / After Is The Headline
 
