@@ -20,7 +20,7 @@
  * - Network errors use exponential backoff with jitter (cap ~15s), reset on
  *   success.
  * - SSE fast-path: collab events are received push-style from
- *   /_agent-native/poll-events (the existing SSE stream). While SSE is
+ *   /_agent-native/events (the framework SSE stream). While SSE is
  *   healthy the poll loop relaxes to a slow cadence (10–15s). If SSE is
  *   unavailable the 2s poll resumes automatically.
  */
@@ -524,7 +524,7 @@ export function useCollaborativeDoc(
     let sseEventSource: EventSource | null = null;
 
     // ── SSE fast-path ────────────────────────────────────────────────
-    // Wire into the existing /_agent-native/poll-events SSE stream.
+    // Wire into the framework /_agent-native/events SSE stream.
     // Collab update events arrive push-style; we apply them immediately,
     // avoiding ~2s polling latency for peer edits.
     //
@@ -534,9 +534,7 @@ export function useCollaborativeDoc(
     function initSSE() {
       if (typeof EventSource === "undefined") return;
       try {
-        const es = new EventSource(
-          agentNativePath("/_agent-native/poll-events"),
-        );
+        const es = new EventSource(agentNativePath("/_agent-native/events"));
         sseEventSource = es;
 
         es.onopen = () => {
@@ -849,7 +847,7 @@ export function useCollaborativeDoc(
     docMissing,
   ]);
 
-  // SSE fast-path for awareness: subscribe to the poll-events stream and
+  // SSE fast-path for awareness: subscribe to the framework events stream and
   // apply any awareness-change events immediately so peers receive cursor
   // moves push-style without waiting for the next poll cycle.
   // Polling fallback keeps working when SSE is unavailable.
@@ -860,7 +858,7 @@ export function useCollaborativeDoc(
     // Non-null captures for closures: null branches returned early above.
     const capturedYdoc = ydoc;
     const capturedAwareness = awareness;
-    const sseUrl = agentNativePath("/_agent-native/poll-events");
+    const sseUrl = agentNativePath("/_agent-native/events");
     let source: EventSource | null = null;
     let stopped = false;
 

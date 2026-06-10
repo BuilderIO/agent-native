@@ -937,7 +937,7 @@ type SqlDashboardListItem = {
 
 async function fetchSqlDashboards(): Promise<SqlDashboardListItem[]> {
   try {
-    const rows = await callAction("list-sql-dashboards", {});
+    const rows = await callAction("list-sql-dashboards", {}, { method: "GET" });
     return (Array.isArray(rows) ? rows : [])
       .filter((d: any) => d && typeof d.id === "string" && d.id.length > 0)
       .map((d: any) => ({
@@ -967,9 +967,13 @@ async function fetchSidebarAnalyses(
   }[]
 > {
   try {
-    const rows = await callAction("list-analyses", {
-      ...(hidden === "hidden" ? { hidden: "hidden" } : {}),
-    } as Record<string, unknown>);
+    const rows = await callAction(
+      "list-analyses",
+      {
+        ...(hidden === "hidden" ? { hidden: "hidden" } : {}),
+      } as Record<string, unknown>,
+      { method: "GET" },
+    );
     return (Array.isArray(rows) ? rows : [])
       .filter((a: any) => a && typeof a.id === "string" && a.id.length > 0)
       .map((a: any) => ({
@@ -1007,7 +1011,11 @@ async function fetchSqlDashboardForPrefetch(
   id: string,
 ): Promise<PrefetchedSqlDashboard | null> {
   try {
-    const data: any = await callAction("get-sql-dashboard", { id });
+    const data: any = await callAction(
+      "get-sql-dashboard",
+      { id },
+      { method: "GET" },
+    );
     if (!data || data.error) return null;
     return {
       id,
@@ -1036,7 +1044,7 @@ async function fetchSqlDashboardForPrefetch(
 
 async function fetchAnalysisDetailForPrefetch(id: string): Promise<unknown> {
   try {
-    const data = await callAction("get-analysis", { id });
+    const data = await callAction("get-analysis", { id }, { method: "GET" });
     if (!data || (data as Record<string, unknown>).error) return null;
     return data;
   } catch {

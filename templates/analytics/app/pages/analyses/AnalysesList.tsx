@@ -28,7 +28,7 @@ interface AnalysisSummary {
 }
 
 async function fetchAnalyses(): Promise<AnalysisSummary[]> {
-  const rows = await callAction("list-analyses", {});
+  const rows = await callAction("list-analyses", {}, { method: "GET" });
   return (Array.isArray(rows) ? rows : []) as AnalysisSummary[];
 }
 

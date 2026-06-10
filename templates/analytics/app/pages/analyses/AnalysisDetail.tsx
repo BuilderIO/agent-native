@@ -72,7 +72,7 @@ interface Analysis extends ResourceAccess {
 
 async function fetchAnalysis(id: string): Promise<Analysis | null> {
   try {
-    const data = await callAction("get-analysis", { id });
+    const data = await callAction("get-analysis", { id }, { method: "GET" });
     if (!data || typeof data !== "object") return null;
     const a = data as Record<string, unknown>;
     if (a.error) return null;

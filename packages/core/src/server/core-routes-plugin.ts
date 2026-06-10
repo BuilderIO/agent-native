@@ -152,6 +152,18 @@ import {
  * collisions with template-specific `/api/*` routes.
  */
 export const FRAMEWORK_ROUTE_PREFIX = "/_agent-native";
+export const FRAMEWORK_EVENTS_ROUTE = `${FRAMEWORK_ROUTE_PREFIX}/events`;
+export const LEGACY_FRAMEWORK_EVENTS_ROUTE = `${FRAMEWORK_ROUTE_PREFIX}/poll-events`;
+
+export function resolveFrameworkSseRoutes(sseRoute?: string): string[] {
+  return Array.from(
+    new Set([
+      sseRoute ?? FRAMEWORK_EVENTS_ROUTE,
+      FRAMEWORK_EVENTS_ROUTE,
+      LEGACY_FRAMEWORK_EVENTS_ROUTE,
+    ]),
+  );
+}
 
 registerBuiltinEngines();
 
@@ -745,8 +757,9 @@ export function createCoreRoutesPlugin(
 
       // SSE
       if (!options.disableSSE) {
-        const sseRoute = options.sseRoute ?? `${P}/events`;
-        getH3App(nitroApp).use(sseRoute, createPollEventsHandler());
+        for (const route of resolveFrameworkSseRoutes(options.sseRoute)) {
+          getH3App(nitroApp).use(route, createPollEventsHandler());
+        }
       }
 
       // Ping
