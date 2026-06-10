@@ -563,7 +563,19 @@ function CustomHtmlBlock({
   const [editing, setEditing] = useState(false);
   const [html, setHtml] = useState(block.data.html);
   const [css, setCss] = useState(block.data.css ?? "");
-  const srcDoc = `<!doctype html><html><head><style>body{margin:0;min-height:100%;font-family:Inter,system-ui,sans-serif;color:#1f1f1d;background:transparent;}*{box-sizing:border-box}${block.data.css ?? ""}</style></head><body>${block.data.html}</body></html>`;
+
+  // Resync drafts from block.data when not actively editing so agent/poll
+  // updates are reflected without clobbering in-progress manual edits.
+  useEffect(() => {
+    if (!editing) {
+      setHtml(block.data.html);
+      setCss(block.data.css ?? "");
+    }
+  }, [editing, block.data.html, block.data.css]);
+
+  // Use prefers-color-scheme so the iframe ink matches the host theme even
+  // though the iframe document is isolated and can't inherit CSS variables.
+  const srcDoc = `<!doctype html><html><head><style>body{margin:0;min-height:100%;font-family:Inter,system-ui,sans-serif;color:#1f1f1d;background:transparent;}*{box-sizing:border-box}@media(prefers-color-scheme:dark){body{color:#e8e8e6}}${block.data.css ?? ""}</style></head><body>${block.data.html}</body></html>`;
   return (
     <section className="plan-block group" data-block-id={block.id}>
       <div className="flex items-start justify-between gap-4">

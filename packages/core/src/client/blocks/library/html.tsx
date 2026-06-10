@@ -28,7 +28,9 @@ function buildSrcDoc(
 ): string {
   const css = data.css ?? "";
   const body = sanitize ? sanitize(data.html, data.css) : data.html;
-  return `<!doctype html><html><head><style>body{margin:0;min-height:100%;font-family:Inter,system-ui,sans-serif;color:#1f1f1d;background:transparent;}*{box-sizing:border-box}${css}</style></head><body>${body}</body></html>`;
+  // Use prefers-color-scheme so the iframe ink matches the host theme even
+  // though the iframe document is isolated and can't inherit CSS variables.
+  return `<!doctype html><html><head><style>body{margin:0;min-height:100%;font-family:Inter,system-ui,sans-serif;color:#1f1f1d;background:transparent;}*{box-sizing:border-box}@media(prefers-color-scheme:dark){body{color:#e8e8e6}}${css}</style></head><body>${body}</body></html>`;
 }
 
 function HtmlPreview({

@@ -328,6 +328,7 @@ export function AnnotationHoverCard<A extends RailAnnotation>({
   showMarker = false,
   onMouseEnter,
   onMouseLeave,
+  onClose,
 }: {
   item: ResolvedAnnotation<A>;
   anchor: AnnotationAnchor;
@@ -335,6 +336,8 @@ export function AnnotationHoverCard<A extends RailAnnotation>({
   showMarker?: boolean;
   onMouseEnter?: () => void;
   onMouseLeave?: () => void;
+  /** Called when the card should be dismissed (e.g. on scroll). */
+  onClose?: () => void;
 }) {
   const cardRef = useRef<HTMLDivElement | null>(null);
   const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
@@ -364,6 +367,18 @@ export function AnnotationHoverCard<A extends RailAnnotation>({
     anchor.lineBottom,
     item.index,
   ]);
+
+  // Close the card when the user scrolls so it doesn't float detached.
+  useEffect(() => {
+    if (!onClose || typeof window === "undefined") return;
+    const handler = () => onClose();
+    window.addEventListener("scroll", handler, {
+      capture: true,
+      passive: true,
+    });
+    return () =>
+      window.removeEventListener("scroll", handler, { capture: true });
+  }, [onClose]);
 
   if (typeof document === "undefined") return null;
 
@@ -396,10 +411,15 @@ export function AnnotationHoverCard<A extends RailAnnotation>({
 }
 
 /**
- * Hover-intent controller for the on-hover note card. Exposes `activeIndex` +
- * the captured `anchor`, plus `open`/`scheduleClose`/`cancelClose` handlers.
+ * Hover-intent + tap controller for the on-hover note card. Exposes
+ * `activeIndex` + the captured `anchor`, plus `open`/`toggle`/`close`/
+ * `scheduleClose`/`cancelClose` handlers.
  *
  *  - `open(index, anchor)` shows a card immediately (cancels any pending close).
+ *  - `toggle(index, anchor)` opens a card if it isn't already the active one,
+ *    or closes it if it is — used for click/tap on annotated rows so touch users
+ *    can access notes without hover.
+ *  - `close()` hides the card immediately (used on scroll to avoid stale cards).
  *  - `scheduleClose()` hides after a short delay, so moving the pointer from the
  *    code line across the gap into the card itself keeps it open.
  *  - `cancelClose()` (call on card mouse-enter) keeps it open while reading.
@@ -421,6 +441,14 @@ export function useAnnotationHover(delay = 130) {
     cancelClose();
     setActive({ index, anchor });
   };
+  const toggle = (index: number, anchor: AnnotationAnchor) => {
+    cancelClose();
+    setActive((prev) => (prev?.index === index ? null : { index, anchor }));
+  };
+  const close = () => {
+    cancelClose();
+    setActive(null);
+  };
   const scheduleClose = () => {
     cancelClose();
     timer.current = setTimeout(() => setActive(null), delay);
@@ -432,6 +460,8 @@ export function useAnnotationHover(delay = 130) {
     activeIndex: active?.index ?? null,
     anchor: active?.anchor ?? null,
     open,
+    toggle,
+    close,
     scheduleClose,
     cancelClose,
   } as const;

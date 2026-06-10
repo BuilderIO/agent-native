@@ -14,6 +14,7 @@ import {
   buildRecapPrompt,
   canonicalRecapUrl,
   classifyDiff,
+  countDiffLines,
   diffContainsSecret,
   evaluateRecapGate,
   isRecapSensitivePath,
@@ -141,6 +142,44 @@ describe("recap collect-diff classification", () => {
     // No replacement char from a cut codepoint.
     expect(out).not.toContain("�");
     expect(out).toContain("[diff truncated at 600KB for the recap agent]");
+  });
+});
+
+describe("countDiffLines", () => {
+  it("counts added and removed lines, excluding +++ / --- header lines", () => {
+    const diff = [
+      "diff --git a/foo.ts b/foo.ts",
+      "--- a/foo.ts",
+      "+++ b/foo.ts",
+      "@@ -1,3 +1,4 @@",
+      " unchanged line",
+      "-removed line 1",
+      "-removed line 2",
+      "+added line 1",
+      "+added line 2",
+      "+added line 3",
+    ].join("\n");
+    // 2 removed + 3 added = 5; the --- and +++ headers must NOT be counted.
+    expect(countDiffLines(diff)).toBe(5);
+  });
+
+  it("returns 0 for an empty diff", () => {
+    expect(countDiffLines("")).toBe(0);
+  });
+
+  it("handles multi-file diffs without inflating the count", () => {
+    const diff = [
+      "--- a/a.ts",
+      "+++ b/a.ts",
+      "-old a",
+      "+new a",
+      "--- a/b.ts",
+      "+++ b/b.ts",
+      "-old b",
+      "+new b",
+    ].join("\n");
+    // 4 real diff lines, 4 header lines that must be excluded.
+    expect(countDiffLines(diff)).toBe(4);
   });
 });
 
@@ -501,6 +540,43 @@ describe("recap image public readiness", () => {
         fetchFn,
       }),
     ).resolves.toBe(false);
+  });
+
+  it("uses at least 8 attempts by default to survive cold-start CDN delays", async () => {
+    // Return 404 for 7 attempts then succeed on the 8th — this must pass with
+    // the default budget (~20s of capped exponential backoff).
+    const notYet = new Response("not yet", {
+      status: 404,
+      headers: { "content-type": "text/plain" },
+    });
+    const fetchFn = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(notYet)
+      .mockResolvedValueOnce(notYet)
+      .mockResolvedValueOnce(notYet)
+      .mockResolvedValueOnce(notYet)
+      .mockResolvedValueOnce(notYet)
+      .mockResolvedValueOnce(notYet)
+      .mockResolvedValueOnce(notYet)
+      .mockResolvedValueOnce(
+        new Response(Buffer.from([1, 2, 3]), {
+          status: 200,
+          headers: { "content-type": "image/png" },
+        }),
+      );
+
+    await expect(
+      waitForPublicRecapImage({
+        imageUrl:
+          "https://plan.agent-native.com/_agent-native/recap-image/" +
+          `${"a".repeat(64)}.png`,
+        // Override delayMs to 0 so the test doesn't sleep; attempts uses the
+        // default (omitted) to confirm it's >= 8.
+        delayMs: 0,
+        fetchFn,
+      }),
+    ).resolves.toBe(true);
+    expect(fetchFn).toHaveBeenCalledTimes(8);
   });
 });
 

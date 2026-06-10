@@ -1,6 +1,6 @@
 /**
- * `agent-native recap <scan|build-prompt|shot|comment>` — the helper surface
- * used by the PR Visual Recap GitHub Action.
+ * `agent-native recap` — the helper surface used by the PR Visual Recap GitHub
+ * Action. Run `agent-native recap help` for the full subcommand list.
  *
  * The action no longer generates the recap deterministically. Instead a coding
  * agent (Claude Code or Codex) RUNS THE REPO'S visual-recap skill against the
@@ -21,7 +21,11 @@
  *                 + a task wrapper (or repo-pinned skill with --skill-source).
  *   shot          Screenshot the published plan and upload it to the plan app's
  *                 signed public image route (for an inline PR-comment image).
+ *   usage         Parse and emit agent token-usage/cost from stdout.
  *   comment       Find the previous plan id / upsert the sticky PR comment.
+ *   check         Evaluate the recap result and set a GitHub commit status.
+ *   setup         Install the PR Visual Recap GitHub Action workflow.
+ *   doctor        Diagnose missing secrets / misconfigured workflow.
  *
  * Promoting these to the published CLI means an installed repo's workflow calls
  * `agent-native recap …` instead of copying helper scripts into the repo.
@@ -621,22 +625,46 @@ export function truncateDiffAtLineBoundary(text: string): string {
   return body + RECAP_DIFF_TRUNCATED_FOOTER;
 }
 
-/** Count lines that begin with `+` or `-` (added/removed diff lines). */
+/**
+ * Count lines that begin with `+` or `-` (added/removed diff lines), excluding
+ * the `+++ b/file` / `--- a/file` unified-diff header lines. Without this
+ * exclusion a single-file change loses ~2 "real" lines from the 8-line tiny
+ * threshold, incorrectly classifying a small-but-meaningful change as tiny.
+ */
 export function countDiffLines(diffText: string): number {
   let count = 0;
   for (const line of diffText.split("\n")) {
+    if (line.startsWith("+++") || line.startsWith("---")) continue;
     if (line.startsWith("+") || line.startsWith("-")) count += 1;
   }
   return count;
 }
 
 /**
- * Run `git diff <base>...<head> -- <pathspecs>` and return its stdout. Tolerates
- * a non-zero git exit (the original step used `|| true`) by capturing stdout
- * regardless. Array args — NOT a shell string — so the `:(exclude)` pathspecs
- * survive intact.
+ * Result from `gitDiffRaw`. `failed` is true when git itself exited non-zero
+ * AND produced empty stdout — which indicates a broken ref (missing object,
+ * bad SHA, shallow-clone gap) rather than a legitimate empty diff.
  */
-function gitDiff(base: string, head: string, extraArgs: string[]): string {
+interface GitDiffResult {
+  stdout: string;
+  failed: boolean;
+}
+
+/**
+ * Run `git diff <base>...<head> -- <pathspecs>` and return its stdout plus a
+ * `failed` flag. A non-zero exit that still produces stdout is treated as a
+ * partial result (same as the original `... || true`). A non-zero exit with
+ * empty stdout is a genuine failure (broken ref, missing object, etc.) and
+ * sets `failed: true` so `runCollectDiff` can exit with a distinct error
+ * instead of silently classifying the empty output as a tiny diff.
+ *
+ * Array args — NOT a shell string — so the `:(exclude)` pathspecs survive.
+ */
+function gitDiffRaw(
+  base: string,
+  head: string,
+  extraArgs: string[],
+): GitDiffResult {
   const args = [
     "diff",
     "--no-color",
@@ -646,16 +674,22 @@ function gitDiff(base: string, head: string, extraArgs: string[]): string {
     ...RECAP_DIFF_PATHSPECS,
   ];
   try {
-    return execFileSync("git", args, {
+    const stdout = execFileSync("git", args, {
       encoding: "utf8",
       maxBuffer: 256 * 1024 * 1024,
     });
+    return { stdout, failed: false };
   } catch (err: any) {
-    // Tolerate a non-zero exit (e.g. missing object) but still use whatever git
-    // wrote to stdout, exactly like the original `... > recap.diff || true`.
-    if (err && typeof err.stdout === "string") return err.stdout;
-    if (err && Buffer.isBuffer(err.stdout)) return err.stdout.toString("utf8");
-    return "";
+    // Recover whatever stdout git wrote before failing.
+    const raw =
+      err && typeof err.stdout === "string"
+        ? err.stdout
+        : err && Buffer.isBuffer(err.stdout)
+          ? err.stdout.toString("utf8")
+          : "";
+    // An empty stdout from a non-zero exit means a broken ref / missing
+    // object — not a legitimate empty diff. Signal failure.
+    return { stdout: raw, failed: raw.trim() === "" };
   }
 }
 
@@ -665,6 +699,10 @@ function gitDiff(base: string, head: string, extraArgs: string[]): string {
  * emits the same `bytes/changed/huge/tiny` outputs the workflow expects:
  * appended to $GITHUB_OUTPUT when set, AND printed as JSON to stdout (so it runs
  * and is testable outside GitHub Actions).
+ *
+ * Exits non-zero when git itself fails (broken SHA / missing object) so the
+ * CI workflow treats it as a real failure instead of silently classifying an
+ * empty diff as "tiny" and skipping the recap with no diagnostic.
  */
 function runCollectDiff(args: Record<string, string | boolean>): void {
   const base = stringArg(args, "base");
@@ -673,8 +711,18 @@ function runCollectDiff(args: Record<string, string | boolean>): void {
   const statPath = optionalArg(args, "stat") ?? "recap.stat";
 
   // The unified diff and the --stat summary (both excluding lockfiles/noise).
-  let diff = gitDiff(base, head, []);
-  const stat = gitDiff(base, head, ["--stat"]);
+  const diffResult = gitDiffRaw(base, head, []);
+  if (diffResult.failed) {
+    process.stderr.write(
+      `recap collect-diff: git diff failed for ${base}...${head} — ` +
+        `the SHAs may be missing (shallow clone?) or invalid.\n` +
+        `Make sure the workflow checks out with fetch-depth: 0 or at least ` +
+        `enough history to resolve both refs.\n`,
+    );
+    process.exit(1);
+  }
+  let diff = diffResult.stdout;
+  const stat = gitDiffRaw(base, head, ["--stat"]).stdout;
   fs.writeFileSync(path.resolve(statPath), stat);
 
   // ORIGINAL line count — captured BEFORE any byte-cap truncation so a large
@@ -682,7 +730,7 @@ function runCollectDiff(args: Record<string, string | boolean>): void {
   const originalLines = countDiffLines(diff);
 
   // Changed-file count from `--name-only` over the same excludes.
-  const names = gitDiff(base, head, ["--name-only"]);
+  const names = gitDiffRaw(base, head, ["--name-only"]).stdout;
   const changed = names.split("\n").filter((line) => line.length > 0).length;
 
   // Write the (possibly truncated) diff and compute the on-disk byte length.
@@ -756,12 +804,21 @@ export function buildRecapCodexMcpConfig(appUrl: string): string {
 function runMcpConfig(args: Record<string, string | boolean>): void {
   const agent = stringArg(args, "agent").toLowerCase();
   const appUrl = stringArg(args, "app-url");
+  const force = Boolean(args["force"]);
 
   if (agent === "claude") {
+    const token = process.env.PLAN_RECAP_TOKEN;
+    if (!token) {
+      process.stderr.write(
+        `recap mcp-config: PLAN_RECAP_TOKEN is not set.\n` +
+          `Set it in the workflow environment before running this step.\n`,
+      );
+      process.exit(1);
+    }
     const out = stringArg(args, "out");
     fs.writeFileSync(
       path.resolve(out),
-      buildRecapClaudeMcpConfig(appUrl, process.env.PLAN_RECAP_TOKEN),
+      buildRecapClaudeMcpConfig(appUrl, token),
     );
     process.stdout.write(`${JSON.stringify({ ok: true, agent, out })}\n`);
     return;
@@ -771,8 +828,59 @@ function runMcpConfig(args: Record<string, string | boolean>): void {
     const out =
       optionalArg(args, "out") ??
       path.join(os.homedir(), ".codex", "config.toml");
-    fs.mkdirSync(path.dirname(path.resolve(out)), { recursive: true });
-    fs.writeFileSync(path.resolve(out), buildRecapCodexMcpConfig(appUrl));
+    const absOut = path.resolve(out);
+    fs.mkdirSync(path.dirname(absOut), { recursive: true });
+
+    const newEntry = buildRecapCodexMcpConfig(appUrl);
+    const SECTION_MARKER = "[mcp_servers.plan]";
+
+    // If the file already exists and is non-empty, merge rather than overwrite.
+    let existing = "";
+    try {
+      const raw = fs.readFileSync(absOut, "utf8");
+      if (raw.trim()) existing = raw;
+    } catch {
+      /* file absent — write fresh */
+    }
+
+    if (existing) {
+      if (existing.includes(SECTION_MARKER)) {
+        // Section already present — skip unless --force was passed.
+        if (!force) {
+          process.stdout.write(
+            `${JSON.stringify({ ok: true, agent, out, skipped: true, reason: "plan entry already present; pass --force to overwrite" })}\n`,
+          );
+          return;
+        }
+        // --force: replace the existing [mcp_servers.plan] block.
+        // Remove lines from the section header until the next `[` header or EOF.
+        const lines = existing.split("\n");
+        const startIdx = lines.findIndex((l) => l.trim() === SECTION_MARKER);
+        let endIdx = lines.length;
+        for (let i = startIdx + 1; i < lines.length; i++) {
+          if (lines[i].trimStart().startsWith("[")) {
+            endIdx = i;
+            break;
+          }
+        }
+        const without = [
+          ...lines.slice(0, startIdx),
+          ...lines.slice(endIdx),
+        ].join("\n");
+        const merged =
+          (without.trimEnd() ? without.trimEnd() + "\n\n" : "") + newEntry;
+        fs.writeFileSync(absOut, merged, { mode: 0o600 });
+      } else {
+        // Append the new section to the existing config.
+        const separator = existing.endsWith("\n") ? "\n" : "\n\n";
+        fs.writeFileSync(absOut, existing + separator + newEntry, {
+          mode: 0o600,
+        });
+      }
+    } else {
+      fs.writeFileSync(absOut, newEntry);
+    }
+
     process.stdout.write(`${JSON.stringify({ ok: true, agent, out })}\n`);
     return;
   }
@@ -1283,16 +1391,27 @@ function delay(ms: number): Promise<void> {
     : Promise.resolve();
 }
 
-/** Confirm GitHub can fetch the uploaded image anonymously before we embed it. */
+/**
+ * Confirm GitHub can fetch the uploaded image anonymously before we embed it.
+ *
+ * Default budget: 8 attempts with capped exponential backoff (1s, 2s, 3s, …
+ * capped at 4s) → ~20s total. This is enough to survive a cold-start CDN
+ * propagation delay that would otherwise cause `uploadRecapImage` to return a
+ * URL that the GitHub PR comment can't display.
+ *
+ * The `attempts` and `delayMs` overrides remain for unit tests and for callers
+ * that need a tighter or looser budget.
+ */
 export async function waitForPublicRecapImage(input: {
   imageUrl: string;
   attempts?: number;
   delayMs?: number;
   fetchFn?: typeof fetch;
 }): Promise<boolean> {
-  const attempts = Math.max(1, input.attempts ?? 4);
-  const delayMs = Math.max(0, input.delayMs ?? 350);
+  const attempts = Math.max(1, input.attempts ?? 8);
+  const delayMs = Math.max(0, input.delayMs ?? 1000);
   const fetchFn = input.fetchFn ?? fetch;
+  const MAX_DELAY_MS = 4000;
 
   for (let attempt = 1; attempt <= attempts; attempt += 1) {
     try {
@@ -1309,7 +1428,8 @@ export async function waitForPublicRecapImage(input: {
     } catch {
       /* retry below */
     }
-    if (attempt < attempts) await delay(delayMs * attempt);
+    if (attempt < attempts)
+      await delay(Math.min(delayMs * attempt, MAX_DELAY_MS));
   }
 
   return false;

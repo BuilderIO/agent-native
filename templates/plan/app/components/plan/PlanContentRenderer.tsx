@@ -309,6 +309,23 @@ export function PlanContentRenderer({
     [],
   );
 
+  // Defensive guard: if planId changes while a pending debounced save exists,
+  // DROP the stale pending edit rather than letting it flush into the new plan.
+  // With key={bundle.plan.id} on the outer PlanContentRenderer this path is
+  // unreachable in practice (plan switches remount the whole tree), but guard
+  // it anyway to prevent silent data-corruption if the key is ever removed.
+  const prevPlanIdRef = useRef(planId);
+  useEffect(() => {
+    if (planId !== prevPlanIdRef.current) {
+      prevPlanIdRef.current = planId;
+      if (saveTimerRef.current !== null) {
+        window.clearTimeout(saveTimerRef.current);
+        saveTimerRef.current = null;
+      }
+      pendingBlocksRef.current = null;
+    }
+  }, [planId]);
+
   // Keep the latest document-level handlers in a ref so the memoized render
   // context stays stable (no markdown-editor remounts) while `renderBlock` for
   // nested tab children always invokes the current handlers — mirroring how the

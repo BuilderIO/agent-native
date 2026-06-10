@@ -40,13 +40,20 @@ describe("planPublishConfigPath", () => {
 });
 
 describe("isFirstPartyPlanHost", () => {
-  it("accepts plan.agent-native.com, subdomains, and the apex", () => {
+  it("accepts plan.agent-native.com (the canonical Plans host)", () => {
     expect(isFirstPartyPlanHost("https://plan.agent-native.com")).toBe(true);
-    expect(isFirstPartyPlanHost("https://mail.agent-native.com")).toBe(true);
-    expect(isFirstPartyPlanHost("https://agent-native.com")).toBe(true);
     expect(
       isFirstPartyPlanHost("https://plan.agent-native.com/_agent-native/mcp"),
     ).toBe(true);
+  });
+
+  it("rejects other first-party subdomains to prevent last-write-wins token clobber", () => {
+    // connect --all iterates every first-party app; only the Plans app should
+    // update plan-publish.json — other apps (assets, mail, …) must not overwrite
+    // the canonical Plans token.
+    expect(isFirstPartyPlanHost("https://mail.agent-native.com")).toBe(false);
+    expect(isFirstPartyPlanHost("https://assets.agent-native.com")).toBe(false);
+    expect(isFirstPartyPlanHost("https://agent-native.com")).toBe(false);
   });
 
   it("rejects custom, look-alike, and invalid hosts", () => {

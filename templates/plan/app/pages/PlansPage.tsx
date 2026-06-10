@@ -3633,6 +3633,7 @@ export function PlansPage() {
                     onPointerUp={handleNativeReaderPointerUp}
                   >
                     <PlanContentRenderer
+                      key={bundle.plan.id}
                       content={bundle.plan.content}
                       fallbackTitle={bundle.plan.title}
                       fallbackBrief={bundle.plan.brief}

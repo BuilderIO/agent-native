@@ -664,9 +664,10 @@ switch (command) {
   }
 
   case "recap": {
-    // PR visual recap helpers used by the GitHub Action (scan | build-prompt |
-    // shot | comment). Promoted to the CLI so an installed repo's workflow can
-    // call `agent-native recap …` instead of copying helper scripts.
+    // PR visual recap helpers used by the GitHub Action. Promoted to the CLI
+    // so an installed repo's workflow can call `agent-native recap …` instead
+    // of copying helper scripts. Run `agent-native recap help` for the full
+    // subcommand list.
     import("./recap.js")
       .then((m) => m.runRecap(args))
       .catch((err) => {
@@ -798,8 +799,7 @@ Usage:
                                 --with-github-action also writes the PR Visual
                                 Recap workflow into .github/workflows/.
   agent-native recap <cmd>      PR visual recap setup and GitHub Action helpers.
-                                cmds: setup | doctor | scan | build-prompt |
-                                shot | comment
+                                Run 'agent-native recap help' for subcommands.
   agent-native plan local <cmd> DB-free local plan helpers.
                                 cmds: init | check | preview
   agent-native migrate <source> Create an Agent-Native Code /migrate session, or use

@@ -810,7 +810,16 @@ export function PlanDocumentEditor({
   }, []);
   useEffect(() => {
     const incoming = JSON.stringify(content.blocks);
-    if (recentEmittedRef.current.includes(incoming)) {
+    // Only treat a ring hit as our own echo when the ring entry also matches the
+    // CURRENT editor state (blocksRef). After A→B→A navigation the old serialized
+    // form of plan A is still in the ring, but blocksRef now holds plan B's blocks
+    // (the component was reused without remounting). Without this check the effect
+    // would bail out, leave the stale side-map in place, and corrupt every block
+    // NodeView ("Loading block…") until the next user edit re-seeds them to `{}`.
+    if (
+      recentEmittedRef.current.includes(incoming) &&
+      incoming === JSON.stringify(blocksRef.current)
+    ) {
       lastEmittedRef.current = incoming;
       return;
     }
