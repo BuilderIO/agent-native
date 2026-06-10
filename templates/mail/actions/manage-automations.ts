@@ -69,7 +69,9 @@ export default defineAction({
 
       case "create": {
         if (!args.name || !args.condition || !args.actions) {
-          throw new Error("--name, --condition, and --actions are required for create");
+          throw new Error(
+            "--name, --condition, and --actions are required for create",
+          );
         }
 
         let actions;
@@ -173,7 +175,9 @@ export default defineAction({
       }
 
       default:
-        throw new Error(`Unknown action "${action}". Use: list, create, update, delete, enable, disable`);
+        throw new Error(
+          `Unknown action "${action}". Use: list, create, update, delete, enable, disable`,
+        );
     }
   },
 });
