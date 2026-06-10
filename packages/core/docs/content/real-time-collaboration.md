@@ -261,11 +261,11 @@ import { LiveCursorOverlay } from "@agent-native/core/client";
 <div ref={containerRef} style={{ position: "relative" }}>
   {content}
   <LiveCursorOverlay
-    others={others}           // from usePresence
+    others={others} // from usePresence
     containerRef={containerRef}
-    cursorKey="cursor"        // key in presence payload (default: "cursor")
+    cursorKey="cursor" // key in presence payload (default: "cursor")
   />
-</div>
+</div>;
 ```
 
 The agent's cursor renders distinctly with a sparkle icon. Cursors fade out after 10s of inactivity with smooth CSS transitions at 120ms.
@@ -281,13 +281,13 @@ import { RemoteSelectionRings } from "@agent-native/core/client";
   {content}
   <RemoteSelectionRings
     others={others}
-    selectionKey="selection"  // key in presence payload (default: "selection")
+    selectionKey="selection" // key in presence payload (default: "selection")
     resolveRect={(descriptor) =>
       document.querySelector(descriptor)?.getBoundingClientRect() ?? null
     }
     containerRef={containerRef}
   />
-</div>
+</div>;
 ```
 
 ### `useFollowUser` {#follow-user}
@@ -299,7 +299,7 @@ import { useFollowUser } from "@agent-native/core/client";
 
 const { isFollowing, stopFollowing } = useFollowUser({
   others,
-  followingId,          // null to stop following
+  followingId, // null to stop following
   viewportKey: "viewport",
   onViewport: (vp) => {
     if (vp.fileId) setActiveFileId(vp.fileId);
@@ -323,7 +323,7 @@ The `PresenceBar` component now accepts optional follow-mode props:
     const email = user?.email ?? "agent@system";
     setFollowing((prev) => (prev === email ? null : email));
   }}
-  followingEmail={followingEmail}  // highlighted avatar + "Following X" chip
+  followingEmail={followingEmail} // highlighted avatar + "Following X" chip
 />
 ```
 
@@ -333,7 +333,11 @@ The `PresenceBar` component now accepts optional follow-mode props:
 import { toNormalized, fromNormalized } from "@agent-native/core/client";
 
 // In a pointer event handler:
-const norm = toNormalized(e.clientX, e.clientY, container.getBoundingClientRect());
+const norm = toNormalized(
+  e.clientX,
+  e.clientY,
+  container.getBoundingClientRect(),
+);
 setPresence({ cursor: norm });
 
 // In a cursor renderer:
@@ -345,10 +349,17 @@ const px = fromNormalized(norm, container.getBoundingClientRect());
 Server-side actions call `agentUpdateSelection()` to publish where the agent is working. The design template's `edit-design` and `generate-design` actions call this automatically. Other templates can do the same:
 
 ```typescript
-import { agentEnterDocument, agentLeaveDocument, agentUpdateSelection } from "@agent-native/core/collab";
+import {
+  agentEnterDocument,
+  agentLeaveDocument,
+  agentUpdateSelection,
+} from "@agent-native/core/collab";
 
 agentEnterDocument(docId);
-agentUpdateSelection(docId, { selection: "#target-element", editingFile: "index.html" });
+agentUpdateSelection(docId, {
+  selection: "#target-element",
+  editingFile: "index.html",
+});
 try {
   // ... perform edits ...
 } finally {

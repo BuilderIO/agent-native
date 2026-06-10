@@ -156,9 +156,8 @@ export function createCollabPlugin(
 
         // Load the resource row to get owner/org. resolveAccess fetches the
         // resource row internally; use getShareableResource to read it cheaply.
-        const { requireShareableResource } = await import(
-          "../sharing/registry.js"
-        );
+        const { requireShareableResource } =
+          await import("../sharing/registry.js");
         const reg = requireShareableResource(resourceType);
         const db = reg.getDb() as any;
         const { eq } = await import("drizzle-orm");

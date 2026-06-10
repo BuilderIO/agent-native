@@ -21,8 +21,7 @@ function getMaxPayloadBytes(event: H3Event): number {
 
 function enforcePayloadLimit(event: H3Event, body: unknown): boolean {
   const maxBytes = getMaxPayloadBytes(event);
-  const encoded =
-    typeof body === "string" ? body : JSON.stringify(body ?? "");
+  const encoded = typeof body === "string" ? body : JSON.stringify(body ?? "");
   if (encoded.length > maxBytes) {
     setResponseStatus(event, 413);
     return false;
