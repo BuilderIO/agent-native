@@ -118,6 +118,27 @@ describe("@agent-native/skills", () => {
     expect(agents).toContain("🟢 Actual concise status sentence");
   });
 
+  it("adds managed limit instructions for stay-within-limits", async () => {
+    const repo = tmpDir();
+    const project = tmpDir();
+    writeSkill(repo, "stay-within-limits");
+
+    await installSkills({
+      source: repo,
+      skillNames: ["stay-within-limits"],
+      clients: ["codex"],
+      scope: "project",
+      baseDir: project,
+      updateInstructions: true,
+      yes: true,
+    });
+
+    const agents = fs.readFileSync(path.join(project, "AGENTS.md"), "utf-8");
+    expect(agents).toContain("Stay Within Limits");
+    expect(agents).toContain("ccusage@latest blocks --active --json");
+    expect(agents).toContain("95%");
+  });
+
   it("writes the optional PR Visual Recap workflow when visual-recap is selected", async () => {
     const repo = tmpDir();
     const project = tmpDir();

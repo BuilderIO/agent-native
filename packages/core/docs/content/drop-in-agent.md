@@ -18,6 +18,8 @@ You don't need to build agent-native from scratch. The agent chat, workspace tab
 | `<AgentSidebar>`      | Wraps your app, adds a toggleable side panel containing the full agent | You want the agent available alongside your app on every screen |
 | `<AgentToggleButton>` | Opens/closes `<AgentSidebar>` (put it in your header)                  | Pair with `<AgentSidebar>`                                      |
 | `<AgentPanel>`        | The raw panel itself — chat + CLI + workspace tabs                     | You want full control over layout, or a dedicated agent page    |
+| `<AgentChatSurface>`  | A pre-wired panel/page chat surface                                    | You want chat without the sidebar wrapper                       |
+| `<AssistantChat>`     | Lower-level chat renderer with composer/history hooks                  | You need custom chrome around the standard conversation UI      |
 | `sendToAgentChat()`   | Programmatically send a message to the chat                            | A button that hands work to the agent instead of running inline |
 | `useActionMutation()` | Typesafe frontend wrapper around an action                             | The UI needs to run the same operation an agent tool would run  |
 
@@ -126,6 +128,22 @@ import { sendToAgentChat } from "@agent-native/core/client";
 
 `sendToAgentChat` returns a stable `tabId` you can use to track the chat run.
 
+For silent work, pair `newTab`, `background`, and `openSidebar: false`:
+
+```ts
+sendToAgentChat({
+  message: "Summarize the selected thread and save the summary",
+  context: `Thread id: ${threadId}`,
+  submit: true,
+  newTab: true,
+  background: true,
+  openSidebar: false,
+});
+```
+
+This is still a full agent run with tools, actions, thread state, and run
+tracking. It simply does not steal focus from the user's current sidebar state.
+
 When the same route is embedded as an MCP App, submitted
 `sendToAgentChat()` calls are forwarded to the host chat where supported; see
 [Client](/docs/client#sendtoagentchat) for the MCP App bridge behavior.
@@ -137,6 +155,25 @@ import { useSendToAgentChat } from "@agent-native/core/client";
 
 const { send, isGenerating } = useSendToAgentChat();
 ```
+
+## Custom chat UI layers {#custom-chat-ui}
+
+If you do not want `<AgentSidebar>`, choose the lowest layer that still lets the
+framework own the agent runtime:
+
+- **`<AgentChatSurface>`** — use this for a dedicated chat route or embedded
+  panel. It keeps the standard chat/runtime wiring without the sidebar wrapper.
+- **`<AssistantChat>`** — use this when you want to own surrounding chrome,
+  tabs, headers, empty states, or composer slots while keeping the standard
+  conversation renderer and adapter.
+- **`createAgentChatAdapter()`** — use this only when building a custom
+  assistant-ui runtime. It connects to the same `/_agent-native/agent-chat`
+  stream and preserves run-manager recovery, attachments, model selection, and
+  thread metadata.
+
+Avoid posting directly to `/_agent-native/agent-chat` from product UI. If a
+lower-level helper is missing for a real custom surface, add that named helper
+first so client code does not learn a second, ad hoc transport.
 
 ## Typesafe actions from the UI: `useActionMutation()` {#use-action-mutation}
 

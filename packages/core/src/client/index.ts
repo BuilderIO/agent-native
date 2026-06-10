@@ -387,6 +387,7 @@ export {
   clearChatStorage,
   type AssistantChatProps,
   type AssistantChatHandle,
+  type AssistantChatAdapterContext,
 } from "./AssistantChat.js";
 export {
   MultiTabAssistantChat,
@@ -400,7 +401,11 @@ export {
   type RunStuckState,
   type UseRunStuckDetectionOptions,
 } from "./use-run-stuck-detection.js";
-export { createAgentChatAdapter } from "./agent-chat-adapter.js";
+export {
+  createAgentChatAdapter,
+  type AgentChatSurfaceKind,
+  type CreateAgentChatAdapterOptions,
+} from "./agent-chat-adapter.js";
 export {
   AgentComposerFrame,
   type AgentComposerFrameProps,
@@ -446,6 +451,7 @@ export {
 export {
   useChatThreads,
   type ChatThreadScope,
+  type ChatThreadSnapshot,
   type ChatThreadSummary,
   type ChatThreadData,
   type UseChatThreadsOptions,

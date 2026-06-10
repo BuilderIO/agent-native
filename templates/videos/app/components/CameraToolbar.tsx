@@ -23,7 +23,7 @@ interface CameraToolbarProps {
   onUpdateTrack: (id: string, patch: Partial<AnimationTrack>) => void;
   onAddTrack?: (track: AnimationTrack) => void;
   durationInFrames?: number;
-  videoContainerRef?: React.RefObject<HTMLDivElement>;
+  videoContainerRef?: React.RefObject<HTMLDivElement | null>;
 }
 
 type CameraTool = "none" | "pan" | "zoom" | "tilt";

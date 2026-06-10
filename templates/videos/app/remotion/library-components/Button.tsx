@@ -24,28 +24,28 @@ const FALLBACK_TRACKS: AnimationTrack[] = (() => {
   const cx = String(1920 / 2 - 16);
   const cy = String(1080 / 2 - 16);
 
-  cursor.animatedProps.find((p) => p.property === "x")!.keyframes = [
+  cursor.animatedProps!.find((p) => p.property === "x")!.keyframes = [
     { frame: 0, value: "200" },
     { frame: 15, value: cx }, // Arrive at 0.5s
     { frame: 90, value: cx }, // Stay until 3s
     { frame: 120, value: "1720" },
     { frame: 150, value: "1720" },
   ];
-  cursor.animatedProps.find((p) => p.property === "y")!.keyframes = [
+  cursor.animatedProps!.find((p) => p.property === "y")!.keyframes = [
     { frame: 0, value: "200" },
     { frame: 15, value: cy },
     { frame: 90, value: cy },
     { frame: 120, value: "200" },
     { frame: 150, value: "200" },
   ];
-  cursor.animatedProps.find((p) => p.property === "isClicking")!.keyframes = [
+  cursor.animatedProps!.find((p) => p.property === "isClicking")!.keyframes = [
     { frame: 0, value: "0" },
     { frame: 59, value: "0" },
     { frame: 60, value: "1" }, // Click at 2s
     { frame: 70, value: "0" },
     { frame: 150, value: "0" },
   ];
-  cursor.animatedProps.find((p) => p.property === "opacity")!.keyframes = [
+  cursor.animatedProps!.find((p) => p.property === "opacity")!.keyframes = [
     { frame: 0, value: "0" },
     { frame: 5, value: "0" },
     { frame: 15, value: "1" }, // Fade in with arrival

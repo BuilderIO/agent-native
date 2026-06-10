@@ -107,11 +107,11 @@ export function getPropValue(
 export function getPropValueKeyframed(
   frame: number,
   fps: number,
-  track: AnimationTrack,
+  track: AnimationTrack | undefined,
   property: string,
   defaultValue: number,
 ): number {
-  const prop = track.animatedProps?.find((p) => p.property === property);
+  const prop = track?.animatedProps?.find((p) => p.property === property);
 
   // No property defined → use default
   if (!prop) return defaultValue;
@@ -172,6 +172,6 @@ export function getPropValueKeyframed(
     return defaultValue;
   }
 
-  const progress = trackProgress(frame, fps, track);
+  const progress = trackProgress(frame, fps, track!);
   return interpolate(progress, [0, 1], [from, to]);
 }

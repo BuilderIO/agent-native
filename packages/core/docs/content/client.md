@@ -130,6 +130,28 @@ sendToAgentChat({
 });
 ```
 
+### Silent background sends {#background-send}
+
+Use `background: true` when a UI action should kick off real agent work without
+opening or focusing the sidebar. This still creates a normal chat thread/run,
+uses the agent's tools/actions/context, and keeps the work observable through
+the runs tray; it is not a raw one-shot model call.
+
+```ts
+const tabId = sendToAgentChat({
+  message: "Analyze this import and create any missing records",
+  context: `Import batch id: ${batchId}`,
+  submit: true,
+  newTab: true,
+  background: true,
+  openSidebar: false,
+});
+```
+
+`background` is intended to be paired with `newTab` so the hidden work does not
+overwrite the user's active conversation. Use the returned `tabId` if the UI
+needs to correlate follow-up status or deep-link into the run later.
+
 ### AgentChatMessage {#agentchatmessage}
 
 | Option                | Type        | Description                                                                |

@@ -105,6 +105,13 @@ export {
   getStoredModelForEngine,
   resolveEngine,
 } from "../agent/engine/index.js";
+export {
+  completeText,
+  type CompleteTextMessage,
+  type CompleteTextOptions,
+  type CompleteTextResult,
+  type CompleteTextUsage,
+} from "./complete-text.js";
 export { createDevScriptRegistry } from "../scripts/dev/index.js";
 
 export {

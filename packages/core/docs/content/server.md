@@ -56,6 +56,42 @@ If the UI and agent both need to do something, define an action instead of a cus
 
 Use custom `/api/*` routes only when you need a route-shaped protocol or binary/streaming behavior. See [Actions](/docs/actions).
 
+## One-Shot Text Completion {#complete-text}
+
+Most AI work should go through the agent chat so users can see, steer, and audit
+what happened. For narrow server-side transforms that intentionally do not need
+tools, chat history, or run state, use `completeText()` as an explicit escape
+hatch.
+
+```ts
+// actions/classify-message.ts
+import { defineAction } from "@agent-native/core";
+import { completeText } from "@agent-native/core/server";
+import { z } from "zod";
+
+export default defineAction({
+  description: "Classify a short message",
+  schema: z.object({ body: z.string() }),
+  run: async ({ body }) => {
+    const result = await completeText({
+      systemPrompt:
+        "Return exactly one label: urgent, follow-up, waiting, or archive.",
+      input: body,
+      maxOutputTokens: 16,
+      temperature: 0,
+    });
+
+    return { label: result.text.trim() };
+  },
+});
+```
+
+`completeText()` runs through the same configured engine layer as the agent
+chat, including Builder, Anthropic, AI SDK providers, user/app model defaults,
+request-scoped secrets, and engine-normalized errors. It is server-only; do not
+call model providers from client code. If the operation is user-facing, wrap it
+in an action so the UI and agent share the same capability.
+
 ## Request Context And Access {#request-context}
 
 Actions mounted by the framework automatically run with request context. Custom routes do not. If a custom route reads or writes ownable resources, load the session and wrap the work:

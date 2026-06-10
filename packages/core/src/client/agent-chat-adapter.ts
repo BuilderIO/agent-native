@@ -1033,7 +1033,7 @@ function missingCredentialErrorText(message: string): string {
  * Creates a ChatModelAdapter that connects to the agent-native
  * `/_agent-native/agent-chat` SSE endpoint. Supports reconnection via run-manager.
  */
-export function createAgentChatAdapter(options?: {
+export interface CreateAgentChatAdapterOptions {
   apiUrl?: string;
   tabId?: string;
   threadId?: string;
@@ -1044,7 +1044,11 @@ export function createAgentChatAdapter(options?: {
   browserTabId?: string;
   scopeRef?: { current: ChatThreadScope | null | undefined };
   surface?: AgentChatSurfaceKind;
-}): ChatModelAdapter {
+}
+
+export function createAgentChatAdapter(
+  options?: CreateAgentChatAdapterOptions,
+): ChatModelAdapter {
   const apiUrl =
     options?.apiUrl ?? agentNativePath("/_agent-native/agent-chat");
   const tabId = options?.tabId;

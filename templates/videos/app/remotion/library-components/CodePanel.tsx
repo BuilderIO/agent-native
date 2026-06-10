@@ -233,7 +233,7 @@ const FALLBACK_TRACKS: AnimationTrack[] = (() => {
   const cursor = tracks[1];
 
   // Cursor path: Start offscreen → hover files → hover Send PR → exit
-  cursor.animatedProps.find((p) => p.property === "x")!.keyframes = [
+  cursor.animatedProps!.find((p) => p.property === "x")!.keyframes = [
     { frame: 0, value: "200" },
     { frame: 15, value: "180" }, // Hover first file
     { frame: 40, value: "180" },
@@ -243,7 +243,7 @@ const FALLBACK_TRACKS: AnimationTrack[] = (() => {
     { frame: 120, value: "1720" },
     { frame: 150, value: "1720" },
   ];
-  cursor.animatedProps.find((p) => p.property === "y")!.keyframes = [
+  cursor.animatedProps!.find((p) => p.property === "y")!.keyframes = [
     { frame: 0, value: "900" },
     { frame: 15, value: "200" },
     { frame: 40, value: "200" },
@@ -253,14 +253,14 @@ const FALLBACK_TRACKS: AnimationTrack[] = (() => {
     { frame: 120, value: "80" },
     { frame: 150, value: "80" },
   ];
-  cursor.animatedProps.find((p) => p.property === "isClicking")!.keyframes = [
+  cursor.animatedProps!.find((p) => p.property === "isClicking")!.keyframes = [
     { frame: 0, value: "0" },
     { frame: 75, value: "0" },
     { frame: 76, value: "1" }, // Click Send PR
     { frame: 85, value: "0" },
     { frame: 150, value: "0" },
   ];
-  cursor.animatedProps.find((p) => p.property === "opacity")!.keyframes = [
+  cursor.animatedProps!.find((p) => p.property === "opacity")!.keyframes = [
     { frame: 0, value: "0" },
     { frame: 10, value: "1" },
     { frame: 120, value: "1" },
