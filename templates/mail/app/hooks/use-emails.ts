@@ -655,16 +655,10 @@ export function useMarkThreadRead() {
       const entries = pendingByThread.current.get(threadId) ?? [];
       pendingByThread.current.delete(threadId);
       if (entries.length > 0) {
-        await apiFetch(`/api/threads/${threadId}/read`, {
-          method: "PATCH",
-          body: JSON.stringify({
-            isRead: true,
-            accountEmail: entries[0]?.accountEmail,
-          }),
-        });
-        // Note: useMarkThreadRead keeps the REST route — thread-level read is
-        // not yet exposed as a named action. The shared markThreadRead server
-        // function is used by the handler, giving cache invalidation parity.
+        await callAction("mark-thread-read", {
+          threadId,
+          accountEmail: entries[0]?.accountEmail,
+        }).then(assertActionSuccess);
       }
     },
     onMutate: async (threadId) => {
