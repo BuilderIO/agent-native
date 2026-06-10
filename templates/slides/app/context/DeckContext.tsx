@@ -49,6 +49,8 @@ type GranularOp =
   /** Sentinel: discard all accumulated ops and do a full PUT instead. */
   | { op: "full-replace"; deck: Deck };
 
+type PatchDeckOp = Exclude<GranularOp, { op: "full-replace" }>;
+
 export type SlideLayout =
   | "title"
   | "section"
@@ -317,7 +319,10 @@ function enqueueDeckOp(deckId: string, op: GranularOp) {
         });
       } else {
         // Granular patch — concurrent-safe
-        await callAction("patch-deck", { deckId, operations: ops });
+        await callAction("patch-deck", {
+          deckId,
+          operations: ops as PatchDeckOp[],
+        });
       }
     } catch (err) {
       console.error(`Failed to save deck ${deckId}:`, err);

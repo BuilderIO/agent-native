@@ -84,6 +84,7 @@ const VIEWER = "viewer@example.com";
 const EDITOR = "editor@example.com";
 const ORG = "org-1";
 const OTHER_ORG = "org-2";
+const ACCESS_MATRIX_SETUP_TIMEOUT_MS = 30_000;
 
 async function resetTables() {
   // guard:allow-unscoped -- test-only fixture cleanup resets the isolated temp DB.
@@ -295,7 +296,7 @@ beforeAll(async () => {
   unshareResource = (
     await import("@agent-native/core/sharing/actions/unshare-resource")
   ).default as AnyAction;
-});
+}, ACCESS_MATRIX_SETUP_TIMEOUT_MS);
 
 afterAll(() => {
   client?.close();

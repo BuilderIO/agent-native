@@ -40,7 +40,13 @@ export default defineEventHandler(async (event) => {
         }),
     );
 
-    return new Response(result.buffer, {
+    const bytes = new Uint8Array(result.buffer);
+    const responseBody = bytes.buffer.slice(
+      bytes.byteOffset,
+      bytes.byteOffset + bytes.byteLength,
+    );
+
+    return new Response(responseBody, {
       headers: {
         "Content-Type": PPTX_CONTENT_TYPE,
         "Content-Disposition": `attachment; filename="${path.basename(

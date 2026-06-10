@@ -19,7 +19,6 @@ import {
 } from "@tabler/icons-react";
 import { useTheme } from "next-themes";
 import { dashboards } from "@/pages/adhoc/registry";
-import { getIdToken } from "@/lib/auth";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   agentNativePath,
@@ -96,19 +95,24 @@ async function fetchSavedConfigs(): Promise<SavedConfig[]> {
 }
 
 async function fetchExplorerDashboards(): Promise<ExplorerDashboard[]> {
-  const token = await getIdToken();
-  const res = await fetch(appApiPath("/api/explorer-dashboards?hidden=all"), {
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
-  });
-  if (!res.ok) return [];
-  const data = await res.json();
-  return (data.dashboards ?? [])
-    .filter((d: any) => d.name)
-    .map((d: any) => ({
-      id: d.id,
-      name: d.name,
-      hiddenAt: typeof d.hiddenAt === "string" ? d.hiddenAt : null,
-    }));
+  try {
+    const result = await callAction("list-explorer-dashboards", {
+      hidden: "all",
+    });
+    const dashboards =
+      result && typeof result === "object" && "dashboards" in result
+        ? (result as { dashboards: unknown[] }).dashboards
+        : [];
+    return (Array.isArray(dashboards) ? dashboards : [])
+      .filter((d: any) => d && d.name)
+      .map((d: any) => ({
+        id: d.id,
+        name: d.name,
+        hiddenAt: typeof d.hiddenAt === "string" ? d.hiddenAt : null,
+      }));
+  } catch {
+    return [];
+  }
 }
 
 async function fetchSqlDashboards(): Promise<

@@ -75,6 +75,7 @@ const OWNER = "owner@example.com";
 const OTHER = "outsider@example.com";
 const VIEWER = "viewer@example.com";
 const ORG = "org-1";
+const ACCESS_SPEC_SETUP_TIMEOUT_MS = 30_000;
 
 function asUser(
   ctx: { userEmail?: string; orgId?: string; userName?: string },
@@ -197,7 +198,7 @@ beforeAll(async () => {
   setResourceVisibility = (
     await import("@agent-native/core/sharing/actions/set-resource-visibility")
   ).default as AnyAction;
-});
+}, ACCESS_SPEC_SETUP_TIMEOUT_MS);
 
 afterAll(() => {
   client?.close();

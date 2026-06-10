@@ -18,6 +18,15 @@ import { describe, expect, it } from "vitest";
 
 // Each entry: [primitive filename, template name, reason for deviation]
 const ALLOW_LIST: Array<[string, string, string]> = [
+  // scroll-area.tsx — content always renders a horizontal ScrollBar so deeply
+  // nested page rows in the document sidebar stay reachable; guarded by
+  // templates/content/app/components/sidebar/DocumentSidebar.layout.test.ts.
+  [
+    "scroll-area.tsx",
+    "content",
+    "always renders horizontal ScrollBar for nested sidebar rows",
+  ],
+
   // button.tsx — macros has a fully custom design theme (bg-foreground primary,
   // rounded-2xl, active:scale press feedback, custom ghost/link palette).
   // The canonical 13-template version uses standard bg-primary, rounded-md.

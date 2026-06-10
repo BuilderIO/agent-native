@@ -17,7 +17,7 @@ catalog:
   tailwindcss: ^4.2.4
   tsx: ^4.20.3
   typescript: ^6.0.3
-  vite: 8.0.16
+  vite: 8.0.3
   vitest: ^4.1.5
 
 onlyBuiltDependencies:

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   DEFAULT_GONG_CALL_LIMIT,
+  MAX_GONG_CALL_LIMIT,
   limitGongCalls,
   normalizeGongCallLimit,
   type GongCallLike,
@@ -23,7 +24,10 @@ describe("Gong call limits", () => {
 
   it("clamps explicit limits to the supported range", () => {
     expect(normalizeGongCallLimit(0)).toBe(1);
-    expect(normalizeGongCallLimit(100)).toBe(25);
+    expect(normalizeGongCallLimit(100)).toBe(100);
+    expect(normalizeGongCallLimit(MAX_GONG_CALL_LIMIT + 1)).toBe(
+      MAX_GONG_CALL_LIMIT,
+    );
     expect(normalizeGongCallLimit(7.9)).toBe(7);
   });
 
