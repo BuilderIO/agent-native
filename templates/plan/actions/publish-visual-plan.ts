@@ -126,6 +126,9 @@ export default defineAction({
           mdx: {
             "plan.mdx": mdx["plan.mdx"],
             ...(mdx["canvas.mdx"] ? { "canvas.mdx": mdx["canvas.mdx"] } : {}),
+            ...(mdx["prototype.mdx"]
+              ? { "prototype.mdx": mdx["prototype.mdx"] }
+              : {}),
             ...(mdx[".plan-state.json"]
               ? { ".plan-state.json": mdx[".plan-state.json"] }
               : {}),

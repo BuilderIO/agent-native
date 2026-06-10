@@ -584,7 +584,13 @@ export default defineAction({
       pendingCommentInserts.push(comment);
     }
     if (onlyUpdatesCommentStatuses && pendingCommentInserts.length > 0) {
-      throw new Error("Comment status update target was not found.");
+      // A client-minted id with status "open" is a new insert, not a missing
+      // resolve target. Only throw when the caller tried to close/reopen a
+      // comment that does not exist in the DB.
+      if (pendingCommentInserts.some((c) => c.status !== "open")) {
+        throw new Error("Comment status update target was not found.");
+      }
+      onlyUpdatesCommentStatuses = false;
     }
     if (
       onlyUpdatesCommentStatuses &&

@@ -50,22 +50,25 @@ the plan. When the user pasted, referenced, or already has a Codex / Claude Code
 `create-visual-plan` as `planText` so the new review surface builds from what
 they already have.
 
-Use `/prototype-plan` when the user needs to click through states or review the
-feel of an interaction before implementation. Call `create-prototype-plan` for a
-new prototype-first plan. Call `convert-visual-plan-to-prototype` when an
+For UI-first work where the plan leads with product screens, use `/visual-plan`
+and call `create-ui-plan`.
+
+For prototype-first work — when the user needs to click through states or review
+the feel of an interaction before implementation — use `/visual-plan` and call
+`create-prototype-plan`. Call `convert-visual-plan-to-prototype` when an
 existing visual plan has HTML canvas wireframes that should become a live
 prototype. Prototype plans keep static mocks in the document and use the top
 viewer for clickable review, comments, rough/clean mode, dark/light mode, and
 prototype popout.
 
-Use `/plan-design` when the user needs full-fidelity, branded UI design before
-implementation. Research the real app shell, `design.md` if present, `.fig`
-brand-kit/design-system data when available, and codebase CSS/Tailwind/token
-signals. Call `create-plan-design` with high-fidelity bounded HTML/CSS screens
-for the Design tab, stable `data-design-id` attributes for targeted element
-style edits, and transitions only when a matching Prototype tab should be
-clickable. Treat the Design tab as the visual source of truth and the Prototype
-tab as the same direction made interactive.
+For full-fidelity branded UI design before implementation, use `/visual-plan` and
+call `create-plan-design`. Research the real app shell, `design.md` if present,
+`.fig` brand-kit/design-system data when available, and codebase CSS/Tailwind/
+token signals. Pass high-fidelity bounded HTML/CSS screens for the Design tab,
+stable `data-design-id` attributes for targeted element style edits, and
+transitions only when a matching Prototype tab should be clickable. Treat the
+Design tab as the visual source of truth and the Prototype tab as the same
+direction made interactive.
 
 Use `/visual-recap` when the user wants a high-level review surface for a PR,
 commit, branch, or git diff that already changed. Recaps are reverse plans:
@@ -78,13 +81,12 @@ normally produce. Diagrams, wireframes, mockups, annotations, and an optional
 bottom `question-form` Open Questions block are additive review aids, not a
 separate intake flow.
 
-Do not automatically call `create-visual-questions` from `/visual-plan` or
-`/ui-plan`. If a normal plan has answerable unresolved decisions, keep them in
-the same plan as a bottom `question-form` block with single-choice,
-multi-choice, or freeform questions, recommended options when useful, and
-wireframe/diagram previews for visual directions. If the user types
-`/visual-questions`, treat it as an explicit visual intake command before a
-later plan.
+Do not automatically call `create-visual-questions` from `/visual-plan`. If a
+normal plan has answerable unresolved decisions, keep them in the same plan as a
+bottom `question-form` block with single-choice, multi-choice, or freeform
+questions, recommended options when useful, and wireframe/diagram previews for
+visual directions. If the user explicitly requests a visual intake questionnaire
+before planning, call `create-visual-questions` from `/visual-plan`.
 
 ## Skills
 
@@ -93,17 +95,11 @@ generating or editing a plan — they carry the shared Wireframe & Canvas and
 Document Quality cores, so do not restate those rules here.
 
 - `.agents/skills/visual-plan/SKILL.md` — `/visual-plan`, the canonical command
-  for any rich plan.
+  for any rich plan; also governs UI-first (`create-ui-plan`), prototype-first
+  (`create-prototype-plan`), design-first (`create-plan-design`), and
+  visual-intake (`create-visual-questions`) modes.
 - `.agents/skills/visual-recap/SKILL.md` — `/visual-recap`, high-level visual
   code-review recaps for PRs, commits, branches, and git diffs.
-- `.agents/skills/ui-plan/SKILL.md` — `/ui-plan`, UI-first work that starts with
-  the screens.
-- `.agents/skills/prototype-plan/SKILL.md` — `/prototype-plan`, clickable
-  prototype-first planning and visual-plan conversion.
-- `.agents/skills/plan-design/SKILL.md` — `/plan-design`, full-fidelity branded
-  Design tab plus optional matching Prototype tab.
-- `.agents/skills/visual-questions/SKILL.md` — `/visual-questions`, visual intake
-  before a plan.
 
 When the user critiques a plan's look or structure, fix the renderer or the
 sync-guarded skills (not just one stored plan) so the improvement sticks.

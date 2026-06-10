@@ -517,6 +517,35 @@ describe("update-visual-plan comment path (integration)", () => {
     expect(resolveAccessMock).not.toHaveBeenCalled();
   });
 
+  it("inserts a new comment that carries a client-minted id (regression: was throwing)", async () => {
+    request.email = "reviewer@example.com";
+    const captured: CapturedRow[] = [];
+    getDbMock.mockReturnValue(buildTransactionDb(captured));
+    loadPlanBundleMock.mockResolvedValue(baseBundle);
+
+    await run({
+      planId: "plan_1",
+      contentPatches: [],
+      sections: [],
+      consumedCommentIds: [],
+      comments: [
+        {
+          id: "client_minted_abc123",
+          message: "Inline text feedback",
+          kind: "comment",
+          status: "open",
+          createdBy: "human",
+        },
+      ],
+    });
+
+    expect(captured).toHaveLength(1);
+    expect(captured[0].message).toBe("Inline text feedback");
+    expect(captured[0].authorEmail).toBe("reviewer@example.com");
+    expect(assertPlanEditorMock).not.toHaveBeenCalled();
+    expect(notifyPlanCommentRecipientsMock).toHaveBeenCalledTimes(1);
+  });
+
   it("requires editor access (not just view) when a comment is created as the agent", async () => {
     request.email = "reviewer@example.com";
     assertPlanEditorMock.mockRejectedValueOnce(new Error("editor gate"));

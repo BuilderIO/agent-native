@@ -140,6 +140,10 @@ beforeAll(async () => {
       repo_path TEXT, current_focus TEXT, html TEXT, markdown TEXT, content TEXT,
       hosted_plan_id TEXT, hosted_plan_url TEXT,
       created_at TEXT NOT NULL, updated_at TEXT NOT NULL, approved_at TEXT,
+      usage_agent TEXT, usage_model TEXT,
+      usage_input_tokens INTEGER, usage_output_tokens INTEGER,
+      usage_cache_read_tokens INTEGER, usage_cache_write_tokens INTEGER,
+      usage_cost_cents_x100 INTEGER, usage_cost_source TEXT, usage_recorded_at TEXT,
       owner_email TEXT NOT NULL, org_id TEXT, visibility TEXT NOT NULL DEFAULT 'private'
     );
     CREATE TABLE plan_sections (id TEXT PRIMARY KEY, plan_id TEXT NOT NULL, type TEXT NOT NULL DEFAULT 'custom', title TEXT NOT NULL, body TEXT NOT NULL DEFAULT '', html TEXT, sort_order INTEGER NOT NULL DEFAULT 0, created_by TEXT NOT NULL DEFAULT 'agent', created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
@@ -287,6 +291,60 @@ describe("publish-visual-plan: access level required to publish", () => {
       ),
     ).rejects.toBeTruthy();
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("publish-visual-plan: prototype.mdx round-trip", () => {
+  it("publishes prototype.mdx when the plan has a prototype", async () => {
+    mockImportOk("hosted_proto");
+    const planId = await runWithRequestContext({ userEmail: OWNER }, () =>
+      createVisualPlan.run({
+        title: "Proto Plan",
+        brief: "a prototype plan",
+        source: "manual",
+        status: "draft",
+        sections: [],
+        comments: [],
+        content: {
+          version: 2,
+          blocks: [],
+          prototype: {
+            title: "Proto",
+            brief: "brief",
+            surface: "mobile",
+            initialScreenId: "s1",
+            screens: [
+              {
+                id: "s1",
+                title: "Home",
+                html: "<div>Home</div>",
+              },
+            ],
+          },
+        },
+      }),
+    ).then((r: any) => r.planId as string);
+
+    await runWithRequestContext({ userEmail: OWNER }, () =>
+      publishVisualPlan.run({ planId }),
+    );
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body as string);
+    expect(body.mdx).toHaveProperty("prototype.mdx");
+    expect(body.mdx["prototype.mdx"]).toContain("PrototypeScreen");
+  });
+
+  it("does NOT include prototype.mdx when the plan has no prototype", async () => {
+    mockImportOk("hosted_noproto");
+    const planId = await createPlanAs(OWNER);
+
+    await runWithRequestContext({ userEmail: OWNER }, () =>
+      publishVisualPlan.run({ planId }),
+    );
+
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body as string);
+    expect(body.mdx).not.toHaveProperty("prototype.mdx");
   });
 });
 
