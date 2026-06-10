@@ -1,5 +1,11 @@
 # @agent-native/dispatch
 
+## 0.10.2
+
+### Patch Changes
+
+- 3c1d3eb: Update dispatch provider APIs and scheduling internals for the runtime refresh.
+
 ## 0.10.1
 
 ### Patch Changes

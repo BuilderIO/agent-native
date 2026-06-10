@@ -1,5 +1,183 @@
 # @agent-native/core
 
+## 0.48.0
+
+### Minor Changes
+
+- 3c1d3eb: Resurrect end-to-end action type inference.
+
+  `defineAction` overloads now return a typed `ActionDefinition<TInput, TReturn>` instead of `any`. The schema-inferred input type (via `StandardSchemaV1.InferOutput<TSchema>`) and the run callback's return type flow through to `useActionQuery`, `useActionMutation`, and `callAction` once the generated `.generated/action-types.d.ts` is included in the project's TypeScript config.
+  - Added `ActionDefinition<TInput, TReturn>` interface (exported from `@agent-native/core`).
+  - All 15 template `tsconfig.json` files now include `.generated/**/*` so the generated registry d.ts is picked up automatically.
+  - Scaffold default tsconfig updated to match.
+  - Exports `ActionDefinition` from the core package index.
+
+- 3c1d3eb: Add a server-only `completeText()` helper for narrow one-shot text transforms through the framework engine layer, export custom chat adapter/surface types, and document background agent sends plus custom chat UI escape hatches.
+- 3c1d3eb: Agent Teams completion loop, stop affordances, and orphan sweep
+  - **Completion loop (P0)**: `finalizeAgentTeamRun` now appends a durable `parent-completion` injection to the parent thread's app-state queue and writes a NotificationsBell entry. The orchestrator chat's `prepareRequest` drains these injections and prepends them to the next user message so sub-agent results surface automatically without manual polling.
+  - **Sub-agent tab read-only (P1)**: Sub-agent tabs in `MultiTabAssistantChat` now disable the composer (`composerDisabled`) with a descriptive placeholder. Sending from a sub-agent tab would start a new run on that thread and kill the in-flight team chunk; the disabled composer prevents this without touching `AssistantChat.tsx`.
+  - **Stop affordances (P1)**: Added `POST /runs/:id/stop` route in agent-chat-plugin that delegates to `stopAgentTeamBackgroundRun`. `RunsTray` now shows a stop button (Tabler `IconPlayerStop`) for running agent-team rows. `AgentTaskCard` shows a Stop button in its footer while the task is running. Both use optimistic UI.
+  - **Orphan sweep (P2)**: A server-side sweep runs every 2 minutes (via a 30s check interval + 2-min throttle) to reconcile all owners with active queue rows. Re-fires stuck/queued dispatches when the browser is closed and no RunsTray poll triggers.
+
+- 3c1d3eb: Add edit, regenerate, and branch picker affordances to the chat UI.
+  - **Edit user messages**: hover the pencil icon on any user message (when not running) to enter inline edit mode; the bubble swaps to a textarea composer with Cancel/Save buttons. Sending an edited message creates a new branch via assistant-ui's edit composer semantics. Edit is disabled while a run is active to avoid race conditions with the abort+wait path.
+  - **Regenerate last assistant message**: a refresh icon appears on the last assistant message's action bar on hover, using `ActionBarPrimitive.Reload`. Disabled automatically while the thread is running. Regenerate creates a client-side branch from the parent user message and sends the prior history to the server as a fresh run; the server appends the new response as a new `thread_data` entry (consistent with the append-only fold — no duplicate or conflict).
+  - **Branch picker**: when a message has multiple branches (after edits or regenerations), `BranchPickerPrimitive` shows ‹ 1/2 › navigation on that message, styled to match the existing ghost action-bar buttons. Shown on both user and assistant messages.
+
+- 3c1d3eb: Code tab improvements: always-allow and deny buttons in the approval callout (model auto-resumes after both); persist command allowlist per-machine so approved commands skip future approvals; emit thinking-delta events from the agent loop as collapsible transcript cells; surface cumulative input/output token counts and approximate context-window usage per run; Electron notifications for run-completed, run-failed, and approval-needed when the window is unfocused (with dock badge on macOS); byte-offset transcript tailing in the main process so only appended JSONL bytes are read on each file-watch event instead of re-reading the whole file.
+- 3c1d3eb: Add structured tool cells for the Code tab: bash terminal view with exit code / duration badges, edit diff viewer (computed client-side from old/new text), write cell with new-file styling, and an end-of-turn files-changed summary. Raise the bash output retention window to first 4 KB + last 16 KB. Emit structured metadata (command, cwd, exitCode, durationMs, oldText/newText, lineCount) from the coding-tools executor as a side-channel so the UI can render bespoke cells without breaking the string-result contract the agent sees.
+- 3c1d3eb: Add connector-catalog tier for hosted multi-tenant MCP deployments.
+
+  When `AGENT_NATIVE_CONNECTOR_CATALOG=1` is set and a template declares a `connectorCatalog` in `createAgentChatPlugin` options, external MCP clients see only the declared action allow-list plus the four builtin cross-app tools (`list_apps`, `open_app`, `ask_app`, `create_embed_session`). Calls to tools outside the list are rejected. Individual callers can opt up to the full surface by minting their token with `agent-native connect --full-catalog`, which embeds a `catalog_scope: "full"` claim in the JWT. Local and dev deployments without the env flag are unaffected. The plan template declares its curated connector catalog covering plan CRUD, sharing, upload, navigation, automations, and tool-search while excluding db-exec, seed-\*, extension tools, browser-session tools, and context-xray internals.
+
+- 3c1d3eb: Add per-model context window table and one-shot overflow recovery
+  - `model-config.ts`: new `getContextWindowForModel(modelId)` helper and explicit
+    context-window table covering all catalog models. Claude Sonnet 4.6 / Opus 4.7+
+    = 1 M, Haiku 4.5 / Fable 5 = 200 K, GPT-5.4/5.5 = 1.05 M, Gemini 2.x/3.x
+    = 1 M, unknown models = conservative 128 K default.
+  - `client/context-xray/format.ts`: new `resolveContextWindow(modelId?)` helper
+    that replaces the hard-coded 200 K constant in `ContextMeter` and
+    `ContextXRayPanel` so the gauge and headroom calculation reflect the real
+    window for large-context models.
+  - `agent/production-agent.ts`: context-window overflow is no longer a terminal
+    dead-end. On the first overflow the agent attempts one automatic recovery pass:
+    old tool-result content (outside the most-recent 10-message tail) is replaced
+    with a short stub and the engine call is retried once. Only if that second
+    attempt also overflows does the terminal error fire — with updated copy that
+    explains the recovery attempt and suggests continuing in a new chat or asking
+    the agent to summarize. New exported pure helper `trimOldToolResults` is
+    unit-tested independently.
+  - `client/error-format.ts`: `context_length_exceeded` / `input_too_long` errors
+    now append a "Start new chat" CTA link (matching the `builder_gateway_error`
+    pattern) so users have a one-click escape path from the error card.
+
+- 3c1d3eb: Extract hand-copied template shell into `@agent-native/core` as shared exports.
+
+  New exports:
+  - `@agent-native/core/server/entry-server` — exports `handleDocumentRequest` (default) and `streamTimeout`. Superset of all 6 entry.server.tsx variants in the template fleet. Removes dead `typeof wrapWithAnalytics === "function"` guards (it is a plain import, never conditionally undefined). Adds `.well-known/` 404 rejection (content template improvement, now the default for all).
+  - `@agent-native/core/client` — exports `AppProviders`, a composed `QueryClientProvider → ThemeProvider → TooltipProvider → Toaster` shell. Accepts `queryClient` prop so each template keeps its own `createAgentNativeQueryClient(overrides)` call. Supports the public-path SSR branch pattern (calendar/clips/content) via `isPublicPath` + `clientOnlyFallback` props.
+
+  `templates/starter` and `packages/core/src/templates/default` (scaffold) are migrated to one-line re-exports of the shared handler. A sync spec (`starter-shell-sync.spec.ts`) guards byte-identity between scaffold and starter so they never drift again.
+
+- 3c1d3eb: Lazy-load the assistant-ui chat stack (~650-700 KB gzip) off the critical path of every page.
+  - `AgentPanel`: `MultiTabAssistantChat` converted to `React.lazy` + `Suspense`; sidebar chrome renders immediately while the chat chunk loads.
+  - `AssistantChat`: `react-markdown` + `remark-gfm` deferred via a module-level async loader (same pattern as shiki); plain-text fallback shown during the one-frame load window.
+  - New `@agent-native/core/client/api-path` source alias registered in `CORE_CLIENT_SUBPATHS` and `getCoreSourceAliases` so monorepo dev resolves it from `src/`.
+  - All `templates/*/app/entry.client.tsx` (and the scaffold copy) changed to `import { appBasePath } from '@agent-native/core/client/api-path'` so the full client barrel — and its transitive chat-stack imports — are no longer in the static closure of the client entry point.
+  - `@agent-native/core/client/api-path` is an existing public export; `AssistantChat`, `MultiTabAssistantChat`, `ResourcesPanel`, `SettingsPanel`, and `AgentTerminal` remain re-exported from the barrel for consumers that use them directly (marked minor because the barrel lazy-routing is a behaviour change for those named re-exports).
+
+- 3c1d3eb: Add server-side staging layer for provider-api responses.
+  - **Staging primitive (P0)**: `provider-api-request` now accepts `stageAs` to write response items into a scoped scratch dataset (`staged_datasets` + `staged_dataset_rows`) instead of returning the raw body. Returns `{ dataset, rowCount, columns, sampleRows }` — keeping large payloads out of the context window and avoiding the 50 K-char truncation that silently biases aggregates.
+  - **Paginated fetch-all (P1)**: Pass `pagination` alongside `stageAs` to fetch all pages server-side (cursor / page / offset modes). Handles 429 / Retry-After with exponential back-off. Caps at `maxPages` (default 50, up to 200) and returns `{ pages, rows, truncated, lastCursor }`.
+  - **New actions**: `query-staged-dataset` (in-process TypeScript aggregation — groupBy, sum/avg/count/min/max, where filters, orderBy/limit), `list-staged-datasets`, `delete-staged-dataset`. Portable across Postgres and SQLite — no dialect-specific JSON SQL.
+  - **Storage caps**: 200 K rows / 50 MB per app. Dataset ownership is scoped to `(app_id, owner_email)`.
+  - **Analytics template**: adds the three staging actions and updates `cross-source-analysis` + `provider-api` skills to teach the stage-then-aggregate flow.
+
+- 3c1d3eb: Expose focused public client subpaths for custom chat, composer, conversation, collaboration, rich-editor, and resources UI composition.
+
+  Adds `@agent-native/core/client/chat`, `@agent-native/core/client/composer`, `@agent-native/core/client/conversation`, `@agent-native/core/client/collab`, `@agent-native/core/client/editor`, and `@agent-native/core/client/resources`, promotes the low-level `TiptapComposer` props/types through the composer surface, exports `dedupeCollabUsersByEmail`, and documents how to rebuild agent chat/sidebar, realtime presence, rich editor, and resources experiences from public pieces.
+
+- 3c1d3eb: Export `createAgentNativeQueryClient` from `@agent-native/core/client` with house defaults (staleTime 30s, auth-aware retry, refetchOnWindowFocus false); raise commandRefetchInterval default from 2s to 15s.
+- 3c1d3eb: Upload-first chat attachments: when a file-upload provider is configured, images and files are uploaded to hosted URLs at send time and stored as URL references in thread_data (no more base64 blobs in SQL). Added `read-attachment` core tool for paginating large text attachments that exceed the 60 K context limit. Base64 fallback path retained with a 2 MB-per-attachment cap.
+
+### Patch Changes
+
+- 3c1d3eb: Add the `@agent-native/skills` installer CLI for plain Codex/Claude skill repos and let `agent-native skills add` delegate public skill repositories like `BuilderIO/skills` to it.
+- 3c1d3eb: Harden agent runtime resume and chat attachment edge cases.
+- 3c1d3eb: Add Content-Security-Policy to app document responses: `object-src 'none'; base-uri 'self'` enforced, `script-src` emitted as Report-Only with a Sentry-config hash when configured. Skipped in dev and opt-outable via `AGENT_NATIVE_DISABLE_DOC_CSP=1`.
+- 3c1d3eb: AppProviders parity polish: add `disableThemeTransitions` prop (default `true`),
+  wire it through ThemeProvider `disableTransitionOnChange`; restore pre-migration
+  per-template parity — calendar `position="bottom-center"`, dispatch `closeButton`,
+  content animated transitions + deduped toaster, slides `defaultTheme="dark"` (drops
+  outer ThemeProvider workaround), brain `tooltipDelayDuration={250}`, macros
+  `defaultTheme="dark"` + `tooltipDelayDuration={300}`; migrate plan root to
+  AppProviders; reconcile scaffold/starter `entry.client.tsx` and enable byte-identity
+  guard.
+- 3c1d3eb: Extend `AppProviders` with customisation props needed for dark-first and theme-customised templates.
+
+  New props on `AppProvidersProps`:
+  - `defaultTheme` — passed to next-themes `ThemeProvider`. Defaults to `"system"`. Dark-first templates (videos, slides, macros, analytics) pass `"dark"`.
+  - `themeAttribute` — passed to next-themes `ThemeProvider.attribute`. Defaults to `"class"`. Use `["class", "data-theme"]` when CSS variables are keyed off a data-theme attribute.
+  - `tooltipDelayDuration` — passed to Radix `TooltipProvider.delayDuration` (ms).
+  - `toaster` — custom Toaster element. Pass `null` to suppress the built-in Toaster when children include a styled one.
+
+- 3c1d3eb: Decompose AssistantChat.tsx into cohesive chat/ sub-modules (behavior-identical extraction). AssistantChat.tsx reduced from ~6,600 to ~3,200 lines with all public exports preserved via re-exports.
+- 3c1d3eb: Fix agent chat intermittently scrolling to the top when sending a prompt in an ongoing conversation. When the message list briefly shrank on a re-render (content swap, collapsing streaming/reconnect placeholder, message list remount), the browser-forced `scrollTop` clamp was misread as the user scrolling up, detaching auto-follow and stranding the conversation scrolled up — sometimes at the very top. The near-bottom autoscroll handler now ignores downward scroll jumps caused by content shrinking, so it stays anchored to the bottom; genuine user scroll-ups still detach.
+- 3c1d3eb: Reject SVG and non-raster MIME types on avatar write to prevent stored-XSS via data:image/svg+xml payloads.
+- 3c1d3eb: Consolidate 7 private copies of normalizeAppBasePath/getAppBasePath onto the canonical exported module in `server/app-base-path.ts`. Adds `getAppBasePathFromViteEnv` for SSR builds that need `import.meta.env` fallback, and `stripAppBasePath` as a shared helper. Template-literal copies inside the generated Cloudflare worker entry in `deploy/build.ts` are intentionally left in place as they cannot import at runtime.
+- 3c1d3eb: Fix db.transaction(async …) throwing on the default local-SQLite (better-sqlite3) database by replacing the sync-only native wrapper with a manual BEGIN IMMEDIATE / COMMIT / ROLLBACK path; nested async calls use SAVEPOINTs.
+- 3c1d3eb: Prune orphaned \*.spec.js / \*.spec.d.ts files from dist in finalize-build.mjs; add incremental tsc across all tsc-built packages to speed up repeated builds.
+- 3c1d3eb: Raise coding agent maxIterations from 12 to the shared DEFAULT_AGENT_MAX_ITERATIONS (100) and inject AGENTS.md/CLAUDE.md + .agents/skills index into the system prompt so the coding agent respects repo instructions and knows what skills are available.
+- 3c1d3eb: code-agent-executor: structured multi-turn history and bash improvements
+
+  Replace the flat transcript-blob approach in `buildCodeAgentMessages` with proper `EngineMessage[]` reconstruction. The most-recent 40 transcript events are rebuilt as native user/assistant/tool-call/tool-result message pairs; older events are folded into a compact summarised preamble. This gives the model the same structured conversation replay that the sidebar uses, preserving tool-call ↔ tool-result pairing across follow-up turns and resumes.
+
+  Also raises the bash default timeout from 30 s to 120 s, and adds a `background: true` parameter to the bash tool that spawns the command detached, returning the PID and a log-file path immediately.
+
+- 3c1d3eb: Add --full-catalog flag to agent-native connect, matching the documented behavior.
+- 3c1d3eb: Add a framework-level `core-send-email` agent tool (registered in every template when RESEND_API_KEY or SENDGRID_API_KEY is set) that sends markdown-body emails via the core transport. The tool description enforces a draft-first safety rule so the agent always shows the email to the user before sending. Keyed `core-send-email` to avoid colliding with the mail template's richer `send-email` action.
+- 3c1d3eb: Dependency health fixes on the auth/runtime critical path:
+  - Bump `better-auth` from exact `1.6.0` to `1.6.16` (16 patches behind)
+  - Add root pnpm override pinning `kysely` to `^0.28.9` to prevent `0.29.x` pulling in breaking `DEFAULT_MIGRATION_TABLE` removal that breaks Vite builds while tsc stays green
+  - Add `"sideEffects": ["*.css"]` to enable tree-shaking; client barrel is excluded (has module-level `installRouteChunkRecovery` and `stripAuthRedirectParamFromUrl` side effects)
+  - Remove `@tabler/icons-react` from `dependencies` — already declared as optional peer; every template depends on it directly
+  - Align `recharts` from exact pin `3.8.1` to range `^3.8.1` matching templates
+  - Bump `nitro` nightly from `3.0.260415-beta` to `3.0.260603-beta`
+  - Bump `vite` catalog pin from `8.0.3` to `8.0.16`
+
+- 3c1d3eb: Comprehensive docs refresh: fix documented-but-nonexistent APIs (AUTH_DISABLED, notify/list-notifications, delegate-to-agent tool, scheduler endpoint), correct flagship examples to kebab-case actions and real Drizzle calls, consolidate the workspace docs cluster, split MCP Apps authoring into its own page, refresh template docs against current schemas, and standardize the template page skeleton.
+- 3c1d3eb: Wrap Drizzle's Neon pool with the same withDbTimeout + retryOnConnectionError resilience as the raw DbExec path, preventing frozen-WebSocket 500s on template actions.
+- 3c1d3eb: Fix agent-teams reliability: untruncated sub-agent results (50k char cap), proper engine resolution via resolveEngine in \_process-run, progress-aware continuation budget with no-progress detection, sub-agent token accounting with labeled usage recording, and double-claim fencing via attempts counter on heartbeat/bump/finalize writes.
+- 3c1d3eb: Harden attachment handling across the chat surface:
+  - **HEIC/TIFF/AVIF images**: always transcode non-web-safe image formats (HEIC, TIFF, AVIF, BMP, etc.) to JPEG/PNG via canvas before attaching; throw a visible composer error if transcoding fails instead of silently attaching raw bytes. Server-side, inject a text placeholder for any unsupported image that bypasses the client so the model knows the image was present.
+  - **Base64 images in prompt text**: stop inlining image data-URLs into the text prompt string (≈700K tokens per MB); CLI code-agent now passes images as proper engine `image` content parts. PromptComposer no longer inlines images into prompt text.
+  - **PDF and body-size caps**: cap PDFs at 4 MB with a clear composer error; estimate the total serialized attachment body and aggressively re-compress images if over 3.5 MB, rejecting the largest attachment with a clear error if still over.
+  - **Server-side upload limits**: `/file-upload` and `/resources/upload` now enforce a 25 MB file size cap (413) and reject executable/script MIME types (415). New `readBodyWithSizeLimit`, `isAllowedUploadMimeType`, and related constants exported from `@agent-native/core/server`.
+  - **Silent failure UX**: drag-drop and paste attachment errors are now surfaced as a dismissible inline error banner above the composer instead of silently logging to the console.
+
+- 3c1d3eb: Fix four chat streaming UX issues: (1) P0 race where plain Enter while a run was active caused the new message to never be sent (appended to assistant-ui while the server run was still alive, resulting in a 409 → reconnect to old run under the new prompt); now aborts the active run first and waits for it to clear before appending. (2) P2 tool results for parallel same-name tool calls could get swapped; now matches by server-assigned id when present, with name-matching fallback. (3) P2 resuming affordance: show "Resuming…" in the thinking indicator during the 250 ms continuation window between serverless chunks, and show the last live activity label instead of bare "Thinking". (4) P1 backgrounded-tab catch-up lag: when the tab returns from background with a large streaming backlog (> 2000 graphemes), jump the reveal cursor to near the tail so only the last ~200 graphemes animate in rather than replaying minutes of content.
+- 3c1d3eb: Engine and model-catalog robustness fixes: Gemini 3.x now uses `thinkingLevel` instead of the rejected `thinkingBudget`; structured provider errors (statusCode, providerRetryable) flow through EngineError so retry logic avoids false-negative and false-positive matches; isRetryableError covers OpenAI "Rate limit reached", Google RESOURCE_EXHAUSTED/quota, and bare 429/500/502/503/529 status codes; isContextTooLongError covers Gemini "input token count exceeds" phrasing; model catalog adds claude-fable-5, claude-opus-4-8, removes decommissioned Groq (llama-3.1-70b-versatile, mixtral-8x7b-32768) and stale cohere alias; supportsClaudeXHigh is version-aware for future opus successors; builder-engine enables prompt caching with system+tools+final-message cache_control breakpoints; OpenRouter default output tokens raised from 1024 to 8192; global token clamp raised from 32768 to 64000; usage pricing table adds fable-5, opus-4-8, Gemini 3, Groq, Mistral entries.
+- 3c1d3eb: Fix four run-loop reliability bugs: widen RUN_STALE_MS to 15s to reduce false-positive stale reaps; self-abort displaced zombie runs and guard final status writes with a conditional WHERE so they cannot clobber a newer run's state; add per-run event persistence chaining so out-of-order SQL commits no longer silently gap the reconnect cursor; atomically gate double-run prevention with a SQL claim check instead of a racy read-then-act; emit 'clear' before resumable-error continuations to prevent duplicated partial text.
+- 3c1d3eb: Add `forkPr` flag to `buildRecapPrompt` that injects a prompt-hardening security note when the diff originates from a fork PR, marking diff content as untrusted user-supplied data rather than instructions.
+- 3c1d3eb: Add missing indexes on the hottest per-second poll queries: application_state (updated_at) and (key, updated_at), settings (updated_at), and org_members LOWER(email)
+- 3c1d3eb: Skip direct-endpoint Neon connections on steady-state boots with no pending migrations, and close migration execs when done
+- 3c1d3eb: Add org-scoped service tokens so CI credentials (e.g. the `PLAN_RECAP_TOKEN` secret used by PR Visual Recap) belong to the organization instead of one person. Previously the token was a personal device-flow bearer keyed to one owner's email — if that person left or revoked their tokens, every repo's recap CI started 401ing, and CI-created plans were owned by an individual.
+  - `mcp_connect_tokens` gains additive `kind` / `service_name` / `created_by` columns; service tokens authenticate as a synthetic service principal (`svc-<name>@service.<orgId>`) whose resolved session carries the org id, so rows created by CI are org-scoped and visible to org members.
+  - New core actions: `create-org-service-token` (org owner/admin, token value returned once and never stored), `list-org-service-tokens` (any org member, metadata only), and `revoke-org-service-token` (org owner/admin, same revocation gate as personal tokens).
+  - New CLI flow: `agent-native connect <url> --service-token <name> [--ttl-days <1-365>]` authenticates the human via the existing device flow, mints the org service token, and prints it once with guidance to store it as the `PLAN_RECAP_TOKEN` secret.
+  - Personal connect-token behavior is unchanged.
+
+- 3c1d3eb: Enable noUnusedLocals and noUnusedParameters in core tsconfig; fix all violations.
+- 3c1d3eb: Plan/recap renderer audit fixes: per-block salvage with error boundary (one bad block shows an "Unsupported block" card instead of blanking the document); annotated-code collapse for long unannotated runs; auto-TOC synthesis from block semantics when heading-derived items are sparse; file-tree rows carry data-file-path for recap files-rail scroll; export exceedsPlanBlockDepth from shared plan-content for server-side depth-exceeded detection in salvage path.
+- 3c1d3eb: Visual-plan / visual-recap skill content audit fixes: visual-plan gains the same never-inline publish rule as visual-recap (stop and give the reconnect step instead of falling back to inline chat content); Core Workflow now leads with `get-plan-blocks` and the mode-matched create tool; the dead `PLAN_SETUP_AUTH_MD` constant is interpolated instead of hand-inlined; the canvas coordinate rule is stated once (surface locks footprint, board-level artboard x/y allowed for lanes); diagram-authoring guidance is deduped to a single owner in document-quality; recap gets a canonical section skeleton with numeric budgets (3-8 key-change tabs, ~150 lines per tab) and a GOOD/BAD exemplar; stale references fixed (`diffstat` block, "Wireframe Quality core below/above" pointers, implementation-maps frontmatter); the pre-share Plan-viewer render check is scoped to hosts with a browser tool; before/after columns guidance is scoped to document-body wireframes with a canvas alternative. All SKILL.md and references/\*.md copies regenerated byte-identical.
+- 3c1d3eb: Gate localhost CORS fallback on NODE_ENV=development so production deployments without CORS_ALLOWED_ORIGINS no longer trust arbitrary localhost origins with credentials.
+- 3c1d3eb: Modularise the system-prompt stack: extract FRAMEWORK_CORE and FRAMEWORK_CORE_COMPACT into typed builder functions under `packages/core/src/server/prompts/`, share rules 8–10 and the new rules 14–15 between both variants via a single source of truth, make provider/action examples injectable via `AgentChatPluginOptions.promptExamples`, add per-model-family overlays (GPT/Gemini), gate the 2 KB first-session personalization block to new threads only, add a "Response length" guidance section to both variants, and strengthen the `manage-progress` tool description with Codex-style plan discipline.
+- 3c1d3eb: Prevent annotated code and diff hover cards from flashing during scroll dismissal.
+- 3c1d3eb: Audit fixes for the PR visual-recap pipeline: emit diff byte/line size and a full-read instruction in the agent prompt so agents read the whole diff before authoring; add package-lock.json, bun.lockb, .next/, _.min.js, _.min.css, and \*.map to diff excludes; reorder diff file segments source-first before truncation so dotfile dirs (.changeset/, .github/) are sacrificed instead of src/; add a small-diff override sentence in the prompt to override the skill's skip-small-diffs advice; tighten find-plan-id extraction to require ^[A-Za-z0-9_-]{1,64}$ so injected bot-comment markers are rejected; port the auth probe step and gate skip-comment refresh (issues: write) to the reusable workflow for parity with the copy variant; fix docs to use the correct check title "Visual recap in progress", align the headline to reflect bundled-by-default skill sourcing, and complete the subcommand list.
+- 3c1d3eb: Add minimal DI seams to recap.ts I/O functions for test coverage: `fetchFn?` on `githubRequest`/`findExistingComment`/`upsertComment`, `fetchFn?`/`waitFn?` on `uploadRecapImage`, and `importPlaywright?` on `runShot`. Export the four previously-private functions so the new `recap.io.spec.ts` can exercise them. No behavior change — all seams default to the original implementation.
+- 3c1d3eb: Recap workflow polish: installer overwrite protection (`--force`), `RECAP_CLI_VERSION` variable pinning, auth-failure differentiation in sticky comment, screenshot size retry at scale-1 before skip, secret-scan allowlist (`.github/recap-scan-allowlist`), "pull request" copy fix, and gate-skip signal appended to existing sticky comment.
+- 3c1d3eb: Add PR back-link to visual recap: `buildRecapPrompt` now deterministically threads `sourceUrl` (derived from repo + PR number) into the `create-visual-recap` tool call so the hosted recap page can link back to its source PR.
+- 3c1d3eb: Add versioned reusable workflow for PR Visual Recap so consumer repos can delegate to `BuilderIO/agent-native/.github/workflows/pr-visual-recap-reusable.yml` instead of carrying a full copy. The `agent-native recap setup --reusable` flag writes a thin ~20-line caller; `buildReusableCallerWorkflow` and `writePrVisualRecapReusableCallerWorkflow` are exported for programmatic use.
+- 3c1d3eb: Self-host Inter via @fontsource-variable/inter in the scaffold default template, eliminating the render-blocking Google Fonts @import from new apps
+- 3c1d3eb: Replace shiki's Oniguruma WASM engine with the JavaScript regex engine in all client-side highlighters, removing ~608 KB from every template's asset bundle.
+- 3c1d3eb: Collapse duplicate SSE+poll loops: extract shared SyncTransport so each tab opens one connection regardless of how many hooks subscribe.
+- 3c1d3eb: SSR responses for authenticated requests are no longer publicly CDN-cacheable.
+- 3c1d3eb: Eliminate duplicate org_members round trip on authenticated SSR requests: per-event memoize getOrgContext and reuse session.orgId when already backfilled.
+- 3c1d3eb: Pin the Vite/Nitro dev-server runtime pair to the verified-compatible versions.
+- 3c1d3eb: Cut O(n²) streaming render cost to O(tail) per commit with three targeted fixes: (1) block-memoized markdown — split streaming text into stable completed blocks + a live tail; completed blocks are wrapped in React.memo and skipped by React on every commit, only the tail re-renders; on completion a single-pass ReactMarkdown render guarantees identical final output. (2) Incremental grapheme segmentation — the Intl.Segmenter singleton is already cached at module level; now only the appended suffix is segmented per target change with a 16-char overlap to handle ZWJ/emoji cluster boundaries; falls back to full re-segmentation on non-append resets. (3) Debounced Shiki highlighting — while a code block is growing the Shiki codeToHtml call is debounced to 150 ms trailing, keeping the previous highlight visible between fires; a content-hash gate prevents redundant re-highlights on identical re-renders; a final immediate highlight fires when streaming ends. The shared HighlightedCodeBlock component is extracted to packages/core/src/client/HighlightedCodeBlock.tsx and used by both AssistantChat and AgentConversation.
+- 3c1d3eb: Enable TypeScript strict mode across the framework monorepo. All template packages and core now compile with `"strict": true`, fixing implicit-any parameters, strict null checks, and function type contravariance throughout.
+- 3c1d3eb: Harden agent tool dispatch with abort propagation, zombie-completion ledger, and scheduler resilience rail:
+  - **Abort signal into tools**: `ActionRunContext` gains an optional `signal?: AbortSignal` field (backward-compatible). The run's abort signal is now threaded through to every `actionEntry.run()` call so well-behaved actions can cancel in-flight work instead of waiting for the 60-second hard timeout.
+  - **Tool-call result ledger**: A new `agent_tool_ledger` table persists zombie completions (write-tool promises that resolve after `Promise.race` abandoned them on soft-timeout/abort). On continuation, when a write tool with the same `(threadId, toolName+inputHash)` key has a ledger entry, the continuation returns the ledger result without re-executing the side effect and without counting it toward the `MAX_WRITE_TOOL_INTERRUPTIONS` give-up budget. Ledger entries are cleared when a turn completes normally.
+  - **Scheduler through the resilience rail**: Recurring jobs now route through `startRun` from run-manager instead of a bare `runAgentLoop` call. This adds a heartbeat row in `agent_runs` so a serverless kill is detected by `reapAllStaleRuns` on the next startup — no more permanently stranded `lastStatus:"running"` in job frontmatter. The soft-timeout wrapper is also applied so hosted jobs checkpoint cleanly before the function hard-kill boundary.
+
+- 3c1d3eb: Remove dead `vite.config.server.ts` entry from tsconfig.base.json include array (the file does not exist).
+- 3c1d3eb: Add a byte-identity guard spec for shared ui primitives across templates, and resync all drifted primitives to their canonical versions.
+
+  The guard (`packages/core/src/templates/ui-primitives-sync.spec.ts`) hashes every `templates/*/app/components/ui/*.tsx` file and fails if any primitive diverges from the majority-held canonical without an explicit allow-list entry. The allow-list documents intentional deviations (custom-themed macros components, calendar DayPicker API version split, assets autoGrow textarea, etc.) so future drift is caught immediately.
+
+  Resynced primitives include: tooltip (Portal + z-[250] + text-sm canonical), dropdown-menu (IconCircleFilled + container prop), popover (PopoverAnchor + portalled prop), dialog (hideClose prop), sheet (showClose/showOverlay props), sidebar (SheetTitle/SheetDescription accessibility), command (DialogTitle accessibility), badge, separator, scroll-area, label, form, alert-dialog, aspect-ratio, carousel, collapsible, drawer, input-otp, resizable, toggle (svg helpers + min-w), hover-card (origin transform var), navigation-menu (open state classes), radio-group and context-menu (IconCircleFilled), plus "use client" removal from forms/mail artifacts.
+
 ## 0.47.1
 
 ### Patch Changes
