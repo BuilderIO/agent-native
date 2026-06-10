@@ -6650,6 +6650,25 @@ app.on("web-contents-created", (_event, contents) => {
         key: input.key,
         shiftKey: input.shift,
         altKey: true,
+        ctrlKey: input.control,
+      });
+      return;
+    }
+
+    // Ctrl+Option+X: switch to code tab
+    if (
+      input.control &&
+      input.alt &&
+      !input.meta &&
+      !input.shift &&
+      key === "x"
+    ) {
+      event.preventDefault();
+      win.webContents.send("shortcut:keydown", {
+        key: "x",
+        shiftKey: false,
+        altKey: true,
+        ctrlKey: true,
       });
       return;
     }
@@ -6676,6 +6695,7 @@ app.on("web-contents-created", (_event, contents) => {
         key: isAgentSidebarToggleShortcut ? "\\" : input.key,
         shiftKey: input.shift,
         altKey: false,
+        ctrlKey: input.control,
       });
     }
   });
@@ -6978,6 +6998,7 @@ app.whenReady().then(() => {
       win.webContents.send("shortcut:keydown", {
         key: "r",
         shiftKey: input.shift,
+        ctrlKey: input.control,
       });
       return;
     }
@@ -6988,6 +7009,7 @@ app.whenReady().then(() => {
       win.webContents.send("shortcut:keydown", {
         key: "f",
         shiftKey: input.shift,
+        ctrlKey: input.control,
       });
       return;
     }
@@ -6998,6 +7020,7 @@ app.whenReady().then(() => {
       win.webContents.send("shortcut:keydown", {
         key: "l",
         shiftKey: input.shift,
+        ctrlKey: input.control,
       });
       return;
     }
@@ -7012,6 +7035,7 @@ app.whenReady().then(() => {
       win.webContents.send("shortcut:keydown", {
         key: "\\",
         shiftKey: false,
+        ctrlKey: input.control,
       });
       return;
     }

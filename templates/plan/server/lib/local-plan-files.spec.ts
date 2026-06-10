@@ -258,8 +258,10 @@ describe("local-plan-files", () => {
     ).resolves.toBeTruthy();
   });
 
-  it("does not throw on an unwritable directory", async () => {
-    process.env.PLAN_LOCAL_DIR = "/proc/this-should-not-be-writable/plans";
+  it("does not throw when the local plans directory cannot be created", async () => {
+    const nonDirectory = path.join(tmpDir, "not-a-directory");
+    await fs.writeFile(nonDirectory, "not a directory", "utf-8");
+    process.env.PLAN_LOCAL_DIR = nonDirectory;
     const content = sampleContent();
     const result = await writePlanLocalFiles({
       planId: "plan_ro",
