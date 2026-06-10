@@ -110,10 +110,10 @@ export default defineAction({
       // Mark agent presence + selection so live viewers can see where the
       // agent is working before the update arrives via collab.
       agentEnterDocument(file.id);
-      if (applied.length > 0) {
+      if (applied > 0) {
         agentUpdateSelection(file.id, {
-          selection: applied[0]?.search
-            ? `[data-edit-target="${applied[0].search.slice(0, 40)}"]`
+          selection: edits[0]?.search
+            ? `[data-edit-target="${edits[0].search.slice(0, 40)}"]`
             : null,
           editingFile: filename,
           designId,
