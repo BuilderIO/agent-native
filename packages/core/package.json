@@ -72,6 +72,7 @@
     "./resources/metadata": "./dist/resources/metadata.js",
     "./oauth-tokens": "./dist/oauth-tokens/index.js",
     "./secrets": "./dist/secrets/index.js",
+    "./secrets/crypto": "./dist/secrets/crypto.js",
     "./org": "./dist/org/index.js",
     "./client/org": "./dist/client/org/index.js",
     "./client/db-admin": "./dist/client/db-admin/index.js",
