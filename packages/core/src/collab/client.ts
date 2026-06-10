@@ -627,7 +627,7 @@ export function useCollaborativeDoc(
 
     async function fetchStateVector(): Promise<void> {
       try {
-        const stateVector = uint8ArrayToBase64(Y.encodeStateVector(ydoc));
+        const stateVector = uint8ArrayToBase64(Y.encodeStateVector(doc));
         const stateRes = await fetch(
           `${baseUrl}/${docId}/state?stateVector=${encodeURIComponent(stateVector)}`,
         );
@@ -638,7 +638,7 @@ export function useCollaborativeDoc(
           if (stateData?.state) {
             const binary = base64ToUint8Array(stateData.state);
             if (binary.length > 2) {
-              Y.applyUpdate(ydoc, binary, "remote");
+              Y.applyUpdate(doc, binary, "remote");
             }
           }
         }
@@ -686,7 +686,7 @@ export function useCollaborativeDoc(
           if (evt.source === "collab" && evt.docId === docId && evt.update) {
             if (requestSource && evt.requestSource === requestSource) continue;
             try {
-              Y.applyUpdate(ydoc, base64ToUint8Array(evt.update), "remote");
+              Y.applyUpdate(doc, base64ToUint8Array(evt.update), "remote");
             } catch {
               // Failed to apply — fetch full state-vector below
               await fetchStateVector();
