@@ -13,7 +13,11 @@ metadata:
 
 ## Rule
 
-The UI and server never call an LLM directly. All AI work is delegated to the agent through the chat bridge.
+The UI never calls an LLM directly. Product workflows are delegated to the
+agent through the chat bridge so users can see, steer, and audit the work.
+Server-side one-shot model calls are an explicit escape hatch for narrow text
+transforms only; use `completeText()` from `@agent-native/core/server` when the
+work intentionally does not need tools, chat history, or run state.
 
 ## Why
 
@@ -33,6 +37,24 @@ sendToAgentChat({
 });
 ```
 
+**From the UI, in the background:**
+
+```ts
+import { sendToAgentChat } from "@agent-native/core";
+
+sendToAgentChat({
+  message: "Analyze this import and create any missing records",
+  context: `Import batch id: ${batchId}`,
+  submit: true,
+  newTab: true,
+  background: true,
+  openSidebar: false,
+});
+```
+
+This is still a full agent run: tools, actions, thread state, and run tracking
+all remain active. It simply does not focus or open the sidebar.
+
 **From scripts (Node):**
 
 ```ts
@@ -40,6 +62,22 @@ import { agentChat } from "@agent-native/core";
 
 agentChat.submit("Process the uploaded images and create thumbnails");
 ```
+
+**For narrow server-side text transforms:**
+
+```ts
+import { completeText } from "@agent-native/core/server";
+
+const result = await completeText({
+  systemPrompt: "Return exactly one sentiment label.",
+  input: messageBody,
+  maxOutputTokens: 12,
+  temperature: 0,
+});
+```
+
+Wrap user-facing uses in actions so the UI and agent share the same operation.
+Do not call provider SDKs directly.
 
 **From the UI, detecting when agent is done:**
 
@@ -183,10 +221,20 @@ rather than ad-hoc LLM calls.
 - Don't use AI SDK functions like `generateText()`, `streamText()`, etc.
 - Don't build "AI features" that bypass the agent chat
 - Don't auto-submit a hardcoded prompt for generative actions — capture user input first (see above)
+- Don't use `completeText()` for workflows that need tools, database writes,
+  auditability, user steering, or multi-step reasoning. Use the agent chat
+  instead, optionally with `background: true`.
 
 ## Exception
 
-Scripts may call external APIs (image generation, search, etc.) — but the AI reasoning and orchestration still goes through the agent. A script is a tool the agent uses, not a replacement for the agent.
+Scripts may call external APIs (image generation, search, etc.) — but the AI
+reasoning and orchestration still goes through the agent. A script is a tool
+the agent uses, not a replacement for the agent.
+
+`completeText()` is allowed for small server-side transforms such as
+classification, extraction, rewriting a short string, or normalizing messy
+provider text. It deliberately runs with `tools: []` and does not create chat
+thread state.
 
 ## When to Use A2A Instead
 
