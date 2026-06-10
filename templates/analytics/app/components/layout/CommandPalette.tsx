@@ -87,7 +87,11 @@ function CommandLoadingGroup({
 
 async function fetchSavedConfigs(): Promise<SavedConfig[]> {
   try {
-    const rows = await callAction("list-explorer-configs", {});
+    const rows = await callAction(
+      "list-explorer-configs",
+      {},
+      { method: "GET" },
+    );
     return (Array.isArray(rows) ? rows : []) as SavedConfig[];
   } catch {
     return [];
@@ -96,9 +100,13 @@ async function fetchSavedConfigs(): Promise<SavedConfig[]> {
 
 async function fetchExplorerDashboards(): Promise<ExplorerDashboard[]> {
   try {
-    const result = await callAction("list-explorer-dashboards", {
-      hidden: "all",
-    });
+    const result = await callAction(
+      "list-explorer-dashboards",
+      {
+        hidden: "all",
+      },
+      { method: "GET" },
+    );
     const dashboards =
       result && typeof result === "object" && "dashboards" in result
         ? (result as { dashboards: unknown[] }).dashboards
@@ -119,7 +127,11 @@ async function fetchSqlDashboards(): Promise<
   { id: string; name: string; hiddenAt: string | null }[]
 > {
   try {
-    const rows = await callAction("list-sql-dashboards", { hidden: "all" });
+    const rows = await callAction(
+      "list-sql-dashboards",
+      { hidden: "all" },
+      { method: "GET" },
+    );
     return (Array.isArray(rows) ? rows : [])
       .filter((d: any) => d && typeof d.id === "string" && d.id.length > 0)
       .map((d: any) => ({

@@ -14,7 +14,11 @@ interface SavedConfigEntry {
 
 async function fetchSavedConfigs(): Promise<SavedConfigEntry[]> {
   try {
-    const rows = await callAction("list-explorer-configs", {});
+    const rows = await callAction(
+      "list-explorer-configs",
+      {},
+      { method: "GET" },
+    );
     return (Array.isArray(rows) ? rows : []) as SavedConfigEntry[];
   } catch {
     return [];
@@ -23,7 +27,11 @@ async function fetchSavedConfigs(): Promise<SavedConfigEntry[]> {
 
 async function fetchConfig(id: string): Promise<ExplorerConfig | null> {
   try {
-    const data = await callAction("get-explorer-config", { id });
+    const data = await callAction(
+      "get-explorer-config",
+      { id },
+      { method: "GET" },
+    );
     if (!data || typeof data !== "object") return null;
     // Strip server-added id field
     const { id: _id, ...rest } = data as Record<string, unknown>;
