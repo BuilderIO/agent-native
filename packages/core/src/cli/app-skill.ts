@@ -666,6 +666,29 @@ export function exportedSkillContentHash(
 }
 
 /**
+ * List a skill dir's files (SKILL.md + any siblings like references/*) as
+ * skill-relative POSIX paths, sorted for a stable content hash. A bare SKILL.md
+ * source (file, not dir) falls back to just "SKILL.md".
+ */
+function collectSkillFiles(skillDir: string): string[] {
+  const out: string[] = [];
+  const walk = (dir: string, prefix: string): void => {
+    if (!fs.existsSync(dir) || !fs.statSync(dir).isDirectory()) return;
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const rel = prefix ? `${prefix}/${entry.name}` : entry.name;
+      if (entry.isDirectory()) walk(path.join(dir, entry.name), rel);
+      else if (entry.isFile()) out.push(rel);
+    }
+  };
+  walk(skillDir, "");
+  if (out.length === 0) {
+    // Source resolved to a single SKILL.md file rather than a dir, or is empty.
+    return ["SKILL.md"];
+  }
+  return out.sort();
+}
+
+/**
  * Plugin version embeds a content hash of the exported skills + MCP endpoint.
  * Codex keys its plugin cache on the version string, so a changed skill or MCP
  * URL yields a new version and `codex plugin marketplace upgrade` (which runs
