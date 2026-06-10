@@ -424,7 +424,14 @@ describe("recap gate decision", () => {
 
   it("skips a draft PR", () => {
     const result = evaluateRecapGate(
-      ok({ pr: { number: 7, draft: true, head: { repo: { full_name: "BuilderIO/ai-services" } }, user: { login: "octocat", type: "User" } } }),
+      ok({
+        pr: {
+          number: 7,
+          draft: true,
+          head: { repo: { full_name: "BuilderIO/ai-services" } },
+          user: { login: "octocat", type: "User" },
+        },
+      }),
     );
     expect(result.run).toBe(false);
     expect(result.reasons).toContain("draft PR");
@@ -432,7 +439,14 @@ describe("recap gate decision", () => {
 
   it("skips a fork PR with the head repo full name", () => {
     const result = evaluateRecapGate(
-      ok({ pr: { number: 7, draft: false, head: { repo: { full_name: "evil/fork" } }, user: { login: "octocat", type: "User" } } }),
+      ok({
+        pr: {
+          number: 7,
+          draft: false,
+          head: { repo: { full_name: "evil/fork" } },
+          user: { login: "octocat", type: "User" },
+        },
+      }),
     );
     expect(result.run).toBe(false);
     expect(result.reasons).toContain("fork PR (evil/fork)");
@@ -440,7 +454,14 @@ describe("recap gate decision", () => {
 
   it("skips a known bot author by login", () => {
     const result = evaluateRecapGate(
-      ok({ pr: { number: 7, draft: false, head: { repo: { full_name: "BuilderIO/ai-services" } }, user: { login: "dependabot[bot]", type: "User" } } }),
+      ok({
+        pr: {
+          number: 7,
+          draft: false,
+          head: { repo: { full_name: "BuilderIO/ai-services" } },
+          user: { login: "dependabot[bot]", type: "User" },
+        },
+      }),
     );
     expect(result.run).toBe(false);
     expect(result.reasons).toContain("bot author (dependabot[bot])");
@@ -448,7 +469,14 @@ describe("recap gate decision", () => {
 
   it("skips a Bot-type author even with a non-bot login", () => {
     const result = evaluateRecapGate(
-      ok({ pr: { number: 7, draft: false, head: { repo: { full_name: "BuilderIO/ai-services" } }, user: { login: "ci-app", type: "Bot" } } }),
+      ok({
+        pr: {
+          number: 7,
+          draft: false,
+          head: { repo: { full_name: "BuilderIO/ai-services" } },
+          user: { login: "ci-app", type: "Bot" },
+        },
+      }),
     );
     expect(result.run).toBe(false);
     expect(result.reasons).toContain("bot author (type=Bot)");
@@ -504,8 +532,14 @@ describe("recap gate decision", () => {
       ok({ changedFiles: ["packages/core/src/cli/recap.ts"] }),
     );
     expect(result.run).toBe(false);
-    expect(result.reasons.some((r) => r.startsWith("PR modifies recap-control files"))).toBe(true);
-    expect(result.reasons.join(" ")).toContain("packages/core/src/cli/recap.ts");
+    expect(
+      result.reasons.some((r) =>
+        r.startsWith("PR modifies recap-control files"),
+      ),
+    ).toBe(true);
+    expect(result.reasons.join(" ")).toContain(
+      "packages/core/src/cli/recap.ts",
+    );
   });
 
   it("skips when the PR modifies a .claude config file", () => {
@@ -535,7 +569,15 @@ describe("recap gate decision", () => {
 
   it("collects multiple reasons when several signals trip at once", () => {
     const result = evaluateRecapGate(
-      ok({ pr: { number: 7, draft: true, head: { repo: { full_name: "evil/fork" } }, user: { login: "octocat", type: "User" } }, hasPlan: false }),
+      ok({
+        pr: {
+          number: 7,
+          draft: true,
+          head: { repo: { full_name: "evil/fork" } },
+          user: { login: "octocat", type: "User" },
+        },
+        hasPlan: false,
+      }),
     );
     expect(result.run).toBe(false);
     expect(result.reasons).toEqual(
@@ -550,8 +592,14 @@ describe("recap gate decision", () => {
 
 describe("recap sensitive-path guard", () => {
   it("matches the recap-control files and nothing innocuous", () => {
-    expect(isRecapSensitivePath(".github/workflows/pr-visual-recap.yml")).toBe(true);
-    expect(isRecapSensitivePath("templates/plan/.agents/skills/visual-recap/SKILL.md")).toBe(true);
+    expect(isRecapSensitivePath(".github/workflows/pr-visual-recap.yml")).toBe(
+      true,
+    );
+    expect(
+      isRecapSensitivePath(
+        "templates/plan/.agents/skills/visual-recap/SKILL.md",
+      ),
+    ).toBe(true);
     expect(isRecapSensitivePath("packages/core/src/cli/recap.ts")).toBe(true);
     expect(isRecapSensitivePath(".claude/settings.json")).toBe(true);
     expect(isRecapSensitivePath("CLAUDE.md")).toBe(true);

@@ -1092,9 +1092,7 @@ async function listPullRequestFiles(input: {
   pull: number;
 }): Promise<string[]> {
   const filenames: string[] = [];
-  let url:
-    | string
-    | null = `https://api.github.com/repos/${encodeURIComponent(
+  let url: string | null = `https://api.github.com/repos/${encodeURIComponent(
     input.owner,
   )}/${encodeURIComponent(input.repo)}/pulls/${input.pull}/files?per_page=100`;
   while (url) {
