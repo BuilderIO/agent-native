@@ -80,55 +80,57 @@ const visualQuestionsSchema = z
     });
   });
 
+export const createVisualQuestionsSchema = z
+  .object({
+    title: z.string().optional().describe("Short questionnaire title"),
+    brief: z
+      .string()
+      .optional()
+      .describe(
+        "One short line on what the questions clarify, shown as the lede under the title. Keep it tight.",
+      ),
+    goal: z.string().optional().describe("Alias for brief."),
+    source: planSourceSchema.optional().default("manual"),
+    repoPath: z.string().optional().describe("Repository path for the run"),
+    currentFocus: z
+      .string()
+      .optional()
+      .describe("Current visual-question focus"),
+    status: planStatusSchema.optional().default("review"),
+    questions: visualQuestionsSchema
+      .optional()
+      .default([])
+      .describe(
+        "Optional custom question schema. Omit for the default UI intake flow.",
+      ),
+    content: planContentSchema
+      .optional()
+      .describe(
+        "Structured editable visual-question content. Prefer this for rich intake questions, visual options, semantic kit-tree wireframe previews, diagrams, and follow-up notes.",
+      ),
+    markdown: z
+      .string()
+      .optional()
+      .describe("Markdown/text fallback or source intake notes"),
+    sections: z
+      .array(sectionInputSchema)
+      .optional()
+      .default([])
+      .describe("Optional fallback sections for the question plan"),
+    comments: z
+      .array(commentInputSchema)
+      .optional()
+      .default([])
+      .describe("Initial review prompts or annotations"),
+  })
+  .refine((args) => Boolean(args.brief || args.goal), {
+    message: "Either brief or goal is required.",
+  });
+
 export default defineAction({
   description:
     "Create a visual intake questionnaire before a plan. Use this only when the user explicitly wants to answer rich visual questions (chips, mockup options, diagrams, freeform) before planning. For a forward plan use create-visual-plan; for a UI-first wireframe plan use create-ui-plan. Publish via this tool; never deliver the questions as inline chat text.",
-  schema: z
-    .object({
-      title: z.string().optional().describe("Short questionnaire title"),
-      brief: z
-        .string()
-        .optional()
-        .describe(
-          "One short line on what the questions clarify, shown as the lede under the title. Keep it tight.",
-        ),
-      goal: z.string().optional().describe("Alias for brief."),
-      source: planSourceSchema.optional().default("manual"),
-      repoPath: z.string().optional().describe("Repository path for the run"),
-      currentFocus: z
-        .string()
-        .optional()
-        .describe("Current visual-question focus"),
-      status: planStatusSchema.optional().default("review"),
-      questions: visualQuestionsSchema
-        .optional()
-        .default([])
-        .describe(
-          "Optional custom question schema. Omit for the default UI intake flow.",
-        ),
-      content: planContentSchema
-        .optional()
-        .describe(
-          "Structured editable visual-question content. Prefer this for rich intake questions, visual options, semantic kit-tree wireframe previews, diagrams, and follow-up notes.",
-        ),
-      markdown: z
-        .string()
-        .optional()
-        .describe("Markdown/text fallback or source intake notes"),
-      sections: z
-        .array(sectionInputSchema)
-        .optional()
-        .default([])
-        .describe("Optional fallback sections for the question plan"),
-      comments: z
-        .array(commentInputSchema)
-        .optional()
-        .default([])
-        .describe("Initial review prompts or annotations"),
-    })
-    .refine((args) => Boolean(args.brief || args.goal), {
-      message: "Either brief or goal is required.",
-    }),
+  schema: createVisualQuestionsSchema,
   publicAgent: {
     expose: true,
     readOnly: false,
