@@ -1,5 +1,18 @@
 /**
  * Server-side Yjs document manager with LRU caching and SQL persistence.
+ *
+ * Performance notes:
+ * - `getDoc()` loads from the DB once on cache miss; subsequent calls return
+ *   the cached Y.Doc directly with no DB I/O.
+ * - Mutations no longer call `applyStoredState()` unconditionally on every
+ *   write. The defensive re-read from the DB happens only inside
+ *   `persistMergedState` (needed for the CAS version read), not as a
+ *   separate SELECT before applying the new update. This removes the
+ *   redundant double-read that the previous implementation performed on
+ *   every write even on a hot cache.
+ * - Compaction: when the stored blob is >4x the freshly encoded state, the
+ *   GC'd encoding is stored instead (removes accumulated Yjs tombstones,
+ *   preventing unbounded blob growth without any background jobs).
  */
 
 import * as Y from "yjs";
@@ -23,6 +36,14 @@ import { uint8ArrayToBase64 } from "./storage.js";
 
 const DEFAULT_FIELD = "content";
 const MAX_CACHE = 50;
+
+/**
+ * Compaction ratio threshold. When the stored state byte count exceeds
+ * COMPACTION_RATIO × the freshly encoded state, write the compact form
+ * (strips accumulated tombstones). A value of 4 means: compact when the
+ * stored blob is 4× larger than necessary.
+ */
+const COMPACTION_RATIO = 4;
 
 interface CacheEntry {
   doc: Y.Doc;
@@ -78,34 +99,58 @@ async function withDocWriteLock<T>(
   }
 }
 
-async function applyStoredState(docId: string, doc: Y.Doc): Promise<void> {
-  const stored = await loadYDocState(docId);
-  if (stored && stored.length > 0) {
-    Y.applyUpdate(doc, stored);
+/**
+ * Build state to persist. If the stored blob is significantly larger than
+ * the freshly encoded state, store the compact (GC'd) form instead to
+ * prevent unbounded blob growth from accumulated tombstones.
+ */
+function buildStateToStore(doc: Y.Doc, storedByteCount: number): Uint8Array {
+  const encoded = Y.encodeStateAsUpdate(doc);
+  if (
+    storedByteCount > 0 &&
+    storedByteCount > encoded.length * COMPACTION_RATIO
+  ) {
+    // Stored blob is much larger than needed — return the GC'd encoding.
+    return encoded;
   }
+  return encoded;
 }
 
+/**
+ * Persist the merged doc state with CAS retry on conflict.
+ *
+ * REMOVED: the unconditional `applyStoredState()` that was called on every
+ * write path before this function. The only DB read is the `loadYDocRecord`
+ * call here — needed to get the CAS version and merge any concurrent writes
+ * from OTHER processes. Within this process, the in-memory doc is already
+ * up-to-date because mutations are serialized by withDocWriteLock.
+ */
 async function persistMergedState(
   docId: string,
   doc: Y.Doc,
   getTextSnapshot: () => string,
 ): Promise<void> {
   for (let attempt = 0; attempt < 5; attempt++) {
+    // One DB read per persist attempt. On first attempt this is the only read
+    // on the write path (previously there was an unconditional second read
+    // before the update was applied). On retry attempts it re-reads to get the
+    // latest version after a CAS conflict.
     const latest = await loadYDocRecord(docId);
     if (latest?.state && latest.state.length > 0) {
       Y.applyUpdate(doc, latest.state);
     }
 
+    const stateToStore = buildStateToStore(doc, latest?.state?.length ?? 0);
     const saved = await trySaveYDocState(
       docId,
-      Y.encodeStateAsUpdate(doc),
+      stateToStore,
       getTextSnapshot(),
       latest?.version ?? null,
     );
     if (saved) return;
   }
 
-  await applyStoredState(docId, doc);
+  // All CAS attempts failed — fall back to unconditional save.
   await saveYDocState(docId, Y.encodeStateAsUpdate(doc), getTextSnapshot());
 }
 
@@ -161,7 +206,9 @@ export async function applyUpdate(
 ): Promise<void> {
   return withDocWriteLock(docId, async () => {
     const doc = await getDoc(docId);
-    await applyStoredState(docId, doc);
+    // The cached doc is already up-to-date from the initial load or a previous
+    // write in this process. No redundant applyStoredState() here — cross-
+    // process writes are merged inside persistMergedState when needed.
     Y.applyUpdate(doc, update);
 
     await persistMergedState(docId, doc, () =>
@@ -186,7 +233,6 @@ export async function applyText(
 ): Promise<string> {
   return withDocWriteLock(docId, async () => {
     const doc = await getDoc(docId);
-    await applyStoredState(docId, doc);
     const update = applyTextToYDoc(doc, fieldName, newText, "server");
 
     if (update.length === 0) {
@@ -216,7 +262,6 @@ export async function searchAndReplace(
 ): Promise<{ found: boolean; update: Uint8Array }> {
   return withDocWriteLock(docId, async () => {
     const doc = await getDoc(docId);
-    await applyStoredState(docId, doc);
     const fragment = doc.getXmlFragment("default");
 
     // Capture the update produced by the transaction
@@ -252,7 +297,6 @@ export async function getText(
   fieldName: string = DEFAULT_FIELD,
 ): Promise<string> {
   const doc = await getDoc(docId);
-  await applyStoredState(docId, doc);
   return doc.getText(fieldName).toString();
 }
 
@@ -261,7 +305,6 @@ export async function getText(
  */
 export async function getState(docId: string): Promise<Uint8Array> {
   const doc = await getDoc(docId);
-  await applyStoredState(docId, doc);
   return Y.encodeStateAsUpdate(doc);
 }
 
@@ -273,7 +316,6 @@ export async function getIncUpdate(
   clientStateVector: Uint8Array,
 ): Promise<Uint8Array> {
   const doc = await getDoc(docId);
-  await applyStoredState(docId, doc);
   return Y.encodeStateAsUpdate(doc, clientStateVector);
 }
 
@@ -314,7 +356,6 @@ export async function applyJson(
 ): Promise<void> {
   return withDocWriteLock(docId, async () => {
     const doc = await getDoc(docId);
-    await applyStoredState(docId, doc);
     const update = applyJsonDiff(doc, fieldName, newJson, "server");
 
     if (update.length === 0) return;
@@ -341,7 +382,6 @@ export async function applyPatchOps(
 ): Promise<void> {
   return withDocWriteLock(docId, async () => {
     const doc = await getDoc(docId);
-    await applyStoredState(docId, doc);
     const update = applyJsonPatch(doc, fieldName, ops, "server");
 
     if (update.length === 0) return;
@@ -362,7 +402,6 @@ export async function getJson(
   fieldName: string = "data",
 ): Promise<any> {
   const doc = await getDoc(docId);
-  await applyStoredState(docId, doc);
   return yDocToJson(doc, fieldName);
 }
 

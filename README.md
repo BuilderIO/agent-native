@@ -11,6 +11,7 @@ The agent and the UI are equal citizens of the same system. Every action works b
 ![Agents and UIs fully connected](https://cdn.builder.io/api/v1/file/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fadc1e9e9368e4a8cb1b4dbb5aae5aaa2)
 
 - **Everything syncs** — Agent and UI share one database and one state. Changes from either side show up instantly on the other.
+- **Real-time multiplayer** — Humans and agents collaborate in the same document simultaneously: CRDT merging, live presence (cursors, selection rings, who's on which slide), and the agent as a first-class peer editor. Works on any SQL database and any host, including serverless.
 - **Context-aware** — The agent knows what you're looking at. Select text, hit Cmd+I, and tell it what to do.
 - **Per-user workspace** — Skills, memory, instructions, sub-agents, and MCP servers — SQL-backed, customizable per user. Claude-Code-level flexibility, SaaS-grade economics.
 - **Agents call agents** — Tag another agent from any app. They discover each other over A2A and take action across your stack.

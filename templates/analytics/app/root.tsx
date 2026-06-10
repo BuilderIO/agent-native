@@ -17,6 +17,7 @@ import { CommandPalette } from "./components/layout/CommandPalette";
 import { Layout as AppLayout } from "./components/layout/Layout";
 import type { LinksFunction } from "react-router";
 import stylesheet from "./global.css?url";
+import { TAB_ID } from "@/lib/tab-id";
 import { configureTracking } from "@agent-native/core/client";
 configureTracking({
   getDefaultProps: (_name, properties) => ({
@@ -72,7 +73,7 @@ function DbSyncBridge({ queryClient }: { queryClient: QueryClient }) {
   // change event, so we no longer need to enumerate dashboard / analysis
   // / explorer keys here. Screen-refresh is handled automatically inside
   // AgentSidebar.
-  useDbSync({ queryClient });
+  useDbSync({ queryClient, ignoreSource: TAB_ID });
   return null;
 }
 

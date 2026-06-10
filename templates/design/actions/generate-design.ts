@@ -9,6 +9,9 @@ import {
   hasCollabState,
   applyText,
   seedFromText,
+  agentEnterDocument,
+  agentLeaveDocument,
+  agentUpdateSelection,
 } from "@agent-native/core/collab";
 
 /** Editor deep link so external agents can surface "Open design". */
@@ -168,22 +171,33 @@ export default defineAction({
     for (const file of files) {
       const existing = existingByName.get(file.filename);
       if (existing) {
-        // Update existing file
-        await db
-          .update(schema.designFiles)
-          .set({
-            content: file.content,
-            fileType: file.fileType ?? "html",
-            updatedAt: now,
-          })
-          .where(eq(schema.designFiles.id, existing.id));
+        // Publish agent presence so live editors see "AI is generating" in place.
+        agentEnterDocument(existing.id);
+        agentUpdateSelection(existing.id, {
+          generatingFile: file.filename,
+          designId,
+        });
 
-        // Push content through collab layer for live editors
-        const collabExists = await hasCollabState(existing.id);
-        if (collabExists) {
-          await applyText(existing.id, file.content, "content", "agent");
-        } else {
-          await seedFromText(existing.id, file.content);
+        try {
+          // Update existing file
+          await db
+            .update(schema.designFiles)
+            .set({
+              content: file.content,
+              fileType: file.fileType ?? "html",
+              updatedAt: now,
+            })
+            .where(eq(schema.designFiles.id, existing.id));
+
+          // Push content through collab layer for live editors
+          const collabExists = await hasCollabState(existing.id);
+          if (collabExists) {
+            await applyText(existing.id, file.content, "content", "agent");
+          } else {
+            await seedFromText(existing.id, file.content);
+          }
+        } finally {
+          agentLeaveDocument(existing.id);
         }
 
         savedFiles.push({
@@ -204,8 +218,17 @@ export default defineAction({
           updatedAt: now,
         });
 
-        // Seed collab state for the new file
-        await seedFromText(fileId, file.content);
+        // Publish agent presence for the new file before seeding.
+        agentEnterDocument(fileId);
+        agentUpdateSelection(fileId, {
+          generatingFile: file.filename,
+          designId,
+        });
+        try {
+          await seedFromText(fileId, file.content);
+        } finally {
+          agentLeaveDocument(fileId);
+        }
 
         savedFiles.push({
           id: fileId,

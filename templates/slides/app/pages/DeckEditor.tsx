@@ -161,6 +161,7 @@ export default function DeckEditor() {
     duplicateDeck,
     addSlide,
     reorderSlides,
+    markDeckDirty,
     undo,
     redo,
     canUndo,
@@ -939,6 +940,7 @@ export default function DeckEditor() {
               onUpdateSlide={(updates, slideIdOverride) =>
                 updateSlide(id, slideIdOverride ?? currentSlide.id, updates)
               }
+              onInlineEditStart={() => markDeckDirty(id)}
               activeTab={activeTab}
               onGenerateImage={() => setImageGenOpen(true)}
               onOpenAssetLibrary={(src) => {

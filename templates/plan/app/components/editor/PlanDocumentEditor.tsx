@@ -860,19 +860,37 @@ export function PlanDocumentEditor({
           color: collabUser.color,
         }
       : undefined;
-  // Single-doc multi-user collaboration (one Y.Doc per plan) is an explicit
-  // fast-follow, intentionally OFF. The `blocks[] → doc → blocks[]` round-trip is
-  // not byte-identical, so the reconcile re-applies `setContent` on every autosave
-  // round-trip; under y-prosemirror that rewrites the WHOLE `Y.XmlFragment`, which
-  // tears down and reconstructs every `planBlock` React NodeView. Tiptap's
-  // `ReactRenderer` constructor runs `flushSync`, so each rewrite emits a burst of
-  // "flushSync called from inside a lifecycle method" warnings (~9 full-doc
-  // rewrites/min × N blocks). The non-collab path keeps single-user editing,
-  // autosave, agent resync (reconcile still re-applies external `value` changes),
-  // drag-reorder, slash-insert, and per-block editing — only LIVE multi-user
-  // cursors on the plan body are deferred. Re-enabling requires a byte-stable
-  // round-trip AND a targeted (per-node `updateAttributes`) collab apply path that
-  // avoids full-fragment rewrites. Flip this once that lands.
+  // Single-doc multi-user collaboration (one Y.Doc per the whole plan) is an
+  // explicit fast-follow, intentionally OFF. Root-cause diagnosis (2026-06):
+  //
+  //   PRECONDITION MET — serialization stability: The pure `blocks[] → doc JSON →
+  //   blocks[]` round-trip IS byte-stable (confirmed by plan-doc.roundtrip.spec.ts
+  //   and plan-doc.collab-stability.spec.ts). The `normalizeValue` guard in
+  //   `useCollabReconcile` correctly recognizes autosave echoes as "already in
+  //   sync" and skips `setContent` for them.
+  //
+  //   PRECONDITION UNMET — surgical Yjs apply: Even when the echo guard fires
+  //   correctly, the initial seed and every external agent/peer edit still call
+  //   `editor.commands.setContent(newDoc)`. Under the Collaboration extension
+  //   this routes through y-prosemirror, which replaces the ENTIRE Y.XmlFragment
+  //   (not a surgical patch). Every `planBlock` ReactNodeView is torn down and
+  //   recreated; each `Tiptap ReactRenderer` constructor calls `flushSync` inside
+  //   a React render lifecycle → "flushSync called from inside a lifecycle method"
+  //   warnings, one per block per apply. With N blocks × autosave frequency this
+  //   is ~9 full-doc rewrites/min.
+  //
+  //   TO UNBLOCK: a `packages/core` change to `useCollabReconcile` is needed.
+  //   When collab is active, apply external changes via a targeted Yjs transaction
+  //   (diff old vs new doc JSON, emit one `tr.replaceWith(from, to, fragment)` per
+  //   changed span) instead of replacing the whole Y.XmlFragment. Either expose a
+  //   `setContentSurgical` hook in `UseCollabReconcileOptions` so the plan can
+  //   supply a per-block-range transaction, or make the reconcile compute the diff
+  //   internally. See plan-doc.collab-stability.spec.ts for the full diagnosis.
+  //
+  //   LIVE REAL-TIME COLLAB TODAY: `PlanMarkdownEditor` (the legacy per-block
+  //   editor) uses `plan:${planId}:${blockId}` per-block doc IDs and is the live
+  //   production collab surface. The server-side collab plugin is healthy for both
+  //   the single-doc `plan:<id>` and per-block `plan:<id>:<block>` doc ID shapes.
   const SINGLE_DOC_COLLAB_ENABLED = false;
   const collabEnabled =
     SINGLE_DOC_COLLAB_ENABLED && editable && !!planId && !!docUser;

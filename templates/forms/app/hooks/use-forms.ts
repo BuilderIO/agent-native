@@ -53,6 +53,27 @@ export function useUpdateForm() {
   });
 }
 
+/**
+ * Granular field-level patch — uses server-side merge so concurrent edits
+ * to different fields both survive. The UI builder uses this for all
+ * incremental field mutations.
+ */
+export function usePatchFormFields() {
+  const qc = useQueryClient();
+  return useActionMutation("patch-form-fields", {
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["action", "get-form"] });
+    },
+    onError: (err: unknown) => {
+      const message =
+        err instanceof Error && err.message
+          ? err.message.replace(/^Action patch-form-fields failed:\s*/, "")
+          : "Failed to update fields";
+      toast.error(message);
+    },
+  });
+}
+
 export function useDeleteForm() {
   const qc = useQueryClient();
   return useActionMutation("delete-form", {

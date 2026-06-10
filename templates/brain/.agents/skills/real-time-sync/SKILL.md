@@ -49,7 +49,7 @@ The agent modifies data in SQL, but the UI runs in the browser. SSE bridges same
 
    For list/sidebar queries, use the same pattern — pass the counter into the queryKey of every list query you want to keep fresh.
 
-4. **Fallback** polling calls `/_agent-native/poll?since=N`. It runs every 2 seconds until SSE is connected, then relaxes to 15 seconds. If SSE is disabled or unavailable, polling continues at the normal cadence.
+4. **Fallback** polling calls `/_agent-native/poll?since=N`. It runs every 2 seconds until SSE is connected, then relaxes to 15 seconds (`SSE_FALLBACK_INTERVAL_MS`). If SSE is disabled or unavailable (e.g., edge/serverless deployments), polling continues at the 2 s cadence. Polling is the universal serverless fallback — it detects DB timestamp changes even when the write happened in a different process or invocation.
 
 5. When the agent writes to the database, the version increments, SSE/polling detects it, and React Query refetches the affected queries.
 
@@ -196,6 +196,16 @@ const [title, setTitle] = useReconciledState(props.title, { active: isEditing })
 | Local edit state copied from a server value (inputs, popovers, inline editors) | `useReconciledState(externalValue, { active })` |
 | Collaborative rich-text editor (Yjs) | `updatedAt`-gated reconcile + `isReconcileLeadClient` — see `real-time-collab` |
 
+## Granular server-side merge for non-body fields
+
+For structured documents (slide decks, form builders, design files) where the
+Yjs body collab would cause LWW conflicts at the container level, pair the
+change-sync `updatedAt` bump with a **granular server-side merge action** that
+accepts targeted per-item operations (add/patch/delete/reorder). Concurrent
+edits to different items both survive at the action level; the `collab` source
+version bump then propagates the merged state to all open clients. See
+`real-time-collab` for the pattern and examples.
+
 ## Related Skills
 
 - **storing-data** — Application-state and settings are data stores that sync through change events
@@ -203,4 +213,4 @@ const [title, setTitle] = useReconciledState(props.title, { active: isEditing })
 - **actions** — Mutating actions trigger change events
 - **client-methods** — Route details belong in helpers/hooks, not components
 - **self-modifying-code** — Agent code edits trigger change events; rapid edits can cause event storms
-- **real-time-collab** — Collaborative editors reconcile agent edits into a shared Y.Doc, driven by the same change-sync `updatedAt` bump
+- **real-time-collab** — Collaborative editors reconcile agent edits into a shared Y.Doc, driven by the same change-sync `updatedAt` bump; also the granular server-side merge pattern for structured data
