@@ -320,7 +320,11 @@ function StyleInput({
         disabled={disabled}
         className="h-8 bg-background/80 text-xs"
         onChange={(event) => setDraft(event.target.value)}
-        onBlur={() => onCommit(draft)}
+        onBlur={() => {
+          // Only commit when the draft actually changed to avoid spamming
+          // plan updates and version snapshots on every focus-out.
+          if (draft !== value) onCommit(draft);
+        }}
         onKeyDown={(event) => {
           if (event.key === "Enter") {
             event.currentTarget.blur();

@@ -3388,6 +3388,31 @@ export function PlansPage() {
             />
           ) : (
             <div className="relative min-h-0 flex-1 overflow-hidden bg-background">
+              {immersiveReader && (
+                <div className="pointer-events-none absolute left-3 top-3 z-10">
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="pointer-events-auto size-8 rounded-lg border border-border/70 bg-background/82 shadow-2xl backdrop-blur-xl"
+                        onClick={() => {
+                          if (session) {
+                            navigate("/plans");
+                          } else {
+                            window.location.href = appPath("/plans");
+                          }
+                        }}
+                        aria-label="Back to plans"
+                      >
+                        <IconArrowLeft className="size-4" />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>Back to plans</TooltipContent>
+                  </Tooltip>
+                </div>
+              )}
               <div
                 className="pointer-events-none absolute right-3 top-3 z-10 flex items-center gap-1.5 rounded-lg border border-border/70 bg-background/82 p-1 shadow-2xl backdrop-blur-xl"
                 onPointerDownCapture={preservePlanReaderScrollAfterToolbarEvent}
