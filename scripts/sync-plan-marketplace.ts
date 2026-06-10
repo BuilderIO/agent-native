@@ -83,6 +83,25 @@ function readSkillSource(sourceDir: string): string {
 }
 
 /**
+ * Sibling files inside a source skill dir (everything except SKILL.md), as
+ * sorted posix-relative paths. These are the progressive-disclosure reference
+ * files (e.g. references/wireframe.md) that ship next to SKILL.md.
+ */
+function listSkillSiblingFiles(sourceDir: string): string[] {
+  const root = join(sourceSkillsDir, sourceDir);
+  const out: string[] = [];
+  const walk = (dir: string, prefix: string): void => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const rel = prefix ? `${prefix}/${entry.name}` : entry.name;
+      if (entry.isDirectory()) walk(join(dir, entry.name), rel);
+      else if (entry.isFile() && rel !== "SKILL.md") out.push(rel);
+    }
+  };
+  walk(root, "");
+  return out.sort();
+}
+
+/**
  * Rewrite the SKILL.md frontmatter `name:` field to the exported skill name,
  * matching the generic app-skill packer's `rewriteSkillFrontmatterName`. The
  * committed copy uses the exportAs name even when the source dir differs.
@@ -137,7 +156,9 @@ function codexPluginVersion(): string {
 async function expectedFiles(): Promise<GeneratedFile[]> {
   const files: GeneratedFile[] = [];
 
-  // Generated copies of the six canonical skills under the shared plugin dir.
+  // Generated copies of the canonical skills under the shared plugin dir,
+  // including any sibling reference files (e.g. references/wireframe.md) so the
+  // packaged plugin ships the same progressive-disclosure files as `skills/`.
   for (const { sourceDir, exportAs } of SKILL_SOURCES) {
     const body = rewriteSkillFrontmatterName(
       readSkillSource(sourceDir),
@@ -154,6 +175,19 @@ async function expectedFiles(): Promise<GeneratedFile[]> {
       ),
       content: body,
     });
+    for (const rel of listSkillSiblingFiles(sourceDir)) {
+      files.push({
+        rel: join(
+          ".agents",
+          "plugins",
+          "agent-native-visual-plans",
+          "skills",
+          exportAs,
+          rel,
+        ),
+        content: readFileSync(join(sourceSkillsDir, sourceDir, rel), "utf-8"),
+      });
+    }
   }
 
   const mcpServers = {
