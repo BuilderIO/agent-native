@@ -7,8 +7,8 @@ description: "Agent-Native Plans turns your coding agent's plan into a structure
 
 Agent-Native Plans is visual plan mode for coding agents. It turns an ordinary
 Codex, Claude Code, Markdown, or pasted implementation plan into a structured
-review surface with rich text, diagrams, wireframes, implementation maps,
-annotations, comments, and shareable links.
+review surface with rich text, diagrams, wireframes, annotated code walkthroughs
+and file trees, annotations, comments, and shareable links.
 
 It comes down to two commands. `/visual-plan` builds a plan **before** the agent
 writes code. `/visual-recap` turns a change that **already** happened — a PR,
@@ -44,6 +44,10 @@ agent-native skills add visual-plan
 ```
 
 The command installs both commands: `/visual-plan` and `/visual-recap`.
+
+If you are using a chat-based host that accepts MCP connector URLs directly
+(rather than a CLI-configured client), connect the hosted Plans connector at
+`https://plan.agent-native.com/_agent-native/mcp` — see [MCP Clients](/docs/mcp-clients) for client-specific setup.
 
 Authentication is a one-time browser sign-in at setup — this is intended, and it
 is what lets the agent persist and share the plans it generates. What the auth
@@ -103,8 +107,8 @@ After installation, ask your agent for the command that fits the work:
 
 - `/visual-plan` creates a structured plan **before** implementation — for
   architecture, backend, refactor, UI, or mixed product work — pulling in
-  diagrams, wireframes, mockups, clickable prototypes, and implementation maps
-  as the work calls for them.
+  diagrams, wireframes, mockups, clickable prototypes, and annotated code
+  walkthroughs and file trees as the work calls for them.
 - `/visual-recap` creates a high-altitude **review** of a change that already
   happened — a PR, commit, branch, or git diff — as schema, API, file, and
   before/after blocks instead of a wall of raw diff.
@@ -125,8 +129,8 @@ it to the agent starts a revision turn against the existing plan.
 ## What you can do with it
 
 - **Review before implementation.** React to diagrams, wireframes, option tabs,
-  Open Questions forms, risk notes, file maps, and code previews before the
-  agent edits files.
+  Open Questions forms, risk notes, annotated code walkthroughs, and code
+  previews before the agent edits files.
 - **Comment directly on the plan.** Pin feedback to text, images, wireframes, or
   canvas locations; choose whether the comment is for the agent or a human
   reviewer; @mention teammates with inline chips; and resolve comments as the
@@ -203,7 +207,10 @@ http://localhost:<port>/local-plans/<slug>
 
 Local-files mode prevents plan or recap content from going to the Agent-Native
 Plan database. It also disables hosted sharing, browser comments, plan history,
-and publish/export receipts until you explicitly opt into publishing. It does
+and publish/export receipts until you explicitly opt into publishing. To move a
+local plan into the hosted database, call `publish-visual-plan` with the local
+MDX folder path; this uploads the plan, assigns it a hosted ID, enables sharing
+and commenting, and returns the hosted URL. It does
 not automatically make your coding agent's LLM local; choose a local or approved
 model if that privacy boundary matters too.
 

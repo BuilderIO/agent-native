@@ -59,7 +59,8 @@ the feel of an interaction before implementation — use `/visual-plan` and call
 existing visual plan has HTML canvas wireframes that should become a live
 prototype. Prototype plans keep static mocks in the document and use the top
 viewer for clickable review, comments, rough/clean mode, dark/light mode, and
-prototype popout.
+prototype popout. (`create-prototype-plan` and `convert-visual-plan-to-prototype`
+are MCP tools reached from `/visual-plan`, not separate slash commands.)
 
 For full-fidelity branded UI design before implementation, use `/visual-plan` and
 call `create-plan-design`. Research the real app shell, `design.md` if present,
@@ -68,7 +69,8 @@ token signals. Pass high-fidelity bounded HTML/CSS screens for the Design tab,
 stable `data-design-id` attributes for targeted element style edits, and
 transitions only when a matching Prototype tab should be clickable. Treat the
 Design tab as the visual source of truth and the Prototype tab as the same
-direction made interactive.
+direction made interactive. (`create-plan-design` is an MCP tool reached from
+`/visual-plan`, not a separate slash command.)
 
 Use `/visual-recap` when the user wants a high-level review surface for a PR,
 commit, branch, or git diff that already changed. Recaps are reverse plans:
@@ -87,6 +89,8 @@ bottom `question-form` block with single-choice, multi-choice, or freeform
 questions, recommended options when useful, and wireframe/diagram previews for
 visual directions. If the user explicitly requests a visual intake questionnaire
 before planning, call `create-visual-questions` from `/visual-plan`.
+(`create-visual-questions` is an MCP tool reached from `/visual-plan`, not a
+separate slash command.)
 
 ## Skills
 
@@ -94,10 +98,10 @@ The plan skills own all planning behavior. Read the matching SKILL.md before
 generating or editing a plan — they carry the shared Wireframe & Canvas and
 Document Quality cores, so do not restate those rules here.
 
-- `.agents/skills/visual-plan/SKILL.md` — `/visual-plan`, the canonical command
-  for any rich plan; also governs UI-first (`create-ui-plan`), prototype-first
-  (`create-prototype-plan`), design-first (`create-plan-design`), and
-  visual-intake (`create-visual-questions`) modes.
+- `.agents/skills/visual-plan/SKILL.md` — `/visual-plan`, the canonical slash
+  command for any rich plan; also governs the MCP-tool modes: UI-first
+  (`create-ui-plan`), prototype-first (`create-prototype-plan`), design-first
+  (`create-plan-design`), and visual-intake (`create-visual-questions`).
 - `.agents/skills/visual-recap/SKILL.md` — `/visual-recap`, high-level visual
   code-review recaps for PRs, commits, branches, and git diffs.
 

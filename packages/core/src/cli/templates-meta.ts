@@ -79,7 +79,7 @@ export const TEMPLATES: TemplateMeta[] = [
   {
     name: "plan",
     label: "Plan",
-    hint: "Agent-native HTML plans with diagrams, wireframes, prototypes, annotations, sharing, and proof gates",
+    hint: "Structured visual plans and PR recaps with diagrams, wireframes, prototypes, annotations, and sharing",
     icon: "FileText",
     color: "#52525B",
     colorRgb: "82 82 91",
@@ -169,6 +169,7 @@ export const TEMPLATES: TemplateMeta[] = [
     color: "#71717A",
     colorRgb: "113 113 122",
     devPort: 8089,
+    prodUrl: "https://starter.agent-native.com",
     defaultMode: "prod",
     alwaysAvailable: true,
     core: true,
@@ -189,7 +190,7 @@ export const TEMPLATES: TemplateMeta[] = [
   {
     name: "brain",
     label: "Brain",
-    hint: "Cited company memory from Slack, meetings, transcripts, and decisions",
+    hint: "Cited company knowledge from Slack, meetings, transcripts, and decisions",
     icon: "Brain",
     color: "#8B5CF6",
     colorRgb: "139 92 246",

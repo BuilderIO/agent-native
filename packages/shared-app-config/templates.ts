@@ -82,7 +82,7 @@ export const TEMPLATES: TemplateMeta[] = [
   {
     name: "plan",
     label: "Plan",
-    hint: "Agent-native HTML plans with diagrams, wireframes, prototypes, annotations, sharing, and proof gates",
+    hint: "Structured visual plans and PR recaps with diagrams, wireframes, prototypes, annotations, and sharing",
     icon: "FileText",
     color: "#52525B",
     colorRgb: "82 82 91",

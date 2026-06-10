@@ -1,5 +1,5 @@
 import { defineAction } from "@agent-native/core";
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import { serializePlanContent } from "../server/plan-content.js";
@@ -81,6 +81,34 @@ export default defineAction({
       })
       .where(eq(schema.plans.id, planId));
 
+    // Preserve comment anchors for sections whose ids survive in the snapshot.
+    // Strategy: capture comment→sectionId pairs for surviving sections first,
+    // then null ALL sectionIds (required to satisfy FK before section deletion),
+    // delete and re-insert sections, then re-anchor the surviving comments.
+    const survivingSectionIds = new Set(snapshot.sections.map((s) => s.id));
+    const commentAnchorMap = new Map<string, string>(); // commentId → sectionId
+    if (survivingSectionIds.size > 0) {
+      const anchored = await db
+        .select({
+          id: schema.planComments.id,
+          sectionId: schema.planComments.sectionId,
+        })
+        .from(schema.planComments)
+        .where(
+          and(
+            eq(schema.planComments.planId, planId),
+            inArray(
+              schema.planComments.sectionId,
+              Array.from(survivingSectionIds),
+            ),
+          ),
+        );
+      for (const row of anchored) {
+        if (row.sectionId) commentAnchorMap.set(row.id, row.sectionId);
+      }
+    }
+
+    // Null ALL comment anchors so the section delete below doesn't violate FK.
     await db
       .update(schema.planComments)
       .set({ sectionId: null, updatedAt: now })
@@ -105,6 +133,30 @@ export default defineAction({
           updatedAt: section.updatedAt || now,
         })),
       );
+    }
+
+    // Re-anchor comments that were pointing to sections present in the snapshot.
+    // These sections now exist again, so the FK is satisfied and the comment
+    // threads remain navigable. Comments on sections that did not survive stay
+    // detached (sectionId = null).
+    if (commentAnchorMap.size > 0) {
+      const anchorGroups = new Map<string, string[]>(); // sectionId → commentIds
+      for (const [commentId, sectionId] of commentAnchorMap) {
+        const ids = anchorGroups.get(sectionId) ?? [];
+        ids.push(commentId);
+        anchorGroups.set(sectionId, ids);
+      }
+      for (const [sectionId, commentIds] of anchorGroups) {
+        await db
+          .update(schema.planComments)
+          .set({ sectionId, updatedAt: now })
+          .where(
+            and(
+              eq(schema.planComments.planId, planId),
+              inArray(schema.planComments.id, commentIds),
+            ),
+          );
+      }
     }
 
     await db.insert(schema.planEvents).values({

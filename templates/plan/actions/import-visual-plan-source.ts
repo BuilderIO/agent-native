@@ -3,7 +3,7 @@ import {
   getRequestOrgId,
   getRequestUserEmail,
 } from "@agent-native/core/server/request-context";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import {
@@ -36,12 +36,18 @@ import {
 
 export default defineAction({
   description:
-    "Create or replace an Agent-Native Plan from source-control friendly MDX files. The MDX folder is the authoring/export surface; the runtime model remains normalized structured JSON.",
+    "Create or replace an Agent-Native Plan from source-control friendly MDX files. The MDX folder is the authoring/export surface; the runtime model remains normalized structured JSON. When replacing an existing plan, pass expectedUpdatedAt (the plan's current updatedAt) to guard against concurrent edits — the action errors if the plan was modified since you last read it.",
   schema: z.object({
     planId: z
       .string()
       .optional()
       .describe("Existing plan ID to replace. Omit to create a new plan."),
+    expectedUpdatedAt: z
+      .string()
+      .optional()
+      .describe(
+        "Optimistic concurrency guard. When provided and replacing an existing plan (planId set), the action errors if the plan's current updatedAt does not match this value, preventing a full re-import from silently clobbering concurrent edits. Omit to skip the check (backward-compatible).",
+      ),
     title: z.string().optional().describe("Plan title override."),
     brief: z.string().optional().describe("Plan brief override."),
     kind: planKindSchema
@@ -88,6 +94,28 @@ export default defineAction({
 
     if (args.planId) {
       await assertPlanEditor(args.planId);
+
+      // Optimistic concurrency check: if the caller supplied expectedUpdatedAt,
+      // verify it matches the current plan before overwriting. Mirrors the CAS
+      // pattern in patch-visual-plan-source (updatedAt-scoped WHERE clause).
+      if (args.expectedUpdatedAt) {
+        const updatedRows = await db
+          .update(schema.plans)
+          .set({ updatedAt: args.expectedUpdatedAt })
+          .where(
+            and(
+              eq(schema.plans.id, args.planId),
+              eq(schema.plans.updatedAt, args.expectedUpdatedAt),
+            ),
+          )
+          .returning({ id: schema.plans.id });
+        if (updatedRows.length === 0) {
+          throw new Error(
+            "Plan changed while the source import was being prepared. Reload the plan and retry.",
+          );
+        }
+      }
+
       await createPlanVersionSnapshot(args.planId, {
         force: true,
         label: "Before source import",

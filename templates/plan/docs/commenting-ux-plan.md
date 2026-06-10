@@ -583,8 +583,8 @@ Document in the shared cores:
   rewritten) — reconcile, don't drop.
 
 Also extend (not byte-synced, keep consistent): `templates/plan/CLAUDE.md` +
-`templates/plan/AGENTS.md`. `visual-questions/SKILL.md` has no shared cores — skip
-unless its comment wording changes.
+`templates/plan/AGENTS.md`. (Note: `visual-questions/SKILL.md` was removed when
+the plan skill set was trimmed to `visual-plan` + `visual-recap` only; skip it.)
 
 ---
 

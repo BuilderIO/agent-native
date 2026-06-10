@@ -274,11 +274,22 @@ directory before authoring a plan.
 - `get-plan-feedback`: read unconsumed human feedback. Use it frequently; it
   returns grouped threads, exact anchor details, expected resolver, and recent
   review-event payloads so agents can act only on the comments meant for them.
+- `get-plan-blocks`: resolve block tags before authoring — do not memorize tags;
+  call this first to get the authoritative tag names, required fields, and prop
+  shapes from the live block registry.
 - `export-visual-plan`: export HTML, Markdown fallback, structured JSON, and MDX
   files for repo check-in.
 
 When the user critiques a plan's look or structure, fix the renderer or this
 skill — never hand-edit one stored plan. Turn feedback into better guidance.
+
+## Visibility & Sharing
+
+Use `set-resource-visibility` to change who can see a plan (e.g. public, login,
+or org-scoped). Use `share-resource` to grant specific users or roles access
+by email or role. Gate visibility before sharing any plan that covers
+unreleased or private work — default to the narrowest scope that meets the
+review need.
 
 ## Setup & Authentication
 
@@ -293,8 +304,12 @@ intended), so the first tool call does not hit an OAuth wall:
 agent-native skills add visual-plan
 ```
 
-After that, `/visual-plan` and `/visual-recap` generate plans and open the
-editor. Pass `--no-connect` to register the connector without authenticating, then run
+After that, `/visual-plan` and `/visual-recap` are the two installed slash
+commands. Other planning modes — UI-first (`create-ui-plan`), prototype-first
+(`create-prototype-plan`), design-first (`create-plan-design`), and visual
+intake (`create-visual-questions`) — are MCP tools reachable from `/visual-plan`,
+not separate slash commands. Pass `--no-connect` to register the connector
+without authenticating, then run
 `agent-native connect https://plan.agent-native.com` whenever you are ready.
 
 **Browser (people you share with).** Open the Plans editor and create & edit

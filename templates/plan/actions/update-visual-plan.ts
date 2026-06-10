@@ -682,7 +682,7 @@ export default defineAction({
 
       if (updatedRows.length === 0) {
         throw new Error(
-          "Plan changed while content patches were being applied. Reload the plan and retry your patch.",
+          "This plan was updated by someone else while your change was being saved. Reload the plan and retry.",
         );
       }
 

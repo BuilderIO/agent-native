@@ -35,8 +35,8 @@ const HELP = `agent-native skills
 
 Usage:
   agent-native skills list
-  agent-native skills status [assets|design-exploration|visual-plan|visual-recap] [--client codex|claude-code|all] [--scope user|project] [--json]
-  agent-native skills update [assets|design-exploration|visual-plan|visual-recap] [--client codex|claude-code|all] [--scope user|project] [--dry-run] [--json]
+  agent-native skills status [assets|design-exploration|visual-plan|visual-recap|context-xray] [--client codex|claude-code|all] [--scope user|project] [--json]
+  agent-native skills update [assets|design-exploration|visual-plan|visual-recap|context-xray] [--client codex|claude-code|all] [--scope user|project] [--dry-run] [--json]
   agent-native skills add assets|design-exploration|visual-plan|visual-recap|context-xray [--client codex|claude-code|claude-code-cli|cowork|all] [--scope user|project] [--mcp-url <url>] [--no-connect] [--with-github-action] [--yes] [--dry-run] [--json]
   agent-native skills add <manifest-or-app-dir> [--client ...] [--yes]
 
@@ -250,8 +250,12 @@ intended), so the first tool call does not hit an OAuth wall:
 agent-native skills add visual-plan
 \`\`\`
 
-After that, \`/visual-plan\` and \`/visual-recap\` generate plans and open the
-editor. Pass \`--no-connect\` to register the connector without authenticating, then run
+After that, \`/visual-plan\` and \`/visual-recap\` are the two installed slash
+commands. Other planning modes — UI-first (\`create-ui-plan\`), prototype-first
+(\`create-prototype-plan\`), design-first (\`create-plan-design\`), and visual
+intake (\`create-visual-questions\`) — are MCP tools reachable from \`/visual-plan\`,
+not separate slash commands. Pass \`--no-connect\` to register the connector
+without authenticating, then run
 \`agent-native connect https://plan.agent-native.com\` whenever you are ready.
 
 **Browser (people you share with).** Open the Plans editor and create & edit
@@ -1116,11 +1120,22 @@ ${EXEMPLAR_REFERENCE_POINTER}
 - \`get-plan-feedback\`: read unconsumed human feedback. Use it frequently; it
   returns grouped threads, exact anchor details, expected resolver, and recent
   review-event payloads so agents can act only on the comments meant for them.
+- \`get-plan-blocks\`: resolve block tags before authoring — do not memorize tags;
+  call this first to get the authoritative tag names, required fields, and prop
+  shapes from the live block registry.
 - \`export-visual-plan\`: export HTML, Markdown fallback, structured JSON, and MDX
   files for repo check-in.
 
 When the user critiques a plan's look or structure, fix the renderer or this
 skill — never hand-edit one stored plan. Turn feedback into better guidance.
+
+## Visibility & Sharing
+
+Use \`set-resource-visibility\` to change who can see a plan (e.g. public, login,
+or org-scoped). Use \`share-resource\` to grant specific users or roles access
+by email or role. Gate visibility before sharing any plan that covers
+unreleased or private work — default to the narrowest scope that meets the
+review need.
 
 ## Setup & Authentication
 
@@ -1135,8 +1150,12 @@ intended), so the first tool call does not hit an OAuth wall:
 agent-native skills add visual-plan
 \`\`\`
 
-After that, \`/visual-plan\` and \`/visual-recap\` generate plans and open the
-editor. Pass \`--no-connect\` to register the connector without authenticating, then run
+After that, \`/visual-plan\` and \`/visual-recap\` are the two installed slash
+commands. Other planning modes — UI-first (\`create-ui-plan\`), prototype-first
+(\`create-prototype-plan\`), design-first (\`create-plan-design\`), and visual
+intake (\`create-visual-questions\`) — are MCP tools reachable from \`/visual-plan\`,
+not separate slash commands. Pass \`--no-connect\` to register the connector
+without authenticating, then run
 \`agent-native connect https://plan.agent-native.com\` whenever you are ready.
 
 **Browser (people you share with).** Open the Plans editor and create & edit
@@ -1628,15 +1647,19 @@ inferred (not extracted) as inferred in prose.
   hardcoded-secret rule: obviously fake placeholders only, never the real value,
   in any block, caption, or note.
 
-## Bidirectional Loop (Fast-Follow)
+## Bidirectional Loop
 
 Because a recap is a real, editable plan, the same review loop as forward plans
 applies: a reviewer can annotate any block, and the coding agent reads
 \`get-plan-feedback\` to drive fixes back into the code — annotation → agent →
-diff, the same close-the-loop flow forward plans use. In v1, recaps are
-**read-only**: they summarize a merged or proposed change for review, and the
-annotate-to-fix loop is a fast-follow, not yet wired. Build the recap so the
-blocks are anchorable and the loop drops in later without restructuring.
+diff, the same close-the-loop flow forward plans use. After a reviewer annotates
+a block, call \`get-plan-feedback\` to read the structured feedback, then either
+update the recap with \`create-visual-recap\` (passing the existing \`planId\` to
+replace it in place) or apply targeted changes with \`update-visual-plan\`. The
+loop is live and wired. The one thing not yet automatic is PR-comment-triggered
+re-runs: the GitHub Action creates an initial recap per PR, but it does not yet
+re-run automatically when new review feedback is posted in GitHub — that
+auto-re-run is the remaining fast-follow.
 
 ## Related Skills
 

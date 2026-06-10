@@ -466,15 +466,19 @@ inferred (not extracted) as inferred in prose.
   hardcoded-secret rule: obviously fake placeholders only, never the real value,
   in any block, caption, or note.
 
-## Bidirectional Loop (Fast-Follow)
+## Bidirectional Loop
 
 Because a recap is a real, editable plan, the same review loop as forward plans
 applies: a reviewer can annotate any block, and the coding agent reads
 `get-plan-feedback` to drive fixes back into the code — annotation → agent →
-diff, the same close-the-loop flow forward plans use. In v1, recaps are
-**read-only**: they summarize a merged or proposed change for review, and the
-annotate-to-fix loop is a fast-follow, not yet wired. Build the recap so the
-blocks are anchorable and the loop drops in later without restructuring.
+diff, the same close-the-loop flow forward plans use. After a reviewer annotates
+a block, call `get-plan-feedback` to read the structured feedback, then either
+update the recap with `create-visual-recap` (passing the existing `planId` to
+replace it in place) or apply targeted changes with `update-visual-plan`. The
+loop is live and wired. The one thing not yet automatic is PR-comment-triggered
+re-runs: the GitHub Action creates an initial recap per PR, but it does not yet
+re-run automatically when new review feedback is posted in GitHub — that
+auto-re-run is the remaining fast-follow.
 
 ## Related Skills
 
