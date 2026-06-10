@@ -103,49 +103,6 @@ function prometheusMetricPanel({
   };
 }
 
-function prometheusSeriesPanel({
-  id,
-  title,
-  promql,
-  description,
-  yFormatter,
-  chartType = "line",
-  width = 2,
-  range = "6h",
-  step = "1m",
-}: {
-  id: string;
-  title: string;
-  promql: string;
-  description: string;
-  yFormatter?: "number" | "percent";
-  chartType?: "line" | "area" | "bar";
-  width?: number;
-  range?: string;
-  step?: string;
-}) {
-  return {
-    id,
-    title,
-    chartType,
-    source: "prometheus" as const,
-    width,
-    sql: promPanelSql(promql, { range, step }),
-    config: {
-      xKey: "timestamp",
-      yKey: "value",
-      ...(yFormatter ? { yFormatter } : {}),
-      description,
-      pivot: {
-        xKey: "timestamp",
-        seriesKey: "series",
-        valueKey: "value",
-      },
-      legend: true,
-    },
-  };
-}
-
 type PrometheusChartPanelOptions = {
   id: string;
   title: string;
@@ -243,70 +200,6 @@ function prometheusTablePanel({
         { key: "value", label: "Value", format: "number" },
       ],
     },
-  };
-}
-
-function buildNodeExporterEssentials(): SqlDashboardConfig {
-  return {
-    name: "Node Exporter Essentials",
-    description:
-      "Host availability, CPU, memory, disk, and network health from Prometheus node_exporter metrics.",
-    columns: 2,
-    panels: [
-      prometheusMetricPanel({
-        id: "hosts-reporting",
-        title: "Hosts Reporting",
-        promql: "count(node_uname_info)",
-        description: "Instances with node_uname_info",
-      }),
-      prometheusMetricPanel({
-        id: "cpu-used",
-        title: "CPU Used",
-        promql: '1 - avg(rate(node_cpu_seconds_total{mode="idle"}[5m]))',
-        description: "Average non-idle CPU over 5 minutes",
-        yFormatter: "percent",
-      }),
-      prometheusMetricPanel({
-        id: "memory-used",
-        title: "Memory Used",
-        promql:
-          "1 - (sum(node_memory_MemAvailable_bytes) / sum(node_memory_MemTotal_bytes))",
-        description: "Cluster memory utilization",
-        yFormatter: "percent",
-      }),
-      prometheusMetricPanel({
-        id: "disk-used",
-        title: "Disk Used",
-        promql:
-          '1 - (sum(node_filesystem_avail_bytes{fstype!~"tmpfs|overlay|squashfs|ramfs"}) / sum(node_filesystem_size_bytes{fstype!~"tmpfs|overlay|squashfs|ramfs"}))',
-        description: "Non-ephemeral filesystem utilization",
-        yFormatter: "percent",
-      }),
-      prometheusSeriesPanel({
-        id: "cpu-by-instance",
-        title: "CPU Usage by Instance",
-        promql:
-          '1 - avg by (instance) (rate(node_cpu_seconds_total{mode="idle"}[5m]))',
-        description: "Non-idle CPU by instance",
-        yFormatter: "percent",
-      }),
-      prometheusSeriesPanel({
-        id: "memory-by-instance",
-        title: "Memory Usage by Instance",
-        promql:
-          "1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)",
-        description: "Memory utilization by instance",
-        yFormatter: "percent",
-      }),
-      prometheusSeriesPanel({
-        id: "network-receive",
-        title: "Network Receive",
-        promql:
-          'sum by (instance) (rate(node_network_receive_bytes_total{device!~"lo|veth.*|docker.*|br-.*"}[5m]))',
-        description: "Receive bytes per second by instance",
-        chartType: "area",
-      }),
-    ],
   };
 }
 
@@ -1022,20 +915,6 @@ export const dashboardCatalogEntries: DashboardCatalogEntry[] = [
     panelCount: 7,
     version: CATALOG_VERSION,
     buildConfig: () => seedConfig("google-analytics"),
-  },
-  {
-    id: "node-exporter-essentials",
-    name: "Node Exporter Essentials",
-    description:
-      "A compact Prometheus host health dashboard for the metrics most teams check first.",
-    category: "Observability",
-    defaultDashboardId: "node-exporter-essentials",
-    dataSources: ["prometheus"],
-    tags: ["prometheus", "node_exporter", "hosts"],
-    panelCount: 7,
-    version: CATALOG_VERSION,
-    recommended: true,
-    buildConfig: buildNodeExporterEssentials,
   },
   {
     id: "node-exporter-macos",
