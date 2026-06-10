@@ -91,6 +91,31 @@ The workflow uses the plain `pull_request` trigger, **not** `pull_request_target
 
 This also means you can merge the workflow file **before** the secrets exist: with no token configured, every run is a quiet no-op until you set the secrets.
 
+## Local-files privacy mode
+
+The GitHub Action is designed for hosted, shareable PR review. If you want a
+recap without sending recap content to the Agent-Native Plan database, run the
+same helper flow locally in local-files mode instead:
+
+```bash
+agent-native recap collect-diff --base main --head HEAD --out recap.diff --stat recap.stat
+agent-native recap scan --diff recap.diff
+agent-native recap build-prompt --pr 123 --diff recap.diff --stat recap.stat --local-files --local-dir plans/pr-123-visual-recap
+```
+
+Give the generated `recap-prompt.md` to your coding agent. In local-files mode
+the prompt instructs the agent to write `plans/pr-123-visual-recap/plan.mdx`
+plus optional visual files and then run:
+
+```bash
+agent-native plan local preview --dir plans/pr-123-visual-recap --kind recap
+```
+
+The returned `file://` preview, or `/local-plans/pr-123-visual-recap` in a local
+Plan app using the same `PLAN_LOCAL_DIR`, is the review link. This mode disables
+the hosted sticky PR comment, inline screenshot upload, usage attachment, and
+browser comments until you explicitly publish.
+
 ## It's informational, not a gate
 
 The recap is a review aid layered on top of the normal PR flow:

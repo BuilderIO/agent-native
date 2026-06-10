@@ -19,6 +19,41 @@ schema, API, file, and architecture changes become the same `data-model`,
 now they summarize work that exists. A reviewer scans the shape of the change
 before spending attention on the literal lines.
 
+## Local-Files Privacy Mode Exception
+
+Use local-files privacy mode when the user explicitly asks for no DB writes,
+no hosted Plan app, no Plan MCP publish, fully local files, offline/private
+recaps, or when `AGENT_NATIVE_PLANS_MODE=local-files` is set. This is the only
+exception to the hosted publish rule below.
+
+In local-files mode:
+
+- Read the diff/stat/source context from local files and shell commands only.
+  The existing `agent-native recap collect-diff`, `scan`, and
+  `build-prompt --local-files` helpers are safe to use because they operate on
+  local files and do not write to the Plan database.
+- Write the recap as a local MDX folder under `plans/<slug>/`: `plan.mdx`,
+  optional `canvas.mdx`, optional `prototype.mdx`, and optional
+  `.plan-state.json`. Set `kind: "recap"` and `localOnly: true` in
+  frontmatter/state when authoring the source.
+- Run `agent-native plan local preview --dir plans/<slug> --kind recap` after
+  writing or updating the folder. Report the returned local URL or the
+  `/local-plans/<slug>` route if the local Plan app is running with the same
+  `PLAN_LOCAL_DIR`.
+- Do **not** call `create-visual-recap`, `create-visual-plan`,
+  `import-visual-plan-source`, `update-visual-plan`,
+  `patch-visual-plan-source`, `get-plan-feedback`, `export-visual-plan`,
+  `set-resource-visibility`, or any hosted Plan tool for that recap.
+- Treat review feedback as file or chat feedback: update the MDX files directly,
+  rerun the local preview command, and summarize the new local URL/path.
+  Hosted comments, sharing, screenshots, usage attachment, and PR sticky comment
+  publishing are unavailable until the user explicitly opts into publishing.
+
+Local-files mode prevents recap content from going to the Agent-Native Plan
+database. It does not by itself make the coding agent's language model local;
+for that stronger privacy boundary, the host agent/model must also be local or
+otherwise approved by the user.
+
 ## Always Publish As An Agent-Native Plan — Never Inline
 
 The deliverable is ALWAYS a published Agent-Native Plan, created with the
@@ -29,7 +64,8 @@ entire value is the hosted, interactive, annotatable plan; an inline summary is
 not a recap, it is the thing a recap replaces. The only supported output is to
 publish the plan and return its absolute URL.
 
-If the `plan` MCP server's tools are not available, do NOT improvise an inline
+Except for the explicit local-files privacy mode above, if the `plan` MCP
+server's tools are not available, do NOT improvise an inline
 recap as a fallback. The usual cause is a connector that did not finish
 connecting this session (it registers zero tools), NOT necessarily an auth
 problem — so do not assume the user must authenticate. Stop and tell the user
@@ -374,6 +410,11 @@ overlaps another element, fix the MDX and re-import before reporting the link. A
 text-match screenshot is not enough; visually inspect the captured image.
 
 ## Open And Report The Recap
+
+In local-files privacy mode, report the local preview URL/path from
+`agent-native plan local preview` or the `/local-plans/<slug>` route for a local
+Plan app using the same `PLAN_LOCAL_DIR`. Do not invent a hosted URL and do not
+publish just to get an absolute Plan link.
 
 After creating the recap, link the reviewer to the rendered plan with an
 **absolute URL on the origin whose database actually holds the plan**. That

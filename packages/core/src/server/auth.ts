@@ -68,6 +68,7 @@ import {
   isPostgres,
   intType,
   retryOnDdlRace,
+  describeDbError,
 } from "../db/client.js";
 import { getBetterAuth, getBetterAuthSync } from "./better-auth-instance.js";
 import type { BetterAuthConfig } from "./better-auth-instance.js";
@@ -2660,8 +2661,15 @@ async function mountBetterAuthRoutes(
       }
       _desktopExchanges.delete(flowId);
       // Also wipe the DB-persisted entry so it cannot be replayed via the
-      // DB fallback path after in-memory consumption.
-      void removeSession(`dex:${flowId}`);
+      // DB fallback path after in-memory consumption. Best-effort: a dropped
+      // Neon WebSocket rejects with a raw ErrorEvent, and a floating
+      // rejection here surfaces as an unhandled promise rejection.
+      removeSession(`dex:${flowId}`).catch((err) => {
+        console.warn(
+          "[auth] desktop-exchange DB cleanup failed:",
+          describeDbError(err),
+        );
+      });
       if ("error" in entry) {
         logGoogleOAuthDebug(event, "exchange-error", {
           flowId,

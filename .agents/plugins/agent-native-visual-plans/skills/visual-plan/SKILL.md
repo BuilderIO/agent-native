@@ -79,6 +79,37 @@ plan needs a richer review surface.
   update the plan with `update-visual-plan` rather than only changing course in
   chat, and re-read the approved plan before major steps.
 
+## Local-Files Privacy Mode
+
+Use local-files privacy mode when the user explicitly asks for no DB writes,
+no hosted Plan app, no Plan MCP publish, fully local files, offline/private
+planning, or when `AGENT_NATIVE_PLANS_MODE=local-files` is set. In this mode the
+plan data must never be sent to the Plan MCP server or Plan app action surface.
+
+The local-files contract is:
+
+- Read source context from local files and shell commands only.
+- Write the plan as a local MDX folder under `plans/<slug>/`: `plan.mdx`,
+  optional `canvas.mdx`, optional `prototype.mdx`, and optional
+  `.plan-state.json`.
+- Run `agent-native plan local preview --dir plans/<slug> --kind plan` after
+  writing or updating the folder. Report the returned local URL or the
+  `/local-plans/<slug>` route if the local Plan app is running with the same
+  `PLAN_LOCAL_DIR`.
+- Do **not** call `create-visual-plan`, `create-ui-plan`,
+  `create-prototype-plan`, `create-plan-design`, `import-visual-plan-source`,
+  `update-visual-plan`, `patch-visual-plan-source`, `get-plan-feedback`,
+  `export-visual-plan`, or any hosted Plan tool for that plan.
+- Treat feedback as file or chat feedback: update the MDX files directly, rerun
+  the local preview command, and summarize the new local URL/path. Hosted
+  comments, sharing, history, and publish/export receipts are unavailable until
+  the user explicitly opts into publishing.
+
+Local-files mode prevents plan content from going to the Agent-Native Plan
+database. It does not by itself make the coding agent's language model local;
+for that stronger privacy boundary, the host agent/model must also be local or
+otherwise approved by the user.
+
 ## Core Workflow
 
 1. Follow the host agent's normal planning flow: inspect the codebase, delegate

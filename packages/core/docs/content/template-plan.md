@@ -162,6 +162,47 @@ Sharing and commenting are the workflows that need an account:
 The hosted Plans connector lives at `https://plan.agent-native.com/_agent-native/mcp`.
 Never put shared secrets in skill files.
 
+## Local-files privacy mode {#local-files}
+
+For privacy-focused work, ask for local-files mode:
+
+```text
+Use /visual-plan in local-files mode. Do not write this plan to the Plan DB.
+```
+
+or set the convention for your agent environment:
+
+```bash
+export AGENT_NATIVE_PLANS_MODE=local-files
+```
+
+In this mode the agent writes a local MDX folder under `plans/<slug>/` and must
+not call the hosted Plan MCP tools. The durable files are:
+
+- `plan.mdx`
+- optional `canvas.mdx`
+- optional `prototype.mdx`
+- optional `.plan-state.json`
+
+After writing the folder, the agent validates and previews it locally:
+
+```bash
+agent-native plan local preview --dir plans/<slug> --kind plan
+```
+
+If you run the Plan app locally with the same `PLAN_LOCAL_DIR`, you can open the
+read-only app route:
+
+```text
+http://localhost:<port>/local-plans/<slug>
+```
+
+Local-files mode prevents plan or recap content from going to the Agent-Native
+Plan database. It also disables hosted sharing, browser comments, plan history,
+and publish/export receipts until you explicitly opt into publishing. It does
+not automatically make your coding agent's LLM local; choose a local or approved
+model if that privacy boundary matters too.
+
 ## Useful prompts
 
 - "Use `/visual-plan` before changing the auth flow."
@@ -169,6 +210,7 @@ Never put shared secrets in skill files.
 - "Use `/visual-plan` on the Markdown plan below and make it easier to review."
 - "Run `/visual-recap` on this PR so I can review the shape of the change first."
 - "Use `/visual-recap` on the diff between `main` and this branch."
+- "Use `/visual-recap` in local-files mode so no recap content is written to the Plan DB."
 
 ## Recovering from auth errors {#auth-errors}
 
@@ -205,7 +247,9 @@ persistence, or running a fully self-hosted review surface.
 For fully offline, no-account use, you can run the Plans app locally and sync
 your plans to your repo as MDX. This local mode is a separate, advanced path —
 not the default hosted flow — and is best when you need everything to stay on
-your machine and in version control.
+your machine and in version control. For the stricter no-DB path, use
+[local-files privacy mode](#local-files), which reads from MDX folders instead
+of creating local SQL rows.
 
 ## What's next
 

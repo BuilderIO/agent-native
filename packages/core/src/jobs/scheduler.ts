@@ -160,13 +160,20 @@ function subscribeToJobsResourceEvents(): void {
   if (_emitterSubscribed) return;
   _emitterSubscribed = true;
   // Lazy import to avoid circular deps at module load
-  void import("../resources/emitter.js").then(({ getResourcesEmitter }) => {
-    getResourcesEmitter().on("resources", (event: any) => {
-      if (typeof event?.path === "string" && event.path.startsWith("jobs/")) {
-        _hasJobsCache = undefined;
-      }
+  import("../resources/emitter.js")
+    .then(({ getResourcesEmitter }) => {
+      getResourcesEmitter().on("resources", (event: any) => {
+        if (typeof event?.path === "string" && event.path.startsWith("jobs/")) {
+          _hasJobsCache = undefined;
+        }
+      });
+    })
+    .catch((err) => {
+      console.warn(
+        "[jobs] resource-event subscription failed:",
+        err instanceof Error ? err.message : err,
+      );
     });
-  });
 }
 
 /**

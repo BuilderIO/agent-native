@@ -250,13 +250,13 @@
 .plan-document-flow > .plan-questions-block,
 .plan-document-flow > .an-block-panel,
 .plan-document-flow > .plan-block-node {
-  margin-top: 3.25rem;
+  margin-top: 1.25rem;
 }
 
 /* The header already owns a bottom divider + spacing; the first block sits a
  * touch closer to it (no need for the full inter-block gap). */
 .plan-document-flow > :first-child {
-  margin-top: 2.25rem;
+  margin-top: 1rem;
 }
 
 /* A RUN of consecutive `api-endpoint` blocks reads as ONE tight, scannable list
@@ -668,22 +668,22 @@
 }
 
 .plan-rich-markdown-editor .an-rich-md-prose h1 {
-  margin: 2.2rem 0 0.85rem;
+  margin: 3rem 0 0.85rem;
   font-size: 1.75rem;
 }
 
 .plan-rich-markdown-editor .an-rich-md-prose h2 {
-  margin: 2rem 0 0.75rem;
+  margin: 2.5rem 0 0.75rem;
   font-size: 1.45rem;
 }
 
 .plan-rich-markdown-editor .an-rich-md-prose h3 {
-  margin: 1.6rem 0 0.6rem;
+  margin: 2rem 0 0.6rem;
   font-size: 1.2rem;
 }
 
 .plan-rich-markdown-editor .an-rich-md-prose h4 {
-  margin: 1.3rem 0 0.5rem;
+  margin: 1.5rem 0 0.5rem;
   font-size: 1.05rem;
 }
 

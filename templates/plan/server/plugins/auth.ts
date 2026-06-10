@@ -18,6 +18,7 @@ const LOCAL_MODE_ACTION_PATHS: string[] = isLocalPlanRuntime()
       "/_agent-native/actions/import-visual-plan-source",
       "/_agent-native/actions/restore-plan-version",
       "/_agent-native/actions/list-visual-plans",
+      "/_agent-native/actions/get-local-plan-folder",
       "/_agent-native/actions/navigate",
       "/_agent-native/actions/view-screen",
     ]
@@ -38,7 +39,13 @@ export default createAuthPlugin({
   workspaceAppAudience: "internal",
   // Public review links can load without a session. Plan creation stays behind
   // auth so the UI does not create placeholder plans for signed-out visitors.
-  workspaceAppPublicPaths: ["/", "/plans", "/plans/plan_", "/recaps"],
+  workspaceAppPublicPaths: [
+    "/",
+    "/plans",
+    "/plans/plan_",
+    "/recaps",
+    "/local-plans",
+  ],
   publicPaths: [
     ...PUBLIC_PLAN_ACTION_PATHS,
     ...LOCAL_MODE_ACTION_PATHS,
