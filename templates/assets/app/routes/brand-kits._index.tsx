@@ -3,7 +3,7 @@ import { useMemo, useState } from "react";
 import { useActionMutation, useActionQuery } from "@agent-native/core/client";
 import { toast } from "sonner";
 import {
-  IconLibraryPhoto,
+  IconPalette,
   IconPhotoPlus,
   IconSearch,
 } from "@tabler/icons-react";
@@ -124,7 +124,7 @@ export default function BrandKitsIndexPage() {
         ) : (
           <div className="p-6">
             <div className="mx-auto max-w-2xl text-center">
-              <IconLibraryPhoto className="mx-auto h-10 w-10 text-muted-foreground" />
+              <IconPalette className="mx-auto h-10 w-10 text-muted-foreground" />
               <h3 className="mt-4 text-base font-semibold">
                 No brand kits yet
               </h3>
