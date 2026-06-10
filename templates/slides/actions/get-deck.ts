@@ -46,12 +46,12 @@ export default defineAction({
   },
   run: async (args) => {
     if (!args.id) {
-      return "Error: --id is required.";
+      throw new Error("--id is required.");
     }
 
     const access = await resolveAccess("deck", args.id);
     if (!access) {
-      return "Error: Deck not found";
+      throw new Error("Deck not found");
     }
 
     const row = access.resource;

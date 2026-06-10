@@ -31,7 +31,7 @@ export default defineAction({
   http: false,
   run: async (args) => {
     if (!args.view && !args.deckId) {
-      return "Error: At least --view or --deckId is required.";
+      throw new Error("At least --view or --deckId is required.");
     }
     const nav: Record<string, string | number> = {};
     if (args.view) nav.view = args.view;

@@ -14,7 +14,7 @@ export default defineAction({
   run: async ({ id }) => {
     const access = await resolveAccess("design-system", id);
     if (!access) {
-      return "Error: Design system not found";
+      throw new Error("Design system not found");
     }
 
     const row = access.resource;

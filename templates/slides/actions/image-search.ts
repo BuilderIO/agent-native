@@ -15,14 +15,16 @@ export default defineAction({
   run: async (args) => {
     const query = args.query;
     if (!query) {
-      return "Error: --query is required";
+      throw new Error("--query is required");
     }
 
     const apiKey = process.env.GOOGLE_API_KEY;
     const cx = process.env.GOOGLE_SEARCH_CX;
 
     if (!apiKey || !cx) {
-      return "Error: GOOGLE_API_KEY and GOOGLE_SEARCH_CX environment variables are required.";
+      throw new Error(
+        "GOOGLE_API_KEY and GOOGLE_SEARCH_CX environment variables are required.",
+      );
     }
 
     const count = Math.min(args.count ?? 10, 10);
@@ -41,7 +43,7 @@ export default defineAction({
     );
     if (!response.ok) {
       const text = await response.text();
-      return `Google API error: ${text}`;
+      throw new Error(`Google API error: ${text}`);
     }
 
     const data = await response.json();
