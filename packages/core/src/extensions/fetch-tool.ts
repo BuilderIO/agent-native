@@ -281,7 +281,7 @@ export function createFetchToolEntry(
           // saveToFile: write full body to workspace and return compact summary.
           if (saveToFilePath) {
             try {
-              const { writeWorkspaceFile } =
+              const { writeWorkspaceFile, SAVE_TO_FILE_MAX_BYTES } =
                 await import("../workspace-files/store.js");
               const { getRequestOrgId, getRequestUserEmail } =
                 await import("../server/request-context.js");
@@ -302,6 +302,9 @@ export function createFetchToolEntry(
                 saveToFilePath,
                 body,
                 contentType,
+                {
+                  maxFileBytes: SAVE_TO_FILE_MAX_BYTES,
+                },
               );
               const bytes = Buffer.byteLength(body, "utf8");
               const preview = body.slice(0, 2000);

@@ -97,21 +97,27 @@ export interface WorkspaceFileMeta {
 
 /**
  * Write (create or overwrite) a workspace file.
- * Enforces per-file (2 MB) and per-scope (200 MB) caps.
+ * Enforces per-file (2 MB default; `saveToFile` callers may raise it up to
+ * 20 MB via `opts.maxFileBytes`) and per-scope (200 MB) caps.
  */
 export async function writeWorkspaceFile(
   scope: WorkspaceFilesScope,
   path: string,
   content: string,
   contentType = "text/plain",
+  opts?: { maxFileBytes?: number },
 ): Promise<WorkspaceFileMeta> {
   const pathErr = validatePath(path);
   if (pathErr) throw new Error(`Invalid path: ${pathErr}`);
 
+  const maxFileBytes = Math.min(
+    opts?.maxFileBytes ?? MAX_FILE_BYTES,
+    SAVE_TO_FILE_MAX_BYTES,
+  );
   const bytes = Buffer.byteLength(content, "utf8");
-  if (bytes > MAX_FILE_BYTES) {
+  if (bytes > maxFileBytes) {
     throw new Error(
-      `File "${path}" would be ${(bytes / 1024 / 1024).toFixed(2)} MB, which exceeds the 2 MB per-file limit.`,
+      `File "${path}" would be ${(bytes / 1024 / 1024).toFixed(2)} MB, which exceeds the ${(maxFileBytes / 1024 / 1024).toFixed(0)} MB per-file limit.`,
     );
   }
 

@@ -36,6 +36,8 @@ const DEFAULT_TIMEOUT_MS = 120_000;
 const MAX_TIMEOUT_MS = 600_000;
 const DEFAULT_MAX_OUTPUT_CHARS = 50_000;
 const MAX_OUTPUT_CHARS = 200_000;
+/** Hard cap on bridge request bodies so sandboxed code can't exhaust parent memory. */
+const BRIDGE_MAX_BODY_BYTES = 10 * 1024 * 1024;
 
 /**
  * Resolve the Node permission-model flag supported by the current runtime,
@@ -314,10 +316,21 @@ async function startBridgeServer(
     }
 
     let body = "";
+    let receivedBytes = 0;
+    let rejected = false;
     req.on("data", (chunk: Buffer) => {
+      receivedBytes += chunk.length;
+      if (receivedBytes > BRIDGE_MAX_BODY_BYTES) {
+        rejected = true;
+        res.writeHead(413);
+        res.end("Payload too large");
+        req.destroy();
+        return;
+      }
       body += chunk.toString();
     });
     req.on("end", () => {
+      if (rejected) return;
       handleBridgeRequest(
         body,
         actions,
@@ -482,10 +495,22 @@ async function providerFetch(provider, apiPath, init = {}) {
     ...(init.headers ? { headers: typeof init.headers === "string" ? init.headers : JSON.stringify(init.headers) } : {}),
   });
   // rawResult is the action's string output; parse it if it looks like JSON
-  if (typeof rawResult === "string") {
-    try { return JSON.parse(rawResult); } catch { return rawResult; }
+  let parsed = rawResult;
+  if (typeof parsed === "string") {
+    try { parsed = JSON.parse(parsed); } catch { return parsed; }
   }
-  return rawResult;
+  // Unwrap the provider-api-request envelope ({ provider, request, response, guidance })
+  // so callers get the actual response body. fetchAllPages / saveToFile results
+  // (which have no \`response\` field) are returned as-is.
+  if (parsed && typeof parsed === "object" && parsed.response && typeof parsed.response === "object") {
+    const r = parsed.response;
+    if (typeof r.status === "number" && r.status >= 400) {
+      const detail = typeof r.text === "string" ? r.text : JSON.stringify(r.json ?? "");
+      throw new Error(\`Provider request failed (\${r.status}): \${String(detail).slice(0, 500)}\`);
+    }
+    return r.json !== undefined ? r.json : r.text;
+  }
+  return parsed;
 }
 
 /**
@@ -563,9 +588,10 @@ async function workspaceList(prefix) {
     action: "list",
     ...(prefix ? { path: prefix } : {}),
   });
-  let parsed;
-  try { parsed = typeof rawResult === "string" ? JSON.parse(rawResult) : rawResult; } catch { return []; }
-  return parsed && Array.isArray(parsed.files) ? parsed.files : [];
+  const parsed = typeof rawResult === "string" ? JSON.parse(rawResult) : rawResult;
+  if (parsed && Array.isArray(parsed.files)) return parsed.files;
+  if (Array.isArray(parsed)) return parsed;
+  throw new Error("workspaceList: unexpected result shape: " + JSON.stringify(parsed).slice(0, 200));
 }
 
 // Run user code
