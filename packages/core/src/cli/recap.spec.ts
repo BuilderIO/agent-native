@@ -10,12 +10,14 @@ import {
   buildRecapClaudeMcpConfig,
   buildRecapCodexMcpConfig,
   buildRecapPrompt,
+  canonicalRecapUrl,
   classifyDiff,
   diffContainsSecret,
   evaluateRecapGate,
   isRecapSensitivePath,
   parseClaudeUsage,
   parseCodexUsage,
+  recapCheckOutcome,
   truncateDiffAtLineBoundary,
 } from "./recap.js";
 import type { RecapGateInput } from "./recap.js";
@@ -219,6 +221,27 @@ describe("recap prompt builder", () => {
     });
     expect(prompt).toContain('planId: "plan-deadbeef"');
     expect(prompt).toMatch(/REPLACES/i);
+  });
+
+  it("can build a DB-free local-files prompt instead of a publish prompt", () => {
+    const prompt = buildRecapPrompt({
+      skillMd,
+      pr: "42",
+      appUrl: "https://plan.agent-native.com",
+      diffPath: "recap.diff",
+      localFiles: true,
+      localDir: "plans/private-recap",
+    });
+
+    expect(prompt).toContain("local-files privacy mode");
+    expect(prompt).toContain("plans/private-recap");
+    expect(prompt).toContain("agent-native plan local preview");
+    expect(prompt).toContain("recap-url.txt");
+    expect(prompt).not.toContain("mcp__plan__create-visual-recap");
+    expect(prompt).not.toContain("set-resource-visibility");
+    expect(prompt).not.toContain(
+      "https://plan.agent-native.com/recaps/<the returned plan id>",
+    );
   });
 });
 
@@ -612,14 +635,164 @@ describe("recap sensitive-path guard", () => {
   });
 });
 
+describe("recap check — canonicalRecapUrl", () => {
+  const app = "https://plan.agent-native.com";
+
+  it("canonicalizes a recap URL on a root-mounted app", () => {
+    expect(canonicalRecapUrl(`${app}/recaps/abc123`, app)).toBe(
+      `${app}/recaps/abc123`,
+    );
+  });
+
+  it("canonicalizes a /plans/<id> URL to /recaps/<id>", () => {
+    expect(canonicalRecapUrl(`${app}/plans/abc123`, app)).toBe(
+      `${app}/recaps/abc123`,
+    );
+  });
+
+  it("honors a path-prefixed mount by stripping the trusted base", () => {
+    const mounted = "https://host.example.com/agent-native";
+    expect(canonicalRecapUrl(`${mounted}/recaps/xyz_9`, mounted)).toBe(
+      "https://host.example.com/agent-native/recaps/xyz_9",
+    );
+  });
+
+  it("tolerates a trailing slash on the recap path", () => {
+    expect(canonicalRecapUrl(`${app}/recaps/abc123/`, app)).toBe(
+      `${app}/recaps/abc123`,
+    );
+  });
+
+  it("returns '' for a wrong origin", () => {
+    expect(canonicalRecapUrl("https://evil.example.com/recaps/abc", app)).toBe(
+      "",
+    );
+  });
+
+  it("returns '' for an unrecognized path or unparseable URL", () => {
+    expect(canonicalRecapUrl(`${app}/not-a-recap/abc`, app)).toBe("");
+    expect(canonicalRecapUrl(`${app}/recaps/`, app)).toBe("");
+    expect(canonicalRecapUrl("not a url", app)).toBe("");
+  });
+});
+
+describe("recap check — outcome mapper", () => {
+  const app = "https://plan.agent-native.com";
+  const workflowUrl = "https://github.com/o/r/actions/runs/1";
+  const base = {
+    planOk: false,
+    planUrl: "",
+    appUrl: app,
+    huge: false,
+    tiny: false,
+    suppressed: false,
+    suppressedJson: "",
+    workflowUrl,
+  };
+
+  it("success: a valid published recap URL", () => {
+    const out = recapCheckOutcome({
+      ...base,
+      planOk: true,
+      planUrl: `${app}/recaps/abc123`,
+    });
+    expect(out.conclusion).toBe("success");
+    expect(out.title).toBe("Visual recap ready");
+    expect(out.summary).toBe(
+      "A visual code-review recap was generated for this PR.",
+    );
+    expect(out.detailsUrl).toBe(`${app}/recaps/abc123`);
+    expect(out.text).toBe(`**[Open visual recap](${app}/recaps/abc123)**`);
+  });
+
+  it("success: a huge diff gets the summarized summary", () => {
+    const out = recapCheckOutcome({
+      ...base,
+      planOk: true,
+      huge: true,
+      planUrl: `${app}/plans/abc123`,
+    });
+    expect(out.conclusion).toBe("success");
+    expect(out.summary).toBe(
+      "A summarized visual recap was generated for this large PR.",
+    );
+    // /plans/<id> is canonicalized to /recaps/<id>.
+    expect(out.detailsUrl).toBe(`${app}/recaps/abc123`);
+  });
+
+  it("published-fallback: ok but the URL fails origin validation", () => {
+    const out = recapCheckOutcome({
+      ...base,
+      planOk: true,
+      planUrl: "https://evil.example.com/recaps/abc123",
+    });
+    expect(out.conclusion).toBe("neutral");
+    expect(out.title).toBe("Visual recap published");
+    expect(out.summary).toBe(
+      "A recap was published; see the visual recap comment on this PR for the link.",
+    );
+    expect(out.detailsUrl).toBe(workflowUrl);
+    expect(out.text).toBe("");
+  });
+
+  it("tiny: skipped", () => {
+    const out = recapCheckOutcome({ ...base, tiny: true });
+    expect(out.conclusion).toBe("skipped");
+    expect(out.title).toBe("Visual recap skipped");
+    expect(out.summary).toBe("The diff is too small to need a visual recap.");
+    expect(out.detailsUrl).toBe(workflowUrl);
+  });
+
+  it("suppressed: skipped with the parsed reason", () => {
+    const out = recapCheckOutcome({
+      ...base,
+      suppressed: true,
+      suppressedJson: JSON.stringify({
+        suppressed: true,
+        reason: "leaked AWS key",
+      }),
+    });
+    expect(out.conclusion).toBe("skipped");
+    expect(out.title).toBe("Visual recap suppressed");
+    expect(out.summary).toBe("No recap was published because leaked AWS key.");
+  });
+
+  it("suppressed: falls back to the default reason on bad JSON", () => {
+    const out = recapCheckOutcome({
+      ...base,
+      suppressed: true,
+      suppressedJson: "{not json",
+    });
+    expect(out.conclusion).toBe("skipped");
+    expect(out.summary).toBe(
+      "No recap was published because potential secret in diff.",
+    );
+  });
+
+  it("default: neutral 'not generated' when nothing matched", () => {
+    const out = recapCheckOutcome({ ...base });
+    expect(out.conclusion).toBe("neutral");
+    expect(out.title).toBe("Visual recap not generated");
+    expect(out.summary).toBe(
+      "The visual recap did not produce a plan URL. This is informational only and does not block the PR.",
+    );
+    expect(out.detailsUrl).toBe(workflowUrl);
+    expect(out.text).toBe("");
+  });
+});
+
 describe("bundled PR visual recap workflow", () => {
-  it("creates an informational check run while the recap is running", () => {
+  it("drives the Visual Recap check run through the recap CLI", () => {
+    // The recap job still needs check-write permission…
     expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain("checks: write");
-    expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain("name: 'Visual Recap'");
-    expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain("github.rest.checks.create");
-    expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain("github.rest.checks.update");
+    // …but the start/complete check-run logic now lives in `recap check`, not in
+    // an inline github-script step.
+    expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain("recap check start");
+    expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain("recap check complete");
+    expect(PR_VISUAL_RECAP_WORKFLOW_YML).not.toContain("github.rest.checks");
+    // The completed-check step is gated on a created check id and best-effort.
     expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain(
-      "title: 'Review in progress'",
+      "steps.recap_check.outputs.check_run_id != ''",
     );
   });
 });

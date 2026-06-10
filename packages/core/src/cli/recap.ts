@@ -412,13 +412,23 @@ export function buildRecapPrompt(input: {
   statPath?: string;
   prevPlanId?: string;
   huge?: boolean;
+  localFiles?: boolean;
+  localDir?: string;
 }): string {
   const appUrl = input.appUrl.replace(/\/$/, "");
+  const localDir =
+    input.localDir ?? path.join("plans", `pr-${input.pr}-visual-recap`);
   const lines: string[] = [];
-  lines.push("# Task: publish a Visual Recap of this pull request");
+  lines.push(
+    input.localFiles
+      ? "# Task: create a DB-free local Visual Recap of this pull request"
+      : "# Task: publish a Visual Recap of this pull request",
+  );
   lines.push("");
   lines.push(
-    `You are running non-interactively in CI. Follow the **visual-recap skill** included verbatim below to turn this PR's diff into a grounded Agent-Native Plan, then publish it.`,
+    input.localFiles
+      ? `You are running non-interactively in local-files privacy mode. Follow the **visual-recap skill** included verbatim below to turn this PR's diff into a grounded Agent-Native Plan MDX folder, but do not publish it or call any Plan MCP/action write tool.`
+      : `You are running non-interactively in CI. Follow the **visual-recap skill** included verbatim below to turn this PR's diff into a grounded Agent-Native Plan, then publish it.`,
   );
   lines.push("");
   lines.push("## Inputs (read them from disk with your Read tool)");
@@ -439,23 +449,45 @@ export function buildRecapPrompt(input: {
     );
   }
   lines.push("");
-  lines.push("## Publish (this is the only way to produce output)");
-  lines.push(
-    `The \`plan\` MCP server is configured for you. Call its tools by name (your host may expose them as \`create-visual-recap\` or \`mcp__plan__create-visual-recap\` — same tool).`,
-  );
-  lines.push(
-    `1. Call the **create-visual-recap** tool on the \`plan\` MCP server with grounded MDX derived ONLY from the real diff${
-      input.prevPlanId
-        ? `, passing \`planId: "${input.prevPlanId}"\` so this REPLACES the existing recap plan`
-        : ""
-    }.`,
-  );
-  lines.push(
-    `2. Call the **set-resource-visibility** tool on the \`plan\` MCP server with \`{ resourceType: "plan", resourceId: <the returned plan id>, visibility: "org" }\` so the recap is login-gated to the org, never public.`,
-  );
-  lines.push(
-    `3. Write the plan URL to a file named \`recap-url.txt\` at the repo root, containing exactly one line: \`${appUrl}/recaps/<the returned plan id>\`. This file is the workflow's only hand-off — do not print anything else as the deliverable.`,
-  );
+  if (input.localFiles) {
+    lines.push(
+      "## Local-Files Output (this is the only way to produce output)",
+    );
+    lines.push(
+      "Do NOT call the `plan` MCP server, `create-visual-recap`, `import-visual-plan-source`, `update-visual-plan`, `export-visual-plan`, or any hosted Plan action. This mode exists so the recap data never goes to a Plan app database.",
+    );
+    lines.push(
+      `1. Create or replace the local MDX folder \`${localDir}\` with \`plan.mdx\` and optional \`canvas.mdx\`, \`prototype.mdx\`, and \`.plan-state.json\` derived ONLY from the real diff. Set \`kind: "recap"\` and \`localOnly: true\` in source metadata/state.`,
+    );
+    lines.push(
+      `2. Run \`agent-native plan local preview --dir ${JSON.stringify(
+        localDir,
+      )} --kind recap --out ${JSON.stringify(
+        path.join(localDir, "preview.html"),
+      )}\` to validate the folder and generate the local preview.`,
+    );
+    lines.push(
+      "3. Write the returned `url` from that command to `recap-url.txt` at the repo root, containing exactly one line. This file is the workflow's only hand-off.",
+    );
+  } else {
+    lines.push("## Publish (this is the only way to produce output)");
+    lines.push(
+      `The \`plan\` MCP server is configured for you. Call its tools by name (your host may expose them as \`create-visual-recap\` or \`mcp__plan__create-visual-recap\` — same tool).`,
+    );
+    lines.push(
+      `1. Call the **create-visual-recap** tool on the \`plan\` MCP server with grounded MDX derived ONLY from the real diff${
+        input.prevPlanId
+          ? `, passing \`planId: "${input.prevPlanId}"\` so this REPLACES the existing recap plan`
+          : ""
+      }.`,
+    );
+    lines.push(
+      `2. Call the **set-resource-visibility** tool on the \`plan\` MCP server with \`{ resourceType: "plan", resourceId: <the returned plan id>, visibility: "org" }\` so the recap is login-gated to the org, never public.`,
+    );
+    lines.push(
+      `3. Write the plan URL to a file named \`recap-url.txt\` at the repo root, containing exactly one line: \`${appUrl}/recaps/<the returned plan id>\`. This file is the workflow's only hand-off — do not print anything else as the deliverable.`,
+    );
+  }
   lines.push("");
   lines.push(
     "Do not invent file names, schema fields, or endpoints. Redact anything that looks like a secret. If the diff has no reviewable substance, still publish a minimal recap and write recap-url.txt.",
@@ -731,6 +763,8 @@ function runBuildPrompt(args: Record<string, string | boolean>): void {
     statPath: optionalArg(args, "stat"),
     prevPlanId: optionalArg(args, "prev-plan-id"),
     huge: args.huge === true || args.huge === "true",
+    localFiles: args["local-files"] === true || args["local-files"] === "true",
+    localDir: optionalArg(args, "local-dir"),
   });
   const out = optionalArg(args, "out") ?? "recap-prompt.md";
   fs.writeFileSync(path.resolve(out), prompt);
@@ -1206,6 +1240,270 @@ async function runGate(): Promise<void> {
 }
 
 /* -------------------------------------------------------------------------- */
+/* Check run — the "Visual Recap" GitHub check (was two inline github-script    */
+/* steps in the workflow's recap job).                                          */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Canonicalize the agent-written plan URL into a trusted recap URL, or "".
+ *
+ * recap-url.txt is produced by the (LLM) agent, so the raw URL is untrusted.
+ * This rebuilds a canonical `${origin}${base}/recaps/<id>` link from the TRUSTED
+ * app URL plus a strictly-validated plan id, enforcing the app origin and
+ * honoring a path-prefixed mount (e.g. https://host/agent-native). Returns ""
+ * for a wrong origin or an unrecognized path. Pure so it can be unit-tested —
+ * SAME impl as the workflow's previous inline `canonicalRecapUrl`.
+ */
+export function canonicalRecapUrl(rawUrl: string, appUrl: string): string {
+  try {
+    const parsed = new URL(rawUrl);
+    const trusted = new URL(appUrl || "https://plan.agent-native.com");
+    if (parsed.origin !== trusted.origin) return "";
+    // Honor a path-prefixed mount (e.g. https://host/agent-native): strip the
+    // trusted base path before matching /plans|recaps/<id>.
+    const base = trusted.pathname.replace(/\/$/, "");
+    let rest = parsed.pathname;
+    if (base && rest.startsWith(base)) rest = rest.slice(base.length);
+    const match = rest.match(/^\/(?:plans|recaps)\/([A-Za-z0-9_-]+)\/?$/);
+    return match ? `${trusted.origin}${base}/recaps/${match[1]}` : "";
+  } catch {
+    return "";
+  }
+}
+
+/** The signals that decide the completed "Visual Recap" check's conclusion. */
+export interface RecapCheckOutcomeInput {
+  /** steps.url.outputs.ok — the agent published a plan whose origin validated. */
+  planOk: boolean;
+  /** steps.url.outputs.plan_url — the (untrusted) agent-written plan URL. */
+  planUrl: string;
+  /** PLAN_RECAP_APP_URL — the trusted plan app origin/base. */
+  appUrl: string;
+  /** steps.diff.outputs.huge — the diff exceeded the byte cap (summarized). */
+  huge: boolean;
+  /** steps.diff.outputs.tiny — the diff was too small to recap. */
+  tiny: boolean;
+  /** steps.scan.outputs.suppressed — a secret pattern suppressed the recap. */
+  suppressed: boolean;
+  /** steps.scan.outputs.json — the raw scan JSON (carries the suppress reason). */
+  suppressedJson: string;
+  /** The Actions run URL, used as the default details_url. */
+  workflowUrl: string;
+}
+
+/** The completed-check fields PATCHed to the GitHub check run. */
+export interface RecapCheckOutcome {
+  conclusion: "neutral" | "success" | "skipped";
+  title: string;
+  summary: string;
+  text: string;
+  detailsUrl: string;
+}
+
+/**
+ * Map the workflow's terminal recap state to the completed check's
+ * conclusion/title/summary/text/details_url. Pure so it can be unit-tested —
+ * reproduces the workflow's previous inline branch logic EXACTLY:
+ *
+ * - default → neutral "Visual recap not generated"
+ * - planOk + valid recapUrl → success "Visual recap ready" (huge → "summarized"
+ *   summary), Open-recap link as text, details_url = recapUrl
+ * - planOk + invalid url → neutral "Visual recap published" (see the comment)
+ * - else tiny → skipped "Visual recap skipped"
+ * - else suppressed → skipped "Visual recap suppressed" (reason from scan JSON)
+ */
+export function recapCheckOutcome(
+  input: RecapCheckOutcomeInput,
+): RecapCheckOutcome {
+  let conclusion: RecapCheckOutcome["conclusion"] = "neutral";
+  let title = "Visual recap not generated";
+  let summary =
+    "The visual recap did not produce a plan URL. This is informational only and does not block the PR.";
+  let text = "";
+  let detailsUrl = input.workflowUrl;
+
+  if (input.planOk) {
+    const recapUrl = canonicalRecapUrl(input.planUrl, input.appUrl);
+    if (recapUrl) {
+      conclusion = "success";
+      title = "Visual recap ready";
+      summary = input.huge
+        ? "A summarized visual recap was generated for this large PR."
+        : "A visual code-review recap was generated for this PR.";
+      detailsUrl = recapUrl;
+      text = `**[Open visual recap](${recapUrl})**`;
+    } else {
+      // Agent reported success but the URL didn't validate against the trusted
+      // plan origin — don't claim "not generated"; the recap is linked in the
+      // sticky comment.
+      title = "Visual recap published";
+      summary =
+        "A recap was published; see the visual recap comment on this PR for the link.";
+    }
+  } else if (input.tiny) {
+    conclusion = "skipped";
+    title = "Visual recap skipped";
+    summary = "The diff is too small to need a visual recap.";
+  } else if (input.suppressed) {
+    let reason = "potential secret in diff";
+    try {
+      const parsed = JSON.parse(input.suppressedJson || "{}");
+      if (parsed && typeof parsed.reason === "string") reason = parsed.reason;
+    } catch {
+      // Keep the default reason.
+    }
+    conclusion = "skipped";
+    title = "Visual recap suppressed";
+    summary = `No recap was published because ${reason}.`;
+  }
+
+  return { conclusion, title, summary, text, detailsUrl };
+}
+
+function boolFlag(
+  args: Record<string, string | boolean>,
+  key: string,
+): boolean {
+  return args[key] === true || args[key] === "true";
+}
+
+/**
+ * `recap check start` — create the in-progress "Visual Recap" GitHub check run
+ * and write its id to $GITHUB_OUTPUT (check_run_id). Best-effort: on any API
+ * error, warn on stderr and exit 0 (don't fail the job) without emitting an id.
+ * Replaces the workflow's inline "Start visual recap check" github-script step.
+ */
+async function runCheckStart(
+  args: Record<string, string | boolean>,
+): Promise<void> {
+  const repo = optionalArg(args, "repo") ?? process.env.GITHUB_REPOSITORY ?? "";
+  const sha = optionalArg(args, "sha") ?? process.env.HEAD_SHA ?? "";
+  const token =
+    optionalArg(args, "token") ||
+    process.env.GH_TOKEN ||
+    process.env.GITHUB_TOKEN ||
+    "";
+  const workflowUrl = optionalArg(args, "workflow-url") ?? "";
+
+  const emit = (id: string) => {
+    const githubOutput = process.env.GITHUB_OUTPUT;
+    if (githubOutput) {
+      fs.appendFileSync(githubOutput, `check_run_id=${id}\n`);
+    }
+  };
+
+  try {
+    const { owner, repo: name } = repoParts(repo);
+    const created = await githubRequest<{ id: number }>(
+      token,
+      `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(
+        name,
+      )}/check-runs`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          name: "Visual Recap",
+          head_sha: sha,
+          status: "in_progress",
+          started_at: new Date().toISOString(),
+          details_url: workflowUrl,
+          output: {
+            title: "Visual recap in progress",
+            summary:
+              "Generating a visual code-review recap for this pull request.",
+          },
+        }),
+      },
+    );
+    emit(String(created.id));
+  } catch (err) {
+    process.stderr.write(
+      `[recap check] could not create Visual Recap check run: ${String(err)}\n`,
+    );
+    // Best-effort: don't fail the job and don't emit a check_run_id.
+  }
+}
+
+/**
+ * `recap check complete` — PATCH the "Visual Recap" check run to completed with
+ * the computed conclusion/title/summary/text/details_url. Best-effort: on any
+ * API error, warn on stderr and exit 0. Replaces the workflow's inline
+ * "Complete visual recap check" github-script step.
+ */
+async function runCheckComplete(
+  args: Record<string, string | boolean>,
+): Promise<void> {
+  const repo = optionalArg(args, "repo") ?? process.env.GITHUB_REPOSITORY ?? "";
+  const token =
+    optionalArg(args, "token") ||
+    process.env.GH_TOKEN ||
+    process.env.GITHUB_TOKEN ||
+    "";
+  const checkRunId = optionalArg(args, "check-run-id") ?? "";
+
+  const outcome = recapCheckOutcome({
+    planOk: boolFlag(args, "plan-ok"),
+    planUrl: optionalArg(args, "plan-url") ?? "",
+    appUrl:
+      optionalArg(args, "app-url") ?? process.env.PLAN_RECAP_APP_URL ?? "",
+    huge: boolFlag(args, "huge"),
+    tiny: boolFlag(args, "tiny"),
+    suppressed: boolFlag(args, "suppressed"),
+    suppressedJson: optionalArg(args, "suppressed-json") ?? "",
+    workflowUrl: optionalArg(args, "workflow-url") ?? "",
+  });
+
+  try {
+    const { owner, repo: name } = repoParts(repo);
+    await githubRequest(
+      token,
+      `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(
+        name,
+      )}/check-runs/${encodeURIComponent(checkRunId)}`,
+      {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          status: "completed",
+          conclusion: outcome.conclusion,
+          completed_at: new Date().toISOString(),
+          details_url: outcome.detailsUrl,
+          output: {
+            title: outcome.title,
+            summary: outcome.summary,
+            text: outcome.text,
+          },
+        }),
+      },
+    );
+  } catch (err) {
+    process.stderr.write(
+      `[recap check] could not update Visual Recap check run: ${String(err)}\n`,
+    );
+    // Best-effort: don't fail the job.
+  }
+}
+
+/** `recap check <start|complete>` dispatcher. */
+async function runCheck(
+  args: Record<string, string | boolean>,
+  sub: string,
+): Promise<void> {
+  if (sub === "start") {
+    await runCheckStart(args);
+    return;
+  }
+  if (sub === "complete") {
+    await runCheckComplete(args);
+    return;
+  }
+  throw new Error(
+    "Usage: agent-native recap check <start|complete> [flags] (see `recap help`)",
+  );
+}
+
+/* -------------------------------------------------------------------------- */
 /* Usage capture — parse the agent's own token usage and attach it to the plan */
 /* -------------------------------------------------------------------------- */
 
@@ -1406,10 +1704,21 @@ Usage:
   agent-native recap collect-diff --base <baseSha> --head <headSha> [--out recap.diff] [--stat recap.stat]
   agent-native recap mcp-config --agent claude|codex --app-url <url> [--out <path>]
   agent-native recap scan --diff <path>
-  agent-native recap build-prompt --pr <n> [--repo owner/name] [--head <sha>] [--app-url <url>] [--diff <path>] [--stat <path>] [--prev-plan-id <id>] [--huge] [--out <path>]
+  agent-native recap build-prompt --pr <n> [--repo owner/name] [--head <sha>] [--app-url <url>] [--diff <path>] [--stat <path>] [--prev-plan-id <id>] [--huge] [--local-files] [--local-dir <folder>] [--out <path>]
   agent-native recap shot --url <planUrl> [--token <planToken>] [--app-url <url>] [--out recap.png]
   agent-native recap usage --plan-url <planUrl> --result-file <path> --app-url <url> --token <planToken> [--agent claude|codex] [--model <id>]
   agent-native recap comment <find-plan-id|upsert> --repo owner/name --issue <n> --token <github-token>
+  agent-native recap check start [--repo owner/name] [--sha <headSha>] [--token <github-token>] [--workflow-url <url>]
+    Create the in-progress "Visual Recap" GitHub check run and write its id to
+    $GITHUB_OUTPUT (check_run_id). repo/sha/token default to GITHUB_REPOSITORY /
+    HEAD_SHA / GH_TOKEN (or GITHUB_TOKEN). Best-effort: warns and exits 0 on any
+    API error without emitting an id.
+  agent-native recap check complete --check-run-id <id> [--repo owner/name] [--token <github-token>] [--plan-ok <bool>] [--plan-url <url>] [--app-url <url>] [--suppressed <bool>] [--suppressed-json <json>] [--huge <bool>] [--tiny <bool>] [--workflow-url <url>]
+    Mark the "Visual Recap" check run completed with a computed
+    conclusion/title/summary/text/details_url (success when the agent published a
+    plan whose URL validates against --app-url; neutral/skipped otherwise).
+    repo/token/app-url default to GITHUB_REPOSITORY / GH_TOKEN / PLAN_RECAP_APP_URL.
+    Best-effort: warns and exits 0 on any API error.
   agent-native recap gate
     The PR Visual Recap security gate. Decides whether to run the recap at all
     and which (normalized) backend agent to use. Reads the pull_request payload
@@ -1448,6 +1757,9 @@ export async function runRecap(argv: string[]): Promise<void> {
       return;
     case "comment":
       await runComment(parseArgs(rest.slice(1)), rest[0] ?? "");
+      return;
+    case "check":
+      await runCheck(parseArgs(rest.slice(1)), rest[0] ?? "");
       return;
     case "gate":
       await runGate();
