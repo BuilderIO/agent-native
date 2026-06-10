@@ -2,7 +2,11 @@ import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 
-import { VISUAL_PLANS_SKILL_MD, VISUAL_RECAP_SKILL_MD } from "./skills.js";
+import {
+  VISUAL_PLANS_SKILL_MD,
+  VISUAL_RECAP_SKILL_MD,
+  WIREFRAME_REFERENCE_MD,
+} from "./skills.js";
 
 /**
  * The Plans skills are stored in four places that ship to users or guide this
@@ -37,51 +41,44 @@ const ROOT = workspaceRoot();
 // Each Plans skill: the shipped constant + its template path + its top-level
 // mirror path. The template uses the canonical singular `visual-plan` directory;
 // the top-level mirror exports the headline command as `visual-plans` (plural).
-// `cores` lists the SHARED-CORE marker regions a skill interpolates from the
-// single-source partials in skills.ts. The `wireframe-quality` core is shared
-// across visual-plan AND visual-recap; the canvas/document/exemplar cores apply
-// only to the canvas-bearing visual-plan.
+// `cores` lists the SHARED-CORE marker regions a skill still interpolates inline
+// from the single-source partials in skills.ts (canvas/document/exemplar, all
+// visual-plan only). The wireframe-quality core is NO LONGER inline — it lives
+// in a sibling `references/wireframe.md` file shipped by every skill that sets
+// `wireframeReference: true` (progressive disclosure); a separate guard asserts
+// those reference files are byte-identical to the canonical constant.
 const PLAN_SKILLS = [
   {
     label: "visual-plan",
     constant: VISUAL_PLANS_SKILL_MD,
     templateDir: "visual-plan",
     exportedDir: "visual-plans",
-    cores: [
-      "wireframe-quality",
-      "canvas-surface",
-      "document-quality",
-      "exemplar",
-    ],
+    cores: ["canvas-surface", "document-quality", "exemplar"],
+    wireframeReference: true,
   },
   {
     label: "visual-recap",
     constant: VISUAL_RECAP_SKILL_MD,
     templateDir: "visual-recap",
     exportedDir: "visual-recap",
-    cores: ["wireframe-quality"],
+    cores: [],
+    wireframeReference: true,
   },
 ] as const;
 
-function templatePath(dir: string): string {
-  return path.join(
-    ROOT,
-    "templates",
-    "plan",
-    ".agents",
-    "skills",
-    dir,
-    "SKILL.md",
-  );
+function templatePath(dir: string, file = "SKILL.md"): string {
+  return path.join(ROOT, "templates", "plan", ".agents", "skills", dir, file);
 }
 
-function exportedPath(dir: string): string {
-  return path.join(ROOT, "skills", dir, "SKILL.md");
+function exportedPath(dir: string, file = "SKILL.md"): string {
+  return path.join(ROOT, "skills", dir, file);
 }
 
-function repoSkillPath(dir: string): string {
-  return path.join(ROOT, ".agents", "skills", dir, "SKILL.md");
+function repoSkillPath(dir: string, file = "SKILL.md"): string {
+  return path.join(ROOT, ".agents", "skills", dir, file);
 }
+
+const WIREFRAME_REFERENCE_REL = path.join("references", "wireframe.md");
 
 function read(file: string): string {
   return fs.readFileSync(file, "utf-8");
@@ -167,13 +164,13 @@ describe("Plans skills sync guard", () => {
     );
   });
 
-  it("keeps each shared core byte-identical across the skills that consume it", () => {
+  it("keeps each inline shared core byte-identical across the skills that consume it", () => {
     // Each marker is single-sourced from one partial in skills.ts and
-    // interpolated into its consumers. `wireframe-quality` is shared by
-    // visual-plan and visual-recap; the canvas/document/exemplar cores by
-    // visual-plan only.
+    // interpolated inline into its consumers. The canvas/document/exemplar cores
+    // are visual-plan only. `wireframe-quality` is intentionally absent: it was
+    // moved out of the inline bodies into references/wireframe.md (guarded
+    // separately below), so it must NOT appear as an inline SHARED-CORE region.
     const coreMarkers = [
-      "wireframe-quality",
       "canvas-surface",
       "document-quality",
       "exemplar",
@@ -205,6 +202,61 @@ describe("Plans skills sync guard", () => {
           `${s.label} carries shared core "${marker}" without declaring it in PLAN_SKILLS.cores`,
         ).toBe(false);
       }
+    }
+  });
+
+  it("ships references/wireframe.md byte-identical across every skill copy and equal to the canonical constant", () => {
+    // The wireframe-quality core is single-sourced as WIREFRAME_REFERENCE_MD and
+    // materialized verbatim into a sibling references/wireframe.md in every plan
+    // skill dir (skills/, templates/plan/.agents/skills/, .agents/skills/). All
+    // copies must match the constant byte for byte so the reference never drifts.
+    const references: string[] = [];
+    for (const skill of PLAN_SKILLS.filter((s) => s.wireframeReference)) {
+      const copies = [
+        templatePath(skill.templateDir, WIREFRAME_REFERENCE_REL),
+        exportedPath(skill.exportedDir, WIREFRAME_REFERENCE_REL),
+        repoSkillPath(skill.label, WIREFRAME_REFERENCE_REL),
+      ];
+      for (const file of copies) {
+        const body = read(file);
+        expect(body, `${file}: reference vs constant`).toBe(
+          WIREFRAME_REFERENCE_MD,
+        );
+        references.push(body);
+      }
+    }
+    // Cross-skill: every reference file is identical (visual-plan === visual-recap).
+    for (const body of references) {
+      expect(body).toBe(references[0]);
+    }
+    // The canonical reference must still embed the wireframe-quality core region
+    // so the bar itself is preserved, just relocated out of the SKILL.md body.
+    expect(WIREFRAME_REFERENCE_MD).toContain(
+      "<!-- SHARED-CORE:wireframe-quality START -->",
+    );
+    expect(WIREFRAME_REFERENCE_MD).toContain(
+      "<!-- SHARED-CORE:wireframe-quality END -->",
+    );
+  });
+
+  it("leans the SKILL.md bodies to a wireframe.md pointer instead of the inline core", () => {
+    for (const skill of PLAN_SKILLS.filter((s) => s.wireframeReference)) {
+      // Body points at the reference file...
+      expect(
+        skill.constant,
+        `${skill.label}: SKILL.md must point at references/wireframe.md`,
+      ).toContain("references/wireframe.md");
+      // ...and no longer inlines the full wireframe-quality core.
+      expect(
+        skill.constant.includes("<!-- SHARED-CORE:wireframe-quality START -->"),
+        `${skill.label}: SKILL.md still inlines the wireframe-quality core`,
+      ).toBe(false);
+      expect(
+        skill.constant.includes(
+          "**A wireframe is an HTML mockup. The renderer owns the look",
+        ),
+        `${skill.label}: SKILL.md still inlines wireframe-quality prose`,
+      ).toBe(false);
     }
   });
 

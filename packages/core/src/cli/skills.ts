@@ -1268,7 +1268,7 @@ captured, say so in the wireframe caption or a concise annotation. For
 local/manual recaps, import or update the plan source that holds the wireframes
 so the rendered recap opens with the UI visual available.
 
-## Wireframe Quality — read `references/wireframe.md`
+## Wireframe Quality — read \`references/wireframe.md\`
 
 ${WIREFRAME_REFERENCE_POINTER}
 
