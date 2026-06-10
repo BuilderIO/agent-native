@@ -1,6 +1,6 @@
 /**
- * `agent-native recap <scan|build-prompt|shot|comment>` — the helper surface
- * used by the PR Visual Recap GitHub Action.
+ * `agent-native recap` — the helper surface used by the PR Visual Recap GitHub
+ * Action. Run `agent-native recap help` for the full subcommand list.
  *
  * The action no longer generates the recap deterministically. Instead a coding
  * agent (Claude Code or Codex) RUNS THE REPO'S visual-recap skill against the
@@ -17,10 +17,15 @@
  *   mcp-config    Write the plan MCP client config for the chosen backend
  *                 (Claude Code JSON or Codex config.toml).
  *   scan          Refuse to hand a secret-leaking diff to the agent.
- *   build-prompt  Assemble the agent prompt = repo SKILL.md + a task wrapper.
+ *   build-prompt  Assemble the agent prompt = latest visual-recap skill bundle
+ *                 + a task wrapper (or repo-pinned skill with --skill-source).
  *   shot          Screenshot the published plan and upload it to the plan app's
  *                 signed public image route (for an inline PR-comment image).
+ *   usage         Parse and emit agent token-usage/cost from stdout.
  *   comment       Find the previous plan id / upsert the sticky PR comment.
+ *   check         Evaluate the recap result and set a GitHub commit status.
+ *   setup         Install the PR Visual Recap GitHub Action workflow.
+ *   doctor        Diagnose missing secrets / misconfigured workflow.
  *
  * Promoting these to the published CLI means an installed repo's workflow calls
  * `agent-native recap …` instead of copying helper scripts into the repo.
@@ -33,7 +38,9 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
+import { readPlanPublishAuth } from "./plan-publish-store.js";
 import { PR_VISUAL_RECAP_WORKFLOW_YML } from "./pr-visual-recap-workflow.js";
+import { BUILT_IN_APP_SKILLS, VISUAL_RECAP_SKILL_MD } from "./skills.js";
 
 /* -------------------------------------------------------------------------- */
 /* Arg parsing                                                                */
@@ -86,6 +93,7 @@ export const PR_VISUAL_RECAP_SETUP: string[] = [
   "Optional (only if you change defaults):",
   "  OPENAI_API_KEY (secret) + VISUAL_RECAP_AGENT=codex (variable) — use Codex instead of Claude",
   "  VISUAL_RECAP_MODEL / VISUAL_RECAP_REASONING (variables) — pin the model (e.g. gpt-5.5) and reasoning depth (none|minimal|low|medium|high|xhigh; Codex only)",
+  "  VISUAL_RECAP_SKILL_SOURCE=repo (variable) — pin CI to the repo-local visual-recap skill instead of latest bundled guidance",
   "  PLAN_RECAP_APP_URL (secret) — only when self-hosting the plan app (defaults to https://plan.agent-native.com)",
 ];
 
@@ -100,6 +108,410 @@ export function writePrVisualRecapWorkflow(baseDir: string): {
   const existed = fs.existsSync(file);
   fs.writeFileSync(file, PR_VISUAL_RECAP_WORKFLOW_YML);
   return { path: path.relative(baseDir, file), existed };
+}
+
+export type RecapAgent = "claude" | "codex";
+
+const DEFAULT_RECAP_APP_URL = "https://plan.agent-native.com";
+
+export function normalizeRecapAgent(value: string | undefined): RecapAgent {
+  const agent = (value || "claude").toLowerCase();
+  if (agent === "codex") return "codex";
+  if (agent === "claude") return "claude";
+  throw new Error(
+    `Unsupported recap agent "${value}" (expected "claude" or "codex").`,
+  );
+}
+
+export function recapRequiredSecrets(agent: RecapAgent): string[] {
+  return [
+    "PLAN_RECAP_TOKEN",
+    agent === "codex" ? "OPENAI_API_KEY" : "ANTHROPIC_API_KEY",
+  ];
+}
+
+function recapWorkflowFile(baseDir: string): string {
+  return path.join(baseDir, ".github", "workflows", "pr-visual-recap.yml");
+}
+
+function stripTrailingSlash(url: string): string {
+  return url.replace(/\/+$/, "");
+}
+
+function sameRecapOrigin(a: string, b: string): boolean {
+  try {
+    return new URL(a).origin === new URL(b).origin;
+  } catch {
+    return stripTrailingSlash(a) === stripTrailingSlash(b);
+  }
+}
+
+function planTokenFromLocalStore(appUrl: string): string | undefined {
+  const auth = readPlanPublishAuth();
+  if (!auth) return undefined;
+  return sameRecapOrigin(auth.url, appUrl) ? auth.token : undefined;
+}
+
+function envValue(env: NodeJS.ProcessEnv, key: string): string | undefined {
+  const value = env[key]?.trim();
+  return value || undefined;
+}
+
+function commandForMissingSecret(name: string, repo?: string): string {
+  return `gh secret set ${name}${repo ? ` --repo ${repo}` : ""}`;
+}
+
+function commandForMissingVariable(
+  name: string,
+  value: string,
+  repo?: string,
+): string {
+  return `gh variable set ${name} --body ${JSON.stringify(value)}${
+    repo ? ` --repo ${repo}` : ""
+  }`;
+}
+
+function gh(args: string[], input?: string): { ok: boolean; stdout: string } {
+  try {
+    const stdout = execFileSync("gh", args, {
+      encoding: "utf8",
+      input,
+      stdio:
+        input === undefined
+          ? ["ignore", "pipe", "pipe"]
+          : ["pipe", "pipe", "pipe"],
+    });
+    return { ok: true, stdout };
+  } catch {
+    return { ok: false, stdout: "" };
+  }
+}
+
+function resolveGithubRepo(explicit?: string): string | undefined {
+  if (explicit) return explicit;
+  const result = gh([
+    "repo",
+    "view",
+    "--json",
+    "nameWithOwner",
+    "--jq",
+    ".nameWithOwner",
+  ]);
+  const repo = result.stdout.trim();
+  return result.ok && repo ? repo : undefined;
+}
+
+function listGithubNames(
+  kind: "secret" | "variable",
+  repo?: string,
+): Set<string> | null {
+  const args =
+    kind === "secret"
+      ? ["secret", "list", "--json", "name"]
+      : ["variable", "list", "--json", "name,value"];
+  if (repo) args.push("--repo", repo);
+  const result = gh(args);
+  if (!result.ok) return null;
+  try {
+    const parsed = JSON.parse(result.stdout) as unknown;
+    if (!Array.isArray(parsed)) return null;
+    return new Set(
+      parsed
+        .map((entry) =>
+          entry && typeof entry === "object"
+            ? (entry as Record<string, unknown>).name
+            : undefined,
+        )
+        .filter((name): name is string => typeof name === "string"),
+    );
+  } catch {
+    return null;
+  }
+}
+
+function listGithubVariables(repo?: string): Map<string, string> | null {
+  const args = ["variable", "list", "--json", "name,value"];
+  if (repo) args.push("--repo", repo);
+  const result = gh(args);
+  if (!result.ok) return null;
+  try {
+    const parsed = JSON.parse(result.stdout) as unknown;
+    if (!Array.isArray(parsed)) return null;
+    const out = new Map<string, string>();
+    for (const entry of parsed) {
+      if (!entry || typeof entry !== "object") continue;
+      const record = entry as Record<string, unknown>;
+      if (typeof record.name !== "string") continue;
+      out.set(
+        record.name,
+        typeof record.value === "string" ? record.value : "",
+      );
+    }
+    return out;
+  } catch {
+    return null;
+  }
+}
+
+function setGithubSecret(
+  name: string,
+  value: string | undefined,
+  repo: string | undefined,
+  dryRun: boolean,
+): "set" | "missing" | "failed" | "dry-run" {
+  if (!value) return "missing";
+  if (dryRun) return "dry-run";
+  const args = ["secret", "set", name];
+  if (repo) args.push("--repo", repo);
+  return gh(args, `${value}\n`).ok ? "set" : "failed";
+}
+
+function setGithubVariable(
+  name: string,
+  value: string | undefined,
+  repo: string | undefined,
+  dryRun: boolean,
+): "set" | "skipped" | "failed" | "dry-run" {
+  if (!value) return "skipped";
+  if (dryRun) return "dry-run";
+  const args = ["variable", "set", name, "--body", value];
+  if (repo) args.push("--repo", repo);
+  return gh(args).ok ? "set" : "failed";
+}
+
+export interface RecapSetupPlan {
+  agent: RecapAgent;
+  appUrl: string;
+  repo?: string;
+  workflowPath: string;
+  workflowExists: boolean;
+  requiredSecrets: string[];
+  variableValues: Record<string, string>;
+  secretValues: Record<string, string | undefined>;
+}
+
+export function buildRecapSetupPlan(input: {
+  baseDir: string;
+  appUrl?: string;
+  agent?: string;
+  repo?: string;
+  env?: NodeJS.ProcessEnv;
+}): RecapSetupPlan {
+  const env = input.env ?? process.env;
+  const appUrl = stripTrailingSlash(
+    input.appUrl || env.PLAN_RECAP_APP_URL || DEFAULT_RECAP_APP_URL,
+  );
+  const agent = normalizeRecapAgent(input.agent || env.VISUAL_RECAP_AGENT);
+  const requiredSecrets = recapRequiredSecrets(agent);
+  const planToken =
+    envValue(env, "PLAN_RECAP_TOKEN") ?? planTokenFromLocalStore(appUrl);
+  const llmSecretName =
+    agent === "codex" ? "OPENAI_API_KEY" : "ANTHROPIC_API_KEY";
+  const variableValues: Record<string, string> = {};
+  if (agent !== "claude") variableValues.VISUAL_RECAP_AGENT = agent;
+  for (const key of [
+    "VISUAL_RECAP_MODEL",
+    "VISUAL_RECAP_REASONING",
+    "VISUAL_RECAP_SKILL_SOURCE",
+  ]) {
+    const value = envValue(env, key);
+    if (value) variableValues[key] = value;
+  }
+  return {
+    agent,
+    appUrl,
+    repo: input.repo,
+    workflowPath: path.relative(
+      input.baseDir,
+      recapWorkflowFile(input.baseDir),
+    ),
+    workflowExists: fs.existsSync(recapWorkflowFile(input.baseDir)),
+    requiredSecrets,
+    variableValues,
+    secretValues: {
+      PLAN_RECAP_TOKEN: planToken,
+      [llmSecretName]: envValue(env, llmSecretName),
+      PLAN_RECAP_APP_URL: appUrl === DEFAULT_RECAP_APP_URL ? undefined : appUrl,
+    },
+  };
+}
+
+function flagArg(args: Record<string, string | boolean>, key: string): boolean {
+  return args[key] === true || args[key] === "true";
+}
+
+function runSetup(args: Record<string, string | boolean>): void {
+  const baseDir = process.cwd();
+  const dryRun = flagArg(args, "dry-run");
+  const skipSecrets = flagArg(args, "skip-secrets");
+  const repo = resolveGithubRepo(optionalArg(args, "repo"));
+  const plan = buildRecapSetupPlan({
+    baseDir,
+    appUrl: optionalArg(args, "app-url"),
+    agent: optionalArg(args, "agent"),
+    repo,
+  });
+  const lines = ["PR Visual Recap setup", ""];
+
+  if (dryRun) {
+    lines.push(`Workflow: would write ${plan.workflowPath}.`);
+  } else {
+    const written = writePrVisualRecapWorkflow(baseDir);
+    lines.push(
+      `Workflow: ${written.existed ? "refreshed" : "wrote"} ${written.path}.`,
+    );
+  }
+
+  lines.push(`Plan app: ${plan.appUrl}.`);
+  lines.push(`Backend: ${plan.agent}.`);
+  lines.push(
+    repo
+      ? `GitHub repo: ${repo}.`
+      : "GitHub repo: not detected; pass --repo owner/name or run from a GitHub checkout.",
+  );
+
+  if (skipSecrets) {
+    lines.push("");
+    lines.push("GitHub secrets/variables: skipped.");
+  } else {
+    lines.push("");
+    lines.push("GitHub secrets/variables:");
+    const secretNames = [
+      ...plan.requiredSecrets,
+      ...(plan.secretValues.PLAN_RECAP_APP_URL ? ["PLAN_RECAP_APP_URL"] : []),
+    ];
+    for (const name of secretNames) {
+      const status = setGithubSecret(
+        name,
+        plan.secretValues[name],
+        repo,
+        dryRun,
+      );
+      if (status === "set") {
+        lines.push(`  ${name}: set.`);
+      } else if (status === "dry-run") {
+        lines.push(`  ${name}: would set.`);
+      } else if (status === "missing") {
+        lines.push(`  ${name}: missing value.`);
+        if (name === "PLAN_RECAP_TOKEN") {
+          lines.push(
+            `    Run agent-native connect ${plan.appUrl} --client codex, then rerun this setup.`,
+          );
+        }
+        lines.push(
+          `    Or set manually: ${commandForMissingSecret(name, repo)}`,
+        );
+      } else {
+        lines.push(`  ${name}: could not set with gh.`);
+        lines.push(`    Set manually: ${commandForMissingSecret(name, repo)}`);
+      }
+    }
+
+    for (const [name, value] of Object.entries(plan.variableValues)) {
+      const status = setGithubVariable(name, value, repo, dryRun);
+      if (status === "set") {
+        lines.push(`  ${name}: set to ${value}.`);
+      } else if (status === "dry-run") {
+        lines.push(`  ${name}: would set to ${value}.`);
+      } else if (status === "failed") {
+        lines.push(`  ${name}: could not set with gh.`);
+        lines.push(
+          `    Set manually: ${commandForMissingVariable(name, value, repo)}`,
+        );
+      }
+    }
+  }
+
+  lines.push("");
+  lines.push(
+    `Next: commit ${plan.workflowPath}, then run agent-native recap doctor.`,
+  );
+  process.stdout.write(`${lines.join("\n")}\n`);
+}
+
+function runDoctor(args: Record<string, string | boolean>): void {
+  const baseDir = process.cwd();
+  const repo = resolveGithubRepo(optionalArg(args, "repo"));
+  const variables = listGithubVariables(repo);
+  const agent = normalizeRecapAgent(
+    optionalArg(args, "agent") ??
+      variables?.get("VISUAL_RECAP_AGENT") ??
+      process.env.VISUAL_RECAP_AGENT,
+  );
+  const plan = buildRecapSetupPlan({
+    baseDir,
+    appUrl: optionalArg(args, "app-url"),
+    agent,
+    repo,
+  });
+  const lines = ["PR Visual Recap doctor", ""];
+  let ok = true;
+
+  const workflowFile = recapWorkflowFile(baseDir);
+  if (!fs.existsSync(workflowFile)) {
+    ok = false;
+    lines.push(`[missing] Workflow missing: ${plan.workflowPath}.`);
+    lines.push(
+      "  Run agent-native skills add visual-plan --with-github-action.",
+    );
+  } else {
+    const current = fs.readFileSync(workflowFile, "utf-8");
+    if (current === PR_VISUAL_RECAP_WORKFLOW_YML) {
+      lines.push(`[ok] Workflow installed: ${plan.workflowPath}.`);
+    } else {
+      ok = false;
+      lines.push(
+        `[missing] Workflow differs from the bundled template: ${plan.workflowPath}.`,
+      );
+      lines.push("  Run agent-native recap setup to refresh it.");
+    }
+  }
+
+  if (plan.secretValues.PLAN_RECAP_TOKEN) {
+    lines.push("[ok] Local Plans publish token found.");
+  } else {
+    lines.push("[warn] Local Plans publish token not found.");
+    lines.push(
+      `  Run agent-native connect ${plan.appUrl} --client codex to mint one.`,
+    );
+  }
+
+  if (repo) {
+    lines.push(`[ok] GitHub repo detected: ${repo}.`);
+  } else {
+    ok = false;
+    lines.push("[missing] GitHub repo not detected.");
+    lines.push(
+      "  Pass --repo owner/name or run from a GitHub checkout with gh auth.",
+    );
+  }
+
+  const secretNames = listGithubNames("secret", repo);
+  if (!secretNames) {
+    ok = false;
+    lines.push("[missing] Could not read GitHub Actions secrets with gh.");
+    lines.push("  Run gh auth status, or pass --repo owner/name.");
+  } else {
+    for (const name of plan.requiredSecrets) {
+      if (secretNames.has(name)) {
+        lines.push(`[ok] GitHub secret configured: ${name}.`);
+      } else {
+        ok = false;
+        lines.push(`[missing] GitHub secret missing: ${name}.`);
+        lines.push(`  Set it with: ${commandForMissingSecret(name, repo)}`);
+      }
+    }
+  }
+
+  if (!variables) {
+    lines.push("[warn] Could not read GitHub Actions variables with gh.");
+  } else {
+    const configuredAgent = variables.get("VISUAL_RECAP_AGENT") || "claude";
+    lines.push(`[ok] Recap backend variable: ${configuredAgent}.`);
+  }
+
+  process.stdout.write(`${lines.join("\n")}\n`);
+  if (!ok) process.exitCode = 1;
 }
 
 /* -------------------------------------------------------------------------- */
@@ -213,22 +625,46 @@ export function truncateDiffAtLineBoundary(text: string): string {
   return body + RECAP_DIFF_TRUNCATED_FOOTER;
 }
 
-/** Count lines that begin with `+` or `-` (added/removed diff lines). */
+/**
+ * Count lines that begin with `+` or `-` (added/removed diff lines), excluding
+ * the `+++ b/file` / `--- a/file` unified-diff header lines. Without this
+ * exclusion a single-file change loses ~2 "real" lines from the 8-line tiny
+ * threshold, incorrectly classifying a small-but-meaningful change as tiny.
+ */
 export function countDiffLines(diffText: string): number {
   let count = 0;
   for (const line of diffText.split("\n")) {
+    if (line.startsWith("+++") || line.startsWith("---")) continue;
     if (line.startsWith("+") || line.startsWith("-")) count += 1;
   }
   return count;
 }
 
 /**
- * Run `git diff <base>...<head> -- <pathspecs>` and return its stdout. Tolerates
- * a non-zero git exit (the original step used `|| true`) by capturing stdout
- * regardless. Array args — NOT a shell string — so the `:(exclude)` pathspecs
- * survive intact.
+ * Result from `gitDiffRaw`. `failed` is true when git itself exited non-zero
+ * AND produced empty stdout — which indicates a broken ref (missing object,
+ * bad SHA, shallow-clone gap) rather than a legitimate empty diff.
  */
-function gitDiff(base: string, head: string, extraArgs: string[]): string {
+interface GitDiffResult {
+  stdout: string;
+  failed: boolean;
+}
+
+/**
+ * Run `git diff <base>...<head> -- <pathspecs>` and return its stdout plus a
+ * `failed` flag. A non-zero exit that still produces stdout is treated as a
+ * partial result (same as the original `... || true`). A non-zero exit with
+ * empty stdout is a genuine failure (broken ref, missing object, etc.) and
+ * sets `failed: true` so `runCollectDiff` can exit with a distinct error
+ * instead of silently classifying the empty output as a tiny diff.
+ *
+ * Array args — NOT a shell string — so the `:(exclude)` pathspecs survive.
+ */
+function gitDiffRaw(
+  base: string,
+  head: string,
+  extraArgs: string[],
+): GitDiffResult {
   const args = [
     "diff",
     "--no-color",
@@ -238,16 +674,22 @@ function gitDiff(base: string, head: string, extraArgs: string[]): string {
     ...RECAP_DIFF_PATHSPECS,
   ];
   try {
-    return execFileSync("git", args, {
+    const stdout = execFileSync("git", args, {
       encoding: "utf8",
       maxBuffer: 256 * 1024 * 1024,
     });
+    return { stdout, failed: false };
   } catch (err: any) {
-    // Tolerate a non-zero exit (e.g. missing object) but still use whatever git
-    // wrote to stdout, exactly like the original `... > recap.diff || true`.
-    if (err && typeof err.stdout === "string") return err.stdout;
-    if (err && Buffer.isBuffer(err.stdout)) return err.stdout.toString("utf8");
-    return "";
+    // Recover whatever stdout git wrote before failing.
+    const raw =
+      err && typeof err.stdout === "string"
+        ? err.stdout
+        : err && Buffer.isBuffer(err.stdout)
+          ? err.stdout.toString("utf8")
+          : "";
+    // An empty stdout from a non-zero exit means a broken ref / missing
+    // object — not a legitimate empty diff. Signal failure.
+    return { stdout: raw, failed: raw.trim() === "" };
   }
 }
 
@@ -257,6 +699,10 @@ function gitDiff(base: string, head: string, extraArgs: string[]): string {
  * emits the same `bytes/changed/huge/tiny` outputs the workflow expects:
  * appended to $GITHUB_OUTPUT when set, AND printed as JSON to stdout (so it runs
  * and is testable outside GitHub Actions).
+ *
+ * Exits non-zero when git itself fails (broken SHA / missing object) so the
+ * CI workflow treats it as a real failure instead of silently classifying an
+ * empty diff as "tiny" and skipping the recap with no diagnostic.
  */
 function runCollectDiff(args: Record<string, string | boolean>): void {
   const base = stringArg(args, "base");
@@ -265,8 +711,18 @@ function runCollectDiff(args: Record<string, string | boolean>): void {
   const statPath = optionalArg(args, "stat") ?? "recap.stat";
 
   // The unified diff and the --stat summary (both excluding lockfiles/noise).
-  let diff = gitDiff(base, head, []);
-  const stat = gitDiff(base, head, ["--stat"]);
+  const diffResult = gitDiffRaw(base, head, []);
+  if (diffResult.failed) {
+    process.stderr.write(
+      `recap collect-diff: git diff failed for ${base}...${head} — ` +
+        `the SHAs may be missing (shallow clone?) or invalid.\n` +
+        `Make sure the workflow checks out with fetch-depth: 0 or at least ` +
+        `enough history to resolve both refs.\n`,
+    );
+    process.exit(1);
+  }
+  let diff = diffResult.stdout;
+  const stat = gitDiffRaw(base, head, ["--stat"]).stdout;
   fs.writeFileSync(path.resolve(statPath), stat);
 
   // ORIGINAL line count — captured BEFORE any byte-cap truncation so a large
@@ -274,7 +730,7 @@ function runCollectDiff(args: Record<string, string | boolean>): void {
   const originalLines = countDiffLines(diff);
 
   // Changed-file count from `--name-only` over the same excludes.
-  const names = gitDiff(base, head, ["--name-only"]);
+  const names = gitDiffRaw(base, head, ["--name-only"]).stdout;
   const changed = names.split("\n").filter((line) => line.length > 0).length;
 
   // Write the (possibly truncated) diff and compute the on-disk byte length.
@@ -348,12 +804,21 @@ export function buildRecapCodexMcpConfig(appUrl: string): string {
 function runMcpConfig(args: Record<string, string | boolean>): void {
   const agent = stringArg(args, "agent").toLowerCase();
   const appUrl = stringArg(args, "app-url");
+  const force = Boolean(args["force"]);
 
   if (agent === "claude") {
+    const token = process.env.PLAN_RECAP_TOKEN;
+    if (!token) {
+      process.stderr.write(
+        `recap mcp-config: PLAN_RECAP_TOKEN is not set.\n` +
+          `Set it in the workflow environment before running this step.\n`,
+      );
+      process.exit(1);
+    }
     const out = stringArg(args, "out");
     fs.writeFileSync(
       path.resolve(out),
-      buildRecapClaudeMcpConfig(appUrl, process.env.PLAN_RECAP_TOKEN),
+      buildRecapClaudeMcpConfig(appUrl, token),
     );
     process.stdout.write(`${JSON.stringify({ ok: true, agent, out })}\n`);
     return;
@@ -363,8 +828,59 @@ function runMcpConfig(args: Record<string, string | boolean>): void {
     const out =
       optionalArg(args, "out") ??
       path.join(os.homedir(), ".codex", "config.toml");
-    fs.mkdirSync(path.dirname(path.resolve(out)), { recursive: true });
-    fs.writeFileSync(path.resolve(out), buildRecapCodexMcpConfig(appUrl));
+    const absOut = path.resolve(out);
+    fs.mkdirSync(path.dirname(absOut), { recursive: true });
+
+    const newEntry = buildRecapCodexMcpConfig(appUrl);
+    const SECTION_MARKER = "[mcp_servers.plan]";
+
+    // If the file already exists and is non-empty, merge rather than overwrite.
+    let existing = "";
+    try {
+      const raw = fs.readFileSync(absOut, "utf8");
+      if (raw.trim()) existing = raw;
+    } catch {
+      /* file absent — write fresh */
+    }
+
+    if (existing) {
+      if (existing.includes(SECTION_MARKER)) {
+        // Section already present — skip unless --force was passed.
+        if (!force) {
+          process.stdout.write(
+            `${JSON.stringify({ ok: true, agent, out, skipped: true, reason: "plan entry already present; pass --force to overwrite" })}\n`,
+          );
+          return;
+        }
+        // --force: replace the existing [mcp_servers.plan] block.
+        // Remove lines from the section header until the next `[` header or EOF.
+        const lines = existing.split("\n");
+        const startIdx = lines.findIndex((l) => l.trim() === SECTION_MARKER);
+        let endIdx = lines.length;
+        for (let i = startIdx + 1; i < lines.length; i++) {
+          if (lines[i].trimStart().startsWith("[")) {
+            endIdx = i;
+            break;
+          }
+        }
+        const without = [
+          ...lines.slice(0, startIdx),
+          ...lines.slice(endIdx),
+        ].join("\n");
+        const merged =
+          (without.trimEnd() ? without.trimEnd() + "\n\n" : "") + newEntry;
+        fs.writeFileSync(absOut, merged, { mode: 0o600 });
+      } else {
+        // Append the new section to the existing config.
+        const separator = existing.endsWith("\n") ? "\n" : "\n\n";
+        fs.writeFileSync(absOut, existing + separator + newEntry, {
+          mode: 0o600,
+        });
+      }
+    } else {
+      fs.writeFileSync(absOut, newEntry);
+    }
+
     process.stdout.write(`${JSON.stringify({ ok: true, agent, out })}\n`);
     return;
   }
@@ -400,6 +916,82 @@ export function readRepoSkillMd(cwd: string = process.cwd()): {
   throw new Error(
     "Could not find visual-recap/SKILL.md. Run `agent-native skills add visual-plan` first.",
   );
+}
+
+type RecapSkillSourceMode = "auto" | "latest" | "repo";
+
+function listRecapSkillReferenceFiles(
+  skillDir: string,
+): Record<string, string> {
+  const out: Record<string, string> = {};
+  const walk = (current: string, prefix = "") => {
+    for (const entry of fs.readdirSync(current, { withFileTypes: true })) {
+      const rel = prefix ? `${prefix}/${entry.name}` : entry.name;
+      const abs = path.join(current, entry.name);
+      if (entry.isDirectory()) {
+        walk(abs, rel);
+        continue;
+      }
+      if (!entry.isFile() || rel === "SKILL.md") continue;
+      if (rel === "agent-native-skill.json") continue;
+      out[rel] = fs.readFileSync(abs, "utf8");
+    }
+  };
+  if (fs.existsSync(skillDir)) walk(skillDir);
+  return out;
+}
+
+function recapSkillBundleText(
+  skillMd: string,
+  referenceFiles: Record<string, string>,
+): string {
+  const refs = Object.keys(referenceFiles).sort();
+  if (refs.length === 0) return skillMd;
+  const lines = [skillMd.trim(), "", "# Bundled visual-recap reference files"];
+  lines.push(
+    "These files live next to visual-recap/SKILL.md in a normal install. Treat them as part of the skill instructions.",
+  );
+  for (const rel of refs) {
+    lines.push("", `## ${rel}`, "", referenceFiles[rel].trim());
+  }
+  return lines.join("\n");
+}
+
+function readRepoSkillBundle(cwd: string = process.cwd()): {
+  text: string;
+  source: string;
+} {
+  const skill = readRepoSkillMd(cwd);
+  const skillDir = path.dirname(path.resolve(cwd, skill.source));
+  return {
+    text: recapSkillBundleText(
+      skill.text,
+      listRecapSkillReferenceFiles(skillDir),
+    ),
+    source: skill.source,
+  };
+}
+
+function latestVisualRecapSkillBundle(): { text: string; source: string } {
+  const planSkill = BUILT_IN_APP_SKILLS["visual-plans"];
+  const references =
+    "extraFiles" in planSkill
+      ? (planSkill.extraFiles?.["visual-recap"] ?? {})
+      : {};
+  return {
+    text: recapSkillBundleText(VISUAL_RECAP_SKILL_MD, references),
+    source: "bundled:@agent-native/core/visual-recap",
+  };
+}
+
+export function readVisualRecapSkillBundle(
+  cwd: string = process.cwd(),
+  mode: RecapSkillSourceMode = "auto",
+): { text: string; source: string } {
+  if (mode === "latest" || mode === "auto") {
+    return latestVisualRecapSkillBundle();
+  }
+  return readRepoSkillBundle(cwd);
 }
 
 export function buildRecapPrompt(input: {
@@ -472,25 +1064,36 @@ export function buildRecapPrompt(input: {
   } else {
     lines.push("## Publish (this is the only way to produce output)");
     lines.push(
-      `The \`plan\` MCP server is configured for you. Call its tools by name (your host may expose them as \`create-visual-recap\` or \`mcp__plan__create-visual-recap\` — same tool).`,
+      `The \`plan\` MCP server is configured for you. Call its tools by name (your host may expose them as \`get-plan-blocks\` / \`create-visual-recap\` or \`mcp__plan__get-plan-blocks\` / \`mcp__plan__create-visual-recap\` — same tools).`,
     );
     lines.push(
-      `1. Call the **create-visual-recap** tool on the \`plan\` MCP server with grounded MDX derived ONLY from the real diff${
+      "First call `get-plan-blocks`, then call `create-visual-recap`. If `create-visual-recap` is available but `get-plan-blocks` is not, the Plan MCP is connected but the workflow/tool allowlist is stale. Report that `.github/workflows/pr-visual-recap.yml` must allow `mcp__plan__get-plan-blocks`; do not describe that case as a disconnected Plan MCP.",
+    );
+    lines.push(
+      `1. Call the **create-visual-recap** tool on the \`plan\` MCP server with grounded MDX derived ONLY from the real diff, passing \`visibility: "org"\` so the recap is published org-scoped (never public) server-side${
         input.prevPlanId
-          ? `, passing \`planId: "${input.prevPlanId}"\` so this REPLACES the existing recap plan`
+          ? `, and also passing \`planId: "${input.prevPlanId}"\` so this REPLACES the existing recap plan`
           : ""
       }.`,
     );
     lines.push(
-      `2. Call the **set-resource-visibility** tool on the \`plan\` MCP server with \`{ resourceType: "plan", resourceId: <the returned plan id>, visibility: "org" }\` so the recap is login-gated to the org, never public.`,
+      `2. Write the plan URL to a file named \`recap-url.txt\` at the repo root, containing exactly one line: \`${appUrl}/recaps/<the returned plan id>\`. This file is the workflow's only hand-off — do not print anything else as the deliverable.`,
     );
     lines.push(
-      `3. Write the plan URL to a file named \`recap-url.txt\` at the repo root, containing exactly one line: \`${appUrl}/recaps/<the returned plan id>\`. This file is the workflow's only hand-off — do not print anything else as the deliverable.`,
+      `3. (Fallback only — skip if step 1 succeeded) If \`create-visual-recap\` does not accept a \`visibility\` parameter (older server), call the **set-resource-visibility** tool with \`{ resourceType: "plan", resourceId: <the returned plan id>, visibility: "org" }\` after publishing.`,
     );
   }
   lines.push("");
   lines.push(
     "Do not invent file names, schema fields, or endpoints. Redact anything that looks like a secret. If the diff has no reviewable substance, still publish a minimal recap and write recap-url.txt.",
+  );
+  lines.push("");
+  lines.push("## Depth preflight");
+  lines.push(
+    "Before authoring the recap, read the diff/stat and make a quick private inventory of changed files, routes/actions, rendered UI surfaces, popovers/dialogs, role/access states, empty/error states, and shared abstractions. The published recap must cover each meaningful item with a structured block or intentionally omit it because it is tiny, redundant, or not user-visible.",
+  );
+  lines.push(
+    "For UI PRs, do not stop at one before/after. Show the entry point, the changed interaction surface, and the resulting/destination state; add role/access or empty/error states when the diff implements them. Then include the key file-tree and key-change diff tabs.",
   );
   lines.push("");
   lines.push("---");
@@ -507,6 +1110,8 @@ export function buildRecapPrompt(input: {
 /* -------------------------------------------------------------------------- */
 
 const MARKER = "<!-- pr-visual-recap -->";
+const RECAP_IMAGE_URL_PATH_PATTERN =
+  /\/_agent-native\/recap-image\/[0-9a-f]{32,128}\.png$/;
 
 type GitHubComment = {
   id: number;
@@ -646,8 +1251,17 @@ function originOf(url: string): string {
 
 /** Build the sticky comment body from the workflow's environment. */
 export function buildCommentBody(env: NodeJS.ProcessEnv = process.env): string {
-  const headShort = (env.HEAD_SHA || "").slice(0, 7);
   const lines: string[] = [MARKER];
+
+  // Short head SHA for the "as of" freshness line.
+  const headSha = (env.HEAD_SHA || "").trim();
+  const headShort = headSha ? headSha.slice(0, 7) : "";
+
+  // Last-known plan id threaded from the previous run (supplied via PREV_PLAN_ID
+  // when the comment is rebuilt from scratch, or parsed from the env on upsert).
+  // We always emit the plan-id marker when any plan id is known so that a
+  // transient failure does not orphan the plan.
+  const prevPlanId = (env.PREV_PLAN_ID || "").trim() || null;
 
   if (env.SUPPRESSED === "true") {
     let reason = "potential secret in diff";
@@ -663,7 +1277,9 @@ export function buildCommentBody(env: NodeJS.ProcessEnv = process.env): string {
       "The recap was **suppressed** because the diff matched a secret/credential pattern. No plan was published.",
     );
     lines.push("");
-    lines.push(`Reason: \`${reason}\`. Updated for \`${headShort}\`.`);
+    lines.push(`Reason: \`${reason}\`.`);
+    if (headShort) lines.push("", `_As of \`${headShort}\`_`);
+    if (prevPlanId) lines.push("", `<!-- plan-id: ${prevPlanId} -->`);
     return lines.join("\n");
   }
 
@@ -676,8 +1292,8 @@ export function buildCommentBody(env: NodeJS.ProcessEnv = process.env): string {
     lines.push(
       "The change in this push is too small to be worth a visual recap. This is informational only and does **not** block the PR.",
     );
-    lines.push("");
-    lines.push(`Updated for \`${headShort}\`.`);
+    if (headShort) lines.push("", `_As of \`${headShort}\`_`);
+    if (prevPlanId) lines.push("", `<!-- plan-id: ${prevPlanId} -->`);
     return lines.join("\n");
   }
 
@@ -694,14 +1310,30 @@ export function buildCommentBody(env: NodeJS.ProcessEnv = process.env): string {
   const base = (appUrl || originOf(planUrl)).replace(/\/$/, "");
   const safeUrl =
     planId && base && sameOriginOk ? `${base}/recaps/${planId}` : "";
+
+  // The plan id to embed in the marker — prefer the freshly-published one when
+  // the origin is trusted, fall back to the previous run's id so the next push
+  // can still replace in-place. Never use a plan id extracted from a bad-origin
+  // URL as the marker (it would mask the last-good known id).
+  const trustedPlanId = planId && sameOriginOk ? planId : null;
+  const markerPlanId = trustedPlanId ?? prevPlanId;
+
   if (!safeUrl) {
     lines.push("### Visual recap — generation failed");
     lines.push("");
     lines.push(
       "The visual recap could not be generated for this push. This is informational only and does **not** block the PR.",
     );
-    lines.push("");
-    lines.push(`Updated for \`${headShort}\`.`);
+    if (headShort) lines.push("", `_As of \`${headShort}\`_`);
+    // Keep a link to the last-good recap so reviewers are not left in the dark.
+    if (prevPlanId && base) {
+      const prevSafeUrl = `${base}/recaps/${prevPlanId}`;
+      lines.push(
+        "",
+        `Previous recap (from an earlier push): [Open recap](${prevSafeUrl})`,
+      );
+    }
+    if (markerPlanId) lines.push("", `<!-- plan-id: ${markerPlanId} -->`);
     return lines.join("\n");
   }
 
@@ -712,10 +1344,10 @@ export function buildCommentBody(env: NodeJS.ProcessEnv = process.env): string {
   const imageUrl =
     imageUrlRaw &&
     sameOrigin(imageUrlRaw, base) &&
-    /\/_agent-native\/recap-image\/[0-9a-f]+\.png$/.test(imageUrlRaw)
+    RECAP_IMAGE_URL_PATH_PATTERN.test(imageUrlRaw)
       ? imageUrlRaw
       : "";
-  lines.push("### Visual recap — review at a higher altitude");
+  lines.push("### Visual recap");
   lines.push("");
   if (imageUrl) {
     lines.push(`[![Visual recap](${imageUrl})](${safeUrl})`);
@@ -728,10 +1360,8 @@ export function buildCommentBody(env: NodeJS.ProcessEnv = process.env): string {
       "> Large diff — this recap is a **summarized** view (top files + schema/API deltas).",
     );
   }
-  lines.push("");
-  lines.push(`Updated for \`${headShort}\`.`);
-  lines.push("");
-  lines.push(`<!-- plan-id: ${planId} -->`);
+  if (headShort) lines.push("", `_As of \`${headShort}\`_`);
+  lines.push("", `<!-- plan-id: ${planId} -->`);
   return lines.join("\n");
 }
 
@@ -752,7 +1382,21 @@ function runScan(args: Record<string, string | boolean>): void {
 }
 
 function runBuildPrompt(args: Record<string, string | boolean>): void {
-  const skill = readRepoSkillMd();
+  const skillSource =
+    optionalArg(args, "skill-source") ??
+    process.env.VISUAL_RECAP_SKILL_SOURCE ??
+    "auto";
+  if (
+    skillSource !== "auto" &&
+    skillSource !== "latest" &&
+    skillSource !== "repo"
+  ) {
+    throw new Error("--skill-source must be auto, latest, or repo.");
+  }
+  const skill = readVisualRecapSkillBundle(
+    process.cwd(),
+    skillSource as RecapSkillSourceMode,
+  );
   const prompt = buildRecapPrompt({
     skillMd: skill.text,
     pr: stringArg(args, "pr"),
@@ -771,6 +1415,56 @@ function runBuildPrompt(args: Record<string, string | boolean>): void {
   process.stdout.write(
     `${JSON.stringify({ ok: true, out, skillSource: skill.source, bytes: prompt.length })}\n`,
   );
+}
+
+function delay(ms: number): Promise<void> {
+  return ms > 0
+    ? new Promise((resolve) => setTimeout(resolve, ms))
+    : Promise.resolve();
+}
+
+/**
+ * Confirm GitHub can fetch the uploaded image anonymously before we embed it.
+ *
+ * Default budget: 8 attempts with capped exponential backoff (1s, 2s, 3s, …
+ * capped at 4s) → ~20s total. This is enough to survive a cold-start CDN
+ * propagation delay that would otherwise cause `uploadRecapImage` to return a
+ * URL that the GitHub PR comment can't display.
+ *
+ * The `attempts` and `delayMs` overrides remain for unit tests and for callers
+ * that need a tighter or looser budget.
+ */
+export async function waitForPublicRecapImage(input: {
+  imageUrl: string;
+  attempts?: number;
+  delayMs?: number;
+  fetchFn?: typeof fetch;
+}): Promise<boolean> {
+  const attempts = Math.max(1, input.attempts ?? 8);
+  const delayMs = Math.max(0, input.delayMs ?? 1000);
+  const fetchFn = input.fetchFn ?? fetch;
+  const MAX_DELAY_MS = 4000;
+
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    try {
+      const res = await fetchFn(input.imageUrl, {
+        method: "GET",
+        headers: { accept: "image/png" },
+        redirect: "follow",
+      });
+      const contentType = res.headers.get("content-type")?.toLowerCase() ?? "";
+      if (res.ok && contentType.split(";")[0]?.trim() === "image/png") {
+        const bytes = await res.arrayBuffer().catch(() => new ArrayBuffer(0));
+        if (bytes.byteLength > 0) return true;
+      }
+    } catch {
+      /* retry below */
+    }
+    if (attempt < attempts)
+      await delay(Math.min(delayMs * attempt, MAX_DELAY_MS));
+  }
+
+  return false;
 }
 
 /** Upload a PNG to the plan app's signed public image route; returns its URL. */
@@ -806,6 +1500,15 @@ async function uploadRecapImage(input: {
     if (!json?.imageUrl) {
       process.stderr.write(
         `[recap shot] image upload returned no imageUrl (status ${res.status})\n`,
+      );
+      return null;
+    }
+    const publiclyReadable = await waitForPublicRecapImage({
+      imageUrl: json.imageUrl,
+    });
+    if (!publiclyReadable) {
+      process.stderr.write(
+        `[recap shot] uploaded image was not publicly readable as image/png: ${json.imageUrl}\n`,
       );
       return null;
     }
@@ -913,7 +1616,7 @@ async function runShot(args: Record<string, string | boolean>): Promise<void> {
     // Zoom out slightly so more content fits. Keep the plan title (h1) in frame:
     // the recap reads better led by its own title than cropped to the body.
     await page.evaluate(() => {
-      (document.documentElement as HTMLElement).style.zoom = "80%";
+      (document.documentElement as HTMLElement).style.zoom = "90%";
     });
     await page.screenshot({ path: out });
     captured = true;
@@ -1015,17 +1718,32 @@ export interface RecapGateInput {
  * recap job runs (the workflow itself, the skill, the local CLI, or any agent
  * config the runner loads) — so the whole job is skipped, not just the agent
  * step, to keep untrusted PR code away from the publish/API secrets.
+ *
+ * The `packages/core/**` rule is scoped to the BuilderIO/agent-native monorepo
+ * (where packages/core IS the recap CLI source) so that consumer repos with an
+ * unrelated `packages/core/` directory are not silently gated. Pass the
+ * `repository` ("owner/name") to apply that scoping; omit it to match the old
+ * unconditional behaviour (safe for the gate's self-test).
  */
-export function isRecapSensitivePath(p: string): boolean {
-  return (
+export function isRecapSensitivePath(p: string, repository?: string): boolean {
+  if (
     p === ".github/workflows/pr-visual-recap.yml" ||
     /(^|\/)skills\/visual-(recap|plan|plans)\//.test(p) ||
     /(^|\/)\.claude\//.test(p) ||
     /(^|\/)CLAUDE\.md$/.test(p) ||
     /(^|\/)AGENTS\.md$/.test(p) ||
-    /(^|\/)\.mcp\.json$/.test(p) ||
-    /(^|\/)packages\/core\//.test(p)
-  );
+    /(^|\/)\.mcp\.json$/.test(p)
+  ) {
+    return true;
+  }
+  // packages/core is the recap-CLI source only in the agent-native monorepo.
+  // In consumer repos an unrelated packages/core/ must not gate recaps.
+  const isAgentNativeMonorepo =
+    !repository || repository === "BuilderIO/agent-native";
+  if (isAgentNativeMonorepo && /(^|\/)packages\/core\//.test(p)) {
+    return true;
+  }
+  return false;
 }
 
 /**
@@ -1099,7 +1817,9 @@ export function evaluateRecapGate(input: RecapGateInput): {
   // config the runner would load (.claude/**, CLAUDE.md, .mcp.json), skip the
   // ENTIRE job — not just the agent — so a PR can never rewrite what runs
   // (skill, hooks, settings, CLI) and exfiltrate the publish/API secrets.
-  const hits = input.changedFiles.filter(isRecapSensitivePath);
+  const hits = input.changedFiles.filter((p) =>
+    isRecapSensitivePath(p, input.repository),
+  );
   if (hits.length) {
     reasons.push(
       `PR modifies recap-control files (${hits.slice(0, 3).join(", ")}${
@@ -1701,10 +2421,12 @@ async function runUsage(args: Record<string, string | boolean>): Promise<void> {
 const HELP = `agent-native recap — PR visual recap helpers (used by the GitHub Action)
 
 Usage:
+  agent-native recap setup [--repo owner/name] [--agent claude|codex] [--app-url <url>] [--skip-secrets] [--dry-run]
+  agent-native recap doctor [--repo owner/name] [--agent claude|codex] [--app-url <url>]
   agent-native recap collect-diff --base <baseSha> --head <headSha> [--out recap.diff] [--stat recap.stat]
   agent-native recap mcp-config --agent claude|codex --app-url <url> [--out <path>]
   agent-native recap scan --diff <path>
-  agent-native recap build-prompt --pr <n> [--repo owner/name] [--head <sha>] [--app-url <url>] [--diff <path>] [--stat <path>] [--prev-plan-id <id>] [--huge] [--local-files] [--local-dir <folder>] [--out <path>]
+  agent-native recap build-prompt --pr <n> [--repo owner/name] [--head <sha>] [--app-url <url>] [--diff <path>] [--stat <path>] [--prev-plan-id <id>] [--huge] [--local-files] [--local-dir <folder>] [--skill-source auto|latest|repo] [--out <path>]
   agent-native recap shot --url <planUrl> [--token <planToken>] [--app-url <url>] [--out recap.png]
   agent-native recap usage --plan-url <planUrl> --result-file <path> --app-url <url> --token <planToken> [--agent claude|codex] [--model <id>]
   agent-native recap comment <find-plan-id|upsert> --repo owner/name --issue <n> --token <github-token>
@@ -1731,12 +2453,26 @@ Usage:
     packages/core, .claude/**, CLAUDE.md, AGENTS.md, .mcp.json) — failing CLOSED
     on any file-list error. Writes run=<true|false> and agent=<claude|codex> to
     $GITHUB_OUTPUT.
+  agent-native recap setup
+    Write/refresh .github/workflows/pr-visual-recap.yml, then configure GitHub
+    Actions secrets and variables with gh when values are available from env or
+    the local Plans publish-token store. Missing values are printed as exact next
+    commands; secret values are sent to gh through stdin, never argv.
+  agent-native recap doctor
+    Check workflow presence/drift, local Plans publish-token availability, gh
+    repo access, and required GitHub Actions secrets for the selected backend.
 `;
 
 export async function runRecap(argv: string[]): Promise<void> {
   const [sub, ...rest] = argv;
   const args = parseArgs(rest);
   switch (sub) {
+    case "setup":
+      runSetup(args);
+      return;
+    case "doctor":
+      runDoctor(args);
+      return;
     case "collect-diff":
       runCollectDiff(args);
       return;

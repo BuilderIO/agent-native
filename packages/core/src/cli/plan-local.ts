@@ -556,8 +556,23 @@ Common flow:
 export async function runPlan(argv: string[]): Promise<void> {
   const [area, sub, ...rest] = argv;
   if (area !== "local") {
-    process.stdout.write(HELP);
-    return;
+    // Bare `agent-native plan` / `plan help` / `plan --help` → show help on
+    // stdout and exit 0 (informational, not an error).
+    if (
+      area === undefined ||
+      area === "help" ||
+      area === "--help" ||
+      area === "-h"
+    ) {
+      process.stdout.write(HELP);
+      return;
+    }
+    // A non-empty, unrecognised area (e.g. `agent-native plan lokal`) is an
+    // error: print to stderr so the CI log captures it, and exit 1 so callers
+    // can detect the failure. This mirrors the existing behaviour for unknown
+    // subcommands inside `plan local`.
+    process.stderr.write(`Unknown plan area: ${area}\n${HELP}`);
+    process.exit(1);
   }
   const args = parseArgs(rest);
   switch (sub) {

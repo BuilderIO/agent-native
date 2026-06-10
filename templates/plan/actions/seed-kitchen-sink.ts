@@ -270,6 +270,11 @@ export default defineAction({
   description: "DEV-ONLY: seed a public diff-blocks kitchen-sink plan.",
   schema: z.object({}).optional(),
   run: async () => {
+    if (process.env.NODE_ENV !== "development") {
+      throw new Error(
+        "seed actions are dev-only and disabled in production (NODE_ENV must be 'development')",
+      );
+    }
     const result = (await createVisualPlan.run({
       title: "Diff blocks — kitchen sink",
       brief: content.brief,

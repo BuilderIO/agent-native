@@ -17,6 +17,21 @@ try {
   _version = pkg.version;
 } catch {}
 
+// Fail fast on unsupported Node versions. `engines.node: ">=22"` is only
+// advisory — npx/pnpm merely warn — so without this an older Node (18/20)
+// first fails deep inside a scaffold dynamic import with a cryptic
+// ERR_MODULE / syntax error that `handleScaffoldImportError` misreports as a
+// corrupt npx cache. A clear up-front message saves that whole detour.
+const REQUIRED_NODE_MAJOR = 22;
+const _nodeMajor = Number(process.versions.node.split(".")[0]);
+if (Number.isFinite(_nodeMajor) && _nodeMajor < REQUIRED_NODE_MAJOR) {
+  console.error(
+    `agent-native requires Node.js ${REQUIRED_NODE_MAJOR} or newer, but you're on Node ${process.versions.node}.\n` +
+      `Upgrade Node (https://nodejs.org) and re-run. With nvm: \`nvm install ${REQUIRED_NODE_MAJOR}\`.`,
+  );
+  process.exit(1);
+}
+
 /**
  * Build a redacted "command" tag from process.argv. Strips the value that
  * follows any --token / --key / --secret / --password / --api-key flag so
@@ -649,9 +664,10 @@ switch (command) {
   }
 
   case "recap": {
-    // PR visual recap helpers used by the GitHub Action (scan | build-prompt |
-    // shot | comment). Promoted to the CLI so an installed repo's workflow can
-    // call `agent-native recap …` instead of copying helper scripts.
+    // PR visual recap helpers used by the GitHub Action. Promoted to the CLI
+    // so an installed repo's workflow can call `agent-native recap …` instead
+    // of copying helper scripts. Run `agent-native recap help` for the full
+    // subcommand list.
     import("./recap.js")
       .then((m) => m.runRecap(args))
       .catch((err) => {
@@ -775,15 +791,15 @@ Usage:
                                 reinstalling app skills/connectors.
   agent-native app-skill <cmd>  Install, launch, or package app-backed skills.
                                 cmds: ensure | launch | pack
-  agent-native skills add assets|design-exploration|visual-plan|visual-questions|ui-plan|prototype-plan|plan-design
+  agent-native skills add assets|design-exploration|visual-plan|visual-recap|context-xray
                                 Install the skill instructions, register the MCP
                                 connector, AND authenticate it in one step.
                                 --no-connect skips auth (run 'connect' later);
                                 non-interactive shells print the connect command.
                                 --with-github-action also writes the PR Visual
                                 Recap workflow into .github/workflows/.
-  agent-native recap <cmd>      PR visual recap helpers used by the GitHub Action.
-                                cmds: scan | build-prompt | shot | comment
+  agent-native recap <cmd>      PR visual recap setup and GitHub Action helpers.
+                                Run 'agent-native recap help' for subcommands.
   agent-native plan local <cmd> DB-free local plan helpers.
                                 cmds: init | check | preview
   agent-native migrate <source> Create an Agent-Native Code /migrate session, or use
@@ -818,10 +834,32 @@ Bugs:      ${BUGS_URL}`);
 
   default:
     if (command && !command.startsWith("-")) {
-      import("./code.js")
-        .then((m) => m.runCode([command, ...args]))
-        .catch(handleScaffoldImportError);
-      break;
+      // A bare, single command-like token with no further args is almost
+      // always a mistyped subcommand (e.g. `agent-native destory`). Silently
+      // forwarding it to the coding agent would run an LLM with file-write
+      // powers on a typo — a real footgun on a code-modifying tool. Refuse it
+      // and point at the explicit forms. Intentional natural-language tasks
+      // are still dispatched: a quoted phrase (`agent-native "fix tests"`,
+      // which arrives as one argv token containing a space) or multi-word
+      // input (`agent-native fix the tests`, which has trailing args).
+      const looksLikeMistypedSubcommand =
+        args.length === 0 && /^[a-z][a-z0-9-]*$/i.test(command);
+      if (!looksLikeMistypedSubcommand) {
+        import("./code.js")
+          .then((m) => m.runCode([command, ...args]))
+          .catch(handleScaffoldImportError);
+        break;
+      }
+      console.error(`Unknown command: ${command}`);
+      console.error(
+        `If you meant to start a coding session with this as the task, run:\n` +
+          `  agent-native code ${JSON.stringify(command)}\n` +
+          `or quote a natural-language task:\n` +
+          `  agent-native "fix the failing tests"`,
+      );
+      console.error('Run "agent-native --help" for usage.');
+      console.error(`Bugs: ${BUGS_URL}`);
+      process.exit(1);
     }
     console.error(`Unknown command: ${command}`);
     console.error('Run "agent-native --help" for usage.');

@@ -195,6 +195,15 @@ beforeAll(async () => {
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL,
       approved_at TEXT,
+      usage_agent TEXT,
+      usage_model TEXT,
+      usage_input_tokens INTEGER,
+      usage_output_tokens INTEGER,
+      usage_cache_read_tokens INTEGER,
+      usage_cache_write_tokens INTEGER,
+      usage_cost_cents_x100 INTEGER,
+      usage_cost_source TEXT,
+      usage_recorded_at TEXT,
       owner_email TEXT NOT NULL,
       org_id TEXT,
       visibility TEXT NOT NULL DEFAULT 'private'
@@ -384,5 +393,215 @@ describe("plan version actions", () => {
         listPlanVersions.run({ planId: PLAN_ID }),
       ),
     ).rejects.toMatchObject({ statusCode: 403 });
+  });
+
+  it("restore preserves comment sectionId for sections that survive, nulls it only for sections absent from the snapshot", async () => {
+    // Seed a plan with TWO sections.
+    await db.insert(planSchema.plans).values({
+      id: PLAN_ID,
+      title: "Two-section plan",
+      brief: "brief",
+      status: "review",
+      source: "manual",
+      repoPath: null,
+      currentFocus: null,
+      html: null,
+      markdown: "# Two sections",
+      content: JSON.stringify(savedContent),
+      hostedPlanId: null,
+      hostedPlanUrl: null,
+      createdAt: CREATED_AT,
+      updatedAt: CREATED_AT,
+      approvedAt: null,
+      ownerEmail: OWNER,
+      orgId: null,
+      visibility: "private",
+    });
+    await db.insert(planSchema.planSections).values([
+      {
+        id: "sec_a",
+        planId: PLAN_ID,
+        type: "summary",
+        title: "Section A",
+        body: "Body A.",
+        html: null,
+        order: 0,
+        createdBy: "agent",
+        createdAt: CREATED_AT,
+        updatedAt: CREATED_AT,
+      },
+      {
+        id: "sec_b",
+        planId: PLAN_ID,
+        type: "summary",
+        title: "Section B",
+        body: "Body B.",
+        html: null,
+        order: 1,
+        createdBy: "agent",
+        createdAt: CREATED_AT,
+        updatedAt: CREATED_AT,
+      },
+    ]);
+
+    // Snapshot with both sections present.
+    const snapshot = await createPlanVersionSnapshot(PLAN_ID, {
+      force: true,
+      label: "Both sections",
+      createdBy: "agent",
+    });
+    expect(snapshot.created).toBe(true);
+
+    // Add comments anchored to both sections in the snapshot. Restore deletes
+    // and re-inserts all sections internally, so both anchors must survive that
+    // FK-sensitive replacement.
+    await db.insert(planSchema.planComments).values([
+      {
+        id: "comment_on_a",
+        planId: PLAN_ID,
+        parentCommentId: null,
+        sectionId: "sec_a",
+        kind: "comment",
+        status: "open",
+        anchor: null,
+        message: "Comment on surviving section A.",
+        createdBy: "human",
+        authorEmail: OWNER,
+        authorName: "Owner",
+        resolutionTarget: null,
+        mentionsJson: null,
+        resolvedBy: null,
+        resolvedAt: null,
+        consumedAt: null,
+        createdAt: CREATED_AT,
+        updatedAt: CREATED_AT,
+      },
+      {
+        id: "comment_on_b",
+        planId: PLAN_ID,
+        parentCommentId: null,
+        sectionId: "sec_b",
+        kind: "comment",
+        status: "open",
+        anchor: null,
+        message: "Comment on removed section B.",
+        createdBy: "human",
+        authorEmail: OWNER,
+        authorName: "Owner",
+        resolutionTarget: null,
+        mentionsJson: null,
+        resolvedBy: null,
+        resolvedAt: null,
+        consumedAt: null,
+        createdAt: CREATED_AT,
+        updatedAt: CREATED_AT,
+      },
+    ]);
+    const restored = await asOwner(() =>
+      restorePlanVersion.run({ planId: PLAN_ID, versionId: snapshot.id! }),
+    );
+    expect(restored.planId).toBe(PLAN_ID);
+
+    const comments = await db
+      .select()
+      .from(planSchema.planComments)
+      .where(eq(planSchema.planComments.planId, PLAN_ID))
+      .then((rows) => rows.sort((a, b) => a.id.localeCompare(b.id)));
+
+    // sec_a is in the snapshot → comment_on_a must keep its anchor.
+    const commentOnA = comments.find((c) => c.id === "comment_on_a");
+    expect(commentOnA?.sectionId).toBe("sec_a");
+
+    // sec_b is also in the snapshot (restore re-inserts it) →
+    // comment_on_b must also keep its anchor.
+    const commentOnB = comments.find((c) => c.id === "comment_on_b");
+    expect(commentOnB?.sectionId).toBe("sec_b");
+  });
+
+  it("restore nulls sectionId only for comments anchored to sections absent from the snapshot", async () => {
+    // sec_saved is in the snapshot; sec_gone is NOT — comment on sec_gone must
+    // be detached, comment on sec_saved must keep its anchor.
+    await seedPlan(); // seeds sec_saved
+    // Add sec_gone to the live plan (not captured in the snapshot we're about
+    // to take, because we snapshot BEFORE adding it).
+    const snapshot = await createPlanVersionSnapshot(PLAN_ID, {
+      force: true,
+      label: "Only sec_saved",
+      createdBy: "agent",
+    });
+    expect(snapshot.created).toBe(true);
+
+    // Now add sec_gone and comments on both sections.
+    await db.insert(planSchema.planSections).values({
+      id: "sec_gone",
+      planId: PLAN_ID,
+      type: "summary",
+      title: "Gone section",
+      body: "Will disappear on restore.",
+      html: null,
+      order: 1,
+      createdBy: "agent",
+      createdAt: CREATED_AT,
+      updatedAt: CREATED_AT,
+    });
+    await db.insert(planSchema.planComments).values([
+      {
+        id: "comment_surviving",
+        planId: PLAN_ID,
+        parentCommentId: null,
+        sectionId: "sec_saved",
+        kind: "comment",
+        status: "open",
+        anchor: null,
+        message: "On the section that survives the restore.",
+        createdBy: "human",
+        authorEmail: OWNER,
+        authorName: "Owner",
+        resolutionTarget: null,
+        mentionsJson: null,
+        resolvedBy: null,
+        resolvedAt: null,
+        consumedAt: null,
+        createdAt: CREATED_AT,
+        updatedAt: CREATED_AT,
+      },
+      {
+        id: "comment_orphaned",
+        planId: PLAN_ID,
+        parentCommentId: null,
+        sectionId: "sec_gone",
+        kind: "comment",
+        status: "open",
+        anchor: null,
+        message: "On the section removed by restore.",
+        createdBy: "human",
+        authorEmail: OWNER,
+        authorName: "Owner",
+        resolutionTarget: null,
+        mentionsJson: null,
+        resolvedBy: null,
+        resolvedAt: null,
+        consumedAt: null,
+        createdAt: CREATED_AT,
+        updatedAt: CREATED_AT,
+      },
+    ]);
+
+    await asOwner(() =>
+      restorePlanVersion.run({ planId: PLAN_ID, versionId: snapshot.id! }),
+    );
+
+    const comments = await db
+      .select()
+      .from(planSchema.planComments)
+      .where(eq(planSchema.planComments.planId, PLAN_ID));
+
+    const surviving = comments.find((c) => c.id === "comment_surviving");
+    const orphaned = comments.find((c) => c.id === "comment_orphaned");
+
+    // Comment on sec_saved: section is in the snapshot, must keep its anchor.
+    expect(surviving?.sectionId).toBe("sec_saved");
+    // Comment on sec_gone: section NOT in snapshot, must be detached.
+    expect(orphaned?.sectionId).toBeNull();
   });
 });

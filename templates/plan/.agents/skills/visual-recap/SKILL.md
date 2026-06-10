@@ -57,23 +57,26 @@ otherwise approved by the user.
 ## Always Publish As An Agent-Native Plan — Never Inline
 
 The deliverable is ALWAYS a published Agent-Native Plan, created with the
-`create-visual-recap` tool on the `plan` MCP server. NEVER hand the recap to the
-user as inline chat content — not Markdown prose, not an ASCII sketch, not a
-table, not a fenced "wireframe", not a "here's the recap" summary. A recap's
-entire value is the hosted, interactive, annotatable plan; an inline summary is
-not a recap, it is the thing a recap replaces. The only supported output is to
-publish the plan and return its absolute URL.
+`create-visual-recap` tool on the Plan MCP connector. The connector is usually
+exposed as the `plan` server, but older installed agents may expose the same
+hosted connector as `agent-native-plans`; both names are valid. NEVER hand the
+recap to the user as inline chat content — not Markdown prose, not an ASCII
+sketch, not a table, not a fenced "wireframe", not a "here's the recap" summary.
+A recap's entire value is the hosted, interactive, annotatable plan; an inline
+summary is not a recap, it is the thing a recap replaces. The only supported
+output is to publish the plan and return its absolute URL.
 
-Except for the explicit local-files privacy mode above, if the `plan` MCP
-server's tools are not available, do NOT improvise an inline
-recap as a fallback. The usual cause is a connector that did not finish
-connecting this session (it registers zero tools), NOT necessarily an auth
-problem — so do not assume the user must authenticate. Stop and tell the user
-how to restore it: reconnect the plan MCP server (in Claude Code, run `/mcp` and
-reconnect, or restart the session); only if it is genuinely unauthenticated, run
-`agent-native connect <plan-app-url>` or re-authenticate via `/mcp`. Then publish
-once the tool is reachable. Falling back to inline content is a defect, not a
-degraded mode.
+Except for the explicit local-files privacy mode above, if neither the `plan`
+nor legacy `agent-native-plans` Plan MCP tools are available, do NOT improvise an
+inline recap as a fallback. Do not report the connector as disconnected just
+because it is named `agent-native-plans` instead of `plan`. The usual cause is a
+connector that did not finish connecting this session (it registers zero tools),
+NOT necessarily an auth problem — so do not assume the user must authenticate.
+Stop and tell the user how to restore it: reconnect the Plan MCP connector (in
+Claude Code, run `/mcp` and reconnect, or restart the session); only if it is
+genuinely unauthenticated, run `agent-native connect <plan-app-url>` or
+re-authenticate via `/mcp`. Then publish once the tool is reachable. Falling
+back to inline content is a defect, not a degraded mode.
 
 ## When To Use
 
@@ -124,6 +127,11 @@ them. Alongside the visual/structural headline (wireframes, `data-model`,
 `api-endpoint`, `diagram`), a substantial recap also carries the implementation
 evidence:
 
+- A short surface/state inventory before authoring: list the changed routes,
+  components, popovers/dialogs, role/access states, empty/error states, and
+  shared abstractions visible in the diff. The final recap must either represent
+  each meaningful item with a block or intentionally omit it because it is tiny,
+  redundant, or not user-visible.
 - A `file-tree` of the changed files with each entry's `change` flag, so the
   reviewer sees the footprint of the work at a glance.
 - The split `diff` of the KEY changed files, grouped under a `## Key changes`
@@ -143,6 +151,25 @@ When the diff changes rendered UI, layout, density, visual state, interaction
 affordances, navigation, controls, menus, dialogs, or design tokens, the recap
 MUST include one or more wireframes. Prose and file diffs are not a substitute
 for showing what changed visually.
+
+Before choosing wireframes, make a UI coverage pass from the diff:
+
+- Identify the entry surface where the change appears, such as a page header,
+  list row, toolbar, route shell, or menu trigger.
+- Identify the interaction surface that opens or changes, such as a popover,
+  dialog, tab, sheet, dropdown, inline editor, or toast.
+- Identify the resulting destination or persistent state, such as a public page,
+  read-only view, empty state, error state, loading state, permission-denied
+  state, or saved/shared state.
+- Identify access or role variants when permissions change. Owner/admin/editor
+  versus viewer/non-manager differences are visual behavior and need a compact
+  matrix, paired wireframes, or clearly labeled state sequence.
+
+For UI-heavy PRs, a single before/after of the entry surface is not enough.
+Show the changed entry point, the main changed interaction surface, and the
+resulting/destination state. Add more states when the diff adds tabs, role-based
+controls, public/private visibility, invite/manage flows, destructive controls,
+or empty/error branches.
 
 Choose the smallest visual surface that makes the review clear:
 
@@ -167,239 +194,20 @@ captured, say so in the wireframe caption or a concise annotation. For
 local/manual recaps, import or update the plan source that holds the wireframes
 so the rendered recap opens with the UI visual available.
 
-## Wireframe Quality
+## Wireframe Quality — read `references/wireframe.md`
 
-UI recap wireframes must look like the UI surface that changed, not like generic
-architecture boxes. The following bar is shared, word for word, with
-`/visual-plan` and `/ui-plan`: it is the single source of truth for HTML
-wireframe quality, and applies to a recap's standalone `wireframe` /
-`WireframeBlock` / `<Screen>` exactly as it applies to a plan's canvas artboard.
-
-<!-- SHARED-CORE:wireframe-quality START -->
-
-**A wireframe is an HTML mockup. The renderer owns the look; you write the
-content.** Set `data.html` to a self-contained, semantic HTML fragment of the
-screen and set `data.surface`. The renderer owns the surface footprint/aspect,
-the dark/light theme, the hand-drawn font, and the rough.js sketch overlay — you
-never write `<html>`/`<body>`/`<script>`/`<style>` tags, font-family, hex colors,
-or any width/height/coordinates. You write real HTML layout and real product
-content; the renderer styles and roughens it.
-
-**A wireframe block's data is an HTML screen plus a surface:**
-
-```json
-{
-  "surface": "browser",
-  "html": "<div style=\"display:flex;flex-direction:column;gap:10px;padding:16px;height:100%\"><h1>Sign in</h1><p class=\"wf-muted\">Use your work email to continue.</p><div class=\"wf-card\" style=\"display:flex;flex-direction:column;gap:10px\"><label>Email<input value=\"jane@acme.co\" /></label><label>Password<input value=\"••••••••\" /></label><label style=\"display:flex;align-items:center;gap:8px\"><input type=\"checkbox\" checked /> Remember me</label><button class=\"primary\">Sign in</button></div><a href=\"#\">Forgot password?</a></div>"
-}
-```
-
-**Write PLAIN semantic HTML and let the renderer style it.** Bare elements
-(`h1`/`h2`/`h3`, `p`, `button`, `input`, `<input type="checkbox">`, `a`, `hr`)
-are auto-themed — no classes needed. Helper classes carry the rest:
-
-- `.wf-card` / `.wf-box` — a bordered, padded container (a panel, a list item).
-- `.wf-pill` / `.wf-chip` — a rounded tag or filter; add `.accent`
-  (`<span class="wf-pill accent">`) for the accent-filled variant.
-- `.wf-muted` — secondary/muted text (or use `<small>`).
-- `button.primary` or any element with `[data-primary]` — the accent-filled
-  primary button.
-
-**Use the `--wf-*` tokens for any custom color, never hex.** The renderer flips
-these on light/dark, so reading them is what keeps a mockup correct in both
-themes. For any inline border, background, or text color, reference a token:
-`style="border:1.4px solid var(--wf-line)"`. The tokens are `--wf-ink` (text),
-`--wf-muted` (secondary text), `--wf-line` (borders/dividers), `--wf-paper`
-(page background), `--wf-card` (raised surface), `--wf-accent` /
-`--wf-accent-fg` / `--wf-accent-soft` (brand action), `--wf-warn`, `--wf-ok`,
-and `--wf-radius`. Never hard-code a hex color and never set `font-family` — the
-renderer owns the sketch/clean font.
-
-**Lay out with inline `style` flex/grid.** You write the real layout —
-`display:flex; flex-direction:column; gap:10px; padding:16px` and so on — and the
-renderer never repositions anything. Compose the actual product: reproduce the
-current screen, then show the modification. Real labels, real counts, real dates,
-real button text grounded in the screen you read; not lorem or gray bars.
-
-**Surface presets — match the real footprint, never default to desktop+mobile.**
-Pick the `surface` that matches what the user will actually see:
-
-- `browser`: a web page that needs a browser chrome frame around it.
-- `desktop`: a full desktop app page or app shell.
-- `mobile`: a phone screen, only when the work is genuinely mobile.
-- `popover`: a small floating menu, dropdown, or inline popover.
-- `panel`: a side panel, inspector, or sidebar widget.
-
-A sidebar popover renders as a small surface, not a desktop page and a phone
-frame. Do not emit `desktop` + `mobile` variants unless responsive behavior
-actually changes the layout. For a component or widget, show one broader
-app-context frame only when placement affects understanding, then the focused
-component states.
-
-**Model the actual component shell for small surfaces.** A rendered UI change
-belongs in a wireframe; reserve `diagram` for architecture, dependency, state,
-or data-flow relationships. Popovers, dropdown menus, command palettes, and
-context menus use `surface: "popover"` unless the surrounding page placement is
-the point of the change. Dialogs, sheets, inspectors, sidebars, and long
-property panels use the matching `panel` / `desktop` surface as appropriate.
-Show the real chrome: trigger or anchor when it matters, title/header row,
-top-right actions, separators, fields, options, selected states, body content,
-and footer actions that are visible in the workflow.
-
-**Modify, don't redesign.** When the task changes an existing screen, reproduce
-the current screen's real layout and footprint FIRST, then change only the delta
-and call it out with a single annotation. Do not restack the page into a new
-layout. For net-new surfaces, compose from the real app shell.
-
-**Classify mockup scope before implementation.** Before turning a plan mockup
-into source code, decide whether each artboard represents the whole page/app
-shell, a route body inside an existing shell, or a component/sub-surface. If an
-artboard includes navigation, sidebars, auth banners, or a signup/login form,
-map those pieces to the real shared shell/auth components instead of nesting the
-entire mockup inside the current page. When a mockup references the product's
-standard signup/login page, find and reuse that existing implementation; do not
-approximate it from the wireframe.
-
-**Zoom in on sub-surfaces, don't redraw the page.** For a small sub-surface (a
-popover, menu, dialog, toast), show the full screen once, then add a small
-separate artboard whose `html` contains ONLY that sub-surface — do not re-draw
-the whole page around it, and do not scale a duplicate up. Pick the matching
-`surface` (e.g. `popover`) so the footprint is right; never widen a popover to
-page width.
-
-**Loading / skeleton states.** Set `data.skeleton: true` on the wireframe and
-fill the `html` with neutral, textless placeholder geometry — boxes and bars
-built as `<div>`s with `background:var(--wf-line)` and explicit heights/widths,
-no labels or copy. The renderer drops borders, sketch, and color into the
-skeleton register automatically. Never escape to a `custom-html` document block
-to fake a loader.
-
-**Editing an existing mockup.** To change one element, text, or color in an
-existing html mockup, do NOT regenerate the frame — call `update-visual-plan`
-with `contentPatches: [{ op: "patch-wireframe-html", blockId, edits: [{ find,
-replace }] }]`. Each `find` is a unique snippet of the current html (read it
-first with `get-visual-plan`); set `all: true` on an edit to replace every
-occurrence. The result is re-sanitized.
-
-**Treat the wireframe border as part of the visible design.** Always wrap HTML
-wireframe content in a root container with real inner padding before drawing
-cards, fields, pills, labels, or controls. Use at least 14-16px of padding,
-`box-sizing: border-box`, `height: 100%`, and `gap` between child rows so the
-first row never sits flush against the screen border. Keep text away from
-borders: every container, field, button, menu item, and annotation needs enough
-padding and line-height to read cleanly in the rendered Plan view.
-
-**Lay out children safely so they never collide.** Use HTML flex/grid with
-`gap`, `min-width: 0`, and sensible overflow. Avoid negative margins, absolute
-positioning, or fixed child widths that can collide when the renderer switches
-between light/dark, sketch/clean, or different zoom levels.
-
-**Do not wrap intentionally single-line labels.** For toolbars, tab rails,
-breadcrumbs, chip/filter rows, branch and file names, file chips, and code
-filenames — any deliberately single-line row — do not let long text wrap. Put
-`white-space: nowrap` on the row (and `overflow: hidden; text-overflow: ellipsis`
-on the individual labels that can grow), so the wireframe demonstrates the actual
-layout behavior instead of producing ugly stacked or vertical text. Use
-horizontally scrollable or clipped rails for overflow.
-
-**Fill the frame; keep labels short.** Each artboard is a fixed-size surface — compose enough realistic HTML to fill it top to bottom with even vertical rhythm; never leave a large empty band. On desktop/app-shell sidebars, let the nav stack flex to fill (`flex:1`) and add any persistent bottom action/status after it so the rail reads complete in taller frames. On mobile especially, flow real rows down the whole screen (status bar, header, then list/detail content) rather than a header floating above a gap. Keep every label short enough to sit on one line within its column — shorten the copy rather than relying on the frame to absorb it (long labels wrap or clip).
-
-**Persistent chrome bars span the full frame width.** Top bars, app headers,
-toolbars, and bottom tab/nav bars are full-width chrome, not centered content.
-Lay each one out as a single flex row that fills the frame
-(`style="display:flex;align-items:center;width:100%"`) and push trailing actions
-to the right edge with a flex spacer (`<div style="flex:1"></div>`) between the
-leading group and the trailing group — never center a bar inside a narrow,
-centered block, and never let it collapse to the width of its contents. In a
-Before/After pair the bar stays full-width in BOTH states even when one state has
-fewer controls; the spacer absorbs the difference so the remaining controls hold
-their edge alignment instead of sliding to the center.
-
-**Pin bottom bars to the bottom of the frame.** For mobile tab bars, footers, and
-any persistent bottom action row, make the frame itself a flex column at
-`height:100%` (`style="display:flex;flex-direction:column;height:100%"`), give the
-scrolling body `flex:1` so it absorbs the slack, and place the bar as the LAST
-child of the frame (or set `margin-top:auto` on it). The bar then sits flush at
-the bottom of the surface instead of floating directly under the content with an
-empty band beneath it.
-
-**Before / after must be comparable.** When showing a state change, preserve the
-unchanged controls in both states so the reviewer can see exactly what moved or
-appeared; do not show an added control as a generic box floating elsewhere in
-the surface. Place the new/changed affordance where the implementation puts it —
-for example, a new `Edit with AI` action in a popover header belongs in the
-top-right header slot, aligned with the title, not in the body or footer. Use
-the same frame size, scale, outer padding, border radius, and visual density on
-both sides unless the change itself alters those properties, and let the frame
-height fit the content rather than leaving a tall empty lower half.
-
-**Name the states with the column header, never inside the frame.** Put the two
-states in a `columns` block and set each column's `label` to `Before` and
-`After` — the renderer draws that label as an `h4` heading above each frame. Do
-NOT bake a `Before`/`After` pill, title, or heading into the wireframe `html`: a
-label placed inside reads as part of the product UI, lands in a random corner,
-and clutters the comparison. The column header is the one and only place the
-state name belongs.
-
-**Let the surface choose side-by-side vs. stacked.** The `columns` renderer lays
-narrow surfaces (`mobile`, `popover`, `panel`) out side by side, and
-automatically stacks wide surfaces (`desktop`, `browser`) vertically at full
-document width so a large frame is never crushed into a half-width column and
-cropped. Author both wireframes with the real `surface` and the matching
-`Before`/`After` column labels; do not hand-stack the pair into separate
-top-level wireframes or duplicate the state name as body content.
-
-**Good example — a contacts list, surface `browser`.** A small, real screen
-composed from the helper classes and tokens, layout in inline flex, no fonts or
-hex colors:
-
-```html
-<div
-  style="display:flex;flex-direction:column;gap:12px;padding:16px;height:100%"
->
-  <div style="display:flex;align-items:center;justify-content:space-between">
-    <h1>Contacts</h1>
-    <button class="primary">New contact</button>
-  </div>
-  <div style="display:flex;gap:6px">
-    <span class="wf-pill accent">All 128</span>
-    <span class="wf-pill">Favorites</span>
-    <span class="wf-pill">Archived</span>
-  </div>
-  <div
-    class="wf-card"
-    style="display:flex;flex-direction:column;gap:0;padding:0"
-  >
-    <div
-      style="display:flex;align-items:center;gap:10px;padding:10px 12px;border-bottom:1.4px solid var(--wf-line)"
-    >
-      <div
-        style="width:32px;height:32px;border-radius:999px;background:var(--wf-accent-soft)"
-      ></div>
-      <div style="flex:1">
-        <strong>Jane Cooper</strong><br /><small>jane@acme.co</small>
-      </div>
-      <span class="wf-pill">Lead</span>
-    </div>
-    <div style="display:flex;align-items:center;gap:10px;padding:10px 12px">
-      <div
-        style="width:32px;height:32px;border-radius:999px;background:var(--wf-accent-soft)"
-      ></div>
-      <div style="flex:1">
-        <strong>Marcus Lee</strong><br /><small>marcus@globex.io</small>
-      </div>
-      <span class="wf-pill">Customer</span>
-    </div>
-  </div>
-</div>
-```
-
-<!-- SHARED-CORE:wireframe-quality END -->
+UI recap/plan wireframes must meet a strict quality bar — full-width chrome,
+pinned bottom bars, real product content, before/after comparability, the right
+`surface` preset, `--wf-*` tokens instead of hex, and no `<html>`/`<style>`/font
+tags. Before authoring ANY wireframe / `<Screen>` / `WireframeBlock`, READ
+`references/wireframe.md` in this skill directory — it is the single source of
+truth for HTML wireframe quality, shared word for word with `/visual-plan`
+and `/visual-recap`. Do not author wireframes from memory.
 
 Use the standard `WireframeBlock` / `<Screen>` format so the Plan viewer owns the
 surface frame, theme, and sketchy/clean toggle. HTML wireframes are appropriate
 when placement precision matters, especially popovers, menus, dialogs, and dense
-forms; kit-tree wireframes are appropriate for simpler layouts. For HTML
+forms. For HTML
 wireframes, keep `renderMode` unset or `wireframe` unless a design-only editable
 mockup is explicitly required, because `renderMode="design"` disables the
 sketchy rough overlay.
@@ -526,9 +334,12 @@ tags — resolve every conceptual name to its exact tag + prop schema with the
   wireframes when the comparison clarifies the change; otherwise use after-only
   or a short state/flow sequence. Use realistic UI surfaces: for a popover
   change, show a popover with its title row, top-right actions, options/fields,
-  and any opened prompt/menu anchored to the correct trigger. Keep the body lean:
-  the wireframe carries the UI story, while the file tree and `diff`
-  blocks carry implementation evidence.
+  tabs, selected/disabled states, people/lists/rows, and any opened prompt/menu
+  anchored to the correct trigger. If a route was added, show the route body and
+  the unavailable/empty state when the diff implements one. If permissions
+  changed, show what managers can do and what viewers/non-managers see instead.
+  Keep the body lean: the wireframe carries the UI story, while the file tree
+  and `diff` blocks carry implementation evidence.
 - **Architecture or data-flow shift** → `diagram` with `data.html` / `data.css`
   as a two-panel before/after, layered, or swimlane layout, or `mermaid` for a
   quick graph. Use two-dimensional layouts; do not reduce a structural change to
@@ -555,8 +366,9 @@ memorized tags — they drift and silently produce a wrong tag (`ApiEndpoint`
 instead of `Endpoint`, `JsonExplorer` instead of `Json`, `Tabs` instead of
 `TabsBlock`) that errors on import.
 
-**Before writing any structured plan content, call `get-plan-blocks` on the
-`plan` MCP server.** It returns the authoritative, always-current block
+**Before writing any structured plan content, call `get-plan-blocks` on the Plan
+MCP connector (`plan` or legacy `agent-native-plans`).** It returns the
+authoritative, always-current block
 vocabulary generated live from the app's own block registry — the same config
 the renderer and MDX round-trip use — so it can never be stale even if this
 SKILL.md is an old installed copy:
@@ -617,7 +429,10 @@ For UI diffs, wireframes are the visual comparison primitive. Use before/after
 wireframes when the comparison clarifies the change; use after-only or a state
 sequence when that better matches the change. The visual headline must show
 exact placement, realistic chrome, and adequate padding before any abstract
-explanation. The Wireframe Quality core owns the before/after layout choice —
+explanation. Do not stop at the first visible affordance when the diff adds a
+flow; show the entry point, the opened surface, and the resulting state or page
+so the reviewer can trace the actual user path. The Wireframe Quality core owns
+the before/after layout choice —
 the `columns` renderer keeps narrow surfaces side by side and auto-stacks wide
 `desktop`/`browser` frames vertically; never hand-build a side-by-side
 wireframe layout in `custom-html`. For document-body
@@ -651,15 +466,19 @@ inferred (not extracted) as inferred in prose.
   hardcoded-secret rule: obviously fake placeholders only, never the real value,
   in any block, caption, or note.
 
-## Bidirectional Loop (Fast-Follow)
+## Bidirectional Loop
 
 Because a recap is a real, editable plan, the same review loop as forward plans
 applies: a reviewer can annotate any block, and the coding agent reads
 `get-plan-feedback` to drive fixes back into the code — annotation → agent →
-diff, the same close-the-loop flow forward plans use. In v1, recaps are
-**read-only**: they summarize a merged or proposed change for review, and the
-annotate-to-fix loop is a fast-follow, not yet wired. Build the recap so the
-blocks are anchorable and the loop drops in later without restructuring.
+diff, the same close-the-loop flow forward plans use. After a reviewer annotates
+a block, call `get-plan-feedback` to read the structured feedback, then either
+update the recap with `create-visual-recap` (passing the existing `planId` to
+replace it in place) or apply targeted changes with `update-visual-plan`. The
+loop is live and wired. The one thing not yet automatic is PR-comment-triggered
+re-runs: the GitHub Action creates an initial recap per PR, but it does not yet
+re-run automatically when new review feedback is posted in GitHub — that
+auto-re-run is the remaining fast-follow.
 
 ## Related Skills
 

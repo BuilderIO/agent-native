@@ -132,6 +132,19 @@ Plan app is published this way as a ready-to-add marketplace at the repo root â€
 see [Plan plugin & marketplace](/docs/plan-plugin) for the end-to-end install
 and auto-update flow.
 
+For users who install copied skills through the universal CLI instead of a
+plugin marketplace, use the CLI freshness commands:
+
+```bash
+npx @agent-native/core@latest skills status visual-plan
+npx @agent-native/core@latest skills update visual-plan
+```
+
+`skills update` scans known Codex/Claude project and user skill folders, compares
+the copied folder hash to the latest bundled skill, and rewrites stale folders in
+place. Newly copied Agent Native skills include an `agent-native-skill.json`
+marker so future status output can identify the source and hash.
+
 ## Creating custom skills {#creating-skills}
 
 Create a skill when:

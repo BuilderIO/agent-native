@@ -394,6 +394,56 @@ export function sanitizeDiagramHtml(value: string): string {
     .replace(/\bdata\s*:\s*(?:text\/html|image\/svg\+xml)/gi, "");
 }
 
+/**
+ * Active-embedding elements stripped from a stored full HTML document, with
+ * their contents. Unlike {@link sanitizeCustomHtml}, this intentionally does
+ * NOT strip presentational/structural tags (`<style>`, `<link>`, `<meta>`,
+ * `<head>`, `<body>`, `<svg>`, `<form>`) so a legitimately imported standalone
+ * document still renders with its styling intact.
+ */
+const STORED_HTML_FORBIDDEN_ELEMENT =
+  /<(script|iframe|object|embed|applet|portal|frameset|frame)\b[^>]*>[\s\S]*?<\/\s*\1\s*>/gi;
+
+/** Standalone / dangling forms of the same active-embedding tags. */
+const STORED_HTML_FORBIDDEN_TAG =
+  /<\/?\s*(?:script|iframe|object|embed|applet|portal|frame|frameset)\b[^>]*>/gi;
+
+/**
+ * Sanitize the legacy top-level plan `html` escape-hatch (a full standalone
+ * HTML document). The field is agent-authored and the agent treats fetched
+ * pages / tool output / repo files as untrusted, so a prompt-injected source
+ * could plant a malicious document; plans are also shareable, so one author's
+ * stored HTML renders in a reviewer's session.
+ *
+ * The render iframes are already sandboxed without `allow-same-origin` (so
+ * scripts can never reach the app origin), but this strips the script-execution
+ * surface at the data layer too — defense in depth that keeps a malicious
+ * document inert even if a future render path forgets the sandbox, and keeps
+ * exported source files clean. It preserves document structure and styling
+ * (the field's legitimate purpose is storing imported artifacts) while removing
+ * script/iframe/object/embed elements, inline event handlers, and
+ * `javascript:` / `vbscript:` / `data:text/html` URLs.
+ */
+export function sanitizeStoredPlanHtml(value: string): string {
+  let out = value;
+  // Iterate so nested / sequential cases collapse fully.
+  for (let i = 0; i < 4; i += 1) {
+    const next = out.replace(STORED_HTML_FORBIDDEN_ELEMENT, "");
+    if (next === out) break;
+    out = next;
+  }
+  return out
+    .replace(STORED_HTML_FORBIDDEN_TAG, "")
+    .replace(FORBIDDEN_ATTR, "")
+    .replace(FORBIDDEN_BOUND_ATTR, "")
+    .replace(URL_ATTR, (match, doubleQuoted, singleQuoted, bare) =>
+      hasUnsafeUrl(doubleQuoted ?? singleQuoted ?? bare ?? "") ? "" : match,
+    )
+    .replace(/\bjava\s*script\s*:/gi, "")
+    .replace(/\bvb\s*script\s*:/gi, "")
+    .replace(/\bdata\s*:\s*text\/html/gi, "");
+}
+
 function sanitizeBlock(block: PlanBlock): PlanBlock {
   if (block.type === "wireframe") {
     return {

@@ -1,4 +1,5 @@
 import { defineAction, embedApp } from "@agent-native/core";
+import { eq } from "drizzle-orm";
 import { z } from "zod";
 import importVisualPlanSourceAction from "./import-visual-plan-source.js";
 import { planMdxFileSchema } from "../server/plan-mdx.js";
@@ -7,6 +8,7 @@ import {
   planSourceSchema,
   planStatusSchema,
 } from "../server/plans.js";
+import { getDb, schema } from "../server/db/index.js";
 
 export default defineAction({
   description:
@@ -23,6 +25,13 @@ export default defineAction({
       .describe(
         "Optional one-line recap summary shown under the title. Keep it to a single short sentence.",
       ),
+    visibility: z
+      .enum(["private", "org", "public"])
+      .optional()
+      .default("org")
+      .describe(
+        "Visibility for the published recap. Defaults to 'org' (login-gated to the publishing org) so the recap is never accidentally public. Pass 'private' to keep it owner-only.",
+      ),
     source: planSourceSchema.optional().default("imported"),
     repoPath: z.string().optional().describe("Repository path for the recap."),
     currentFocus: z
@@ -32,7 +41,7 @@ export default defineAction({
       .describe("Current focus for the review surface."),
     status: planStatusSchema.optional().default("review"),
     mdx: planMdxFileSchema.describe(
-      "Recap source files. Before authoring structured content, call the get-plan-blocks tool on the plan MCP server for the authoritative current block catalog and per-block schemas (exact tags, required fields, prop shapes) so you never author from memorized tags that have drifted. plan.mdx should contain grounded blocks derived from the real diff: file-tree, split diffs with line-anchored annotations on the key hunks (so the recap calls out what each important change does, not just code for code's sake), horizontal TabsBlock groups for multiple key-file diffs so each split diff gets full document width, annotated-code for substantial new files with no meaningful before, columns, data-model, api-endpoint, realistic wireframes for UI changes, diagrams for architecture/data-flow changes, and short prose. Include WireframeBlock or canvas.mdx before/after wireframes whenever the diff changes rendered UI, layout, density, visual state, or interaction affordances. For comparable before/after UI states, put one standard WireframeBlock in each side of a Columns block and set the column labels to Before and After; the renderer draws each label as a heading above its frame and lays narrow surfaces side by side while stacking wide desktop/browser frames vertically on its own, so never bake a Before/After label inside the wireframe or hand-stack the pair as separate top-level wireframes. Use the standard WireframeBlock/Screen renderer so the Plan viewer owns the surface, theme, and sketchy/clean toggle; keep renderMode unset or wireframe unless a design-only editable mock is explicitly required, and use --wf-* tokens, semantic controls, and rough targets such as data-rough/.wf-card/.wf-box/buttons/inputs/textareas. Let canvas artboards use surface preset sizing/auto-layout when possible; do not rely on custom width/height props to shrink desktop/browser frames, and render-check that artboards and labels do not overlap. Small UI surfaces must look like the real component: a popover change should use a popover surface with matching before/after geometry, a root wrapper with at least 14-16px of padding inside the bordered Screen, visible fields/options, and the changed control placed in its actual slot (for example a top-right header action stays in the top-right header). Do not use diagram blocks as stand-ins for rendered UI. Keep API endpoint groups in normal single-column document flow; use columns for API material only when it is an explicit before/after contract comparison. Diagram data.html/data.css should use renderer-owned .diagram-* primitives and --wf-* tokens instead of custom fonts or hard-coded hex/rgb/hsl colors, so light/dark and sketchy Excalifont/rough.js modes remain correct.",
+      "Recap source files. Before authoring structured content, call the get-plan-blocks tool on the plan MCP server for the authoritative current block catalog and per-block schemas (exact tags, required fields, prop shapes) so you never author from memorized tags that have drifted. When the change has UI, also read references/wireframe.md in the visual-recap skill directory for the wireframe quality bar before authoring any WireframeBlock/Screen. plan.mdx should contain grounded blocks derived from the real diff: file-tree, split diffs with line-anchored annotations on the key hunks (so the recap calls out what each important change does, not just code for code's sake), horizontal TabsBlock groups for multiple key-file diffs so each split diff gets full document width, annotated-code for substantial new files with no meaningful before, columns, data-model, api-endpoint, realistic wireframes for UI changes, diagrams for architecture/data-flow changes, and short prose. Include WireframeBlock or canvas.mdx before/after wireframes whenever the diff changes rendered UI, layout, density, visual state, or interaction affordances. For comparable before/after UI states, put one standard WireframeBlock in each side of a Columns block and set the column labels to Before and After; the renderer draws each label as a heading above its frame and lays narrow surfaces side by side while stacking wide desktop/browser frames vertically on its own, so never bake a Before/After label inside the wireframe or hand-stack the pair as separate top-level wireframes. Use the standard WireframeBlock/Screen renderer so the Plan viewer owns the surface, theme, and sketchy/clean toggle; keep renderMode unset or wireframe unless a design-only editable mock is explicitly required, and use --wf-* tokens, semantic controls, and rough targets such as data-rough/.wf-card/.wf-box/buttons/inputs/textareas. Let canvas artboards use surface preset sizing/auto-layout when possible; do not rely on custom width/height props to shrink desktop/browser frames, and render-check that artboards and labels do not overlap. Small UI surfaces must look like the real component: a popover change should use a popover surface with matching before/after geometry, a root wrapper with at least 14-16px of padding inside the bordered Screen, visible fields/options, and the changed control placed in its actual slot (for example a top-right header action stays in the top-right header). Do not use diagram blocks as stand-ins for rendered UI. Keep API endpoint groups in normal single-column document flow; use columns for API material only when it is an explicit before/after contract comparison. Diagram data.html/data.css should use renderer-owned .diagram-* primitives and --wf-* tokens instead of custom fonts or hard-coded hex/rgb/hsl colors, so light/dark and sketchy Excalifont/rough.js modes remain correct.",
     ),
   }),
   publicAgent: {
@@ -55,14 +64,29 @@ export default defineAction({
       height: 860,
     }),
   },
-  run: async (args) =>
-    importVisualPlanSourceAction.run({
+  run: async (args) => {
+    const result = await importVisualPlanSourceAction.run({
       ...args,
       kind: "recap",
       source: args.source ?? "imported",
       currentFocus: args.currentFocus ?? "visual recap review",
       status: args.status ?? "review",
-    }),
+    });
+    // Apply requested visibility server-side so the recap is never left private
+    // (the import action always creates with visibility='private'). Doing it here
+    // avoids requiring a separate set-resource-visibility agent call and
+    // guarantees the recap is accessible even if the agent skips the second step.
+    const planId = (result as { planId?: string } | null)?.planId;
+    const visibility = args.visibility ?? "org";
+    if (planId && visibility !== "private") {
+      const db = getDb();
+      await db
+        .update(schema.plans)
+        .set({ visibility })
+        .where(eq(schema.plans.id, planId));
+    }
+    return result;
+  },
   link: ({ result }) => {
     const plan = (result as { plan?: { id?: string } } | null)?.plan;
     if (!plan?.id) return null;

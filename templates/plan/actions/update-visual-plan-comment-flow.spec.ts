@@ -29,8 +29,10 @@ vi.mock("drizzle-orm", () => ({
   inArray: (...args: unknown[]) => ({ op: "inArray", args }),
 }));
 
-vi.mock("@agent-native/core", () => ({
+vi.mock("@agent-native/core", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core")>()),
   defineAction: (options: unknown) => options,
+  embedApp: vi.fn(() => ({ title: "stub" })),
 }));
 
 vi.mock("@agent-native/core/server/request-context", () => ({
@@ -226,6 +228,12 @@ function run(args: Record<string, unknown>) {
 
 const baseBundle = {
   plan: { id: "plan_1", title: "Plan", brief: "", content: null },
+  access: {
+    role: "owner",
+    ownerEmail: "owner@example.com",
+    orgId: null,
+    visibility: "private",
+  },
   sections: [],
   comments: [],
   events: [],
@@ -515,6 +523,35 @@ describe("update-visual-plan comment path (integration)", () => {
       }),
     ).rejects.toMatchObject({ statusCode: 403 });
     expect(resolveAccessMock).not.toHaveBeenCalled();
+  });
+
+  it("inserts a new comment that carries a client-minted id (regression: was throwing)", async () => {
+    request.email = "reviewer@example.com";
+    const captured: CapturedRow[] = [];
+    getDbMock.mockReturnValue(buildTransactionDb(captured));
+    loadPlanBundleMock.mockResolvedValue(baseBundle);
+
+    await run({
+      planId: "plan_1",
+      contentPatches: [],
+      sections: [],
+      consumedCommentIds: [],
+      comments: [
+        {
+          id: "client_minted_abc123",
+          message: "Inline text feedback",
+          kind: "comment",
+          status: "open",
+          createdBy: "human",
+        },
+      ],
+    });
+
+    expect(captured).toHaveLength(1);
+    expect(captured[0].message).toBe("Inline text feedback");
+    expect(captured[0].authorEmail).toBe("reviewer@example.com");
+    expect(assertPlanEditorMock).not.toHaveBeenCalled();
+    expect(notifyPlanCommentRecipientsMock).toHaveBeenCalledTimes(1);
   });
 
   it("requires editor access (not just view) when a comment is created as the agent", async () => {

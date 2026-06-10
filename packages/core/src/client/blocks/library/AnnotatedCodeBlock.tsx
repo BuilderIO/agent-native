@@ -139,14 +139,32 @@ function AnnotatedCodeRead({
             const isActive =
               activeIndex != null &&
               !!markers?.some((m) => m.index === activeIndex);
+
+            const buildAnchorForRow = (el: HTMLElement) => {
+              if (!markers) return null;
+              const primaryMarker = markers[0];
+              const anchorLine = primaryMarker.range?.start ?? lineNo;
+              const anchorRow = lineRefs.current.get(anchorLine) ?? el;
+              return anchorFromElements(codeRef.current, anchorRow);
+            };
+
             return (
               <div
                 key={lineNo}
                 ref={(node) => setLineRef(lineNo, node)}
                 data-code-line={lineNo}
                 data-annot-row={isAnnotated ? markers?.[0].index : undefined}
+                // tabIndex makes annotated rows keyboard-focusable so screen
+                // readers and keyboard users can access notes without a mouse.
+                tabIndex={isAnnotated ? 0 : undefined}
+                role={isAnnotated ? "button" : undefined}
+                aria-expanded={isAnnotated ? isActive : undefined}
+                aria-label={
+                  isAnnotated ? `Line ${lineNo} annotation` : undefined
+                }
                 className={cn(
                   "flex w-full",
+                  isAnnotated && "cursor-pointer",
                   isActive
                     ? "bg-amber-400/20 dark:bg-amber-300/15"
                     : isAnnotated
@@ -156,22 +174,41 @@ function AnnotatedCodeRead({
                 onMouseEnter={
                   isAnnotated && markers
                     ? (event) => {
-                        const primaryMarker = markers[0];
-                        const anchorLine = primaryMarker.range?.start ?? lineNo;
-                        const anchorRow =
-                          lineRefs.current.get(anchorLine) ??
-                          event.currentTarget;
-                        const anchor = anchorFromElements(
-                          codeRef.current,
-                          anchorRow,
-                        );
-                        if (anchor) hover.open(primaryMarker.index, anchor);
+                        const anchor = buildAnchorForRow(event.currentTarget);
+                        if (anchor) hover.open(markers[0].index, anchor);
                       }
                     : undefined
                 }
                 onMouseLeave={
                   isAnnotated ? () => hover.scheduleClose() : undefined
                 }
+                onClick={
+                  isAnnotated && markers
+                    ? (event) => {
+                        const anchor = buildAnchorForRow(event.currentTarget);
+                        if (anchor) hover.open(markers[0].index, anchor);
+                      }
+                    : undefined
+                }
+                onKeyDown={
+                  isAnnotated && markers
+                    ? (event) => {
+                        if (event.key !== "Enter" && event.key !== " ") return;
+                        event.preventDefault();
+                        const anchor = buildAnchorForRow(event.currentTarget);
+                        if (anchor) hover.open(markers[0].index, anchor);
+                      }
+                    : undefined
+                }
+                onFocus={
+                  isAnnotated && markers
+                    ? (event) => {
+                        const anchor = buildAnchorForRow(event.currentTarget);
+                        if (anchor) hover.open(markers[0].index, anchor);
+                      }
+                    : undefined
+                }
+                onBlur={isAnnotated ? () => hover.scheduleClose() : undefined}
               >
                 {/* Accent rail: amber on annotated lines, brighter when active. */}
                 <span
@@ -214,6 +251,7 @@ function AnnotatedCodeRead({
           ctx={ctx}
           onMouseEnter={hover.cancelClose}
           onMouseLeave={hover.scheduleClose}
+          onClose={hover.close}
         />
       )}
       {summary && <p className="mt-5 text-plan-muted">{summary}</p>}

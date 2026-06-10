@@ -1,4 +1,5 @@
 import { buildDeepLink } from "@agent-native/core/server";
+import { emit } from "@agent-native/core/event-bus";
 import {
   assertAccess,
   ForbiddenError,
@@ -33,7 +34,11 @@ import {
   parsePlanCommentAnchor,
   type PlanCommentMention,
 } from "../shared/comment-context.js";
-import { buildPlanContentHtml, parsePlanContent } from "./plan-content.js";
+import {
+  buildPlanContentHtml,
+  parsePlanContent,
+  sanitizeStoredPlanHtml,
+} from "./plan-content.js";
 import { resolvePlanAccessContext } from "./lib/local-identity.js";
 
 type ImplementationFile = {
@@ -552,6 +557,138 @@ export async function writeEvent(input: {
     });
 }
 
+// ---------------------------------------------------------------------------
+// Event-bus helpers — fire-and-forget; failures must never block callers
+// ---------------------------------------------------------------------------
+
+export function emitPlanCreated(input: {
+  planId: string;
+  title: string;
+  kind: PlanKind;
+  status: string;
+  ownerEmail?: string | null;
+}) {
+  try {
+    emit(
+      "plan.created",
+      {
+        planId: input.planId,
+        title: input.title,
+        kind: input.kind,
+        status: input.status,
+        path: planPath(input.planId, input.kind),
+        createdBy: "agent",
+      },
+      { owner: input.ownerEmail ?? undefined },
+    );
+  } catch {
+    // best-effort — never block plan creation
+  }
+}
+
+export function emitPlanCommented(input: {
+  planId: string;
+  title: string;
+  kind: PlanKind;
+  comments: Array<{
+    id: string;
+    message: string;
+    resolutionTarget?: string | null;
+    authorEmail?: string | null;
+    createdBy?: string;
+  }>;
+  ownerEmail?: string | null;
+}) {
+  if (input.comments.length === 0) return;
+  try {
+    // Derive the dominant resolutionTarget (prefer "agent" if any comment targets agent)
+    const resolutionTarget =
+      input.comments.find((c) => c.resolutionTarget === "agent")
+        ?.resolutionTarget ??
+      input.comments[0]?.resolutionTarget ??
+      null;
+    const firstComment = input.comments[0];
+    const excerpt = firstComment ? firstComment.message.slice(0, 200) : "";
+    const author =
+      input.comments.find((c) => c.authorEmail)?.authorEmail ?? null;
+    emit(
+      "plan.commented",
+      {
+        planId: input.planId,
+        title: input.title,
+        kind: input.kind,
+        commentIds: input.comments.map((c) => c.id),
+        commentCount: input.comments.length,
+        resolutionTarget:
+          resolutionTarget === "agent" || resolutionTarget === "human"
+            ? resolutionTarget
+            : null,
+        excerpt,
+        author,
+        path: planPath(input.planId, input.kind),
+      },
+      { owner: input.ownerEmail ?? undefined },
+    );
+  } catch {
+    // best-effort — never block comment writes
+  }
+}
+
+export function emitPlanPublished(input: {
+  planId: string;
+  title: string;
+  kind: PlanKind;
+  hostedPlanId: string;
+  url: string;
+  requestedVisibility: string;
+  ownerEmail?: string | null;
+}) {
+  try {
+    emit(
+      "plan.published",
+      {
+        planId: input.planId,
+        title: input.title,
+        kind: input.kind,
+        hostedPlanId: input.hostedPlanId,
+        url: input.url,
+        requestedVisibility: input.requestedVisibility,
+      },
+      { owner: input.ownerEmail ?? undefined },
+    );
+  } catch {
+    // best-effort — never block publish
+  }
+}
+
+export function emitPlanStatusChanged(input: {
+  planId: string;
+  title: string;
+  kind: PlanKind;
+  oldStatus: string | null;
+  newStatus: string;
+  changedBy?: string | null;
+  ownerEmail?: string | null;
+}) {
+  try {
+    emit(
+      "plan.status.changed",
+      {
+        planId: input.planId,
+        title: input.title,
+        kind: input.kind,
+        oldStatus: input.oldStatus,
+        newStatus: input.newStatus,
+        changedBy: input.changedBy ?? null,
+        path: planPath(input.planId, input.kind),
+      },
+      { owner: input.ownerEmail ?? undefined },
+    );
+  } catch {
+    // best-effort — never block status changes
+  }
+}
+
 export async function assertPlanEditor(planId: string) {
   return assertAccess(
     "plan",
@@ -669,23 +806,34 @@ export async function summarizePlans(
   if (plans.length === 0) return [];
   const ids = plans.map((plan) => plan.id);
   const db = getDb();
+  // Project only the columns summarizePlan() actually uses — `type` for
+  // section counts and `status` for open/total comment counts. A bare
+  // `.select()` would pull every column including large html/body/anchor blobs
+  // for all comments across all listed plans, which is pure waste here.
   const [sectionRows, commentRows] = await Promise.all([
     db
-      .select()
+      .select({
+        planId: schema.planSections.planId,
+        type: schema.planSections.type,
+      })
       .from(schema.planSections)
       .where(inArray(schema.planSections.planId, ids)),
     db
-      .select()
+      .select({
+        planId: schema.planComments.planId,
+        status: schema.planComments.status,
+      })
       .from(schema.planComments)
       .where(inArray(schema.planComments.planId, ids)),
   ]);
   return plans.map((plan) => {
+    // summarizePlan only needs type (sections) and status (comments).
     const sections = sectionRows
       .filter((section) => section.planId === plan.id)
-      .map(toSection);
+      .map((row) => ({ type: row.type }) as PlanSection);
     const comments = commentRows
       .filter((comment) => comment.planId === plan.id)
-      .map(toComment);
+      .map((row) => ({ status: row.status }) as PlanComment);
     return {
       id: plan.id,
       title: plan.title,
@@ -816,10 +964,16 @@ export function buildPlanHtml(bundle: PlanBundle): string {
 }
 
 function normalizeStoredHtml(value: unknown): string {
-  if (typeof value === "string") return value;
-  if (value instanceof Uint8Array) return Buffer.from(value).toString("utf8");
-  if (value == null) return "";
-  return String(value);
+  let raw: string;
+  if (typeof value === "string") raw = value;
+  else if (value instanceof Uint8Array)
+    raw = Buffer.from(value).toString("utf8");
+  else if (value == null) raw = "";
+  else raw = String(value);
+  // Sanitize at the render/export choke point so every consumer of the legacy
+  // `html` escape-hatch — and any row written before write-time sanitization —
+  // is stripped of script execution before it reaches an iframe.
+  return raw ? sanitizeStoredPlanHtml(raw) : raw;
 }
 
 function renderSectionHtml(section: PlanSection, repoPath?: string | null) {

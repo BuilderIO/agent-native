@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core";
+import { defineAction, embedApp } from "@agent-native/core";
 import {
   ForbiddenError,
   currentAccess,
@@ -9,6 +9,7 @@ import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import {
   normalizePlanContent,
+  sanitizeStoredPlanHtml,
   serializePlanContent,
 } from "../server/plan-content.js";
 import { exportPlanContentToMdxFolder } from "../server/plan-mdx.js";
@@ -33,6 +34,8 @@ import {
   commentInputSchema,
   commentMetadataForInput,
   commentResolutionFields,
+  emitPlanCommented,
+  emitPlanStatusChanged,
   loadPlanBundle,
   newId,
   nowIso,
@@ -402,6 +405,17 @@ export default defineAction({
     description:
       "Patch structured plan content, add visual sections, record comments, or mark feedback consumed.",
   },
+  mcpApp: {
+    compactCatalog: true,
+    resource: embedApp({
+      title: "Update Plan",
+      description:
+        "Open the Agent-Native Plan editor for structured content, comments, and status changes.",
+      iframeTitle: "Agent-Native Plan",
+      openLabel: "Open Plan",
+      height: 860,
+    }),
+  },
   run: async (args) => {
     const requesterEmail = getRequestUserEmail();
     const requesterName = getRequestUserName();
@@ -520,7 +534,9 @@ export default defineAction({
       ...(nextBrief !== undefined ? { brief: nextBrief } : {}),
       ...(args.status ? { status: args.status } : {}),
       ...(args.currentFocus ? { currentFocus: args.currentFocus } : {}),
-      ...(args.html !== undefined ? { html: args.html } : {}),
+      ...(args.html !== undefined
+        ? { html: args.html != null ? sanitizeStoredPlanHtml(args.html) : null }
+        : {}),
       ...(nextContent ? { content: serializePlanContent(nextContent) } : {}),
       ...(args.markdown !== undefined
         ? { markdown: args.markdown }
@@ -581,7 +597,13 @@ export default defineAction({
       pendingCommentInserts.push(comment);
     }
     if (onlyUpdatesCommentStatuses && pendingCommentInserts.length > 0) {
-      throw new Error("Comment status update target was not found.");
+      // A client-minted id with status "open" is a new insert, not a missing
+      // resolve target. Only throw when the caller tried to close/reopen a
+      // comment that does not exist in the DB.
+      if (pendingCommentInserts.some((c) => c.status !== "open")) {
+        throw new Error("Comment status update target was not found.");
+      }
+      onlyUpdatesCommentStatuses = false;
     }
     if (
       onlyUpdatesCommentStatuses &&
@@ -673,7 +695,7 @@ export default defineAction({
 
       if (updatedRows.length === 0) {
         throw new Error(
-          "Plan changed while content patches were being applied. Reload the plan and retry your patch.",
+          "This plan was updated by someone else while your change was being saved. Reload the plan and retry.",
         );
       }
 
@@ -813,6 +835,37 @@ export default defineAction({
     }).catch((error) => {
       console.warn("[update-visual-plan] comment notification failed:", error);
     });
+    // Emit plan.commented for any newly inserted comments
+    if (insertedCommentIds.length > 0) {
+      const newComments = bundle.comments.filter((c) =>
+        insertedCommentIds.includes(c.id),
+      );
+      emitPlanCommented({
+        planId: bundle.plan.id,
+        title: bundle.plan.title,
+        kind: bundle.plan.kind,
+        comments: newComments.map((c) => ({
+          id: c.id,
+          message: c.message,
+          resolutionTarget: c.resolutionTarget,
+          authorEmail: c.authorEmail,
+          createdBy: c.createdBy,
+        })),
+        ownerEmail: bundle.access.ownerEmail,
+      });
+    }
+    // Emit plan.status.changed when the status was explicitly changed
+    if (args.status) {
+      emitPlanStatusChanged({
+        planId: bundle.plan.id,
+        title: bundle.plan.title,
+        kind: bundle.plan.kind,
+        oldStatus: null, // status before update is not re-fetched here; use null as unknown-prior
+        newStatus: bundle.plan.status,
+        changedBy: requesterEmail,
+        ownerEmail: bundle.access.ownerEmail,
+      });
+    }
     const local = isLocalPlanRuntime()
       ? await writePlanLocalFiles({
           planId: bundle.plan.id,

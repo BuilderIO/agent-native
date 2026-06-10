@@ -60,6 +60,13 @@ export default defineEventHandler(async (event) => {
           isNull(schema.plans.orgId),
         ),
       );
+    // Also re-key plan_versions so version history remains accessible after
+    // the claim. All version actions filter by planVersions.ownerEmail, so
+    // without this the claimed plan loses its entire version history.
+    await getDb()
+      .update(schema.planVersions)
+      .set({ ownerEmail: userEmail })
+      .where(eq(schema.planVersions.ownerEmail, guestEmail));
     // Drain complete (idempotent): stop pinning this visitor to the guest id.
     clearGuestAuthorCookie(event);
   } catch {

@@ -16,6 +16,8 @@ vi.mock("@agent-native/core/server", () => ({ getSession: getSessionMock }));
 const updateSpy = vi.fn();
 const setSpy = vi.fn();
 const whereSpy = vi.fn();
+
+// Track calls per table so tests can inspect plans vs planVersions separately.
 const dbRecorder = {
   update: (table: unknown) => {
     updateSpy(table);
@@ -34,7 +36,10 @@ const dbRecorder = {
 };
 vi.mock("./db/index.js", () => ({
   getDb: () => dbRecorder,
-  schema: { plans: { ownerEmail: "plans.owner_email", orgId: "plans.org_id" } },
+  schema: {
+    plans: { ownerEmail: "plans.owner_email", orgId: "plans.org_id" },
+    planVersions: { ownerEmail: "plan_versions.owner_email" },
+  },
 }));
 
 const readGuestAuthorEmailMock = vi.fn();
@@ -88,10 +93,11 @@ describe("claim-guest-plans middleware", () => {
     getSessionMock.mockResolvedValue({ email: "real@user.com" });
     await (handler as (e: never) => Promise<void>)(EVENT);
 
-    expect(updateSpy).toHaveBeenCalledTimes(1);
-    // Only the owner is re-keyed; nothing else is mutated.
+    // Both plans and planVersions must be re-keyed.
+    expect(updateSpy).toHaveBeenCalledTimes(2);
+    // ownerEmail set to the real account on both tables.
     expect(setSpy).toHaveBeenCalledWith({ ownerEmail: "real@user.com" });
-    // Scoped to THIS guest's rows and never org-scoped (real) plans.
+    // First WHERE: scoped to THIS guest's rows and never org-scoped (real) plans.
     expect(whereSpy).toHaveBeenCalledWith({
       op: "and",
       args: [
@@ -99,7 +105,30 @@ describe("claim-guest-plans middleware", () => {
         { op: "isNull", col: "plans.org_id" },
       ],
     });
+    // Second WHERE: planVersions scoped to the guest email only.
+    expect(whereSpy).toHaveBeenCalledWith({
+      op: "eq",
+      col: "plan_versions.owner_email",
+      val: GUEST,
+    });
     expect(clearGuestAuthorCookieMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("also re-keys plan_versions so claimed plans retain their version history", async () => {
+    readGuestAuthorEmailMock.mockReturnValue(GUEST);
+    getSessionMock.mockResolvedValue({ email: "real@user.com" });
+    await (handler as (e: never) => Promise<void>)(EVENT);
+
+    const versionsCalls = whereSpy.mock.calls.filter(
+      (call) =>
+        JSON.stringify(call[0]) ===
+        JSON.stringify({
+          op: "eq",
+          col: "plan_versions.owner_email",
+          val: GUEST,
+        }),
+    );
+    expect(versionsCalls).toHaveLength(1);
   });
 
   it("never breaks the request, and leaves the cookie, if the claim UPDATE throws", async () => {

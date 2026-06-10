@@ -19,6 +19,7 @@ import os from "node:os";
 import path from "node:path";
 
 import { runMCPStdio } from "../mcp/stdio.js";
+import { writeFileAtomic } from "./mcp-config-writers.js";
 import {
   findWorkspaceRoot,
   resolveLocalAppOrigin,
@@ -134,8 +135,7 @@ function upsertEnv(
         ? `${line}\n`
         : `${content.replace(/\n*$/, "")}\n${line}\n`;
   }
-  fs.mkdirSync(path.dirname(file), { recursive: true });
-  fs.writeFileSync(file, next, "utf-8");
+  writeFileAtomic(file, next);
   return { changed: true, value };
 }
 
@@ -309,8 +309,7 @@ function writeJsonMcpEntry(
   } else {
     config.mcpServers[name] = entry;
   }
-  fs.mkdirSync(path.dirname(file), { recursive: true });
-  fs.writeFileSync(file, JSON.stringify(config, null, 2) + "\n", "utf-8");
+  writeFileAtomic(file, JSON.stringify(config, null, 2) + "\n");
 }
 
 function hasJsonMcpEntry(file: string, name: string): boolean {
@@ -413,8 +412,7 @@ function writeCodexBlock(
   }
   if (block === null && !removed) return; // nothing to do
 
-  fs.mkdirSync(path.dirname(file), { recursive: true });
-  fs.writeFileSync(file, next, "utf-8");
+  writeFileAtomic(file, next);
 }
 
 function codexHasBlock(file: string, name: string): boolean {

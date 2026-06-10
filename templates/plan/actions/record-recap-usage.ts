@@ -24,6 +24,7 @@ import { assertPlanEditor, nowIso } from "../server/plans.js";
 export default defineAction({
   description:
     "Record the LLM token usage and derived cost for a recap, keyed by plan id. Internal mechanic used by the PR Visual Recap workflow after the agent run finishes; not an agent-facing tool.",
+  agentTool: false,
   schema: z.object({
     planId: z.string().min(1),
     agent: z.enum(["claude", "codex"]).optional(),

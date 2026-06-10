@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   isFirstPartyPlanHost,
   planPublishConfigPath,
+  readPlanPublishAuth,
   writePlanPublishAuth,
 } from "./plan-publish-store.js";
 
@@ -39,13 +40,20 @@ describe("planPublishConfigPath", () => {
 });
 
 describe("isFirstPartyPlanHost", () => {
-  it("accepts plan.agent-native.com, subdomains, and the apex", () => {
+  it("accepts plan.agent-native.com (the canonical Plans host)", () => {
     expect(isFirstPartyPlanHost("https://plan.agent-native.com")).toBe(true);
-    expect(isFirstPartyPlanHost("https://mail.agent-native.com")).toBe(true);
-    expect(isFirstPartyPlanHost("https://agent-native.com")).toBe(true);
     expect(
       isFirstPartyPlanHost("https://plan.agent-native.com/_agent-native/mcp"),
     ).toBe(true);
+  });
+
+  it("rejects other first-party subdomains to prevent last-write-wins token clobber", () => {
+    // connect --all iterates every first-party app; only the Plans app should
+    // update plan-publish.json — other apps (assets, mail, …) must not overwrite
+    // the canonical Plans token.
+    expect(isFirstPartyPlanHost("https://mail.agent-native.com")).toBe(false);
+    expect(isFirstPartyPlanHost("https://assets.agent-native.com")).toBe(false);
+    expect(isFirstPartyPlanHost("https://agent-native.com")).toBe(false);
   });
 
   it("rejects custom, look-alike, and invalid hosts", () => {
@@ -129,5 +137,34 @@ describe("writePlanPublishAuth", () => {
     expect(written).toBe(file);
     const rec = JSON.parse(fs.readFileSync(file, "utf-8"));
     expect(rec.token).toBe("tok-4");
+  });
+
+  it("reads canonical and legacy alias token shapes", () => {
+    const file = tmpFile();
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(
+      file,
+      JSON.stringify({
+        hostedUrl: "https://plan.agent-native.com/",
+        bearerToken: "tok-alias",
+      }),
+    );
+
+    expect(readPlanPublishAuth(file)).toEqual({
+      url: "https://plan.agent-native.com",
+      token: "tok-alias",
+    });
+  });
+
+  it("returns null for missing or incomplete publish auth", () => {
+    expect(readPlanPublishAuth(tmpFile())).toBeNull();
+
+    const file = tmpFile();
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(
+      file,
+      JSON.stringify({ url: "https://plan.agent-native.com" }),
+    );
+    expect(readPlanPublishAuth(file)).toBeNull();
   });
 });

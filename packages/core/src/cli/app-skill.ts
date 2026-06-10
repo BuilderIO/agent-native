@@ -57,6 +57,7 @@ export interface AppSkillManifest {
   };
   mcp: {
     serverName: string;
+    aliases?: string[];
   };
   local?: {
     template?: string;
@@ -310,6 +311,7 @@ export function normalizeAppSkillManifest(raw: unknown): AppSkillManifest {
     },
     mcp: {
       serverName: stringValue(mcpRaw.serverName) ?? `agent-native-${id}`,
+      aliases: stringArray(mcpRaw.aliases),
     },
     ...(localRaw
       ? {
@@ -621,13 +623,21 @@ function writeJson(file: string, value: unknown): void {
   fs.writeFileSync(file, JSON.stringify(value, null, 2) + "\n", "utf-8");
 }
 
+function mcpServerNames(
+  manifest: AppSkillManifest,
+  serverName?: string,
+): string[] {
+  if (serverName) return [serverName];
+  const names = [manifest.mcp.serverName, ...(manifest.mcp.aliases ?? [])];
+  return [...new Set(names.filter(Boolean))];
+}
+
 function mcpServerConfig(manifest: AppSkillManifest, serverName?: string) {
+  const entry = buildHttpMcpEntry(manifest.hosted.mcpUrl);
   return {
-    mcpServers: {
-      [serverName ?? manifest.mcp.serverName]: buildHttpMcpEntry(
-        manifest.hosted.mcpUrl,
-      ),
-    },
+    mcpServers: Object.fromEntries(
+      mcpServerNames(manifest, serverName).map((name) => [name, entry]),
+    ),
   };
 }
 
@@ -646,12 +656,22 @@ export function exportedSkillContentHash(
 ): string {
   const parts = skills
     .map((skill) => {
-      const file = path.join(manifestDir, skill.path, "SKILL.md");
-      const body = fs.existsSync(file) ? fs.readFileSync(file, "utf-8") : "";
+      const skillDir = path.join(manifestDir, skill.path);
+      // Hash SKILL.md plus every sibling file under the skill dir (e.g.
+      // references/*), so a progressive-disclosure reference edit still changes
+      // the content hash and bumps the Codex plugin version for auto-upgrade.
+      const body = collectSkillFiles(skillDir)
+        .map(
+          (rel) =>
+            `${rel}\n${fs.readFileSync(path.join(skillDir, rel), "utf-8")}`,
+        )
+        .join("\n \n");
       return `${skillExportName(skill)}\n${body}`;
     })
     .sort();
-  parts.push(`mcp:${manifest.hosted.mcpUrl}`);
+  parts.push(
+    `mcp:${mcpServerNames(manifest).join(",")}:${manifest.hosted.mcpUrl}`,
+  );
   return createHash("sha256")
     .update(parts.join("\n \n"))
     .digest("hex")
@@ -659,7 +679,31 @@ export function exportedSkillContentHash(
 }
 
 /**
- * Plugin version embeds a content hash of the exported skills + MCP endpoint.
+ * List a skill dir's files (SKILL.md + any siblings like references/*) as
+ * skill-relative POSIX paths, sorted for a stable content hash. A bare SKILL.md
+ * source (file, not dir) falls back to just "SKILL.md".
+ */
+function collectSkillFiles(skillDir: string): string[] {
+  const out: string[] = [];
+  const walk = (dir: string, prefix: string): void => {
+    if (!fs.existsSync(dir) || !fs.statSync(dir).isDirectory()) return;
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const rel = prefix ? `${prefix}/${entry.name}` : entry.name;
+      if (entry.isDirectory()) walk(path.join(dir, entry.name), rel);
+      else if (entry.isFile()) out.push(rel);
+    }
+  };
+  walk(skillDir, "");
+  if (out.length === 0) {
+    // Source resolved to a single SKILL.md file rather than a dir, or is empty.
+    return ["SKILL.md"];
+  }
+  return out.sort();
+}
+
+/**
+ * Plugin version embeds a content hash of the exported skills + MCP server
+ * identity/endpoint.
  * Codex keys its plugin cache on the version string, so a changed skill or MCP
  * URL yields a new version and `codex plugin marketplace upgrade` (which runs
  * on startup) delivers the update automatically — no manual semver bump per
@@ -1178,8 +1222,22 @@ export async function ensureAppSkill(
     scope,
     options.baseDir ?? process.cwd(),
   );
+  if (!options.serverName) {
+    for (const alias of manifest.mcp.aliases ?? []) {
+      result.written.push(
+        ...writeConfigs(
+          clients,
+          alias,
+          plan.mcpUrl,
+          undefined,
+          scope,
+          options.baseDir ?? process.cwd(),
+        ),
+      );
+    }
+  }
   options.log?.(
-    `Registered ${serverName} for ${clients.join(", ")} at ${plan.mcpUrl}`,
+    `Registered ${mcpServerNames(manifest, options.serverName).join(", ")} for ${clients.join(", ")} at ${plan.mcpUrl}`,
   );
   return result;
 }

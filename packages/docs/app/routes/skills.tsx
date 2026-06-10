@@ -73,7 +73,7 @@ const SKILLS: Skill[] = [
       "Posts one sticky PR comment with an inline screenshot",
     ],
     docsTo: "/docs/pr-visual-recap",
-    note: "Add the PR automation with the --with-github-action flag.",
+    note: "Interactive install can offer the PR Action, or add it later with --with-github-action.",
   },
 ];
 
@@ -348,6 +348,13 @@ export default function SkillsPage() {
             command={GITHUB_ACTION_COMMAND}
             location="skills_github_action"
           />
+          <p className="mt-4 max-w-2xl text-sm leading-relaxed text-[var(--fg-secondary)]">
+            The interactive install also offers this Action when no workflow is
+            present. After the workflow is written, run{" "}
+            <code className="font-mono">agent-native recap setup</code> and{" "}
+            <code className="font-mono">agent-native recap doctor</code> to
+            configure and verify GitHub Actions.
+          </p>
           <Link
             data-an-prefetch="render"
             to="/docs/pr-visual-recap"

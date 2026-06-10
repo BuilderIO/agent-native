@@ -33,13 +33,13 @@ import {
 } from "./create.js";
 import {
   addAgentNativeSkill,
+  CANVAS_REFERENCE_MD,
+  DOCUMENT_QUALITY_REFERENCE_MD,
+  EXEMPLAR_REFERENCE_MD,
   parseSkillsArgs,
-  PLAN_DESIGN_SKILL_MD,
-  PROTOTYPE_PLAN_SKILL_MD,
-  UI_PLAN_SKILL_MD,
   VISUAL_PLANS_SKILL_MD,
   VISUAL_RECAP_SKILL_MD,
-  VISUAL_QUESTIONS_SKILL_MD,
+  WIREFRAME_REFERENCE_MD,
 } from "./skills.js";
 import { getTemplate, allTemplateNames, TEMPLATES } from "./templates-meta.js";
 
@@ -49,13 +49,21 @@ let origCwd: string;
 const PLANS_INSTALL_SKILLS: Array<[string, string]> = [
   ["visual-plan", VISUAL_PLANS_SKILL_MD],
   ["visual-recap", VISUAL_RECAP_SKILL_MD],
-  ["visual-questions", VISUAL_QUESTIONS_SKILL_MD],
-  ["ui-plan", UI_PLAN_SKILL_MD],
-  ["prototype-plan", PROTOTYPE_PLAN_SKILL_MD],
-  ["plan-design", PLAN_DESIGN_SKILL_MD],
 ];
 
 const PLANS_INSTALL_SKILL_NAMES = PLANS_INSTALL_SKILLS.map(([name]) => name);
+
+const PLANS_INSTALL_REFERENCES: Record<string, Record<string, string>> = {
+  "visual-plan": {
+    "references/wireframe.md": WIREFRAME_REFERENCE_MD,
+    "references/canvas.md": CANVAS_REFERENCE_MD,
+    "references/document-quality.md": DOCUMENT_QUALITY_REFERENCE_MD,
+    "references/exemplar.md": EXEMPLAR_REFERENCE_MD,
+  },
+  "visual-recap": {
+    "references/wireframe.md": WIREFRAME_REFERENCE_MD,
+  },
+};
 
 const PLANS_INSTALL_ALIASES = [
   "visual-plans",
@@ -63,13 +71,6 @@ const PLANS_INSTALL_ALIASES = [
   "visual-recaps",
   "code-review-recap",
   "code-review-recaps",
-  "ui-plan",
-  "prototype-plan",
-  "plan-design",
-  "plan-designs",
-  "design-plan",
-  "design-plans",
-  "visual-questions",
   "plannotate",
   "html-plan",
 ];
@@ -191,14 +192,7 @@ describe(
     it("ships the Plans skills inside the scaffold (.agents/skills)", async () => {
       await createApp("plan", { template: "plan" });
       const skillsDir = path.join(tmpDir, "plan", ".agents", "skills");
-      for (const name of [
-        "visual-plan",
-        "visual-recap",
-        "ui-plan",
-        "prototype-plan",
-        "plan-design",
-        "visual-questions",
-      ]) {
+      for (const name of ["visual-plan", "visual-recap"]) {
         expect(
           fs.existsSync(path.join(skillsDir, name, "SKILL.md")),
           `expected scaffolded skill ${name}/SKILL.md`,
@@ -278,6 +272,8 @@ describe("Plans skills install — materialized output", () => {
   async function materializeViaAlias(alias: string): Promise<{
     result: Awaited<ReturnType<typeof addAgentNativeSkill>>;
     captured: Record<string, string>;
+    capturedReferences: Record<string, string>;
+    codexConfig: string;
     npxCalls: number;
   }> {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), "an-plan-skill-"));
@@ -286,6 +282,7 @@ describe("Plans skills install — materialized output", () => {
     const prevCodexHome = process.env.CODEX_HOME;
     process.env.CODEX_HOME = codexHome;
     const captured: Record<string, string> = {};
+    const capturedReferences: Record<string, string> = {};
     let npxCalls = 0;
     try {
       const result = await addAgentNativeSkill(
@@ -311,6 +308,23 @@ describe("Plans skills install — materialized output", () => {
                     if (fs.existsSync(file)) {
                       captured[name] = fs.readFileSync(file, "utf-8");
                     }
+                    const referencesDir = path.join(
+                      skillsDir,
+                      name,
+                      "references",
+                    );
+                    if (fs.existsSync(referencesDir)) {
+                      for (const entry of fs.readdirSync(referencesDir, {
+                        withFileTypes: true,
+                      })) {
+                        if (!entry.isFile()) continue;
+                        const rel = `references/${entry.name}`;
+                        capturedReferences[`${name}/${rel}`] = fs.readFileSync(
+                          path.join(referencesDir, entry.name),
+                          "utf-8",
+                        );
+                      }
+                    }
                   }
                 }
               }
@@ -319,7 +333,11 @@ describe("Plans skills install — materialized output", () => {
           },
         },
       );
-      return { result, captured, npxCalls };
+      const codexConfig = fs.readFileSync(
+        path.join(codexHome, "config.toml"),
+        "utf-8",
+      );
+      return { result, captured, capturedReferences, codexConfig, npxCalls };
     } finally {
       if (prevCodexHome === undefined) delete process.env.CODEX_HOME;
       else process.env.CODEX_HOME = prevCodexHome;
@@ -328,13 +346,18 @@ describe("Plans skills install — materialized output", () => {
   }
 
   it("materializes exactly the Plans SKILL.md files and points at the hosted MCP", async () => {
-    const { result, captured, npxCalls } =
+    const { result, captured, capturedReferences, codexConfig, npxCalls } =
       await materializeViaAlias("visual-plan");
     expect(result.id).toBe("visual-plans");
     expect(result.skillNames).toEqual(PLANS_INSTALL_SKILL_NAMES);
     expect(result.mcpUrl).toBe(
       "https://plan.agent-native.com/_agent-native/mcp",
     );
+    expect(codexConfig).toContain('[mcp_servers."plan"]');
+    expect(codexConfig).toContain(
+      'url = "https://plan.agent-native.com/_agent-native/mcp"',
+    );
+    expect(codexConfig).toContain('[mcp_servers."agent-native-plans"]');
     expect(npxCalls).toBeGreaterThan(0);
 
     for (const [name, constant] of PLANS_INSTALL_SKILLS) {
@@ -346,6 +369,23 @@ describe("Plans skills install — materialized output", () => {
     expect(Object.keys(captured).sort()).toEqual(
       [...PLANS_INSTALL_SKILL_NAMES].sort(),
     );
+
+    const expectedReferenceKeys = Object.entries(PLANS_INSTALL_REFERENCES)
+      .flatMap(([name, refs]) =>
+        Object.keys(refs).map((rel) => `${name}/${rel}`),
+      )
+      .sort();
+    expect(Object.keys(capturedReferences).sort()).toEqual(
+      expectedReferenceKeys,
+    );
+    for (const [name, refs] of Object.entries(PLANS_INSTALL_REFERENCES)) {
+      for (const [rel, constant] of Object.entries(refs)) {
+        expect(
+          capturedReferences[`${name}/${rel}`],
+          `materialized ${name}/${rel}`,
+        ).toBe(constant);
+      }
+    }
   });
 
   it("normalizes every Plans alias to the same hosted Plans skill", async () => {
@@ -357,34 +397,6 @@ describe("Plans skills install — materialized output", () => {
       );
     }
   });
-
-  it.each(["ui-plan", "prototype-plan", "plan-design", "visual-questions"])(
-    "accepts %s as a Plans install alias",
-    async (plansAlias) => {
-      const root = fs.mkdtempSync(path.join(os.tmpdir(), "an-plan-skill-"));
-      try {
-        const result = await addAgentNativeSkill(
-          parseSkillsArgs([
-            "add",
-            plansAlias,
-            "--client",
-            "codex",
-            "--scope",
-            "project",
-          ]),
-          {
-            baseDir: root,
-            runCommand: async () => 0,
-          },
-        );
-
-        expect(result.id).toBe("visual-plans");
-        expect(result.skillNames).toEqual(PLANS_INSTALL_SKILL_NAMES);
-      } finally {
-        fs.rmSync(root, { recursive: true, force: true });
-      }
-    },
-  );
 
   it("materialized visual-plan handles existing plan text and avoids legacy HTML", async () => {
     const { captured } = await materializeViaAlias("visual-plan");
@@ -410,26 +422,6 @@ describe("Plans skill three-copy sync (deep)", () => {
       constant: VISUAL_RECAP_SKILL_MD,
       templateDir: "visual-recap",
       exportedDir: "visual-recap",
-    },
-    {
-      constant: UI_PLAN_SKILL_MD,
-      templateDir: "ui-plan",
-      exportedDir: "ui-plan",
-    },
-    {
-      constant: PROTOTYPE_PLAN_SKILL_MD,
-      templateDir: "prototype-plan",
-      exportedDir: "prototype-plan",
-    },
-    {
-      constant: PLAN_DESIGN_SKILL_MD,
-      templateDir: "plan-design",
-      exportedDir: "plan-design",
-    },
-    {
-      constant: VISUAL_QUESTIONS_SKILL_MD,
-      templateDir: "visual-questions",
-      exportedDir: "visual-questions",
     },
   ];
 

@@ -1743,11 +1743,55 @@ async function connectOne(
   // a first-party Plans app, also persist `{ url, token }` to
   // `~/.agent-native/plan-publish.json` so the local Plans server can read the
   // same token for a server-to-server publish (publish-on-share). This is an
-  // ADDITIONAL write alongside the per-client MCP config; OAuth-only clients
-  // mint no local token, so this no-ops for them. Best-effort and merge-not-
-  // clobber — never fails the connect.
-  if (token && isFirstPartyPlanHost(baseUrl)) {
-    const canonicalPath = writePlanPublishAuth({ url: baseUrl, token });
+  // ADDITIONAL write alongside the per-client MCP config; Best-effort and
+  // merge-not-clobber — never fails the connect.
+  //
+  // OAuth clients (claude-code, claude-code-cli) authenticate in-host via
+  // standard MCP OAuth, so they never mint a local bearer token. To still
+  // populate the publish store for them, we run a supplemental device-flow
+  // mint using a non-OAuth client arg so the Plans server gets a usable token
+  // and `publish-visual-plan` doesn't send the user back to `agent-native
+  // connect` right after they just ran it.
+  let publishToken = token;
+  if (
+    !publishToken &&
+    oauthClients.length > 0 &&
+    isFirstPartyPlanHost(baseUrl)
+  ) {
+    try {
+      logOut("");
+      logOut(
+        `  Minting a publish token for the local Plans server (device flow)…`,
+      );
+      const grant = await runDeviceFlow(
+        baseUrl,
+        appSlug,
+        // Use a non-OAuth client arg so the server mints a bearer token even
+        // though our primary clients are OAuth-native. "codex" is a stable,
+        // always-supported non-OAuth client identifier.
+        "codex",
+        deps,
+      );
+      if (grant?.token) {
+        publishToken = grant.token;
+      } else {
+        logOut(
+          `  Warning: could not mint a publish token for the local Plans ` +
+            `server. You can still publish via the hosted UI.`,
+        );
+      }
+    } catch {
+      logOut(
+        `  Warning: publish-token mint failed. You can still publish via the ` +
+          `hosted UI.`,
+      );
+    }
+  }
+  if (publishToken && isFirstPartyPlanHost(baseUrl)) {
+    const canonicalPath = writePlanPublishAuth({
+      url: baseUrl,
+      token: publishToken,
+    });
     if (canonicalPath) {
       logOut("");
       logOut(

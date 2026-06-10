@@ -792,10 +792,14 @@ describe("runConnect", () => {
     expect(typeof canonical.updatedAt).toBe("string");
   });
 
-  it("also persists the canonical token for other *.agent-native.com apps", async () => {
+  it("does NOT write plan-publish.json for non-Plans first-party apps (prevents last-write-wins clobber)", async () => {
     const root = tmpDir();
     process.chdir(root);
 
+    // Connecting a non-Plans first-party app (e.g. mail) must NOT overwrite
+    // ~/.agent-native/plan-publish.json. If it did, `connect --all` (which
+    // iterates apps in arbitrary order) could silently replace the canonical
+    // Plans token with the wrong URL+token, breaking publish-visual-plan.
     await runConnect([
       "https://mail.agent-native.com",
       "--client",
@@ -806,11 +810,7 @@ describe("runConnect", () => {
       "tok-mail",
     ]);
 
-    const canonical = JSON.parse(fs.readFileSync(planPublishPath, "utf-8"));
-    expect(canonical).toMatchObject({
-      url: "https://mail.agent-native.com",
-      token: "tok-mail",
-    });
+    expect(fs.existsSync(planPublishPath)).toBe(false);
   });
 
   it("merges into an existing canonical file without clobbering other keys", async () => {
@@ -855,18 +855,18 @@ describe("runConnect", () => {
     expect(fs.existsSync(planPublishPath)).toBe(false);
   });
 
-  it("does NOT write a canonical token for OAuth-only Claude Code (no minted token)", async () => {
+  it("mints a supplemental publish token for OAuth-only Claude Code connecting to the first-party Plans app", async () => {
     const root = tmpDir();
     process.chdir(root);
-    const fetchImpl = vi.fn(
-      async () =>
-        new Response(
-          JSON.stringify({
-            resource: "https://plan.agent-native.com/_agent-native/mcp",
-          }),
-          { status: 200, headers: { "content-type": "application/json" } },
-        ),
-    ) as unknown as typeof fetch;
+    // makeFetch handles OAuth metadata + device/start + device/poll
+    const fetchImpl = makeFetch([
+      {
+        status: "approved",
+        token: "tok-publish-mint",
+        mcpUrl: "https://plan.agent-native.com/_agent-native/mcp",
+        serverName: "agent-native-plan",
+      },
+    ]);
 
     await runConnect(
       [
@@ -876,13 +876,68 @@ describe("runConnect", () => {
         "--scope",
         "project",
       ],
-      { fetchImpl },
+      { fetchImpl, sleep: noopSleep, openBrowser: vi.fn() },
     );
 
     expect(process.exitCode).toBeFalsy();
-    // Claude Code authenticates in-host via /mcp; connect mints no local token,
-    // so there is nothing to mirror to the canonical publish file.
+    // OAuth clients get a supplemental device-flow mint for the publish store.
+    const canonical = JSON.parse(fs.readFileSync(planPublishPath, "utf-8"));
+    expect(canonical).toMatchObject({
+      url: "https://plan.agent-native.com",
+      token: "tok-publish-mint",
+    });
+    // The Claude Code MCP entry itself must NOT have a bearer header.
+    const cfg = JSON.parse(
+      fs.readFileSync(path.join(root, ".mcp.json"), "utf-8"),
+    );
+    expect(cfg.mcpServers["agent-native-plan"]).toEqual({
+      type: "http",
+      url: "https://plan.agent-native.com/_agent-native/mcp",
+    });
+  });
+
+  it("warns gracefully and does not fail connect when the supplemental publish-token mint fails", async () => {
+    const root = tmpDir();
+    process.chdir(root);
+    const output: string[] = [];
+    vi.spyOn(process.stdout, "write").mockImplementation((chunk) => {
+      output.push(String(chunk));
+      return true;
+    });
+    // OAuth metadata succeeds; device/start fails (server error).
+    const fetchImpl = vi.fn(async (url: string) => {
+      if (String(url).endsWith("/.well-known/oauth-protected-resource")) {
+        return new Response(
+          JSON.stringify({
+            resource: "https://plan.agent-native.com/_agent-native/mcp",
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      // Simulate a device/start failure.
+      return new Response(JSON.stringify({ error: "unavailable" }), {
+        status: 503,
+        headers: { "content-type": "application/json" },
+      });
+    }) as unknown as typeof fetch;
+
+    await runConnect(
+      [
+        "https://plan.agent-native.com",
+        "--client",
+        "claude-code",
+        "--scope",
+        "project",
+      ],
+      { fetchImpl, sleep: noopSleep, openBrowser: vi.fn() },
+    );
+
+    // Connect must succeed even if the supplemental mint failed.
+    expect(process.exitCode).toBeFalsy();
+    // No canonical publish file written since the mint returned no token.
     expect(fs.existsSync(planPublishPath)).toBe(false);
+    // A warning should be visible.
+    expect(output.join("")).toContain("could not mint a publish token");
   });
 
   it("writes OAuth-native Claude Code entries after validating metadata", async () => {

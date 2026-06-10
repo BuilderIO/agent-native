@@ -9,6 +9,7 @@ import { getDb, schema } from "../server/db/index.js";
 import {
   createUiPlanContent,
   normalizePlanContent,
+  sanitizeStoredPlanHtml,
   serializePlanContent,
 } from "../server/plan-content.js";
 import {
@@ -21,6 +22,7 @@ import { writePlanLocalFiles } from "../server/lib/local-plan-files.js";
 import {
   buildPlanHtml,
   commentInputSchema,
+  emitPlanCreated,
   insertInitialPlanComments,
   loadPlanBundle,
   newId,
@@ -214,7 +216,7 @@ export default defineAction({
         source: args.source,
         repoPath: args.repoPath ?? null,
         currentFocus: args.currentFocus ?? "ui plan review",
-        html: args.html ?? null,
+        html: args.html != null ? sanitizeStoredPlanHtml(args.html) : null,
         markdown: args.markdown ?? null,
         content: content ? serializePlanContent(content) : null,
         createdAt: now,
@@ -263,6 +265,13 @@ export default defineAction({
     });
 
     const bundle = await loadPlanBundle(id);
+    emitPlanCreated({
+      planId: id,
+      title: bundle.plan.title,
+      kind: bundle.plan.kind,
+      status: bundle.plan.status,
+      ownerEmail: bundle.access.ownerEmail,
+    });
     const local = isLocalPlanRuntime()
       ? await writePlanLocalFiles({
           planId: id,

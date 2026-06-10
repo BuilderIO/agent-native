@@ -5,7 +5,7 @@
  * and Codex.
  *
  * The canonical skill content lives at the repo's top-level `skills/` directory.
- * This script copies the six exported Plan skills into a single shared plugin
+ * This script copies the two exported Plan skills into a single shared plugin
  * directory and writes the Claude + Codex marketplace catalogs and per-host
  * plugin manifests. It mirrors `sync-workspace-core-skills.ts`: it generates by
  * default and validates with `--check`, failing with a clear "run pnpm
@@ -49,7 +49,10 @@ const manifest: AppSkillManifest = BUILT_IN_APP_SKILLS["visual-plans"].manifest;
 const APP_ID = manifest.id; // "visual-plans"
 const PLUGIN_NAME = `agent-native-${APP_ID}`; // "agent-native-visual-plans"
 const CLAUDE_MARKETPLACE_NAME = "agent-native-apps";
-const MCP_SERVER_NAME = manifest.mcp.serverName; // "agent-native-plans"
+const MCP_SERVER_NAMES = [
+  manifest.mcp.serverName,
+  ...(manifest.mcp.aliases ?? []),
+]; // "plan", plus legacy "agent-native-plans"
 const MCP_URL = manifest.hosted.mcpUrl;
 const HOMEPAGE = manifest.hosted.url;
 
@@ -80,6 +83,25 @@ function readSkillSource(sourceDir: string): string {
     throw new Error(`Canonical Plan skill source not found: ${file}`);
   }
   return readFileSync(file, "utf-8");
+}
+
+/**
+ * Sibling files inside a source skill dir (everything except SKILL.md), as
+ * sorted posix-relative paths. These are the progressive-disclosure reference
+ * files (e.g. references/wireframe.md) that ship next to SKILL.md.
+ */
+function listSkillSiblingFiles(sourceDir: string): string[] {
+  const root = join(sourceSkillsDir, sourceDir);
+  const out: string[] = [];
+  const walk = (dir: string, prefix: string): void => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const rel = prefix ? `${prefix}/${entry.name}` : entry.name;
+      if (entry.isDirectory()) walk(join(dir, entry.name), rel);
+      else if (entry.isFile() && rel !== "SKILL.md") out.push(rel);
+    }
+  };
+  walk(root, "");
+  return out.sort();
 }
 
 /**
@@ -137,7 +159,9 @@ function codexPluginVersion(): string {
 async function expectedFiles(): Promise<GeneratedFile[]> {
   const files: GeneratedFile[] = [];
 
-  // Generated copies of the six canonical skills under the shared plugin dir.
+  // Generated copies of the canonical skills under the shared plugin dir,
+  // including any sibling reference files (e.g. references/wireframe.md) so the
+  // packaged plugin ships the same progressive-disclosure files as `skills/`.
   for (const { sourceDir, exportAs } of SKILL_SOURCES) {
     const body = rewriteSkillFrontmatterName(
       readSkillSource(sourceDir),
@@ -154,12 +178,28 @@ async function expectedFiles(): Promise<GeneratedFile[]> {
       ),
       content: body,
     });
+    for (const rel of listSkillSiblingFiles(sourceDir)) {
+      files.push({
+        rel: join(
+          ".agents",
+          "plugins",
+          "agent-native-visual-plans",
+          "skills",
+          exportAs,
+          rel,
+        ),
+        content: readFileSync(join(sourceSkillsDir, sourceDir, rel), "utf-8"),
+      });
+    }
   }
 
   const mcpServers = {
-    mcpServers: {
-      [MCP_SERVER_NAME]: { type: "http" as const, url: MCP_URL },
-    },
+    mcpServers: Object.fromEntries(
+      MCP_SERVER_NAMES.map((name) => [
+        name,
+        { type: "http" as const, url: MCP_URL },
+      ]),
+    ),
   };
 
   // Shared .mcp.json for both hosts.

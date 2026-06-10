@@ -23,6 +23,7 @@ import { asc, eq } from "drizzle-orm";
 import { getSession, signShortLivedToken } from "@agent-native/core/server";
 import { getDb, schema } from "../../db/index.js";
 import { parseSpaceIds } from "../../lib/recordings.js";
+import { verifySharePassword } from "../../lib/share-password.js";
 import {
   normalizeTranscriptSegments,
   parseTranscriptSegments,
@@ -78,7 +79,7 @@ export default defineEventHandler(async (event) => {
 
   // Password check
   if (rec.password && !viewerIsOwner) {
-    if (!password || password !== rec.password) {
+    if (!password || !verifySharePassword(password, rec.password)) {
       setResponseStatus(event, 401);
       return { error: "Password required", passwordRequired: true };
     }

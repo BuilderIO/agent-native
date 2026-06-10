@@ -112,13 +112,66 @@ export function configPathFor(
 // JSON client configs (Claude Code, Claude Code CLI, Cowork)
 // ---------------------------------------------------------------------------
 
+/**
+ * Read and parse a JSON config file.
+ *
+ * - Missing file → returns `{}` (fresh config).
+ * - Empty file   → returns `{}` (treat as not-yet-initialised).
+ * - Non-empty file that fails to parse → throws a descriptive Error so the
+ *   caller can surface it to the user instead of silently overwriting the
+ *   file with only the new MCP entry (data-loss hazard).
+ */
 function readJsonFile(file: string): Record<string, any> {
+  let raw: string;
   try {
-    const raw = fs.readFileSync(file, "utf-8");
+    raw = fs.readFileSync(file, "utf-8");
+  } catch {
+    // Missing (ENOENT) or unreadable file — treat as empty.
+    return {};
+  }
+  if (!raw.trim()) return {};
+  try {
     const parsed = JSON.parse(raw);
     return parsed && typeof parsed === "object" ? parsed : {};
   } catch {
-    return {};
+    throw new Error(
+      `Cannot parse JSON config file: ${file}\n` +
+        `Fix or move the file and re-run. The file has not been modified.`,
+    );
+  }
+}
+
+/**
+ * Write `data` to `file` atomically: write a sibling temp file, then rename it
+ * over the target. `rename(2)` is atomic on the same filesystem, so a crash or
+ * `kill` mid-write can never leave a half-written/truncated file. This matters
+ * most for `~/.claude.json`, which is Claude Code's entire user state (projects,
+ * history, auth) — a torn write there would corrupt the user's whole config,
+ * not just our MCP entry. The temp file lives in the target's directory so the
+ * rename stays within one filesystem.
+ */
+export function writeFileAtomic(file: string, data: string): void {
+  const dir = path.dirname(file);
+  fs.mkdirSync(dir, { recursive: true });
+  // Preserve the target's existing permission bits. A fresh temp file would
+  // otherwise be created with the umask default (typically 0644), silently
+  // loosening a secret-bearing file the user locked down to 0600 (e.g. .env).
+  let mode: number | undefined;
+  try {
+    mode = fs.statSync(file).mode & 0o777;
+  } catch {
+    // Target doesn't exist yet — let the default creation mode apply.
+  }
+  const tmp = path.join(dir, `.${path.basename(file)}.tmp-${process.pid}`);
+  try {
+    fs.writeFileSync(tmp, data, "utf-8");
+    if (mode !== undefined) fs.chmodSync(tmp, mode);
+    fs.renameSync(tmp, file);
+  } catch (err) {
+    try {
+      fs.rmSync(tmp, { force: true });
+    } catch {}
+    throw err;
   }
 }
 
@@ -141,8 +194,7 @@ export function writeJsonMcpEntry(
   } else {
     config.mcpServers[name] = entry;
   }
-  fs.mkdirSync(path.dirname(file), { recursive: true });
-  fs.writeFileSync(file, JSON.stringify(config, null, 2) + "\n", "utf-8");
+  writeFileAtomic(file, JSON.stringify(config, null, 2) + "\n");
 }
 
 export function hasJsonMcpEntry(file: string, name: string): boolean {
@@ -242,8 +294,7 @@ export function writeCodexBlock(
   }
   if (block === null && !removed) return; // nothing to do
 
-  fs.mkdirSync(path.dirname(file), { recursive: true });
-  fs.writeFileSync(file, next, "utf-8");
+  writeFileAtomic(file, next);
 }
 
 export function codexHasBlock(file: string, name: string): boolean {

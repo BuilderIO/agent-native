@@ -64,9 +64,10 @@ in each template's `server/plugins/db.ts` — additive SQL only
   `agent-native-plan.netlify.app`; then provision/verify TLS in Netlify.
 
 - **PR visual recap publishing.** PR automation can publish org-gated visual
-  recap plans when `PLAN_RECAP_APP_URL` points at the hosted Plans app and
-  `PLAN_RECAP_TOKEN` contains the publish token. Recap links are review aids;
-  they do not replace the GitHub diff review.
+  recap plans to the hosted Plans app by default when `PLAN_RECAP_TOKEN`
+  contains the publish token. Set `PLAN_RECAP_APP_URL` only for a self-hosted
+  Plans app. Recap links are review aids; they do not replace the GitHub diff
+  review.
 
 - **Preview-only actions.** Actions that reach outside the DB (send email,
   charge a card, post to Slack) need their own preview-vs-prod gating so

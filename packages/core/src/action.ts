@@ -210,7 +210,14 @@ export interface ActionMcpAppResourceConfig {
 }
 
 export interface ActionMcpAppConfig {
-  resource: ActionMcpAppResourceConfig;
+  /**
+   * Optional MCP Apps UI resource for hosts that render inline app iframes.
+   * Required when the action should open an interactive app view. Omit when
+   * you only need `compactCatalog: true` to keep a non-UI action visible in
+   * the compact catalog (e.g. read/update actions that should be callable from
+   * Claude.ai / ChatGPT without a dedicated iframe resource).
+   */
+  resource?: ActionMcpAppResourceConfig;
   /**
    * MCP Apps tool visibility. Defaults to model + app so the LLM can call the
    * action and the app iframe can call it back through the host bridge.
@@ -465,17 +472,30 @@ export function defineAction(options: any) {
       : undefined;
   const link: ActionLinkBuilder | undefined =
     typeof options.link === "function" ? options.link : undefined;
-  const mcpApp: ActionMcpAppConfig | undefined =
-    options.mcpApp &&
-    typeof options.mcpApp === "object" &&
-    !Array.isArray(options.mcpApp) &&
-    options.mcpApp.resource &&
-    typeof options.mcpApp.resource === "object" &&
-    !Array.isArray(options.mcpApp.resource) &&
-    (typeof options.mcpApp.resource.html === "string" ||
-      typeof options.mcpApp.resource.html === "function")
-      ? options.mcpApp
-      : undefined;
+  const mcpApp: ActionMcpAppConfig | undefined = (() => {
+    if (
+      !options.mcpApp ||
+      typeof options.mcpApp !== "object" ||
+      Array.isArray(options.mcpApp)
+    ) {
+      return undefined;
+    }
+    // compactCatalog-only: no resource required; just keep the flag.
+    if (options.mcpApp.compactCatalog === true && !options.mcpApp.resource) {
+      return options.mcpApp as ActionMcpAppConfig;
+    }
+    // Full resource: validate html is present.
+    if (
+      options.mcpApp.resource &&
+      typeof options.mcpApp.resource === "object" &&
+      !Array.isArray(options.mcpApp.resource) &&
+      (typeof options.mcpApp.resource.html === "string" ||
+        typeof options.mcpApp.resource.html === "function")
+    ) {
+      return options.mcpApp as ActionMcpAppConfig;
+    }
+    return undefined;
+  })();
 
   return {
     tool: {

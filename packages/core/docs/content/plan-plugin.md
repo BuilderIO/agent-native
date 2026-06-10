@@ -12,7 +12,7 @@ The Agent-Native **Plan** app ships as one installable bundle. A single install 
 One install gives you:
 
 - **Two skills** — `/visual-plan` (the canonical entry point) and `/visual-recap`.
-- **The Plan MCP connector** — registered against the hosted app at `https://plan.agent-native.com` (MCP endpoint `https://plan.agent-native.com/_agent-native/mcp`, server name `agent-native-plans`).
+- **The Plan MCP connector** — registered against the hosted app at `https://plan.agent-native.com` (MCP endpoint `https://plan.agent-native.com/_agent-native/mcp`, server name `plan`, with legacy alias `agent-native-plans` during migration).
 
 By default, both skills publish to the hosted Plan app — they create a plan via
 the MCP connector and hand you a link or inline plan to review. They never dump
@@ -49,14 +49,27 @@ npx @agent-native/core@latest skills add visual-plan
 agent-native skills add visual-plan
 ```
 
-This installs `visual-plan` plus the companion `visual-recap` skill, then registers the `agent-native-plans` connector and runs auth (OAuth prompt for hosted/account-backed sharing). Useful flags:
+This installs `visual-plan` plus the companion `visual-recap` skill, then registers the `plan` connector and its legacy `agent-native-plans` alias, then runs auth (OAuth prompt for hosted/account-backed sharing). Useful flags:
 
 - `--client codex|claude-code|claude-code-cli|cowork|all` — which local agents to write the MCP config for (default `codex`).
 - `--no-connect` — register the connector without authenticating; run `agent-native connect https://plan.agent-native.com` later.
 - `--mcp-url <url>` — point the connector at a custom origin (an ngrok tunnel, a local dev server, or a self-hosted deployment) instead of the hosted default.
 - `--with-github-action` — also write the PR Visual Recap GitHub Action (see [PR Visual Recap](/docs/pr-visual-recap)).
 
-After it finishes, restart or reload the agent client so the new skills and tools load, then run `/visual-plan`.
+Interactive installs also offer the PR Visual Recap Action when no workflow is
+present. Say yes to add it during skill setup, or run the command above later
+with `--with-github-action`. After the workflow is written, run:
+
+```bash
+agent-native recap setup
+agent-native recap doctor
+```
+
+`recap setup` configures the GitHub Action secrets and variables where possible,
+and `recap doctor` verifies the workflow, local publish token, GitHub repo
+access, and required Actions configuration. After install finishes, restart or
+reload the agent client so the new skills and tools load, then run
+`/visual-plan`.
 
 > Note: the bare `npx skills add BuilderIO/agent-native --skill visual-plan` (Vercel/open Skills CLI) installs **instructions only** — it does not register the MCP connector. Use the Agent-Native CLI above when you want the connector wired up too.
 
@@ -82,10 +95,12 @@ The same repo is a Codex plugin marketplace. Add it, install the plugin, then au
 ```bash
 codex plugin marketplace add BuilderIO/agent-native
 codex plugin add agent-native-visual-plans@agent-native-apps
-codex mcp login agent-native-plans   # OAuth in the browser
+codex mcp login plan   # OAuth in the browser
+# Existing installs may already be authenticated as:
+codex mcp login agent-native-plans
 ```
 
-After install, **start a new Codex thread** so the skills and MCP tools load into the session. The plugin ships a URL-only connector (`[mcp_servers.agent-native-plans]` → `https://plan.agent-native.com/_agent-native/mcp`); `codex mcp login` runs the OAuth flow. The universal CLI route above also works for Codex (`agent-native skills add visual-plan --client codex`) if you prefer one command that installs and authenticates together.
+After install, **start a new Codex thread** so the skills and MCP tools load into the session. The plugin ships URL-only connectors (`[mcp_servers.plan]` and legacy `[mcp_servers.agent-native-plans]` → `https://plan.agent-native.com/_agent-native/mcp`); `codex mcp login` runs the OAuth flow. The universal CLI route above also works for Codex (`agent-native skills add visual-plan --client codex`) if you prefer one command that installs and authenticates together.
 
 ## Updates {#updates}
 
@@ -93,7 +108,7 @@ The plugin routes auto-update — you do not re-pack or re-add the marketplace f
 
 - **Claude Code** — the marketplace entry sets `autoUpdate: true` and the plugin uses commit-SHA versioning, so Claude Code pulls new versions from the repo at startup; run `/reload-plugins` to activate. Every push to the repo's default branch reaches installed users automatically.
 - **Codex** — the plugin `version` embeds a content hash of the bundled skills and MCP endpoint (e.g. `1.0.0+codex.<hash>`), so any skill or endpoint change yields a new version. Codex's startup auto-upgrade re-installs configured git marketplaces on its own; just **start a new thread** to pick up the change. No manual `codex plugin marketplace upgrade` is needed for routine updates.
-- **Universal CLI route** — re-run `npx @agent-native/core@latest skills add visual-plan` to refresh the skills and re-register the connector. `@latest` always pulls the current skills from the published `@agent-native/core` package.
+- **Universal CLI route** — run `npx @agent-native/core@latest skills status visual-plan` to check copied skill folders, or `npx @agent-native/core@latest skills update visual-plan` to refresh them in place. Re-running `skills add visual-plan` still works when you also want to re-register/authenticate the connector. `@latest` always pulls the current skills from the published `@agent-native/core` package.
 
 The connector points at a **hosted** app, so the Plan app's actions and live tool surface always reflect the deployed version regardless of when you installed; only the bundled skill instructions follow the update mechanisms above.
 

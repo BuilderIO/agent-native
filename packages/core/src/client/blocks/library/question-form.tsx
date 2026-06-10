@@ -238,7 +238,20 @@ function QuestionView({
                     </span>
                   </div>
                   {hasVisualOptions && (option.wireframe || option.diagram) && (
-                    <div className="ml-8 grid gap-4 lg:grid-cols-[minmax(0,1fr)_280px]">
+                    // Stop click/keyboard propagation so interactions inside the
+                    // preview (expand button, lightbox close) don't toggle the
+                    // option. Nested interactive elements inside a <button> are
+                    // invalid HTML, so this also keeps the outer button's
+                    // keyboard behaviour clean.
+                    // eslint-disable-next-line jsx-a11y/no-static-element-interactions
+                    <div
+                      className="ml-8 grid gap-4 lg:grid-cols-[minmax(0,1fr)_280px]"
+                      onClick={(e) => e.stopPropagation()}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" || e.key === " ")
+                          e.stopPropagation();
+                      }}
+                    >
                       {option.wireframe != null && (
                         <OptionVisual
                           type="wireframe"

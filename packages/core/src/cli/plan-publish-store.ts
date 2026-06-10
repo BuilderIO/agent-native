@@ -42,18 +42,19 @@ export function planPublishConfigPath(): string {
 }
 
 /**
- * Whether `url`'s host is a first-party Agent-Native Plans app whose token we
- * should mirror to the canonical publish file. Accepts `plan.agent-native.com`,
- * any `*.agent-native.com` subdomain, and the apex `agent-native.com`. A custom
- * self-hosted origin (ngrok, localhost, a private deployment) is intentionally
- * left out: the user can still point the server at it via `PLAN_PUBLISH_URL` /
- * `PLAN_PUBLISH_TOKEN` env vars, but we do not silently adopt arbitrary hosts as
- * the canonical Plans endpoint.
+ * Whether `url`'s host is the first-party Agent-Native Plans app whose token
+ * we should mirror to the canonical publish file. Only the hosted Plans app
+ * (`plan.agent-native.com`) qualifies — mirroring tokens for other
+ * agent-native subdomains (assets, mail, …) would silently overwrite the
+ * canonical Plans endpoint with the wrong URL+token each time `connect --all`
+ * runs last-write-wins. A custom self-hosted origin (ngrok, localhost, a
+ * private deployment) is intentionally excluded: the user can still point the
+ * server at it via `PLAN_PUBLISH_URL` / `PLAN_PUBLISH_TOKEN` env vars.
  */
 export function isFirstPartyPlanHost(url: string): boolean {
   try {
     const host = new URL(url).hostname.toLowerCase();
-    return host === "agent-native.com" || host.endsWith(".agent-native.com");
+    return host === "plan.agent-native.com";
   } catch {
     return false;
   }
@@ -107,6 +108,31 @@ export function writePlanPublishAuth(
   } catch {
     // Best-effort: the per-client MCP config is the primary write. A failed
     // canonical write must never fail the connect flow.
+    return null;
+  }
+}
+
+/**
+ * Read the canonical Plans publish auth written by `agent-native connect`.
+ * Returns `null` for missing/corrupt/incomplete files so callers can treat the
+ * publish token as optional and guide the user to reconnect.
+ */
+export function readPlanPublishAuth(
+  filePath: string = planPublishConfigPath(),
+): { url: string; token: string } | null {
+  try {
+    const parsed = JSON.parse(fs.readFileSync(filePath, "utf-8")) as unknown;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return null;
+    }
+    const record = parsed as Record<string, unknown>;
+    const urlValue = record.url ?? record.baseUrl ?? record.hostedUrl;
+    const tokenValue = record.token ?? record.accessToken ?? record.bearerToken;
+    const url = typeof urlValue === "string" ? urlValue.trim() : "";
+    const token = typeof tokenValue === "string" ? tokenValue.trim() : "";
+    if (!url || !token) return null;
+    return { url: stripTrailingSlash(url), token };
+  } catch {
     return null;
   }
 }

@@ -28,13 +28,34 @@ A re-push updates the same plan and the same sticky comment in place — no orph
 
 ## Installing it
 
-The Agent-Native CLI writes the workflow into your repository and prints the secrets to set:
+When you install Plans interactively, the Agent-Native CLI asks whether to add
+automatic PR Visual Recaps. Say yes to write the GitHub Action, or add it
+explicitly at any time:
 
 ```bash
 agent-native skills add visual-plan --with-github-action
 ```
 
-This installs the `visual-plan` skill (which includes the `visual-recap` skill the action runs) and writes `.github/workflows/pr-visual-recap.yml` into your repo. The workflow calls **published CLI subcommands** — `agent-native recap scan|build-prompt|shot|comment` — so nothing is copied into your repo as helper scripts. Commit the generated workflow file, set the secrets below, and open a PR to see it run.
+This installs the `visual-plan` skill (which includes the `visual-recap` skill the action runs) and writes `.github/workflows/pr-visual-recap.yml` into your repo. The workflow calls **published CLI subcommands** — `agent-native recap scan|build-prompt|shot|comment` — so nothing is copied into your repo as helper scripts.
+
+Then run the guided setup helper:
+
+```bash
+agent-native recap setup
+agent-native recap doctor
+```
+
+`recap setup` refreshes the workflow, uses `gh` to set GitHub Actions
+secrets/variables when values are available from env or the local Plans
+publish-token store, and prints exact missing commands for anything it cannot
+set. Secret values are sent to `gh` through stdin, not command arguments. Commit
+the generated workflow file and open a PR to see it run.
+
+By default, the workflow builds its agent prompt from the latest bundled
+`visual-recap` guidance in `@agent-native/core@latest`, including any sibling
+reference files the skill ships with. If your repo intentionally customizes and
+pins its committed `visual-recap` folder, set the repository variable
+`VISUAL_RECAP_SKILL_SOURCE=repo`.
 
 ## Backend selection
 
@@ -53,6 +74,7 @@ Beyond the backend, two repository variables tune _how_ the agent runs:
 
 - **`VISUAL_RECAP_MODEL`** pins the model passed to the CLI (`--model`) — for example `gpt-5.5` for Codex, or a Claude model id. Leave it unset to use the CLI's own default model.
 - **`VISUAL_RECAP_REASONING`** sets the reasoning depth: `none`, `minimal`, `low`, `medium`, `high`, or `xhigh`. It applies to the Codex backend; Claude's reasoning is model-driven, so this variable is ignored there.
+- **`VISUAL_RECAP_SKILL_SOURCE`** controls prompt freshness: `auto`/unset uses the latest bundled skill guidance, while `repo` pins to the committed repo-local `visual-recap` skill folder.
 
 For example, to run the recap on Codex with GPT-5.5 at high reasoning, set the repository variables `VISUAL_RECAP_AGENT=codex`, `VISUAL_RECAP_MODEL=gpt-5.5`, and `VISUAL_RECAP_REASONING=high`.
 
@@ -67,7 +89,18 @@ Set these in your repository's **Settings → Secrets and variables → Actions*
 | `PLAN_RECAP_TOKEN`  | Per-user, revocable token minted by `agent-native connect`. Authorizes publishing the recap plan and the screenshot upload. |
 | `ANTHROPIC_API_KEY` | The LLM key for the default Claude Code backend.                                                                            |
 
-Mint `PLAN_RECAP_TOKEN` with `agent-native connect` against your Plans app, then paste the printed token into the secret. Use a placeholder like `plan_recap_xxxxxxxxxxxxxxxx` only for examples — never commit a real token.
+Mint `PLAN_RECAP_TOKEN` with `agent-native connect` against your Plans app. For
+the hosted app, this also writes a local publish-token file that
+`agent-native recap setup` can read:
+
+```bash
+agent-native connect https://plan.agent-native.com --client codex
+agent-native recap setup
+```
+
+If you prefer manual setup, paste the token into the GitHub secret. Use a
+placeholder like `plan_recap_xxxxxxxxxxxxxxxx` only for examples — never commit a
+real token.
 
 ### Optional (only if you change defaults)
 
@@ -90,6 +123,22 @@ After the agent publishes the recap, the workflow screenshots the rendered plan 
 The workflow uses the plain `pull_request` trigger, **not** `pull_request_target`. Fork PRs therefore run with **no access to repository secrets**, so the recap step finds no `PLAN_RECAP_TOKEN` and cleanly no-ops — no failed publish, no error comment, no leaked credentials. Recaps only run for PRs from branches in the same repository, where the secrets are available.
 
 This also means you can merge the workflow file **before** the secrets exist: with no token configured, every run is a quiet no-op until you set the secrets.
+
+## Self-modifying guard (sensitive paths)
+
+The workflow's gate job skips the recap entirely if a PR touches any of the following paths, so a PR can never rewrite what the trusted recap job runs and exfiltrate secrets:
+
+| Path pattern                               | Reason                                                    |
+| ------------------------------------------ | --------------------------------------------------------- |
+| `.github/workflows/pr-visual-recap.yml`    | The workflow itself                                       |
+| `**/skills/visual-(recap\|plan\|plans)/**` | The visual-recap skill the agent follows                  |
+| `**/.claude/**`                            | Agent settings the runner loads                           |
+| `**/CLAUDE.md`                             | Agent instructions the runner loads                       |
+| `**/AGENTS.md`                             | Agent instructions the runner loads                       |
+| `**/.mcp.json`                             | MCP server config the runner loads                        |
+| `packages/core/**`                         | Recap CLI source _(BuilderIO/agent-native monorepo only)_ |
+
+The `packages/core/**` rule applies only in the `BuilderIO/agent-native` monorepo where `packages/core` is the recap CLI source. In consumer repos an unrelated `packages/core/` directory does not trigger the guard.
 
 ## Local-files privacy mode
 

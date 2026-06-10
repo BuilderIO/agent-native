@@ -2,9 +2,9 @@
 
 Agent-Native Plan is structured visual plan mode for coding agents. It turns a
 normal Markdown/Codex/Claude Code plan into a visual review surface with
-editable rich blocks, diagrams, wireframes, prototype options, file/symbol
-implementation maps, code previews, annotations, share links, feedback, and
-HTML export.
+editable rich blocks, diagrams, wireframes, prototype options, annotated code
+walkthroughs and file trees, code previews, annotations, share links, feedback,
+and HTML export.
 
 ## Install
 
@@ -48,10 +48,9 @@ Command behavior:
 
 - `/visual-plan` creates a new rich visual plan with docs-level detail, diagrams,
   detailed wireframes/mockups when UI is involved, clickable prototypes when the
-  interaction feel matters, tradeoffs, open questions, file/symbol implementation
-  details, code previews, and feedback prompts. It can open with a short visual
-  intake step when the direction is still open. When an existing plan is
-  provided, it builds from that plan instead of starting over.
+  interaction feel matters, tradeoffs, open questions, annotated code walkthroughs
+  and file trees for code work, code previews, and feedback prompts. When an
+  existing plan is provided, it builds from that plan instead of starting over.
 - `/visual-recap` creates a reverse plan from code that already changed:
   file-tree, diff, data-model, API, and columns blocks that let a
   reviewer scan the shape of a PR before reading line-by-line.
@@ -65,8 +64,7 @@ create the visual plan.
 
 The document should stay close to the Markdown plan a coding agent would
 normally produce. Diagrams, wireframes, mockups, and annotations are additive
-review aids, and `/visual-plan` can open with a short visual intake step when the
-direction is still open.
+review aids.
 
 Plans should be visual by default:
 
@@ -76,8 +74,9 @@ Plans should be visual by default:
 - tabs for multiple diagrams, wireframes, mockups, and design options so rich
   plans do not become long stacks of visuals
 - prototype options when interaction or design direction is uncertain
-- implementation maps for code work: files, symbols/components/functions,
-  planned changes, concise code snippets, and explicit editor-open affordances
+- annotated code walkthroughs and file trees for code work: files,
+  symbols/components/functions, planned changes, concise code snippets, and
+  explicit editor-open affordances
 - plannotator-style comments, corrections, and annotations
 - review prompts for options, open questions, risky assumptions, and choices
 - README-like details when helpful: commands, MCP/link fallback, tool behavior,
@@ -113,12 +112,26 @@ The local template remains useful for development and self-hosting.
 
 ## PR Visual Recaps
 
-PR automation can publish org-gated recap plans to the hosted Plan app when the
-repository configures both secrets:
+When you install Plans interactively, the CLI asks whether you also want the PR
+Visual Recap GitHub Action. You can add it explicitly at any time:
 
-- `PLAN_RECAP_APP_URL` — the hosted Plan app base URL.
-- `PLAN_RECAP_TOKEN` — a publish token for creating and replacing private recap
-  plans.
+```sh
+agent-native skills add visual-plan --with-github-action
+```
+
+That writes `.github/workflows/pr-visual-recap.yml`. Then run the setup helper to
+configure GitHub Actions secrets/variables where possible and print any missing
+manual steps:
+
+```sh
+agent-native recap setup
+agent-native recap doctor
+```
+
+The hosted default needs `PLAN_RECAP_TOKEN` plus `ANTHROPIC_API_KEY` for the
+default Claude backend. `PLAN_RECAP_APP_URL` is only needed when self-hosting the
+Plan app, and Codex users can set `VISUAL_RECAP_AGENT=codex` with
+`OPENAI_API_KEY`.
 
 The workflow should treat recap generation as informational only: it can show a
 non-required `Visual Recap` check while it runs and update a sticky PR comment

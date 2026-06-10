@@ -337,7 +337,8 @@ export function runMigrations(
             console.warn(
               `[db] Migration v${m.version} skipped — insufficient privilege: ${(err as Error).message}. ` +
                 `Apply it with a DB role that owns the table. ` +
-                `Halting further migrations so this one isn't orphaned.`,
+                `Halting further migrations so this one isn't orphaned. ` +
+                `Set <APP_NAME>_DATABASE_URL (e.g. PLAN_DATABASE_URL) to a database this app owns — a file: URL uses local SQLite.`,
               "\nStatement:",
               currentStmt,
             );

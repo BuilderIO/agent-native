@@ -21,7 +21,9 @@ export function useNavigationState() {
     const state: NavigationState = {
       view: viewForPath(location.pathname),
     };
-    const planMatch = location.pathname.match(/^\/plans\/([^/]+)/);
+    const planMatch =
+      location.pathname.match(/^\/plans\/([^/]+)/) ??
+      location.pathname.match(/^\/recaps\/([^/]+)/);
     if (planMatch) state.planId = decodeURIComponent(planMatch[1]);
 
     fetch(agentNativePath("/_agent-native/application-state/navigation"), {

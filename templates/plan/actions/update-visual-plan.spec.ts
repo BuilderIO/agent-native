@@ -26,8 +26,10 @@ vi.mock("drizzle-orm", () => ({
   inArray: (...args: unknown[]) => ({ op: "inArray", args }),
 }));
 
-vi.mock("@agent-native/core", () => ({
+vi.mock("@agent-native/core", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core")>()),
   defineAction: (options: unknown) => options,
+  embedApp: vi.fn(() => ({ title: "stub" })),
 }));
 
 vi.mock("@agent-native/core/server/request-context", () => ({
@@ -137,6 +139,8 @@ vi.mock("../server/plans.js", async () => {
       order: z.number().optional(),
       createdBy: z.string().optional().default("agent"),
     }),
+    emitPlanCommented: vi.fn(),
+    emitPlanStatusChanged: vi.fn(),
     writeEvent: vi.fn(),
   };
 });
@@ -360,6 +364,12 @@ describe("update-visual-plan comments", () => {
             annotations: [],
           },
         },
+      },
+      access: {
+        role: "owner",
+        ownerEmail: "owner@example.com",
+        orgId: null,
+        visibility: "private",
       },
       sections: [],
       comments: [],

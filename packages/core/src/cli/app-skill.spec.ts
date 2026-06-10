@@ -10,6 +10,7 @@ import {
   loadAppSkillManifest,
   normalizeAppSkillManifest,
   parseAppSkillArgs,
+  resolvePluginVersion,
   resolveLaunchPlan,
 } from "./app-skill.js";
 
@@ -329,6 +330,55 @@ describe("app skill packaging", () => {
       name: "agent-native-assets",
       url: "https://assets.agent-native.com/_agent-native/mcp",
     });
+  });
+
+  it("includes the MCP server name in the Codex plugin version hash", () => {
+    const root = tmpDir();
+    const manifestFile = writeFixture(root);
+    const loaded = loadAppSkillManifest(manifestFile);
+    const skills = exportedSkills(loaded.manifest);
+
+    const first = resolvePluginVersion(loaded.manifest, loaded.dir, skills);
+    const renamed = {
+      ...loaded.manifest,
+      mcp: { ...loaded.manifest.mcp, serverName: "assets" },
+    };
+    const second = resolvePluginVersion(renamed, loaded.dir, skills);
+
+    expect(first).not.toBe(second);
+  });
+
+  it("packs and installs MCP server aliases for compatibility", async () => {
+    const root = tmpDir();
+    const manifestFile = writeFixture(root);
+    const manifest = JSON.parse(fs.readFileSync(manifestFile, "utf-8"));
+    manifest.mcp.aliases = ["assets"];
+    fs.writeFileSync(manifestFile, JSON.stringify(manifest, null, 2), "utf-8");
+
+    const loaded = loadAppSkillManifest(manifestFile);
+    const outDir = path.join(tmpDir(), "packed-assets");
+    buildAppSkillPack(loaded, outDir);
+
+    const packedMcp = JSON.parse(
+      fs.readFileSync(path.join(outDir, ".mcp.json"), "utf-8"),
+    );
+    expect(Object.keys(packedMcp.mcpServers).sort()).toEqual([
+      "agent-native-assets",
+      "assets",
+    ]);
+
+    await ensureAppSkill(loaded, {
+      clients: ["claude-code"],
+      scope: "project",
+      baseDir: root,
+    });
+    const config = JSON.parse(
+      fs.readFileSync(path.join(root, ".mcp.json"), "utf-8"),
+    );
+    expect(Object.keys(config.mcpServers).sort()).toEqual([
+      "agent-native-assets",
+      "assets",
+    ]);
   });
 
   it("rejects pack paths that escape the manifest or output root", () => {

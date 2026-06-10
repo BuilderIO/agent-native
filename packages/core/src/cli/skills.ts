@@ -8,6 +8,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { spawn } from "node:child_process";
+import { createHash } from "node:crypto";
 
 import {
   buildAppSkillPack,
@@ -34,6 +35,8 @@ const HELP = `agent-native skills
 
 Usage:
   agent-native skills list
+  agent-native skills status [assets|design-exploration|visual-plan|visual-recap|context-xray] [--client codex|claude-code|all] [--scope user|project] [--json]
+  agent-native skills update [assets|design-exploration|visual-plan|visual-recap|context-xray] [--client codex|claude-code|all] [--scope user|project] [--dry-run] [--json]
   agent-native skills add assets|design-exploration|visual-plan|visual-recap|context-xray [--client codex|claude-code|claude-code-cli|cowork|all] [--scope user|project] [--mcp-url <url>] [--no-connect] [--with-github-action] [--yes] [--dry-run] [--json]
   agent-native skills add <manifest-or-app-dir> [--client ...] [--yes]
 
@@ -42,6 +45,8 @@ Examples:
   agent-native skills add design-exploration
   agent-native skills add visual-plan
   agent-native skills add visual-plan --with-github-action
+  agent-native skills status visual-plan
+  agent-native skills update visual-plan
   agent-native skills add visual-plan --no-connect
   agent-native skills add context-xray --client all
   agent-native skills add assets --client claude-code
@@ -63,7 +68,15 @@ register the connector without authenticating (leave auth to the host or run
 a custom origin (an ngrok tunnel, a local dev server, or a self-hosted
 deployment) instead of the built-in hosted default — a bare origin gets the
 standard /_agent-native/mcp path appended. Use app-skill pack for marketplace
-bundles and custom adapter output.`;
+bundles and custom adapter output.
+
+When installing visual-plan interactively, the CLI offers to add the optional PR
+Visual Recap GitHub Action. Pass --with-github-action to write it directly, then
+run "agent-native recap setup" / "agent-native recap doctor" to configure and
+verify GitHub Actions.
+
+The status/update commands inspect copied Agent Native skill folders and refresh
+their instruction files from the current @agent-native/core package.`;
 
 const ASSETS_SKILL_MD = `---
 name: assets
@@ -219,8 +232,7 @@ iteration, or a human-in-the-loop choice among design directions.
 
 /**
  * Shared setup/auth block for every Plans skill (`/visual-plan`,
- * `/visual-recap`, `/ui-plan`, `/prototype-plan`, `/plan-design`,
- * `/visual-questions`). Interpolated into each skill markdown
+ * `/visual-recap`). Interpolated into each skill markdown
  * so the install + one-step authenticate instructions never drift between them.
  * Keep this in sync with the copies under `templates/plan/.agents/skills/*` and
  * top-level `skills/*` (this skill's SKILL.md is triplicated with no sync test).
@@ -238,10 +250,12 @@ intended), so the first tool call does not hit an OAuth wall:
 agent-native skills add visual-plan
 \`\`\`
 
-After that, \`/visual-plan\` (and \`/visual-recap\`, \`/ui-plan\`,
-\`/prototype-plan\`, \`/plan-design\`, \`/visual-questions\`) generate a plan and open
-the editor. Pass \`--no-connect\` to
-register the connector without authenticating, then run
+After that, \`/visual-plan\` and \`/visual-recap\` are the two installed slash
+commands. Other planning modes — UI-first (\`create-ui-plan\`), prototype-first
+(\`create-prototype-plan\`), design-first (\`create-plan-design\`), and visual
+intake (\`create-visual-questions\`) — are MCP tools reachable from \`/visual-plan\`,
+not separate slash commands. Pass \`--no-connect\` to register the connector
+without authenticating, then run
 \`agent-native connect https://plan.agent-native.com\` whenever you are ready.
 
 **Browser (people you share with).** Open the Plans editor and create & edit
@@ -271,14 +285,14 @@ not put shared secrets in skill files.`;
 // distributed artifact stays a flat string, so distribution is unchanged.
 //
 // Consumers:
-//   WIREFRAME_QUALITY_CORE  — visual-plan, ui-plan, visual-recap (surface-agnostic)
-//   CANVAS_SURFACE_CORE     — visual-plan, ui-plan (canvas/artboard mechanics)
-//   DOCUMENT_QUALITY_CORE   — visual-plan, ui-plan
-//   EXEMPLAR_CORE           — visual-plan, ui-plan
+//   WIREFRAME_QUALITY_CORE  — visual-plan, visual-recap (surface-agnostic)
+//   CANVAS_SURFACE_CORE     — visual-plan modes (canvas/artboard mechanics)
+//   DOCUMENT_QUALITY_CORE   — visual-plan
+//   EXEMPLAR_CORE           — visual-plan
 
 // Surface-agnostic HTML wireframe quality rules. Applies equally to a standalone
-// WireframeBlock/<Screen> (visual-recap) and to a canvas artboard (visual-plan /
-// ui-plan). Do not put canvas/artboard placement mechanics here.
+// WireframeBlock/<Screen> (visual-recap) and to a canvas artboard (visual-plan).
+// Do not put canvas/artboard placement mechanics here.
 const WIREFRAME_QUALITY_CORE = `<!-- SHARED-CORE:wireframe-quality START -->
 
 **A wireframe is an HTML mockup. The renderer owns the look; you write the
@@ -500,7 +514,36 @@ hex colors:
 
 <!-- SHARED-CORE:wireframe-quality END -->`;
 
-// Canvas/artboard placement mechanics. Used only by visual-plan and ui-plan
+// Progressive-disclosure reference file. `WIREFRAME_QUALITY_CORE` is the single
+// source of truth for HTML wireframe quality; it is materialized verbatim into a
+// sibling `references/wireframe.md` in EVERY plan skill dir (visual-plan and
+// visual-recap), instead of being interpolated inline into each SKILL.md body.
+// The SKILL.md bodies carry only `WIREFRAME_REFERENCE_POINTER`, which tells the
+// agent to read this file before authoring any wireframe. Keeping the reference
+// body byte-identical to the core (markers included) lets the sync guard assert
+// the on-disk copies never drift from the canonical constant.
+export const WIREFRAME_REFERENCE_MD = `# HTML wireframe quality — single source of truth
+
+This file is the canonical quality bar for HTML wireframes / \`<Screen>\` /
+\`WireframeBlock\` content, shared word for word by \`/visual-plan\` and
+\`/visual-recap\`. Read it in full before authoring ANY wireframe; do not
+author wireframes from memory or paraphrase these rules per command.
+
+${WIREFRAME_QUALITY_CORE}
+`;
+
+// Short pointer that replaces the inline wireframe-quality core in each SKILL.md
+// body. Authoring quality lives in the sibling reference file so the SKILL.md
+// stays lean (progressive disclosure); the agent loads the detail on demand.
+const WIREFRAME_REFERENCE_POINTER = `UI recap/plan wireframes must meet a strict quality bar — full-width chrome,
+pinned bottom bars, real product content, before/after comparability, the right
+\`surface\` preset, \`--wf-*\` tokens instead of hex, and no \`<html>\`/\`<style>\`/font
+tags. Before authoring ANY wireframe / \`<Screen>\` / \`WireframeBlock\`, READ
+\`references/wireframe.md\` in this skill directory — it is the single source of
+truth for HTML wireframe quality, shared word for word with \`/visual-plan\`
+and \`/visual-recap\`. Do not author wireframes from memory.`;
+
+// Canvas/artboard placement mechanics. Used only by visual-plan modes
 // (visual-recap renders standalone wireframes, not a canvas).
 const CANVAS_SURFACE_CORE = `<!-- SHARED-CORE:canvas-surface START -->
 
@@ -719,7 +762,7 @@ unreadable diagrams before asking for approval.
 
 const EXEMPLAR_CORE = `<!-- SHARED-CORE:exemplar START -->
 
-**GOOD.** A \`/ui-plan\` for a todo app: a canvas with a \`desktop\` artboard whose
+**GOOD.** A UI-first plan for a todo app: a canvas with a \`desktop\` artboard whose
 \`data.html\` is a real flex layout — a sidebar of links (\`Inbox 12\`, \`Today 4\`,
 \`Done\`), a main column with an \`<h1>Today</h1>\`, accent \`.wf-pill\`s for the
 filters, a muted section label \`OVERDUE\`, and \`.wf-card\` task rows carrying real
@@ -760,6 +803,66 @@ recommendations live elsewhere. Never produce this.
 
 <!-- SHARED-CORE:exemplar END -->`;
 
+// Progressive-disclosure reference files. Like `WIREFRAME_REFERENCE_MD`, each of
+// the canvas / document-quality / exemplar cores is the single source of truth
+// for its topic and is materialized verbatim into a sibling `references/*.md`
+// file in the visual-plan skill dir instead of being interpolated inline into
+// the SKILL.md body. The body carries only the matching `*_REFERENCE_POINTER`.
+// Keeping each reference body byte-identical to its core (markers included) lets
+// the sync guard assert the on-disk copies never drift from the constant.
+export const CANVAS_REFERENCE_MD = `# Canvas & artboard placement — single source of truth
+
+This file is the canonical guide for how the visual-plan canvas works: artboard
+placement, lane layout, annotations, patching, and the legacy kit tree. Read it
+in full before authoring or editing any canvas/artboard content; do not author
+canvas layouts from memory or paraphrase these rules per mode.
+
+${CANVAS_SURFACE_CORE}
+`;
+
+export const DOCUMENT_QUALITY_REFERENCE_MD = `# Plan document quality — single source of truth
+
+This file is the canonical quality bar for the plan document below the canvas:
+how it reads, which blocks to use, how open questions are surfaced, and the
+pre-handoff check. Read it in full before authoring the plan document; it is the
+quality bar. Do not write the document from memory or paraphrase these rules per
+mode.
+
+${DOCUMENT_QUALITY_CORE}
+`;
+
+export const EXEMPLAR_REFERENCE_MD = `# Good vs. bad exemplar — single source of truth
+
+This file is the canonical worked example of a great plan (and the anti-patterns
+to avoid). Read it alongside the document-quality and canvas references before
+authoring a plan; it is the bar these plans must clear.
+
+${EXEMPLAR_CORE}
+`;
+
+// Short pointers that replace the inline canvas / document-quality / exemplar
+// cores in the SKILL.md body. Authoring detail lives in the sibling reference
+// files so the SKILL.md stays lean (progressive disclosure); the agent loads the
+// detail on demand.
+const CANVAS_REFERENCE_POINTER = `The canvas is the single source of truth for static UI mockups: artboard
+placement is locked by the \`surface\` (never coordinates), mixed surfaces lay out
+in lanes, annotations are plain-text designer notes anchored by
+\`targetId\`/\`placement\`, and edits are surgical \`contentPatches\`. Before
+authoring or editing ANY canvas, artboard, or annotation, READ
+\`references/canvas.md\` in this skill directory — it is the single source of truth
+for canvas/artboard mechanics. Do not author canvas layouts from memory.`;
+
+const DOCUMENT_QUALITY_REFERENCE_POINTER = `The document is a serious technical plan, not marketing: outcome-first,
+prose-first, self-contained, built from the right native blocks, with open
+questions in a single bottom \`question-form\` and a pre-handoff visual check.
+Before authoring the plan document, READ \`references/document-quality.md\` in this
+skill directory — it is the single source of truth for the document quality bar.
+Do not write the document from memory.`;
+
+const EXEMPLAR_REFERENCE_POINTER = `For a worked example of the bar — a great UI-first plan and \`/visual-plan\`, plus
+the anti-patterns to avoid — READ \`references/exemplar.md\` in this skill
+directory before authoring a plan.`;
+
 export const VISUAL_PLANS_SKILL_MD = `---
 name: visual-plan
 description: >-
@@ -781,14 +884,14 @@ usually start in the document with local diagrams near each claim. UI and produc
 plans should still start with the top canvas/prototype when screens or behavior
 are what the user needs to review.
 
-\`/visual-plan\` is the canonical command and the main entry point. Use \`/ui-plan\`
-when the work is primarily product UI and review should start with the screens.
-Use \`/prototype-plan\` when review should start with a functional live prototype.
-Use \`/plan-design\` when review should start with full-fidelity branded design.
-Use \`/visual-questions\` only when the user explicitly wants a visual intake form
-before planning. When a Codex, Claude Code, Markdown, or pasted plan already
-exists, \`/visual-plan\` uses that source plan as the starting point and builds
-the review surface from it instead of starting over.
+\`/visual-plan\` is the packaged command and main entry point. Choose the review
+mode from the task: UI-first when the work is primarily product UI and review
+should start with screens, prototype-first when review should start with a
+functional live prototype, design-first when review needs full-fidelity branded
+screens, or visual-intake when the user explicitly wants a questionnaire before
+planning. When a Codex, Claude Code, Markdown, or pasted plan already exists,
+\`/visual-plan\` uses that source plan as the starting point and builds the review
+surface from it instead of starting over.
 
 ## When To Use
 
@@ -966,38 +1069,30 @@ not add visual chrome by default:
   needs to operate the behavior. Keep the static wireframes in
   \`content.canvas\`, add the aligned functional prototype in
   \`content.prototype\`, and rely on the top visual tabs to switch between them.
-- **Prototype-first** when the user explicitly asks for \`/prototype-plan\`, asks
-  to operate the UI, or when interaction is the main question. Use
-  \`create-prototype-plan\`, which still preserves static mocks where useful.
+- **Prototype-first** when the user asks to operate the UI or when interaction is
+  the main question. Use \`create-prototype-plan\`, which still preserves static
+  mocks where useful.
 
 For mixed canvas + prototype plans, reuse the same real labels, app statuses,
 and screen ids across both surfaces. The canvas is the inspectable static reference;
 the prototype is the interactive version of that same flow, not a separate
 design direction.
 
-## Wireframe & Canvas Core
+## Wireframe quality — read \`references/wireframe.md\`
 
-This section is shared by \`/visual-plan\` and \`/ui-plan\`, and is the single
-source of truth for how wireframes and the canvas work. The wireframe-quality
-rules below are additionally shared, word for word, with \`/visual-recap\`; the
-canvas/artboard mechanics apply only to \`/visual-plan\` and \`/ui-plan\`. Do not
-paraphrase any of it per command.
+${WIREFRAME_REFERENCE_POINTER}
 
-${WIREFRAME_QUALITY_CORE}
+## Canvas — read \`references/canvas.md\`
 
-${CANVAS_SURFACE_CORE}
+${CANVAS_REFERENCE_POINTER}
 
-## Document Quality Core
+## Document quality — read \`references/document-quality.md\`
 
-This section is shared, word for word, by \`/visual-plan\` and \`/ui-plan\`. It is
-the single source of truth for the document below the canvas. Do not paraphrase
-it per command.
+${DOCUMENT_QUALITY_REFERENCE_POINTER}
 
-${DOCUMENT_QUALITY_CORE}
+## Good vs. bad exemplar — read \`references/exemplar.md\`
 
-## Good vs. Bad Exemplar
-
-${EXEMPLAR_CORE}
+${EXEMPLAR_REFERENCE_POINTER}
 
 ## Tool Guidance
 
@@ -1011,8 +1106,8 @@ ${EXEMPLAR_CORE}
   optional matching Prototype tab.
 - \`convert-visual-plan-to-prototype\`: convert an existing HTML wireframe canvas
   into a prototype plan.
-- \`create-visual-questions\`: use only for the explicit \`/visual-questions\`
-  command, not as \`/visual-plan\` preflight.
+- \`create-visual-questions\`: use only when the user explicitly asks for a visual
+  intake questionnaire, not as \`/visual-plan\` preflight.
 - \`update-visual-plan\`: revise content, status, or comments; prefer
   \`contentPatches\` over regenerating the whole plan.
 - \`read-visual-plan-source\`: read the normalized plan as \`plan.mdx\`,
@@ -1025,11 +1120,22 @@ ${EXEMPLAR_CORE}
 - \`get-plan-feedback\`: read unconsumed human feedback. Use it frequently; it
   returns grouped threads, exact anchor details, expected resolver, and recent
   review-event payloads so agents can act only on the comments meant for them.
+- \`get-plan-blocks\`: resolve block tags before authoring — do not memorize tags;
+  call this first to get the authoritative tag names, required fields, and prop
+  shapes from the live block registry.
 - \`export-visual-plan\`: export HTML, Markdown fallback, structured JSON, and MDX
   files for repo check-in.
 
 When the user critiques a plan's look or structure, fix the renderer or this
 skill — never hand-edit one stored plan. Turn feedback into better guidance.
+
+## Visibility & Sharing
+
+Use \`set-resource-visibility\` to change who can see a plan (e.g. public, login,
+or org-scoped). Use \`share-resource\` to grant specific users or roles access
+by email or role. Gate visibility before sharing any plan that covers
+unreleased or private work — default to the narrowest scope that meets the
+review need.
 
 ## Setup & Authentication
 
@@ -1044,10 +1150,12 @@ intended), so the first tool call does not hit an OAuth wall:
 agent-native skills add visual-plan
 \`\`\`
 
-After that, \`/visual-plan\` (and \`/visual-recap\`, \`/ui-plan\`,
-\`/prototype-plan\`, \`/plan-design\`, \`/visual-questions\`) generate a plan and open
-the editor. Pass \`--no-connect\` to
-register the connector without authenticating, then run
+After that, \`/visual-plan\` and \`/visual-recap\` are the two installed slash
+commands. Other planning modes — UI-first (\`create-ui-plan\`), prototype-first
+(\`create-prototype-plan\`), design-first (\`create-plan-design\`), and visual
+intake (\`create-visual-questions\`) — are MCP tools reachable from \`/visual-plan\`,
+not separate slash commands. Pass \`--no-connect\` to register the connector
+without authenticating, then run
 \`agent-native connect https://plan.agent-native.com\` whenever you are ready.
 
 **Browser (people you share with).** Open the Plans editor and create & edit
@@ -1069,442 +1177,6 @@ is available.
 
 Hosted default: connect \`https://plan.agent-native.com/_agent-native/mcp\`. Do
 not put shared secrets in skill files.
-`;
-
-export const UI_PLAN_SKILL_MD = `---
-name: ui-plan
-description: >-
-  Use Agent-Native Plans for UI-first planning with an optional top pan/zoom
-  wireframe canvas, a refined Notion-like document, rich tabs, diagrams,
-  comments, drawing, and agent handoff.
-metadata:
-  visibility: exported
----
-
-# UI Plan
-
-Use \`/ui-plan\` when the task is primarily about product UI, user flows,
-interaction details, component layout, or visual direction. The reviewable UI
-comes first; implementation detail comes after the user has something concrete to
-react to.
-
-\`/visual-plan\` remains the general command for architecture, backend, refactors,
-and mixed work. Use \`/prototype-plan\` when the UI review needs a functional live
-prototype instead of static screens. Use \`/plan-design\` when polish, brand, or
-visual fidelity are material to the decision. Use \`/visual-questions\` only when
-the user explicitly wants visual intake before planning. Use \`/visual-plan\` when
-a text plan already exists and should become the source material for the review.
-
-## Plan Discipline
-
-- **Gate hard.** Use a UI plan when the surface is new, ambiguous, spans several
-  screens or states, or the direction needs agreement before coding. Skip it for
-  cosmetic one-liners — a color, a label, a spacing tweak — and just make the
-  change. Never ship a single-step or filler plan.
-- **Research before you draft.** Read the real components, routes, and design
-  tokens first; ground every mockup and the file map in actual files and symbols.
-  Delegate wide exploration to a sub-agent when the surface is large.
-- **Planning is read-only.** Make no source edits while building or reviewing.
-  Start editing only after the user approves the UI direction.
-- **Clarify vs. assume.** Do not ask how to build the UI — present the direction
-  and options as mockups and tabs. Ask a clarifying question only when an
-  ambiguity would change the design; use the host agent's normal
-  ask-user-question flow and batch 2-4 before finalizing. Do not call
-  \`create-visual-questions\` from \`/ui-plan\`; keep answerable follow-up inside
-  the same plan as a bottom \`question-form\` Open Questions block. Otherwise
-  state the assumption in the plan and proceed.
-- **The plan is the approval gate.** Ask the user to review and approve the UI
-  direction before you write code, and name the files/areas the work touches.
-
-## UI-First Workflow
-
-1. Follow the host agent's normal planning flow: inspect the codebase, gather
-   the UI/component context needed, and ask native clarifying questions as needed
-   before generating the plan.
-2. Call \`create-ui-plan\` with a UI-specific title, brief, source, repo path, and
-   structured \`content\`. The canvas comes first, the document second.
-3. Compose the top canvas from the kit (see the cores below): the key artboards
-   with real product content, designer notes, and connectors only for real
-   sequences. Skip the canvas when wireframes would not clarify the work.
-4. Continue below as a concise technical document that stays close to the
-   Markdown plan the agent would normally output — not a second copy of the
-   canvas — covering concrete files, contracts, phases, risks, and validation.
-5. Call \`get-plan-feedback\` before implementation, after review, after a long
-   pause, and before the final response. Treat \`anchorDetails\`, resolver intent,
-   recent review events, and any focused screenshots from browser handoff as the
-   source of truth for exactly what changed and exactly what each UI comment
-   points at. Apply changes with \`update-visual-plan\`, preferring
-   \`contentPatches\` for one frame, annotation, node, tab, or block. When the
-   user wants source-control friendly edits, use \`patch-visual-plan-source\`
-   against the MDX files instead of regenerating the plan.
-
-## Agent Handoff
-
-After the canvas and document, add a short handoff that names the chosen UI
-direction, unresolved visual questions, and feedback that must be read before
-code changes. Never claim feedback has been applied until \`get-plan-feedback\` or
-the user has supplied it.
-
-## Wireframe & Canvas Core
-
-This section is shared by \`/visual-plan\` and \`/ui-plan\`, and is the single
-source of truth for how wireframes and the canvas work. The wireframe-quality
-rules below are additionally shared, word for word, with \`/visual-recap\`; the
-canvas/artboard mechanics apply only to \`/visual-plan\` and \`/ui-plan\`. Do not
-paraphrase any of it per command.
-
-${WIREFRAME_QUALITY_CORE}
-
-${CANVAS_SURFACE_CORE}
-
-## Document Quality Core
-
-This section is shared, word for word, by \`/visual-plan\` and \`/ui-plan\`. It is
-the single source of truth for the document below the canvas. Do not paraphrase
-it per command.
-
-${DOCUMENT_QUALITY_CORE}
-
-## Good vs. Bad Exemplar
-
-${EXEMPLAR_CORE}
-
-## Tool Guidance
-
-- \`create-ui-plan\`: create the UI-first structured visual plan.
-- \`create-prototype-plan\`: create a prototype-first plan when UI review needs a
-  functional live prototype.
-- \`create-plan-design\`: create a full-fidelity branded design plan when polish,
-  brand, and detailed visual direction are primary review inputs.
-- \`convert-visual-plan-to-prototype\`: convert an existing HTML wireframe canvas
-  into a prototype plan.
-- \`create-visual-questions\`: use only for the explicit \`/visual-questions\`
-  command, not as \`/ui-plan\` preflight.
-- \`update-visual-plan\`: revise content, mockups, comments, or handoff notes;
-  prefer targeted \`contentPatches\`.
-- \`read-visual-plan-source\`: read the normalized plan as \`plan.mdx\`,
-  optional \`canvas.mdx\`, optional \`.plan-state.json\`, and JSON.
-- \`patch-visual-plan-source\`: apply granular MDX AST patches by stable block,
-  artboard, annotation, component, or wireframe-node id.
-- \`import-visual-plan-source\`: create or replace a plan from an MDX folder.
-- \`get-visual-plan\`: inspect the current structured plan, exported HTML, and
-  annotations; it also returns the MDX folder for source workflows.
-- \`get-plan-feedback\`: read unconsumed reviewer comments before coding; it
-  returns grouped threads, exact anchor details, expected resolver, and recent
-  review-event payloads so agents can act only on the comments meant for them.
-- \`export-visual-plan\`: export HTML, Markdown fallback, structured JSON, and MDX
-  files for repo check-in.
-
-When the user critiques a plan's look or structure, fix the renderer or this
-skill — never hand-edit one stored plan. Turn feedback into better guidance.
-
-## Setup & Authentication
-
-There are two ways into Plans.
-
-**Coding agent (CLI).** Install once with the Agent-Native CLI. The command
-installs the Plans skills, registers the hosted Plans MCP connector, and
-authenticates it in the same step (a one-time browser sign-in at setup — this is
-intended), so the first tool call does not hit an OAuth wall:
-
-\`\`\`bash
-agent-native skills add visual-plan
-\`\`\`
-
-After that, \`/visual-plan\` (and \`/visual-recap\`, \`/ui-plan\`,
-\`/prototype-plan\`, \`/plan-design\`, \`/visual-questions\`) generate a plan and open
-the editor. Pass \`--no-connect\` to
-register the connector without authenticating, then run
-\`agent-native connect https://plan.agent-native.com\` whenever you are ready.
-
-**Browser (people you share with).** Open the Plans editor and create & edit
-with no sign-up — you work as a guest. Sign in only when you want to save or
-share; signing in claims the plans you made as a guest into your account.
-
-Sharing and commenting require an account: public/shared plans are viewable by
-anyone with the link, but commenting on them needs an agent-native account.
-
-For fully offline, no-account use, run the Plans app locally and sync plans to
-your repo as MDX. This local mode is a separate advanced path, not the default
-hosted flow.
-
-If a Plans tool returns \`needs auth\`, \`Unauthorized\`, or \`Session terminated\`,
-do not keep retrying the tool. Authenticate the connector with
-\`agent-native connect https://plan.agent-native.com\` (OAuth-capable hosts can
-instead re-run /mcp and choose Authenticate), then continue once the connector
-is available.
-
-Hosted default: connect \`https://plan.agent-native.com/_agent-native/mcp\`. Do
-not put shared secrets in skill files.
-`;
-
-export const PROTOTYPE_PLAN_SKILL_MD = `---
-name: prototype-plan
-description: >-
-  Use Agent-Native Plans for /prototype-plan when work needs a functional
-  prototype-first plan, static mocks, comments, review toggles, or conversion
-  from a visual plan.
-metadata:
-  visibility: exported
----
-
-# Prototype Plan
-
-\`/prototype-plan\` creates a plan whose primary review surface is a live,
-functional prototype above the document. Use it when the user needs to feel a
-flow, operate basic UI state, or comment on interaction before implementation
-hardens the decision.
-
-## Rule
-
-Make the prototype answer a concrete question. The plan should say what is being
-tested, show the functional prototype first, then keep static mocks and implementation
-notes in the document below.
-
-## When To Use
-
-Use \`/prototype-plan\` when the user asks for a prototype, wants to click through
-and operate UI states, needs design review before code, wants comments pinned to
-live screens, or asks to move a visual plan into a prototype.
-
-Prefer \`/visual-plan\` for architecture, data flow, or non-interactive planning.
-Prefer \`/ui-plan\` when static screen review is enough. Use \`/visual-plan\` first
-when the user hands you an existing Markdown/Codex/Claude plan that needs a
-visual companion before becoming interactive.
-
-## Core Workflow
-
-1. Inspect the real codebase and decide the question the prototype should
-   answer. Good examples: "Does this onboarding flow feel short enough?" or
-   "Which dashboard density should we implement?"
-2. Call \`create-prototype-plan\` with a title, brief, and screen HTML. Default to
-   one functional prototype screen when local UI behavior is enough; use 2-4
-   screens only for true routes, steps, or materially different contexts. The
-   returned plan opens with the prototype viewer on top and static mocks, flow
-   diagram, implementation map, and verification below.
-3. Make controls actually work. Use the renderer's safe Alpine-like directives:
-   \`x-data\`, \`x-model\`, \`x-for\`, \`x-text\`, \`x-show\`, \`:class\`, \`@click\`, and
-   \`@keydown.enter\`. Use safe helper verbs such as \`remove(list, item)\`,
-   \`setAll(list, 'done', true)\`, \`removeWhere(list, 'done', true)\`, and counters
-   such as \`count(list)\`, \`countWhere(list, 'done', true)\`, and
-   \`remaining(list, 'done')\` when they help. Use \`data-goto="screen-id"\` only
-   for true screen/route changes, not for every button press.
-4. Show important app feedback inside the prototype itself: selected filters,
-   checked rows, typed drafts, validation messages, permissions, progress, or
-   empty states.
-5. Surface the returned Plans link and ask the user to click through, comment on
-   the prototype or static mocks, and approve the direction before code changes.
-6. Before implementing or revising, call \`get-plan-feedback\`. Treat prototype
-   anchors, screenshots, and resolver intent as the source of truth.
-7. Update with \`update-visual-plan\` content patches. Use
-   \`patch-prototype-html\`, \`update-prototype-screen\`, or \`set-prototype\` for
-   targeted prototype edits instead of regenerating the whole plan.
-
-## Converting A Visual Plan
-
-When a visual plan already has HTML canvas wireframes, call
-\`convert-visual-plan-to-prototype\` with the plan id. This derives prototype
-screens from the canvas frames, preserves the canvas/static mocks by default,
-and changes the top review surface to the prototype viewer.
-
-Use \`removeCanvas: true\` only when the user explicitly wants the old canvas
-gone. Otherwise keep static mocks available for source export and detailed
-review.
-
-## Prototype Screen HTML
-
-Write bounded semantic HTML fragments only:
-
-\`\`\`html
-<div style="display:flex;flex-direction:column;gap:14px;padding:18px;height:100%">
-  <header style="display:flex;justify-content:space-between;gap:12px">
-    <div>
-      <h1>Launch checklist</h1>
-      <p class="wf-muted">Reviewer can add, complete, filter, and remove tasks.</p>
-    </div>
-    <span class="wf-pill accent">Live prototype</span>
-  </header>
-  <section
-    class="wf-card"
-    x-data="{ draft: '', filter: 'all', todos: [{ text: 'Check copy', done: false }, { text: 'Confirm owner', done: true }] }"
-    style="display:flex;flex-direction:column;gap:10px"
-  >
-    <div style="display:flex;gap:8px">
-      <input x-model="draft" @keydown.enter="draft && todos.push({ text: draft, done: false }); draft = ''" placeholder="Add task" />
-      <button class="primary" @click="draft && todos.push({ text: draft, done: false }); draft = ''">Add</button>
-    </div>
-    <div style="display:flex;gap:8px">
-      <button @click="filter = 'all'" :class="{ primary: filter === 'all' }">All</button>
-      <button @click="filter = 'done'" :class="{ primary: filter === 'done' }">Done</button>
-      <button @click="setAll(todos, 'done', true)">Mark all done</button>
-    </div>
-    <p class="wf-muted"><span x-text="remaining(todos, 'done')"></span> open / <span x-text="count(todos)"></span> total</p>
-    <div
-      class="wf-box"
-      x-for="todo in todos"
-      x-show="filter === 'all' || (filter === 'done' && todo.done)"
-      :class="{ 'is-done': todo.done }"
-      style="display:flex;justify-content:space-between;gap:10px"
-    >
-      <label style="display:flex;gap:8px"><input type="checkbox" x-model="todo.done" /><span x-text="todo.text"></span></label>
-      <button @click="remove(todos, todo)">Remove</button>
-    </div>
-    <button @click="removeWhere(todos, 'done', true)">Clear completed</button>
-  </section>
-</div>
-\`\`\`
-
-Use real labels, counts, dates, and controls grounded in the target app. Keep
-surfaces honest: \`browser\` for web pages, \`desktop\` for app shells, \`mobile\`
-only for real mobile work, \`panel\` for side panels, and \`popover\` for menus.
-
-Do not include \`<html>\`, \`<body>\`, \`<script>\`, \`<style>\`, browser \`on*\`
-handler attributes such as \`onclick\`, fake APIs, raw secrets, or customer data.
-The renderer owns sketchy/clean mode, theme, surface sizing, rough outlines, and
-comment overlays.
-
-## Review Surface
-
-Prototype plans support:
-
-- real local controls through safe prototype directives
-- optional screen/route transitions from \`data-goto\`
-- rough vs clean mode through the shared wireframe toggle
-- dark vs light mode through the shared theme toggle
-- comment visibility from the prototype toolbar
-- Figma-style comments pinned directly on live prototype screens
-- a popout URL with \`?prototype=1\` for focused browser review
-- static wireframe mocks in the document body where they help implementation
-
-## Source Files
-
-Runtime JSON is canonical. Source export uses:
-
-- \`plan.mdx\` for document blocks
-- \`prototype.mdx\` for \`<Prototype>\`, \`<PrototypeScreen>\`, and
-  \`<PrototypeTransition>\`
-- \`canvas.mdx\` for static mocks when a canvas is present
-- \`.plan-state.json\` for persisted viewport state
-
-Patch source with \`patch-visual-plan-source\` only when the user wants
-source-control friendly edits. Patch runtime content when the user is simply
-reviewing and iterating.
-
-## Related Skills
-
-- \`visual-plan\`
-- \`ui-plan\`
-- \`visual-questions\`
-`;
-
-export const PLAN_DESIGN_SKILL_MD = `---
-name: plan-design
-description: >-
-  Use Agent-Native Plans for full-fidelity UI design planning with a Design
-  canvas tab and optional interactive Prototype tab before implementation.
-metadata:
-  visibility: exported
----
-
-# Plan Design
-
-Use \`/plan-design\` when the user needs a high-fidelity product design before
-implementation: polished branded screens, realistic content, visual direction,
-and interaction review. It is the full-fidelity companion to \`/visual-plan\` and
-\`/prototype-plan\`: the top review surface should show \`Design\` and, when the
-flow needs interaction, \`Prototype\`.
-
-## When To Use
-
-Use this for UI-heavy work where brand, visual hierarchy, polished layout, or
-interaction feel are material to the decision. Skip it for small copy, spacing,
-or obvious component changes.
-
-## Research First
-
-Before creating the plan:
-
-1. Inspect the real app shell, routes, components, CSS variables, Tailwind
-   tokens, theme files, and any relevant screenshots.
-2. If \`design.md\` exists, treat it as the primary design brief and pass its
-   important content into \`create-plan-design.designMd\`.
-3. If a \`.fig\` local-copy file or parsed brand kit is available, use the
-   Design/brand-kit parsing actions from the app or shared tooling first, then
-   pass the extracted token summary into \`brandKit\`.
-4. Parse existing codebase style info when possible: CSS custom properties,
-   Tailwind config, global CSS, font declarations, spacing/radius tokens, and
-   component conventions. Pass the compact evidence into \`codebaseStyles\`.
-5. Ground every screen in actual product content. Avoid lorem ipsum, generic
-   marketing filler, and placeholder gray boxes unless designing an explicit
-   loading state.
-
-## Create The Plan
-
-Call \`create-plan-design\` with:
-
-- \`title\`, \`brief\`, \`repoPath\`, and any \`implementationNotes\`.
-- \`designMd\`, \`brandKit\`, \`codebaseStyles\`, or \`designNotes\` when available.
-- \`screens\`: one to six full-fidelity HTML/CSS screen fragments. Each screen
-  must include a bounded \`html\` fragment, optional scoped \`css\`, a \`surface\`,
-  and stable \`data-design-id\` attributes on elements a reviewer might edit.
-- \`transitions\` only when the Prototype tab should support true screen/step
-  navigation. Use \`data-goto="screen-id"\` in the screen HTML for those controls.
-
-The Design tab is the visual source of truth. The Prototype tab is for behavior
-and should reuse the same visual styling where practical. Do not create a
-separate design direction in the prototype.
-
-## Full-Fidelity HTML Rules
-
-- Write bounded fragments only: no \`<html>\`, \`<head>\`, \`<body>\`, \`<script>\`,
-  \`<style>\`, external imports, iframes, SVG, or executable URLs.
-- Put CSS in the screen \`css\` field. The renderer scopes it to the artboard.
-- Use real CSS and CSS variables. Tailwind-like class names are fine only when
-  the provided \`css\` defines them or the classes are harmless semantic hooks.
-- Use \`renderMode: "design"\` on design screen data when authoring full
-  structured content directly.
-- Add \`data-design-id="meaningful-name"\` to editable elements such as hero
-  panels, key buttons, cards, nav items, pricing rows, chart panels, and state
-  chips. Keep ids stable and descriptive.
-- Keep the design responsive within the selected surface. Text must not clip,
-  overlap, or rely on viewport-sized type.
-
-## Targeted Style Edits
-
-When a reviewer selects an element in the Design tab or asks for a specific
-style change, avoid regenerating the whole plan. Use:
-
-\`\`\`json
-{
-  "op": "update-design-element-style",
-  "frameId": "frame-overview",
-  "elementId": "primary-cta",
-  "styles": {
-    "background-color": "#0f766e",
-    "border-radius": "10px"
-  }
-}
-\`\`\`
-
-Use \`frameId\` for inline canvas designs or \`blockId\` for a referenced wireframe
-block. Set a style value to \`null\` to remove it. Use \`patch-wireframe-html\` or
-\`patch-prototype-html\` for text/content changes inside a fragment.
-
-## Document Handoff
-
-Below the visual surface, keep the document concise and implementation-oriented:
-actual files and symbols, state/actions/contracts, open questions, risks, and
-verification. The document should not repeat the same screens in prose.
-
-Before implementation, call \`get-plan-feedback\` and treat comments, selected
-element details, and recent review events as the source of truth.
-
-## Related Skills
-
-- \`visual-plan\`
-- \`ui-plan\`
-- \`prototype-plan\`
-- \`frontend-design\`
 `;
 
 export const VISUAL_RECAP_SKILL_MD = `---
@@ -1566,23 +1238,26 @@ otherwise approved by the user.
 ## Always Publish As An Agent-Native Plan — Never Inline
 
 The deliverable is ALWAYS a published Agent-Native Plan, created with the
-\`create-visual-recap\` tool on the \`plan\` MCP server. NEVER hand the recap to the
-user as inline chat content — not Markdown prose, not an ASCII sketch, not a
-table, not a fenced "wireframe", not a "here's the recap" summary. A recap's
-entire value is the hosted, interactive, annotatable plan; an inline summary is
-not a recap, it is the thing a recap replaces. The only supported output is to
-publish the plan and return its absolute URL.
+\`create-visual-recap\` tool on the Plan MCP connector. The connector is usually
+exposed as the \`plan\` server, but older installed agents may expose the same
+hosted connector as \`agent-native-plans\`; both names are valid. NEVER hand the
+recap to the user as inline chat content — not Markdown prose, not an ASCII
+sketch, not a table, not a fenced "wireframe", not a "here's the recap" summary.
+A recap's entire value is the hosted, interactive, annotatable plan; an inline
+summary is not a recap, it is the thing a recap replaces. The only supported
+output is to publish the plan and return its absolute URL.
 
-Except for the explicit local-files privacy mode above, if the \`plan\` MCP
-server's tools are not available, do NOT improvise an inline
-recap as a fallback. The usual cause is a connector that did not finish
-connecting this session (it registers zero tools), NOT necessarily an auth
-problem — so do not assume the user must authenticate. Stop and tell the user
-how to restore it: reconnect the plan MCP server (in Claude Code, run \`/mcp\` and
-reconnect, or restart the session); only if it is genuinely unauthenticated, run
-\`agent-native connect <plan-app-url>\` or re-authenticate via \`/mcp\`. Then publish
-once the tool is reachable. Falling back to inline content is a defect, not a
-degraded mode.
+Except for the explicit local-files privacy mode above, if neither the \`plan\`
+nor legacy \`agent-native-plans\` Plan MCP tools are available, do NOT improvise an
+inline recap as a fallback. Do not report the connector as disconnected just
+because it is named \`agent-native-plans\` instead of \`plan\`. The usual cause is a
+connector that did not finish connecting this session (it registers zero tools),
+NOT necessarily an auth problem — so do not assume the user must authenticate.
+Stop and tell the user how to restore it: reconnect the Plan MCP connector (in
+Claude Code, run \`/mcp\` and reconnect, or restart the session); only if it is
+genuinely unauthenticated, run \`agent-native connect <plan-app-url>\` or
+re-authenticate via \`/mcp\`. Then publish once the tool is reachable. Falling
+back to inline content is a defect, not a degraded mode.
 
 ## When To Use
 
@@ -1633,6 +1308,11 @@ them. Alongside the visual/structural headline (wireframes, \`data-model\`,
 \`api-endpoint\`, \`diagram\`), a substantial recap also carries the implementation
 evidence:
 
+- A short surface/state inventory before authoring: list the changed routes,
+  components, popovers/dialogs, role/access states, empty/error states, and
+  shared abstractions visible in the diff. The final recap must either represent
+  each meaningful item with a block or intentionally omit it because it is tiny,
+  redundant, or not user-visible.
 - A \`file-tree\` of the changed files with each entry's \`change\` flag, so the
   reviewer sees the footprint of the work at a glance.
 - The split \`diff\` of the KEY changed files, grouped under a \`## Key changes\`
@@ -1652,6 +1332,25 @@ When the diff changes rendered UI, layout, density, visual state, interaction
 affordances, navigation, controls, menus, dialogs, or design tokens, the recap
 MUST include one or more wireframes. Prose and file diffs are not a substitute
 for showing what changed visually.
+
+Before choosing wireframes, make a UI coverage pass from the diff:
+
+- Identify the entry surface where the change appears, such as a page header,
+  list row, toolbar, route shell, or menu trigger.
+- Identify the interaction surface that opens or changes, such as a popover,
+  dialog, tab, sheet, dropdown, inline editor, or toast.
+- Identify the resulting destination or persistent state, such as a public page,
+  read-only view, empty state, error state, loading state, permission-denied
+  state, or saved/shared state.
+- Identify access or role variants when permissions change. Owner/admin/editor
+  versus viewer/non-manager differences are visual behavior and need a compact
+  matrix, paired wireframes, or clearly labeled state sequence.
+
+For UI-heavy PRs, a single before/after of the entry surface is not enough.
+Show the changed entry point, the main changed interaction surface, and the
+resulting/destination state. Add more states when the diff adds tabs, role-based
+controls, public/private visibility, invite/manage flows, destructive controls,
+or empty/error branches.
 
 Choose the smallest visual surface that makes the review clear:
 
@@ -1676,239 +1375,20 @@ captured, say so in the wireframe caption or a concise annotation. For
 local/manual recaps, import or update the plan source that holds the wireframes
 so the rendered recap opens with the UI visual available.
 
-## Wireframe Quality
+## Wireframe Quality — read \`references/wireframe.md\`
 
-UI recap wireframes must look like the UI surface that changed, not like generic
-architecture boxes. The following bar is shared, word for word, with
-\`/visual-plan\` and \`/ui-plan\`: it is the single source of truth for HTML
-wireframe quality, and applies to a recap's standalone \`wireframe\` /
-\`WireframeBlock\` / \`<Screen>\` exactly as it applies to a plan's canvas artboard.
-
-<!-- SHARED-CORE:wireframe-quality START -->
-
-**A wireframe is an HTML mockup. The renderer owns the look; you write the
-content.** Set \`data.html\` to a self-contained, semantic HTML fragment of the
-screen and set \`data.surface\`. The renderer owns the surface footprint/aspect,
-the dark/light theme, the hand-drawn font, and the rough.js sketch overlay — you
-never write \`<html>\`/\`<body>\`/\`<script>\`/\`<style>\` tags, font-family, hex colors,
-or any width/height/coordinates. You write real HTML layout and real product
-content; the renderer styles and roughens it.
-
-**A wireframe block's data is an HTML screen plus a surface:**
-
-\`\`\`json
-{
-  "surface": "browser",
-  "html": "<div style=\\"display:flex;flex-direction:column;gap:10px;padding:16px;height:100%\\"><h1>Sign in</h1><p class=\\"wf-muted\\">Use your work email to continue.</p><div class=\\"wf-card\\" style=\\"display:flex;flex-direction:column;gap:10px\\"><label>Email<input value=\\"jane@acme.co\\" /></label><label>Password<input value=\\"••••••••\\" /></label><label style=\\"display:flex;align-items:center;gap:8px\\"><input type=\\"checkbox\\" checked /> Remember me</label><button class=\\"primary\\">Sign in</button></div><a href=\\"#\\">Forgot password?</a></div>"
-}
-\`\`\`
-
-**Write PLAIN semantic HTML and let the renderer style it.** Bare elements
-(\`h1\`/\`h2\`/\`h3\`, \`p\`, \`button\`, \`input\`, \`<input type="checkbox">\`, \`a\`, \`hr\`)
-are auto-themed — no classes needed. Helper classes carry the rest:
-
-- \`.wf-card\` / \`.wf-box\` — a bordered, padded container (a panel, a list item).
-- \`.wf-pill\` / \`.wf-chip\` — a rounded tag or filter; add \`.accent\`
-  (\`<span class="wf-pill accent">\`) for the accent-filled variant.
-- \`.wf-muted\` — secondary/muted text (or use \`<small>\`).
-- \`button.primary\` or any element with \`[data-primary]\` — the accent-filled
-  primary button.
-
-**Use the \`--wf-*\` tokens for any custom color, never hex.** The renderer flips
-these on light/dark, so reading them is what keeps a mockup correct in both
-themes. For any inline border, background, or text color, reference a token:
-\`style="border:1.4px solid var(--wf-line)"\`. The tokens are \`--wf-ink\` (text),
-\`--wf-muted\` (secondary text), \`--wf-line\` (borders/dividers), \`--wf-paper\`
-(page background), \`--wf-card\` (raised surface), \`--wf-accent\` /
-\`--wf-accent-fg\` / \`--wf-accent-soft\` (brand action), \`--wf-warn\`, \`--wf-ok\`,
-and \`--wf-radius\`. Never hard-code a hex color and never set \`font-family\` — the
-renderer owns the sketch/clean font.
-
-**Lay out with inline \`style\` flex/grid.** You write the real layout —
-\`display:flex; flex-direction:column; gap:10px; padding:16px\` and so on — and the
-renderer never repositions anything. Compose the actual product: reproduce the
-current screen, then show the modification. Real labels, real counts, real dates,
-real button text grounded in the screen you read; not lorem or gray bars.
-
-**Surface presets — match the real footprint, never default to desktop+mobile.**
-Pick the \`surface\` that matches what the user will actually see:
-
-- \`browser\`: a web page that needs a browser chrome frame around it.
-- \`desktop\`: a full desktop app page or app shell.
-- \`mobile\`: a phone screen, only when the work is genuinely mobile.
-- \`popover\`: a small floating menu, dropdown, or inline popover.
-- \`panel\`: a side panel, inspector, or sidebar widget.
-
-A sidebar popover renders as a small surface, not a desktop page and a phone
-frame. Do not emit \`desktop\` + \`mobile\` variants unless responsive behavior
-actually changes the layout. For a component or widget, show one broader
-app-context frame only when placement affects understanding, then the focused
-component states.
-
-**Model the actual component shell for small surfaces.** A rendered UI change
-belongs in a wireframe; reserve \`diagram\` for architecture, dependency, state,
-or data-flow relationships. Popovers, dropdown menus, command palettes, and
-context menus use \`surface: "popover"\` unless the surrounding page placement is
-the point of the change. Dialogs, sheets, inspectors, sidebars, and long
-property panels use the matching \`panel\` / \`desktop\` surface as appropriate.
-Show the real chrome: trigger or anchor when it matters, title/header row,
-top-right actions, separators, fields, options, selected states, body content,
-and footer actions that are visible in the workflow.
-
-**Modify, don't redesign.** When the task changes an existing screen, reproduce
-the current screen's real layout and footprint FIRST, then change only the delta
-and call it out with a single annotation. Do not restack the page into a new
-layout. For net-new surfaces, compose from the real app shell.
-
-**Classify mockup scope before implementation.** Before turning a plan mockup
-into source code, decide whether each artboard represents the whole page/app
-shell, a route body inside an existing shell, or a component/sub-surface. If an
-artboard includes navigation, sidebars, auth banners, or a signup/login form,
-map those pieces to the real shared shell/auth components instead of nesting the
-entire mockup inside the current page. When a mockup references the product's
-standard signup/login page, find and reuse that existing implementation; do not
-approximate it from the wireframe.
-
-**Zoom in on sub-surfaces, don't redraw the page.** For a small sub-surface (a
-popover, menu, dialog, toast), show the full screen once, then add a small
-separate artboard whose \`html\` contains ONLY that sub-surface — do not re-draw
-the whole page around it, and do not scale a duplicate up. Pick the matching
-\`surface\` (e.g. \`popover\`) so the footprint is right; never widen a popover to
-page width.
-
-**Loading / skeleton states.** Set \`data.skeleton: true\` on the wireframe and
-fill the \`html\` with neutral, textless placeholder geometry — boxes and bars
-built as \`<div>\`s with \`background:var(--wf-line)\` and explicit heights/widths,
-no labels or copy. The renderer drops borders, sketch, and color into the
-skeleton register automatically. Never escape to a \`custom-html\` document block
-to fake a loader.
-
-**Editing an existing mockup.** To change one element, text, or color in an
-existing html mockup, do NOT regenerate the frame — call \`update-visual-plan\`
-with \`contentPatches: [{ op: "patch-wireframe-html", blockId, edits: [{ find,
-replace }] }]\`. Each \`find\` is a unique snippet of the current html (read it
-first with \`get-visual-plan\`); set \`all: true\` on an edit to replace every
-occurrence. The result is re-sanitized.
-
-**Treat the wireframe border as part of the visible design.** Always wrap HTML
-wireframe content in a root container with real inner padding before drawing
-cards, fields, pills, labels, or controls. Use at least 14-16px of padding,
-\`box-sizing: border-box\`, \`height: 100%\`, and \`gap\` between child rows so the
-first row never sits flush against the screen border. Keep text away from
-borders: every container, field, button, menu item, and annotation needs enough
-padding and line-height to read cleanly in the rendered Plan view.
-
-**Lay out children safely so they never collide.** Use HTML flex/grid with
-\`gap\`, \`min-width: 0\`, and sensible overflow. Avoid negative margins, absolute
-positioning, or fixed child widths that can collide when the renderer switches
-between light/dark, sketch/clean, or different zoom levels.
-
-**Do not wrap intentionally single-line labels.** For toolbars, tab rails,
-breadcrumbs, chip/filter rows, branch and file names, file chips, and code
-filenames — any deliberately single-line row — do not let long text wrap. Put
-\`white-space: nowrap\` on the row (and \`overflow: hidden; text-overflow: ellipsis\`
-on the individual labels that can grow), so the wireframe demonstrates the actual
-layout behavior instead of producing ugly stacked or vertical text. Use
-horizontally scrollable or clipped rails for overflow.
-
-**Fill the frame; keep labels short.** Each artboard is a fixed-size surface — compose enough realistic HTML to fill it top to bottom with even vertical rhythm; never leave a large empty band. On desktop/app-shell sidebars, let the nav stack flex to fill (\`flex:1\`) and add any persistent bottom action/status after it so the rail reads complete in taller frames. On mobile especially, flow real rows down the whole screen (status bar, header, then list/detail content) rather than a header floating above a gap. Keep every label short enough to sit on one line within its column — shorten the copy rather than relying on the frame to absorb it (long labels wrap or clip).
-
-**Persistent chrome bars span the full frame width.** Top bars, app headers,
-toolbars, and bottom tab/nav bars are full-width chrome, not centered content.
-Lay each one out as a single flex row that fills the frame
-(\`style="display:flex;align-items:center;width:100%"\`) and push trailing actions
-to the right edge with a flex spacer (\`<div style="flex:1"></div>\`) between the
-leading group and the trailing group — never center a bar inside a narrow,
-centered block, and never let it collapse to the width of its contents. In a
-Before/After pair the bar stays full-width in BOTH states even when one state has
-fewer controls; the spacer absorbs the difference so the remaining controls hold
-their edge alignment instead of sliding to the center.
-
-**Pin bottom bars to the bottom of the frame.** For mobile tab bars, footers, and
-any persistent bottom action row, make the frame itself a flex column at
-\`height:100%\` (\`style="display:flex;flex-direction:column;height:100%"\`), give the
-scrolling body \`flex:1\` so it absorbs the slack, and place the bar as the LAST
-child of the frame (or set \`margin-top:auto\` on it). The bar then sits flush at
-the bottom of the surface instead of floating directly under the content with an
-empty band beneath it.
-
-**Before / after must be comparable.** When showing a state change, preserve the
-unchanged controls in both states so the reviewer can see exactly what moved or
-appeared; do not show an added control as a generic box floating elsewhere in
-the surface. Place the new/changed affordance where the implementation puts it —
-for example, a new \`Edit with AI\` action in a popover header belongs in the
-top-right header slot, aligned with the title, not in the body or footer. Use
-the same frame size, scale, outer padding, border radius, and visual density on
-both sides unless the change itself alters those properties, and let the frame
-height fit the content rather than leaving a tall empty lower half.
-
-**Name the states with the column header, never inside the frame.** Put the two
-states in a \`columns\` block and set each column's \`label\` to \`Before\` and
-\`After\` — the renderer draws that label as an \`h4\` heading above each frame. Do
-NOT bake a \`Before\`/\`After\` pill, title, or heading into the wireframe \`html\`: a
-label placed inside reads as part of the product UI, lands in a random corner,
-and clutters the comparison. The column header is the one and only place the
-state name belongs.
-
-**Let the surface choose side-by-side vs. stacked.** The \`columns\` renderer lays
-narrow surfaces (\`mobile\`, \`popover\`, \`panel\`) out side by side, and
-automatically stacks wide surfaces (\`desktop\`, \`browser\`) vertically at full
-document width so a large frame is never crushed into a half-width column and
-cropped. Author both wireframes with the real \`surface\` and the matching
-\`Before\`/\`After\` column labels; do not hand-stack the pair into separate
-top-level wireframes or duplicate the state name as body content.
-
-**Good example — a contacts list, surface \`browser\`.** A small, real screen
-composed from the helper classes and tokens, layout in inline flex, no fonts or
-hex colors:
-
-\`\`\`html
-<div
-  style="display:flex;flex-direction:column;gap:12px;padding:16px;height:100%"
->
-  <div style="display:flex;align-items:center;justify-content:space-between">
-    <h1>Contacts</h1>
-    <button class="primary">New contact</button>
-  </div>
-  <div style="display:flex;gap:6px">
-    <span class="wf-pill accent">All 128</span>
-    <span class="wf-pill">Favorites</span>
-    <span class="wf-pill">Archived</span>
-  </div>
-  <div
-    class="wf-card"
-    style="display:flex;flex-direction:column;gap:0;padding:0"
-  >
-    <div
-      style="display:flex;align-items:center;gap:10px;padding:10px 12px;border-bottom:1.4px solid var(--wf-line)"
-    >
-      <div
-        style="width:32px;height:32px;border-radius:999px;background:var(--wf-accent-soft)"
-      ></div>
-      <div style="flex:1">
-        <strong>Jane Cooper</strong><br /><small>jane@acme.co</small>
-      </div>
-      <span class="wf-pill">Lead</span>
-    </div>
-    <div style="display:flex;align-items:center;gap:10px;padding:10px 12px">
-      <div
-        style="width:32px;height:32px;border-radius:999px;background:var(--wf-accent-soft)"
-      ></div>
-      <div style="flex:1">
-        <strong>Marcus Lee</strong><br /><small>marcus@globex.io</small>
-      </div>
-      <span class="wf-pill">Customer</span>
-    </div>
-  </div>
-</div>
-\`\`\`
-
-<!-- SHARED-CORE:wireframe-quality END -->
+UI recap/plan wireframes must meet a strict quality bar — full-width chrome,
+pinned bottom bars, real product content, before/after comparability, the right
+\`surface\` preset, \`--wf-*\` tokens instead of hex, and no \`<html>\`/\`<style>\`/font
+tags. Before authoring ANY wireframe / \`<Screen>\` / \`WireframeBlock\`, READ
+\`references/wireframe.md\` in this skill directory — it is the single source of
+truth for HTML wireframe quality, shared word for word with \`/visual-plan\`
+and \`/visual-recap\`. Do not author wireframes from memory.
 
 Use the standard \`WireframeBlock\` / \`<Screen>\` format so the Plan viewer owns the
 surface frame, theme, and sketchy/clean toggle. HTML wireframes are appropriate
 when placement precision matters, especially popovers, menus, dialogs, and dense
-forms; kit-tree wireframes are appropriate for simpler layouts. For HTML
+forms. For HTML
 wireframes, keep \`renderMode\` unset or \`wireframe\` unless a design-only editable
 mockup is explicitly required, because \`renderMode="design"\` disables the
 sketchy rough overlay.
@@ -2035,9 +1515,12 @@ tags — resolve every conceptual name to its exact tag + prop schema with the
   wireframes when the comparison clarifies the change; otherwise use after-only
   or a short state/flow sequence. Use realistic UI surfaces: for a popover
   change, show a popover with its title row, top-right actions, options/fields,
-  and any opened prompt/menu anchored to the correct trigger. Keep the body lean:
-  the wireframe carries the UI story, while the file tree and \`diff\`
-  blocks carry implementation evidence.
+  tabs, selected/disabled states, people/lists/rows, and any opened prompt/menu
+  anchored to the correct trigger. If a route was added, show the route body and
+  the unavailable/empty state when the diff implements one. If permissions
+  changed, show what managers can do and what viewers/non-managers see instead.
+  Keep the body lean: the wireframe carries the UI story, while the file tree
+  and \`diff\` blocks carry implementation evidence.
 - **Architecture or data-flow shift** → \`diagram\` with \`data.html\` / \`data.css\`
   as a two-panel before/after, layered, or swimlane layout, or \`mermaid\` for a
   quick graph. Use two-dimensional layouts; do not reduce a structural change to
@@ -2064,8 +1547,9 @@ memorized tags — they drift and silently produce a wrong tag (\`ApiEndpoint\`
 instead of \`Endpoint\`, \`JsonExplorer\` instead of \`Json\`, \`Tabs\` instead of
 \`TabsBlock\`) that errors on import.
 
-**Before writing any structured plan content, call \`get-plan-blocks\` on the
-\`plan\` MCP server.** It returns the authoritative, always-current block
+**Before writing any structured plan content, call \`get-plan-blocks\` on the Plan
+MCP connector (\`plan\` or legacy \`agent-native-plans\`).** It returns the
+authoritative, always-current block
 vocabulary generated live from the app's own block registry — the same config
 the renderer and MDX round-trip use — so it can never be stale even if this
 SKILL.md is an old installed copy:
@@ -2126,7 +1610,10 @@ For UI diffs, wireframes are the visual comparison primitive. Use before/after
 wireframes when the comparison clarifies the change; use after-only or a state
 sequence when that better matches the change. The visual headline must show
 exact placement, realistic chrome, and adequate padding before any abstract
-explanation. The Wireframe Quality core owns the before/after layout choice —
+explanation. Do not stop at the first visible affordance when the diff adds a
+flow; show the entry point, the opened surface, and the resulting state or page
+so the reviewer can trace the actual user path. The Wireframe Quality core owns
+the before/after layout choice —
 the \`columns\` renderer keeps narrow surfaces side by side and auto-stacks wide
 \`desktop\`/\`browser\` frames vertically; never hand-build a side-by-side
 wireframe layout in \`custom-html\`. For document-body
@@ -2160,15 +1647,19 @@ inferred (not extracted) as inferred in prose.
   hardcoded-secret rule: obviously fake placeholders only, never the real value,
   in any block, caption, or note.
 
-## Bidirectional Loop (Fast-Follow)
+## Bidirectional Loop
 
 Because a recap is a real, editable plan, the same review loop as forward plans
 applies: a reviewer can annotate any block, and the coding agent reads
 \`get-plan-feedback\` to drive fixes back into the code — annotation → agent →
-diff, the same close-the-loop flow forward plans use. In v1, recaps are
-**read-only**: they summarize a merged or proposed change for review, and the
-annotate-to-fix loop is a fast-follow, not yet wired. Build the recap so the
-blocks are anchorable and the loop drops in later without restructuring.
+diff, the same close-the-loop flow forward plans use. After a reviewer annotates
+a block, call \`get-plan-feedback\` to read the structured feedback, then either
+update the recap with \`create-visual-recap\` (passing the existing \`planId\` to
+replace it in place) or apply targeted changes with \`update-visual-plan\`. The
+loop is live and wired. The one thing not yet automatic is PR-comment-triggered
+re-runs: the GitHub Action creates an initial recap per PR, but it does not yet
+re-run automatically when new review feedback is posted in GitHub — that
+auto-re-run is the remaining fast-follow.
 
 ## Related Skills
 
@@ -2178,144 +1669,6 @@ blocks are anchorable and the loop drops in later without restructuring.
 - **security** — data scoping, secret handling, and the hardcoded-secret rule the
   recap's redaction and visibility gating mirror.
 - **sharing** — org/login-gated visibility for the plan that holds the recap.
-`;
-
-export const VISUAL_QUESTIONS_SKILL_MD = `---
-name: visual-questions
-description: >-
-  Use Agent-Native Plans to ask rich visual intake questions when
-  /visual-questions is explicitly requested before creating a UI plan or visual
-  plan.
-metadata:
-  visibility: both
----
-
-# Visual Questions
-
-Use \`/visual-questions\` when the next best step is not a plan yet, but a
-reviewable visual intake: single-choice option rows, multi-select option rows,
-freeform notes, mockup choices, sketch diagrams, and a generated answer summary
-that feeds the next planning prompt. It composes with \`/visual-plan\`, \`/ui-plan\`,
-\`/prototype-plan\`, and \`/plan-design\`.
-
-## When To Use
-
-- The user asks to be shown options before the agent writes a plan.
-- UI direction, form factor, layout model, feature set, or visual style is fuzzy
-  enough that 2-6 answers would materially change the plan.
-- The user would benefit from choosing between visual mockups or diagrams rather
-  than answering text-only prompts.
-
-Gate hard: skip this for tiny, unambiguous changes. If the agent can reasonably
-infer the answer, prefer \`/ui-plan\`, \`/prototype-plan\`, \`/plan-design\`, or
-\`/visual-plan\` directly and put assumptions in the plan.
-
-Visual questions are an explicit intake command, not an automatic preflight for
-\`/visual-plan\`, \`/ui-plan\`, \`/prototype-plan\`, or \`/plan-design\`.
-
-## Workflow
-
-1. Call \`create-visual-questions\` with a clear title, brief, source, and repo
-   path when known.
-2. Omit \`questions\` for the default UI intake. Provide a custom \`questions\` array
-   only when the task has domain-specific choices.
-3. Surface the returned Plans link and ask the user to answer visually.
-4. The generated summary drives the next step: \`create-ui-plan\` for static UI
-   review, \`create-prototype-plan\` for click-through UI flows,
-   \`create-plan-design\` for high-fidelity branded UI review,
-   \`create-visual-plan\` for general plans or when a text plan already exists,
-   or \`update-visual-plan\` with targeted \`contentPatches\` to fold answers into
-   an active plan.
-5. If the user leaves comments, call \`get-plan-feedback\` before using the answers.
-
-## Question Types
-
-Supported \`questions\` entries:
-
-- \`single\`: chip group where one option wins.
-- \`multi\`: chip group where multiple options can be selected.
-- \`freeform\`: textarea for constraints, inspirations, or things to avoid.
-- \`visual\`: visual options with sketch previews — use for layout direction, flow
-  depth, surface choice, or diagram choices.
-
-Each option can include \`label\`, \`value\`, \`description\`, \`recommended\`,
-\`preview\`, and \`bullets\`. Valid \`preview\` values match the wireframe surfaces:
-\`desktop\`, \`mobile\`, \`popover\`, \`panel\`, \`component\`, \`split\`, \`flow\`, and
-\`diagram\`. Pick the preview that matches the real footprint — do not offer a
-desktop/mobile pair for a popover, panel, or component.
-
-\`single\`, \`multi\`, and \`visual\` questions always render a write-in field, so a
-reviewer can answer with their own option instead of the listed choices. Do not
-add an explicit "Other" or "Something else" option yourself; set
-\`allowOther: false\` only on the rare question where a free-text answer makes no
-sense.
-
-## Quality Bar
-
-- Ask only decision-changing questions. A beautiful form with low-value questions
-  is still friction.
-- Prefer visible, answerable options over abstract prose.
-- Use visual tabs when users need to compare layout or flow shapes.
-- Keep the output calm and document-like, not a landing page.
-- The generated answer summary is not the final plan; it is the intake prompt for
-  the next agent step.
-
-## Tool Guidance
-
-- \`create-visual-questions\`: create the interactive intake plan.
-- \`get-visual-plan\`: inspect the current visual question plan.
-- \`get-plan-feedback\`: read comments before creating or updating the next plan.
-- \`create-ui-plan\`: create a UI-first plan from the answers.
-- \`create-prototype-plan\`: create a prototype-first plan from the answers when
-  interaction feel matters.
-- \`create-plan-design\`: create a high-fidelity branded design plan from the
-  answers when visual polish is the primary review input.
-- \`create-visual-plan\`: create a general visual plan from the answers, or pass
-  existing plan text as \`planText\` when the answers should shape an imported
-  plan.
-- \`export-visual-plan\`: export answer plans as HTML, Markdown fallback,
-  structured JSON, and MDX files when the intake needs to be checked into a repo.
-- \`read-visual-plan-source\` / \`patch-visual-plan-source\`: inspect or patch the
-  MDX source if another agent is operating from checked-in plan files.
-
-## Setup & Authentication
-
-There are two ways into Plans.
-
-**Coding agent (CLI).** Install once with the Agent-Native CLI. The command
-installs the Plans skills, registers the hosted Plans MCP connector, and
-authenticates it in the same step (a one-time browser sign-in at setup — this is
-intended), so the first tool call does not hit an OAuth wall:
-
-\`\`\`bash
-agent-native skills add visual-plan
-\`\`\`
-
-After that, \`/visual-plan\` (and \`/visual-recap\`, \`/ui-plan\`,
-\`/prototype-plan\`, \`/plan-design\`, \`/visual-questions\`) generate a plan and open
-the editor. Pass \`--no-connect\` to
-register the connector without authenticating, then run
-\`agent-native connect https://plan.agent-native.com\` whenever you are ready.
-
-**Browser (people you share with).** Open the Plans editor and create & edit
-with no sign-up — you work as a guest. Sign in only when you want to save or
-share; signing in claims the plans you made as a guest into your account.
-
-Sharing and commenting require an account: public/shared plans are viewable by
-anyone with the link, but commenting on them needs an agent-native account.
-
-For fully offline, no-account use, run the Plans app locally and sync plans to
-your repo as MDX. This local mode is a separate advanced path, not the default
-hosted flow.
-
-If a Plans tool returns \`needs auth\`, \`Unauthorized\`, or \`Session terminated\`,
-do not keep retrying the tool. Authenticate the connector with
-\`agent-native connect https://plan.agent-native.com\` (OAuth-capable hosts can
-instead re-run /mcp and choose Authenticate), then continue once the connector
-is available.
-
-Hosted default: connect \`https://plan.agent-native.com/_agent-native/mcp\`. Do
-not put shared secrets in skill files.
 `;
 
 export const BUILT_IN_APP_SKILLS = {
@@ -2413,10 +1766,19 @@ export const BUILT_IN_APP_SKILLS = {
     skillName: "visual-plan",
     extraSkills: {
       "visual-recap": VISUAL_RECAP_SKILL_MD,
-      "visual-questions": VISUAL_QUESTIONS_SKILL_MD,
-      "ui-plan": UI_PLAN_SKILL_MD,
-      "prototype-plan": PROTOTYPE_PLAN_SKILL_MD,
-      "plan-design": PLAN_DESIGN_SKILL_MD,
+    },
+    // Sibling reference files materialized alongside each skill's SKILL.md
+    // (progressive disclosure). Keyed by skill name -> relative path -> content.
+    // Both plan skills ship the same canonical wireframe-quality reference; the
+    // canvas / document-quality / exemplar references are visual-plan only.
+    extraFiles: {
+      "visual-plan": {
+        "references/wireframe.md": WIREFRAME_REFERENCE_MD,
+        "references/canvas.md": CANVAS_REFERENCE_MD,
+        "references/document-quality.md": DOCUMENT_QUALITY_REFERENCE_MD,
+        "references/exemplar.md": EXEMPLAR_REFERENCE_MD,
+      },
+      "visual-recap": { "references/wireframe.md": WIREFRAME_REFERENCE_MD },
     },
     manifest: normalizeAppSkillManifest({
       schemaVersion: 1,
@@ -2428,11 +1790,11 @@ export const BUILT_IN_APP_SKILLS = {
         url: "https://plan.agent-native.com",
         mcpUrl: "https://plan.agent-native.com/_agent-native/mcp",
       },
-      mcp: { serverName: "agent-native-plans" },
+      mcp: { serverName: "plan", aliases: ["agent-native-plans"] },
       auth: {
         mode: "oauth",
         setup:
-          "Install with the Agent-Native CLI to add the /visual-plan, /visual-recap, /ui-plan, /prototype-plan, /plan-design, and /visual-questions skills plus the Plan MCP connector. Authenticate only for hosted/account-backed sharing.",
+          "Install with the Agent-Native CLI to add the /visual-plan and /visual-recap skills plus the Plan MCP connector. Authenticate only for hosted/account-backed sharing.",
       },
       surfaces: [
         {
@@ -2449,34 +1811,6 @@ export const BUILT_IN_APP_SKILLS = {
           description:
             "Create a visual recap plan from a PR, commit, branch, or git diff for high-altitude review.",
         },
-        {
-          id: "ui-plan",
-          action: "create-ui-plan",
-          path: "/plans",
-          description:
-            "Create a UI-first Agent-Native plan with an optional top pan/zoom wireframe canvas and a refined rich document below.",
-        },
-        {
-          id: "prototype-plan",
-          action: "create-prototype-plan",
-          path: "/plans",
-          description:
-            "Create a prototype-first Agent-Native plan with a functional live prototype above the document.",
-        },
-        {
-          id: "plan-design",
-          action: "create-plan-design",
-          path: "/plans",
-          description:
-            "Create a full-fidelity Agent-Native design plan with a Design canvas tab and optional matching Prototype tab.",
-        },
-        {
-          id: "visual-questions",
-          action: "create-visual-questions",
-          path: "/plans",
-          description:
-            "Create a rich visual intake questionnaire for explicit /visual-questions workflows.",
-        },
       ],
       skills: [
         {
@@ -2488,26 +1822,6 @@ export const BUILT_IN_APP_SKILLS = {
           path: "skills/visual-recap",
           visibility: "exported",
           exportAs: "visual-recap",
-        },
-        {
-          path: "skills/visual-questions",
-          visibility: "exported",
-          exportAs: "visual-questions",
-        },
-        {
-          path: "skills/ui-plan",
-          visibility: "exported",
-          exportAs: "ui-plan",
-        },
-        {
-          path: "skills/prototype-plan",
-          visibility: "exported",
-          exportAs: "prototype-plan",
-        },
-        {
-          path: "skills/plan-design",
-          visibility: "exported",
-          exportAs: "plan-design",
         },
       ],
       hostAdapters: [
@@ -2561,11 +1875,19 @@ export const BUILT_IN_APP_SKILLS = {
     skillMarkdown: string;
     skillName: string;
     extraSkills?: Record<string, string>;
+    /**
+     * Extra sibling files materialized alongside a skill's SKILL.md, for
+     * progressive disclosure (e.g. `references/wireframe.md`). Keyed by skill
+     * name, then by skill-relative path -> file content.
+     */
+    extraFiles?: Record<string, Record<string, string>>;
     localOnly?: boolean;
   }
 >;
 
 type BuiltInAppSkillId = keyof typeof BUILT_IN_APP_SKILLS;
+
+export const AGENT_NATIVE_SKILL_METADATA_FILE = "agent-native-skill.json";
 
 const BUILT_IN_APP_SKILL_ALIASES = {
   assets: "assets",
@@ -2589,13 +1911,6 @@ const BUILT_IN_APP_SKILL_ALIASES = {
   "visual-recaps": "visual-plans",
   "code-review-recap": "visual-plans",
   "code-review-recaps": "visual-plans",
-  "ui-plan": "visual-plans",
-  "prototype-plan": "visual-plans",
-  "plan-design": "visual-plans",
-  "plan-designs": "visual-plans",
-  "design-plan": "visual-plans",
-  "design-plans": "visual-plans",
-  "visual-questions": "visual-plans",
   "html-plan": "visual-plans",
   "plan-mode": "visual-plans",
   plannotate: "visual-plans",
@@ -2620,10 +1935,6 @@ const BUILT_IN_APP_SKILL_DISPLAY_ALIASES = {
     "visual-plan",
     "visual-recap",
     "code-review-recap",
-    "ui-plan",
-    "prototype-plan",
-    "plan-design",
-    "visual-questions",
     "html-plan",
     "plannotate",
   ],
@@ -2644,7 +1955,7 @@ const CLIENT_HINTS: Record<ClientId, string> = {
   cowork: "~/.cowork/mcp.json",
 };
 
-type SkillsCommand = "list" | "add" | "help";
+type SkillsCommand = "list" | "add" | "status" | "update" | "help";
 
 export interface ParsedSkillsArgs {
   command: SkillsCommand;
@@ -2653,6 +1964,7 @@ export interface ParsedSkillsArgs {
   clientExplicit: boolean;
   clients?: ClientId[];
   scope: string;
+  scopeExplicit: boolean;
   yes: boolean;
   dryRun: boolean;
   printJson: boolean;
@@ -2711,6 +2023,43 @@ export interface SkillsAddResult {
    */
   githubActionPath?: string;
   githubActionExisted?: boolean;
+  githubActionSuggestedCommand?: string;
+}
+
+interface SkillInstallMetadata {
+  schemaVersion: 1;
+  source: "agent-native";
+  appSkillId: string;
+  displayName: string;
+  skillName: string;
+  contentHash: string;
+  mcpUrl: string;
+  installedAt: string;
+  updateCommand: string;
+}
+
+interface SkillFolderBundle {
+  appSkillId: BuiltInAppSkillId;
+  displayName: string;
+  skillName: string;
+  mcpUrl: string;
+  files: Record<string, string>;
+  contentHash: string;
+}
+
+interface SkillInstallState {
+  appSkillId: BuiltInAppSkillId;
+  displayName: string;
+  skillName: string;
+  path: string;
+  root: string;
+  scope: "project" | "user";
+  client: string;
+  latestHash: string;
+  installedHash: string | null;
+  metadataHash?: string;
+  current: boolean;
+  managed: boolean;
 }
 
 interface SkillInstallTarget {
@@ -2736,6 +2085,9 @@ interface RunSkillsOptions {
   promptSkills?: (
     context: SkillsTargetPromptContext,
   ) => Promise<string[] | null>;
+  promptGithubAction?: (
+    context: SkillsGithubActionPromptContext,
+  ) => Promise<boolean | null>;
   runCommand?: (
     cmd: string,
     args: string[],
@@ -2757,6 +2109,11 @@ interface SkillsClientPromptContext {
 interface SkillsTargetPromptContext {
   initialTargets: string[];
   options: Array<{ value: string; label: string; hint: string }>;
+}
+
+interface SkillsGithubActionPromptContext {
+  workflowPath: string;
+  setupCommand: string;
 }
 
 function normalizeKnownSkillTarget(
@@ -2783,10 +2140,317 @@ function builtInExtraSkills(
   return "extraSkills" in entry && entry.extraSkills ? entry.extraSkills : {};
 }
 
+/**
+ * Sibling reference files for a skill (skill name -> relative path -> content),
+ * materialized alongside its SKILL.md for progressive disclosure.
+ */
+function builtInExtraFiles(
+  entry: (typeof BUILT_IN_APP_SKILLS)[BuiltInAppSkillId],
+): Record<string, Record<string, string>> {
+  return "extraFiles" in entry && entry.extraFiles ? entry.extraFiles : {};
+}
+
 function builtInSkillNames(
   entry: (typeof BUILT_IN_APP_SKILLS)[BuiltInAppSkillId],
 ): string[] {
   return [entry.skillName, ...Object.keys(builtInExtraSkills(entry))];
+}
+
+function stableSkillHash(files: Record<string, string>): string {
+  const hash = createHash("sha256");
+  for (const rel of Object.keys(files).sort()) {
+    if (rel === AGENT_NATIVE_SKILL_METADATA_FILE) continue;
+    hash.update(rel);
+    hash.update("\0");
+    hash.update(files[rel]);
+    hash.update("\0");
+  }
+  return hash.digest("hex").slice(0, 16);
+}
+
+function skillFilesForBuiltIn(
+  appSkillId: BuiltInAppSkillId,
+): Record<string, SkillFolderBundle> {
+  const entry = BUILT_IN_APP_SKILLS[appSkillId];
+  const skills: Record<string, string> = {
+    [entry.skillName]: entry.skillMarkdown,
+    ...builtInExtraSkills(entry),
+  };
+  const extraFiles = builtInExtraFiles(entry);
+  const out: Record<string, SkillFolderBundle> = {};
+  for (const [skillName, skillMarkdown] of Object.entries(skills)) {
+    const files = {
+      "SKILL.md": skillMarkdown,
+      ...(extraFiles[skillName] ?? {}),
+    };
+    out[skillName] = {
+      appSkillId,
+      displayName: entry.manifest.displayName,
+      skillName,
+      mcpUrl: isLocalOnlyBuiltInSkill(entry)
+        ? ""
+        : entry.manifest.hosted.mcpUrl,
+      files,
+      contentHash: stableSkillHash(files),
+    };
+  }
+  return out;
+}
+
+function latestSkillBundlesForTargets(
+  appSkillIds: BuiltInAppSkillId[],
+): Record<string, SkillFolderBundle> {
+  const out: Record<string, SkillFolderBundle> = {};
+  for (const appSkillId of appSkillIds) {
+    Object.assign(out, skillFilesForBuiltIn(appSkillId));
+  }
+  return out;
+}
+
+function writeSkillFolder(
+  dir: string,
+  bundle: SkillFolderBundle,
+  installedAt = new Date().toISOString(),
+): void {
+  fs.rmSync(dir, { recursive: true, force: true });
+  fs.mkdirSync(dir, { recursive: true });
+  for (const [rel, content] of Object.entries(bundle.files)) {
+    const target = path.join(dir, rel);
+    fs.mkdirSync(path.dirname(target), { recursive: true });
+    fs.writeFileSync(target, content, "utf-8");
+  }
+  const metadata: SkillInstallMetadata = {
+    schemaVersion: 1,
+    source: "agent-native",
+    appSkillId: bundle.appSkillId,
+    displayName: bundle.displayName,
+    skillName: bundle.skillName,
+    contentHash: bundle.contentHash,
+    mcpUrl: bundle.mcpUrl,
+    installedAt,
+    updateCommand: `agent-native skills update ${bundle.skillName}`,
+  };
+  fs.writeFileSync(
+    path.join(dir, AGENT_NATIVE_SKILL_METADATA_FILE),
+    `${JSON.stringify(metadata, null, 2)}\n`,
+    "utf-8",
+  );
+}
+
+function listSkillFolderFiles(dir: string): Record<string, string> {
+  const out: Record<string, string> = {};
+  const walk = (current: string, prefix = "") => {
+    for (const entry of fs.readdirSync(current, { withFileTypes: true })) {
+      const rel = prefix ? `${prefix}/${entry.name}` : entry.name;
+      const abs = path.join(current, entry.name);
+      if (entry.isDirectory()) {
+        walk(abs, rel);
+        continue;
+      }
+      if (!entry.isFile() || rel === AGENT_NATIVE_SKILL_METADATA_FILE) continue;
+      out[rel] = fs.readFileSync(abs, "utf-8");
+    }
+  };
+  if (fs.existsSync(dir)) walk(dir);
+  return out;
+}
+
+function readSkillInstallMetadata(
+  dir: string,
+): SkillInstallMetadata | undefined {
+  const file = path.join(dir, AGENT_NATIVE_SKILL_METADATA_FILE);
+  if (!fs.existsSync(file)) return undefined;
+  try {
+    const parsed = JSON.parse(fs.readFileSync(file, "utf-8"));
+    if (
+      parsed &&
+      parsed.source === "agent-native" &&
+      typeof parsed.skillName === "string" &&
+      typeof parsed.contentHash === "string"
+    ) {
+      return parsed as SkillInstallMetadata;
+    }
+  } catch {}
+  return undefined;
+}
+
+function homeDir(): string | undefined {
+  return process.env.HOME || os.homedir();
+}
+
+function skillSearchRoots(input: {
+  baseDir: string;
+  clients: ClientId[];
+  scopes: Array<"project" | "user">;
+}): Array<{
+  root: string;
+  scope: "project" | "user";
+  client: string;
+}> {
+  const roots: Array<{
+    root: string;
+    scope: "project" | "user";
+    client: string;
+  }> = [];
+  const clientSet = new Set(input.clients);
+  const includeAll = input.clients.length === 0;
+  const hasClient = (client: ClientId) => includeAll || clientSet.has(client);
+  const add = (
+    root: string | undefined,
+    scope: "project" | "user",
+    client: string,
+  ) => {
+    if (root) roots.push({ root, scope, client });
+  };
+
+  if (input.scopes.includes("project")) {
+    if (hasClient("codex")) {
+      add(path.join(input.baseDir, ".agents", "skills"), "project", "codex");
+    }
+    if (hasClient("claude-code") || hasClient("claude-code-cli")) {
+      add(
+        path.join(input.baseDir, ".claude", "skills"),
+        "project",
+        "claude-code",
+      );
+    }
+    if (includeAll) add(path.join(input.baseDir, "skills"), "project", "repo");
+  }
+
+  if (input.scopes.includes("user")) {
+    const home = homeDir();
+    if (hasClient("codex")) {
+      add(
+        process.env.CODEX_HOME
+          ? path.join(process.env.CODEX_HOME, "skills")
+          : undefined,
+        "user",
+        "codex",
+      );
+      add(
+        home ? path.join(home, ".codex", "skills") : undefined,
+        "user",
+        "codex",
+      );
+    }
+    if (hasClient("claude-code") || hasClient("claude-code-cli")) {
+      add(
+        home ? path.join(home, ".claude", "skills") : undefined,
+        "user",
+        "claude-code",
+      );
+    }
+  }
+
+  const seen = new Set<string>();
+  return roots.filter((entry) => {
+    const key = `${entry.scope}:${entry.client}:${path.resolve(entry.root)}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function targetIdsForStatus(parsed: ParsedSkillsArgs): BuiltInAppSkillId[] {
+  if (!parsed.target) {
+    return (Object.keys(BUILT_IN_APP_SKILLS) as BuiltInAppSkillId[]).filter(
+      (id) => !isLocalOnlyBuiltInSkill(BUILT_IN_APP_SKILLS[id]),
+    );
+  }
+  const known = normalizeKnownSkillTarget(parsed.target);
+  if (!known) {
+    throw new Error(
+      `Unknown built-in skill: ${parsed.target}. Run "agent-native skills list".`,
+    );
+  }
+  if (isLocalOnlyBuiltInSkill(BUILT_IN_APP_SKILLS[known])) {
+    throw new Error(
+      `${BUILT_IN_APP_SKILLS[known].manifest.displayName} is installed as a local command and cannot be refreshed with skills update yet.`,
+    );
+  }
+  return [known];
+}
+
+function scopeFilterForStatus(
+  parsed: ParsedSkillsArgs,
+): Array<"project" | "user"> {
+  return parsed.scopeExplicit
+    ? [parsed.scope as "project" | "user"]
+    : ["project", "user"];
+}
+
+function clientFilterForStatus(parsed: ParsedSkillsArgs): ClientId[] {
+  return parsed.clientExplicit ? resolveClients(parsed.client) : [];
+}
+
+function collectSkillInstallStates(
+  parsed: ParsedSkillsArgs,
+  options: RunSkillsOptions,
+): SkillInstallState[] {
+  const appSkillIds = targetIdsForStatus(parsed);
+  const latest = latestSkillBundlesForTargets(appSkillIds);
+  const roots = skillSearchRoots({
+    baseDir: options.baseDir ?? process.cwd(),
+    clients: clientFilterForStatus(parsed),
+    scopes: scopeFilterForStatus(parsed),
+  });
+  const states: SkillInstallState[] = [];
+  const seenDirs = new Set<string>();
+
+  for (const root of roots) {
+    for (const bundle of Object.values(latest)) {
+      const dir = path.join(root.root, bundle.skillName);
+      const resolvedDir = path.resolve(dir);
+      if (seenDirs.has(resolvedDir) || !fs.existsSync(dir)) continue;
+      if (!fs.existsSync(path.join(dir, "SKILL.md"))) continue;
+      seenDirs.add(resolvedDir);
+      const files = listSkillFolderFiles(dir);
+      const installedHash =
+        Object.keys(files).length > 0 ? stableSkillHash(files) : null;
+      const metadata = readSkillInstallMetadata(dir);
+      states.push({
+        appSkillId: bundle.appSkillId,
+        displayName: bundle.displayName,
+        skillName: bundle.skillName,
+        path: dir,
+        root: root.root,
+        scope: root.scope,
+        client: root.client,
+        latestHash: bundle.contentHash,
+        installedHash,
+        metadataHash: metadata?.contentHash,
+        current: installedHash === bundle.contentHash,
+        managed: metadata?.source === "agent-native",
+      });
+    }
+  }
+
+  return states.sort((a, b) =>
+    `${a.skillName}:${a.path}`.localeCompare(`${b.skillName}:${b.path}`),
+  );
+}
+
+function updateSkillInstallStates(
+  states: SkillInstallState[],
+  dryRun: boolean,
+): SkillInstallState[] {
+  const latest = latestSkillBundlesForTargets([
+    ...new Set(states.map((state) => state.appSkillId)),
+  ]);
+  const updated: SkillInstallState[] = [];
+  for (const state of states) {
+    if (state.current && state.managed) continue;
+    const bundle = latest[state.skillName];
+    if (!bundle) continue;
+    if (!dryRun) writeSkillFolder(state.path, bundle);
+    updated.push({
+      ...state,
+      current: !dryRun,
+      installedHash: dryRun ? state.installedHash : bundle.contentHash,
+      metadataHash: dryRun ? state.metadataHash : bundle.contentHash,
+    });
+  }
+  return updated;
 }
 
 function normalizeClientIds(values: unknown): ClientId[] {
@@ -2819,6 +2483,39 @@ function skillPromptOptions(): SkillsTargetPromptContext["options"] {
     label: entry.manifest.displayName,
     hint: entry.manifest.description,
   }));
+}
+
+function prVisualRecapWorkflowPath(baseDir: string): string {
+  return path.join(baseDir, ".github", "workflows", "pr-visual-recap.yml");
+}
+
+function prVisualRecapWorkflowDisplayPath(): string {
+  return path.join(".github", "workflows", "pr-visual-recap.yml");
+}
+
+function prVisualRecapInstallCommand(): string {
+  return "agent-native skills add visual-plan --with-github-action";
+}
+
+function prVisualRecapSetupCommand(): string {
+  return "agent-native recap setup";
+}
+
+async function promptForGithubAction(
+  context: SkillsGithubActionPromptContext,
+): Promise<boolean | null> {
+  const clack = await import("@clack/prompts");
+  const result = await clack.confirm({
+    message:
+      "Optional: add automatic PR Visual Recaps?\n" +
+      `  This writes ${context.workflowPath}; ${context.setupCommand} can finish GitHub secrets.`,
+    initialValue: false,
+  });
+  if (clack.isCancel(result)) {
+    clack.cancel("Skipped PR Visual Recap workflow.");
+    return null;
+  }
+  return Boolean(result);
 }
 
 function shouldPrompt(parsed: ParsedSkillsArgs, options: RunSkillsOptions) {
@@ -2916,7 +2613,12 @@ export function parseSkillsArgs(argv: string[]): ParsedSkillsArgs {
   if (first === "help" || first === "--help" || first === "-h") {
     command = "help";
     args = argv.slice(1);
-  } else if (first === "list" || first === "add") {
+  } else if (
+    first === "list" ||
+    first === "add" ||
+    first === "status" ||
+    first === "update"
+  ) {
     command = first;
     args = argv.slice(1);
   } else if (first) {
@@ -2928,6 +2630,7 @@ export function parseSkillsArgs(argv: string[]): ParsedSkillsArgs {
     client: "codex",
     clientExplicit: false,
     scope: "user",
+    scopeExplicit: false,
     yes: false,
     dryRun: false,
     printJson: false,
@@ -2957,8 +2660,10 @@ export function parseSkillsArgs(argv: string[]): ParsedSkillsArgs {
     if ((value = eat("--client")) !== undefined) {
       out.client = value;
       out.clientExplicit = true;
-    } else if ((value = eat("--scope")) !== undefined) out.scope = value;
-    else if ((value = eat("--mcp-url")) !== undefined) out.mcpUrl = value;
+    } else if ((value = eat("--scope")) !== undefined) {
+      out.scope = value;
+      out.scopeExplicit = true;
+    } else if ((value = eat("--mcp-url")) !== undefined) out.mcpUrl = value;
     else if (arg === "--yes" || arg === "-y") out.yes = true;
     else if (arg === "--dry-run") out.dryRun = true;
     else if (arg === "--json") out.printJson = true;
@@ -2995,17 +2700,11 @@ function loadSkillTarget(target: string): SkillInstallTarget {
       },
       skillNames,
       materializeInstructions(outDir) {
-        const skills: Record<string, string> = {
-          [builtIn.skillName]: builtIn.skillMarkdown,
-          ...builtInExtraSkills(builtIn),
-        };
-        for (const [skillName, skillMarkdown] of Object.entries(skills)) {
-          const skillDir = path.join(outDir, "skills", skillName);
-          fs.mkdirSync(skillDir, { recursive: true });
-          fs.writeFileSync(
-            path.join(skillDir, "SKILL.md"),
-            skillMarkdown,
-            "utf-8",
+        const bundles = skillFilesForBuiltIn(knownTarget);
+        for (const bundle of Object.values(bundles)) {
+          writeSkillFolder(
+            path.join(outDir, "skills", bundle.skillName),
+            bundle,
           );
         }
         return outDir;
@@ -3113,6 +2812,7 @@ function dryRunInstallCommand(
   if (parsed.instructions && !parsed.mcp) args.push("--instructions-only");
   if (!parsed.instructions && parsed.mcp) args.push("--mcp-only");
   if (!parsed.connect) args.push("--no-connect");
+  if (parsed.withGithubAction) args.push("--with-github-action");
   if (parsed.yes || isKnownSkill(target)) args.push("--yes");
   return commandString("agent-native", args);
 }
@@ -3303,6 +3003,10 @@ export async function addAgentNativeSkill(
     const clients = parsed.clients ?? resolveClients(parsed.client);
     const skillsAgents = skillsAgentsForClients(clients);
     if (parsed.dryRun) {
+      const githubActionPath =
+        parsed.withGithubAction && knownTarget === "visual-plans"
+          ? prVisualRecapWorkflowDisplayPath()
+          : undefined;
       return {
         id: knownBuiltIn.manifest.id,
         displayName: knownBuiltIn.manifest.displayName,
@@ -3313,6 +3017,7 @@ export async function addAgentNativeSkill(
         dryRun: true,
         local: true,
         commands: [dryRunInstallCommand(parsed, target)],
+        githubActionPath,
       };
     }
     const localInstall = installLocalContextXray({
@@ -3344,6 +3049,14 @@ export async function addAgentNativeSkill(
   const skillsAgents = skillsAgentsForClients(clients);
   if (parsed.dryRun) {
     try {
+      const githubActionPath =
+        parsed.withGithubAction && knownTarget === "visual-plans"
+          ? prVisualRecapWorkflowDisplayPath()
+          : undefined;
+      const githubActionSuggestedCommand =
+        knownTarget === "visual-plans" && !parsed.withGithubAction
+          ? prVisualRecapInstallCommand()
+          : undefined;
       return {
         id: installTarget.id,
         displayName: installTarget.displayName,
@@ -3353,6 +3066,8 @@ export async function addAgentNativeSkill(
         mcpClients: clients,
         dryRun: true,
         commands: [dryRunInstallCommand(parsed, target)],
+        githubActionPath,
+        githubActionSuggestedCommand,
       };
     } finally {
       installTarget.cleanup?.();
@@ -3430,17 +3145,36 @@ export async function addAgentNativeSkill(
 
     // `--with-github-action`: also drop the PR Visual Recap workflow into the
     // repo so PRs get automatic recaps. Only meaningful for the plan family.
+    const baseDir = options.baseDir ?? process.cwd();
+    let withGithubAction = Boolean(parsed.withGithubAction);
     let githubActionPath: string | undefined;
     let githubActionExisted: boolean | undefined;
-    if (parsed.withGithubAction) {
+    let githubActionSuggestedCommand: string | undefined;
+    if (
+      knownTarget === "visual-plans" &&
+      !withGithubAction &&
+      !fs.existsSync(prVisualRecapWorkflowPath(baseDir))
+    ) {
+      if (shouldPrompt(parsed, options)) {
+        const prompt = options.promptGithubAction ?? promptForGithubAction;
+        withGithubAction =
+          (await prompt({
+            workflowPath: prVisualRecapWorkflowDisplayPath(),
+            setupCommand: prVisualRecapSetupCommand(),
+          })) === true;
+      }
+      if (!withGithubAction) {
+        githubActionSuggestedCommand = prVisualRecapInstallCommand();
+      }
+    }
+
+    if (withGithubAction) {
       if (knownTarget !== "visual-plans") {
         options.log?.(
           "--with-github-action only applies to the visual-plan skill; skipping the workflow.",
         );
       } else {
-        const written = writePrVisualRecapWorkflow(
-          options.baseDir ?? process.cwd(),
-        );
+        const written = writePrVisualRecapWorkflow(baseDir);
         githubActionPath = written.path;
         githubActionExisted = written.existed;
         commands.push(`write ${written.path}`);
@@ -3461,6 +3195,7 @@ export async function addAgentNativeSkill(
       connectCommand,
       githubActionPath,
       githubActionExisted,
+      githubActionSuggestedCommand,
     };
   } finally {
     fs.rmSync(tmpRoot, { recursive: true, force: true });
@@ -3480,6 +3215,92 @@ function listSkills() {
     mcpUrl: isLocalOnlyBuiltInSkill(entry) ? "" : entry.manifest.hosted.mcpUrl,
     local: isLocalOnlyBuiltInSkill(entry),
   }));
+}
+
+function skillStateJson(state: SkillInstallState) {
+  return {
+    appSkillId: state.appSkillId,
+    displayName: state.displayName,
+    skillName: state.skillName,
+    path: state.path,
+    scope: state.scope,
+    client: state.client,
+    status: state.current ? "current" : "stale",
+    managed: state.managed,
+    installedHash: state.installedHash,
+    latestHash: state.latestHash,
+    metadataHash: state.metadataHash,
+  };
+}
+
+function formatSkillState(state: SkillInstallState): string {
+  const status = state.current ? "current" : "stale";
+  const managed = state.managed ? "managed" : "unmarked";
+  const hashes =
+    state.installedHash && !state.current
+      ? ` (${state.installedHash} -> ${state.latestHash})`
+      : "";
+  return `${state.skillName.padEnd(22)} ${status.padEnd(7)} ${state.scope}/${state.client} ${managed}${hashes}\n  ${state.path}`;
+}
+
+function runSkillsStatusOrUpdate(
+  parsed: ParsedSkillsArgs,
+  options: RunSkillsOptions,
+  update: boolean,
+): void {
+  const before = collectSkillInstallStates(parsed, options);
+  const changed = update ? updateSkillInstallStates(before, parsed.dryRun) : [];
+  const after =
+    update && !parsed.dryRun
+      ? collectSkillInstallStates(parsed, options)
+      : before;
+
+  if (parsed.printJson) {
+    const outputStates = update && !parsed.dryRun ? after : before;
+    process.stdout.write(
+      `${JSON.stringify(
+        {
+          ok: true,
+          command: parsed.command,
+          dryRun: parsed.dryRun,
+          found: before.length,
+          stale: outputStates.filter((state) => !state.current).length,
+          updated: changed.length,
+          skills: outputStates.map(skillStateJson),
+        },
+        null,
+        2,
+      )}\n`,
+    );
+    return;
+  }
+
+  if (before.length === 0) {
+    const target = parsed.target ? ` for ${parsed.target}` : "";
+    process.stdout.write(
+      `No installed Agent Native skill copies found${target}.\nRun "agent-native skills add ${parsed.target ?? "visual-plan"}" to install one.\n`,
+    );
+    return;
+  }
+
+  if (update) {
+    if (parsed.dryRun) {
+      process.stdout.write(
+        changed.length
+          ? `Would update ${changed.length} skill folder${changed.length === 1 ? "" : "s"}:\n`
+          : "All discovered skill folders are already current.\n",
+      );
+    } else {
+      process.stdout.write(
+        changed.length
+          ? `Updated ${changed.length} skill folder${changed.length === 1 ? "" : "s"}.\n`
+          : "All discovered skill folders are already current.\n",
+      );
+    }
+  }
+
+  const rows = (update && parsed.dryRun ? before : after).map(formatSkillState);
+  process.stdout.write(`${rows.join("\n")}\n`);
 }
 
 export async function runSkills(
@@ -3512,6 +3333,11 @@ export async function runSkills(
         `${skill.id.padEnd(12)} ${description}${aliases} (${target})\n`,
       );
     }
+    return;
+  }
+
+  if (parsed.command === "status" || parsed.command === "update") {
+    runSkillsStatusOrUpdate(parsed, options, parsed.command === "update");
     return;
   }
 
@@ -3590,7 +3416,19 @@ export async function runSkills(
     ),
   ];
   const githubActionLine = githubActions.length
-    ? `PR Visual Recap workflow: wrote ${githubActions.join(", ")}.\nSet these GitHub repo secrets/variables for it to run:\n  ${PR_VISUAL_RECAP_SETUP.join("\n  ")}`
+    ? `PR Visual Recap workflow: wrote ${githubActions.join(", ")}.\nNext: run ${prVisualRecapSetupCommand()} to configure GitHub secrets/variables, or set them manually:\n  ${PR_VISUAL_RECAP_SETUP.join("\n  ")}`
+    : "";
+  const githubActionSuggestions = [
+    ...new Set(
+      results
+        .map((result) => result.githubActionSuggestedCommand)
+        .filter((command): command is string => Boolean(command)),
+    ),
+  ];
+  const githubActionSuggestionLine = githubActionSuggestions.length
+    ? `Optional PR Visual Recap workflow: run ${githubActionSuggestions.join(
+        " && ",
+      )} to add automatic recap comments on pull requests.`
     : "";
   process.stdout.write(
     [
@@ -3606,6 +3444,7 @@ export async function runSkills(
         : "",
       authLine,
       githubActionLine,
+      githubActionSuggestionLine,
       localCommands.length ? `Local command: ${localCommands.join(", ")}.` : "",
       "Restart or reload selected agent clients if the skill is not visible yet.",
       parsed.clientExplicit

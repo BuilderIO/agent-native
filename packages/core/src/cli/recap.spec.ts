@@ -1,24 +1,31 @@
-import { readFileSync } from "node:fs";
+import fs, { readFileSync } from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import {
   RECAP_DIFF_BYTE_CAP,
+  buildRecapSetupPlan,
   buildCommentBody,
   buildRecapClaudeMcpConfig,
   buildRecapCodexMcpConfig,
   buildRecapPrompt,
   canonicalRecapUrl,
   classifyDiff,
+  countDiffLines,
   diffContainsSecret,
   evaluateRecapGate,
   isRecapSensitivePath,
+  normalizeRecapAgent,
   parseClaudeUsage,
   parseCodexUsage,
   recapCheckOutcome,
+  recapRequiredSecrets,
+  readVisualRecapSkillBundle,
   truncateDiffAtLineBoundary,
+  waitForPublicRecapImage,
 } from "./recap.js";
 import type { RecapGateInput } from "./recap.js";
 import { PR_VISUAL_RECAP_WORKFLOW_YML } from "./pr-visual-recap-workflow.js";
@@ -138,6 +145,44 @@ describe("recap collect-diff classification", () => {
   });
 });
 
+describe("countDiffLines", () => {
+  it("counts added and removed lines, excluding +++ / --- header lines", () => {
+    const diff = [
+      "diff --git a/foo.ts b/foo.ts",
+      "--- a/foo.ts",
+      "+++ b/foo.ts",
+      "@@ -1,3 +1,4 @@",
+      " unchanged line",
+      "-removed line 1",
+      "-removed line 2",
+      "+added line 1",
+      "+added line 2",
+      "+added line 3",
+    ].join("\n");
+    // 2 removed + 3 added = 5; the --- and +++ headers must NOT be counted.
+    expect(countDiffLines(diff)).toBe(5);
+  });
+
+  it("returns 0 for an empty diff", () => {
+    expect(countDiffLines("")).toBe(0);
+  });
+
+  it("handles multi-file diffs without inflating the count", () => {
+    const diff = [
+      "--- a/a.ts",
+      "+++ b/a.ts",
+      "-old a",
+      "+new a",
+      "--- a/b.ts",
+      "+++ b/b.ts",
+      "-old b",
+      "+new b",
+    ].join("\n");
+    // 4 real diff lines, 4 header lines that must be excluded.
+    expect(countDiffLines(diff)).toBe(4);
+  });
+});
+
 describe("recap mcp-config", () => {
   it("writes valid Claude JSON with the plan url + bearer header", () => {
     const json = buildRecapClaudeMcpConfig(
@@ -178,6 +223,71 @@ describe("recap mcp-config", () => {
   });
 });
 
+describe("recap setup planning", () => {
+  it("normalizes the supported recap agents", () => {
+    expect(normalizeRecapAgent(undefined)).toBe("claude");
+    expect(normalizeRecapAgent("Codex")).toBe("codex");
+    expect(() => normalizeRecapAgent("gpt")).toThrow(/Unsupported recap agent/);
+  });
+
+  it("selects required secrets for each backend", () => {
+    expect(recapRequiredSecrets("claude")).toEqual([
+      "PLAN_RECAP_TOKEN",
+      "ANTHROPIC_API_KEY",
+    ]);
+    expect(recapRequiredSecrets("codex")).toEqual([
+      "PLAN_RECAP_TOKEN",
+      "OPENAI_API_KEY",
+    ]);
+  });
+
+  it("builds a setup plan from env and detects an existing workflow", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "an-recap-setup-"));
+    try {
+      const workflow = path.join(root, ".github", "workflows");
+      fs.mkdirSync(workflow, { recursive: true });
+      fs.writeFileSync(
+        path.join(workflow, "pr-visual-recap.yml"),
+        "name: old\n",
+      );
+
+      const plan = buildRecapSetupPlan({
+        baseDir: root,
+        agent: "codex",
+        appUrl: "https://plans.example.com/",
+        repo: "BuilderIO/example",
+        env: {
+          PLAN_RECAP_TOKEN: "example-plan-token",
+          OPENAI_API_KEY: "example-openai-key",
+          VISUAL_RECAP_MODEL: "gpt-5.5",
+          VISUAL_RECAP_REASONING: "high",
+        } as NodeJS.ProcessEnv,
+      });
+
+      expect(plan).toMatchObject({
+        agent: "codex",
+        appUrl: "https://plans.example.com",
+        repo: "BuilderIO/example",
+        workflowPath: path.join(".github", "workflows", "pr-visual-recap.yml"),
+        workflowExists: true,
+        requiredSecrets: ["PLAN_RECAP_TOKEN", "OPENAI_API_KEY"],
+        variableValues: {
+          VISUAL_RECAP_AGENT: "codex",
+          VISUAL_RECAP_MODEL: "gpt-5.5",
+          VISUAL_RECAP_REASONING: "high",
+        },
+      });
+      expect(plan.secretValues).toMatchObject({
+        PLAN_RECAP_TOKEN: "example-plan-token",
+        OPENAI_API_KEY: "example-openai-key",
+        PLAN_RECAP_APP_URL: "https://plans.example.com",
+      });
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+});
+
 describe("recap prompt builder", () => {
   const skillMd = "---\nname: visual-recap\n---\n\nUNIQUE_SKILL_MARKER body.";
 
@@ -201,7 +311,9 @@ describe("recap prompt builder", () => {
       "https://github.com/BuilderIO/ai-services/pull/1095",
     );
     // The publish path and the single hand-off are spelled out.
+    expect(prompt).toContain("mcp__plan__get-plan-blocks");
     expect(prompt).toContain("mcp__plan__create-visual-recap");
+    expect(prompt).toContain("workflow/tool allowlist is stale");
     expect(prompt).toContain("set-resource-visibility");
     expect(prompt).toContain("recap-url.txt");
     expect(prompt).toContain(
@@ -243,23 +355,36 @@ describe("recap prompt builder", () => {
       "https://plan.agent-native.com/recaps/<the returned plan id>",
     );
   });
+
+  it("builds the latest bundled skill with sibling reference files", () => {
+    const bundle = readVisualRecapSkillBundle(repoRoot, "latest");
+    expect(bundle.source).toBe("bundled:@agent-native/core/visual-recap");
+    expect(bundle.text).toContain("Bundled visual-recap reference files");
+    expect(bundle.text).toContain("references/wireframe.md");
+    expect(bundle.text).toContain("HTML wireframe quality");
+  });
 });
 
 describe("recap comment body", () => {
   it("embeds an inline screenshot + link and a plan-id marker on success", () => {
+    const token = "a".repeat(64);
     const body = buildCommentBody({
       PLAN_URL: "https://plan.agent-native.com/recaps/plan-abc123",
       PLAN_RECAP_APP_URL: "https://plan.agent-native.com",
-      RECAP_IMAGE_URL:
-        "https://plan.agent-native.com/_agent-native/recap-image/a1b2c3d4e5f6.png",
+      RECAP_IMAGE_URL: `https://plan.agent-native.com/_agent-native/recap-image/${token}.png`,
       HEAD_SHA: "abcdef1234567",
     } as NodeJS.ProcessEnv);
     expect(body).toContain(
-      "[![Visual recap](https://plan.agent-native.com/_agent-native/recap-image/a1b2c3d4e5f6.png)](https://plan.agent-native.com/recaps/plan-abc123)",
+      `[![Visual recap](https://plan.agent-native.com/_agent-native/recap-image/${token}.png)](https://plan.agent-native.com/recaps/plan-abc123)`,
     );
+    expect(body).toContain("### Visual recap\n");
+    expect(body).not.toContain("review at a higher altitude");
+    expect(body).not.toContain("Updated for");
     expect(body).toContain("Open the interactive recap");
     expect(body).toContain("<!-- plan-id: plan-abc123 -->");
     expect(body).toContain("<!-- pr-visual-recap -->");
+    // Freshness line should include the shortened head SHA.
+    expect(body).toContain("_As of `abcdef1`_");
   });
 
   it("rebuilds a canonical /recaps/ link from a legacy /plans/ URL, dropping any crafted path/query", () => {
@@ -289,6 +414,18 @@ describe("recap comment body", () => {
     expect(body).toContain("Open the interactive recap");
   });
 
+  it("drops a recap-image URL whose token is too short for the image route", () => {
+    const body = buildCommentBody({
+      PLAN_URL: "https://plan.agent-native.com/recaps/plan-abc123",
+      PLAN_RECAP_APP_URL: "https://plan.agent-native.com",
+      RECAP_IMAGE_URL:
+        "https://plan.agent-native.com/_agent-native/recap-image/a1b2c3d4e5f6.png",
+      HEAD_SHA: "abcdef1",
+    } as NodeJS.ProcessEnv);
+    expect(body).not.toContain("![Visual recap]");
+    expect(body).toContain("Open the interactive recap");
+  });
+
   it("refreshes to a skipped state on a tiny diff", () => {
     const body = buildCommentBody({
       DIFF_TINY: "true",
@@ -296,7 +433,19 @@ describe("recap comment body", () => {
     } as NodeJS.ProcessEnv);
     expect(body).toContain("skipped");
     expect(body).toContain("too small");
+    expect(body).not.toContain("Updated for");
     expect(body).not.toContain("Open the interactive recap");
+    // Freshness line present even on tiny.
+    expect(body).toContain("_As of `abcdef1`_");
+  });
+
+  it("tiny diff preserves the previous plan-id marker so the next push can replace in-place", () => {
+    const body = buildCommentBody({
+      DIFF_TINY: "true",
+      HEAD_SHA: "abcdef1",
+      PREV_PLAN_ID: "plan-deadbeef",
+    } as NodeJS.ProcessEnv);
+    expect(body).toContain("<!-- plan-id: plan-deadbeef -->");
   });
 
   it("falls back to a link-only comment when the screenshot upload failed", () => {
@@ -319,7 +468,39 @@ describe("recap comment body", () => {
     } as NodeJS.ProcessEnv);
     expect(body).toContain("generation failed");
     expect(body).not.toContain("Open the interactive recap");
+    expect(body).not.toContain("Updated for");
     expect(body).not.toContain("evil.example.com");
+  });
+
+  it("failure branch keeps the last-good plan link labeled as stale when PREV_PLAN_ID is set", () => {
+    const body = buildCommentBody({
+      PLAN_URL: "",
+      PLAN_RECAP_APP_URL: "https://plan.agent-native.com",
+      PREV_PLAN_ID: "plan-deadbeef",
+      HEAD_SHA: "abcdef1",
+    } as NodeJS.ProcessEnv);
+    expect(body).toContain("generation failed");
+    // Stale link to the previous recap should be present.
+    expect(body).toContain(
+      "[Open recap](https://plan.agent-native.com/recaps/plan-deadbeef)",
+    );
+    // Plan-id marker preserved so next success replaces in-place.
+    expect(body).toContain("<!-- plan-id: plan-deadbeef -->");
+  });
+
+  it("failure branch emits plan-id marker when a fresh plan URL failed origin check but PREV_PLAN_ID is known", () => {
+    // Bad-origin URL on this push, but we know the previous good plan id.
+    const body = buildCommentBody({
+      PLAN_URL: "https://evil.example.com/recaps/plan-fresh",
+      PLAN_RECAP_APP_URL: "https://plan.agent-native.com",
+      PREV_PLAN_ID: "plan-deadbeef",
+      HEAD_SHA: "abcdef1",
+    } as NodeJS.ProcessEnv);
+    expect(body).toContain("generation failed");
+    expect(body).not.toContain("evil.example.com");
+    // Stale link uses the previous plan, not the rejected fresh URL.
+    expect(body).toContain("plan-deadbeef");
+    expect(body).toContain("<!-- plan-id: plan-deadbeef -->");
   });
 
   it("explains a suppressed (secret) diff without echoing the secret", () => {
@@ -332,7 +513,20 @@ describe("recap comment body", () => {
       HEAD_SHA: "abcdef1",
     } as NodeJS.ProcessEnv);
     expect(body).toContain("suppressed");
+    expect(body).toContain("Reason: `potential secret in diff`.");
+    expect(body).not.toContain("Updated for");
     expect(body).not.toContain("Open the interactive recap");
+    // Freshness line still present.
+    expect(body).toContain("_As of `abcdef1`_");
+  });
+
+  it("suppressed branch preserves plan-id marker from previous run", () => {
+    const body = buildCommentBody({
+      SUPPRESSED: "true",
+      PREV_PLAN_ID: "plan-prev123",
+      HEAD_SHA: "abcdef1",
+    } as NodeJS.ProcessEnv);
+    expect(body).toContain("<!-- plan-id: plan-prev123 -->");
   });
 
   it("reports a generation failure when no plan URL was produced", () => {
@@ -341,6 +535,112 @@ describe("recap comment body", () => {
       HEAD_SHA: "abcdef1",
     } as NodeJS.ProcessEnv);
     expect(body).toContain("generation failed");
+    expect(body).not.toContain("Updated for");
+  });
+
+  it("omits the freshness line when no HEAD_SHA is available", () => {
+    const body = buildCommentBody({
+      PLAN_URL: "https://plan.agent-native.com/recaps/plan-abc123",
+      PLAN_RECAP_APP_URL: "https://plan.agent-native.com",
+    } as NodeJS.ProcessEnv);
+    expect(body).not.toContain("_As of `");
+    expect(body).toContain("Open the interactive recap");
+  });
+});
+
+describe("recap image public readiness", () => {
+  it("retries until the uploaded image is anonymously readable as image/png", async () => {
+    const fetchFn = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(
+        new Response("not yet", {
+          status: 404,
+          headers: { "content-type": "text/plain" },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(Buffer.from([1, 2, 3]), {
+          status: 200,
+          headers: { "content-type": "image/png" },
+        }),
+      );
+
+    await expect(
+      waitForPublicRecapImage({
+        imageUrl:
+          "https://plan.agent-native.com/_agent-native/recap-image/" +
+          `${"a".repeat(64)}.png`,
+        attempts: 2,
+        delayMs: 0,
+        fetchFn,
+      }),
+    ).resolves.toBe(true);
+    expect(fetchFn).toHaveBeenCalledTimes(2);
+  });
+
+  it("rejects empty or non-image responses", async () => {
+    const fetchFn = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(
+        new Response("", {
+          status: 200,
+          headers: { "content-type": "image/png" },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response("html", {
+          status: 200,
+          headers: { "content-type": "text/html" },
+        }),
+      );
+
+    await expect(
+      waitForPublicRecapImage({
+        imageUrl:
+          "https://plan.agent-native.com/_agent-native/recap-image/" +
+          `${"a".repeat(64)}.png`,
+        attempts: 2,
+        delayMs: 0,
+        fetchFn,
+      }),
+    ).resolves.toBe(false);
+  });
+
+  it("uses at least 8 attempts by default to survive cold-start CDN delays", async () => {
+    // Return 404 for 7 attempts then succeed on the 8th — this must pass with
+    // the default budget (~20s of capped exponential backoff).
+    const notYet = new Response("not yet", {
+      status: 404,
+      headers: { "content-type": "text/plain" },
+    });
+    const fetchFn = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(notYet)
+      .mockResolvedValueOnce(notYet)
+      .mockResolvedValueOnce(notYet)
+      .mockResolvedValueOnce(notYet)
+      .mockResolvedValueOnce(notYet)
+      .mockResolvedValueOnce(notYet)
+      .mockResolvedValueOnce(notYet)
+      .mockResolvedValueOnce(
+        new Response(Buffer.from([1, 2, 3]), {
+          status: 200,
+          headers: { "content-type": "image/png" },
+        }),
+      );
+
+    await expect(
+      waitForPublicRecapImage({
+        imageUrl:
+          "https://plan.agent-native.com/_agent-native/recap-image/" +
+          `${"a".repeat(64)}.png`,
+        // Override delayMs to 0 so the test doesn't sleep; attempts uses the
+        // default (omitted) to confirm it's >= 8.
+        delayMs: 0,
+        fetchFn,
+      }),
+    ).resolves.toBe(true);
+    expect(fetchFn).toHaveBeenCalledTimes(8);
   });
 });
 
@@ -552,7 +852,16 @@ describe("recap gate decision", () => {
 
   it("skips when the PR modifies packages/core (self-modifying guard)", () => {
     const result = evaluateRecapGate(
-      ok({ changedFiles: ["packages/core/src/cli/recap.ts"] }),
+      ok({
+        repository: "BuilderIO/agent-native",
+        pr: {
+          number: 7,
+          draft: false,
+          head: { repo: { full_name: "BuilderIO/agent-native" } },
+          user: { login: "octocat", type: "User" },
+        },
+        changedFiles: ["packages/core/src/cli/recap.ts"],
+      }),
     );
     expect(result.run).toBe(false);
     expect(
@@ -563,6 +872,13 @@ describe("recap gate decision", () => {
     expect(result.reasons.join(" ")).toContain(
       "packages/core/src/cli/recap.ts",
     );
+  });
+
+  it("does not treat consumer packages/core paths as recap-control files", () => {
+    const result = evaluateRecapGate(
+      ok({ changedFiles: ["packages/core/src/index.ts"] }),
+    );
+    expect(result.run).toBe(true);
   });
 
   it("skips when the PR modifies a .claude config file", () => {
@@ -623,7 +939,18 @@ describe("recap sensitive-path guard", () => {
         "templates/plan/.agents/skills/visual-recap/SKILL.md",
       ),
     ).toBe(true);
-    expect(isRecapSensitivePath("packages/core/src/cli/recap.ts")).toBe(true);
+    expect(
+      isRecapSensitivePath(
+        "packages/core/src/cli/recap.ts",
+        "BuilderIO/agent-native",
+      ),
+    ).toBe(true);
+    expect(
+      isRecapSensitivePath(
+        "packages/core/src/cli/recap.ts",
+        "BuilderIO/ai-services",
+      ),
+    ).toBe(false);
     expect(isRecapSensitivePath(".claude/settings.json")).toBe(true);
     expect(isRecapSensitivePath("CLAUDE.md")).toBe(true);
     expect(isRecapSensitivePath("apps/foo/AGENTS.md")).toBe(true);
@@ -794,6 +1121,8 @@ describe("bundled PR visual recap workflow", () => {
     expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain(
       "steps.recap_check.outputs.check_run_id != ''",
     );
+    expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain("VISUAL_RECAP_SKILL_SOURCE");
+    expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain("--skill-source");
   });
 });
 

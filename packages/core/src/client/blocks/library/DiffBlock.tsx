@@ -720,6 +720,17 @@ function DiffRead({
     [hover],
   );
   const onRowLeave = useCallback(() => hover.scheduleClose(), [hover]);
+  const onRowClick = useCallback(
+    (index: number, rowEl: HTMLElement) => {
+      const startRow =
+        codeRef.current?.querySelector<HTMLElement>(
+          `[data-annot-row="${index}"]`,
+        ) ?? rowEl;
+      const anchor = anchorFromElements(codeRef.current, startRow);
+      if (anchor) hover.open(index, anchor);
+    },
+    [hover],
+  );
   // Side-scoped line → markers maps so a row only lights from its own side.
   const beforeMarkers = useMemo(
     () =>
@@ -868,6 +879,7 @@ function DiffRead({
           activeIndex={activeIndex}
           onRowEnter={onRowEnter}
           onRowLeave={onRowLeave}
+          onRowClick={onRowClick}
         />
       ) : (
         <UnifiedView
@@ -880,6 +892,7 @@ function DiffRead({
           activeIndex={activeIndex}
           onRowEnter={onRowEnter}
           onRowLeave={onRowLeave}
+          onRowClick={onRowClick}
         />
       )}
       {!unchanged && shouldLimitRows && (
@@ -932,6 +945,7 @@ function DiffRead({
           showMarker
           onMouseEnter={hover.cancelClose}
           onMouseLeave={hover.scheduleClose}
+          onClose={hover.close}
         />
       )}
     </section>
@@ -979,6 +993,8 @@ interface RowAnnotationProps {
   onRowEnter: (index: number, rowEl: HTMLElement) => void;
   /** Leaving an annotated row schedules the popover's close. */
   onRowLeave: () => void;
+  /** Clicking/tapping an annotated row toggles its popover (for touch). */
+  onRowClick: (index: number, rowEl: HTMLElement) => void;
 }
 
 /**
@@ -1032,6 +1048,7 @@ function UnifiedView({
   activeIndex,
   onRowEnter,
   onRowLeave,
+  onRowClick,
 }: {
   rows: DiffRow[];
   language: string;
@@ -1053,6 +1070,7 @@ function UnifiedView({
     activeIndex,
     onRowEnter,
     onRowLeave,
+    onRowClick,
     showMarkerColumn,
   };
   let runIndex = 0;
@@ -1095,6 +1113,7 @@ function UnifiedRow({
   activeIndex,
   onRowEnter,
   onRowLeave,
+  onRowClick,
   showMarkerColumn,
 }: {
   language: string;
@@ -1103,29 +1122,51 @@ function UnifiedRow({
   activeIndex: number | null;
   onRowEnter: (index: number, rowEl: HTMLElement) => void;
   onRowLeave: () => void;
+  onRowClick: (index: number, rowEl: HTMLElement) => void;
   showMarkerColumn: boolean;
 }) {
   const markers = markersForRow(row);
   const info = rowMarkerInfo(markers, activeIndex);
   const startMarker = markers.find((marker) => isMarkerRangeStart(row, marker));
+  const primaryIndex = startMarker?.index ?? info?.primaryIndex;
   return (
     <div
       data-annot-row={startMarker ? startMarker.index : undefined}
+      tabIndex={info ? 0 : undefined}
+      role={info ? "button" : undefined}
+      aria-expanded={info ? info.isActive : undefined}
       className={cn(
         "flex min-h-5 min-w-full",
+        info && "cursor-pointer",
         ROW_BG[row.kind],
         annotatedRowBg(info),
       )}
       onMouseEnter={
-        info
-          ? (event) =>
-              onRowEnter(
-                startMarker?.index ?? info.primaryIndex,
-                event.currentTarget,
-              )
+        info && primaryIndex != null
+          ? (event) => onRowEnter(primaryIndex, event.currentTarget)
           : undefined
       }
       onMouseLeave={info ? () => onRowLeave() : undefined}
+      onClick={
+        info && primaryIndex != null
+          ? (event) => onRowClick(primaryIndex, event.currentTarget)
+          : undefined
+      }
+      onKeyDown={
+        info && primaryIndex != null
+          ? (event) => {
+              if (event.key !== "Enter" && event.key !== " ") return;
+              event.preventDefault();
+              onRowClick(primaryIndex, event.currentTarget);
+            }
+          : undefined
+      }
+      onFocus={
+        info && primaryIndex != null
+          ? (event) => onRowEnter(primaryIndex, event.currentTarget)
+          : undefined
+      }
+      onBlur={info ? () => onRowLeave() : undefined}
     >
       <span className={cn(LINE_NO_CLASS, "w-[52px]")}>{row.oldNo ?? ""}</span>
       <span className={cn(LINE_NO_CLASS, "w-[52px]")}>{row.newNo ?? ""}</span>
@@ -1241,6 +1282,7 @@ function SplitView({
   activeIndex,
   onRowEnter,
   onRowLeave,
+  onRowClick,
 }: {
   language: string;
   rowLimit?: number;
@@ -1269,6 +1311,7 @@ function SplitView({
     activeIndex,
     onRowEnter,
     onRowLeave,
+    onRowClick,
   };
   return (
     <div
@@ -1313,6 +1356,7 @@ function SplitCell({
   activeIndex,
   onRowEnter,
   onRowLeave,
+  onRowClick,
   showMarkerColumn,
 }: {
   language: string;
@@ -1322,6 +1366,7 @@ function SplitCell({
   activeIndex: number | null;
   onRowEnter: (index: number, rowEl: HTMLElement) => void;
   onRowLeave: () => void;
+  onRowClick: (index: number, rowEl: HTMLElement) => void;
   showMarkerColumn: boolean;
 }) {
   if (!row) {
@@ -1339,24 +1384,45 @@ function SplitCell({
   const markers = markersForRow(row, side);
   const info = rowMarkerInfo(markers, activeIndex);
   const startMarker = markers.find((marker) => isMarkerRangeStart(row, marker));
+  const primaryIndex = startMarker?.index ?? info?.primaryIndex;
   return (
     <div
       data-annot-row={startMarker ? startMarker.index : undefined}
+      tabIndex={info ? 0 : undefined}
+      role={info ? "button" : undefined}
+      aria-expanded={info ? info.isActive : undefined}
       className={cn(
         "flex min-h-5 min-w-full",
+        info && "cursor-pointer",
         ROW_BG[row.kind],
         annotatedRowBg(info),
       )}
       onMouseEnter={
-        info
-          ? (event) =>
-              onRowEnter(
-                startMarker?.index ?? info.primaryIndex,
-                event.currentTarget,
-              )
+        info && primaryIndex != null
+          ? (event) => onRowEnter(primaryIndex, event.currentTarget)
           : undefined
       }
       onMouseLeave={info ? () => onRowLeave() : undefined}
+      onClick={
+        info && primaryIndex != null
+          ? (event) => onRowClick(primaryIndex, event.currentTarget)
+          : undefined
+      }
+      onKeyDown={
+        info && primaryIndex != null
+          ? (event) => {
+              if (event.key !== "Enter" && event.key !== " ") return;
+              event.preventDefault();
+              onRowClick(primaryIndex, event.currentTarget);
+            }
+          : undefined
+      }
+      onFocus={
+        info && primaryIndex != null
+          ? (event) => onRowEnter(primaryIndex, event.currentTarget)
+          : undefined
+      }
+      onBlur={info ? () => onRowLeave() : undefined}
     >
       <span className={cn(LINE_NO_CLASS, "w-[52px]")}>
         {side === "old" ? (row.oldNo ?? "") : (row.newNo ?? "")}

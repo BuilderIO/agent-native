@@ -50,6 +50,7 @@ import {
   runWithRequestContext,
   verifyShortLivedToken,
 } from "@agent-native/core/server";
+import { verifySharePassword } from "../../../lib/share-password.js";
 
 interface RecordingRow {
   expiresAt?: string | null;
@@ -181,7 +182,11 @@ export default defineEventHandler(async (event: H3Event) => {
           const result = verifyShortLivedToken(token, recordingId);
           if (result.ok) allowed = true;
         }
-        if (!allowed && supplied && supplied === rec.password) {
+        if (
+          !allowed &&
+          supplied &&
+          verifySharePassword(supplied, rec.password)
+        ) {
           allowed = true;
         }
         if (!allowed) {
