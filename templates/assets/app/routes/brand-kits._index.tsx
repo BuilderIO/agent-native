@@ -122,7 +122,7 @@ export default function BrandKitsIndexPage() {
             ))}
           </div>
         ) : (
-          <div className="rounded-lg border border-dashed bg-muted/20 p-6">
+          <div className="p-6">
             <div className="mx-auto max-w-2xl text-center">
               <IconLibraryPhoto className="mx-auto h-10 w-10 text-muted-foreground" />
               <h3 className="mt-4 text-base font-semibold">
