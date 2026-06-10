@@ -11,6 +11,7 @@ import {
 import type { RichMarkdownCollabUser } from "@agent-native/core/client";
 import { BlockRegistryProvider } from "@agent-native/core/blocks";
 import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
 import type {
   PlanAnnotation,
   PlanBlock,
@@ -231,10 +232,20 @@ export function PlanContentRenderer({
   // blocks are re-saved after it settles), so a single author's rapid edits can
   // never overlap. The unmount flush below keeps the last edit when the reader
   // closes / the user navigates away.
+  //
+  // Exponential backoff: on consecutive failures we back off 1s→2s→4s→…→30s
+  // (capped). After 5 consecutive failures we stop auto-retrying and surface a
+  // persistent "Couldn't save — Retry" pill. The user can click it to retry
+  // immediately, which resets the backoff counter.
   const AUTOSAVE_DEBOUNCE_MS = 600;
+  const AUTOSAVE_MAX_RETRIES = 5;
+  const AUTOSAVE_MAX_BACKOFF_MS = 30_000;
   const pendingBlocksRef = useRef<PlanBlock[] | null>(null);
   const savingRef = useRef(false);
   const saveTimerRef = useRef<number | null>(null);
+  const consecutiveFailuresRef = useRef(0);
+  const [autosaveFailed, setAutosaveFailed] = useState(false);
+
   const persistBlocksRef = useRef<
     (blocks: PlanBlock[]) => void | Promise<void>
   >(() => {});
@@ -262,6 +273,7 @@ export function PlanContentRenderer({
     void Promise.resolve(persistBlocksRef.current(next))
       .catch((error) => {
         failed = true;
+        consecutiveFailuresRef.current += 1;
         // Keep the last unsaved snapshot live. If the user typed a newer edit
         // while this save was in-flight, that newer pending snapshot wins.
         if (pendingBlocksRef.current === null) {
@@ -269,18 +281,39 @@ export function PlanContentRenderer({
         }
         // eslint-disable-next-line no-console
         console.error("Failed to autosave plan document:", error);
+        // Surface a persistent error pill after the first failure.
+        setAutosaveFailed(true);
       })
       .finally(() => {
         savingRef.current = false;
+        if (!failed) {
+          consecutiveFailuresRef.current = 0;
+          setAutosaveFailed(false);
+        }
         if (pendingBlocksRef.current !== null) {
           if (failed) {
-            scheduleSaveRef.current(AUTOSAVE_DEBOUNCE_MS);
+            // Stop auto-retrying after too many consecutive failures; the user
+            // must click "Retry" to resume.
+            if (consecutiveFailuresRef.current < AUTOSAVE_MAX_RETRIES) {
+              const backoffMs = Math.min(
+                1_000 * 2 ** (consecutiveFailuresRef.current - 1),
+                AUTOSAVE_MAX_BACKOFF_MS,
+              );
+              scheduleSaveRef.current(backoffMs);
+            }
           } else {
             // A newer edit landed while saving → save it now (with the bumped version).
             flushSaveRef.current();
           }
         }
       });
+  };
+
+  // Manual retry: reset backoff and immediately flush.
+  const retryAutosave = () => {
+    consecutiveFailuresRef.current = 0;
+    setAutosaveFailed(false);
+    flushSaveRef.current();
   };
   const replaceBlocks = async (nextBlocks: PlanBlock[]) => {
     // A STRUCTURAL change (drag-to-columns, reorder, insert/delete) must hit the
@@ -421,7 +454,23 @@ export function PlanContentRenderer({
       registry={planBlockRegistry}
       ctx={blockRenderContext}
     >
-      <article className="plan-content-surface min-h-full bg-plan-document text-plan-text">
+      <article className="plan-content-surface relative min-h-full bg-plan-document text-plan-text">
+        {autosaveFailed && (
+          <div className="pointer-events-none absolute bottom-4 left-1/2 z-50 -translate-x-1/2">
+            <div className="pointer-events-auto flex items-center gap-2 rounded-full border border-border/80 bg-background/95 px-3 py-1.5 text-sm shadow-lg backdrop-blur-sm">
+              <span className="text-muted-foreground">Couldn't save</span>
+              <Button
+                type="button"
+                variant="link"
+                size="sm"
+                className="h-auto p-0 text-sm font-semibold text-primary underline-offset-4"
+                onClick={retryAutosave}
+              >
+                Retry
+              </Button>
+            </div>
+          </div>
+        )}
         {(content.canvas || content.prototype) && (
           <PlanVisualSurface
             canvas={content.canvas}

@@ -573,6 +573,14 @@ function CustomHtmlBlock({
     }
   }, [editing, block.data.html, block.data.css]);
 
+  // Re-seed from the current block data each time edit mode is ENTERED so
+  // stale mount-time state can never clobber a newer agent edit on save.
+  const openEditing = () => {
+    setHtml(block.data.html);
+    setCss(block.data.css ?? "");
+    setEditing(true);
+  };
+
   // Use prefers-color-scheme so the iframe ink matches the host theme even
   // though the iframe document is isolated and can't inherit CSS variables.
   const srcDoc = `<!doctype html><html><head><style>body{margin:0;min-height:100%;font-family:Inter,system-ui,sans-serif;color:#1f1f1d;background:transparent;}*{box-sizing:border-box}@media(prefers-color-scheme:dark){body{color:#e8e8e6}}${block.data.css ?? ""}</style></head><body>${block.data.html}</body></html>`;
@@ -592,7 +600,7 @@ function CustomHtmlBlock({
             data-plan-interactive
             aria-label={editing ? "Cancel editing source" : "Edit source"}
             className="size-8 text-plan-muted hover:bg-transparent hover:text-plan-text"
-            onClick={() => setEditing((value) => !value)}
+            onClick={() => (editing ? setEditing(false) : openEditing())}
           >
             {editing ? (
               <IconX className="size-4" />

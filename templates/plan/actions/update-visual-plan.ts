@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core";
+import { defineAction, embedApp } from "@agent-native/core";
 import {
   ForbiddenError,
   currentAccess,
@@ -407,6 +407,14 @@ export default defineAction({
   },
   mcpApp: {
     compactCatalog: true,
+    resource: embedApp({
+      title: "Update Plan",
+      description:
+        "Open the Agent-Native Plan editor for structured content, comments, and status changes.",
+      iframeTitle: "Agent-Native Plan",
+      openLabel: "Open Plan",
+      height: 860,
+    }),
   },
   run: async (args) => {
     const requesterEmail = getRequestUserEmail();

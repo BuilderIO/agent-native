@@ -735,6 +735,7 @@ function CommentThreadMarker({
   return (
     <button
       type="button"
+      data-comment-marker
       className={cn(
         "pointer-events-auto inline-flex h-8 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full shadow-2xl shadow-black/35 transition-transform hover:scale-105 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary",
         single
@@ -1838,6 +1839,8 @@ export function PlansPage() {
     position: InlineCommentPosition;
   } | null>(null);
   const [nativeMarkerVersion, setNativeMarkerVersion] = useState(0);
+  // Session-level preference: hide comment markers even when threads exist.
+  const [commentsHidden, setCommentsHidden] = useState(false);
   const { session, isLoading: sessionLoading } = useSession();
   const plansQuery = usePlans({
     enabled: Boolean(session),
@@ -2160,8 +2163,13 @@ export function PlansPage() {
   const reviewMode: CanvasMarkupMode = annotateMode
     ? "comment"
     : canvasMarkupMode;
+  const hasOpenThreads = (bundle?.summary.openCommentCount ?? 0) > 0;
   const commentMarkersVisible =
-    annotationsOpen || annotateMode || Boolean(activeAnnotation);
+    !commentsHidden &&
+    (annotationsOpen ||
+      annotateMode ||
+      Boolean(activeAnnotation) ||
+      hasOpenThreads);
   const showingPrototypeSurface =
     prototypeOnly || visualSurfaceMode === "prototype";
 
@@ -2833,14 +2841,27 @@ export function PlansPage() {
 
   const patchStructuredContent = async (patch: PlanContentPatch) => {
     if (!bundle) return;
-    await updatePlan.mutateAsync({
-      planId: bundle.plan.id,
-      contentPatches: [patch],
-      note:
-        patch.op === "update-rich-text"
-          ? `Edited markdown block ${patch.blockId}.`
-          : "Patched structured visual plan content.",
-    });
+    // For background autosave (replace-blocks) ops, suppress the global
+    // onError toast so the autosave loop's backoff+pill handles error state
+    // instead of spamming toast.error on every retry.
+    const silentError = patch.op === "replace-blocks";
+    try {
+      await updatePlan.mutateAsync(
+        {
+          planId: bundle.plan.id,
+          contentPatches: [patch],
+          note:
+            patch.op === "update-rich-text"
+              ? `Edited markdown block ${patch.blockId}.`
+              : "Patched structured visual plan content.",
+        },
+        silentError ? { onError: () => {} } : undefined,
+      );
+    } catch (error) {
+      // Re-throw so the autosave backoff loop in PlanContentRenderer can handle
+      // retries. The global onError toast was already suppressed above.
+      throw error;
+    }
   };
 
   const updatePlanMetadata = async (patch: {
@@ -3536,7 +3557,7 @@ export function PlansPage() {
                       >
                         <IconMessageCircle className="size-4" />
                         <span className="flex-1">
-                          {annotationsOpen ? "Hide comments" : "Comments"}
+                          {annotationsOpen ? "Close comment panel" : "Comments"}
                         </span>
                         {bundle.summary.openCommentCount > 0 && (
                           <span className="text-xs text-muted-foreground">
@@ -3544,6 +3565,27 @@ export function PlansPage() {
                           </span>
                         )}
                       </DropdownMenuItem>
+                      {hasOpenThreads && (
+                        <DropdownMenuItem
+                          onClick={() => {
+                            preservePlanReaderScroll(() => {
+                              setCommentsHidden((value) => {
+                                const next = !value;
+                                // When showing markers again, close any stale
+                                // active popover so it doesn't re-appear without context.
+                                if (!next) setActiveAnnotation(null);
+                                return next;
+                              });
+                            });
+                          }}
+                          className="gap-2"
+                        >
+                          <IconMessageCircle className="size-4" />
+                          {commentsHidden
+                            ? "Show comment markers"
+                            : "Hide comment markers"}
+                        </DropdownMenuItem>
+                      )}
                       <DropdownMenuItem
                         onClick={() => {
                           preservePlanReaderScroll(() => {
@@ -3876,12 +3918,24 @@ export function PlansPage() {
                       className="shadow-2xl shadow-black/35"
                     />
                   </div>
-                  <InlineCommentPopover
-                    position={inlineCommentPosition}
-                    initialDraft={defaultInlineCommentDraft}
-                    onCancel={closeInlineComment}
-                    onSubmit={submitInlineComment}
-                  />
+                  {!session ? (
+                    <GuestCommentCta
+                      position={inlineCommentPosition}
+                      onSignIn={() =>
+                        openSignIn(
+                          window.location.pathname + window.location.search,
+                        )
+                      }
+                      onCancel={closeInlineComment}
+                    />
+                  ) : (
+                    <InlineCommentPopover
+                      position={inlineCommentPosition}
+                      initialDraft={defaultInlineCommentDraft}
+                      onCancel={closeInlineComment}
+                      onSubmit={submitInlineComment}
+                    />
+                  )}
                 </>
               )}
               {activeAnnotation && (
@@ -3905,6 +3959,7 @@ export function PlansPage() {
                       activeAnnotation.annotation.anchor,
                     )
                   }
+                  onClose={() => setActiveAnnotation(null)}
                 />
               )}
               {annotationsOpen && (
@@ -5934,6 +5989,44 @@ function InlineCommentPopover({
   );
 }
 
+function GuestCommentCta({
+  position,
+  onSignIn,
+  onCancel,
+}: {
+  position: InlineCommentPosition;
+  onSignIn: () => void;
+  onCancel: () => void;
+}) {
+  return (
+    <div
+      data-plan-interactive
+      className="absolute z-30 rounded-xl border border-border/80 bg-background/96 p-4 shadow-2xl backdrop-blur-xl"
+      style={{ left: position.left, top: position.top, width: position.width }}
+    >
+      <div className="mb-3 flex items-center justify-between gap-2">
+        <p className="text-sm font-semibold">Sign in to comment</p>
+        <Button
+          type="button"
+          size="icon"
+          variant="ghost"
+          className="size-8 shrink-0 text-muted-foreground/70 hover:bg-muted hover:text-foreground"
+          onClick={onCancel}
+          aria-label="Cancel"
+        >
+          <IconX className="size-3.5" />
+        </Button>
+      </div>
+      <p className="mb-4 text-sm text-muted-foreground">
+        Create a free account to leave comments on this plan.
+      </p>
+      <Button type="button" size="sm" className="w-full" onClick={onSignIn}>
+        Sign in
+      </Button>
+    </div>
+  );
+}
+
 function CommentThreadMessage({
   comment,
   action,
@@ -6047,6 +6140,7 @@ function AnnotationPopover({
   onReply,
   canResolve,
   onStatusChange,
+  onClose,
 }: {
   annotation: RuntimeAnnotation;
   position: InlineCommentPosition;
@@ -6056,7 +6150,9 @@ function AnnotationPopover({
   onReply: (threadRootId: string, message: string) => Promise<void>;
   canResolve: boolean;
   onStatusChange: (status: PlanBundle["comments"][number]["status"]) => void;
+  onClose?: () => void;
 }) {
+  const popoverRef = useRef<HTMLDivElement>(null);
   const [editing, setEditing] = useState(false);
   const [messageDraft, setMessageDraft] = useState<
     Pick<CommentDraft, "message" | "mentions">
@@ -6082,8 +6178,47 @@ function AnnotationPopover({
     if (!canSave) return;
     onSave(messageDraft.message.trim());
   };
+
+  // Escape key closes the popover.
+  useEffect(() => {
+    if (!onClose) return;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.stopPropagation();
+        onClose();
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown, { capture: true });
+    return () =>
+      window.removeEventListener("keydown", handleKeyDown, { capture: true });
+  }, [onClose]);
+
+  // Pointer-down outside the popover closes it. Clicks on comment marker
+  // buttons (data-comment-marker) are intentionally allowed through so switching
+  // to another pin still works without double-clicking.
+  useEffect(() => {
+    if (!onClose) return;
+    const handlePointerDown = (event: MouseEvent) => {
+      const target = event.target as Node | null;
+      if (!target) return;
+      if (popoverRef.current?.contains(target)) return;
+      // Allow clicks on comment marker buttons — they have their own onClick
+      // that will open the new thread.
+      if ((event.target as Element).closest("[data-comment-marker]")) return;
+      onClose();
+    };
+    window.addEventListener("pointerdown", handlePointerDown, {
+      capture: true,
+    });
+    return () =>
+      window.removeEventListener("pointerdown", handlePointerDown, {
+        capture: true,
+      });
+  }, [onClose]);
+
   return (
     <div
+      ref={popoverRef}
       data-plan-interactive
       className="pointer-events-auto absolute z-30 flex max-h-[min(520px,calc(100%-24px))] flex-col overflow-hidden rounded-xl border border-border/80 bg-background/96 shadow-2xl backdrop-blur-xl"
       style={{ left: position.left, top: position.top, width: position.width }}
@@ -6160,6 +6295,18 @@ function AnnotationPopover({
                 {isResolved ? "Reopen thread" : "Mark as resolved"}
               </TooltipContent>
             </Tooltip>
+          )}
+          {onClose && (
+            <Button
+              type="button"
+              size="icon"
+              variant="ghost"
+              className="size-8 shrink-0"
+              onClick={onClose}
+              aria-label="Close comment"
+            >
+              <IconX className="size-4" />
+            </Button>
           )}
         </div>
       </div>
@@ -6244,10 +6391,15 @@ function AnnotationsPanel({
   ) => void;
   onClose: () => void;
 }) {
+  const [filterTab, setFilterTab] = useState<"open" | "resolved">("open");
   const openThreads = threads.filter(
     (thread) => commentThreadStatus(thread) === "open",
   );
-  const visibleThreads = openThreads.length > 0 ? openThreads : threads;
+  const resolvedThreads = threads.filter(
+    (thread) => commentThreadStatus(thread) === "resolved",
+  );
+  const visibleThreads =
+    filterTab === "resolved" ? resolvedThreads : openThreads;
   return (
     <aside
       data-plan-interactive
@@ -6257,9 +6409,6 @@ function AnnotationsPanel({
         <div className="flex min-w-0 items-center gap-2">
           <IconMessageCircle className="size-4 text-muted-foreground" />
           <h2 className="truncate text-sm font-semibold">Comments</h2>
-          <Badge variant="secondary" className="h-5 rounded-md px-1.5">
-            {visibleThreads.length}
-          </Badge>
         </div>
         <Button
           type="button"
@@ -6272,11 +6421,40 @@ function AnnotationsPanel({
           <IconX className="size-4" />
         </Button>
       </div>
+      <div className="shrink-0 border-b border-border/60 px-3 py-2">
+        <Tabs
+          value={filterTab}
+          onValueChange={(v) =>
+            setFilterTab(v === "resolved" ? "resolved" : "open")
+          }
+        >
+          <TabsList className="h-7 gap-0.5 rounded-lg p-0.5">
+            <TabsTrigger value="open" className="h-6 gap-1.5 px-2 text-xs">
+              Open
+              {openThreads.length > 0 && (
+                <span className="rounded-md bg-muted px-1 text-[10px] font-medium text-muted-foreground">
+                  {openThreads.length}
+                </span>
+              )}
+            </TabsTrigger>
+            <TabsTrigger value="resolved" className="h-6 gap-1.5 px-2 text-xs">
+              Resolved
+              {resolvedThreads.length > 0 && (
+                <span className="rounded-md bg-muted px-1 text-[10px] font-medium text-muted-foreground">
+                  {resolvedThreads.length}
+                </span>
+              )}
+            </TabsTrigger>
+          </TabsList>
+        </Tabs>
+      </div>
       <ScrollArea className="min-h-0 flex-1">
         <div className="space-y-3 p-3">
           {visibleThreads.length === 0 ? (
             <p className="rounded-lg border border-dashed border-border p-4 text-sm leading-6 text-muted-foreground">
-              No annotations yet. Click Comment, then click to place one.
+              {filterTab === "resolved"
+                ? "No resolved comments."
+                : "No open comments. Click Comment, then click to place one."}
             </p>
           ) : (
             visibleThreads.map((thread) => {
@@ -6284,7 +6462,10 @@ function AnnotationsPanel({
               return (
                 <article
                   key={thread.id}
-                  className="grid gap-3 rounded-lg border border-border/80 bg-muted/20 p-3"
+                  className={cn(
+                    "grid gap-3 rounded-lg border border-border/80 bg-muted/20 p-3",
+                    isResolved && "opacity-70",
+                  )}
                 >
                   {(thread.anchor || canResolve) && (
                     <div className="flex items-start gap-2">
