@@ -11,6 +11,19 @@ import type {
 
 const SNAPSHOT_INTERVAL_MS = 5 * 60 * 1000;
 
+/**
+ * When `force: true` is set and the latest version for this plan carries the
+ * exact same label and was created within this window, we coalesce rather than
+ * append a new identical-label row.  The earliest snapshot of a burst already
+ * captures the pre-burst state, which is the meaningful restore point.
+ * A different label, or a gap longer than this window, always starts a new row.
+ */
+const BURST_COALESCE_WINDOW_MS = 90 * 1000; // 90 seconds
+
+function canCoalesceBurstLabel(label: string | undefined): label is string {
+  return label !== undefined && !label.startsWith("Before ");
+}
+
 type PlanRow = typeof schema.plans.$inferSelect;
 type SectionRow = typeof schema.planSections.$inferSelect;
 type VersionRow = typeof schema.planVersions.$inferSelect;
@@ -170,6 +183,7 @@ export async function createPlanVersionSnapshot(
   const [latestVersion] = await db
     .select({
       snapshotJson: schema.planVersions.snapshotJson,
+      changeLabel: schema.planVersions.changeLabel,
       createdAt: schema.planVersions.createdAt,
     })
     .from(schema.planVersions)
@@ -182,8 +196,32 @@ export async function createPlanVersionSnapshot(
     .orderBy(desc(schema.planVersions.createdAt))
     .limit(1);
 
+  // Identical-content dedupe: skip regardless of label.
   if (latestVersion?.snapshotJson === snapshotJson) {
     return { created: false, reason: "duplicate" };
+  }
+
+  // Burst coalescing: when force is set (inline-edit path) and the latest
+  // snapshot for this plan already carries the same label and was written
+  // within BURST_COALESCE_WINDOW_MS, skip. The earliest snapshot of the burst
+  // already preserves the pre-burst state; appending more identical-label rows
+  // floods version history without adding restore value.
+  // Explicit safety snapshots ("Before restore", "Before source import", etc.)
+  // are never coalesced: they are created before destructive/import/restore
+  // operations and are the actual restore point.
+  if (
+    options.force &&
+    canCoalesceBurstLabel(options.label) &&
+    latestVersion?.createdAt
+  ) {
+    const latestAt = new Date(latestVersion.createdAt).getTime();
+    if (
+      Number.isFinite(latestAt) &&
+      Date.now() - latestAt < BURST_COALESCE_WINDOW_MS &&
+      latestVersion.changeLabel === options.label
+    ) {
+      return { created: false, reason: "coalesced" };
+    }
   }
 
   if (!options.force && latestVersion?.createdAt) {

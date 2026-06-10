@@ -642,6 +642,14 @@ function displayNameForMention(email: string) {
   return emailToName(email).replace(/\s+/g, " ").trim() || email;
 }
 
+function safeDecodeURIComponent(value: string): string {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
+}
+
 function renderCommentMessage(message: string) {
   const parts: ReactNode[] = [];
   let lastIndex = 0;
@@ -652,7 +660,7 @@ function renderCommentMessage(message: string) {
       parts.push(message.slice(lastIndex, match.index));
     }
     const label = match[1] ?? "";
-    const email = decodeURIComponent(match[2] ?? "");
+    const email = safeDecodeURIComponent(match[2] ?? "");
     parts.push(
       <span
         key={`${email}-${match.index}`}
@@ -2057,6 +2065,47 @@ export function PlansPage() {
   }, [runtimeCommentThreads]);
   const convertPlanToPrototype = useConvertVisualPlanToPrototype();
   const updatePlan = useUpdatePlan();
+  // Stable ref so closures (e.g. message-event handler) always call the latest
+  // mutate without needing to be in a dependency array.
+  const updatePlanMutateRef = useRef(updatePlan.mutate);
+  updatePlanMutateRef.current = updatePlan.mutate;
+
+  /**
+   * Persist question-form answers as an agent-targeted comment so
+   * share-link reviewers' answers are visible to get-plan-feedback even when
+   * no agent is attached on their machine.  Fire-and-forget: the existing
+   * sendToAgentChat fast-path runs first, and this is a best-effort backup.
+   */
+  const persistQuestionFormAnswers = useCallback(
+    (summary: string, planId: string | undefined) => {
+      if (!planId) return;
+      updatePlanMutateRef.current(
+        {
+          planId,
+          comments: [
+            {
+              kind: "comment",
+              status: "open",
+              message: summary,
+              createdBy: "human",
+              authorEmail: collabUser?.email,
+              authorName: collabUser?.name,
+              resolutionTarget: "agent",
+            },
+          ],
+        },
+        {
+          onError: () => {
+            toast.error(
+              "Could not save answers — they were sent to the agent chat only.",
+            );
+          },
+        },
+      );
+    },
+    [collabUser?.email, collabUser?.name],
+  );
+
   const exportPlan = useExportPlan(selectedId);
   const { resolvedTheme, setTheme } = useTheme();
   const isDarkTheme = resolvedTheme !== "light";
@@ -2427,12 +2476,18 @@ export function PlansPage() {
           context: planAgentContext,
           message: buildQuestionFormRevisionMessage(data.summary),
         });
+        persistQuestionFormAnswers(data.summary, bundle?.plan.id);
         toast.success("Sent answers to the agent");
       }
     };
     window.addEventListener("message", onMessage);
     return () => window.removeEventListener("message", onMessage);
-  }, [getPositionFromAnchor, planAgentContext]);
+  }, [
+    bundle?.plan.id,
+    getPositionFromAnchor,
+    persistQuestionFormAnswers,
+    planAgentContext,
+  ]);
 
   const closeInlineComment = () => {
     setAnnotateMode(false);
@@ -3279,6 +3334,27 @@ export function PlansPage() {
                   }
                 }}
               >
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="pointer-events-auto size-8"
+                      onClick={() => {
+                        if (session) {
+                          navigate("/plans");
+                        } else {
+                          window.location.href = appPath("/plans");
+                        }
+                      }}
+                      aria-label="All plans"
+                    >
+                      <IconArrowLeft className="size-4" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>All plans</TooltipContent>
+                </Tooltip>
                 <PlanShareControl
                   planId={bundle.plan.id}
                   planTitle={bundle.plan.title}
@@ -3670,6 +3746,7 @@ export function PlansPage() {
                           context: planAgentContext,
                           message: buildQuestionFormRevisionMessage(summary),
                         });
+                        persistQuestionFormAnswers(summary, bundle.plan.id);
                         toast.success("Sent answers to the agent");
                       }}
                     />

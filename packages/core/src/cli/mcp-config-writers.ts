@@ -112,13 +112,32 @@ export function configPathFor(
 // JSON client configs (Claude Code, Claude Code CLI, Cowork)
 // ---------------------------------------------------------------------------
 
+/**
+ * Read and parse a JSON config file.
+ *
+ * - Missing file → returns `{}` (fresh config).
+ * - Empty file   → returns `{}` (treat as not-yet-initialised).
+ * - Non-empty file that fails to parse → throws a descriptive Error so the
+ *   caller can surface it to the user instead of silently overwriting the
+ *   file with only the new MCP entry (data-loss hazard).
+ */
 function readJsonFile(file: string): Record<string, any> {
+  let raw: string;
   try {
-    const raw = fs.readFileSync(file, "utf-8");
+    raw = fs.readFileSync(file, "utf-8");
+  } catch {
+    // Missing (ENOENT) or unreadable file — treat as empty.
+    return {};
+  }
+  if (!raw.trim()) return {};
+  try {
     const parsed = JSON.parse(raw);
     return parsed && typeof parsed === "object" ? parsed : {};
   } catch {
-    return {};
+    throw new Error(
+      `Cannot parse JSON config file: ${file}\n` +
+        `Fix or move the file and re-run. The file has not been modified.`,
+    );
   }
 }
 

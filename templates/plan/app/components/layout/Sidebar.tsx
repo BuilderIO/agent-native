@@ -65,7 +65,8 @@ function PlansSidebarSection({ collapsed }: { collapsed: boolean }) {
   const plansQuery = usePlans({
     enabled: Boolean(session),
   });
-  const selectedPlanId = location.pathname.match(/^\/plans\/([^/]+)/)?.[1];
+  const selectedPlanId = (location.pathname.match(/^\/plans\/([^/]+)/) ??
+    location.pathname.match(/^\/recaps\/([^/]+)/))?.[1];
   const plans = useMemo(() => plansQuery.data ?? [], [plansQuery.data]);
 
   if (collapsed) return null;
@@ -224,7 +225,8 @@ export function Sidebar({
           const isActive =
             item.href === "/plans"
               ? location.pathname === "/" ||
-                location.pathname.startsWith("/plans")
+                location.pathname.startsWith("/plans") ||
+                location.pathname.startsWith("/recaps")
               : location.pathname.startsWith(item.href);
           return (
             <div key={item.href}>
