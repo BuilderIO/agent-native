@@ -13,10 +13,13 @@ import {
   updateCodeAgentRunRecord,
 } from "./code-agent-runs.js";
 import {
+  buildStructuredMessagesFromEvents,
   classifyCodeAgentCommandPermission,
   executeCodeAgentRun,
   executePendingCodeAgentApproval,
 } from "./code-agent-executor.js";
+import type { CodeAgentTranscriptEvent } from "./code-agent-runs.js";
+import type { EngineContentPart } from "../agent/engine/types.js";
 import type { AgentEngine } from "../agent/engine/types.js";
 
 const tmpRoots: string[] = [];
@@ -381,3 +384,235 @@ function useTempCodeAgentsHome(): string {
   process.env.AGENT_NATIVE_CODE_AGENTS_HOME = path.join(root, "code-agents");
   return root;
 }
+
+// ---------------------------------------------------------------------------
+// buildStructuredMessagesFromEvents unit tests
+// ---------------------------------------------------------------------------
+
+describe("buildStructuredMessagesFromEvents", () => {
+  function event(
+    id: string,
+    kind: CodeAgentTranscriptEvent["kind"],
+    message: string,
+    metadata?: Record<string, unknown>,
+  ): CodeAgentTranscriptEvent {
+    return {
+      schemaVersion: 1,
+      id,
+      runId: "run-test",
+      kind,
+      message,
+      createdAt: `2026-06-01T00:00:${id.length.toString().padStart(2, "0")}.000Z`,
+      metadata,
+    };
+  }
+
+  it("maps a user event to a user message", () => {
+    const events = [event("e1", "user", "hello world")];
+    const msgs = buildStructuredMessagesFromEvents(events);
+    expect(msgs).toHaveLength(1);
+    expect(msgs[0]).toMatchObject({ role: "user" });
+    const textPart = msgs[0].content.find(
+      (p: EngineContentPart) => p.type === "text",
+    );
+    expect(textPart).toMatchObject({ type: "text", text: "hello world" });
+  });
+
+  it("maps a system assistant event to an assistant message", () => {
+    const events = [
+      event("e1", "user", "fix it"),
+      event("e2", "system", "I fixed it.", { role: "assistant" }),
+    ];
+    const msgs = buildStructuredMessagesFromEvents(events);
+    expect(msgs).toHaveLength(2);
+    expect(msgs[0].role).toBe("user");
+    expect(msgs[1].role).toBe("assistant");
+    const textPart = msgs[1].content.find(
+      (p: EngineContentPart) => p.type === "text",
+    );
+    expect(textPart).toMatchObject({ type: "text", text: "I fixed it." });
+  });
+
+  it("pairs tool_start and tool_done into assistant tool-call + user tool-result", () => {
+    const events = [
+      event("e1", "user", "run tests"),
+      event("e2", "status", "Running bash.", {
+        type: "tool_start",
+        tool: "bash",
+        input: { command: "pnpm test" },
+      }),
+      event("e3", "status", "Finished bash.", {
+        type: "tool_done",
+        tool: "bash",
+        result: "All tests passed.",
+      }),
+      event("e4", "system", "Tests passed.", { role: "assistant" }),
+    ];
+
+    const msgs = buildStructuredMessagesFromEvents(events);
+
+    // user, assistant (tool-call), user (tool-result), assistant (text)
+    expect(msgs).toHaveLength(4);
+    expect(msgs[0].role).toBe("user");
+
+    expect(msgs[1].role).toBe("assistant");
+    const toolCallPart = msgs[1].content.find(
+      (p: EngineContentPart) => p.type === "tool-call",
+    );
+    expect(toolCallPart).toMatchObject({
+      type: "tool-call",
+      name: "bash",
+    });
+    expect((toolCallPart as { id: string }).id).toMatch(/^tc-/);
+
+    expect(msgs[2].role).toBe("user");
+    const toolResultPart = msgs[2].content.find(
+      (p: EngineContentPart) => p.type === "tool-result",
+    );
+    expect(toolResultPart).toMatchObject({
+      type: "tool-result",
+      toolName: "bash",
+      content: "All tests passed.",
+    });
+    // toolCallId must match the id from the tool-call part
+    expect((toolResultPart as { toolCallId: string }).toolCallId).toBe(
+      (toolCallPart as { id: string }).id,
+    );
+
+    expect(msgs[3].role).toBe("assistant");
+  });
+
+  it("merges consecutive same-role messages", () => {
+    const events = [
+      event("e1", "user", "first"),
+      event("e2", "user", "second"),
+    ];
+    const msgs = buildStructuredMessagesFromEvents(events);
+    expect(msgs).toHaveLength(1);
+    expect(msgs[0].role).toBe("user");
+    expect(msgs[0].content).toHaveLength(2);
+  });
+
+  it("excludes thinking events from history", () => {
+    const events = [
+      event("e1", "user", "think"),
+      event("e2", "status", "Reasoning about the problem...", {
+        type: "thinking",
+      }),
+      event("e3", "system", "Answer.", { role: "assistant" }),
+    ];
+    const msgs = buildStructuredMessagesFromEvents(events);
+    expect(msgs).toHaveLength(2);
+    expect(msgs[0].role).toBe("user");
+    expect(msgs[1].role).toBe("assistant");
+    // No content from thinking event
+    const allText = msgs
+      .flatMap((m) => m.content)
+      .filter((p: EngineContentPart) => p.type === "text")
+      .map((p) => (p as { text: string }).text)
+      .join(" ");
+    expect(allText).not.toContain("Reasoning about");
+  });
+
+  it("falls back to plain text for orphaned tool_done with no matching start", () => {
+    const events = [
+      event("e1", "status", "Finished bash.", {
+        type: "tool_done",
+        tool: "bash",
+        result: "output here",
+      }),
+    ];
+    const msgs = buildStructuredMessagesFromEvents(events);
+    expect(msgs).toHaveLength(1);
+    expect(msgs[0].role).toBe("user");
+    const textPart = msgs[0].content.find(
+      (p: EngineContentPart) => p.type === "text",
+    );
+    expect((textPart as { text: string }).text).toContain("output here");
+  });
+
+  it("truncates long tool results to the result cap", () => {
+    const longResult = "x".repeat(100_000);
+    const events = [
+      event("e1", "status", "Running read.", {
+        type: "tool_start",
+        tool: "read",
+        input: { path: "big.ts" },
+      }),
+      event("e2", "status", "Finished read.", {
+        type: "tool_done",
+        tool: "read",
+        result: longResult,
+      }),
+    ];
+    const msgs = buildStructuredMessagesFromEvents(events);
+    const toolResultPart = msgs
+      .flatMap((m) => m.content)
+      .find((p: EngineContentPart) => p.type === "tool-result");
+    expect((toolResultPart as { content: string }).content.length).toBeLessThan(
+      longResult.length,
+    );
+  });
+
+  it("handles malformed events without throwing", () => {
+    // Events with missing or null metadata
+    const events = [
+      event("e1", "status", "no type in metadata", {}),
+      event("e2", "status", "null metadata"),
+    ];
+    expect(() => buildStructuredMessagesFromEvents(events)).not.toThrow();
+    const msgs = buildStructuredMessagesFromEvents(events);
+    // Neither event maps to a user/assistant message
+    expect(msgs).toHaveLength(0);
+  });
+
+  it("handles multiple tool call/result pairs in sequence", () => {
+    const events = [
+      event("e1", "user", "do two things"),
+      event("e2", "status", "Running bash.", {
+        type: "tool_start",
+        tool: "bash",
+        input: { command: "ls" },
+      }),
+      event("e3", "status", "Finished bash.", {
+        type: "tool_done",
+        tool: "bash",
+        result: "file1.ts",
+      }),
+      event("e4", "status", "Running read.", {
+        type: "tool_start",
+        tool: "read",
+        input: { path: "file1.ts" },
+      }),
+      event("e5", "status", "Finished read.", {
+        type: "tool_done",
+        tool: "read",
+        result: "const x = 1;",
+      }),
+    ];
+
+    const msgs = buildStructuredMessagesFromEvents(events);
+    // user, assistant(bash call), user(bash result), assistant(read call), user(read result)
+    expect(msgs).toHaveLength(5);
+
+    const bashCall = msgs[1].content.find(
+      (p: EngineContentPart) => p.type === "tool-call",
+    ) as { id: string; name: string } | undefined;
+    const bashResult = msgs[2].content.find(
+      (p: EngineContentPart) => p.type === "tool-result",
+    ) as { toolCallId: string; toolName: string; content: string } | undefined;
+    expect(bashCall?.name).toBe("bash");
+    expect(bashResult?.toolName).toBe("bash");
+    expect(bashResult?.content).toContain("file1.ts");
+    expect(bashResult?.toolCallId).toBe(bashCall?.id);
+
+    const readCall = msgs[3].content.find(
+      (p: EngineContentPart) => p.type === "tool-call",
+    ) as { id: string; name: string } | undefined;
+    const readResult = msgs[4].content.find(
+      (p: EngineContentPart) => p.type === "tool-result",
+    ) as { toolCallId: string; toolName: string } | undefined;
+    expect(readCall?.name).toBe("read");
+    expect(readResult?.toolCallId).toBe(readCall?.id);
+  });
+});

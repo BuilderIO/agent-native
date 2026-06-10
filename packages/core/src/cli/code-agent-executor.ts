@@ -1003,7 +1003,8 @@ function buildCodeAgentMessages(
  * that the matching tool_done can reference it.  Old events that lack tool/input
  * metadata fall back gracefully to text content.
  */
-function buildStructuredMessagesFromEvents(
+/** @internal exported for unit tests */
+export function buildStructuredMessagesFromEvents(
   events: readonly import("./code-agent-runs.js").CodeAgentTranscriptEvent[],
 ): EngineMessage[] {
   // We accumulate into a flat list and then merge adjacent same-role messages.
