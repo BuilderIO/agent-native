@@ -270,12 +270,38 @@ jobs:
           set -uo pipefail
           PLAN_URL=""
           if [ -f recap-url.txt ]; then PLAN_URL="$(tr -d '\r\n' < recap-url.txt | tr -d ' ')"; fi
-          # recap-url.txt is agent-written → untrusted. Only proceed if its origin
-          # matches the trusted plan app, so a prompt-injected URL can't drive the
-          # screenshot/comment steps. Mismatch or empty → ok=false.
-          OK=$(PLAN_URL="$PLAN_URL" node -e 'try{const u=new URL(process.env.PLAN_URL||"");const t=new URL(process.env.PLAN_RECAP_APP_URL||"https://plan.agent-native.com");process.stdout.write(u.origin===t.origin?"true":"false")}catch{process.stdout.write("false")}')
-          if [ "$OK" = "true" ]; then
-            echo "plan_url=$PLAN_URL" >> "$GITHUB_OUTPUT"; echo "ok=true" >> "$GITHUB_OUTPUT"
+          # recap-url.txt is agent-written -> untrusted. Rebuild a canonical
+          # recap URL from the trusted app base and a strictly validated plan id,
+          # preserving path-prefixed self-hosted mounts.
+          CANONICAL_URL=$(PLAN_URL="$PLAN_URL" node <<'NODE'
+          try {
+            const raw = process.env.PLAN_URL || "";
+            const trusted = new URL(process.env.PLAN_RECAP_APP_URL || "https://plan.agent-native.com");
+            const parsed = new URL(raw, trusted);
+            if (parsed.origin !== trusted.origin) {
+              process.exit(0);
+            }
+
+            const base = trusted.pathname.replace(/\/$/, "");
+            let path = parsed.pathname;
+            if (base) {
+              if (path !== base && !path.startsWith(`${base}/`)) {
+                process.exit(0);
+              }
+              path = path.slice(base.length) || "/";
+            }
+
+            const match = path.match(/^\/(?:plans|recaps)\/([A-Za-z0-9_-]+)\/?$/);
+            if (match) {
+              process.stdout.write(`${trusted.origin}${base}/recaps/${match[1]}`);
+            }
+          } catch {
+            process.exit(0);
+          }
+          NODE
+          )
+          if [ -n "$CANONICAL_URL" ]; then
+            echo "plan_url=$CANONICAL_URL" >> "$GITHUB_OUTPUT"; echo "ok=true" >> "$GITHUB_OUTPUT"
           else
             echo "plan_url=" >> "$GITHUB_OUTPUT"; echo "ok=false" >> "$GITHUB_OUTPUT"
           fi
