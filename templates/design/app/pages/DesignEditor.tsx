@@ -44,6 +44,9 @@ import {
   isEmbedAuthActive,
   sendToAgentChat,
   useReconciledState,
+  usePresence,
+  useFollowUser,
+  LiveCursorOverlay,
   type CollabUser,
   type PromptComposerSubmitOptions,
 } from "@agent-native/core/client";
@@ -1188,6 +1191,83 @@ export default function DesignEditor() {
     }
   }, [awareness, activeFileId]);
 
+  // Presence kit — others + setPresence for cursor/selection broadcasting.
+  const { others, setPresence } = usePresence(
+    awareness,
+    ydoc?.clientID ?? null,
+  );
+
+  // Canvas container ref for cursor overlay coordinate mapping.
+  const canvasContainerRef = useRef<HTMLDivElement>(null);
+
+  // Broadcast pointer position (normalized to canvas container) and
+  // selected element selector so peers can see where the user is working.
+  const handleCanvasPointerMove = useCallback(
+    (e: React.PointerEvent<HTMLDivElement>) => {
+      const container = canvasContainerRef.current;
+      if (!container) return;
+      const rect = container.getBoundingClientRect();
+      if (rect.width === 0 || rect.height === 0) return;
+      setPresence({
+        cursor: {
+          x: Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width)),
+          y: Math.max(0, Math.min(1, (e.clientY - rect.top) / rect.height)),
+        },
+      });
+    },
+    [setPresence],
+  );
+
+  // Broadcast selected element selector via presence so peers can render a ring.
+  useEffect(() => {
+    setPresence({ selection: selectedElement?.selector ?? null });
+  }, [selectedElement?.selector, setPresence]);
+
+  // Broadcast viewport (active file + zoom) via presence for follow mode.
+  useEffect(() => {
+    setPresence({
+      viewport: { fileId: activeFileId ?? undefined, zoom },
+    });
+  }, [activeFileId, zoom, setPresence]);
+
+  // Follow mode — clicking an avatar in the toolbar follows that participant.
+  const [followingEmail, setFollowingEmail] = useState<string | null>(null);
+  const followingId = useMemo(() => {
+    if (!followingEmail) return null;
+    const lc = followingEmail.trim().toLowerCase();
+    const match = others.find((o) => o.user.email.trim().toLowerCase() === lc);
+    return match?.clientId ?? null;
+  }, [followingEmail, others]);
+
+  const { stopFollowing } = useFollowUser({
+    others,
+    followingId,
+    viewportKey: "viewport",
+    onViewport: (vp) => {
+      if (vp.fileId && vp.fileId !== activeFileId) {
+        setActiveFileId(vp.fileId);
+      }
+      if (typeof vp.zoom === "number") {
+        setZoom(vp.zoom);
+      }
+    },
+  });
+
+  const handleAvatarClick = useCallback(
+    (user: CollabUser | null) => {
+      const email = user?.email ?? "agent@system";
+      const lc = email.trim().toLowerCase();
+      if (followingEmail?.trim().toLowerCase() === lc) {
+        // Already following — stop.
+        setFollowingEmail(null);
+        stopFollowing();
+      } else {
+        setFollowingEmail(email);
+      }
+    },
+    [followingEmail, stopFollowing],
+  );
+
   // Resolve the content to render: prefer collab content, fall back to DB
   const activeContent = collabContent ?? activeFile?.content ?? "";
   const pageStyles = useMemo(
@@ -2258,6 +2338,8 @@ ${serializedHtml}
                   activeUsers={activeUsers}
                   agentActive={agentActive}
                   currentUserEmail={session?.email}
+                  onAvatarClick={handleAvatarClick}
+                  followingEmail={followingEmail}
                 />
                 <NotificationsBell />
                 <AgentToggleButton />
@@ -2383,44 +2465,59 @@ ${serializedHtml}
                 }}
               />
             ) : (
-              <DesignCanvas
-                content={activeContent}
-                zoom={zoom}
-                onZoomChange={setZoom}
-                deviceFrame={deviceFrame}
-                editMode={mode === "edit"}
-                onElementSelect={handleElementSelect}
-                onElementHover={handleElementHover}
-                tweakValues={cssVarValues}
-                drawMode={drawMode}
-                onExitDrawMode={() => {
-                  setDrawMode(false);
-                  setMode("comment");
-                }}
-                pinMode={pinMode}
-                onExitPinMode={() => setPinMode(false)}
-                designId={id}
-                designTitle={design?.title}
-                commentContextId={`${id}:${activeFile.id}`}
-                commentContextLabel={`${design?.title ?? "Design"} / ${prettyScreenName(activeFile.filename)}`}
-                onPrototypeNavigate={(screen) => {
-                  if (!screen) return;
-                  const norm = (s: string) =>
-                    s
-                      .replace(/^\.?\//, "")
-                      .replace(/\.html?$/i, "")
-                      .toLowerCase();
-                  const target = norm(screen);
-                  if (!target) return;
-                  // Exact (normalized) filename match only — a substring match
-                  // could send "board" to "dashboard.html".
-                  const match = files.find((f) => norm(f.filename) === target);
-                  if (match) {
-                    setViewMode("single");
-                    setActiveFileId(match.id);
-                  }
-                }}
-              />
+              <div
+                ref={canvasContainerRef}
+                className="relative flex-1 h-full overflow-hidden"
+                onPointerMove={handleCanvasPointerMove}
+              >
+                <DesignCanvas
+                  content={activeContent}
+                  zoom={zoom}
+                  onZoomChange={setZoom}
+                  deviceFrame={deviceFrame}
+                  editMode={mode === "edit"}
+                  onElementSelect={handleElementSelect}
+                  onElementHover={handleElementHover}
+                  tweakValues={cssVarValues}
+                  drawMode={drawMode}
+                  onExitDrawMode={() => {
+                    setDrawMode(false);
+                    setMode("comment");
+                  }}
+                  pinMode={pinMode}
+                  onExitPinMode={() => setPinMode(false)}
+                  designId={id}
+                  designTitle={design?.title}
+                  commentContextId={`${id}:${activeFile.id}`}
+                  commentContextLabel={`${design?.title ?? "Design"} / ${prettyScreenName(activeFile.filename)}`}
+                  onPrototypeNavigate={(screen) => {
+                    if (!screen) return;
+                    const norm = (s: string) =>
+                      s
+                        .replace(/^\.?\//, "")
+                        .replace(/\.html?$/i, "")
+                        .toLowerCase();
+                    const target = norm(screen);
+                    if (!target) return;
+                    // Exact (normalized) filename match only — a substring match
+                    // could send "board" to "dashboard.html".
+                    const match = files.find(
+                      (f) => norm(f.filename) === target,
+                    );
+                    if (match) {
+                      setViewMode("single");
+                      setActiveFileId(match.id);
+                    }
+                  }}
+                />
+                {/* Presence: live cursor overlay for remote participants */}
+                {others.length > 0 && (
+                  <LiveCursorOverlay
+                    others={others}
+                    containerRef={canvasContainerRef}
+                  />
+                )}
+              </div>
             )
           ) : (
             <div className="flex-1 flex items-center justify-center">
