@@ -86,7 +86,7 @@ export default function BrandKitsIndexPage() {
             className="gap-2"
           >
             <IconPhotoPlus className="h-4 w-4" />
-            New brand kit
+            New Brand Kit
           </Button>
         </div>
 
