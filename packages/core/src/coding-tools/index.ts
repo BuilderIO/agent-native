@@ -1,5 +1,6 @@
 import { spawn } from "node:child_process";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 
 import type { ActionEntry } from "../agent/production-agent.js";
@@ -94,7 +95,7 @@ interface EditOperation {
   replaceAll: boolean;
 }
 
-const DEFAULT_COMMAND_TIMEOUT_MS = 30_000;
+const DEFAULT_COMMAND_TIMEOUT_MS = 120_000;
 const DEFAULT_MAX_OUTPUT_CHARS = 50_000;
 const DEFAULT_MAX_FILE_READ_CHARS = 120_000;
 
@@ -125,7 +126,7 @@ export function createCodingToolRegistry(
     bash: {
       tool: {
         description:
-          "Run a shell command. This is the tool for file discovery, directory listing, and search: reach first for `rg <pattern>` and `rg --files`, which are much faster than `grep` or `find`. Also use it to run tests, builds, package scripts, `git status`/`git diff`, and project CLIs. Use the read tool to view a single file's contents; use bash for everything else. Very long output is truncated.",
+          'Run a shell command. This is the tool for file discovery, directory listing, and search: reach first for `rg <pattern>` and `rg --files`, which are much faster than `grep` or `find`. Also use it to run tests, builds, package scripts, `git status`/`git diff`, and project CLIs. Use the read tool to view a single file\'s contents; use bash for everything else. Very long output is truncated.\n\nSet `background` to "true" to spawn the command detached and return immediately. The tool returns the PID and a log file path; the process writes its stdout/stderr to that log file. You can read or tail the log file to check progress, and run `kill <pid>` to stop it. Background processes are not killed when the timeout expires.',
         parameters: {
           type: "object",
           properties: {
@@ -141,11 +142,17 @@ export function createCodingToolRegistry(
             timeoutMs: {
               type: "string",
               description:
-                "Timeout in milliseconds; the command is killed if it exceeds this. Defaults to 30000, capped at 600000.",
+                "Timeout in milliseconds; the command is killed if it exceeds this. Defaults to 120000, capped at 600000. Ignored when background is true.",
             },
             stdin: {
               type: "string",
               description: "Text to pipe into the command's stdin.",
+            },
+            background: {
+              type: "string",
+              description:
+                'Set to "true" to spawn the command detached in the background and return immediately. Returns the process PID and a log file path where stdout/stderr are written.',
+              enum: ["true", "false"],
             },
           },
           required: ["command"],
@@ -168,6 +175,9 @@ export function createCodingToolRegistry(
             ? Math.min(requestedTimeoutMs, 10 * 60_000)
             : commandTimeoutMs;
 
+        const isBackground =
+          stringArg(args.background).toLowerCase() === "true";
+
         const policyResult =
           (await options.beforeBash?.({
             command,
@@ -181,6 +191,16 @@ export function createCodingToolRegistry(
           command,
           cwd: commandCwd,
         });
+
+        if (isBackground) {
+          const result = spawnBackgroundCommand(command, commandCwd);
+          options.onToolMetadata?.("bash", "done", {
+            toolKind: "bash",
+            command,
+            cwd: commandCwd,
+          });
+          return result;
+        }
 
         const result = await runCodingCommand(command, commandCwd, timeoutMs, {
           stdin: stringArg(args.stdin) || undefined,
@@ -465,6 +485,42 @@ export async function runCodingCommand(
   });
   clearTimeout(timer);
   return { code, stdout, stderr, timedOut, durationMs: Date.now() - startMs };
+}
+
+/**
+ * Spawn a command detached in the background.  Returns immediately with the
+ * process PID and a temporary log file path where stdout + stderr are written.
+ *
+ * The child process is intentionally detached from the parent's process group
+ * (`detached: true`, `unref()`) so it continues running after the tool call
+ * completes and is not killed if the agent run exits.  The approval classifier
+ * still applies before this function is reached (see `beforeBash` in the
+ * calling registry).
+ */
+export function spawnBackgroundCommand(command: string, cwd: string): string {
+  const logFile = path.join(
+    os.tmpdir(),
+    `an-bg-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.log`,
+  );
+
+  const logFd = fs.openSync(logFile, "a");
+  const child = spawn(command, {
+    cwd,
+    shell: true,
+    stdio: ["ignore", logFd, logFd],
+    detached: true,
+    env: { ...process.env, FORCE_COLOR: "0" },
+  });
+  child.unref();
+  fs.closeSync(logFd);
+
+  const pid = child.pid ?? 0;
+  return [
+    `Background process spawned.`,
+    `pid: ${pid}`,
+    `log: ${logFile}`,
+    `Read the log file to check progress. Run \`kill ${pid}\` to stop the process.`,
+  ].join("\n");
 }
 
 export function formatCodingCommandResult(
