@@ -10,6 +10,7 @@ import {
 } from "./use-sidebar-collapsed";
 
 const URL = "/_agent-native/application-state/sidebarCollapsed";
+const QUERY_KEY = ["app-state", "sidebarCollapsed"] as const;
 
 function makeWrapper() {
   const client = new QueryClient({
@@ -17,8 +18,9 @@ function makeWrapper() {
       queries: { retry: false },
     },
   });
-  return ({ children }: { children: ReactNode }) =>
+  const Wrapper = ({ children }: { children: ReactNode }) =>
     createElement(QueryClientProvider, { client }, children);
+  return { client, Wrapper };
 }
 
 interface MockResponse {
@@ -73,7 +75,7 @@ describe("useSidebarCollapsed", () => {
   it("defaults to collapsed=false when the key is missing (404)", async () => {
     stubFetch({ ok: false, status: 404, body: "" });
     const { result } = renderHook(() => useSidebarCollapsed(), {
-      wrapper: makeWrapper(),
+      wrapper: makeWrapper().Wrapper,
     });
     await waitFor(() => expect(result.current.collapsed).toBe(false));
   });
@@ -81,7 +83,7 @@ describe("useSidebarCollapsed", () => {
   it("defaults to collapsed=false on an empty body", async () => {
     stubFetch({ ok: true, body: "" });
     const { result } = renderHook(() => useSidebarCollapsed(), {
-      wrapper: makeWrapper(),
+      wrapper: makeWrapper().Wrapper,
     });
     await waitFor(() => expect(result.current.collapsed).toBe(false));
   });
@@ -89,7 +91,7 @@ describe("useSidebarCollapsed", () => {
   it("defaults to collapsed=false on malformed JSON", async () => {
     stubFetch({ ok: true, body: "{not json" });
     const { result } = renderHook(() => useSidebarCollapsed(), {
-      wrapper: makeWrapper(),
+      wrapper: makeWrapper().Wrapper,
     });
     await waitFor(() => expect(result.current.collapsed).toBe(false));
   });
@@ -97,7 +99,7 @@ describe("useSidebarCollapsed", () => {
   it("reads collapsed=true from a stored value", async () => {
     stubFetch({ ok: true, body: JSON.stringify({ collapsed: true }) });
     const { result } = renderHook(() => useSidebarCollapsed(), {
-      wrapper: makeWrapper(),
+      wrapper: makeWrapper().Wrapper,
     });
     await waitFor(() => expect(result.current.collapsed).toBe(true));
   });
@@ -126,7 +128,7 @@ describe("useSidebarCollapsed", () => {
     });
 
     const { result } = renderHook(() => useSidebarCollapsed(), {
-      wrapper: makeWrapper(),
+      wrapper: makeWrapper().Wrapper,
     });
 
     expect(result.current.collapsed).toBe(true);
@@ -138,7 +140,7 @@ describe("useSidebarCollapsed", () => {
   it("setCollapsed(true) updates state optimistically and PUTs the new value", async () => {
     const stub = stubFetch({ ok: true, body: "" });
     const { result } = renderHook(() => useSidebarCollapsed(), {
-      wrapper: makeWrapper(),
+      wrapper: makeWrapper().Wrapper,
     });
     await waitFor(() => expect(result.current.collapsed).toBe(false));
 
@@ -163,8 +165,9 @@ describe("useSidebarCollapsed", () => {
       ok: true,
       body: JSON.stringify({ collapsed: false }),
     });
+    const { client, Wrapper } = makeWrapper();
     const { result } = renderHook(() => useSidebarCollapsed(), {
-      wrapper: makeWrapper(),
+      wrapper: Wrapper,
     });
     await waitFor(() => expect(result.current.collapsed).toBe(false));
 
@@ -172,10 +175,15 @@ describe("useSidebarCollapsed", () => {
     // the user toggles. Without cancelQueries, this stale response would
     // arrive after the optimistic write and snap collapsed back to false.
     let releaseSlowGet: (() => void) | null = null;
+    let markSlowGetStarted: (() => void) | null = null;
+    const slowGetStarted = new Promise<void>((resolve) => {
+      markSlowGetStarted = resolve;
+    });
     const slowGet = new Promise<void>((resolve) => {
       releaseSlowGet = resolve;
     });
     stub.fetchMock.mockImplementationOnce(async () => {
+      markSlowGetStarted!();
       await slowGet;
       return new Response(JSON.stringify({ collapsed: false }), {
         status: 200,
@@ -184,12 +192,14 @@ describe("useSidebarCollapsed", () => {
 
     // Manually invalidate to kick off the slow GET (simulates a poll firing).
     // Then immediately call setCollapsed(true).
+    void client.invalidateQueries({ queryKey: QUERY_KEY });
+    await slowGetStarted;
     await act(async () => {
       await result.current.setCollapsed(true);
     });
 
     // Optimistic update committed.
-    expect(result.current.collapsed).toBe(true);
+    await waitFor(() => expect(result.current.collapsed).toBe(true));
 
     // Now release the stale poll — it should NOT overwrite the optimistic
     // value because cancelQueries aborted it.
@@ -204,7 +214,7 @@ describe("useSidebarCollapsed", () => {
       body: JSON.stringify({ collapsed: false }),
     });
     const { result } = renderHook(() => useSidebarCollapsed(), {
-      wrapper: makeWrapper(),
+      wrapper: makeWrapper().Wrapper,
     });
     await waitFor(() => expect(result.current.collapsed).toBe(false));
 
