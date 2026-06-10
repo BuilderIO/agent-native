@@ -36,6 +36,7 @@ const DEFAULT_BRIDGE_TOOLS = new Set([
   "provider-api-docs",
   "provider-api-catalog",
   "web-request",
+  "workspace-files",
 ]);
 
 export interface RunCodeOptions {
@@ -77,6 +78,10 @@ export function createRunCodeEntry(
         "  - `webFetch(url, init?)` — outbound HTTP request via the web-request action.",
         "    Returns `{ status, body }` where body is the response text.",
         "    Example: `const { body } = await webFetch('https://api.example.com/data');`",
+        "  - `workspaceRead(path, opts?)` — read a workspace file by path. Returns content string or null. opts: { offset?, maxChars? }.",
+        "  - `workspaceWrite(path, content, contentType?)` — create or overwrite a workspace file.",
+        "  - `workspaceAppend(path, content)` — append text to a workspace file.",
+        "  - `workspaceList(prefix?)` — list workspace files, returns [{ path, sizeBytes, contentType, updatedAt }].",
         "Print results with `console.log()`; only stdout+stderr are returned.",
         "Timeout defaults to 120 s (max 600 s). Output is truncated to 50 000 chars by default (max 200 000).",
       ].join(" "),
@@ -454,6 +459,63 @@ async function webFetch(url, init = {}) {
     };
   }
   return { status: 0, body: rawResult };
+}
+
+/**
+ * Read a workspace file by path. Returns the file content as a string, or null if not found.
+ * Supports optional offset and maxChars for paging large files.
+ */
+async function workspaceRead(path, opts = {}) {
+  const rawResult = await _bridgeCall("workspace-files", {
+    action: "read",
+    path,
+    ...(opts.offset !== undefined ? { offset: opts.offset } : {}),
+    ...(opts.maxChars !== undefined ? { maxChars: opts.maxChars } : {}),
+  });
+  let parsed;
+  try { parsed = typeof rawResult === "string" ? JSON.parse(rawResult) : rawResult; } catch { return rawResult; }
+  if (parsed && parsed.ok === false) return null;
+  return parsed && typeof parsed.content === "string" ? parsed.content : null;
+}
+
+/**
+ * Write (create or overwrite) a workspace file.
+ * \`content\` must be a string. Returns metadata { path, sizeBytes, updatedAt }.
+ */
+async function workspaceWrite(path, content, contentType = "text/plain") {
+  const rawResult = await _bridgeCall("workspace-files", {
+    action: "write",
+    path,
+    content: typeof content === "string" ? content : JSON.stringify(content),
+    contentType,
+  });
+  try { return typeof rawResult === "string" ? JSON.parse(rawResult) : rawResult; } catch { return rawResult; }
+}
+
+/**
+ * Append text to a workspace file (creates if absent).
+ */
+async function workspaceAppend(path, content) {
+  const rawResult = await _bridgeCall("workspace-files", {
+    action: "append",
+    path,
+    content: typeof content === "string" ? content : JSON.stringify(content),
+  });
+  try { return typeof rawResult === "string" ? JSON.parse(rawResult) : rawResult; } catch { return rawResult; }
+}
+
+/**
+ * List workspace files, optionally filtered by path prefix.
+ * Returns an array of { path, sizeBytes, contentType, updatedAt }.
+ */
+async function workspaceList(prefix) {
+  const rawResult = await _bridgeCall("workspace-files", {
+    action: "list",
+    ...(prefix ? { path: prefix } : {}),
+  });
+  let parsed;
+  try { parsed = typeof rawResult === "string" ? JSON.parse(rawResult) : rawResult; } catch { return []; }
+  return parsed && Array.isArray(parsed.files) ? parsed.files : [];
 }
 
 // Run user code

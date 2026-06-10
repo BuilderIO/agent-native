@@ -3715,6 +3715,12 @@ export function createAgentChatPlugin(
           getCredentialContext: () => getCredCtx(),
         });
       } catch {}
+      let workspaceFilesTool: Record<string, ActionEntry> = {};
+      try {
+        const { createWorkspaceFilesTool } =
+          await import("../workspace-files/tool.js");
+        workspaceFilesTool = createWorkspaceFilesTool();
+      } catch {}
       let toolActions: Record<string, ActionEntry> = {};
       try {
         const { createExtensionActionEntries } =
@@ -4869,6 +4875,7 @@ export function createAgentChatPlugin(
         ...progressTools,
         ...fetchTool,
         ...webSearchTool,
+        ...workspaceFilesTool,
         ...toolActions,
         ...browserSessionTools,
         ...browserTools,
@@ -5130,6 +5137,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                   ...progressTools,
                   ...fetchTool,
                   ...webSearchTool,
+                  ...workspaceFilesTool,
                   ...toolActions,
                   ...browserSessionTools,
                   ...browserTools,

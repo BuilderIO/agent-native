@@ -71,6 +71,29 @@ export type ProviderApiMethod =
   | "DELETE"
   | "HEAD";
 
+/** Cursor-pagination config for fetchAllPages. */
+export interface FetchAllPagesConfig {
+  /**
+   * Dot-path into the JSON response body where the next-page cursor lives,
+   * e.g. "meta.next_cursor" or "pagination.next_page_token".
+   */
+  cursorPath: string;
+  /**
+   * Query parameter name to pass the cursor on the next request,
+   * e.g. "cursor" or "page_token".
+   */
+  cursorParam: string;
+  /**
+   * Dot-path to the items array in each response body.
+   * When omitted, the whole response body is appended to the items array.
+   */
+  itemsPath?: string;
+  /**
+   * Maximum number of pages to fetch. Default 10, max 50.
+   */
+  maxPages?: number;
+}
+
 export interface ProviderApiRequestArgs {
   provider: ProviderApiId | string;
   method?: ProviderApiMethod;
@@ -83,6 +106,18 @@ export interface ProviderApiRequestArgs {
   maxBytes?: number;
   connectionId?: string | null;
   accountId?: string | null;
+  /**
+   * When set, write the full response body to this workspace file path instead
+   * of returning it in context. Returns a compact summary with status, bytes,
+   * path, and a preview. Allows up to 20 MB (vs the normal 4 MB context limit).
+   */
+  saveToFile?: string;
+  /**
+   * When set, automatically paginate by cursor until the cursor field is empty
+   * or maxPages is reached. Accumulates items from itemsPath (or whole bodies)
+   * across all pages. Combine with saveToFile to write the full dataset.
+   */
+  fetchAllPages?: FetchAllPagesConfig;
 }
 
 export type ProviderApiAuthKind =
@@ -227,6 +262,10 @@ const DEFAULT_TIMEOUT_MS = 30_000;
 const MAX_TIMEOUT_MS = 120_000;
 const DEFAULT_MAX_BYTES = 1024 * 1024;
 const MAX_MAX_BYTES = 4 * 1024 * 1024;
+/** When saveToFile is used, allow a much larger per-page response since the
+ *  content won't enter the model's context window. */
+const SAVE_TO_FILE_MAX_BYTES = 20 * 1024 * 1024; // 20 MB
+const FETCH_ALL_PAGES_MAX = 50;
 const HEADER_NAME_RE = /^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/;
 const BLOCKED_OUTBOUND_HEADERS = new Set([
   "connection",
@@ -1058,15 +1097,104 @@ export async function executeProviderApiRequest(
     ...(isPlainRecord(extraHeaders) ? extraHeaders : {}),
     ...auth.headers,
   });
+
+  // Allow a much larger maxBytes ceiling when writing to a workspace file.
+  const effectiveMaxBytes = args.saveToFile
+    ? SAVE_TO_FILE_MAX_BYTES
+    : clampMaxBytes(args.maxBytes);
+
+  // --- fetchAllPages mode ---
+  if (args.fetchAllPages) {
+    const pageCfg = args.fetchAllPages;
+    const { items, pageCount, lastStatus, lastContentType } =
+      await fetchAllPages(pageCfg, async (extraQuery) => {
+        const queryWithCursor = extraQuery
+          ? mergeQueryObjects(
+              substituteUnknown(args.query, placeholders),
+              extraQuery,
+            )
+          : substituteUnknown(args.query, placeholders);
+        const pageUrl = buildProviderUrl({
+          config,
+          baseUrl,
+          rawPath: substituteString(args.path, placeholders),
+          query: queryWithCursor,
+        });
+        const pageBody = prepareBody(
+          substituteUnknown(args.body, placeholders),
+          { ...headers },
+        );
+        const resp = await fetchWithTimeout(pageUrl.href, {
+          method,
+          headers,
+          body: pageBody,
+          maxBytes: effectiveMaxBytes,
+          timeoutMs: clampTimeout(args.timeoutMs),
+          secretValues: auth.secretValues,
+        });
+        return {
+          text:
+            resp.text ??
+            (resp.json !== undefined ? JSON.stringify(resp.json) : ""),
+          contentType: resp.contentType,
+          status: resp.status,
+          ok: resp.ok,
+        };
+      });
+
+    const allItemsJson = JSON.stringify(items, null, 2);
+    const metadata = {
+      provider: { id: config.id, label: config.label },
+      pagesRead: pageCount,
+      totalItems: Array.isArray(items) ? items.length : 0,
+      lastStatus,
+    };
+
+    if (args.saveToFile) {
+      const saved = (await handleSaveToFile(
+        args.saveToFile,
+        allItemsJson,
+        lastContentType ?? "application/json",
+        lastStatus,
+      )) as Record<string, unknown>;
+      return { ...metadata, ...saved };
+    }
+
+    return { ...metadata, items };
+  }
+
+  // --- Single request ---
   const body = prepareBody(substituteUnknown(args.body, placeholders), headers);
   const response = await fetchWithTimeout(url.href, {
     method,
     headers,
     body,
-    maxBytes: clampMaxBytes(args.maxBytes),
+    maxBytes: effectiveMaxBytes,
     timeoutMs: clampTimeout(args.timeoutMs),
     secretValues: auth.secretValues,
   });
+
+  // saveToFile: write full body to workspace file and return compact summary.
+  if (args.saveToFile) {
+    const rawText =
+      response.text ??
+      (response.json !== undefined ? JSON.stringify(response.json) : "");
+    const saved = (await handleSaveToFile(
+      args.saveToFile,
+      rawText,
+      response.contentType,
+      response.status,
+    )) as Record<string, unknown>;
+    return {
+      provider: { id: config.id, label: config.label },
+      request: {
+        method,
+        url: redactString(url.href, auth.secretValues),
+        path: redactString(`${url.pathname}${url.search}`, auth.secretValues),
+      },
+      ...saved,
+    };
+  }
 
   return {
     provider: {
@@ -1146,14 +1274,43 @@ async function executeCustomProviderApiRequest(
   });
   const body = prepareBody(args.body, headers);
 
+  const effectiveMaxBytes = args.saveToFile
+    ? SAVE_TO_FILE_MAX_BYTES
+    : clampMaxBytes(args.maxBytes);
+
   const response = await fetchWithTimeout(url.href, {
     method,
     headers,
     body,
-    maxBytes: clampMaxBytes(args.maxBytes),
+    maxBytes: effectiveMaxBytes,
     timeoutMs: clampTimeout(args.timeoutMs),
     secretValues: auth.secretValues,
   });
+
+  if (args.saveToFile) {
+    const rawText =
+      response.text ??
+      (response.json !== undefined ? JSON.stringify(response.json) : "");
+    const saved = (await handleSaveToFile(
+      args.saveToFile,
+      rawText,
+      response.contentType,
+      response.status,
+    )) as Record<string, unknown>;
+    return {
+      provider: {
+        id: customConfig.id,
+        label: customConfig.label,
+        custom: true,
+      },
+      request: {
+        method,
+        url: redactString(url.href, auth.secretValues),
+        path: redactString(`${url.pathname}${url.search}`, auth.secretValues),
+      },
+      ...saved,
+    };
+  }
 
   return {
     provider: {
@@ -2289,6 +2446,24 @@ function redactString(text: string, secretValues: string[]): string {
   return output;
 }
 
+function mergeQueryObjects(
+  base: unknown,
+  extra: Record<string, string>,
+): unknown {
+  if (!base) return extra;
+  if (typeof base === "string") {
+    const params = new URLSearchParams(base.replace(/^\?/, ""));
+    for (const [key, value] of Object.entries(extra)) {
+      params.set(key, value);
+    }
+    return params.toString();
+  }
+  if (typeof base === "object" && !Array.isArray(base)) {
+    return { ...(base as Record<string, unknown>), ...extra };
+  }
+  return extra;
+}
+
 function clampTimeout(timeoutMs: number | undefined): number {
   if (!Number.isFinite(timeoutMs)) return DEFAULT_TIMEOUT_MS;
   return Math.max(1_000, Math.min(MAX_TIMEOUT_MS, Math.floor(timeoutMs!)));
@@ -2297,6 +2472,134 @@ function clampTimeout(timeoutMs: number | undefined): number {
 function clampMaxBytes(maxBytes: number | undefined): number {
   if (!Number.isFinite(maxBytes)) return DEFAULT_MAX_BYTES;
   return Math.max(1_000, Math.min(MAX_MAX_BYTES, Math.floor(maxBytes!)));
+}
+
+/** Resolve a dot-path from a parsed JSON object, e.g. "meta.next_cursor". */
+function dotGet(obj: unknown, path: string): unknown {
+  if (!path) return obj;
+  let current: unknown = obj;
+  for (const key of path.split(".")) {
+    if (current === null || typeof current !== "object") return undefined;
+    current = (current as Record<string, unknown>)[key];
+  }
+  return current;
+}
+
+/**
+ * Handle saveToFile: write the full provider-api response body to a workspace
+ * file and return a compact summary.
+ */
+async function handleSaveToFile(
+  filePath: string,
+  responseText: string,
+  contentType: string | null,
+  status: number,
+): Promise<unknown> {
+  const { writeWorkspaceFile } = await import("../workspace-files/store.js");
+  const { getRequestOrgId, getRequestUserEmail } =
+    await import("../server/request-context.js");
+
+  const orgId = getRequestOrgId();
+  const email = getRequestUserEmail();
+  const scope = orgId
+    ? { scope: "org" as const, scopeId: orgId }
+    : email
+      ? { scope: "user" as const, scopeId: email }
+      : null;
+
+  if (!scope) {
+    throw new Error(
+      "saveToFile requires an authenticated request context (no user email or orgId found).",
+    );
+  }
+
+  const mimeType = contentType?.split(";")[0].trim() ?? "text/plain";
+  await writeWorkspaceFile(scope, filePath, responseText, mimeType);
+  const bytes = Buffer.byteLength(responseText, "utf8");
+  const preview = responseText.slice(0, 2000);
+  return {
+    savedToFile: true,
+    savedTo: filePath,
+    status,
+    bytes,
+    contentType: mimeType,
+    preview: preview.length < responseText.length ? `${preview}…` : preview,
+  };
+}
+
+/**
+ * Execute paginated requests, accumulating items across pages.
+ * Returns the accumulated items array and the last response for metadata.
+ */
+async function fetchAllPages(
+  config: FetchAllPagesConfig,
+  executeOnePage: (extraQuery?: Record<string, string>) => Promise<{
+    text: string;
+    contentType: string | null;
+    status: number;
+    ok: boolean;
+  }>,
+): Promise<{
+  items: unknown[];
+  pageCount: number;
+  lastStatus: number;
+  lastContentType: string | null;
+}> {
+  const maxPages = Math.min(
+    Number.isFinite(config.maxPages) && config.maxPages! > 0
+      ? config.maxPages!
+      : 10,
+    FETCH_ALL_PAGES_MAX,
+  );
+
+  const items: unknown[] = [];
+  let cursor: string | undefined;
+  let pageCount = 0;
+  let lastStatus = 0;
+  let lastContentType: string | null = null;
+
+  while (pageCount < maxPages) {
+    const extraQuery: Record<string, string> = {};
+    if (cursor) extraQuery[config.cursorParam] = cursor;
+
+    const page = await executeOnePage(pageCount > 0 ? extraQuery : undefined);
+    lastStatus = page.status;
+    lastContentType = page.contentType;
+    pageCount++;
+
+    let body: unknown;
+    try {
+      body = JSON.parse(page.text);
+    } catch {
+      body = page.text;
+    }
+
+    // Extract items
+    if (config.itemsPath) {
+      const extracted = dotGet(body, config.itemsPath);
+      if (Array.isArray(extracted)) {
+        items.push(...extracted);
+      } else if (extracted !== undefined) {
+        items.push(extracted);
+      }
+    } else {
+      items.push(body);
+    }
+
+    // Extract next cursor
+    const nextCursor = dotGet(body, config.cursorPath);
+    if (
+      !nextCursor ||
+      nextCursor === "" ||
+      nextCursor === null ||
+      nextCursor === cursor
+    ) {
+      break;
+    }
+    cursor = String(nextCursor);
+  }
+
+  return { items, pageCount, lastStatus, lastContentType };
 }
 
 function fingerprint(value: string): string {

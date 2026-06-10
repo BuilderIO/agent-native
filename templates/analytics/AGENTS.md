@@ -159,5 +159,10 @@ Read the relevant skill before deeper work:
   narrow for arbitrary authenticated provider HTTP calls and API docs lookup.
 - `dashboard-management` for dashboard/chart creation and layout.
 - `adhoc-analysis` for one-off analytical answers and batch fan-out pattern.
+- `analysis-workspace` for large-scale fusion analyses: durable scratch files,
+  chunked batch processing with per-item memos, `run-code` aggregation,
+  `saveToFile`/`fetchAllPages` for large API pulls, and multi-turn synthesis.
+  Read this before any analysis spanning 30+ items or requiring data larger
+  than one context window.
 - `storing-data`, `real-time-sync`, `security`, `actions`, and
   `frontend-design` for framework work.
