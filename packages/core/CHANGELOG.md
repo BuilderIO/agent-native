@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.48.2
+
+### Patch Changes
+
+- 16f934d: Restore the legacy `/_agent-native/poll-events` SSE route alongside the current `/_agent-native/events` route so collaboration clients and cached bundles keep receiving live updates.
+
 ## 0.48.1
 
 ### Patch Changes
