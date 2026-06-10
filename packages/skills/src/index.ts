@@ -15,7 +15,7 @@ export interface SkillEntry {
 }
 
 export interface InstallSkillsOptions {
-  source: string;
+  source?: string;
   skillNames?: string[];
   clients?: SkillClient[];
   scope?: SkillScope;
@@ -44,6 +44,7 @@ export interface InstallSkillsResult {
 interface ParsedArgs {
   command: "add" | "list" | "help";
   source?: string;
+  copySource: boolean;
   skillNames: string[];
   clients: SkillClient[];
   scope: SkillScope;
@@ -60,8 +61,8 @@ interface ParsedArgs {
 const HELP = `@agent-native/skills
 
 Usage:
-  npx @agent-native/skills@latest add BuilderIO/skills
-  npx @agent-native/skills@latest add <github-owner/repo|github-url|local-dir> [options]
+  npx @agent-native/skills add [options]
+  npx @agent-native/skills list
 
 Options:
   --skill <name>              Install only this skill (repeatable)
@@ -79,12 +80,13 @@ Options:
   --json                      Print the result as JSON
 
 Examples:
-  npx @agent-native/skills@latest add BuilderIO/skills
-  npx @agent-native/skills@latest add BuilderIO/skills --skill quick-recap --client codex --scope project --update-instructions
-  npx @agent-native/skills@latest add ./dist/app-skill/adapters/vercel-skills --skill assets -a codex -y
+  npx @agent-native/skills add
+  npx @agent-native/skills add --skill quick-recap
+  npx @agent-native/skills add --skill visual-recap --with-github-action
 `;
 
 const CLIENTS: SkillClient[] = ["codex", "claude-code"];
+const DEFAULT_SKILLS_SOURCE = "BuilderIO/skills";
 const MANAGED_INSTRUCTIONS_START = "<!-- BEGIN @agent-native/skills -->";
 const MANAGED_INSTRUCTIONS_END = "<!-- END @agent-native/skills -->";
 
@@ -134,6 +136,7 @@ export function parseSkillsCliArgs(argv: string[]): ParsedArgs {
     else if (arg === "--project") out.scope = "project";
     else if (arg === "--copy") {
       // Compatibility with the open `skills` CLI. This installer always copies.
+      out.copySource = true;
     } else if (arg === "-y" || arg === "--yes") out.yes = true;
     else if (arg === "--dry-run") out.dryRun = true;
     else if (arg === "--json") out.printJson = true;
@@ -145,6 +148,15 @@ export function parseSkillsCliArgs(argv: string[]): ParsedArgs {
     else if (arg.startsWith("-")) throw new Error(`Unknown option: ${arg}`);
     else if (!out.source) out.source = arg;
     else throw new Error(`Unexpected argument: ${arg}`);
+  }
+
+  if (out.source && out.source !== DEFAULT_SKILLS_SOURCE && !out.copySource) {
+    throw new Error(
+      `Unexpected argument: ${out.source}. @agent-native/skills installs the BuilderIO skills collection; use --skill <name> to choose a skill.`,
+    );
+  }
+  if (out.source === DEFAULT_SKILLS_SOURCE && !out.copySource) {
+    out.source = undefined;
   }
 
   out.skillNames = unique(out.skillNames.map(normalizeSkillName));
@@ -162,14 +174,10 @@ export async function runSkillsCli(
     process.stdout.write(`${HELP}\n`);
     return;
   }
-  if (!parsed.source) {
-    throw new Error(
-      "Missing skill source. Example: npx @agent-native/skills@latest add BuilderIO/skills",
-    );
-  }
+  const skillSource = parsed.source ?? DEFAULT_SKILLS_SOURCE;
 
   if (parsed.command === "list") {
-    const source = await materializeSource(parsed.source);
+    const source = await materializeSource(skillSource);
     try {
       const skills = discoverSkills(source.root);
       if (parsed.printJson) {
@@ -188,7 +196,7 @@ export async function runSkillsCli(
   }
 
   const result = await installSkills({
-    source: parsed.source,
+    source: skillSource,
     skillNames: parsed.skillNames,
     clients: parsed.clients,
     scope: parsed.scope,
@@ -233,12 +241,13 @@ export async function installSkills(
 ): Promise<InstallSkillsResult> {
   const baseDir = path.resolve(options.baseDir ?? process.cwd());
   const log = options.log ?? (() => {});
-  const source = await materializeSource(options.source);
+  const sourceInput = options.source ?? DEFAULT_SKILLS_SOURCE;
+  const source = await materializeSource(sourceInput);
   try {
     const entries = discoverSkills(source.root);
     if (entries.length === 0) {
       throw new Error(
-        `No skills found in ${options.source}. Expected skills/*/SKILL.md.`,
+        `No skills found in ${sourceInput}. Expected skills/*/SKILL.md.`,
       );
     }
 
@@ -294,6 +303,7 @@ export async function installSkills(
 function defaultArgs(command: ParsedArgs["command"]): ParsedArgs {
   return {
     command,
+    copySource: false,
     skillNames: [],
     clients: [],
     scope: "user",

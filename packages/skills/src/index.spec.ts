@@ -30,12 +30,40 @@ function writeSkill(repo: string, name: string, body = "Body"): void {
 }
 
 describe("@agent-native/skills", () => {
+  it("parses the no-source BuilderIO skills install command", () => {
+    const parsed = parseSkillsCliArgs([
+      "add",
+      "--skill",
+      "quick-recap",
+      "--client",
+      "codex",
+      "--scope",
+      "project",
+      "--update-instructions",
+    ]);
+
+    expect(parsed.source).toBeUndefined();
+    expect(parsed).toMatchObject({
+      command: "add",
+      skillNames: ["quick-recap"],
+      clients: ["codex"],
+      scope: "project",
+      updateInstructions: true,
+    });
+  });
+
+  it("rejects public source arguments outside the BuilderIO skills collection", () => {
+    expect(() => parseSkillsCliArgs(["add", "someone/else"])).toThrow(
+      "installs the BuilderIO skills collection",
+    );
+  });
+
   it("parses compatibility flags used by agent-native core", () => {
     expect(
       parseSkillsCliArgs([
         "add",
-        "./repo",
         "--copy",
+        "./repo",
         "--skill",
         "quick-recap",
         "-a",
@@ -45,6 +73,7 @@ describe("@agent-native/skills", () => {
       ]),
     ).toMatchObject({
       command: "add",
+      copySource: true,
       source: "./repo",
       skillNames: ["quick-recap"],
       clients: ["codex"],

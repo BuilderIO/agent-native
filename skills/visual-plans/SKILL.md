@@ -347,7 +347,7 @@ authenticates it in the same step (a one-time browser sign-in at setup — this 
 intended), so the first tool call does not hit an OAuth wall:
 
 ```bash
-agent-native skills add visual-plan
+npx @agent-native/skills add --skill visual-plan
 ```
 
 After that, `/visual-plan` and `/visual-recap` are the two installed slash

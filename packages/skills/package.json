@@ -2,7 +2,7 @@
   "name": "@agent-native/skills",
   "version": "0.0.0",
   "type": "module",
-  "description": "Install Codex and Claude Code skills from local folders or public GitHub skill repos.",
+  "description": "Install BuilderIO skills for Codex and Claude Code.",
   "license": "MIT",
   "repository": {
     "type": "git",
