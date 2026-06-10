@@ -229,7 +229,8 @@ jobs:
           # between label application and a new push cannot swap the diff.
           FETCHED_SHA="$(git rev-parse refs/recap/fork-head)"
           if [ "$FETCHED_SHA" != "$HEAD_SHA" ]; then
-            echo "WARNING: fetched fork head $FETCHED_SHA != event HEAD_SHA $HEAD_SHA — using fetched SHA for diff"
+            echo "FATAL: fetched fork head $FETCHED_SHA != event HEAD_SHA $HEAD_SHA — aborting to prevent TOCTOU execution of unreviewed commits"
+            exit 1
           fi
           # Export the two endpoints for the collect-diff step.
           echo "FORK_BASE_SHA=${BASE_SHA}" >> "$GITHUB_ENV"
@@ -307,9 +308,10 @@ jobs:
             SCAN_JSON='{"suppressed":true,"reason":"secret scan failed to run; failing closed"}'
           fi
           {
-            echo 'json<<__RECAP_SCAN_EOF__'
+            SCAN_DELIM="$(openssl rand -hex 16)"
+            echo "json<<${SCAN_DELIM}"
             echo "$SCAN_JSON"
-            echo '__RECAP_SCAN_EOF__'
+            echo "${SCAN_DELIM}"
           } >> "$GITHUB_OUTPUT"
           SUPPRESSED=$(node -e 'try{process.stdout.write(JSON.parse(process.argv[1]).suppressed?"true":"false")}catch{process.stdout.write("true")}' "$SCAN_JSON")
           echo "suppressed=$SUPPRESSED" >> "$GITHUB_OUTPUT"

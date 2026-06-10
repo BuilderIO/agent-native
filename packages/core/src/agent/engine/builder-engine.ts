@@ -178,16 +178,20 @@ class BuilderEngine implements AgentEngine {
     // content block so the entire conversation prefix is cached.
     let cachedMessages = messages;
     if (cacheEnabled && messages.length > 0) {
-      cachedMessages = [...messages];
-      const lastIdx = cachedMessages.length - 1;
-      const lastMsg = { ...cachedMessages[lastIdx] } as any;
-      if (Array.isArray(lastMsg.content) && lastMsg.content.length > 0) {
-        const content = [...lastMsg.content];
-        const lastBlock = { ...content[content.length - 1] } as any;
-        lastBlock.cache_control = { type: "ephemeral" };
-        content[content.length - 1] = lastBlock;
-        lastMsg.content = content;
-        cachedMessages[lastIdx] = lastMsg;
+      const lastUserIdx = [...messages].findLastIndex(
+        (m: any) => m.role === "user",
+      );
+      if (lastUserIdx >= 0) {
+        cachedMessages = [...messages];
+        const lastMsg = { ...cachedMessages[lastUserIdx] } as any;
+        if (Array.isArray(lastMsg.content) && lastMsg.content.length > 0) {
+          const content = [...lastMsg.content];
+          const lastBlock = { ...content[content.length - 1] } as any;
+          lastBlock.cache_control = { type: "ephemeral" };
+          content[content.length - 1] = lastBlock;
+          lastMsg.content = content;
+          cachedMessages[lastUserIdx] = lastMsg;
+        }
       }
     }
 

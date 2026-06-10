@@ -166,7 +166,7 @@ export class DownscalingImageAttachmentAdapter implements AttachmentAdapter {
 
   public async add(state: { file: File }): Promise<PendingAttachment> {
     return {
-      id: state.file.name,
+      id: crypto.randomUUID(),
       type: "image",
       name: state.file.name,
       contentType: state.file.type,

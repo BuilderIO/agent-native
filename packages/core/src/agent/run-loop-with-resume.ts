@@ -107,6 +107,9 @@ export async function runAgentLoopDirectWithSoftTimeout(
       return usage;
     } catch (err) {
       if (softTimedOut && !upstreamSignal.aborted) {
+        // Clear partial text the client received before the abort so the
+        // resumed model doesn't re-emit it and produce duplicated output.
+        opts.send({ type: "clear" });
         appendAgentLoopContinuation(opts.messages, "run_timeout");
         continue;
       }
