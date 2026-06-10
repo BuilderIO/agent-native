@@ -19,29 +19,13 @@ import {
 } from "./types";
 import { formulaValueText, isComputedPropertyType } from "@shared/properties";
 import { calendarDateKey, propertyDateValue } from "./calendar-timeline";
-import type { ContentDatabaseOpenPagesIn } from "@shared/api";
+export {
+  normalizeClientDatabaseFilterMode,
+  normalizeClientDatabaseRowDensity,
+  normalizeClientDatabaseOpenPagesIn,
+} from "./view-config";
 
 export { type DatabaseConditionMoveDirection };
-
-// Re-export normalizers needed by view-config.ts (placed here to avoid circular deps).
-export function normalizeClientDatabaseFilterMode(
-  value: unknown,
-): DatabaseFilterMode {
-  return value === "or" ? "or" : "and";
-}
-
-export function normalizeClientDatabaseRowDensity(
-  value: unknown,
-): DatabaseRowDensity {
-  if (value === "compact" || value === "comfortable") return value;
-  return "default";
-}
-
-export function normalizeClientDatabaseOpenPagesIn(
-  value: unknown,
-): ContentDatabaseOpenPagesIn {
-  return value === "full_page" ? "full_page" : "preview";
-}
 
 const DATABASE_QUICK_FILTER_OPERATORS: FilterOperator[] = [
   "is_empty",
