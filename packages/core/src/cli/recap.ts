@@ -7,6 +7,10 @@
  * diff and publishes the plan via the plan MCP tools. These subcommands are the
  * thin, deterministic glue around that:
  *
+ *   gate          The security boundary: decide whether the recap runs at all
+ *                 (skipping drafts, forks, bots, missing secrets, an invalid
+ *                 agent/model, and PRs that touch recap-control files) and which
+ *                 normalized backend agent to use.
  *   collect-diff  Collect the bounded base...head diff (excluding lockfiles,
  *                 build output, snapshots), cap it at ~600KB, and classify the
  *                 huge/tiny flags.
@@ -938,6 +942,272 @@ async function runComment(
 }
 
 /* -------------------------------------------------------------------------- */
+/* Gate — the security boundary that decides whether the recap runs at all     */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Minimal shape of the `pull_request` object from a GitHub `pull_request` event
+ * payload that the gate inspects. Everything is optional so a malformed/partial
+ * payload degrades to "skip" rather than throwing.
+ */
+export interface RecapGatePullRequest {
+  number?: number;
+  draft?: boolean;
+  head?: { repo?: { full_name?: string | null } | null } | null;
+  user?: { login?: string | null; type?: string | null } | null;
+}
+
+export interface RecapGateInput {
+  /** The `pull_request` payload object, or null when absent. */
+  pr: RecapGatePullRequest | null;
+  /** GITHUB_REPOSITORY ("owner/name"). */
+  repository: string | undefined;
+  /** PLAN_RECAP_TOKEN present. */
+  hasPlan: boolean;
+  /** ANTHROPIC_API_KEY present. */
+  hasAnthropic: boolean;
+  /** OPENAI_API_KEY present. */
+  hasOpenai: boolean;
+  /** Raw VISUAL_RECAP_AGENT value (may be undefined / mis-cased). */
+  agentRaw: string | undefined;
+  /** Raw VISUAL_RECAP_MODEL value (may be undefined). */
+  model: string | undefined;
+  /** Filenames changed by the PR (for the self-modifying guard). */
+  changedFiles: string[];
+}
+
+/**
+ * Files that, if a PR touches them, would let that PR rewrite what the trusted
+ * recap job runs (the workflow itself, the skill, the local CLI, or any agent
+ * config the runner loads) — so the whole job is skipped, not just the agent
+ * step, to keep untrusted PR code away from the publish/API secrets.
+ */
+export function isRecapSensitivePath(p: string): boolean {
+  return (
+    p === ".github/workflows/pr-visual-recap.yml" ||
+    /(^|\/)skills\/visual-(recap|plan|plans)\//.test(p) ||
+    /(^|\/)\.claude\//.test(p) ||
+    /(^|\/)CLAUDE\.md$/.test(p) ||
+    /(^|\/)AGENTS\.md$/.test(p) ||
+    /(^|\/)\.mcp\.json$/.test(p) ||
+    /(^|\/)packages\/core\//.test(p)
+  );
+}
+
+/**
+ * The pure gate decision: given the PR payload, secret-presence flags, the
+ * configured backend/model, and the PR's changed files, decide whether the
+ * visual recap should run, which (normalized) agent to use, and — when skipped —
+ * the human-readable reasons. This is the security boundary; it replicates the
+ * inline github-script gate bit-for-bit. No I/O so it can be unit-tested.
+ */
+export function evaluateRecapGate(input: RecapGateInput): {
+  run: boolean;
+  agent: string;
+  reasons: string[];
+} {
+  const { pr } = input;
+  const reasons: string[] = [];
+
+  if (!pr) reasons.push("no pull_request payload");
+  if (pr && pr.draft) reasons.push("draft PR");
+
+  // Fork PRs: head repo differs from this repo. Plain pull_request runs fork
+  // code with NO secrets, so publishing would fail anyway — skip.
+  const headRepo = pr && pr.head && pr.head.repo && pr.head.repo.full_name;
+  if (pr && headRepo && headRepo !== input.repository) {
+    reasons.push(`fork PR (${headRepo})`);
+  }
+
+  // Skip noisy automated authors.
+  const login = ((pr && pr.user && pr.user.login) || "").toLowerCase();
+  const botAuthors = [
+    "dependabot[bot]",
+    "dependabot",
+    "renovate[bot]",
+    "renovate",
+  ];
+  if (botAuthors.includes(login)) reasons.push(`bot author (${login})`);
+  if (pr && pr.user && pr.user.type === "Bot")
+    reasons.push("bot author (type=Bot)");
+
+  // Publish secret must be configured — otherwise this is a no-op so the
+  // workflow can be merged before secrets exist.
+  if (!input.hasPlan) reasons.push("PLAN_RECAP_TOKEN not configured");
+
+  // The chosen backend's API key must be present. Normalize the agent value once
+  // here and validate it: an unknown or mis-cased value (e.g. "Claude", "gpt")
+  // must NOT silently pass the gate and then match neither agent step.
+  const agent = (input.agentRaw || "claude").toLowerCase();
+  if (agent !== "claude" && agent !== "codex") {
+    reasons.push(
+      `unsupported VISUAL_RECAP_AGENT "${input.agentRaw}" (expected "claude" or "codex")`,
+    );
+  } else if (agent === "codex") {
+    if (!input.hasOpenai)
+      reasons.push("OPENAI_API_KEY not configured (codex backend)");
+  } else {
+    if (!input.hasAnthropic)
+      reasons.push("ANTHROPIC_API_KEY not configured (claude backend)");
+  }
+
+  // Validate VISUAL_RECAP_MODEL if set — an unchecked value could be injected by
+  // a repo settings writer and passed straight to the agent CLI.
+  const model = input.model || "";
+  if (model && !/^[a-zA-Z0-9._-]{1,80}$/.test(model)) {
+    reasons.push(
+      "invalid VISUAL_RECAP_MODEL value (must match [a-zA-Z0-9._-]{1,80})",
+    );
+  }
+
+  // Self-modifying guard: if this PR changes the workflow, the
+  // visual-recap/visual-plan skill, the local CLI (packages/core), or any agent
+  // config the runner would load (.claude/**, CLAUDE.md, .mcp.json), skip the
+  // ENTIRE job — not just the agent — so a PR can never rewrite what runs
+  // (skill, hooks, settings, CLI) and exfiltrate the publish/API secrets.
+  const hits = input.changedFiles.filter(isRecapSensitivePath);
+  if (hits.length) {
+    reasons.push(
+      `PR modifies recap-control files (${hits.slice(0, 3).join(", ")}${
+        hits.length > 3 ? ", …" : ""
+      }) — skipping so untrusted PR code never runs with secrets`,
+    );
+  }
+
+  return { run: reasons.length === 0, agent, reasons };
+}
+
+/**
+ * Page through `GET /repos/{owner}/{repo}/pulls/{n}/files`, following the
+ * `Link` rel="next" header, and return every changed filename. Uses the same
+ * api.github.com base + auth headers as `githubRequest`; reads the `Link`
+ * header (which `githubRequest` discards) so it can paginate. Throws on any
+ * non-2xx so the caller can fail CLOSED — exactly like the inline gate did when
+ * `github.paginate(listFiles)` rejected.
+ */
+async function listPullRequestFiles(input: {
+  token: string;
+  owner: string;
+  repo: string;
+  pull: number;
+}): Promise<string[]> {
+  const filenames: string[] = [];
+  let url:
+    | string
+    | null = `https://api.github.com/repos/${encodeURIComponent(
+    input.owner,
+  )}/${encodeURIComponent(input.repo)}/pulls/${input.pull}/files?per_page=100`;
+  while (url) {
+    const res = await fetch(url, {
+      headers: {
+        accept: "application/vnd.github+json",
+        authorization: `Bearer ${input.token}`,
+        "x-github-api-version": "2022-11-28",
+      },
+    });
+    if (!res.ok) {
+      const detail = await res.text().catch(() => "");
+      throw new Error(
+        `GitHub request failed ${res.status} ${res.statusText}: ${detail.slice(0, 500)}`,
+      );
+    }
+    const page = (await res.json()) as Array<{ filename?: string }>;
+    for (const f of page) {
+      if (typeof f.filename === "string") filenames.push(f.filename);
+    }
+    // Follow Link rel="next" for the next page; absent => done.
+    const link = res.headers.get("link") || "";
+    const next = link.match(/<([^>]+)>\s*;\s*rel="next"/);
+    url = next ? next[1] : null;
+  }
+  return filenames;
+}
+
+/**
+ * `recap gate` — the I/O wrapper around `evaluateRecapGate`. Reads the PR
+ * payload from GITHUB_EVENT_PATH, the secret-presence/agent/model signals from
+ * the environment, and the PR's changed files from the GitHub REST API (paged,
+ * with GH_TOKEN/GITHUB_TOKEN). Writes `run` + the normalized `agent` to
+ * $GITHUB_OUTPUT and logs the run/skip summary. Fails CLOSED on any file-list
+ * error so an untrusted PR can never run the agent with secrets.
+ */
+async function runGate(): Promise<void> {
+  const repository = process.env.GITHUB_REPOSITORY;
+
+  // Read the pull_request object out of the event payload, tolerating a
+  // missing/unreadable file (degrades to the "no pull_request payload" reason).
+  let pr: RecapGatePullRequest | null = null;
+  const eventPath = process.env.GITHUB_EVENT_PATH;
+  if (eventPath) {
+    try {
+      const payload = JSON.parse(fs.readFileSync(eventPath, "utf8"));
+      pr = payload && payload.pull_request ? payload.pull_request : null;
+    } catch {
+      pr = null;
+    }
+  }
+
+  // Fetch the PR's changed files for the self-modifying guard. Any error here is
+  // turned into a skip reason (fail-closed), mirroring the inline gate's
+  // try/catch around github.paginate(listFiles).
+  const changedFiles: string[] = [];
+  let fileListError: string | null = null;
+  if (pr && typeof pr.number === "number" && repository) {
+    const token = process.env.GH_TOKEN || process.env.GITHUB_TOKEN || "";
+    try {
+      const { owner, repo } = repoParts(repository);
+      const files = await listPullRequestFiles({
+        token,
+        owner,
+        repo,
+        pull: pr.number,
+      });
+      changedFiles.push(...files);
+    } catch (e) {
+      fileListError = e instanceof Error ? e.message : String(e);
+    }
+  }
+
+  const decision = evaluateRecapGate({
+    pr,
+    repository,
+    hasPlan: process.env.HAS_PLAN === "true",
+    hasAnthropic: process.env.HAS_ANTHROPIC === "true",
+    hasOpenai: process.env.HAS_OPENAI === "true",
+    agentRaw: process.env.AGENT,
+    model: process.env.VISUAL_RECAP_MODEL,
+    changedFiles,
+  });
+
+  // If listing PR files failed, append the same fail-closed reason the inline
+  // gate used and force run=false.
+  let { run } = decision;
+  const reasons = [...decision.reasons];
+  if (fileListError !== null) {
+    reasons.push(
+      `could not list PR files for the self-modifying guard (${fileListError}); skipping to be safe`,
+    );
+    run = false;
+  }
+
+  // Preserve the github-script contract: write `run` + the NORMALIZED agent to
+  // $GITHUB_OUTPUT so the recap job's step conditions match case-insensitively.
+  const githubOutput = process.env.GITHUB_OUTPUT;
+  if (githubOutput) {
+    fs.appendFileSync(
+      githubOutput,
+      `run=${run ? "true" : "false"}\nagent=${decision.agent}\n`,
+    );
+  }
+  // eslint-disable-next-line no-console
+  console.log(
+    run
+      ? `Visual recap will run (${decision.agent}).`
+      : `Visual recap skipped: ${reasons.join("; ")}`,
+  );
+}
+
+/* -------------------------------------------------------------------------- */
 /* Usage capture — parse the agent's own token usage and attach it to the plan */
 /* -------------------------------------------------------------------------- */
 
@@ -1142,6 +1412,18 @@ Usage:
   agent-native recap shot --url <planUrl> [--token <planToken>] [--app-url <url>] [--out recap.png]
   agent-native recap usage --plan-url <planUrl> --result-file <path> --app-url <url> --token <planToken> [--agent claude|codex] [--model <id>]
   agent-native recap comment <find-plan-id|upsert> --repo owner/name --issue <n> --token <github-token>
+  agent-native recap gate
+    The PR Visual Recap security gate. Decides whether to run the recap at all
+    and which (normalized) backend agent to use. Reads the pull_request payload
+    from $GITHUB_EVENT_PATH, the secret-presence/agent/model signals from the
+    environment (HAS_PLAN / HAS_ANTHROPIC / HAS_OPENAI === 'true', AGENT,
+    VISUAL_RECAP_MODEL), the repo from $GITHUB_REPOSITORY, and the PR's changed
+    files from the GitHub REST API (paged, with GH_TOKEN/GITHUB_TOKEN). Skips
+    drafts, forks, bot authors, the missing-secret case, an invalid agent/model,
+    and any PR that touches recap-control files (the workflow, the skill,
+    packages/core, .claude/**, CLAUDE.md, AGENTS.md, .mcp.json) — failing CLOSED
+    on any file-list error. Writes run=<true|false> and agent=<claude|codex> to
+    $GITHUB_OUTPUT.
 `;
 
 export async function runRecap(argv: string[]): Promise<void> {
@@ -1168,6 +1450,9 @@ export async function runRecap(argv: string[]): Promise<void> {
       return;
     case "comment":
       await runComment(parseArgs(rest.slice(1)), rest[0] ?? "");
+      return;
+    case "gate":
+      await runGate();
       return;
     case "help":
     case "--help":

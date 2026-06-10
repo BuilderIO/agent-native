@@ -12,10 +12,13 @@ import {
   buildRecapPrompt,
   classifyDiff,
   diffContainsSecret,
+  evaluateRecapGate,
+  isRecapSensitivePath,
   parseClaudeUsage,
   parseCodexUsage,
   truncateDiffAtLineBoundary,
 } from "./recap.js";
+import type { RecapGateInput } from "./recap.js";
 import { PR_VISUAL_RECAP_WORKFLOW_YML } from "./pr-visual-recap-workflow.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -381,6 +384,183 @@ describe("recap usage parsing", () => {
   it("returns null when no usage is present", () => {
     expect(parseClaudeUsage("not json")).toBeNull();
     expect(parseCodexUsage('{"type":"turn.started"}')).toBeNull();
+  });
+});
+
+describe("recap gate decision", () => {
+  // A clean, all-passing baseline so each test can flip exactly one signal.
+  const ok = (over: Partial<RecapGateInput> = {}): RecapGateInput => ({
+    pr: {
+      number: 7,
+      draft: false,
+      head: { repo: { full_name: "BuilderIO/ai-services" } },
+      user: { login: "octocat", type: "User" },
+    },
+    repository: "BuilderIO/ai-services",
+    hasPlan: true,
+    hasAnthropic: true,
+    hasOpenai: true,
+    agentRaw: "claude",
+    model: undefined,
+    changedFiles: ["app/page.tsx"],
+    ...over,
+  });
+
+  it("runs (run=true) with the normalized agent when nothing trips the gate", () => {
+    const result = evaluateRecapGate(ok());
+    expect(result).toEqual({ run: true, agent: "claude", reasons: [] });
+  });
+
+  it("normalizes a mis-cased agent and still runs", () => {
+    const result = evaluateRecapGate(ok({ agentRaw: "Codex" }));
+    expect(result).toEqual({ run: true, agent: "codex", reasons: [] });
+  });
+
+  it("skips when there is no pull_request payload", () => {
+    const result = evaluateRecapGate(ok({ pr: null }));
+    expect(result.run).toBe(false);
+    expect(result.reasons).toContain("no pull_request payload");
+  });
+
+  it("skips a draft PR", () => {
+    const result = evaluateRecapGate(
+      ok({ pr: { number: 7, draft: true, head: { repo: { full_name: "BuilderIO/ai-services" } }, user: { login: "octocat", type: "User" } } }),
+    );
+    expect(result.run).toBe(false);
+    expect(result.reasons).toContain("draft PR");
+  });
+
+  it("skips a fork PR with the head repo full name", () => {
+    const result = evaluateRecapGate(
+      ok({ pr: { number: 7, draft: false, head: { repo: { full_name: "evil/fork" } }, user: { login: "octocat", type: "User" } } }),
+    );
+    expect(result.run).toBe(false);
+    expect(result.reasons).toContain("fork PR (evil/fork)");
+  });
+
+  it("skips a known bot author by login", () => {
+    const result = evaluateRecapGate(
+      ok({ pr: { number: 7, draft: false, head: { repo: { full_name: "BuilderIO/ai-services" } }, user: { login: "dependabot[bot]", type: "User" } } }),
+    );
+    expect(result.run).toBe(false);
+    expect(result.reasons).toContain("bot author (dependabot[bot])");
+  });
+
+  it("skips a Bot-type author even with a non-bot login", () => {
+    const result = evaluateRecapGate(
+      ok({ pr: { number: 7, draft: false, head: { repo: { full_name: "BuilderIO/ai-services" } }, user: { login: "ci-app", type: "Bot" } } }),
+    );
+    expect(result.run).toBe(false);
+    expect(result.reasons).toContain("bot author (type=Bot)");
+  });
+
+  it("skips when PLAN_RECAP_TOKEN is not configured", () => {
+    const result = evaluateRecapGate(ok({ hasPlan: false }));
+    expect(result.run).toBe(false);
+    expect(result.reasons).toContain("PLAN_RECAP_TOKEN not configured");
+  });
+
+  it("skips when the claude backend's ANTHROPIC_API_KEY is missing", () => {
+    const result = evaluateRecapGate(ok({ hasAnthropic: false }));
+    expect(result.run).toBe(false);
+    expect(result.reasons).toContain(
+      "ANTHROPIC_API_KEY not configured (claude backend)",
+    );
+  });
+
+  it("skips when the codex backend's OPENAI_API_KEY is missing", () => {
+    const result = evaluateRecapGate(
+      ok({ agentRaw: "codex", hasOpenai: false }),
+    );
+    expect(result.run).toBe(false);
+    expect(result.reasons).toContain(
+      "OPENAI_API_KEY not configured (codex backend)",
+    );
+  });
+
+  it("skips an unsupported agent value with the raw value in the reason", () => {
+    const result = evaluateRecapGate(ok({ agentRaw: "gpt" }));
+    expect(result.run).toBe(false);
+    expect(result.reasons).toContain(
+      'unsupported VISUAL_RECAP_AGENT "gpt" (expected "claude" or "codex")',
+    );
+  });
+
+  it("skips an invalid VISUAL_RECAP_MODEL value", () => {
+    const result = evaluateRecapGate(ok({ model: "bad model!" }));
+    expect(result.run).toBe(false);
+    expect(result.reasons).toContain(
+      "invalid VISUAL_RECAP_MODEL value (must match [a-zA-Z0-9._-]{1,80})",
+    );
+  });
+
+  it("accepts a valid VISUAL_RECAP_MODEL value", () => {
+    const result = evaluateRecapGate(ok({ model: "gpt-5.5" }));
+    expect(result.run).toBe(true);
+  });
+
+  it("skips when the PR modifies packages/core (self-modifying guard)", () => {
+    const result = evaluateRecapGate(
+      ok({ changedFiles: ["packages/core/src/cli/recap.ts"] }),
+    );
+    expect(result.run).toBe(false);
+    expect(result.reasons.some((r) => r.startsWith("PR modifies recap-control files"))).toBe(true);
+    expect(result.reasons.join(" ")).toContain("packages/core/src/cli/recap.ts");
+  });
+
+  it("skips when the PR modifies a .claude config file", () => {
+    const result = evaluateRecapGate(
+      ok({ changedFiles: ["app/page.tsx", ".claude/settings.json"] }),
+    );
+    expect(result.run).toBe(false);
+    expect(result.reasons.join(" ")).toContain(".claude/settings.json");
+  });
+
+  it("truncates the listed recap-control hits to 3 with an ellipsis", () => {
+    const result = evaluateRecapGate(
+      ok({
+        changedFiles: [
+          ".github/workflows/pr-visual-recap.yml",
+          "CLAUDE.md",
+          "AGENTS.md",
+          ".mcp.json",
+        ],
+      }),
+    );
+    const reason = result.reasons.find((r) =>
+      r.startsWith("PR modifies recap-control files"),
+    );
+    expect(reason).toContain(", …)");
+  });
+
+  it("collects multiple reasons when several signals trip at once", () => {
+    const result = evaluateRecapGate(
+      ok({ pr: { number: 7, draft: true, head: { repo: { full_name: "evil/fork" } }, user: { login: "octocat", type: "User" } }, hasPlan: false }),
+    );
+    expect(result.run).toBe(false);
+    expect(result.reasons).toEqual(
+      expect.arrayContaining([
+        "draft PR",
+        "fork PR (evil/fork)",
+        "PLAN_RECAP_TOKEN not configured",
+      ]),
+    );
+  });
+});
+
+describe("recap sensitive-path guard", () => {
+  it("matches the recap-control files and nothing innocuous", () => {
+    expect(isRecapSensitivePath(".github/workflows/pr-visual-recap.yml")).toBe(true);
+    expect(isRecapSensitivePath("templates/plan/.agents/skills/visual-recap/SKILL.md")).toBe(true);
+    expect(isRecapSensitivePath("packages/core/src/cli/recap.ts")).toBe(true);
+    expect(isRecapSensitivePath(".claude/settings.json")).toBe(true);
+    expect(isRecapSensitivePath("CLAUDE.md")).toBe(true);
+    expect(isRecapSensitivePath("apps/foo/AGENTS.md")).toBe(true);
+    expect(isRecapSensitivePath(".mcp.json")).toBe(true);
+    // Innocuous files do not trip the guard.
+    expect(isRecapSensitivePath("app/page.tsx")).toBe(false);
+    expect(isRecapSensitivePath("packages/ui/index.ts")).toBe(false);
+    expect(isRecapSensitivePath("README.md")).toBe(false);
   });
 });
 
