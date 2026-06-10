@@ -147,3 +147,13 @@ export async function migrateGlobalSettingsPrefixesToUser(
 
   return { migrated: migrated.length, keys: migrated };
 }
+
+/**
+ * Resolve the current scope from request context for action `run` bodies,
+ * which receive an `ActionRunContext` rather than an `H3Event`.
+ */
+export function resolveRequestScope(): SettingsScope {
+  const email = getRequestUserEmail();
+  if (!email) throw new Error("no authenticated user");
+  return { email, orgId: getRequestOrgId() ?? null };
+}

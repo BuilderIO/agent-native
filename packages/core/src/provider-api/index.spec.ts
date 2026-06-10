@@ -31,14 +31,14 @@ describe("provider API runtime", () => {
     resolveCredential.mockResolvedValue(null);
   });
 
-  it("enforces provider allowlists for specific catalog lookups", () => {
+  it("enforces provider allowlists for specific catalog lookups", async () => {
     const runtime = createProviderApiRuntime({
       appId: "analytics",
       providerIds: ["hubspot"],
       getCredentialContext: () => credentialContext,
     });
 
-    expect(() => runtime.listCatalog("gmail")).toThrow(
+    await expect(runtime.listCatalog("gmail")).rejects.toThrow(
       /Provider API gmail is not enabled/,
     );
   });

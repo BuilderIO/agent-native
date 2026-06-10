@@ -15,9 +15,9 @@ import {
 import { cliBoolean } from "./schema-helpers";
 
 const DEFAULT_GONG_TRANSCRIPT_LIMIT = 3;
-const MAX_GONG_TRANSCRIPT_LIMIT = 8;
+const MAX_GONG_TRANSCRIPT_LIMIT = 50;
 const DEFAULT_TRANSCRIPT_MAX_CHARS = 8_000;
-const MAX_TRANSCRIPT_MAX_CHARS = 40_000;
+const MAX_TRANSCRIPT_MAX_CHARS = 100_000;
 
 interface TranscriptExtraction {
   text: string;
@@ -34,8 +34,8 @@ interface TranscriptEvidence extends TranscriptExtraction {
 
 function callLimitGuidance(limit: number, truncated: boolean): string {
   return truncated
-    ? `Returned the ${limit} most recent matching calls. Answer from this bounded sample now; ask the user before loading more calls.`
-    : `Returned ${limit} or fewer matching calls. Answer from these calls now; do not expand the search unless the user explicitly asks.`;
+    ? `Returned the ${limit} most recent matching calls. If this coverage is insufficient for the analysis, increase the limit and page through more calls; for very large datasets prefer chunked background processing.`
+    : `Returned ${limit} or fewer matching calls. Answer from these calls; expand limit if broader coverage is needed.`;
 }
 
 function normalizeBoundedInt(
@@ -247,10 +247,10 @@ export default defineAction({
       .number()
       .int()
       .min(1)
-      .max(25)
+      .max(200)
       .optional()
       .describe(
-        "Maximum number of calls to return for call searches (default 8, max 25). Use 5-8 for ordinary analysis.",
+        "Maximum number of calls to return for call searches (default 8, max 200). Use 5-8 for quick checks, 20-50 for thorough account analysis, 100-200 for large-scale coverage.",
       ),
     includeTranscripts: cliBoolean
       .optional()
@@ -264,7 +264,7 @@ export default defineAction({
       .max(MAX_GONG_TRANSCRIPT_LIMIT)
       .optional()
       .describe(
-        "Number of matching calls to load transcripts for when includeTranscripts=true (default 3, max 8).",
+        "Number of matching calls to load transcripts for when includeTranscripts=true (default 3, max 50). Use 3-5 for a first pass; increase to 10-20+ for thorough account analysis.",
       ),
     transcriptMaxChars: z.coerce
       .number()
@@ -273,7 +273,7 @@ export default defineAction({
       .max(MAX_TRANSCRIPT_MAX_CHARS)
       .optional()
       .describe(
-        "Maximum transcript characters to return per call (default 8000, max 40000). Use the default for analysis; raise it only when the user asks for more quoted detail.",
+        "Maximum transcript characters to return per call (default 8000, max 100000). Use the default for analysis; raise it only when the user asks for more quoted detail.",
       ),
   }),
   http: { method: "GET" },

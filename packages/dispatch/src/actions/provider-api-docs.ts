@@ -1,25 +1,23 @@
 import { defineAction } from "@agent-native/core";
 import { z } from "zod";
-import {
-  DISPATCH_PROVIDER_API_IDS,
-  fetchProviderApiDocs,
-} from "../server/lib/provider-api.js";
-
-const ProviderSchema = z.enum(DISPATCH_PROVIDER_API_IDS);
+import { fetchProviderApiDocs } from "../server/lib/provider-api.js";
 
 export default defineAction({
   description:
-    "Inspect provider API docs/spec metadata, or fetch a registered provider docs/spec URL. Use this before arbitrary provider-api-request calls when the exact endpoint, filter operator, payload shape, pagination, or API version is uncertain.",
+    "Inspect provider API docs/spec metadata, or fetch ANY public API documentation page, OpenAPI spec, changelog, or web page. Registered docs/spec URLs from provider-api-catalog are curated starting points, but any public https/http URL is allowed. Use web-search to find documentation URLs first when uncertain, then fetch them here. SSRF guard still applies — private/internal addresses are blocked.",
   schema: z.object({
-    provider: ProviderSchema.describe(
-      "Provider whose API docs/spec to inspect.",
-    ),
+    provider: z
+      .string()
+      .min(1)
+      .describe(
+        "Provider whose API docs/spec to inspect. Can be a built-in provider id or a custom provider id registered via provider-api-register.",
+      ),
     url: z
       .string()
       .url()
       .optional()
       .describe(
-        "Optional docs/spec URL from provider-api-catalog to fetch. Only registered docs/spec origins are allowed.",
+        "Optional URL to fetch. Can be any public https/http URL — API documentation pages, OpenAPI specs, changelogs, README files, etc. Registered docs/spec URLs from provider-api-catalog are curated starting points.",
       ),
     maxBytes: z.coerce
       .number()

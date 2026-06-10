@@ -97,6 +97,7 @@
     "./usage": "./dist/usage/store.js",
     "./connections": "./dist/connections/index.js",
     "./provider-api": "./dist/provider-api/index.js",
+    "./workspace-files": "./dist/workspace-files/index.js",
     "./code-agents": "./dist/code-agents/index.js",
     "./code-agents/transcript-normalizer": "./dist/code-agents/transcript-normalizer.js",
     "./workspace-connections": "./dist/workspace-connections/index.js",

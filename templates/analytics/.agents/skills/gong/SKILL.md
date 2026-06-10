@@ -10,7 +10,7 @@ description: >-
 Use Gong for sales-call evidence. Call metadata alone is not enough for a deep
 dive that asks what happened in customer conversations.
 
-## Action
+## Actions
 
 - `account-deep-dive` — first choice for named account/deal deep dives that
   need HubSpot plus Gong. It searches by account/deal/company/contact domain,
@@ -18,6 +18,37 @@ dive that asks what happened in customer conversations.
 - `gong-calls` — list recent calls, search by company/domain/person/email, fetch
   a single transcript by call ID, or return transcript excerpts for matching
   calls.
+
+## Two-Pass Search Algorithm
+
+Gong search uses `POST /v2/calls/extensive` (not `GET /v2/calls` — that returns
+no parties). The search works in two passes:
+
+1. **Title match first**: filter calls whose title contains any search variant
+   directly.
+2. **Party/email-domain match second**: for calls that did not title-match,
+   fetch party data via the extensive endpoint and match against external
+   participant names, emails, and email domains.
+
+This two-pass approach catches calls titled "Builder <> Acme" when you search
+"Acme Corp" by matching the "acme" name variant or "@acme.com" domain variant.
+The lib generates variants by stripping deal suffixes (`- New Deal`, `- Fusion`),
+corporate suffixes (`Group`, `Inc`, `Corp`, `LLC`), and deriving first word and
+email domain — always including the raw original. Variants shorter than 3 chars
+are filtered. This is why a broad company search can find more calls than an
+exact-title search.
+
+## Customer-Voice Extraction (externalMonologues)
+
+When analyzing customer sentiment, objections, or voice of the customer:
+
+- Use `getEnrichedTranscript` / request enriched transcripts — it maps each
+  monologue to speaker identity and affiliation.
+- **Only use `externalMonologues`** for customer/prospect statements. Monologues
+  with `affiliation === "Internal"` are your own team's speech — never surface
+  these as "what the customer said."
+- The `externalMonologues` field on an enriched transcript is the pre-filtered
+  customer-voice signal; use it directly.
 
 ## Patterns
 
@@ -29,18 +60,23 @@ For account or deal deep dives:
    person, or email.
 3. Set `includeTranscripts=true` when the user asks for context, risks,
    objections, next steps, decision process, sentiment, or a "deep dive".
-4. Use `transcriptLimit` around 3-5 for a first pass. Increase only when the
-   user asks for broader coverage or the returned calls are not enough.
+4. Use `transcriptLimit` around 3-5 for a first pass. For broad coverage of a
+   named account, increase to 10-20 — the action supports up to 50. Increase
+   when the returned calls don't cover the time window or key people you need.
 5. Use the compact transcript excerpts returned by `includeTranscripts=true`.
    Do not fetch raw individual transcripts unless the user asks for exhaustive
    quoting, debugging, or export.
 6. Ground qualitative findings in the transcript excerpts and state how many
    calls were inspected.
+7. Page through calls using `cursor`/offset when you need broad coverage — for
+   large accounts with many calls, do NOT stop at the first page. For very large
+   pulls (100+ calls), prefer chunked background processing rather than a single
+   blocking fetch.
 
 Example:
 
 ```txt
-gong-calls(company: "The Knot", days: 180, limit: 8, includeTranscripts: true, transcriptLimit: 5)
+gong-calls(company: "The Knot", days: 180, limit: 20, includeTranscripts: true, transcriptLimit: 10)
 ```
 
 Gong search is best-effort: it matches title plus external participant names,
@@ -54,3 +90,15 @@ conversation content from title, date, or participants.
 When a single transcript is needed, `gong-calls(transcript: "...")` returns
 compact extracted text by default. Set `rawTranscript=true` only for
 debugging/export, and never pass raw transcript payloads into `save-analysis`.
+
+## Limits (Current)
+
+| Parameter | Default | Max |
+|---|---|---|
+| `limit` (calls returned) | 8 | 200 |
+| `transcriptLimit` | 3 | 50 |
+| `transcriptMaxChars` | 8 000 | 100 000 |
+
+For large account deep-dives or competitive analyses spanning many calls, use
+`limit: 50-200` and `transcriptLimit: 20-50`. For very large datasets, the
+`provider-api-request` escape hatch can page through the full Gong call list.

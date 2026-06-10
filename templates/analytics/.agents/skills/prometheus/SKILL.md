@@ -94,6 +94,41 @@ brew services restart prometheus    # Prometheus UI at http://localhost:9090
 
 Paste `http://localhost:9090` as the Prometheus URL in Data Sources, then install the desired Node Exporter dashboard from Catalog.
 
+## Incident Investigation Pattern
+
+**Query real metrics FIRST, analyze code second.** When investigating production
+issues (spikes, outages, errors, performance degradation):
+
+1. **Query actual metrics FIRST** — use Prometheus/Grafana, Sentry, and Cloud
+   Logging before looking at code. Real data tells you what happened; code only
+   tells you what *could* happen.
+2. **Check upstream dependencies** — many incidents are caused by provider-side
+   degradation (LLM APIs, external services), not local code. Query latency
+   metrics for each upstream call.
+3. **Trace the request flow** — identify which endpoints are involved, what
+   external calls they make, and where connections can pile up.
+4. **Look for cascade patterns** — upstream slowdown → connection pileup →
+   autoscaling spike → retry flood → outage.
+5. **Only analyze code/config after you have data** — deployment templates,
+   autoscaling settings, and concurrency config are useful context but should
+   not be the primary investigation method.
+
+Common Prometheus queries for incident triage:
+
+```promql
+# Request rate by endpoint
+rate(http_requests_total[5m])
+
+# Error rate
+rate(http_requests_total{status=~"5.."}[5m]) / rate(http_requests_total[5m])
+
+# P95 latency
+histogram_quantile(0.95, rate(http_request_duration_seconds_bucket[5m]))
+
+# LLM latency by model (if instrumented)
+histogram_quantile(0.95, rate(llm_latency_bucket[5m])) by (model)
+```
+
 ## Gotchas
 
 - **Range queries return matrices**; instant queries return vectors. Both flatten to `{timestamp, series, value}` rows so charts work uniformly.

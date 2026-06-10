@@ -51,6 +51,14 @@ export default createAgentChatPlugin({
   appId: "analytics",
   actions: loadActionsFromStaticRegistry(actionsRegistry),
   finalResponseGuard: realDataFinalGuard,
+  // Enable sandboxed JavaScript execution for analytics data processing.
+  // Code runs in an isolated Node.js child process with no access to app
+  // source, secrets, or DB. It can call provider-api-request, web-request,
+  // and workspace-files via the bridge.
+  //
+  // Operators deploying to trusted internal environments can set
+  // AGENT_PROD_CODE_EXECUTION=trusted to also enable bash/read/edit/write.
+  codeExecution: { production: "sandboxed" },
   resolveOrgId: async (event) => {
     const ctx = await getOrgContext(event);
     return ctx.orgId;

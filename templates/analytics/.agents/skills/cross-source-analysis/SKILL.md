@@ -14,7 +14,24 @@ warehouse, deals in HubSpot, tickets in a support tool, pageviews in first-party
 counting the same entity, and presenting a blended number with no traceability.
 This skill is the recipe for doing it safely.
 
-## 1. Plan before you query (catalog-first)
+## Account Deep-Dive Recipe (Default Order)
+
+For any question about a specific customer account, follow this source order:
+
+1. **CRM** (HubSpot) — company identity, deal stage, contacts, ARR, owner
+2. **Support history** (Pylon/Zendesk) — open/resolved tickets, recurring issues
+3. **Community** (Common Room) — engagement, feature requests, sentiment signals
+4. **Call transcripts** (Gong) — customer voice, objections, next steps, risks
+5. **Product usage** (BigQuery warehouse) — event counts, active users, feature adoption
+6. **Service health** (Prometheus/Grafana) — error rates, latency, incidents
+7. **Tickets / Engineering** (Jira) — bugs or feature requests tied to the account
+
+Not every source is needed for every question — start with the primary source
+and add secondary sources only when the question requires them. But do not
+stop at one source for a "deep dive" — at minimum pull CRM + Gong + product
+usage for any account health question.
+
+## 1. Plan Before You Query (Catalog-First)
 
 Orient before fanning out:
 
@@ -31,7 +48,7 @@ If the metric, time range, or grain is ambiguous and the choice would change the
 numbers, use the `ask-question` clarifying tool once before querying. Skip it
 when the dictionary or the user already answered.
 
-## 2. Fetch per source
+## 2. Fetch Per Source
 
 Query each source independently with its own provider action/skill. Convert the
 requested local date range to UTC consistently across every source so the
@@ -42,7 +59,7 @@ provenance.
 Never invent rows to fill a gap. If a source is unconfigured or errors, record
 that as a gap and continue with what you have.
 
-## 3. Stitch identities — the safe-join rule
+## 3. Stitch Identities — The Safe-Join Rule
 
 When joining records that represent the same person or account across sources,
 **match on BOTH a stable id AND email**, not on either alone:
@@ -62,7 +79,7 @@ When joining records that represent the same person or account across sources,
 Record match quality per join: exact (id + email agree), partial (one key,
 flagged), or unmatched (kept separate, counted as a gap).
 
-## 4. De-duplicate
+## 4. De-Duplicate
 
 After stitching, collapse duplicates before aggregating:
 
@@ -74,7 +91,23 @@ After stitching, collapse duplicates before aggregating:
 - Drop exact duplicate rows that come from overlapping exports of the same
   source.
 
-## 5. Synthesize one consolidated answer with provenance
+## 5. Batch Analysis Pattern (Large Fan-Outs)
+
+For analyses spanning 30+ accounts, deals, or calls, do NOT try to hold
+everything in one pass:
+
+1. **Chunk**: process items in batches (e.g., 5-10 accounts per iteration).
+2. **Persist intermediate notes**: for each chunk, save per-item findings as a
+   short structured note (key facts, signal, gaps) to `save-analysis` or as
+   agent scratch.
+3. **Synthesize**: after all chunks are processed, read the intermediate notes
+   back in and produce the cross-account write-up.
+
+This mirrors the memo pattern: fetch → write per-item → synthesize. Use the
+files-as-database / `save-analysis` handoff so each iteration is independent
+and the context stays manageable.
+
+## 6. Synthesize One Consolidated Answer with Provenance
 
 Produce a single answer, but make every number traceable:
 

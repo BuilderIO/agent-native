@@ -1,4 +1,8 @@
 import { runMigrations } from "@agent-native/core/db";
+import {
+  WORKSPACE_FILES_CREATE_SQL,
+  WORKSPACE_FILES_INDEX_SQL,
+} from "@agent-native/core/workspace-files";
 // Side-effect import: ensures registerShareableResource runs on server
 // startup so the dashboard / analysis share actions know where to dispatch.
 import "../db/index.js";
@@ -206,6 +210,15 @@ export default runMigrations(
     {
       version: 36,
       sql: `CREATE INDEX IF NOT EXISTS analyses_owner_org_updated_idx ON analyses (owner_email, org_id, updated_at)`,
+    },
+    // v37-38: workspace_files — durable agent scratch storage.
+    {
+      version: 37,
+      sql: WORKSPACE_FILES_CREATE_SQL,
+    },
+    {
+      version: 38,
+      sql: WORKSPACE_FILES_INDEX_SQL,
     },
   ],
   { table: "analytics_migrations" },

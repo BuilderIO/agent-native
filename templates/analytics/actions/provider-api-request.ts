@@ -73,7 +73,47 @@ export default defineAction({
       .min(1_000)
       .max(4 * 1024 * 1024)
       .optional()
-      .describe("Maximum response bytes to read. Default 1MB, max 4MB."),
+      .describe(
+        "Maximum response bytes to read. Default 1MB, max 4MB. Ignored when saveToFile is set (allows up to 20MB).",
+      ),
+    saveToFile: z
+      .string()
+      .optional()
+      .describe(
+        "Workspace file path to save the full response body to instead of returning it in context (e.g. 'analysis/hubspot-deals.json'). When set, returns only a compact summary {savedTo, status, bytes, preview} and allows up to 20MB response. Ideal for large datasets that would overflow context.",
+      ),
+    fetchAllPages: z
+      .object({
+        cursorPath: z
+          .string()
+          .describe(
+            "Dot-path in the JSON response body where the next-page cursor lives, e.g. 'meta.next_cursor' or 'pagination.next_page_token'.",
+          ),
+        cursorParam: z
+          .string()
+          .describe(
+            "Query parameter name to pass the cursor on subsequent pages, e.g. 'cursor' or 'page_token'.",
+          ),
+        itemsPath: z
+          .string()
+          .optional()
+          .describe(
+            "Dot-path to the items array in each response, e.g. 'results' or 'data.items'. When omitted, the whole response body is appended per page.",
+          ),
+        maxPages: z.coerce
+          .number()
+          .int()
+          .min(1)
+          .max(50)
+          .optional()
+          .describe(
+            "Maximum pages to fetch. Default 10, max 50. Stops early when cursor is empty.",
+          ),
+      })
+      .optional()
+      .describe(
+        "Enable cursor-based pagination. After each response, reads cursorPath from the JSON body and re-issues the request with cursorParam set, accumulating items from itemsPath (or whole bodies) until cursor is empty or maxPages is reached. Combine with saveToFile to write the full dataset to a workspace file.",
+      ),
   }),
   http: false,
   run: async (args) => executeProviderApiRequest(args),

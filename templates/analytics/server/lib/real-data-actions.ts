@@ -122,6 +122,12 @@ const ARTIFACT_TERMS = /\b(analysis|dashboard|panel|chart|metric|metrics)\b/;
 const ARTIFACT_DATA_INTENT =
   /\b(build|create|make|show|visuali[sz]e|plot|chart|query|calculate|report)\b/;
 
+// Questions about schema, metadata, or available sources — these do NOT require
+// a live provider data call. They should be answered from the data dictionary,
+// schema introspection tools, or the agent's knowledge of configured sources.
+const METADATA_ONLY_TERMS =
+  /\b(what (?:tables?|columns?|fields?|sources?|datasets?|metrics?|schema) (?:are|is|exist|available|do (?:we|you|i) have)|which (?:sources?|tables?|providers?|integrations?) (?:are|is) (?:connected|configured|available|set up)|list (?:the )?(?:tables?|columns?|fields?|sources?|datasets?|schemas?)|show (?:me )?(?:available|the) (?:sources?|tables?|schemas?)|what does .+ (?:mean|measure|represent|track)|how is .+ (?:defined|calculated|computed|measured)|definition of|describe (?:the )?(?:\w+\s+)?(?:table|column|schema|metric|field)|list (?:the )?columns?\s+in|what (?:is|are) (?:the )?(?:data (?:dictionary|schema)|available (?:sources?|tables?))|what (?:source|provider|table) (?:has|stores|contains))\b/;
+
 export function looksLikeAnalyticsDataRequest(text: string): boolean {
   const requestText = stripInjectedAnalyticsGuardContext(text);
   const lower = requestText.toLowerCase();
@@ -142,6 +148,11 @@ export function looksLikeAnalyticsDataRequest(text: string): boolean {
   ) {
     return false;
   }
+
+  // Metadata/data-dictionary questions do not need a live provider query.
+  // Checking what's available, what a metric means, or what schema exists
+  // should be answered from the dictionary and schema tools, not a data fetch.
+  if (METADATA_ONLY_TERMS.test(lower)) return false;
 
   if (ANALYTICS_RESULT_TERMS.test(lower)) return true;
   if (

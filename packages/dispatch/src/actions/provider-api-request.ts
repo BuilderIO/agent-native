@@ -1,20 +1,19 @@
 import { defineAction } from "@agent-native/core";
 import { z } from "zod";
-import {
-  DISPATCH_PROVIDER_API_IDS,
-  executeProviderApiRequest,
-} from "../server/lib/provider-api.js";
+import { executeProviderApiRequest } from "../server/lib/provider-api.js";
 
-const ProviderSchema = z.enum(DISPATCH_PROVIDER_API_IDS);
 const MethodSchema = z.enum(["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD"]);
 
 export default defineAction({
   description:
-    "Make an arbitrary authenticated HTTP request to a shared workspace integration or configured provider API. Use this as the flexible escape hatch when Dispatch needs a provider endpoint, filter, pagination mode, payload, or API version that no canned action models. The request is constrained to the provider host, uses configured credentials automatically, blocks private/internal URLs, and redacts secrets from responses.",
+    "Make an arbitrary authenticated HTTP request to a shared workspace integration, configured provider API, or custom provider registered via provider-api-register. Use this as the flexible escape hatch when Dispatch needs a provider endpoint, filter, pagination mode, payload, or API version that no canned action models. The request is constrained to the provider host, uses configured credentials automatically, blocks private/internal URLs, and redacts secrets from responses.",
   schema: z.object({
-    provider: ProviderSchema.describe(
-      "Configured provider API to call, e.g. slack, github, notion, hubspot, gmail, google_drive, google_calendar, granola, stripe, jira.",
-    ),
+    provider: z
+      .string()
+      .min(1)
+      .describe(
+        "Provider id to call — built-in (e.g. slack, github, notion, hubspot, gmail, google_drive, google_calendar, granola, stripe, jira) or a custom provider id registered via provider-api-register. Use provider-api-catalog to list available providers.",
+      ),
     method: MethodSchema.default("GET").describe("HTTP method to use."),
     path: z
       .string()
@@ -71,7 +70,47 @@ export default defineAction({
       .min(1_000)
       .max(4 * 1024 * 1024)
       .optional()
-      .describe("Maximum response bytes to read. Default 1MB, max 4MB."),
+      .describe(
+        "Maximum response bytes to read. Default 1MB, max 4MB. Ignored when saveToFile is set (allows up to 20MB).",
+      ),
+    saveToFile: z
+      .string()
+      .optional()
+      .describe(
+        "Workspace file path to save the full response body to instead of returning it in context (e.g. 'analysis/hubspot-deals.json'). When set, returns only a compact summary {savedTo, status, bytes, preview} and allows up to 20MB response. Useful for large datasets that would overflow context.",
+      ),
+    fetchAllPages: z
+      .object({
+        cursorPath: z
+          .string()
+          .describe(
+            "Dot-path in the JSON response body where the next-page cursor lives, e.g. 'meta.next_cursor' or 'pagination.next_page_token'.",
+          ),
+        cursorParam: z
+          .string()
+          .describe(
+            "Query parameter name to pass the cursor on subsequent pages, e.g. 'cursor' or 'page_token'.",
+          ),
+        itemsPath: z
+          .string()
+          .optional()
+          .describe(
+            "Dot-path to the items array in each response, e.g. 'results' or 'data.items'. When omitted, the whole response body is appended per page.",
+          ),
+        maxPages: z.coerce
+          .number()
+          .int()
+          .min(1)
+          .max(50)
+          .optional()
+          .describe(
+            "Maximum pages to fetch. Default 10, max 50. Stops early when the cursor is empty.",
+          ),
+      })
+      .optional()
+      .describe(
+        "Enable cursor-based pagination. After each response, reads cursorPath from the JSON body and re-issues the request with cursorParam set, accumulating items from itemsPath (or whole bodies) until cursor is empty or maxPages is reached. Combine with saveToFile to write the full dataset to a workspace file.",
+      ),
   }),
   http: false,
   run: async (args) => executeProviderApiRequest(args),
