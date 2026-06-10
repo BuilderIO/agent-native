@@ -1254,6 +1254,75 @@ describe("runAgentLoop", () => {
     expect(receivedAttachments).toEqual(turnAttachments);
   });
 
+  it("forwards the run abort signal into each tool action's run context", async () => {
+    // P1: ActionRunContext.signal must be populated so well-behaved actions can
+    // cancel in-flight work when the run is soft-timed out or user-cancelled.
+    let receivedSignal: unknown;
+    const writeAction = vi.fn(async (_args: unknown, ctx: any) => {
+      receivedSignal = ctx?.signal;
+      return "done";
+    });
+    let streamCalls = 0;
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        streamCalls++;
+        if (streamCalls === 1) {
+          yield {
+            type: "assistant-content",
+            parts: [
+              {
+                type: "tool-call" as const,
+                id: "sig-1",
+                name: "do-work",
+                input: {},
+              },
+            ],
+          };
+          yield { type: "stop", reason: "tool_use" };
+          return;
+        }
+        yield {
+          type: "assistant-content",
+          parts: [{ type: "text" as const, text: "done" }],
+        };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+
+    const runAbort = new AbortController();
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions: {
+        "do-work": {
+          ...actionEntry({ readOnly: false }),
+          run: writeAction,
+        },
+      },
+      send: () => {},
+      signal: runAbort.signal,
+    });
+
+    expect(writeAction).toHaveBeenCalledOnce();
+    // The signal passed to the action must be the same AbortSignal given to runAgentLoop
+    expect(receivedSignal).toBe(runAbort.signal);
+    expect(receivedSignal).toBeInstanceOf(AbortSignal);
+  });
+
   it("still runs identical read-only tools on a fresh user turn", async () => {
     let streamCalls = 0;
     const engine: AgentEngine = {

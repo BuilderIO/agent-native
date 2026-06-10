@@ -120,6 +120,9 @@
     "./agent/engine": "./dist/agent/engine/index.js",
     "./tsconfig.base.json": "./tsconfig.base.json"
   },
+  "sideEffects": [
+    "*.css"
+  ],
   "files": [
     "bin",
     "dist",
@@ -162,7 +165,6 @@
     "@sentry/browser": "^10.50.0",
     "@sentry/node": "^10.50.0",
     "@standard-schema/spec": "^1.1.0",
-    "@tabler/icons-react": "^3",
     "@tailwindcss/typography": "^0.5.19",
     "@tanstack/react-table": "^8.21.3",
     "@tiptap/core": "^3.26.0",
@@ -183,7 +185,7 @@
     "@tiptap/starter-kit": "^3.26.0",
     "@tiptap/y-tiptap": "^3.0.4",
     "@uiw/react-codemirror": "^4.25.10",
-    "better-auth": "1.6.0",
+    "better-auth": "1.6.16",
     "better-sqlite3": "^12.8.0",
     "clsx": "^2.1.1",
     "cron-parser": "^5.5.0",
@@ -200,13 +202,13 @@
     "lowlight": "^3.3.0",
     "minimatch": "^10.0.0",
     "nanoid": "^5.1.9",
-    "nitro": "3.0.260415-beta",
+    "nitro": "3.0.260603-beta",
     "p-limit": "^7.3.0",
     "pako": "^2.1.0",
     "prettier": "^3.8.3",
     "react-markdown": "^10.1.0",
     "react-router": "^7.16.0",
-    "recharts": "3.8.1",
+    "recharts": "^3.8.1",
     "remark-gfm": "^4.0.1",
     "roughjs": "4.6.6",
     "shiki": "^4.0.2",
