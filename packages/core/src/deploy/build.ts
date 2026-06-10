@@ -915,6 +915,12 @@ async function buildCloudflarePages() {
   // — mermaid/excalidraw render in the browser, pdf-parse and @google/genai
   // run from node-only action scripts. Without this, slides' bundle hits
   // the 25 MiB Pages Functions limit.
+  //
+  // @anthropic-ai/tokenizer (tiktoken .wasm) and @resvg/resvg-js (native
+  // .node binding) can't be bundled by esbuild at all — no loader for those
+  // files. Both import sites degrade gracefully when the runtime import
+  // fails: context-xray token counts fall back to char/4 estimates and the
+  // OG image route falls back to SVG.
   const heavyClientExternals = [
     "mermaid",
     "@excalidraw/excalidraw",
@@ -924,6 +930,8 @@ async function buildCloudflarePages() {
     "@google/genai",
     "chartjs-node-canvas",
     "@napi-rs/canvas",
+    "@anthropic-ai/tokenizer",
+    "@resvg/resvg-js",
   ].map((p) => `--external:${p}`);
 
   execFileSync(

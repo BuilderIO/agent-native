@@ -1478,7 +1478,10 @@ export function TiptapComposer({
   useEffect(() => {
     if (!voiceEnabled || !voice.supported) return;
     const handler = (e: KeyboardEvent) => {
+      // e.key can be undefined on some trusted keydown events (autofill/IME
+      // quirks) — seen crashing in production (AGENT-NATIVE-BROWSER-S).
       const isToggleCombo =
+        typeof e.key === "string" &&
         e.key.toLowerCase() === "m" &&
         e.shiftKey &&
         (e.metaKey || e.ctrlKey) &&

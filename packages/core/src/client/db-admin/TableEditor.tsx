@@ -249,7 +249,11 @@ export function TableEditor({
   commitRef.current = handleCommit;
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "s") {
+      if (
+        (e.metaKey || e.ctrlKey) &&
+        typeof e.key === "string" &&
+        e.key.toLowerCase() === "s"
+      ) {
         e.preventDefault();
         if (changeset.isDirty) void commitRef.current();
       }

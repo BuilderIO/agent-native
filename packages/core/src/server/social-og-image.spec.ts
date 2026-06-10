@@ -57,6 +57,13 @@ describe("social OG image", () => {
         ),
       ),
     ).toBe(true);
+    // workerd's wording when the package is externalized out of the
+    // Cloudflare worker bundle.
+    expect(
+      isResvgRuntimeUnavailableError(
+        new Error('No such module "@resvg/resvg-js".'),
+      ),
+    ).toBe(true);
     expect(isResvgRuntimeUnavailableError(new Error("invalid SVG"))).toBe(
       false,
     );

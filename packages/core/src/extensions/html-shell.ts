@@ -600,7 +600,7 @@ export function buildExtensionHtml(
 
 	    document.addEventListener('keydown', function(e) {
 	      if ((e.metaKey || e.ctrlKey) && !e.altKey) {
-	        var key = e.key.toLowerCase();
+	        var key = (e.key || '').toLowerCase();
 	        if (key === 'c' || key === 'v' || key === 'x' || key === 'a' || key === 'z' || key === 'y') return;
 	        e.preventDefault();
 	        e.stopPropagation();
