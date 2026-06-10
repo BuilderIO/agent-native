@@ -11,6 +11,7 @@ import { z } from "zod";
 import { eq } from "drizzle-orm";
 import { getDb, schema } from "../server/db/index.js";
 import { nanoid, stringifySpaceIds } from "../server/lib/recordings.js";
+import { encryptSharePassword } from "../server/lib/share-password.js";
 import { writeAppState } from "@agent-native/core/application-state";
 import { assertAccess } from "@agent-native/core/sharing";
 
@@ -70,7 +71,9 @@ export default defineAction({
       patch.defaultSpeed = args.defaultSpeed;
     if (typeof args.animatedThumbnailEnabled === "boolean")
       patch.animatedThumbnailEnabled = args.animatedThumbnailEnabled;
-    if (args.password !== undefined) patch.password = args.password ?? null;
+    // Encrypt the share password at rest; empty/nullish clears it.
+    if (args.password !== undefined)
+      patch.password = encryptSharePassword(args.password);
     if (args.expiresAt !== undefined) patch.expiresAt = args.expiresAt ?? null;
     if (typeof args.chaptersJson === "string")
       patch.chaptersJson = args.chaptersJson;

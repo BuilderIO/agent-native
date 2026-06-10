@@ -782,7 +782,7 @@ async function handleSqlQuery(event: H3Event): Promise<unknown> {
     setResponseStatus(event, 403);
     return { error: "Only SELECT queries are allowed from extensions" };
   }
-  if (SENSITIVE_SQL_RE.test(cleanSql)) {
+  if (matchesSqlGate(SENSITIVE_SQL_RE, sql)) {
     setResponseStatus(event, 403);
     return {
       error: "Sensitive framework tables are not readable from extensions",
@@ -838,6 +838,30 @@ function stripSqlComments(sql: string): string {
   return sql.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/--[^\n]*/g, " ");
 }
 
+/**
+ * Test a blocklist regex against the SQL with comments normalized two ways, so
+ * a comment placed *inside* a keyword can't smuggle a blocked construct past a
+ * literal-token match:
+ *   - comments → space  catches `DROP /* x *​/ TABLE` (token boundaries kept)
+ *   - comments → empty  catches `DR/**​/OP TABLE`     (split keyword rejoined)
+ *
+ * A statement is refused if EITHER normalization trips the regex. This only
+ * ever ADDS matches — it never newly-allows SQL — so it cannot loosen the gate
+ * (real extension SQL doesn't embed comments inside keywords, so false-positive
+ * risk is negligible). The authoritative ownership boundary remains the
+ * fail-closed temp-view scoping in scripts/db/scoping.ts; this stays defense in
+ * depth. See the TODO above re: replacing all of this with a real SQL parser.
+ */
+function matchesSqlGate(re: RegExp, sql: string): boolean {
+  const withSpace = sql
+    .replace(/\/\*[\s\S]*?\*\//g, " ")
+    .replace(/--[^\n]*/g, " ");
+  const withNothing = sql
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .replace(/--[^\n]*/g, "");
+  return re.test(withSpace) || re.test(withNothing);
+}
+
 function isLikelyJson(text: string): boolean {
   try {
     const parsed = JSON.parse(text);
@@ -855,21 +879,20 @@ async function handleSqlExec(event: H3Event): Promise<unknown> {
     return { error: "sql is required" };
   }
 
-  const cleanSql = stripSqlComments(sql);
-  if (DESTRUCTIVE_SQL_RE.test(cleanSql)) {
+  if (matchesSqlGate(DESTRUCTIVE_SQL_RE, sql)) {
     setResponseStatus(event, 403);
     return {
       error:
         "Schema changes and destructive SQL are not allowed from extensions",
     };
   }
-  if (SENSITIVE_SQL_RE.test(cleanSql)) {
+  if (matchesSqlGate(SENSITIVE_SQL_RE, sql)) {
     setResponseStatus(event, 403);
     return {
       error: "Sensitive framework tables are not writable from extensions",
     };
   }
-  if (POSITIONAL_INSERT_RE.test(cleanSql)) {
+  if (matchesSqlGate(POSITIONAL_INSERT_RE, sql)) {
     setResponseStatus(event, 400);
     return {
       error:
