@@ -1870,56 +1870,59 @@ export function VisualEditor({
 
   const applyRef = useRef(applyHighlights);
   applyRef.current = applyHighlights;
-  const rafRef = useRef(0);
+  // Coalesce with a macrotask rather than requestAnimationFrame: rAF is throttled
+  // in background/unfocused tabs, which would stall highlight updates whenever
+  // the document isn't the foreground tab.
+  const timerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const scheduleApply = useCallback((force: boolean) => {
-    cancelAnimationFrame(rafRef.current);
-    rafRef.current = requestAnimationFrame(() => applyRef.current(force));
+    clearTimeout(timerRef.current);
+    timerRef.current = setTimeout(() => applyRef.current(force), 0);
   }, []);
-  useEffect(() => () => cancelAnimationFrame(rafRef.current), []);
+  useEffect(() => () => clearTimeout(timerRef.current), []);
 
   // Establish highlights when the thread set changes. The collaborative doc
-  // seeds asynchronously, so resolving once on mount can race ahead of the
-  // content — retry over the first second to reliably catch the seed. Each pass
-  // keeps already-tracked ranges and only fills in missing ones, so the retries
-  // are idempotent no-ops once every highlight is established.
+  // seeds asynchronously AND the seed is applied with `emitUpdate: false`, so we
+  // can neither resolve once on mount (the doc may still be empty) nor rely on
+  // an editor "update" event firing. Instead poll on a short interval, keeping
+  // already-tracked ranges and filling in missing ones each pass, until every
+  // open thread is established (or we give up after a few seconds for anchors
+  // whose text no longer exists). Idempotent once everything is in place.
   useEffect(() => {
-    const timers = [0, 150, 400, 800].map((d) =>
-      setTimeout(() => scheduleApply(false), d),
-    );
-    return () => timers.forEach(clearTimeout);
-  }, [editor, scheduleApply, threadsSignature]);
+    if (!editor || editor.isDestroyed) return;
+    let stopped = false;
+    let attempts = 0;
+    let timer: ReturnType<typeof setTimeout>;
+    const tick = () => {
+      if (stopped || editor.isDestroyed) return;
+      applyRef.current(false);
+      attempts += 1;
+      const present = new Set(
+        (commentHighlightKey.getState(editor.view.state)?.specs ?? []).map(
+          (s) => s.threadId,
+        ),
+      );
+      const allPresent = (threadsRef.current ?? [])
+        .filter((t) => !t.resolved)
+        .every((t) => present.has(t.threadId));
+      if (!allPresent && attempts < 25) timer = setTimeout(tick, 150);
+    };
+    timer = setTimeout(tick, 0);
+    return () => {
+      stopped = true;
+      clearTimeout(timer);
+    };
+  }, [editor, threadsSignature]);
 
   // Active card / pending selection just update the existing highlights.
   useEffect(() => {
     scheduleApply(false);
   }, [editor, scheduleApply, activeThreadId, pendingKey]);
 
-  // Re-resolve from scratch when the loaded content changes wholesale.
+  // Re-resolve from scratch when the loaded content changes wholesale (an agent
+  // edit / Notion pull replaces the document body).
   useEffect(() => {
     scheduleApply(true);
   }, [editor, scheduleApply, content, contentUpdatedAt]);
-
-  // After the collaborative doc seeds (or any edit), establish any highlight
-  // that isn't being tracked yet. Gated on "something missing" so steady-state
-  // typing doesn't dispatch extra transactions.
-  useEffect(() => {
-    if (!editor || editor.isDestroyed) return;
-    const onUpdate = () => {
-      const present = new Set(
-        (commentHighlightKey.getState(editor.view.state)?.specs ?? []).map(
-          (s) => s.threadId,
-        ),
-      );
-      const anyMissing = (threadsRef.current ?? []).some(
-        (t) => !t.resolved && !present.has(t.threadId),
-      );
-      if (anyMissing) scheduleApply(false);
-    };
-    editor.on("update", onUpdate);
-    return () => {
-      editor.off("update", onUpdate);
-    };
-  }, [editor, scheduleApply]);
 
   // Clicking an inline highlight focuses its thread in the sidebar.
   useEffect(() => {
