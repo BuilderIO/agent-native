@@ -341,7 +341,10 @@ export default function DataDictionary() {
         entry={editing}
         onClose={() => setEditing(null)}
         onSave={async (entry) => {
-          await save.mutateAsync(entry);
+          const metric = entry.metric?.trim();
+          const definition = entry.definition?.trim();
+          if (!metric || !definition) return;
+          await save.mutateAsync({ ...entry, metric, definition });
           setEditing(null);
         }}
         saving={save.isPending}

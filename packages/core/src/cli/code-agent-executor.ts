@@ -35,6 +35,11 @@ import type {
 } from "../agent/engine/types.js";
 import type { AgentChatEvent } from "../agent/types.js";
 import { PROVIDER_ENV_VARS } from "../agent/engine/provider-env-vars.js";
+import { DEFAULT_AGENT_MAX_ITERATIONS } from "../agent/loop-settings.js";
+import {
+  readAgentsBundleFromFs,
+  generateSkillsPromptBlock,
+} from "../server/agents-bundle.js";
 import {
   isReasoningEffort,
   type ReasoningEffort,
@@ -331,19 +336,20 @@ export async function executeCodeAgentRun(
 
   let loopUsage: AgentLoopUsage | null = null;
   try {
+    const systemPrompt = await buildCodeAgentSystemPrompt(cwd, permissionMode);
     const usageResult = await runWithOptionalCodeAgentRequestContext(
       existing,
       () =>
         runAgentLoop({
           engine,
           model,
-          systemPrompt: codeAgentSystemPrompt(cwd, permissionMode),
+          systemPrompt,
           tools,
           actions,
           messages,
           send,
           signal: controller.signal,
-          maxIterations: 12,
+          maxIterations: DEFAULT_AGENT_MAX_ITERATIONS,
           reasoningEffort,
         }),
     );
@@ -1182,11 +1188,85 @@ function safeJsonStringify(value: unknown): string {
   }
 }
 
-function codeAgentSystemPrompt(
+/**
+ * Maximum character length for inlined AGENTS.md content in the system prompt.
+ * Content beyond this cap is truncated with a note so the model knows more exists.
+ */
+const AGENTS_MD_INLINE_CAP = 16_000;
+
+/**
+ * Build the coding agent system prompt, inlining AGENTS.md (or CLAUDE.md as
+ * fallback) and a skills index from .agents/skills/ into the prompt so the
+ * coding agent has the same repo-context awareness that Claude Code / Codex
+ * provide when running locally.
+ *
+ * The bundle is read synchronously from the filesystem via `readAgentsBundleFromFs`
+ * (same function used by the Vite build-time plugin) so there is no async I/O
+ * on the hot path — the call is cheap and the result is used once per run leg.
+ */
+/** @internal exported for unit tests */
+export async function buildCodeAgentSystemPrompt(
   cwd: string,
   permissionMode: CodeAgentPermissionMode,
+): Promise<string> {
+  const bundle = readAgentsBundleFromFs(cwd);
+
+  // If the bundle has no AGENTS.md, try CLAUDE.md as a fallback — many repos
+  // use that name for agent instructions (e.g. Claude Code projects).
+  let agentsMdContent = bundle.agentsMd;
+  if (!agentsMdContent.trim()) {
+    try {
+      const fs = await import("node:fs");
+      const path = await import("node:path");
+      const claudeMdPath = path.join(cwd, "CLAUDE.md");
+      if (fs.existsSync(claudeMdPath)) {
+        agentsMdContent = fs.readFileSync(claudeMdPath, "utf-8");
+      }
+    } catch {
+      // Not readable — skip
+    }
+  }
+
+  const repoInstructionsBlock = buildRepoInstructionsBlock(agentsMdContent);
+  const skillsBlock = generateSkillsPromptBlock(bundle);
+
+  return codeAgentSystemPrompt(
+    cwd,
+    permissionMode,
+    repoInstructionsBlock,
+    skillsBlock,
+  );
+}
+
+/** @internal exported for unit tests */
+export function buildRepoInstructionsBlock(agentsMdContent: string): string {
+  if (!agentsMdContent.trim()) return "";
+
+  const needsTruncation = agentsMdContent.length > AGENTS_MD_INLINE_CAP;
+  const truncated = needsTruncation
+    ? agentsMdContent.slice(0, AGENTS_MD_INLINE_CAP)
+    : agentsMdContent;
+  const truncationNote = needsTruncation
+    ? `\n\n[Note: AGENTS.md was truncated to ${AGENTS_MD_INLINE_CAP} characters. Read the full file for complete instructions.]`
+    : "";
+
+  return `## Repository instructions
+
+${truncated}${truncationNote}`;
+}
+
+/** @internal exported for unit tests */
+export function codeAgentSystemPrompt(
+  cwd: string,
+  permissionMode: CodeAgentPermissionMode,
+  repoInstructionsBlock = "",
+  skillsBlock = "",
 ): string {
   const mode = permissionMode === "read-only" ? "Plan" : "Auto";
+  const repoSection = repoInstructionsBlock
+    ? `\n\n${repoInstructionsBlock}`
+    : "";
+  const skillsSection = skillsBlock ? `\n\n${skillsBlock}` : "";
   return `You are Agent-Native Code, a coding agent running in ${cwd}. You and the user share one workspace, and your job is to collaborate with them until their goal is genuinely handled.
 
 # General
@@ -1240,7 +1320,7 @@ Current run mode: ${mode} mode (${permissionMode}).
 - Reference files as clickable paths (e.g. \`packages/core/src/foo.ts\`), with a line number when it helps. Do not paste large file contents back — the user shares this machine and can open them.
 - State what you changed, and show evidence you verified it: name the check you ran (e.g. \`pnpm typecheck\`) and its key result, not just a claim that it passed. If you could not run something, say so plainly.
 - No emojis or em dashes unless the user used them first.
-- Respect any AGENTS.md instructions in the repository; they override these defaults on conflict.`;
+- AGENTS.md files take precedence over these defaults on conflict. More deeply nested AGENTS.md files take precedence over shallower ones — check for them in directories you work in.${repoSection}${skillsSection}`;
 }
 
 function createLocalCodeAgentActions(

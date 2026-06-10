@@ -1,17 +1,13 @@
 import { defineAction } from "@agent-native/core";
 import { getRequestUserEmail } from "@agent-native/core/server";
 import { writeAppState } from "@agent-native/core/application-state";
-import { markRead } from "../server/lib/email-state.js";
+import { unarchiveEmail } from "../server/lib/email-state.js";
 import { z } from "zod";
 
 export default defineAction({
-  description: "Mark one or more emails as read or unread.",
+  description: "Restore one or more archived emails back to the inbox.",
   schema: z.object({
-    id: z.string().optional().describe("Email ID(s), comma-separated"),
-    unread: z.coerce
-      .boolean()
-      .optional()
-      .describe("Set to true to mark as unread instead of read"),
+    id: z.string().describe("Email ID(s) to unarchive, comma-separated"),
     accountEmail: z
       .string()
       .optional()
@@ -19,11 +15,10 @@ export default defineAction({
   }),
   run: async (args) => {
     const ids = args.id
-      ?.split(",")
+      .split(",")
       .map((s) => s.trim())
       .filter(Boolean);
-    if (!ids || ids.length === 0) throw new Error("--id is required");
-    const isRead = args.unread !== true;
+    if (ids.length === 0) throw new Error("--id is required");
 
     const ownerEmail = getRequestUserEmail();
     if (!ownerEmail) throw new Error("no authenticated user");
@@ -32,10 +27,9 @@ export default defineAction({
 
     for (const id of ids) {
       try {
-        await markRead({
+        await unarchiveEmail({
           id,
           ownerEmail,
-          isRead,
           accountEmail: args.accountEmail,
         });
         results.push({ id, success: true });
@@ -46,8 +40,13 @@ export default defineAction({
 
     await writeAppState("refresh-signal", { ts: Date.now() });
 
-    const action = isRead ? "read" : "unread";
     const succeeded = results.filter((r) => r.success).length;
-    return `Marked ${succeeded}/${ids.length} email(s) as ${action}`;
+    const failed = results.filter((r) => !r.success);
+    if (failed.length > 0) {
+      throw new Error(
+        `Unarchived ${succeeded}/${ids.length} email(s). Failures: ${failed.map((r) => `${r.id}: ${r.error}`).join("; ")}`,
+      );
+    }
+    return `Unarchived ${succeeded} email(s) successfully`;
   },
 });

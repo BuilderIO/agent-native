@@ -619,10 +619,9 @@ export function useMarkRead() {
       isRead: boolean;
       accountEmail?: string;
     }) =>
-      apiFetch(`/api/emails/${id}/read`, {
-        method: "PATCH",
-        body: JSON.stringify({ isRead, accountEmail }),
-      }),
+      callAction("mark-read", { id, unread: !isRead, accountEmail }).then(
+        assertActionSuccess,
+      ),
     onMutate: async ({ id, isRead }) => {
       await qc.cancelQueries({ queryKey: ["emails"] });
       const previous = qc.getQueriesData<InfiniteEmails>({
@@ -663,6 +662,9 @@ export function useMarkThreadRead() {
             accountEmail: entries[0]?.accountEmail,
           }),
         });
+        // Note: useMarkThreadRead keeps the REST route — thread-level read is
+        // not yet exposed as a named action. The shared markThreadRead server
+        // function is used by the handler, giving cache invalidation parity.
       }
     },
     onMutate: async (threadId) => {
@@ -715,10 +717,11 @@ export function useToggleStar() {
       accountEmail?: string;
       threadId?: string;
     }) =>
-      apiFetch(`/api/emails/${id}/star`, {
-        method: "PATCH",
-        body: JSON.stringify({ isStarred, accountEmail }),
-      }),
+      callAction("star-email", {
+        id,
+        unstar: !isStarred,
+        accountEmail,
+      }).then(assertActionSuccess),
     onMutate: async ({ id, isStarred, threadId }) => {
       await qc.cancelQueries({ queryKey: ["emails"] });
       const previous = qc.getQueriesData<InfiniteEmails>({
@@ -772,10 +775,12 @@ export function useArchiveEmail() {
       removeLabel?: string;
       threadId?: string;
     }) =>
-      apiFetch(`/api/emails/${id}/archive`, {
-        method: "PATCH",
-        body: JSON.stringify({ accountEmail, removeLabel, threadId }),
-      }),
+      callAction("archive-email", {
+        id,
+        accountEmail,
+        removeLabel,
+        threadId,
+      }).then(assertActionSuccess),
     onMutate: async ({
       id,
     }: {
@@ -813,7 +818,7 @@ export function useUnarchiveEmail() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (id: string) =>
-      apiFetch(`/api/emails/${id}/unarchive`, { method: "PATCH" }),
+      callAction("unarchive-email", { id }).then(assertActionSuccess),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["emails"] }),
   });
 }
@@ -822,7 +827,7 @@ export function useUntrashEmail() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (id: string) =>
-      apiFetch(`/api/emails/${id}/untrash`, { method: "PATCH" }),
+      callAction("untrash-email", { id }).then(assertActionSuccess),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["emails"] }),
   });
 }

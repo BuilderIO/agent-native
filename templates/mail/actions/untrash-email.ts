@@ -1,17 +1,15 @@
 import { defineAction } from "@agent-native/core";
 import { getRequestUserEmail } from "@agent-native/core/server";
 import { writeAppState } from "@agent-native/core/application-state";
-import { markRead } from "../server/lib/email-state.js";
+import { untrashEmail } from "../server/lib/email-state.js";
 import { z } from "zod";
 
 export default defineAction({
-  description: "Mark one or more emails as read or unread.",
+  description: "Restore one or more trashed emails from trash.",
   schema: z.object({
-    id: z.string().optional().describe("Email ID(s), comma-separated"),
-    unread: z.coerce
-      .boolean()
-      .optional()
-      .describe("Set to true to mark as unread instead of read"),
+    id: z
+      .string()
+      .describe("Email ID(s) to restore from trash, comma-separated"),
     accountEmail: z
       .string()
       .optional()
@@ -19,11 +17,10 @@ export default defineAction({
   }),
   run: async (args) => {
     const ids = args.id
-      ?.split(",")
+      .split(",")
       .map((s) => s.trim())
       .filter(Boolean);
-    if (!ids || ids.length === 0) throw new Error("--id is required");
-    const isRead = args.unread !== true;
+    if (ids.length === 0) throw new Error("--id is required");
 
     const ownerEmail = getRequestUserEmail();
     if (!ownerEmail) throw new Error("no authenticated user");
@@ -32,12 +29,7 @@ export default defineAction({
 
     for (const id of ids) {
       try {
-        await markRead({
-          id,
-          ownerEmail,
-          isRead,
-          accountEmail: args.accountEmail,
-        });
+        await untrashEmail({ id, ownerEmail, accountEmail: args.accountEmail });
         results.push({ id, success: true });
       } catch (err: any) {
         results.push({ id, success: false, error: err?.message ?? "failed" });
@@ -46,8 +38,13 @@ export default defineAction({
 
     await writeAppState("refresh-signal", { ts: Date.now() });
 
-    const action = isRead ? "read" : "unread";
     const succeeded = results.filter((r) => r.success).length;
-    return `Marked ${succeeded}/${ids.length} email(s) as ${action}`;
+    const failed = results.filter((r) => !r.success);
+    if (failed.length > 0) {
+      throw new Error(
+        `Restored ${succeeded}/${ids.length} email(s) from trash. Failures: ${failed.map((r) => `${r.id}: ${r.error}`).join("; ")}`,
+      );
+    }
+    return `Restored ${succeeded} email(s) from trash successfully`;
   },
 });

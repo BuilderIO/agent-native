@@ -34,6 +34,7 @@ export default defineAction({
         "true = archive (default), false = restore an archived dashboard",
       ),
   }),
+  http: { method: "POST" },
   run: async (args) => {
     const ctx = resolveScope();
     const dash = args.archived

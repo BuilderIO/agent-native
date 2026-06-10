@@ -13,8 +13,11 @@ import {
   updateCodeAgentRunRecord,
 } from "./code-agent-runs.js";
 import {
+  buildCodeAgentSystemPrompt,
+  buildRepoInstructionsBlock,
   buildStructuredMessagesFromEvents,
   classifyCodeAgentCommandPermission,
+  codeAgentSystemPrompt,
   executeCodeAgentRun,
   executePendingCodeAgentApproval,
 } from "./code-agent-executor.js";

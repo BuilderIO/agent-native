@@ -25,11 +25,8 @@ import {
   gmailGetMessage,
   gmailGetThread,
   gmailListLabels,
-  gmailModifyMessage,
   gmailModifyThread,
   gmailSendMessage,
-  gmailTrashThread,
-  gmailUntrashThread,
   googleFetch,
   peopleListConnections,
   peopleListOtherContacts,
@@ -76,6 +73,21 @@ import { normalizeSignature } from "../../shared/signature.js";
 import { emailMessageMatchesSearch } from "@shared/search.js";
 import { getAppProductionUrl } from "@agent-native/core/server";
 import { ssrfSafeFetch } from "@agent-native/core/extensions/url-safety";
+import {
+  archiveEmail as archiveEmailCore,
+  unarchiveEmail as unarchiveEmailCore,
+  toggleStar as toggleStarCore,
+  trashEmail as trashEmailCore,
+  untrashEmail as untrashEmailCore,
+  markRead as markReadCore,
+  markThreadRead as markThreadReadCore,
+} from "../lib/email-state.js";
+import {
+  threadMessagesCache,
+  THREAD_CACHE_TTL,
+  threadCacheKey,
+  invalidateThreadCache,
+} from "../lib/thread-cache.js";
 
 /**
  * Strip CRLF from any value that flows into an RFC 2822 header line. Without
@@ -116,24 +128,6 @@ const labelMapCache = new Map<
   { map: Map<string, string>; expiresAt: number }
 >();
 const LABEL_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
-
-// In-memory cache for fully-fetched thread messages. Keyed by
-// `${ownerEmail}:${threadId}` so different users don't share entries.
-// Keeps prefetches and repeat opens from hammering the Gmail API (which
-// tripped the per-minute quota and made every navigation feel slow).
-const threadMessagesCache = new Map<
-  string,
-  { messages: EmailMessage[]; expiresAt: number }
->();
-const THREAD_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
-
-function threadCacheKey(ownerEmail: string, threadId: string) {
-  return `${ownerEmail}:${threadId}`;
-}
-
-export function invalidateThreadCache(ownerEmail: string, threadId: string) {
-  threadMessagesCache.delete(threadCacheKey(ownerEmail, threadId));
-}
 
 async function getCachedLabelMap(
   accountTokens: Array<{ email: string; accessToken: string }>,
@@ -736,382 +730,161 @@ export const getEmail = defineEventHandler(async (event: H3Event) => {
 // ─── Mark read ────────────────────────────────────────────────────────────────
 
 export const markRead = defineEventHandler(async (event: H3Event) => {
-  const email = await userEmail(event);
+  const ownerEmail = await userEmail(event);
+  const id = getRouterParam(event, "id") as string;
   const body = ((await readBody(event).catch(() => ({}))) ?? {}) as {
     isRead?: boolean;
     accountEmail?: string;
   };
-  const { isRead, accountEmail } = body;
-
-  if (await isConnected(email)) {
-    const acct = await resolveAccountEmail(accountEmail, email);
-    const accessToken = await getAccessToken(acct);
-    if (!accessToken) {
-      setResponseStatus(event, 401);
-      return { error: "No valid access token for account" };
-    }
-    try {
-      const id = getRouterParam(event, "id") as string;
-      await gmailModifyMessage(
-        accessToken,
-        id,
-        isRead ? undefined : ["UNREAD"],
-        isRead ? ["UNREAD"] : undefined,
-      );
-      return { id, isRead };
-    } catch (error: any) {
-      console.error("[markRead] Gmail error:", error.message);
-      setResponseStatus(event, 500);
-      return { error: error.message };
-    }
+  const isRead = body.isRead ?? true;
+  try {
+    return await markReadCore({
+      id,
+      ownerEmail,
+      isRead,
+      accountEmail: body.accountEmail,
+    });
+  } catch (error: any) {
+    console.error("[markRead] error:", error.message);
+    setResponseStatus(event, 500);
+    return { error: error.message };
   }
-
-  const emails = await readEmails(email);
-  const idx = emails.findIndex((e) => e.id === getRouterParam(event, "id"));
-  if (idx === -1) {
-    setResponseStatus(event, 404);
-    return { error: "Email not found" };
-  }
-
-  emails[idx] = { ...emails[idx], isRead: isRead ?? false };
-  await writeEmails(email, emails, { requestSource: reqSource(event) });
-
-  const labels = recomputeUnreadCounts(emails, await readLabels(email));
-  await writeLabels(email, labels, { requestSource: reqSource(event) });
-
-  return emails[idx];
 });
 
 export const markThreadRead = defineEventHandler(async (event: H3Event) => {
-  const email = await userEmail(event);
+  const ownerEmail = await userEmail(event);
   const threadId = getRouterParam(event, "threadId") as string;
   const body = ((await readBody(event).catch(() => ({}))) ?? {}) as {
     isRead?: boolean;
     accountEmail?: string;
   };
   const isRead = body.isRead !== false;
-
-  if (await isConnected(email)) {
-    const acct = await resolveAccountEmail(body.accountEmail, email);
-    const accessToken = await getAccessToken(acct);
-    if (!accessToken) {
-      setResponseStatus(event, 401);
-      return { error: "No valid access token for account" };
-    }
-    try {
-      await gmailModifyThread(
-        accessToken,
-        threadId,
-        isRead ? undefined : ["UNREAD"],
-        isRead ? ["UNREAD"] : undefined,
-      );
-      invalidateThreadCache(email, threadId);
-      return { threadId, isRead };
-    } catch (error: any) {
-      console.error("[markThreadRead] Gmail error:", error.message);
-      setResponseStatus(event, 500);
-      return { error: error.message };
-    }
+  try {
+    return await markThreadReadCore({
+      threadId,
+      ownerEmail,
+      isRead,
+      accountEmail: body.accountEmail,
+    });
+  } catch (error: any) {
+    console.error("[markThreadRead] error:", error.message);
+    setResponseStatus(event, 500);
+    return { error: error.message };
   }
-
-  const emails = await readEmails(email);
-  let changed = false;
-  for (let i = 0; i < emails.length; i++) {
-    const key = emails[i].threadId || emails[i].id;
-    if (key === threadId && emails[i].isRead !== isRead) {
-      emails[i] = { ...emails[i], isRead };
-      changed = true;
-    }
-  }
-
-  if (!changed) return { threadId, isRead };
-
-  await writeEmails(email, emails, { requestSource: reqSource(event) });
-  const labels = recomputeUnreadCounts(emails, await readLabels(email));
-  await writeLabels(email, labels, { requestSource: reqSource(event) });
-  return { threadId, isRead };
 });
 
 // ─── Toggle star ──────────────────────────────────────────────────────────────
 
 export const toggleStar = defineEventHandler(async (event: H3Event) => {
-  const email = await userEmail(event);
+  const ownerEmail = await userEmail(event);
+  const id = getRouterParam(event, "id") as string;
   const body = ((await readBody(event).catch(() => ({}))) ?? {}) as {
     isStarred?: boolean;
     accountEmail?: string;
+    threadId?: string;
   };
-  const { isStarred, accountEmail } = body;
-
-  if (await isConnected(email)) {
-    const acct = await resolveAccountEmail(accountEmail, email);
-    const accessToken = await getAccessToken(acct);
-    if (!accessToken) {
-      setResponseStatus(event, 401);
-      return { error: "No valid access token for account" };
-    }
-    try {
-      const id = getRouterParam(event, "id") as string;
-      const updated = (await gmailModifyMessage(
-        accessToken,
-        id,
-        isStarred ? ["STARRED"] : undefined,
-        isStarred ? undefined : ["STARRED"],
-      )) as { threadId?: string };
-      if (updated.threadId) invalidateThreadCache(email, updated.threadId);
-      return { id, threadId: updated.threadId, isStarred };
-    } catch (error: any) {
-      console.error("[toggleStar] Gmail error:", error.message);
-      setResponseStatus(event, 500);
-      return { error: error.message };
-    }
+  const isStarred = body.isStarred ?? false;
+  try {
+    return await toggleStarCore({
+      id,
+      ownerEmail,
+      isStarred,
+      accountEmail: body.accountEmail,
+      threadId: body.threadId,
+    });
+  } catch (error: any) {
+    console.error("[toggleStar] error:", error.message);
+    setResponseStatus(event, 500);
+    return { error: error.message };
   }
-
-  const emails = await readEmails(email);
-  const idx = emails.findIndex((e) => e.id === getRouterParam(event, "id"));
-  if (idx === -1) {
-    setResponseStatus(event, 404);
-    return { error: "Email not found" };
-  }
-
-  emails[idx] = { ...emails[idx], isStarred: isStarred ?? false };
-  await writeEmails(email, emails, { requestSource: reqSource(event) });
-  return emails[idx];
 });
 
 // ─── Archive ──────────────────────────────────────────────────────────────────
 
 export const archiveEmail = defineEventHandler(async (event: H3Event) => {
-  const email = await userEmail(event);
+  const ownerEmail = await userEmail(event);
+  const id = getRouterParam(event, "id") as string;
   const body = ((await readBody(event).catch(() => ({}))) ?? {}) as {
     accountEmail?: string;
     removeLabel?: string;
     threadId?: string;
   };
-  if (await isConnected(email)) {
-    const acct = await resolveAccountEmail(body?.accountEmail, email);
-    const accessToken = await getAccessToken(acct);
-    if (!accessToken) {
-      setResponseStatus(event, 401);
-      return { error: "No valid access token for account" };
-    }
-    try {
-      const id = getRouterParam(event, "id") as string;
-      let threadId = body.threadId;
-      let labelIds: string[] | undefined;
-      if (!threadId || body.removeLabel) {
-        const msg = await gmailGetMessage(accessToken, id, "minimal");
-        threadId = threadId || msg.threadId;
-        labelIds = msg.labelIds;
-      }
-      if (!threadId) {
-        setResponseStatus(event, 404);
-        return { error: "Thread not found" };
-      }
-      // Remove INBOX + the current label (if archiving from a label view)
-      const removeLabels = ["INBOX"];
-      if (body.removeLabel) {
-        // Gmail label IDs for user labels are the label name or a Label_N id
-        const removeLabelVal = body.removeLabel;
-        const labelId = labelIds?.find(
-          (l: string) =>
-            l === removeLabelVal ||
-            l.toLowerCase() === removeLabelVal.toLowerCase(),
-        );
-        if (labelId && !removeLabels.includes(labelId)) {
-          removeLabels.push(labelId);
-        }
-      }
-      await gmailModifyThread(accessToken, threadId, undefined, removeLabels);
-      invalidateThreadCache(email, threadId);
-      return { id, threadId, isArchived: true };
-    } catch (error: any) {
-      console.error("[archiveEmail] Gmail error:", error.message);
-      setResponseStatus(event, 500);
-      return { error: error.message };
-    }
+  try {
+    return await archiveEmailCore({
+      id,
+      ownerEmail,
+      accountEmail: body.accountEmail,
+      removeLabel: body.removeLabel,
+      threadId: body.threadId,
+    });
+  } catch (error: any) {
+    console.error("[archiveEmail] error:", error.message);
+    setResponseStatus(event, 500);
+    return { error: error.message };
   }
-
-  const emails = await readEmails(email);
-  const target = emails.find((e) => e.id === getRouterParam(event, "id"));
-  if (!target) {
-    setResponseStatus(event, 404);
-    return { error: "Email not found" };
-  }
-
-  // Archive all messages in the thread, not just the one
-  const threadId = target.threadId || target.id;
-  for (let i = 0; i < emails.length; i++) {
-    const eid = emails[i].threadId || emails[i].id;
-    if (eid === threadId) {
-      emails[i] = {
-        ...emails[i],
-        isArchived: true,
-        labelIds: emails[i].labelIds.filter((l) => l !== "inbox"),
-      };
-    }
-  }
-  await writeEmails(email, emails, { requestSource: reqSource(event) });
-
-  const labels = recomputeUnreadCounts(emails, await readLabels(email));
-  await writeLabels(email, labels, { requestSource: reqSource(event) });
-
-  return { id: getRouterParam(event, "id"), threadId, isArchived: true };
 });
 
 // ─── Unarchive ───────────────────────────────────────────────────────────────
 
 export const unarchiveEmail = defineEventHandler(async (event: H3Event) => {
-  const email = await userEmail(event);
-  const body = await readBody(event);
-  if (await isConnected(email)) {
-    const acct = await resolveAccountEmail(body?.accountEmail, email);
-    const accessToken = await getAccessToken(acct);
-    if (!accessToken) {
-      setResponseStatus(event, 401);
-      return { error: "No valid access token for account" };
-    }
-    try {
-      const id = getRouterParam(event, "id") as string;
-      const msg = await gmailGetMessage(accessToken, id, "minimal");
-      await gmailModifyThread(accessToken, msg.threadId, ["INBOX"]);
-      invalidateThreadCache(email, msg.threadId);
-      return { id, threadId: msg.threadId, isArchived: false };
-    } catch (error: any) {
-      console.error("[unarchiveEmail] Gmail error:", error.message);
-      setResponseStatus(event, 500);
-      return { error: error.message };
-    }
+  const ownerEmail = await userEmail(event);
+  const id = getRouterParam(event, "id") as string;
+  const body = ((await readBody(event).catch(() => ({}))) ?? {}) as {
+    accountEmail?: string;
+  };
+  try {
+    return await unarchiveEmailCore({
+      id,
+      ownerEmail,
+      accountEmail: body.accountEmail,
+    });
+  } catch (error: any) {
+    console.error("[unarchiveEmail] error:", error.message);
+    setResponseStatus(event, 500);
+    return { error: error.message };
   }
-
-  const emails = await readEmails(email);
-  const target = emails.find((e) => e.id === getRouterParam(event, "id"));
-  if (!target) {
-    setResponseStatus(event, 404);
-    return { error: "Email not found" };
-  }
-
-  // Unarchive all messages in the thread
-  const threadId = target.threadId || target.id;
-  for (let i = 0; i < emails.length; i++) {
-    const eid = emails[i].threadId || emails[i].id;
-    if (eid === threadId) {
-      emails[i] = {
-        ...emails[i],
-        isArchived: false,
-        labelIds: emails[i].labelIds.includes("inbox")
-          ? emails[i].labelIds
-          : ["inbox", ...emails[i].labelIds],
-      };
-    }
-  }
-  await writeEmails(email, emails, { requestSource: reqSource(event) });
-
-  const labels = recomputeUnreadCounts(emails, await readLabels(email));
-  await writeLabels(email, labels, { requestSource: reqSource(event) });
-
-  return { id: getRouterParam(event, "id"), threadId, isArchived: false };
 });
 
 // ─── Trash ────────────────────────────────────────────────────────────────────
 
 export const trashEmail = defineEventHandler(async (event: H3Event) => {
-  const email = await userEmail(event);
-  const body = await readBody(event);
-  if (await isConnected(email)) {
-    const acct = await resolveAccountEmail(body?.accountEmail, email);
-    const accessToken = await getAccessToken(acct);
-    if (!accessToken) {
-      setResponseStatus(event, 401);
-      return { error: "No valid access token for account" };
-    }
-    try {
-      const id = getRouterParam(event, "id") as string;
-      const msg = await gmailGetMessage(accessToken, id, "minimal");
-      await gmailTrashThread(accessToken, msg.threadId);
-      invalidateThreadCache(email, msg.threadId);
-      return { id, threadId: msg.threadId, isTrashed: true };
-    } catch (error: any) {
-      console.error("[trashEmail] Gmail error:", error.message);
-      setResponseStatus(event, 500);
-      return { error: error.message };
-    }
+  const ownerEmail = await userEmail(event);
+  const id = getRouterParam(event, "id") as string;
+  const body = ((await readBody(event).catch(() => ({}))) ?? {}) as {
+    accountEmail?: string;
+  };
+  try {
+    return await trashEmailCore({
+      id,
+      ownerEmail,
+      accountEmail: body.accountEmail,
+    });
+  } catch (error: any) {
+    console.error("[trashEmail] error:", error.message);
+    setResponseStatus(event, 500);
+    return { error: error.message };
   }
-
-  const emails = await readEmails(email);
-  const target = emails.find((e) => e.id === getRouterParam(event, "id"));
-  if (!target) {
-    setResponseStatus(event, 404);
-    return { error: "Email not found" };
-  }
-
-  // Trash all messages in the thread
-  const threadId = target.threadId || target.id;
-  for (let i = 0; i < emails.length; i++) {
-    const eid = emails[i].threadId || emails[i].id;
-    if (eid === threadId) {
-      emails[i] = { ...emails[i], isTrashed: true, isArchived: false };
-    }
-  }
-  await writeEmails(email, emails, { requestSource: reqSource(event) });
-
-  const labels = recomputeUnreadCounts(emails, await readLabels(email));
-  await writeLabels(email, labels, { requestSource: reqSource(event) });
-
-  return { id: getRouterParam(event, "id"), threadId, isTrashed: true };
 });
 
 // ─── Untrash ─────────────────────────────────────────────────────────────────
 
 export const untrashEmail = defineEventHandler(async (event: H3Event) => {
-  const email = await userEmail(event);
-  const body = await readBody(event);
-  if (await isConnected(email)) {
-    const acct = await resolveAccountEmail(body?.accountEmail, email);
-    const accessToken = await getAccessToken(acct);
-    if (!accessToken) {
-      setResponseStatus(event, 401);
-      return { error: "No valid access token for account" };
-    }
-    try {
-      const id = getRouterParam(event, "id") as string;
-      const msg = await gmailGetMessage(accessToken, id, "minimal");
-      await gmailUntrashThread(accessToken, msg.threadId);
-      invalidateThreadCache(email, msg.threadId);
-      return { id, threadId: msg.threadId, isTrashed: false };
-    } catch (error: any) {
-      console.error("[untrashEmail] Gmail error:", error.message);
-      setResponseStatus(event, 500);
-      return { error: error.message };
-    }
+  const ownerEmail = await userEmail(event);
+  const id = getRouterParam(event, "id") as string;
+  const body = ((await readBody(event).catch(() => ({}))) ?? {}) as {
+    accountEmail?: string;
+  };
+  try {
+    return await untrashEmailCore({
+      id,
+      ownerEmail,
+      accountEmail: body.accountEmail,
+    });
+  } catch (error: any) {
+    console.error("[untrashEmail] error:", error.message);
+    setResponseStatus(event, 500);
+    return { error: error.message };
   }
-
-  const emails = await readEmails(email);
-  const target = emails.find((e) => e.id === getRouterParam(event, "id"));
-  if (!target) {
-    setResponseStatus(event, 404);
-    return { error: "Email not found" };
-  }
-
-  // Untrash all messages in the thread
-  const threadId = target.threadId || target.id;
-  for (let i = 0; i < emails.length; i++) {
-    const eid = emails[i].threadId || emails[i].id;
-    if (eid === threadId) {
-      emails[i] = {
-        ...emails[i],
-        isTrashed: false,
-        labelIds: emails[i].labelIds.includes("inbox")
-          ? emails[i].labelIds
-          : ["inbox", ...emails[i].labelIds],
-      };
-    }
-  }
-  await writeEmails(email, emails, { requestSource: reqSource(event) });
-
-  const labels = recomputeUnreadCounts(emails, await readLabels(email));
-  await writeLabels(email, labels, { requestSource: reqSource(event) });
-
-  return { id: getRouterParam(event, "id"), threadId, isTrashed: false };
 });
 
 // ─── Report spam ──────────────────────────────────────────────────────────────

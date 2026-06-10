@@ -19,6 +19,9 @@ import {
   useMessageRuntime,
   ThreadPrimitive,
   MessagePrimitive,
+  ActionBarPrimitive,
+  BranchPickerPrimitive,
+  ComposerPrimitive,
 } from "@assistant-ui/react";
 import type {
   AttachmentAdapter,
@@ -173,6 +176,9 @@ import {
   IconArrowsMaximize,
   IconArrowsMinimize,
   IconPlus,
+  IconPencil,
+  IconChevronLeft,
+  IconChevronRight,
 } from "@tabler/icons-react";
 
 export {
@@ -2424,6 +2430,74 @@ function UserMessageAttachments() {
   );
 }
 
+// ─── Inline Edit Composer (shown in place of UserMessage bubble when editing) ─
+
+function UserMessageEditComposer() {
+  return (
+    <ComposerPrimitive.Root className="flex flex-col gap-2 rounded-lg border border-border bg-background px-3 py-2 shadow-sm">
+      <ComposerPrimitive.Input
+        className="w-full resize-none bg-transparent text-sm leading-relaxed text-foreground placeholder:text-muted-foreground focus:outline-none"
+        rows={1}
+        submitMode="enter"
+      />
+      <div className="flex justify-end gap-2">
+        <ComposerPrimitive.Cancel asChild>
+          <button
+            type="button"
+            className="cursor-pointer rounded-md px-2 py-1 text-xs font-medium text-muted-foreground hover:bg-accent hover:text-foreground"
+          >
+            Cancel
+          </button>
+        </ComposerPrimitive.Cancel>
+        <ComposerPrimitive.Send asChild>
+          <button
+            type="submit"
+            className="cursor-pointer rounded-md bg-foreground px-2 py-1 text-xs font-medium text-background hover:opacity-90 disabled:opacity-50"
+          >
+            Save
+          </button>
+        </ComposerPrimitive.Send>
+      </div>
+    </ComposerPrimitive.Root>
+  );
+}
+
+// ─── Branch Picker ──────────────────────────────────────────────────────────
+// Shows prev/next branch navigation when a message has multiple branches.
+
+function MessageBranchPicker() {
+  return (
+    <BranchPickerPrimitive.Root
+      hideWhenSingleBranch
+      className="flex items-center gap-0.5 text-[11px] text-muted-foreground"
+    >
+      <BranchPickerPrimitive.Previous asChild>
+        <button
+          type="button"
+          aria-label="Previous branch"
+          className="flex h-6 w-6 cursor-pointer items-center justify-center rounded-md text-muted-foreground/70 transition-colors duration-150 hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          <IconChevronLeft className="h-3.5 w-3.5" />
+        </button>
+      </BranchPickerPrimitive.Previous>
+      <span className="tabular-nums select-none">
+        <BranchPickerPrimitive.Number />
+        {"/"}
+        <BranchPickerPrimitive.Count />
+      </span>
+      <BranchPickerPrimitive.Next asChild>
+        <button
+          type="button"
+          aria-label="Next branch"
+          className="flex h-6 w-6 cursor-pointer items-center justify-center rounded-md text-muted-foreground/70 transition-colors duration-150 hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          <IconChevronRight className="h-3.5 w-3.5" />
+        </button>
+      </BranchPickerPrimitive.Next>
+    </BranchPickerPrimitive.Root>
+  );
+}
+
 function UserMessage() {
   const [expanded, setExpanded] = useState(false);
   const [isExpandable, setIsExpandable] = useState(false);
@@ -2431,6 +2505,8 @@ function UserMessage() {
   const messageRuntime = useMessageRuntime();
   const message = messageRuntime.getState();
   const timestamp = formatMessageTimestamp(message.createdAt);
+  const isEditing = useComposer((state) => state.isEditing);
+  const chatRunning = React.useContext(ChatRunningContext);
   const hasDisplayableText =
     message.content
       ?.filter((part): part is { type: "text"; text: string } => {
@@ -2452,6 +2528,17 @@ function UserMessage() {
     observer.observe(el);
     return () => observer.disconnect();
   }, [hasDisplayableText]);
+
+  // When in edit mode, show the inline edit composer instead of the message bubble.
+  if (isEditing) {
+    return (
+      <div className="flex justify-end">
+        <div className="w-full max-w-[85%]">
+          <UserMessageEditComposer />
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div
@@ -2496,6 +2583,27 @@ function UserMessage() {
             {!expanded && isExpandable && (
               <div className="pointer-events-none absolute inset-x-0 bottom-0 h-14 rounded-b-lg bg-gradient-to-t from-accent via-accent/90 to-transparent" />
             )}
+            {/* Edit hover affordance — appears on hover when not running */}
+            {!chatRunning && hasDisplayableText && (
+              <TooltipProvider delayDuration={400}>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <ActionBarPrimitive.Edit asChild>
+                      <button
+                        type="button"
+                        aria-label="Edit message"
+                        className="absolute -left-8 top-1 flex h-6 w-6 cursor-pointer items-center justify-center rounded-md text-muted-foreground/0 transition-colors duration-150 group-hover:text-muted-foreground/70 group-hover:hover:bg-accent group-hover:hover:text-foreground"
+                      >
+                        <IconPencil className="h-3.5 w-3.5" />
+                      </button>
+                    </ActionBarPrimitive.Edit>
+                  </TooltipTrigger>
+                  <TooltipContent side="left" className="text-xs">
+                    Edit message
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+            )}
           </div>
         )}
         {hasDisplayableText && isExpandable && (
@@ -2513,14 +2621,15 @@ function UserMessage() {
             {expanded ? "Collapse" : "Expand"}
           </button>
         )}
-        {timestamp && (
-          <div className="mt-1 flex justify-end">
+        <div className="mt-1 flex items-center justify-end gap-1">
+          <MessageBranchPicker />
+          {timestamp && (
             <MessageTimestamp
               timestamp={timestamp}
               className="opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100"
             />
-          </div>
-        )}
+          )}
+        </div>
       </div>
     </div>
   );
@@ -2771,11 +2880,33 @@ function AssistantMessage() {
       </div>
       {isComplete && (
         <div className="mt-1 flex items-center justify-between">
-          <div className="flex min-w-0 items-center gap-2">
+          <div className="flex min-w-0 items-center gap-1">
             <MessageActionsMenu
               showRevert={showRestore && restoreState === "idle"}
               onRevert={handleRestore}
             />
+            {/* Regenerate button — only on the last assistant message, auto-disabled while running */}
+            {isLast && (
+              <TooltipProvider delayDuration={400}>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <ActionBarPrimitive.Reload asChild>
+                      <button
+                        type="button"
+                        aria-label="Regenerate response"
+                        className="flex h-6 w-6 cursor-pointer items-center justify-center rounded-md text-muted-foreground/70 transition-colors duration-150 hover:bg-accent hover:text-foreground opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 disabled:cursor-not-allowed disabled:opacity-40"
+                      >
+                        <IconRefresh className="h-3.5 w-3.5" />
+                      </button>
+                    </ActionBarPrimitive.Reload>
+                  </TooltipTrigger>
+                  <TooltipContent side="top" className="text-xs">
+                    Regenerate response
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+            )}
+            <MessageBranchPicker />
             {timestamp && (
               <MessageTimestamp
                 timestamp={timestamp}
