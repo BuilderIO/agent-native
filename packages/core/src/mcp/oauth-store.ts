@@ -478,3 +478,15 @@ export async function getOAuthRefreshToken(
   }
   return row;
 }
+
+export async function touchOAuthRefreshToken(
+  refreshToken: string,
+): Promise<void> {
+  await ensureTable();
+  const client = getDbExec();
+  const tokenHash = hashOAuthToken(refreshToken);
+  await client.execute({
+    sql: `UPDATE mcp_oauth_refresh_tokens SET last_used_at = ? WHERE token_hash = ? AND revoked_at IS NULL`,
+    args: [Date.now(), tokenHash],
+  });
+}

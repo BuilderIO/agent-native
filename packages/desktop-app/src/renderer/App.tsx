@@ -83,7 +83,8 @@ function isEditableTarget(target: EventTarget | null): boolean {
 function isShellShortcut(e: KeyboardEvent): boolean {
   if (!e.metaKey && !e.ctrlKey) return false;
 
-  const key = e.key.toLowerCase();
+  // e.key can be undefined on some trusted keydown events (autofill/IME).
+  const key = (e.key ?? "").toLowerCase();
   if (e.altKey && (key === "arrowup" || key === "arrowdown")) return true;
   if (isAgentSidebarToggleShortcut(e)) return true;
 

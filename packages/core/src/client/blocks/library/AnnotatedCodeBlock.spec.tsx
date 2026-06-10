@@ -58,6 +58,51 @@ describe("AnnotatedCodeBlock annotations", () => {
     vi.unstubAllGlobals();
   });
 
+  it("omits the language chip when a filename label is present", () => {
+    act(() => {
+      root.render(
+        <AnnotatedCodeRead
+          blockId="code-annotations"
+          ctx={{}}
+          data={{
+            filename: "src/example.ts",
+            language: "typescript",
+            code: "const value = 1;",
+            annotations: [],
+          }}
+        />,
+      );
+    });
+
+    expect(container.textContent).toContain("src/example.ts");
+    expect(container.textContent).not.toContain("typescript");
+  });
+
+  it("mutes the directory and emphasizes the filename in the header", () => {
+    act(() => {
+      root.render(
+        <AnnotatedCodeRead
+          blockId="code-annotations"
+          ctx={{}}
+          data={{
+            filename: "packages/core/src/example.ts",
+            language: "typescript",
+            code: "const value = 1;",
+            annotations: [],
+          }}
+        />,
+      );
+    });
+
+    const directory = container.querySelector("[data-code-filename-directory]");
+    const basename = container.querySelector("[data-code-filename-basename]");
+
+    expect(directory?.textContent).toBe("packages/core/src/");
+    expect(directory?.className).toContain("text-plan-muted");
+    expect(basename?.textContent).toBe("example.ts");
+    expect(basename?.className).toContain("text-plan-code-text");
+  });
+
   it("anchors a multi-line annotation popover to the first line in the range", () => {
     act(() => {
       root.render(

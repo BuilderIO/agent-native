@@ -7,6 +7,15 @@
  * diff and publishes the plan via the plan MCP tools. These subcommands are the
  * thin, deterministic glue around that:
  *
+ *   gate          The security boundary: decide whether the recap runs at all
+ *                 (skipping drafts, forks, bots, missing secrets, an invalid
+ *                 agent/model, and PRs that touch recap-control files) and which
+ *                 normalized backend agent to use.
+ *   collect-diff  Collect the bounded base...head diff (excluding lockfiles,
+ *                 build output, snapshots), cap it at ~600KB, and classify the
+ *                 huge/tiny flags.
+ *   mcp-config    Write the plan MCP client config for the chosen backend
+ *                 (Claude Code JSON or Codex config.toml).
  *   scan          Refuse to hand a secret-leaking diff to the agent.
  *   build-prompt  Assemble the agent prompt = repo SKILL.md + a task wrapper.
  *   shot          Screenshot the published plan and upload it to the plan app's
@@ -19,7 +28,9 @@
  * Node built-ins only (plus an optional dynamic `playwright` import for `shot`).
  */
 
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 
 import { PR_VISUAL_RECAP_WORKFLOW_YML } from "./pr-visual-recap-workflow.js";
@@ -138,6 +149,230 @@ export function diffContainsSecret(diffText: string): boolean {
 }
 
 /* -------------------------------------------------------------------------- */
+/* Bounded diff collection — was the workflow's "Collect bounded diff" step    */
+/* -------------------------------------------------------------------------- */
+
+/** ~600KB byte cap for the diff handed to the recap agent. */
+export const RECAP_DIFF_BYTE_CAP = 614400;
+
+/** The footer appended when a diff is truncated at the byte cap. */
+export const RECAP_DIFF_TRUNCATED_FOOTER =
+  "\n\n[diff truncated at 600KB for the recap agent]\n";
+
+/**
+ * The pathspecs the bounded diff excludes — lockfiles, build output, and
+ * snapshots are noise for a visual recap. Kept as array args (not a shell
+ * string) so the `:(exclude)` pathspecs are never mangled by a shell.
+ */
+const RECAP_DIFF_PATHSPECS: string[] = [
+  ".",
+  ":(exclude)pnpm-lock.yaml",
+  ":(exclude)**/dist/**",
+  ":(exclude)**/*.snap",
+  ":(exclude)**/*.lock",
+];
+
+/**
+ * Classify a bounded diff into the `huge` / `tiny` flags the workflow consumes.
+ *
+ * - huge: BYTES over the ~600KB cap. The agent is told to summarize AND the
+ *   diff file is physically truncated so it can't overflow the prompt budget.
+ * - tiny: <= 1 changed file AND <= 8 changed lines. Uses ORIGINAL line count
+ *   (captured before any truncation) so a large diff is never misclassified as
+ *   tiny after the byte cap drops most of its lines.
+ *
+ * Pure (no I/O) so the classification can be unit-tested without invoking git.
+ */
+export function classifyDiff(input: {
+  bytes: number;
+  changed: number;
+  originalLines: number;
+}): { huge: boolean; tiny: boolean } {
+  return {
+    huge: input.bytes > RECAP_DIFF_BYTE_CAP,
+    tiny: input.changed <= 1 && input.originalLines <= 8,
+  };
+}
+
+/**
+ * Truncate a diff to the ~600KB byte cap at a COMPLETE LINE boundary, then
+ * append the truncated footer. Dropping the last (possibly-partial) line is the
+ * equivalent of the original `head -c 614400 | sed '$d'`: it guarantees the cap
+ * never cuts a multi-byte UTF-8 char or a diff line mid-way and corrupts the
+ * agent's input. Pure (string in, string out) so it can be unit-tested.
+ */
+export function truncateDiffAtLineBoundary(text: string): string {
+  const capped = Buffer.from(text, "utf8")
+    .subarray(0, RECAP_DIFF_BYTE_CAP)
+    .toString("utf8");
+  const lastNewline = capped.lastIndexOf("\n");
+  // Drop everything after the last newline (the last, possibly-partial line),
+  // mirroring `sed '$d'`. If there is no newline at all, drop the whole partial
+  // line (empty body) — the footer still makes the truncation explicit.
+  const body = lastNewline >= 0 ? capped.slice(0, lastNewline) : "";
+  return body + RECAP_DIFF_TRUNCATED_FOOTER;
+}
+
+/** Count lines that begin with `+` or `-` (added/removed diff lines). */
+export function countDiffLines(diffText: string): number {
+  let count = 0;
+  for (const line of diffText.split("\n")) {
+    if (line.startsWith("+") || line.startsWith("-")) count += 1;
+  }
+  return count;
+}
+
+/**
+ * Run `git diff <base>...<head> -- <pathspecs>` and return its stdout. Tolerates
+ * a non-zero git exit (the original step used `|| true`) by capturing stdout
+ * regardless. Array args — NOT a shell string — so the `:(exclude)` pathspecs
+ * survive intact.
+ */
+function gitDiff(base: string, head: string, extraArgs: string[]): string {
+  const args = [
+    "diff",
+    "--no-color",
+    ...extraArgs,
+    `${base}...${head}`,
+    "--",
+    ...RECAP_DIFF_PATHSPECS,
+  ];
+  try {
+    return execFileSync("git", args, {
+      encoding: "utf8",
+      maxBuffer: 256 * 1024 * 1024,
+    });
+  } catch (err: any) {
+    // Tolerate a non-zero exit (e.g. missing object) but still use whatever git
+    // wrote to stdout, exactly like the original `... > recap.diff || true`.
+    if (err && typeof err.stdout === "string") return err.stdout;
+    if (err && Buffer.isBuffer(err.stdout)) return err.stdout.toString("utf8");
+    return "";
+  }
+}
+
+/**
+ * `recap collect-diff` — the bounded-diff collection that used to be ~60 lines
+ * of inline bash. Writes recap.diff + recap.stat, classifies huge/tiny, and
+ * emits the same `bytes/changed/huge/tiny` outputs the workflow expects:
+ * appended to $GITHUB_OUTPUT when set, AND printed as JSON to stdout (so it runs
+ * and is testable outside GitHub Actions).
+ */
+function runCollectDiff(args: Record<string, string | boolean>): void {
+  const base = stringArg(args, "base");
+  const head = stringArg(args, "head");
+  const outPath = optionalArg(args, "out") ?? "recap.diff";
+  const statPath = optionalArg(args, "stat") ?? "recap.stat";
+
+  // The unified diff and the --stat summary (both excluding lockfiles/noise).
+  let diff = gitDiff(base, head, []);
+  const stat = gitDiff(base, head, ["--stat"]);
+  fs.writeFileSync(path.resolve(statPath), stat);
+
+  // ORIGINAL line count — captured BEFORE any byte-cap truncation so a large
+  // diff is never misclassified as tiny after truncation.
+  const originalLines = countDiffLines(diff);
+
+  // Changed-file count from `--name-only` over the same excludes.
+  const names = gitDiff(base, head, ["--name-only"]);
+  const changed = names.split("\n").filter((line) => line.length > 0).length;
+
+  // Write the (possibly truncated) diff and compute the on-disk byte length.
+  const bytesBefore = Buffer.byteLength(diff, "utf8");
+  const { huge } = classifyDiff({ bytes: bytesBefore, changed, originalLines });
+  if (huge) diff = truncateDiffAtLineBoundary(diff);
+  fs.writeFileSync(path.resolve(outPath), diff);
+  const bytes = fs.statSync(path.resolve(outPath)).size;
+
+  const { tiny } = classifyDiff({ bytes: bytesBefore, changed, originalLines });
+
+  // Preserve the existing steps.diff.outputs.{bytes,changed,huge,tiny} contract.
+  const githubOutput = process.env.GITHUB_OUTPUT;
+  if (githubOutput) {
+    fs.appendFileSync(
+      githubOutput,
+      `bytes=${bytes}\nchanged=${changed}\nhuge=${huge}\ntiny=${tiny}\n`,
+    );
+  }
+  process.stdout.write(`${JSON.stringify({ bytes, changed, huge, tiny })}\n`);
+}
+
+/* -------------------------------------------------------------------------- */
+/* MCP config writers — were the two `node -e` one-liners in the agent steps   */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * The Claude Code MCP config the recap agent loads: a single HTTP `plan` server
+ * pointing at the app's `/_agent-native/mcp` endpoint, authorized with the
+ * PLAN_RECAP_TOKEN. Pure (returns the JSON string) so it can be unit-tested.
+ */
+export function buildRecapClaudeMcpConfig(
+  appUrl: string,
+  token: string | undefined,
+): string {
+  const url = appUrl.replace(/\/$/, "") + "/_agent-native/mcp";
+  return JSON.stringify({
+    mcpServers: {
+      plan: {
+        type: "http",
+        url,
+        headers: { Authorization: "Bearer " + token },
+      },
+    },
+  });
+}
+
+/**
+ * The Codex `config.toml` the recap agent loads. JSON.stringify the URL value so
+ * a stray quote/newline in the app URL can't break out of the TOML basic string
+ * (TOML shares JSON's escaping); the key and env-var name stay literal. Pure so
+ * it can be unit-tested.
+ */
+export function buildRecapCodexMcpConfig(appUrl: string): string {
+  const url = appUrl.replace(/\/$/, "") + "/_agent-native/mcp";
+  return (
+    "[mcp_servers.plan]\n" +
+    "url = " +
+    JSON.stringify(url) +
+    "\n" +
+    'bearer_token_env_var = "PLAN_RECAP_TOKEN"\n'
+  );
+}
+
+/**
+ * `recap mcp-config` — write the plan MCP client config for the chosen backend,
+ * replacing the two `node -e '...'` one-liners that previously lived inline in
+ * the agent steps. PLAN_RECAP_TOKEN is read from the environment (claude only),
+ * exactly as before.
+ */
+function runMcpConfig(args: Record<string, string | boolean>): void {
+  const agent = stringArg(args, "agent").toLowerCase();
+  const appUrl = stringArg(args, "app-url");
+
+  if (agent === "claude") {
+    const out = stringArg(args, "out");
+    fs.writeFileSync(
+      path.resolve(out),
+      buildRecapClaudeMcpConfig(appUrl, process.env.PLAN_RECAP_TOKEN),
+    );
+    process.stdout.write(`${JSON.stringify({ ok: true, agent, out })}\n`);
+    return;
+  }
+
+  if (agent === "codex") {
+    const out =
+      optionalArg(args, "out") ??
+      path.join(os.homedir(), ".codex", "config.toml");
+    fs.mkdirSync(path.dirname(path.resolve(out)), { recursive: true });
+    fs.writeFileSync(path.resolve(out), buildRecapCodexMcpConfig(appUrl));
+    process.stdout.write(`${JSON.stringify({ ok: true, agent, out })}\n`);
+    return;
+  }
+
+  throw new Error(`Unknown --agent "${agent}" (expected "claude" or "codex")`);
+}
+
+/* -------------------------------------------------------------------------- */
 /* Prompt builder — repo SKILL.md + task wrapper                              */
 /* -------------------------------------------------------------------------- */
 
@@ -170,23 +405,40 @@ export function readRepoSkillMd(cwd: string = process.cwd()): {
 export function buildRecapPrompt(input: {
   skillMd: string;
   pr: string;
+  repo?: string;
   head?: string;
   appUrl: string;
   diffPath: string;
   statPath?: string;
   prevPlanId?: string;
   huge?: boolean;
+  localFiles?: boolean;
+  localDir?: string;
 }): string {
   const appUrl = input.appUrl.replace(/\/$/, "");
+  const localDir =
+    input.localDir ?? path.join("plans", `pr-${input.pr}-visual-recap`);
   const lines: string[] = [];
-  lines.push("# Task: publish a Visual Recap of this pull request");
+  lines.push(
+    input.localFiles
+      ? "# Task: create a DB-free local Visual Recap of this pull request"
+      : "# Task: publish a Visual Recap of this pull request",
+  );
   lines.push("");
   lines.push(
-    `You are running non-interactively in CI. Follow the **visual-recap skill** included verbatim below to turn this PR's diff into a grounded Agent-Native Plan, then publish it.`,
+    input.localFiles
+      ? `You are running non-interactively in local-files privacy mode. Follow the **visual-recap skill** included verbatim below to turn this PR's diff into a grounded Agent-Native Plan MDX folder, but do not publish it or call any Plan MCP/action write tool.`
+      : `You are running non-interactively in CI. Follow the **visual-recap skill** included verbatim below to turn this PR's diff into a grounded Agent-Native Plan, then publish it.`,
   );
   lines.push("");
   lines.push("## Inputs (read them from disk with your Read tool)");
   lines.push(`- PR number: **#${input.pr}**`);
+  if (input.repo) {
+    lines.push(`- Repository: **${input.repo}**`);
+    lines.push(
+      `- Pull request URL: https://github.com/${input.repo}/pull/${input.pr}`,
+    );
+  }
   if (input.head) lines.push(`- Head commit: \`${input.head}\``);
   lines.push(`- Unified diff: \`${input.diffPath}\` (read this file)`);
   if (input.statPath)
@@ -197,23 +449,45 @@ export function buildRecapPrompt(input: {
     );
   }
   lines.push("");
-  lines.push("## Publish (this is the only way to produce output)");
-  lines.push(
-    `The \`plan\` MCP server is configured for you. Call its tools by name (your host may expose them as \`create-visual-recap\` or \`mcp__plan__create-visual-recap\` — same tool).`,
-  );
-  lines.push(
-    `1. Call the **create-visual-recap** tool on the \`plan\` MCP server with grounded MDX derived ONLY from the real diff${
-      input.prevPlanId
-        ? `, passing \`planId: "${input.prevPlanId}"\` so this REPLACES the existing recap plan`
-        : ""
-    }.`,
-  );
-  lines.push(
-    `2. Call the **set-resource-visibility** tool on the \`plan\` MCP server with \`{ resourceType: "plan", resourceId: <the returned plan id>, visibility: "org" }\` so the recap is login-gated to the org, never public.`,
-  );
-  lines.push(
-    `3. Write the plan URL to a file named \`recap-url.txt\` at the repo root, containing exactly one line: \`${appUrl}/recaps/<the returned plan id>\`. This file is the workflow's only hand-off — do not print anything else as the deliverable.`,
-  );
+  if (input.localFiles) {
+    lines.push(
+      "## Local-Files Output (this is the only way to produce output)",
+    );
+    lines.push(
+      "Do NOT call the `plan` MCP server, `create-visual-recap`, `import-visual-plan-source`, `update-visual-plan`, `export-visual-plan`, or any hosted Plan action. This mode exists so the recap data never goes to a Plan app database.",
+    );
+    lines.push(
+      `1. Create or replace the local MDX folder \`${localDir}\` with \`plan.mdx\` and optional \`canvas.mdx\`, \`prototype.mdx\`, and \`.plan-state.json\` derived ONLY from the real diff. Set \`kind: "recap"\` and \`localOnly: true\` in source metadata/state.`,
+    );
+    lines.push(
+      `2. Run \`agent-native plan local preview --dir ${JSON.stringify(
+        localDir,
+      )} --kind recap --out ${JSON.stringify(
+        path.join(localDir, "preview.html"),
+      )}\` to validate the folder and generate the local preview.`,
+    );
+    lines.push(
+      "3. Write the returned `url` from that command to `recap-url.txt` at the repo root, containing exactly one line. This file is the workflow's only hand-off.",
+    );
+  } else {
+    lines.push("## Publish (this is the only way to produce output)");
+    lines.push(
+      `The \`plan\` MCP server is configured for you. Call its tools by name (your host may expose them as \`create-visual-recap\` or \`mcp__plan__create-visual-recap\` — same tool).`,
+    );
+    lines.push(
+      `1. Call the **create-visual-recap** tool on the \`plan\` MCP server with grounded MDX derived ONLY from the real diff${
+        input.prevPlanId
+          ? `, passing \`planId: "${input.prevPlanId}"\` so this REPLACES the existing recap plan`
+          : ""
+      }.`,
+    );
+    lines.push(
+      `2. Call the **set-resource-visibility** tool on the \`plan\` MCP server with \`{ resourceType: "plan", resourceId: <the returned plan id>, visibility: "org" }\` so the recap is login-gated to the org, never public.`,
+    );
+    lines.push(
+      `3. Write the plan URL to a file named \`recap-url.txt\` at the repo root, containing exactly one line: \`${appUrl}/recaps/<the returned plan id>\`. This file is the workflow's only hand-off — do not print anything else as the deliverable.`,
+    );
+  }
   lines.push("");
   lines.push(
     "Do not invent file names, schema fields, or endpoints. Redact anything that looks like a secret. If the diff has no reviewable substance, still publish a minimal recap and write recap-url.txt.",
@@ -482,12 +756,15 @@ function runBuildPrompt(args: Record<string, string | boolean>): void {
   const prompt = buildRecapPrompt({
     skillMd: skill.text,
     pr: stringArg(args, "pr"),
+    repo: optionalArg(args, "repo") ?? process.env.GITHUB_REPOSITORY,
     head: optionalArg(args, "head"),
     appUrl: optionalArg(args, "app-url") ?? "https://plan.agent-native.com",
     diffPath: optionalArg(args, "diff") ?? "recap.diff",
     statPath: optionalArg(args, "stat"),
     prevPlanId: optionalArg(args, "prev-plan-id"),
     huge: args.huge === true || args.huge === "true",
+    localFiles: args["local-files"] === true || args["local-files"] === "true",
+    localDir: optionalArg(args, "local-dir"),
   });
   const out = optionalArg(args, "out") ?? "recap-prompt.md";
   fs.writeFileSync(path.resolve(out), prompt);
@@ -699,6 +976,534 @@ async function runComment(
 }
 
 /* -------------------------------------------------------------------------- */
+/* Gate — the security boundary that decides whether the recap runs at all     */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Minimal shape of the `pull_request` object from a GitHub `pull_request` event
+ * payload that the gate inspects. Everything is optional so a malformed/partial
+ * payload degrades to "skip" rather than throwing.
+ */
+export interface RecapGatePullRequest {
+  number?: number;
+  draft?: boolean;
+  head?: { repo?: { full_name?: string | null } | null } | null;
+  user?: { login?: string | null; type?: string | null } | null;
+}
+
+export interface RecapGateInput {
+  /** The `pull_request` payload object, or null when absent. */
+  pr: RecapGatePullRequest | null;
+  /** GITHUB_REPOSITORY ("owner/name"). */
+  repository: string | undefined;
+  /** PLAN_RECAP_TOKEN present. */
+  hasPlan: boolean;
+  /** ANTHROPIC_API_KEY present. */
+  hasAnthropic: boolean;
+  /** OPENAI_API_KEY present. */
+  hasOpenai: boolean;
+  /** Raw VISUAL_RECAP_AGENT value (may be undefined / mis-cased). */
+  agentRaw: string | undefined;
+  /** Raw VISUAL_RECAP_MODEL value (may be undefined). */
+  model: string | undefined;
+  /** Filenames changed by the PR (for the self-modifying guard). */
+  changedFiles: string[];
+}
+
+/**
+ * Files that, if a PR touches them, would let that PR rewrite what the trusted
+ * recap job runs (the workflow itself, the skill, the local CLI, or any agent
+ * config the runner loads) — so the whole job is skipped, not just the agent
+ * step, to keep untrusted PR code away from the publish/API secrets.
+ */
+export function isRecapSensitivePath(p: string): boolean {
+  return (
+    p === ".github/workflows/pr-visual-recap.yml" ||
+    /(^|\/)skills\/visual-(recap|plan|plans)\//.test(p) ||
+    /(^|\/)\.claude\//.test(p) ||
+    /(^|\/)CLAUDE\.md$/.test(p) ||
+    /(^|\/)AGENTS\.md$/.test(p) ||
+    /(^|\/)\.mcp\.json$/.test(p) ||
+    /(^|\/)packages\/core\//.test(p)
+  );
+}
+
+/**
+ * The pure gate decision: given the PR payload, secret-presence flags, the
+ * configured backend/model, and the PR's changed files, decide whether the
+ * visual recap should run, which (normalized) agent to use, and — when skipped —
+ * the human-readable reasons. This is the security boundary; it replicates the
+ * inline github-script gate bit-for-bit. No I/O so it can be unit-tested.
+ */
+export function evaluateRecapGate(input: RecapGateInput): {
+  run: boolean;
+  agent: string;
+  reasons: string[];
+} {
+  const { pr } = input;
+  const reasons: string[] = [];
+
+  if (!pr) reasons.push("no pull_request payload");
+  if (pr && pr.draft) reasons.push("draft PR");
+
+  // Fork PRs: head repo differs from this repo. Plain pull_request runs fork
+  // code with NO secrets, so publishing would fail anyway — skip.
+  const headRepo = pr && pr.head && pr.head.repo && pr.head.repo.full_name;
+  if (pr && headRepo && headRepo !== input.repository) {
+    reasons.push(`fork PR (${headRepo})`);
+  }
+
+  // Skip noisy automated authors.
+  const login = ((pr && pr.user && pr.user.login) || "").toLowerCase();
+  const botAuthors = [
+    "dependabot[bot]",
+    "dependabot",
+    "renovate[bot]",
+    "renovate",
+  ];
+  if (botAuthors.includes(login)) reasons.push(`bot author (${login})`);
+  if (pr && pr.user && pr.user.type === "Bot")
+    reasons.push("bot author (type=Bot)");
+
+  // Publish secret must be configured — otherwise this is a no-op so the
+  // workflow can be merged before secrets exist.
+  if (!input.hasPlan) reasons.push("PLAN_RECAP_TOKEN not configured");
+
+  // The chosen backend's API key must be present. Normalize the agent value once
+  // here and validate it: an unknown or mis-cased value (e.g. "Claude", "gpt")
+  // must NOT silently pass the gate and then match neither agent step.
+  const agent = (input.agentRaw || "claude").toLowerCase();
+  if (agent !== "claude" && agent !== "codex") {
+    reasons.push(
+      `unsupported VISUAL_RECAP_AGENT "${input.agentRaw}" (expected "claude" or "codex")`,
+    );
+  } else if (agent === "codex") {
+    if (!input.hasOpenai)
+      reasons.push("OPENAI_API_KEY not configured (codex backend)");
+  } else {
+    if (!input.hasAnthropic)
+      reasons.push("ANTHROPIC_API_KEY not configured (claude backend)");
+  }
+
+  // Validate VISUAL_RECAP_MODEL if set — an unchecked value could be injected by
+  // a repo settings writer and passed straight to the agent CLI.
+  const model = input.model || "";
+  if (model && !/^[a-zA-Z0-9._-]{1,80}$/.test(model)) {
+    reasons.push(
+      "invalid VISUAL_RECAP_MODEL value (must match [a-zA-Z0-9._-]{1,80})",
+    );
+  }
+
+  // Self-modifying guard: if this PR changes the workflow, the
+  // visual-recap/visual-plan skill, the local CLI (packages/core), or any agent
+  // config the runner would load (.claude/**, CLAUDE.md, .mcp.json), skip the
+  // ENTIRE job — not just the agent — so a PR can never rewrite what runs
+  // (skill, hooks, settings, CLI) and exfiltrate the publish/API secrets.
+  const hits = input.changedFiles.filter(isRecapSensitivePath);
+  if (hits.length) {
+    reasons.push(
+      `PR modifies recap-control files (${hits.slice(0, 3).join(", ")}${
+        hits.length > 3 ? ", …" : ""
+      }) — skipping so untrusted PR code never runs with secrets`,
+    );
+  }
+
+  return { run: reasons.length === 0, agent, reasons };
+}
+
+/**
+ * Page through `GET /repos/{owner}/{repo}/pulls/{n}/files`, following the
+ * `Link` rel="next" header, and return every changed filename. Uses the same
+ * api.github.com base + auth headers as `githubRequest`; reads the `Link`
+ * header (which `githubRequest` discards) so it can paginate. Throws on any
+ * non-2xx so the caller can fail CLOSED — exactly like the inline gate did when
+ * `github.paginate(listFiles)` rejected.
+ */
+async function listPullRequestFiles(input: {
+  token: string;
+  owner: string;
+  repo: string;
+  pull: number;
+}): Promise<string[]> {
+  const filenames: string[] = [];
+  let url: string | null = `https://api.github.com/repos/${encodeURIComponent(
+    input.owner,
+  )}/${encodeURIComponent(input.repo)}/pulls/${input.pull}/files?per_page=100`;
+  while (url) {
+    const res = await fetch(url, {
+      headers: {
+        accept: "application/vnd.github+json",
+        authorization: `Bearer ${input.token}`,
+        "x-github-api-version": "2022-11-28",
+      },
+    });
+    if (!res.ok) {
+      const detail = await res.text().catch(() => "");
+      throw new Error(
+        `GitHub request failed ${res.status} ${res.statusText}: ${detail.slice(0, 500)}`,
+      );
+    }
+    const page = (await res.json()) as Array<{ filename?: string }>;
+    for (const f of page) {
+      if (typeof f.filename === "string") filenames.push(f.filename);
+    }
+    // Follow Link rel="next" for the next page; absent => done.
+    const link = res.headers.get("link") || "";
+    const next = link.match(/<([^>]+)>\s*;\s*rel="next"/);
+    url = next ? next[1] : null;
+  }
+  return filenames;
+}
+
+/**
+ * `recap gate` — the I/O wrapper around `evaluateRecapGate`. Reads the PR
+ * payload from GITHUB_EVENT_PATH, the secret-presence/agent/model signals from
+ * the environment, and the PR's changed files from the GitHub REST API (paged,
+ * with GH_TOKEN/GITHUB_TOKEN). Writes `run` + the normalized `agent` to
+ * $GITHUB_OUTPUT and logs the run/skip summary. Fails CLOSED on any file-list
+ * error so an untrusted PR can never run the agent with secrets.
+ */
+async function runGate(): Promise<void> {
+  const repository = process.env.GITHUB_REPOSITORY;
+
+  // Read the pull_request object out of the event payload, tolerating a
+  // missing/unreadable file (degrades to the "no pull_request payload" reason).
+  let pr: RecapGatePullRequest | null = null;
+  const eventPath = process.env.GITHUB_EVENT_PATH;
+  if (eventPath) {
+    try {
+      const payload = JSON.parse(fs.readFileSync(eventPath, "utf8"));
+      pr = payload && payload.pull_request ? payload.pull_request : null;
+    } catch {
+      pr = null;
+    }
+  }
+
+  // Fetch the PR's changed files for the self-modifying guard. Any error here is
+  // turned into a skip reason (fail-closed), mirroring the inline gate's
+  // try/catch around github.paginate(listFiles).
+  const changedFiles: string[] = [];
+  let fileListError: string | null = null;
+  if (pr && typeof pr.number === "number" && repository) {
+    const token = process.env.GH_TOKEN || process.env.GITHUB_TOKEN || "";
+    try {
+      const { owner, repo } = repoParts(repository);
+      const files = await listPullRequestFiles({
+        token,
+        owner,
+        repo,
+        pull: pr.number,
+      });
+      changedFiles.push(...files);
+    } catch (e) {
+      fileListError = e instanceof Error ? e.message : String(e);
+    }
+  }
+
+  const decision = evaluateRecapGate({
+    pr,
+    repository,
+    hasPlan: process.env.HAS_PLAN === "true",
+    hasAnthropic: process.env.HAS_ANTHROPIC === "true",
+    hasOpenai: process.env.HAS_OPENAI === "true",
+    agentRaw: process.env.AGENT,
+    model: process.env.VISUAL_RECAP_MODEL,
+    changedFiles,
+  });
+
+  // If listing PR files failed, append the same fail-closed reason the inline
+  // gate used and force run=false.
+  let { run } = decision;
+  const reasons = [...decision.reasons];
+  if (fileListError !== null) {
+    reasons.push(
+      `could not list PR files for the self-modifying guard (${fileListError}); skipping to be safe`,
+    );
+    run = false;
+  }
+
+  // Preserve the github-script contract: write `run` + the NORMALIZED agent to
+  // $GITHUB_OUTPUT so the recap job's step conditions match case-insensitively.
+  const githubOutput = process.env.GITHUB_OUTPUT;
+  if (githubOutput) {
+    fs.appendFileSync(
+      githubOutput,
+      `run=${run ? "true" : "false"}\nagent=${decision.agent}\n`,
+    );
+  }
+  // eslint-disable-next-line no-console
+  console.log(
+    run
+      ? `Visual recap will run (${decision.agent}).`
+      : `Visual recap skipped: ${reasons.join("; ")}`,
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/* Check run — the "Visual Recap" GitHub check (was two inline github-script    */
+/* steps in the workflow's recap job).                                          */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Canonicalize the agent-written plan URL into a trusted recap URL, or "".
+ *
+ * recap-url.txt is produced by the (LLM) agent, so the raw URL is untrusted.
+ * This rebuilds a canonical `${origin}${base}/recaps/<id>` link from the TRUSTED
+ * app URL plus a strictly-validated plan id, enforcing the app origin and
+ * honoring a path-prefixed mount (e.g. https://host/agent-native). Returns ""
+ * for a wrong origin or an unrecognized path. Pure so it can be unit-tested —
+ * SAME impl as the workflow's previous inline `canonicalRecapUrl`.
+ */
+export function canonicalRecapUrl(rawUrl: string, appUrl: string): string {
+  try {
+    const parsed = new URL(rawUrl);
+    const trusted = new URL(appUrl || "https://plan.agent-native.com");
+    if (parsed.origin !== trusted.origin) return "";
+    // Honor a path-prefixed mount (e.g. https://host/agent-native): strip the
+    // trusted base path before matching /plans|recaps/<id>.
+    const base = trusted.pathname.replace(/\/$/, "");
+    let rest = parsed.pathname;
+    if (base && rest.startsWith(base)) rest = rest.slice(base.length);
+    const match = rest.match(/^\/(?:plans|recaps)\/([A-Za-z0-9_-]+)\/?$/);
+    return match ? `${trusted.origin}${base}/recaps/${match[1]}` : "";
+  } catch {
+    return "";
+  }
+}
+
+/** The signals that decide the completed "Visual Recap" check's conclusion. */
+export interface RecapCheckOutcomeInput {
+  /** steps.url.outputs.ok — the agent published a plan whose origin validated. */
+  planOk: boolean;
+  /** steps.url.outputs.plan_url — the (untrusted) agent-written plan URL. */
+  planUrl: string;
+  /** PLAN_RECAP_APP_URL — the trusted plan app origin/base. */
+  appUrl: string;
+  /** steps.diff.outputs.huge — the diff exceeded the byte cap (summarized). */
+  huge: boolean;
+  /** steps.diff.outputs.tiny — the diff was too small to recap. */
+  tiny: boolean;
+  /** steps.scan.outputs.suppressed — a secret pattern suppressed the recap. */
+  suppressed: boolean;
+  /** steps.scan.outputs.json — the raw scan JSON (carries the suppress reason). */
+  suppressedJson: string;
+  /** The Actions run URL, used as the default details_url. */
+  workflowUrl: string;
+}
+
+/** The completed-check fields PATCHed to the GitHub check run. */
+export interface RecapCheckOutcome {
+  conclusion: "neutral" | "success" | "skipped";
+  title: string;
+  summary: string;
+  text: string;
+  detailsUrl: string;
+}
+
+/**
+ * Map the workflow's terminal recap state to the completed check's
+ * conclusion/title/summary/text/details_url. Pure so it can be unit-tested —
+ * reproduces the workflow's previous inline branch logic EXACTLY:
+ *
+ * - default → neutral "Visual recap not generated"
+ * - planOk + valid recapUrl → success "Visual recap ready" (huge → "summarized"
+ *   summary), Open-recap link as text, details_url = recapUrl
+ * - planOk + invalid url → neutral "Visual recap published" (see the comment)
+ * - else tiny → skipped "Visual recap skipped"
+ * - else suppressed → skipped "Visual recap suppressed" (reason from scan JSON)
+ */
+export function recapCheckOutcome(
+  input: RecapCheckOutcomeInput,
+): RecapCheckOutcome {
+  let conclusion: RecapCheckOutcome["conclusion"] = "neutral";
+  let title = "Visual recap not generated";
+  let summary =
+    "The visual recap did not produce a plan URL. This is informational only and does not block the PR.";
+  let text = "";
+  let detailsUrl = input.workflowUrl;
+
+  if (input.planOk) {
+    const recapUrl = canonicalRecapUrl(input.planUrl, input.appUrl);
+    if (recapUrl) {
+      conclusion = "success";
+      title = "Visual recap ready";
+      summary = input.huge
+        ? "A summarized visual recap was generated for this large PR."
+        : "A visual code-review recap was generated for this PR.";
+      detailsUrl = recapUrl;
+      text = `**[Open visual recap](${recapUrl})**`;
+    } else {
+      // Agent reported success but the URL didn't validate against the trusted
+      // plan origin — don't claim "not generated"; the recap is linked in the
+      // sticky comment.
+      title = "Visual recap published";
+      summary =
+        "A recap was published; see the visual recap comment on this PR for the link.";
+    }
+  } else if (input.tiny) {
+    conclusion = "skipped";
+    title = "Visual recap skipped";
+    summary = "The diff is too small to need a visual recap.";
+  } else if (input.suppressed) {
+    let reason = "potential secret in diff";
+    try {
+      const parsed = JSON.parse(input.suppressedJson || "{}");
+      if (parsed && typeof parsed.reason === "string") reason = parsed.reason;
+    } catch {
+      // Keep the default reason.
+    }
+    conclusion = "skipped";
+    title = "Visual recap suppressed";
+    summary = `No recap was published because ${reason}.`;
+  }
+
+  return { conclusion, title, summary, text, detailsUrl };
+}
+
+function boolFlag(
+  args: Record<string, string | boolean>,
+  key: string,
+): boolean {
+  return args[key] === true || args[key] === "true";
+}
+
+/**
+ * `recap check start` — create the in-progress "Visual Recap" GitHub check run
+ * and write its id to $GITHUB_OUTPUT (check_run_id). Best-effort: on any API
+ * error, warn on stderr and exit 0 (don't fail the job) without emitting an id.
+ * Replaces the workflow's inline "Start visual recap check" github-script step.
+ */
+async function runCheckStart(
+  args: Record<string, string | boolean>,
+): Promise<void> {
+  const repo = optionalArg(args, "repo") ?? process.env.GITHUB_REPOSITORY ?? "";
+  const sha = optionalArg(args, "sha") ?? process.env.HEAD_SHA ?? "";
+  const token =
+    optionalArg(args, "token") ||
+    process.env.GH_TOKEN ||
+    process.env.GITHUB_TOKEN ||
+    "";
+  const workflowUrl = optionalArg(args, "workflow-url") ?? "";
+
+  const emit = (id: string) => {
+    const githubOutput = process.env.GITHUB_OUTPUT;
+    if (githubOutput) {
+      fs.appendFileSync(githubOutput, `check_run_id=${id}\n`);
+    }
+  };
+
+  try {
+    const { owner, repo: name } = repoParts(repo);
+    const created = await githubRequest<{ id: number }>(
+      token,
+      `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(
+        name,
+      )}/check-runs`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          name: "Visual Recap",
+          head_sha: sha,
+          status: "in_progress",
+          started_at: new Date().toISOString(),
+          details_url: workflowUrl,
+          output: {
+            title: "Visual recap in progress",
+            summary:
+              "Generating a visual code-review recap for this pull request.",
+          },
+        }),
+      },
+    );
+    emit(String(created.id));
+  } catch (err) {
+    process.stderr.write(
+      `[recap check] could not create Visual Recap check run: ${String(err)}\n`,
+    );
+    // Best-effort: don't fail the job and don't emit a check_run_id.
+  }
+}
+
+/**
+ * `recap check complete` — PATCH the "Visual Recap" check run to completed with
+ * the computed conclusion/title/summary/text/details_url. Best-effort: on any
+ * API error, warn on stderr and exit 0. Replaces the workflow's inline
+ * "Complete visual recap check" github-script step.
+ */
+async function runCheckComplete(
+  args: Record<string, string | boolean>,
+): Promise<void> {
+  const repo = optionalArg(args, "repo") ?? process.env.GITHUB_REPOSITORY ?? "";
+  const token =
+    optionalArg(args, "token") ||
+    process.env.GH_TOKEN ||
+    process.env.GITHUB_TOKEN ||
+    "";
+  const checkRunId = optionalArg(args, "check-run-id") ?? "";
+
+  const outcome = recapCheckOutcome({
+    planOk: boolFlag(args, "plan-ok"),
+    planUrl: optionalArg(args, "plan-url") ?? "",
+    appUrl:
+      optionalArg(args, "app-url") ?? process.env.PLAN_RECAP_APP_URL ?? "",
+    huge: boolFlag(args, "huge"),
+    tiny: boolFlag(args, "tiny"),
+    suppressed: boolFlag(args, "suppressed"),
+    suppressedJson: optionalArg(args, "suppressed-json") ?? "",
+    workflowUrl: optionalArg(args, "workflow-url") ?? "",
+  });
+
+  try {
+    const { owner, repo: name } = repoParts(repo);
+    await githubRequest(
+      token,
+      `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(
+        name,
+      )}/check-runs/${encodeURIComponent(checkRunId)}`,
+      {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          status: "completed",
+          conclusion: outcome.conclusion,
+          completed_at: new Date().toISOString(),
+          details_url: outcome.detailsUrl,
+          output: {
+            title: outcome.title,
+            summary: outcome.summary,
+            text: outcome.text,
+          },
+        }),
+      },
+    );
+  } catch (err) {
+    process.stderr.write(
+      `[recap check] could not update Visual Recap check run: ${String(err)}\n`,
+    );
+    // Best-effort: don't fail the job.
+  }
+}
+
+/** `recap check <start|complete>` dispatcher. */
+async function runCheck(
+  args: Record<string, string | boolean>,
+  sub: string,
+): Promise<void> {
+  if (sub === "start") {
+    await runCheckStart(args);
+    return;
+  }
+  if (sub === "complete") {
+    await runCheckComplete(args);
+    return;
+  }
+  throw new Error(
+    "Usage: agent-native recap check <start|complete> [flags] (see `recap help`)",
+  );
+}
+
+/* -------------------------------------------------------------------------- */
 /* Usage capture — parse the agent's own token usage and attach it to the plan */
 /* -------------------------------------------------------------------------- */
 
@@ -896,17 +1701,48 @@ async function runUsage(args: Record<string, string | boolean>): Promise<void> {
 const HELP = `agent-native recap — PR visual recap helpers (used by the GitHub Action)
 
 Usage:
+  agent-native recap collect-diff --base <baseSha> --head <headSha> [--out recap.diff] [--stat recap.stat]
+  agent-native recap mcp-config --agent claude|codex --app-url <url> [--out <path>]
   agent-native recap scan --diff <path>
-  agent-native recap build-prompt --pr <n> [--head <sha>] [--app-url <url>] [--diff <path>] [--stat <path>] [--prev-plan-id <id>] [--huge] [--out <path>]
+  agent-native recap build-prompt --pr <n> [--repo owner/name] [--head <sha>] [--app-url <url>] [--diff <path>] [--stat <path>] [--prev-plan-id <id>] [--huge] [--local-files] [--local-dir <folder>] [--out <path>]
   agent-native recap shot --url <planUrl> [--token <planToken>] [--app-url <url>] [--out recap.png]
   agent-native recap usage --plan-url <planUrl> --result-file <path> --app-url <url> --token <planToken> [--agent claude|codex] [--model <id>]
   agent-native recap comment <find-plan-id|upsert> --repo owner/name --issue <n> --token <github-token>
+  agent-native recap check start [--repo owner/name] [--sha <headSha>] [--token <github-token>] [--workflow-url <url>]
+    Create the in-progress "Visual Recap" GitHub check run and write its id to
+    $GITHUB_OUTPUT (check_run_id). repo/sha/token default to GITHUB_REPOSITORY /
+    HEAD_SHA / GH_TOKEN (or GITHUB_TOKEN). Best-effort: warns and exits 0 on any
+    API error without emitting an id.
+  agent-native recap check complete --check-run-id <id> [--repo owner/name] [--token <github-token>] [--plan-ok <bool>] [--plan-url <url>] [--app-url <url>] [--suppressed <bool>] [--suppressed-json <json>] [--huge <bool>] [--tiny <bool>] [--workflow-url <url>]
+    Mark the "Visual Recap" check run completed with a computed
+    conclusion/title/summary/text/details_url (success when the agent published a
+    plan whose URL validates against --app-url; neutral/skipped otherwise).
+    repo/token/app-url default to GITHUB_REPOSITORY / GH_TOKEN / PLAN_RECAP_APP_URL.
+    Best-effort: warns and exits 0 on any API error.
+  agent-native recap gate
+    The PR Visual Recap security gate. Decides whether to run the recap at all
+    and which (normalized) backend agent to use. Reads the pull_request payload
+    from $GITHUB_EVENT_PATH, the secret-presence/agent/model signals from the
+    environment (HAS_PLAN / HAS_ANTHROPIC / HAS_OPENAI === 'true', AGENT,
+    VISUAL_RECAP_MODEL), the repo from $GITHUB_REPOSITORY, and the PR's changed
+    files from the GitHub REST API (paged, with GH_TOKEN/GITHUB_TOKEN). Skips
+    drafts, forks, bot authors, the missing-secret case, an invalid agent/model,
+    and any PR that touches recap-control files (the workflow, the skill,
+    packages/core, .claude/**, CLAUDE.md, AGENTS.md, .mcp.json) — failing CLOSED
+    on any file-list error. Writes run=<true|false> and agent=<claude|codex> to
+    $GITHUB_OUTPUT.
 `;
 
 export async function runRecap(argv: string[]): Promise<void> {
   const [sub, ...rest] = argv;
   const args = parseArgs(rest);
   switch (sub) {
+    case "collect-diff":
+      runCollectDiff(args);
+      return;
+    case "mcp-config":
+      runMcpConfig(args);
+      return;
     case "scan":
       runScan(args);
       return;
@@ -921,6 +1757,12 @@ export async function runRecap(argv: string[]): Promise<void> {
       return;
     case "comment":
       await runComment(parseArgs(rest.slice(1)), rest[0] ?? "");
+      return;
+    case "check":
+      await runCheck(parseArgs(rest.slice(1)), rest[0] ?? "");
+      return;
+    case "gate":
+      await runGate();
       return;
     case "help":
     case "--help":

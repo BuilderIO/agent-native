@@ -413,7 +413,7 @@ export function CameraVisualizer({
       <p
         className={cn(
           "mt-2 text-[11px] leading-snug text-muted-foreground",
-          error && "text-destructive",
+          error && "text-foreground",
         )}
       >
         {helper}

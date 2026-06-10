@@ -2719,7 +2719,8 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     expect(res).toMatchObject({
       error: "Unauthorized",
       authenticate: {
-        command: "agent-native connect https://mail.agent-native.com",
+        command: "agent-native reconnect https://mail.agent-native.com",
+        firstTimeCommand: "agent-native connect https://mail.agent-native.com",
         authorizeUrl:
           "https://mail.agent-native.com/_agent-native/mcp/oauth/authorize",
         resourceMetadataUrl:
@@ -2728,7 +2729,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       },
     });
     expect((res as any).message).toContain(
-      "agent-native connect https://mail.agent-native.com",
+      "agent-native reconnect https://mail.agent-native.com",
     );
   });
 
@@ -2761,6 +2762,8 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       error: "Unauthorized",
       authenticate: {
         command:
+          "agent-native reconnect https://assets-local.trycloudflare.com/assets",
+        firstTimeCommand:
           "agent-native connect https://assets-local.trycloudflare.com/assets",
         authorizeUrl:
           "https://assets-local.trycloudflare.com/assets/_agent-native/mcp/oauth/authorize",

@@ -21,12 +21,12 @@ interface Particle {
 }
 
 const COLORS = [
+  "#18181b",
+  "#3f3f46",
+  "#71717a",
   "#a1a1aa",
-  "#A78BFA",
-  "#F472B6",
-  "#F59E0B",
-  "#10B981",
-  "#FFFFFF",
+  "#d4d4d8",
+  "#ffffff",
 ];
 
 export const ConfettiCanvas = forwardRef<ConfettiHandle>(

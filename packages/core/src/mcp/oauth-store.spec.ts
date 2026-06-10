@@ -323,6 +323,22 @@ describe("refresh tokens", () => {
     expect(await s.getOAuthRefreshToken("wrong-token")).toBeNull();
   });
 
+  it("touchOAuthRefreshToken records refresh-token use without revoking it", async () => {
+    const s = await freshStore();
+    vi.spyOn(Date, "now").mockReturnValue(1000);
+    await s.createOAuthRefreshToken(refreshParams);
+    vi.spyOn(Date, "now").mockReturnValue(2000);
+
+    await s.touchOAuthRefreshToken("raw-refresh-token");
+
+    const found = await s.getOAuthRefreshToken("raw-refresh-token");
+    expect(found).toMatchObject({
+      tokenHash: s.hashOAuthToken("raw-refresh-token"),
+      lastUsedAt: 2000,
+      revokedAt: null,
+    });
+  });
+
   it("getOAuthRefreshToken returns null once expired", async () => {
     const s = await freshStore();
     vi.spyOn(Date, "now").mockReturnValue(1000);

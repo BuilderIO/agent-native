@@ -1626,6 +1626,14 @@ function deriveStaticTokenIdentity(
   return { userEmail: owner, orgDomain: undefined };
 }
 
+export function getBearerToken(
+  authHeader: string | undefined,
+): string | undefined {
+  if (!authHeader) return undefined;
+  const match = /^Bearer\s+(.+)$/i.exec(authHeader.trim());
+  return match?.[1]?.trim() || undefined;
+}
+
 function addSecretCandidate(
   candidates: string[],
   secret: string | null | undefined,
@@ -1737,9 +1745,7 @@ export async function verifyAuth(
   // owner hint there so the local install/connect flow stays tenant-scoped.
   const accessTokens = getAccessTokens();
   const hasA2ASecret = !!process.env.A2A_SECRET?.trim();
-  const token = authHeader?.startsWith("Bearer ")
-    ? authHeader.slice(7)
-    : undefined;
+  const token = getBearerToken(authHeader);
   if (token) {
     const oauthIdentity = await verifyMcpOAuthAccessToken(
       token,

@@ -247,11 +247,11 @@ pub async fn show_countdown(app: AppHandle) -> Result<(), String> {
     Ok(())
 }
 
-/// Full-screen transparent overlay that shows a centered spinner while the
-/// recorder flushes its final chunks and awaits the server finalize. Rendered
-/// immediately after the user clicks Stop so they don't stare at a blank
-/// screen for a few seconds while `recorder.stop()` completes. Ignores cursor
-/// events so accidental clicks can't disrupt the finalize flow. Marked
+/// Full-screen transparent overlay that shows compact bottom-left progress
+/// while the recorder flushes its final chunks and awaits the server finalize.
+/// Rendered immediately after the user clicks Stop so they don't stare at a
+/// blank screen for a few seconds while `recorder.stop()` completes. Ignores
+/// cursor events so the progress card does not block the screen. Marked
 /// non-sharable for consistency with the other Clips overlays, even though
 /// the recording has already ended by the time this appears.
 #[tauri::command]

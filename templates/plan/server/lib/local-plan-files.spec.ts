@@ -9,9 +9,11 @@ import {
 import { createPrototypePlanContent } from "../plan-content.js";
 import { parsePlanMdxFolder } from "../plan-mdx.js";
 import {
+  assertLocalPlanSlug,
   localPlanFolderName,
   localPlanFolder,
   localPlansDir,
+  readPlanLocalFolder,
   writePlanLocalFiles,
 } from "./local-plan-files.js";
 
@@ -62,6 +64,16 @@ describe("local-plan-files", () => {
     expect(localPlanFolderName("!!!")).toBe("untitled-plan");
   });
 
+  it("rejects local plan slugs that could escape PLAN_LOCAL_DIR", () => {
+    expect(assertLocalPlanSlug("checkout-review_2.1")).toBe(
+      "checkout-review_2.1",
+    );
+    expect(() => assertLocalPlanSlug("../secrets")).toThrow(/may only contain/);
+    expect(() => assertLocalPlanSlug("nested/folder")).toThrow(
+      /may only contain/,
+    );
+  });
+
   it("writes plan.mdx and round-trips through parsePlanMdxFolder", async () => {
     const content = sampleContent();
     const result = await writePlanLocalFiles({
@@ -97,6 +109,23 @@ describe("local-plan-files", () => {
     };
     const reparsed = await parsePlanMdxFolder(folder);
     expect(reparsed.title).toBe("Local sync flow");
+  });
+
+  it("reads a local plan folder without consulting the database", async () => {
+    const content = sampleContent();
+    await writePlanLocalFiles({
+      planId: "plan_localread",
+      title: content.title ?? "Untitled",
+      brief: content.brief,
+      content,
+      url: "/plans/plan_localread",
+    });
+
+    const local = await readPlanLocalFolder("local-sync-flow");
+
+    expect(local.folder).toBe(path.join(tmpDir, "local-sync-flow"));
+    expect(local.mdx["plan.mdx"]).toContain("Local sync flow");
+    expect(local.content.title).toBe("Local sync flow");
   });
 
   it("writes prototype.mdx for prototype plans and round-trips it", async () => {

@@ -127,4 +127,59 @@ describe("shared code block", () => {
     expect(container.querySelector(".plan-code-surface-bar")).toBeNull();
     expect(container.querySelector(".plan-code-chrome-float")).toBeTruthy();
   });
+
+  it("omits the read language bar when a filename label is present", () => {
+    const Read = codeBlock.Read;
+    expect(Read).toBeTruthy();
+
+    act(() => {
+      root.render(
+        Read ? (
+          <Read
+            blockId="code-1"
+            ctx={{}}
+            data={{
+              code: "const value = 1;",
+              filename: "src/example.ts",
+              language: "ts",
+            }}
+          />
+        ) : null,
+      );
+    });
+
+    expect(container.querySelector(".plan-code-head")).toBeTruthy();
+    expect(container.querySelector(".plan-code-surface-bar")).toBeNull();
+    expect(container.textContent).toContain("src/example.ts");
+    expect(container.textContent).not.toContain("TypeScript");
+  });
+
+  it("mutes the directory and emphasizes the filename in the read header", () => {
+    const Read = codeBlock.Read;
+    expect(Read).toBeTruthy();
+
+    act(() => {
+      root.render(
+        Read ? (
+          <Read
+            blockId="code-1"
+            ctx={{}}
+            data={{
+              code: "const value = 1;",
+              filename: "packages/core/src/example.ts",
+              language: "ts",
+            }}
+          />
+        ) : null,
+      );
+    });
+
+    const directory = container.querySelector("[data-code-filename-directory]");
+    const basename = container.querySelector("[data-code-filename-basename]");
+
+    expect(directory?.textContent).toBe("packages/core/src/");
+    expect(directory?.className).toContain("text-plan-muted");
+    expect(basename?.textContent).toBe("example.ts");
+    expect(basename?.className).toContain("text-plan-text");
+  });
 });

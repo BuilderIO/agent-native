@@ -147,6 +147,50 @@ describe("dbOpTimeoutMs", () => {
   });
 });
 
+describe("describeDbError", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.resetModules();
+  });
+
+  it("renders Errors, ErrorEvent-like objects, and primitives readably", async () => {
+    const { describeDbError } = await import("./client.js");
+
+    expect(describeDbError(new Error("connection dropped"))).toBe(
+      "connection dropped",
+    );
+    // Neon's WebSocket path rejects with a raw DOM-style ErrorEvent: message
+    // on the event itself, or on a nested .error, or nothing but type:"error".
+    expect(describeDbError({ type: "error", message: "ws closed" })).toBe(
+      "ws closed",
+    );
+    expect(
+      describeDbError({ type: "error", error: { message: "ECONNRESET" } }),
+    ).toBe("ECONNRESET");
+    expect(describeDbError({ type: "error", target: {} })).toBe(
+      "WebSocket ErrorEvent (connection failed; no message attached)",
+    );
+    expect(describeDbError("boom")).toBe("boom");
+  });
+
+  it("keeps the per-client logger from printing [object ErrorEvent]", async () => {
+    const { EventEmitter } = await import("node:events");
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const { attachNeonPoolErrorLogger } = await import("./client.js");
+
+    const pool = new EventEmitter();
+    attachNeonPoolErrorLogger(pool, "db/neon");
+    const client = new EventEmitter();
+    pool.emit("connect", client);
+    client.emit("error", { type: "error", message: "Connection terminated" });
+
+    expect(warn).toHaveBeenCalledWith(
+      "[db/neon] client connection error (connection discarded, next query reconnects):",
+      "Connection terminated",
+    );
+  });
+});
+
 describe("attachNeonPoolErrorLogger", () => {
   afterEach(() => {
     vi.restoreAllMocks();

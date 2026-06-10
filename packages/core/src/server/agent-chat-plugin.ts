@@ -3363,7 +3363,9 @@ export function createAgentChatPlugin(
         (globalThis as any).__agentNativeMcpExitHooked = true;
         const stop = () => {
           const mgr = getGlobalMcpManager();
-          if (mgr) void mgr.stop();
+          // Shutdown is best-effort — a rejection here must not surface as
+          // an unhandled promise rejection during process exit.
+          if (mgr) mgr.stop().catch(() => {});
         };
         process.once("exit", stop);
         process.once("SIGTERM", stop);

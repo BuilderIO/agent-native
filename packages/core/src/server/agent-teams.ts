@@ -60,6 +60,7 @@ import {
   RUN_PROCESSING_STUCK_AFTER_MS,
   type AgentTeamRunPayload,
 } from "./agent-teams-run-queue.js";
+import { describeDbError } from "../db/client.js";
 import { fireInternalDispatch } from "./self-dispatch.js";
 import { resolveOrgIdForEmail } from "../org/context.js";
 import type {
@@ -1400,7 +1401,15 @@ export async function processAgentTeamRun(
       if (ownerEmail) await updateTaskProgressRun(task, ownerEmail);
 
       const heartbeat = setInterval(() => {
-        void touchAgentTeamRun(opts.taskId);
+        // Best-effort: a dropped Neon WebSocket (Lambda freeze/thaw) rejects
+        // with a raw ErrorEvent; a floating rejection here surfaces as an
+        // unhandled promise rejection, so it must be caught and logged.
+        touchAgentTeamRun(opts.taskId).catch((err) => {
+          console.warn(
+            `[agent-teams] heartbeat update failed for task ${opts.taskId}:`,
+            describeDbError(err),
+          );
+        });
       }, RUN_QUEUE_HEARTBEAT_MS);
       (heartbeat as unknown as { unref?: () => void }).unref?.();
 
@@ -1421,7 +1430,12 @@ export async function processAgentTeamRun(
                 const now = Date.now();
                 if (now - lastProgressSent >= PROGRESS_INTERVAL_MS) {
                   lastProgressSent = now;
-                  void saveTask(task);
+                  saveTask(task).catch((err) => {
+                    console.warn(
+                      `[agent-teams] progress save failed for task ${task.taskId}:`,
+                      describeDbError(err),
+                    );
+                  });
                   if (ownerEmail) void updateTaskProgressRun(task, ownerEmail);
                 }
               } else if (event.type === "tool_start") {

@@ -282,6 +282,46 @@ describe("server/sentry", () => {
       expect(result).toBeNull();
     });
 
+    it("drops ErrorEvent rejections whose only in_app frames are bundled SDK chunks", async () => {
+      // Production shape from AGENT-NATIVE-BROWSER-6: serverless bundles place
+      // the Sentry SDK under the app root (/var/task/_libs/@sentry/...), so
+      // those instrumentation frames carry in_app: true and defeated the
+      // original !hasApplicationFrame check — 574 events leaked through.
+      process.env.SENTRY_SERVER_DSN = "https://test@example/123";
+      const { initServerSentry } = await import("./sentry.js");
+      initServerSentry();
+
+      const beforeSend = sentryMock.init.mock.calls[0][0].beforeSend;
+      const result = beforeSend({
+        exception: {
+          values: [
+            {
+              type: "Error",
+              value: "[object ErrorEvent]",
+              mechanism: { type: "auto.node.onunhandledrejection" },
+              stacktrace: {
+                frames: [
+                  { filename: "node:internal/process/promises" },
+                  {
+                    filename:
+                      "/var/task/_libs/@sentry/node+import-in-the-middle.mjs",
+                    in_app: true,
+                  },
+                  {
+                    filename:
+                      "/var/task/_libs/sentry__browser+sentry__core.mjs",
+                    function: "Gr",
+                    in_app: true,
+                  },
+                ],
+              },
+            },
+          ],
+        },
+      } as never);
+      expect(result).toBeNull();
+    });
+
     it("keeps ErrorEvent unhandled rejections with application frames", async () => {
       process.env.SENTRY_SERVER_DSN = "https://test@example/123";
       const { initServerSentry } = await import("./sentry.js");

@@ -35,6 +35,13 @@ const NATIVE_CAPTURE_MAX_LONG_EDGE: u32 = 1280;
 const NATIVE_CAPTURE_FPS: u32 = 24;
 const AVCONVERT_PATH: &str = "/usr/bin/avconvert";
 const AVCONVERT_TIMEOUT: Duration = Duration::from_secs(5 * 60);
+const FFMPEG_TIMEOUT: Duration = Duration::from_secs(8 * 60);
+const FFMPEG_CANDIDATE_PATHS: &[&str] = &[
+    "ffmpeg",
+    "/opt/homebrew/bin/ffmpeg",
+    "/usr/local/bin/ffmpeg",
+    "/opt/local/bin/ffmpeg",
+];
 const PENDING_UPLOADS_DIR: &str = "pending-recording-uploads";
 const THUMBNAIL_MIME_TYPE: &str = "image/jpeg";
 const THUMBNAIL_MAX_BYTES: u64 = 2 * 1024 * 1024;
@@ -1775,6 +1782,7 @@ async fn upload_recording_file(
         session.mime_type,
         session.width,
         session.height,
+        Some(duration_ms),
     )?;
     let upload_result = upload_prepared_recording_file(
         app,
@@ -1809,6 +1817,7 @@ async fn upload_saved_recording_file(
         &saved.mime_type,
         saved.width,
         saved.height,
+        Some(saved.duration_ms),
     )?;
     let upload_result = upload_prepared_recording_file(
         app,
@@ -2137,6 +2146,7 @@ fn prepare_recording_file(
     mime_type: &str,
     width: Option<u32>,
     height: Option<u32>,
+    duration_ms: Option<u128>,
 ) -> Result<PreparedRecordingFile, String> {
     let metadata =
         std::fs::metadata(path).map_err(|e| format!("native recording file missing: {e}"))?;
@@ -2162,104 +2172,198 @@ fn prepare_recording_file(
     if source_bytes < TRANSCODE_THRESHOLD_BYTES {
         return Ok(original);
     }
-    if !std::path::Path::new(AVCONVERT_PATH).exists() {
-        if source_bytes > SERVER_STAGING_LIMIT_BYTES {
-            return Err(format!(
-                "Native recording is too large to upload ({}). macOS compression is unavailable on this machine, so Clips saved the original locally.",
-                format_mb(source_bytes)
-            ));
+
+    let mut smallest_attempt_bytes: Option<u64> = None;
+
+    if let Some(ffmpeg_path) = resolve_ffmpeg_path() {
+        let presets = ffmpeg_transcode_presets(width, height, source_bytes, duration_ms);
+        for (index, preset) in presets.iter().enumerate() {
+            emit_native_upload_progress(
+                app,
+                "compressing",
+                format!(
+                    "Compressing the recording ({}/{})",
+                    index + 1,
+                    presets.len()
+                ),
+                Some(format!(
+                    "Trying {} for a {} source. This can take a few minutes.",
+                    preset.label,
+                    format_mb(source_bytes)
+                )),
+                Some(index as f32 / presets.len() as f32),
+            );
+            let compressed_path = compressed_recording_path(path);
+            let _ = std::fs::remove_file(&compressed_path);
+            match transcode_with_ffmpeg(&ffmpeg_path, path, &compressed_path, preset, width, height)
+            {
+                Ok(()) => {
+                    let compressed_bytes = std::fs::metadata(&compressed_path)
+                        .map_err(|e| format!("compressed recording file missing: {e}"))?
+                        .len();
+                    if compressed_bytes == 0 {
+                        let _ = std::fs::remove_file(&compressed_path);
+                        eprintln!(
+                            "[clips-tray] ffmpeg produced an empty file with {}",
+                            preset.label
+                        );
+                        continue;
+                    }
+                    smallest_attempt_bytes = Some(
+                        smallest_attempt_bytes
+                            .map(|smallest| smallest.min(compressed_bytes))
+                            .unwrap_or(compressed_bytes),
+                    );
+                    if compressed_bytes >= source_bytes {
+                        let _ = std::fs::remove_file(&compressed_path);
+                        eprintln!(
+                            "[clips-tray] ffmpeg {} did not reduce size ({} >= {})",
+                            preset.label, compressed_bytes, source_bytes
+                        );
+                        continue;
+                    }
+                    if compressed_bytes > SERVER_STAGING_LIMIT_BYTES {
+                        let _ = std::fs::remove_file(&compressed_path);
+                        eprintln!(
+                            "[clips-tray] ffmpeg {} still above server staging limit ({} bytes)",
+                            preset.label, compressed_bytes
+                        );
+                        continue;
+                    }
+                    if compressed_bytes > TARGET_UPLOAD_BYTES && index + 1 < presets.len() {
+                        let _ = std::fs::remove_file(&compressed_path);
+                        eprintln!(
+                            "[clips-tray] ffmpeg {} still above target ({} bytes); trying smaller preset",
+                            preset.label, compressed_bytes
+                        );
+                        continue;
+                    }
+                    emit_native_upload_progress(
+                        app,
+                        "compressing",
+                        "Compression finished",
+                        Some(format!(
+                            "{} -> {} using ffmpeg {}.",
+                            format_mb(source_bytes),
+                            format_mb(compressed_bytes),
+                            preset.label
+                        )),
+                        Some(1.0),
+                    );
+                    eprintln!(
+                        "[clips-tray] native recording transcoded with ffmpeg {}: {} -> {} bytes",
+                        preset.label, source_bytes, compressed_bytes
+                    );
+                    return Ok(PreparedRecordingFile {
+                        path: compressed_path,
+                        mime_type: MP4_RECORDING_MIME_TYPE.to_string(),
+                        bytes: compressed_bytes,
+                        temporary: true,
+                    });
+                }
+                Err(err) => {
+                    let _ = std::fs::remove_file(&compressed_path);
+                    eprintln!(
+                        "[clips-tray] ffmpeg transcode failed with {}: {err}",
+                        preset.label
+                    );
+                }
+            }
         }
-        eprintln!("[clips-tray] avconvert unavailable; uploading native MOV without transcode");
-        return Ok(original);
+    } else {
+        eprintln!("[clips-tray] ffmpeg unavailable; falling back to avconvert");
     }
 
-    let presets = native_transcode_presets(width, height, source_bytes);
-    let mut smallest_attempt_bytes: Option<u64> = None;
-    for (index, preset) in presets.iter().enumerate() {
-        emit_native_upload_progress(
-            app,
-            "compressing",
-            format!(
-                "Compressing the recording ({}/{})",
-                index + 1,
-                presets.len()
-            ),
-            Some(format!(
-                "Trying {} for a {} source. This can take a few minutes.",
-                native_preset_label(preset),
-                format_mb(source_bytes)
-            )),
-            Some(index as f32 / presets.len() as f32),
-        );
-        let compressed_path = compressed_recording_path(path);
-        let _ = std::fs::remove_file(&compressed_path);
-        match transcode_with_avconvert(path, &compressed_path, preset) {
-            Ok(()) => {
-                let compressed_bytes = std::fs::metadata(&compressed_path)
-                    .map_err(|e| format!("compressed recording file missing: {e}"))?
-                    .len();
-                if compressed_bytes == 0 {
-                    let _ = std::fs::remove_file(&compressed_path);
-                    eprintln!("[clips-tray] avconvert produced an empty file with {preset}");
-                    continue;
-                }
-                smallest_attempt_bytes = Some(
-                    smallest_attempt_bytes
-                        .map(|smallest| smallest.min(compressed_bytes))
-                        .unwrap_or(compressed_bytes),
-                );
-                if compressed_bytes >= source_bytes {
-                    let _ = std::fs::remove_file(&compressed_path);
-                    eprintln!(
-                        "[clips-tray] avconvert {} did not reduce size ({} >= {})",
-                        preset, compressed_bytes, source_bytes
+    if std::path::Path::new(AVCONVERT_PATH).exists() {
+        let presets = native_transcode_presets(width, height, source_bytes);
+        for (index, preset) in presets.iter().enumerate() {
+            emit_native_upload_progress(
+                app,
+                "compressing",
+                format!(
+                    "Compressing the recording ({}/{})",
+                    index + 1,
+                    presets.len()
+                ),
+                Some(format!(
+                    "Trying {} for a {} source. This can take a few minutes.",
+                    native_preset_label(preset),
+                    format_mb(source_bytes)
+                )),
+                Some(index as f32 / presets.len() as f32),
+            );
+            let compressed_path = compressed_recording_path(path);
+            let _ = std::fs::remove_file(&compressed_path);
+            match transcode_with_avconvert(path, &compressed_path, preset) {
+                Ok(()) => {
+                    let compressed_bytes = std::fs::metadata(&compressed_path)
+                        .map_err(|e| format!("compressed recording file missing: {e}"))?
+                        .len();
+                    if compressed_bytes == 0 {
+                        let _ = std::fs::remove_file(&compressed_path);
+                        eprintln!("[clips-tray] avconvert produced an empty file with {preset}");
+                        continue;
+                    }
+                    smallest_attempt_bytes = Some(
+                        smallest_attempt_bytes
+                            .map(|smallest| smallest.min(compressed_bytes))
+                            .unwrap_or(compressed_bytes),
                     );
-                    continue;
-                }
-                if compressed_bytes > SERVER_STAGING_LIMIT_BYTES {
-                    let _ = std::fs::remove_file(&compressed_path);
-                    eprintln!(
-                        "[clips-tray] avconvert {} still above server staging limit ({} bytes)",
-                        preset, compressed_bytes
+                    if compressed_bytes >= source_bytes {
+                        let _ = std::fs::remove_file(&compressed_path);
+                        eprintln!(
+                            "[clips-tray] avconvert {} did not reduce size ({} >= {})",
+                            preset, compressed_bytes, source_bytes
+                        );
+                        continue;
+                    }
+                    if compressed_bytes > SERVER_STAGING_LIMIT_BYTES {
+                        let _ = std::fs::remove_file(&compressed_path);
+                        eprintln!(
+                            "[clips-tray] avconvert {} still above server staging limit ({} bytes)",
+                            preset, compressed_bytes
+                        );
+                        continue;
+                    }
+                    if compressed_bytes > TARGET_UPLOAD_BYTES && index + 1 < presets.len() {
+                        let _ = std::fs::remove_file(&compressed_path);
+                        eprintln!(
+                            "[clips-tray] avconvert {} still above target ({} bytes); trying smaller preset",
+                            preset, compressed_bytes
+                        );
+                        continue;
+                    }
+                    emit_native_upload_progress(
+                        app,
+                        "compressing",
+                        "Compression finished",
+                        Some(format!(
+                            "{} -> {} using {}.",
+                            format_mb(source_bytes),
+                            format_mb(compressed_bytes),
+                            native_preset_label(preset)
+                        )),
+                        Some(1.0),
                     );
-                    continue;
-                }
-                if compressed_bytes > TARGET_UPLOAD_BYTES && index + 1 < presets.len() {
-                    let _ = std::fs::remove_file(&compressed_path);
                     eprintln!(
-                        "[clips-tray] avconvert {} still above target ({} bytes); trying smaller preset",
-                        preset, compressed_bytes
+                        "[clips-tray] native recording transcoded with {}: {} -> {} bytes",
+                        preset, source_bytes, compressed_bytes
                     );
-                    continue;
+                    return Ok(PreparedRecordingFile {
+                        path: compressed_path,
+                        mime_type: MP4_RECORDING_MIME_TYPE.to_string(),
+                        bytes: compressed_bytes,
+                        temporary: true,
+                    });
                 }
-                emit_native_upload_progress(
-                    app,
-                    "compressing",
-                    "Compression finished",
-                    Some(format!(
-                        "{} -> {} using {}.",
-                        format_mb(source_bytes),
-                        format_mb(compressed_bytes),
-                        native_preset_label(preset)
-                    )),
-                    Some(1.0),
-                );
-                eprintln!(
-                    "[clips-tray] native recording transcoded with {}: {} -> {} bytes",
-                    preset, source_bytes, compressed_bytes
-                );
-                return Ok(PreparedRecordingFile {
-                    path: compressed_path,
-                    mime_type: MP4_RECORDING_MIME_TYPE.to_string(),
-                    bytes: compressed_bytes,
-                    temporary: true,
-                });
-            }
-            Err(err) => {
-                let _ = std::fs::remove_file(&compressed_path);
-                eprintln!("[clips-tray] avconvert transcode failed with {preset}: {err}");
+                Err(err) => {
+                    let _ = std::fs::remove_file(&compressed_path);
+                    eprintln!("[clips-tray] avconvert transcode failed with {preset}: {err}");
+                }
             }
         }
+    } else {
+        eprintln!("[clips-tray] avconvert unavailable");
     }
     if source_bytes > SERVER_STAGING_LIMIT_BYTES {
         let attempt_detail = smallest_attempt_bytes
@@ -2283,6 +2387,121 @@ fn compressed_recording_path(path: &Path) -> PathBuf {
         .filter(|value| !value.is_empty())
         .unwrap_or("recording");
     path.with_file_name(format!("{stem}-compressed.mp4"))
+}
+
+#[derive(Clone, Copy)]
+struct FfmpegTranscodePreset {
+    label: &'static str,
+    max_long_edge: u32,
+    video_bitrate_kbps: u32,
+    audio_bitrate_kbps: u32,
+}
+
+fn resolve_ffmpeg_path() -> Option<String> {
+    if let Ok(path) = std::env::var("CLIPS_FFMPEG_PATH") {
+        let trimmed = path.trim();
+        if !trimmed.is_empty() && command_available(trimmed) {
+            return Some(trimmed.to_string());
+        }
+    }
+    FFMPEG_CANDIDATE_PATHS
+        .iter()
+        .copied()
+        .find(|candidate| command_available(candidate))
+        .map(str::to_string)
+}
+
+fn command_available(command: &str) -> bool {
+    Command::new(command)
+        .arg("-version")
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .map(|status| status.success())
+        .unwrap_or(false)
+}
+
+fn duration_target_video_bitrate_kbps(
+    duration_ms: Option<u128>,
+    audio_bitrate_kbps: u32,
+) -> Option<u32> {
+    let seconds = duration_ms? as f64 / 1000.0;
+    if seconds < 1.0 {
+        return None;
+    }
+    let total_kbps = (TARGET_UPLOAD_BYTES as f64 * 8.0 / 1000.0) / seconds;
+    let video_kbps = total_kbps - audio_bitrate_kbps as f64 - 48.0;
+    if !video_kbps.is_finite() || video_kbps <= 0.0 {
+        return None;
+    }
+    Some((video_kbps.round() as u32).clamp(320, 2_200))
+}
+
+fn scale_bitrate(base: u32, multiplier: f64, min: u32, max: u32) -> u32 {
+    ((base as f64 * multiplier).round() as u32).clamp(min, max)
+}
+
+fn ffmpeg_transcode_presets(
+    _width: Option<u32>,
+    _height: Option<u32>,
+    source_bytes: u64,
+    duration_ms: Option<u128>,
+) -> Vec<FfmpegTranscodePreset> {
+    let fallback_base = if source_bytes >= 96 * 1024 * 1024 {
+        1_200
+    } else {
+        1_000
+    };
+    let base = duration_target_video_bitrate_kbps(duration_ms, 64).unwrap_or(fallback_base);
+    vec![
+        FfmpegTranscodePreset {
+            label: "720p target",
+            max_long_edge: 1280,
+            video_bitrate_kbps: base.clamp(450, 1_800),
+            audio_bitrate_kbps: 64,
+        },
+        FfmpegTranscodePreset {
+            label: "720p compact",
+            max_long_edge: 1280,
+            video_bitrate_kbps: scale_bitrate(base, 0.75, 360, 1_400),
+            audio_bitrate_kbps: 48,
+        },
+        FfmpegTranscodePreset {
+            label: "540p compact",
+            max_long_edge: 960,
+            video_bitrate_kbps: scale_bitrate(base, 0.65, 300, 1_000),
+            audio_bitrate_kbps: 48,
+        },
+        FfmpegTranscodePreset {
+            label: "480p small",
+            max_long_edge: 854,
+            video_bitrate_kbps: scale_bitrate(base, 0.5, 240, 760),
+            audio_bitrate_kbps: 40,
+        },
+    ]
+}
+
+fn even_ffmpeg_dimension(value: u32) -> u32 {
+    ((value.max(2)) / 2) * 2
+}
+
+fn ffmpeg_scaled_dimensions(
+    width: Option<u32>,
+    height: Option<u32>,
+    max_long_edge: u32,
+) -> Option<(u32, u32)> {
+    let width = width?;
+    let height = height?;
+    let long_side = width.max(height).max(1);
+    let scale = if long_side > max_long_edge {
+        max_long_edge as f64 / long_side as f64
+    } else {
+        1.0
+    };
+    Some((
+        even_ffmpeg_dimension((width as f64 * scale).floor() as u32),
+        even_ffmpeg_dimension((height as f64 * scale).floor() as u32),
+    ))
 }
 
 fn native_transcode_presets(
@@ -2320,8 +2539,85 @@ fn native_preset_label(preset: &str) -> &'static str {
     }
 }
 
+fn transcode_with_ffmpeg(
+    ffmpeg_path: &str,
+    source: &Path,
+    output: &Path,
+    preset: &FfmpegTranscodePreset,
+    width: Option<u32>,
+    height: Option<u32>,
+) -> Result<(), String> {
+    let mut command = Command::new(ffmpeg_path);
+    command
+        .arg("-y")
+        .arg("-hide_banner")
+        .arg("-loglevel")
+        .arg("warning")
+        .arg("-i")
+        .arg(source)
+        .arg("-map")
+        .arg("0:v:0")
+        .arg("-map")
+        .arg("0:a?");
+
+    if let Some((scaled_w, scaled_h)) =
+        ffmpeg_scaled_dimensions(width, height, preset.max_long_edge)
+    {
+        command.arg("-vf").arg(format!(
+            "fps={NATIVE_CAPTURE_FPS},scale={scaled_w}:{scaled_h}:flags=lanczos"
+        ));
+    } else {
+        command.arg("-r").arg(NATIVE_CAPTURE_FPS.to_string());
+    }
+
+    let video_bitrate = format!("{}k", preset.video_bitrate_kbps);
+    let maxrate = format!(
+        "{}k",
+        scale_bitrate(preset.video_bitrate_kbps, 1.35, 320, 3_000)
+    );
+    let bufsize = format!(
+        "{}k",
+        scale_bitrate(preset.video_bitrate_kbps, 2.5, 640, 5_500)
+    );
+    let audio_bitrate = format!("{}k", preset.audio_bitrate_kbps);
+
+    command
+        .arg("-c:v")
+        .arg("libx264")
+        .arg("-preset")
+        .arg("fast")
+        .arg("-profile:v")
+        .arg("main")
+        .arg("-pix_fmt")
+        .arg("yuv420p")
+        .arg("-b:v")
+        .arg(video_bitrate)
+        .arg("-maxrate")
+        .arg(maxrate)
+        .arg("-bufsize")
+        .arg(bufsize)
+        .arg("-c:a")
+        .arg("aac")
+        .arg("-b:a")
+        .arg(audio_bitrate)
+        .arg("-ac")
+        .arg("1")
+        .arg("-movflags")
+        .arg("+faststart")
+        .arg("-f")
+        .arg("mp4")
+        .arg(output)
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped());
+
+    let child = command
+        .spawn()
+        .map_err(|e| format!("ffmpeg spawn failed: {e}"))?;
+    wait_for_transcode_child(child, FFMPEG_TIMEOUT, "ffmpeg")
+}
+
 fn transcode_with_avconvert(source: &Path, output: &Path, preset: &str) -> Result<(), String> {
-    let mut child = Command::new(AVCONVERT_PATH)
+    let child = Command::new(AVCONVERT_PATH)
         .arg("--source")
         .arg(source)
         .arg("--preset")
@@ -2334,11 +2630,19 @@ fn transcode_with_avconvert(source: &Path, output: &Path, preset: &str) -> Resul
         .spawn()
         .map_err(|e| format!("avconvert spawn failed: {e}"))?;
 
-    let deadline = Instant::now() + AVCONVERT_TIMEOUT;
+    wait_for_transcode_child(child, AVCONVERT_TIMEOUT, "avconvert")
+}
+
+fn wait_for_transcode_child(
+    mut child: Child,
+    timeout: Duration,
+    tool_name: &str,
+) -> Result<(), String> {
+    let deadline = Instant::now() + timeout;
     loop {
         if let Some(status) = child
             .try_wait()
-            .map_err(|e| format!("avconvert wait failed: {e}"))?
+            .map_err(|e| format!("{tool_name} wait failed: {e}"))?
         {
             if status.success() {
                 return Ok(());
@@ -2356,12 +2660,12 @@ fn transcode_with_avconvert(source: &Path, output: &Path, preset: &str) -> Resul
                 .rev()
                 .collect::<Vec<_>>()
                 .join("\n");
-            return Err(format!("avconvert exited with {status}: {}", tail.trim()));
+            return Err(format!("{tool_name} exited with {status}: {}", tail.trim()));
         }
         if Instant::now() >= deadline {
             let _ = child.kill();
             let _ = child.wait();
-            return Err("avconvert timed out while compressing recording".into());
+            return Err(format!("{tool_name} timed out while compressing recording"));
         }
         std::thread::sleep(Duration::from_millis(250));
     }

@@ -8,6 +8,7 @@
  *   agent-native connect <url> [--client all|claude-code|claude-code-cli|
  *                               codex|cowork] [--scope user|project]
  *                               [--name <serverName>]
+ *   agent-native reconnect [<url>] [--client ...] [--name <serverName>]
  *   agent-native connect <url> --token <token>   (no-browser fallback)
  *   agent-native connect        [--client ...]   (pick first-party apps)
  *   agent-native connect --all  [--client ...]   (separate first-party app MCP resources)
@@ -89,7 +90,7 @@ function logErr(msg: string): void {
 
 export interface ParsedConnectArgs {
   /** Developer profile switch: local dev gateway or saved production config. */
-  mode?: "dev" | "prod";
+  mode?: "dev" | "prod" | "reauth" | "reconnect";
   /** Positional URL (the deployed app origin). Undefined for `--all`. */
   url?: string;
   /** all | claude-code | claude-code-cli | codex | cowork (default "all"). */
@@ -142,8 +143,12 @@ export function parseConnectArgs(argv: string[]): ParsedConnectArgs {
     else if ((v = eat("--name")) !== undefined) out.name = v;
     else if ((v = eat("--token")) !== undefined) out.token = v;
     else if (!a.startsWith("-") && !out.url) {
-      if (!out.mode && (a === "dev" || a === "prod")) out.mode = a;
-      else out.url = a;
+      if (
+        !out.mode &&
+        (a === "dev" || a === "prod" || a === "reauth" || a === "reconnect")
+      ) {
+        out.mode = a;
+      } else out.url = a;
     }
   }
   return out;
@@ -1005,6 +1010,122 @@ function savedEntryUrl(saved: SavedMcpEntry | undefined): string | undefined {
   return match ? unescapeTomlString(match[1]) : undefined;
 }
 
+interface ExistingMcpEntry {
+  client: ClientId;
+  serverName: string;
+  file: string;
+  saved: SavedMcpEntry;
+  url: string;
+}
+
+function readJsonMcpServerEntries(
+  file: string,
+): { serverName: string; saved: SavedMcpEntry }[] {
+  try {
+    const parsed = JSON.parse(fs.readFileSync(file, "utf-8"));
+    const servers = parsed?.mcpServers;
+    if (!servers || typeof servers !== "object" || Array.isArray(servers)) {
+      return [];
+    }
+    return Object.entries(servers).flatMap(([serverName, entry]) => {
+      if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+        return [];
+      }
+      return [
+        {
+          serverName,
+          saved: {
+            kind: "json" as const,
+            entry: entry as Record<string, unknown>,
+            savedAt: new Date().toISOString(),
+          },
+        },
+      ];
+    });
+  } catch {
+    return [];
+  }
+}
+
+function parseCodexMcpServerName(line: string): string | undefined {
+  const trimmed = line.trim();
+  const quoted = trimmed.match(/^\[mcp_servers\."((?:\\.|[^"])*)"\]$/);
+  if (quoted) return unescapeTomlString(quoted[1]);
+  const bare = trimmed.match(/^\[mcp_servers\.([A-Za-z0-9_-]+)\]$/);
+  return bare?.[1];
+}
+
+function readCodexMcpServerEntries(
+  file: string,
+): { serverName: string; saved: SavedMcpEntry }[] {
+  let content = "";
+  try {
+    content = fs.readFileSync(file, "utf-8");
+  } catch {
+    return [];
+  }
+  const lines = content.split(/\r?\n/);
+  const entries: { serverName: string; saved: SavedMcpEntry }[] = [];
+  for (let i = 0; i < lines.length; i++) {
+    const serverName = parseCodexMcpServerName(lines[i]);
+    if (!serverName) continue;
+    const block: string[] = [lines[i]];
+    i++;
+    while (i < lines.length && !/^\s*\[/.test(lines[i])) {
+      block.push(lines[i]);
+      i++;
+    }
+    i--;
+    entries.push({
+      serverName,
+      saved: {
+        kind: "codex",
+        block: block.join("\n").replace(/\n*$/, "") + "\n",
+        savedAt: new Date().toISOString(),
+      },
+    });
+  }
+  return entries;
+}
+
+function readExistingMcpEntries(
+  clients: ClientId[],
+  baseDir: string,
+  scope: string,
+): ExistingMcpEntry[] {
+  const entries: ExistingMcpEntry[] = [];
+  for (const client of clients) {
+    const file = configPathFor(client, baseDir, scope);
+    const rawEntries =
+      client === "codex"
+        ? readCodexMcpServerEntries(file)
+        : readJsonMcpServerEntries(file);
+    for (const { serverName, saved } of rawEntries) {
+      const url = savedEntryUrl(saved);
+      if (!url) continue;
+      entries.push({ client, serverName, file, saved, url });
+    }
+  }
+  return entries;
+}
+
+function canonicalMcpUrl(value: string | undefined): string | undefined {
+  if (!value) return undefined;
+  try {
+    const url = new URL(value);
+    url.hash = "";
+    return url.toString().replace(/\/+$/, "");
+  } catch {
+    return undefined;
+  }
+}
+
+function sameMcpUrl(a: string | undefined, b: string | undefined): boolean {
+  const left = canonicalMcpUrl(a);
+  const right = canonicalMcpUrl(b);
+  return !!left && !!right && left === right;
+}
+
 function savedEntryHeaders(
   saved: SavedMcpEntry | undefined,
 ): Record<string, string> {
@@ -1419,6 +1540,113 @@ async function connectProdProfile(
 // Single-app connect
 // ---------------------------------------------------------------------------
 
+interface ReconnectTarget {
+  rawUrl: string;
+  serverName?: string;
+}
+
+function distinctReconnectEntries(
+  entries: ExistingMcpEntry[],
+): ExistingMcpEntry[] {
+  const seen = new Set<string>();
+  const out: ExistingMcpEntry[] = [];
+  for (const entry of entries) {
+    const key = `${entry.serverName}\0${canonicalMcpUrl(entry.url) ?? entry.url}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(entry);
+  }
+  return out;
+}
+
+function describeReconnectEntry(entry: ExistingMcpEntry): string {
+  return `${entry.serverName} (${entry.url}) in ${entry.client}`;
+}
+
+function resolveReconnectTarget(
+  parsed: ParsedConnectArgs,
+  clients: ClientId[],
+): ReconnectTarget | null {
+  const baseDir = projectBaseDir();
+  const scope = parsed.scope === "user" ? "user" : "project";
+  const entries = readExistingMcpEntries(clients, baseDir, scope);
+
+  if (parsed.url) {
+    const normalizedUrl = normalizeUrl(parsed.url);
+    const mcpUrl = mcpUrlForBaseUrl(normalizedUrl);
+    if (parsed.name) {
+      return { rawUrl: parsed.url, serverName: parsed.name };
+    }
+
+    const matches = distinctReconnectEntries(
+      entries.filter((entry) => sameMcpUrl(entry.url, mcpUrl)),
+    );
+    const names = [...new Set(matches.map((entry) => entry.serverName))];
+    if (names.length === 1) {
+      return { rawUrl: parsed.url, serverName: names[0] };
+    }
+    if (names.length > 1) {
+      logErr(
+        `  Found multiple MCP entries for ${mcpUrl}: ${names.join(", ")}.`,
+      );
+      logErr("  Re-run with --name <serverName> to choose one.");
+      return null;
+    }
+    return { rawUrl: parsed.url };
+  }
+
+  const candidates = distinctReconnectEntries(
+    parsed.name
+      ? entries.filter((entry) => entry.serverName === parsed.name)
+      : entries.filter((entry) =>
+          entry.serverName.startsWith(`${SERVER_NAME_PREFIX}-`),
+        ),
+  );
+
+  if (candidates.length === 0) {
+    logErr("  No existing Agent Native MCP entry found to reconnect.");
+    logErr(
+      "  Pass a URL, or use --name <serverName> if the entry has a custom name.",
+    );
+    logErr(
+      "  First-time setup still uses: agent-native connect <url> --client <client>",
+    );
+    return null;
+  }
+
+  if (candidates.length > 1) {
+    logErr("  Found multiple Agent Native MCP entries:");
+    for (const entry of candidates) {
+      logErr(`    ${describeReconnectEntry(entry)}`);
+    }
+    logErr("  Re-run with a URL or --name <serverName>.");
+    return null;
+  }
+
+  const [entry] = candidates;
+  return { rawUrl: entry.url, serverName: entry.serverName };
+}
+
+async function reconnectOne(
+  parsed: ParsedConnectArgs,
+  clients: ClientId[],
+  deps: ConnectDeps,
+): Promise<boolean> {
+  const target = resolveReconnectTarget(parsed, clients);
+  if (!target) return false;
+  const effectiveParsed: ParsedConnectArgs = {
+    ...parsed,
+    url: target.rawUrl,
+    name: target.serverName ?? parsed.name,
+  };
+  logOut("");
+  logOut(
+    `  Reconnecting${effectiveParsed.name ? ` "${effectiveParsed.name}"` : ""}...`,
+  );
+  const res = await connectOne(target.rawUrl, effectiveParsed, clients, deps);
+  return res.ok;
+}
+
 async function connectOne(
   rawUrl: string,
   parsed: ParsedConnectArgs,
@@ -1645,6 +1873,13 @@ Usage:
       No-browser fallback. Skip the device flow and write the entry with
       the supplied token (get it from the app's Connect page).
 
+  agent-native reconnect [<url>] [--client <c>] [--scope user|project]
+  agent-native connect reconnect [<url>] [--client <c>] [--scope user|project]
+      Re-authenticate an existing MCP entry without reinstalling apps/skills.
+      With a URL, it reuses the existing server name for that MCP URL when
+      possible. Without a URL, it reconnects the only matching Agent Native
+      entry in the selected client config. Use --name for custom server names.
+
   agent-native connect --all [--client <c>] [--scope user|project]
       Connect every first-party hosted app as separate MCP resources.
 
@@ -1685,7 +1920,9 @@ export async function runConnect(
       const ok =
         parsed.mode === "dev"
           ? await connectDevProfile(parsed, clients, deps)
-          : await connectProdProfile(parsed, clients, deps);
+          : parsed.mode === "prod"
+            ? await connectProdProfile(parsed, clients, deps)
+            : await reconnectOne(parsed, clients, deps);
       if (!ok) process.exitCode = 1;
       return;
     }

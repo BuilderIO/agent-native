@@ -28,7 +28,11 @@
 import type { Dirent } from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
-import { exportPlanContentToMdxFolder } from "../plan-mdx.js";
+import {
+  exportPlanContentToMdxFolder,
+  parsePlanMdxFolder,
+  type PlanMdxFolder,
+} from "../plan-mdx.js";
 import type { PlanContent } from "../../shared/plan-content.js";
 
 const PLAN_FOLDER_TITLE_LIMIT = 64;
@@ -39,6 +43,13 @@ export interface LocalPlanWriteInput {
   brief?: string | null;
   content: PlanContent | null | undefined;
   url?: string;
+}
+
+export interface LocalPlanReadResult {
+  slug: string;
+  folder: string;
+  mdx: PlanMdxFolder;
+  content: PlanContent;
 }
 
 /** Absolute path to the local plans directory for this process. */
@@ -72,6 +83,29 @@ export function localPlanFolder(planId: string, title?: string): string {
     localPlansDir(),
     title ? localPlanFolderName(title) : sanitizeLegacyPlanId(planId),
   );
+}
+
+export function assertLocalPlanSlug(slug: string): string {
+  const normalized = slug.trim();
+  if (!/^[A-Za-z0-9._-]+$/.test(normalized)) {
+    throw new Error(
+      "Local plan slug may only contain letters, numbers, dots, underscores, and dashes.",
+    );
+  }
+  return normalized;
+}
+
+function assertInsideLocalPlansDir(folder: string): string {
+  const root = path.resolve(localPlansDir());
+  const resolved = path.resolve(folder);
+  const relative = path.relative(root, resolved);
+  if (
+    relative === "" ||
+    (!relative.startsWith("..") && !path.isAbsolute(relative))
+  ) {
+    return resolved;
+  }
+  throw new Error("Local plan path escaped PLAN_LOCAL_DIR.");
 }
 
 function frontmatterContainsPlanId(source: string, planId: string): boolean {
@@ -237,4 +271,35 @@ export async function writePlanLocalFiles(
     // underlying plan operation just because the local mirror failed.
     return { written: false, folder, files: [] };
   }
+}
+
+export async function readPlanLocalFolder(
+  slug: string,
+): Promise<LocalPlanReadResult> {
+  const safeSlug = assertLocalPlanSlug(slug);
+  const folder = assertInsideLocalPlansDir(
+    path.join(localPlansDir(), safeSlug),
+  );
+  const planPath = path.join(folder, "plan.mdx");
+  const planMdx = await fs.readFile(planPath, "utf-8");
+  const mdx: PlanMdxFolder = { "plan.mdx": planMdx };
+
+  for (const file of [
+    "canvas.mdx",
+    "prototype.mdx",
+    ".plan-state.json",
+  ] as const) {
+    try {
+      mdx[file] = await fs.readFile(path.join(folder, file), "utf-8");
+    } catch {
+      // Optional local source file.
+    }
+  }
+
+  return {
+    slug: safeSlug,
+    folder,
+    mdx,
+    content: await parsePlanMdxFolder(mdx),
+  };
 }

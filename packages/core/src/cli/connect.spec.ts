@@ -102,6 +102,21 @@ describe("parseConnectArgs", () => {
     expect(p.gateway).toBe("http://127.0.0.1:8088");
     expect(p.ownerEmail).toBe("u@example.com");
   });
+
+  it("parses reconnect and reauth modes", () => {
+    expect(
+      parseConnectArgs(["reconnect", "https://plan.agent-native.com"]),
+    ).toMatchObject({
+      mode: "reconnect",
+      url: "https://plan.agent-native.com",
+    });
+    expect(
+      parseConnectArgs(["reauth", "--name", "agent-native-plan"]),
+    ).toMatchObject({
+      mode: "reauth",
+      name: "agent-native-plan",
+    });
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -686,6 +701,71 @@ describe("runConnect", () => {
         "X-Agent-Native-MCP-Full-Catalog": "1",
       },
     });
+  });
+
+  it("reconnect reauthenticates an existing Codex entry without writing a duplicate", async () => {
+    const root = tmpDir();
+    const home = tmpDir();
+    const oldHome = process.env.HOME;
+    process.env.HOME = home;
+    process.chdir(root);
+    const codexFile = path.join(home, ".codex", "config.toml");
+    fs.mkdirSync(path.dirname(codexFile), { recursive: true });
+    fs.writeFileSync(
+      codexFile,
+      [
+        '[mcp_servers."custom-plan"]',
+        'url = "https://plan.agent-native.com/_agent-native/mcp"',
+        'http_headers = { "Authorization" = "Bearer old-token" }',
+        "",
+      ].join("\n"),
+      "utf-8",
+    );
+
+    try {
+      await runConnect(
+        ["reconnect", "https://plan.agent-native.com", "--client", "codex"],
+        {
+          fetchImpl: makeFetch([
+            {
+              status: "approved",
+              token: "new-token",
+              mcpUrl: "https://plan.agent-native.com/_agent-native/mcp",
+              serverName: "agent-native-plan",
+            },
+          ]),
+          sleep: noopSleep,
+          openBrowser: vi.fn(),
+        },
+      );
+
+      expect(process.exitCode).toBeFalsy();
+      const toml = fs.readFileSync(codexFile, "utf-8");
+      expect(toml).toContain('[mcp_servers."custom-plan"]');
+      expect(toml).toContain('"Authorization" = "Bearer new-token"');
+      expect(toml).not.toContain("old-token");
+      expect(toml).not.toContain('[mcp_servers."agent-native-plan"]');
+    } finally {
+      process.env.HOME = oldHome;
+    }
+  });
+
+  it("reconnect without a URL fails clearly when no existing entry is present", async () => {
+    const root = tmpDir();
+    const home = tmpDir();
+    const oldHome = process.env.HOME;
+    process.env.HOME = home;
+    process.chdir(root);
+
+    try {
+      await runConnect(["reconnect", "--client", "codex"]);
+      expect(process.exitCode).toBe(1);
+      expect(fs.existsSync(path.join(home, ".codex", "config.toml"))).toBe(
+        false,
+      );
+    } finally {
+      process.env.HOME = oldHome;
+    }
   });
 
   it("persists a canonical { url, token } for a first-party Plans app", async () => {

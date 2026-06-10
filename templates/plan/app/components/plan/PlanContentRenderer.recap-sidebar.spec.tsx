@@ -138,6 +138,35 @@ describe("PlanContentRenderer recap files sidebar", () => {
     expect(toc?.textContent).not.toContain("Files changed");
   });
 
+  it("links GitHub PR references in the read-only recap brief", () => {
+    const content = {
+      ...recapContent(),
+      brief: "Recap of BuilderIO/ai-services#5024 — adds a session endpoint.",
+    };
+
+    act(() => {
+      root.render(
+        <PlanContentRenderer
+          content={content}
+          isRecap
+          editingDisabled
+          fallbackTitle="Untitled plan"
+          fallbackBrief=""
+        />,
+      );
+    });
+
+    const link = container.querySelector<HTMLAnchorElement>(
+      'header a[href="https://github.com/BuilderIO/ai-services/pull/5024"]',
+    );
+    expect(link).not.toBeNull();
+    expect(link?.textContent).toBe("BuilderIO/ai-services#5024");
+    expect(link?.target).toBe("_blank");
+    expect(container.querySelector("header")?.textContent).toContain(
+      "Recap of BuilderIO/ai-services#5024 — adds a session endpoint.",
+    );
+  });
+
   it("leaves non-recap plans unchanged (no files sidebar, no hide style)", () => {
     act(() => {
       root.render(

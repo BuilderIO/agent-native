@@ -1,26 +1,28 @@
 ---
 title: "PR Visual Recap"
-description: "A GitHub Action that runs your repo's visual-recap skill on every PR. An LLM coding agent reads the diff, publishes an interactive recap plan, and posts it as a sticky PR comment with an inline screenshot. Informational and non-blocking."
+description: "A GitHub Action that runs your repo's visual-recap skill on every PR. An LLM coding agent reads the diff, publishes an interactive recap plan, shows an informational check, and posts a sticky PR comment with an inline screenshot. Informational and non-blocking."
 ---
 
 # PR Visual Recap
 
-PR Visual Recap is a GitHub Action that turns every pull request into a **visual code review**. On each push, an LLM coding agent runs your repo's [`visual-recap`](/docs/template-plan) skill against the PR diff, publishes a structured recap plan to the hosted Plans app, and upserts **one sticky PR comment** that links to the interactive plan with an **inline screenshot** embedded right in the comment.
+PR Visual Recap is a GitHub Action that turns every pull request into a **visual code review**. On each push, an LLM coding agent runs your repo's [`visual-recap`](/docs/template-plan) skill against the PR diff, publishes a structured recap plan to the hosted Plans app, shows an informational `Visual Recap` check while it runs, and upserts **one sticky PR comment** that links to the interactive plan with an **inline screenshot** embedded right in the comment.
 
 This is not a deterministic diff renderer. The action invokes a real coding agent (Claude Code CLI by default, or OpenAI Codex CLI) that reads the change, decides what matters, and authors the recap by calling the Plans MCP tool `create-visual-recap` — the same tool the `/visual-recap` slash command uses. You get a high-altitude, schema/API/before-after view of the change instead of a wall of raw diff.
 
-The recap is **informational and non-blocking**. It is not a required check, it never blocks the PR, and it never replaces reading the actual diff. The sticky comment is a review aid, not a sign-off.
+The recap is **informational and non-blocking**. It creates a check row so reviewers can see that generation is in progress, but it is not a required check, it never blocks the PR, and it never replaces reading the actual diff. The sticky comment is a review aid, not a sign-off.
 
 ## What it does
 
 On each PR push, the workflow:
 
 1. Collects a bounded diff between the PR base and head.
-2. Runs the configured coding agent against that diff. The agent reads your repo's `visual-recap` skill and authors a recap, publishing it with `create-visual-recap`.
-3. Reads the published plan URL the agent wrote to `recap-url.txt`.
-4. Opens that URL in headless Chrome and screenshots the rendered plan.
-5. Uploads the PNG to a signed public image route on the Plans app.
-6. Upserts a single sticky PR comment that embeds the screenshot **inline** (served through GitHub's camo image proxy) next to the link to the interactive recap.
+2. Creates an informational `Visual Recap` GitHub check with `Review in progress`.
+3. Runs the configured coding agent against that diff. The agent reads your repo's `visual-recap` skill and authors a recap, publishing it with `create-visual-recap`.
+4. Reads the published plan URL the agent wrote to `recap-url.txt`.
+5. Opens that URL in headless Chrome and screenshots the rendered plan.
+6. Uploads the PNG to a signed public image route on the Plans app.
+7. Upserts a single sticky PR comment that embeds the screenshot **inline** (served through GitHub's camo image proxy) next to the link to the interactive recap.
+8. Completes the `Visual Recap` check as success, skipped, or neutral.
 
 A re-push updates the same plan and the same sticky comment in place — no orphaned plans, no comment spam.
 
@@ -89,12 +91,37 @@ The workflow uses the plain `pull_request` trigger, **not** `pull_request_target
 
 This also means you can merge the workflow file **before** the secrets exist: with no token configured, every run is a quiet no-op until you set the secrets.
 
+## Local-files privacy mode
+
+The GitHub Action is designed for hosted, shareable PR review. If you want a
+recap without sending recap content to the Agent-Native Plan database, run the
+same helper flow locally in local-files mode instead:
+
+```bash
+agent-native recap collect-diff --base main --head HEAD --out recap.diff --stat recap.stat
+agent-native recap scan --diff recap.diff
+agent-native recap build-prompt --pr 123 --diff recap.diff --stat recap.stat --local-files --local-dir plans/pr-123-visual-recap
+```
+
+Give the generated `recap-prompt.md` to your coding agent. In local-files mode
+the prompt instructs the agent to write `plans/pr-123-visual-recap/plan.mdx`
+plus optional visual files and then run:
+
+```bash
+agent-native plan local preview --dir plans/pr-123-visual-recap --kind recap
+```
+
+The returned `file://` preview, or `/local-plans/pr-123-visual-recap` in a local
+Plan app using the same `PLAN_LOCAL_DIR`, is the review link. This mode disables
+the hosted sticky PR comment, inline screenshot upload, usage attachment, and
+browser comments until you explicitly publish.
+
 ## It's informational, not a gate
 
 The recap is a review aid layered on top of the normal PR flow:
 
-- It is **never a required check** and never blocks merging.
-- A generation or publish failure surfaces as an explanatory sticky comment, not a red X on unrelated code.
+- It shows a `Visual Recap` check row for visibility, but it is **never a required check** and never blocks merging.
+- A generation or publish failure completes neutrally and surfaces as an explanatory sticky comment, not a red X on unrelated code.
 - The recap and its screenshot **do not imply the diff has been reviewed**. Reviewers still need to read the actual changed lines.
 
 ## Related

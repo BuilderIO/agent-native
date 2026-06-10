@@ -5,12 +5,22 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 import {
+  RECAP_DIFF_BYTE_CAP,
   buildCommentBody,
+  buildRecapClaudeMcpConfig,
+  buildRecapCodexMcpConfig,
   buildRecapPrompt,
+  canonicalRecapUrl,
+  classifyDiff,
   diffContainsSecret,
+  evaluateRecapGate,
+  isRecapSensitivePath,
   parseClaudeUsage,
   parseCodexUsage,
+  recapCheckOutcome,
+  truncateDiffAtLineBoundary,
 } from "./recap.js";
+import type { RecapGateInput } from "./recap.js";
 import { PR_VISUAL_RECAP_WORKFLOW_YML } from "./pr-visual-recap-workflow.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -44,6 +54,130 @@ describe("recap secret scan", () => {
   });
 });
 
+describe("recap collect-diff classification", () => {
+  it("classifies a 1-file, <=8-line change as tiny", () => {
+    expect(classifyDiff({ bytes: 200, changed: 1, originalLines: 4 })).toEqual({
+      huge: false,
+      tiny: true,
+    });
+  });
+
+  it("does not classify a normal multi-file change as tiny or huge", () => {
+    expect(
+      classifyDiff({ bytes: 5_000, changed: 3, originalLines: 120 }),
+    ).toEqual({ huge: false, tiny: false });
+  });
+
+  it("is not tiny when a single file changes many lines", () => {
+    // 1 file but >8 changed lines — too substantial to skip.
+    expect(
+      classifyDiff({ bytes: 4_000, changed: 1, originalLines: 40 }),
+    ).toMatchObject({ tiny: false });
+  });
+
+  it("uses ORIGINAL line count (pre-truncation) for the tiny check", () => {
+    // An oversized diff is huge, and never tiny even if `changed` is small,
+    // because originalLines (captured before truncation) is large.
+    expect(
+      classifyDiff({
+        bytes: RECAP_DIFF_BYTE_CAP + 1,
+        changed: 1,
+        originalLines: 50_000,
+      }),
+    ).toEqual({ huge: true, tiny: false });
+  });
+
+  it("flags a diff over the 600KB cap as huge", () => {
+    expect(
+      classifyDiff({
+        bytes: RECAP_DIFF_BYTE_CAP + 1,
+        changed: 5,
+        originalLines: 99,
+      }),
+    ).toMatchObject({ huge: true });
+    expect(
+      classifyDiff({
+        bytes: RECAP_DIFF_BYTE_CAP,
+        changed: 5,
+        originalLines: 99,
+      }),
+    ).toMatchObject({ huge: false });
+  });
+
+  it("truncates an oversized diff at a line boundary with the footer", () => {
+    // Build a synthetic diff well over the cap, each line ending in \n.
+    const line = "+".repeat(99) + "\n"; // 100 bytes per line
+    const big = line.repeat(Math.ceil((RECAP_DIFF_BYTE_CAP + 50_000) / 100));
+    expect(Buffer.byteLength(big, "utf8")).toBeGreaterThan(RECAP_DIFF_BYTE_CAP);
+
+    const out = truncateDiffAtLineBoundary(big);
+    // Footer is appended.
+    expect(out).toContain("[diff truncated at 600KB for the recap agent]");
+    // The body (before the footer) is within the cap and ends on a complete
+    // line — no partial trailing diff line.
+    const body = out.slice(0, out.indexOf("\n\n[diff truncated"));
+    expect(Buffer.byteLength(body, "utf8")).toBeLessThanOrEqual(
+      RECAP_DIFF_BYTE_CAP,
+    );
+    // Every retained line is a full 99-`+` line (none cut mid-way).
+    for (const retained of body.split("\n")) {
+      if (retained.length) expect(retained).toBe("+".repeat(99));
+    }
+  });
+
+  it("does not cut a multi-byte UTF-8 char at the cap boundary", () => {
+    // A line of multi-byte chars that straddles the cap must be dropped whole.
+    const emojiLine = "+" + "😀".repeat(50) + "\n"; // > 1 byte per emoji
+    const big = emojiLine.repeat(
+      Math.ceil((RECAP_DIFF_BYTE_CAP + 20_000) / Buffer.byteLength(emojiLine)),
+    );
+    const out = truncateDiffAtLineBoundary(big);
+    // No replacement char from a cut codepoint.
+    expect(out).not.toContain("�");
+    expect(out).toContain("[diff truncated at 600KB for the recap agent]");
+  });
+});
+
+describe("recap mcp-config", () => {
+  it("writes valid Claude JSON with the plan url + bearer header", () => {
+    const json = buildRecapClaudeMcpConfig(
+      "https://plan.agent-native.com/",
+      "tok-123",
+    );
+    const parsed = JSON.parse(json);
+    expect(parsed.mcpServers.plan).toEqual({
+      type: "http",
+      // Trailing slash trimmed before appending the mcp path.
+      url: "https://plan.agent-native.com/_agent-native/mcp",
+      headers: { Authorization: "Bearer tok-123" },
+    });
+  });
+
+  it("writes Codex TOML with a JSON-stringified url and env-var bearer", () => {
+    const toml = buildRecapCodexMcpConfig("https://plan.agent-native.com");
+    expect(toml).toBe(
+      [
+        "[mcp_servers.plan]",
+        'url = "https://plan.agent-native.com/_agent-native/mcp"',
+        'bearer_token_env_var = "PLAN_RECAP_TOKEN"',
+        "",
+      ].join("\n"),
+    );
+  });
+
+  it("JSON-stringifies the Codex url so a stray quote can't break the TOML", () => {
+    // A pathological app-url containing a quote must be escaped inside the TOML
+    // basic string, never break out of it.
+    const toml = buildRecapCodexMcpConfig('https://evil"\n[hacked]');
+    // The url line stays a single, properly-escaped basic string.
+    expect(toml).toContain(
+      'url = "https://evil\\"\\n[hacked]/_agent-native/mcp"',
+    );
+    // No injected table header on its own line.
+    expect(toml).not.toMatch(/^\[hacked\]/m);
+  });
+});
+
 describe("recap prompt builder", () => {
   const skillMd = "---\nname: visual-recap\n---\n\nUNIQUE_SKILL_MARKER body.";
 
@@ -51,6 +185,7 @@ describe("recap prompt builder", () => {
     const prompt = buildRecapPrompt({
       skillMd,
       pr: "1095",
+      repo: "BuilderIO/ai-services",
       head: "abc1234",
       appUrl: "https://plan.agent-native.com/",
       diffPath: "recap.diff",
@@ -61,6 +196,10 @@ describe("recap prompt builder", () => {
     // The diff is read from disk by the agent, not inlined.
     expect(prompt).toContain("recap.diff");
     expect(prompt).toContain("#1095");
+    expect(prompt).toContain("BuilderIO/ai-services");
+    expect(prompt).toContain(
+      "https://github.com/BuilderIO/ai-services/pull/1095",
+    );
     // The publish path and the single hand-off are spelled out.
     expect(prompt).toContain("mcp__plan__create-visual-recap");
     expect(prompt).toContain("set-resource-visibility");
@@ -82,6 +221,27 @@ describe("recap prompt builder", () => {
     });
     expect(prompt).toContain('planId: "plan-deadbeef"');
     expect(prompt).toMatch(/REPLACES/i);
+  });
+
+  it("can build a DB-free local-files prompt instead of a publish prompt", () => {
+    const prompt = buildRecapPrompt({
+      skillMd,
+      pr: "42",
+      appUrl: "https://plan.agent-native.com",
+      diffPath: "recap.diff",
+      localFiles: true,
+      localDir: "plans/private-recap",
+    });
+
+    expect(prompt).toContain("local-files privacy mode");
+    expect(prompt).toContain("plans/private-recap");
+    expect(prompt).toContain("agent-native plan local preview");
+    expect(prompt).toContain("recap-url.txt");
+    expect(prompt).not.toContain("mcp__plan__create-visual-recap");
+    expect(prompt).not.toContain("set-resource-visibility");
+    expect(prompt).not.toContain(
+      "https://plan.agent-native.com/recaps/<the returned plan id>",
+    );
   });
 });
 
@@ -247,6 +407,393 @@ describe("recap usage parsing", () => {
   it("returns null when no usage is present", () => {
     expect(parseClaudeUsage("not json")).toBeNull();
     expect(parseCodexUsage('{"type":"turn.started"}')).toBeNull();
+  });
+});
+
+describe("recap gate decision", () => {
+  // A clean, all-passing baseline so each test can flip exactly one signal.
+  const ok = (over: Partial<RecapGateInput> = {}): RecapGateInput => ({
+    pr: {
+      number: 7,
+      draft: false,
+      head: { repo: { full_name: "BuilderIO/ai-services" } },
+      user: { login: "octocat", type: "User" },
+    },
+    repository: "BuilderIO/ai-services",
+    hasPlan: true,
+    hasAnthropic: true,
+    hasOpenai: true,
+    agentRaw: "claude",
+    model: undefined,
+    changedFiles: ["app/page.tsx"],
+    ...over,
+  });
+
+  it("runs (run=true) with the normalized agent when nothing trips the gate", () => {
+    const result = evaluateRecapGate(ok());
+    expect(result).toEqual({ run: true, agent: "claude", reasons: [] });
+  });
+
+  it("normalizes a mis-cased agent and still runs", () => {
+    const result = evaluateRecapGate(ok({ agentRaw: "Codex" }));
+    expect(result).toEqual({ run: true, agent: "codex", reasons: [] });
+  });
+
+  it("skips when there is no pull_request payload", () => {
+    const result = evaluateRecapGate(ok({ pr: null }));
+    expect(result.run).toBe(false);
+    expect(result.reasons).toContain("no pull_request payload");
+  });
+
+  it("skips a draft PR", () => {
+    const result = evaluateRecapGate(
+      ok({
+        pr: {
+          number: 7,
+          draft: true,
+          head: { repo: { full_name: "BuilderIO/ai-services" } },
+          user: { login: "octocat", type: "User" },
+        },
+      }),
+    );
+    expect(result.run).toBe(false);
+    expect(result.reasons).toContain("draft PR");
+  });
+
+  it("skips a fork PR with the head repo full name", () => {
+    const result = evaluateRecapGate(
+      ok({
+        pr: {
+          number: 7,
+          draft: false,
+          head: { repo: { full_name: "evil/fork" } },
+          user: { login: "octocat", type: "User" },
+        },
+      }),
+    );
+    expect(result.run).toBe(false);
+    expect(result.reasons).toContain("fork PR (evil/fork)");
+  });
+
+  it("skips a known bot author by login", () => {
+    const result = evaluateRecapGate(
+      ok({
+        pr: {
+          number: 7,
+          draft: false,
+          head: { repo: { full_name: "BuilderIO/ai-services" } },
+          user: { login: "dependabot[bot]", type: "User" },
+        },
+      }),
+    );
+    expect(result.run).toBe(false);
+    expect(result.reasons).toContain("bot author (dependabot[bot])");
+  });
+
+  it("skips a Bot-type author even with a non-bot login", () => {
+    const result = evaluateRecapGate(
+      ok({
+        pr: {
+          number: 7,
+          draft: false,
+          head: { repo: { full_name: "BuilderIO/ai-services" } },
+          user: { login: "ci-app", type: "Bot" },
+        },
+      }),
+    );
+    expect(result.run).toBe(false);
+    expect(result.reasons).toContain("bot author (type=Bot)");
+  });
+
+  it("skips when PLAN_RECAP_TOKEN is not configured", () => {
+    const result = evaluateRecapGate(ok({ hasPlan: false }));
+    expect(result.run).toBe(false);
+    expect(result.reasons).toContain("PLAN_RECAP_TOKEN not configured");
+  });
+
+  it("skips when the claude backend's ANTHROPIC_API_KEY is missing", () => {
+    const result = evaluateRecapGate(ok({ hasAnthropic: false }));
+    expect(result.run).toBe(false);
+    expect(result.reasons).toContain(
+      "ANTHROPIC_API_KEY not configured (claude backend)",
+    );
+  });
+
+  it("skips when the codex backend's OPENAI_API_KEY is missing", () => {
+    const result = evaluateRecapGate(
+      ok({ agentRaw: "codex", hasOpenai: false }),
+    );
+    expect(result.run).toBe(false);
+    expect(result.reasons).toContain(
+      "OPENAI_API_KEY not configured (codex backend)",
+    );
+  });
+
+  it("skips an unsupported agent value with the raw value in the reason", () => {
+    const result = evaluateRecapGate(ok({ agentRaw: "gpt" }));
+    expect(result.run).toBe(false);
+    expect(result.reasons).toContain(
+      'unsupported VISUAL_RECAP_AGENT "gpt" (expected "claude" or "codex")',
+    );
+  });
+
+  it("skips an invalid VISUAL_RECAP_MODEL value", () => {
+    const result = evaluateRecapGate(ok({ model: "bad model!" }));
+    expect(result.run).toBe(false);
+    expect(result.reasons).toContain(
+      "invalid VISUAL_RECAP_MODEL value (must match [a-zA-Z0-9._-]{1,80})",
+    );
+  });
+
+  it("accepts a valid VISUAL_RECAP_MODEL value", () => {
+    const result = evaluateRecapGate(ok({ model: "gpt-5.5" }));
+    expect(result.run).toBe(true);
+  });
+
+  it("skips when the PR modifies packages/core (self-modifying guard)", () => {
+    const result = evaluateRecapGate(
+      ok({ changedFiles: ["packages/core/src/cli/recap.ts"] }),
+    );
+    expect(result.run).toBe(false);
+    expect(
+      result.reasons.some((r) =>
+        r.startsWith("PR modifies recap-control files"),
+      ),
+    ).toBe(true);
+    expect(result.reasons.join(" ")).toContain(
+      "packages/core/src/cli/recap.ts",
+    );
+  });
+
+  it("skips when the PR modifies a .claude config file", () => {
+    const result = evaluateRecapGate(
+      ok({ changedFiles: ["app/page.tsx", ".claude/settings.json"] }),
+    );
+    expect(result.run).toBe(false);
+    expect(result.reasons.join(" ")).toContain(".claude/settings.json");
+  });
+
+  it("truncates the listed recap-control hits to 3 with an ellipsis", () => {
+    const result = evaluateRecapGate(
+      ok({
+        changedFiles: [
+          ".github/workflows/pr-visual-recap.yml",
+          "CLAUDE.md",
+          "AGENTS.md",
+          ".mcp.json",
+        ],
+      }),
+    );
+    const reason = result.reasons.find((r) =>
+      r.startsWith("PR modifies recap-control files"),
+    );
+    expect(reason).toContain(", …)");
+  });
+
+  it("collects multiple reasons when several signals trip at once", () => {
+    const result = evaluateRecapGate(
+      ok({
+        pr: {
+          number: 7,
+          draft: true,
+          head: { repo: { full_name: "evil/fork" } },
+          user: { login: "octocat", type: "User" },
+        },
+        hasPlan: false,
+      }),
+    );
+    expect(result.run).toBe(false);
+    expect(result.reasons).toEqual(
+      expect.arrayContaining([
+        "draft PR",
+        "fork PR (evil/fork)",
+        "PLAN_RECAP_TOKEN not configured",
+      ]),
+    );
+  });
+});
+
+describe("recap sensitive-path guard", () => {
+  it("matches the recap-control files and nothing innocuous", () => {
+    expect(isRecapSensitivePath(".github/workflows/pr-visual-recap.yml")).toBe(
+      true,
+    );
+    expect(
+      isRecapSensitivePath(
+        "templates/plan/.agents/skills/visual-recap/SKILL.md",
+      ),
+    ).toBe(true);
+    expect(isRecapSensitivePath("packages/core/src/cli/recap.ts")).toBe(true);
+    expect(isRecapSensitivePath(".claude/settings.json")).toBe(true);
+    expect(isRecapSensitivePath("CLAUDE.md")).toBe(true);
+    expect(isRecapSensitivePath("apps/foo/AGENTS.md")).toBe(true);
+    expect(isRecapSensitivePath(".mcp.json")).toBe(true);
+    // Innocuous files do not trip the guard.
+    expect(isRecapSensitivePath("app/page.tsx")).toBe(false);
+    expect(isRecapSensitivePath("packages/ui/index.ts")).toBe(false);
+    expect(isRecapSensitivePath("README.md")).toBe(false);
+  });
+});
+
+describe("recap check — canonicalRecapUrl", () => {
+  const app = "https://plan.agent-native.com";
+
+  it("canonicalizes a recap URL on a root-mounted app", () => {
+    expect(canonicalRecapUrl(`${app}/recaps/abc123`, app)).toBe(
+      `${app}/recaps/abc123`,
+    );
+  });
+
+  it("canonicalizes a /plans/<id> URL to /recaps/<id>", () => {
+    expect(canonicalRecapUrl(`${app}/plans/abc123`, app)).toBe(
+      `${app}/recaps/abc123`,
+    );
+  });
+
+  it("honors a path-prefixed mount by stripping the trusted base", () => {
+    const mounted = "https://host.example.com/agent-native";
+    expect(canonicalRecapUrl(`${mounted}/recaps/xyz_9`, mounted)).toBe(
+      "https://host.example.com/agent-native/recaps/xyz_9",
+    );
+  });
+
+  it("tolerates a trailing slash on the recap path", () => {
+    expect(canonicalRecapUrl(`${app}/recaps/abc123/`, app)).toBe(
+      `${app}/recaps/abc123`,
+    );
+  });
+
+  it("returns '' for a wrong origin", () => {
+    expect(canonicalRecapUrl("https://evil.example.com/recaps/abc", app)).toBe(
+      "",
+    );
+  });
+
+  it("returns '' for an unrecognized path or unparseable URL", () => {
+    expect(canonicalRecapUrl(`${app}/not-a-recap/abc`, app)).toBe("");
+    expect(canonicalRecapUrl(`${app}/recaps/`, app)).toBe("");
+    expect(canonicalRecapUrl("not a url", app)).toBe("");
+  });
+});
+
+describe("recap check — outcome mapper", () => {
+  const app = "https://plan.agent-native.com";
+  const workflowUrl = "https://github.com/o/r/actions/runs/1";
+  const base = {
+    planOk: false,
+    planUrl: "",
+    appUrl: app,
+    huge: false,
+    tiny: false,
+    suppressed: false,
+    suppressedJson: "",
+    workflowUrl,
+  };
+
+  it("success: a valid published recap URL", () => {
+    const out = recapCheckOutcome({
+      ...base,
+      planOk: true,
+      planUrl: `${app}/recaps/abc123`,
+    });
+    expect(out.conclusion).toBe("success");
+    expect(out.title).toBe("Visual recap ready");
+    expect(out.summary).toBe(
+      "A visual code-review recap was generated for this PR.",
+    );
+    expect(out.detailsUrl).toBe(`${app}/recaps/abc123`);
+    expect(out.text).toBe(`**[Open visual recap](${app}/recaps/abc123)**`);
+  });
+
+  it("success: a huge diff gets the summarized summary", () => {
+    const out = recapCheckOutcome({
+      ...base,
+      planOk: true,
+      huge: true,
+      planUrl: `${app}/plans/abc123`,
+    });
+    expect(out.conclusion).toBe("success");
+    expect(out.summary).toBe(
+      "A summarized visual recap was generated for this large PR.",
+    );
+    // /plans/<id> is canonicalized to /recaps/<id>.
+    expect(out.detailsUrl).toBe(`${app}/recaps/abc123`);
+  });
+
+  it("published-fallback: ok but the URL fails origin validation", () => {
+    const out = recapCheckOutcome({
+      ...base,
+      planOk: true,
+      planUrl: "https://evil.example.com/recaps/abc123",
+    });
+    expect(out.conclusion).toBe("neutral");
+    expect(out.title).toBe("Visual recap published");
+    expect(out.summary).toBe(
+      "A recap was published; see the visual recap comment on this PR for the link.",
+    );
+    expect(out.detailsUrl).toBe(workflowUrl);
+    expect(out.text).toBe("");
+  });
+
+  it("tiny: skipped", () => {
+    const out = recapCheckOutcome({ ...base, tiny: true });
+    expect(out.conclusion).toBe("skipped");
+    expect(out.title).toBe("Visual recap skipped");
+    expect(out.summary).toBe("The diff is too small to need a visual recap.");
+    expect(out.detailsUrl).toBe(workflowUrl);
+  });
+
+  it("suppressed: skipped with the parsed reason", () => {
+    const out = recapCheckOutcome({
+      ...base,
+      suppressed: true,
+      suppressedJson: JSON.stringify({
+        suppressed: true,
+        reason: "leaked AWS key",
+      }),
+    });
+    expect(out.conclusion).toBe("skipped");
+    expect(out.title).toBe("Visual recap suppressed");
+    expect(out.summary).toBe("No recap was published because leaked AWS key.");
+  });
+
+  it("suppressed: falls back to the default reason on bad JSON", () => {
+    const out = recapCheckOutcome({
+      ...base,
+      suppressed: true,
+      suppressedJson: "{not json",
+    });
+    expect(out.conclusion).toBe("skipped");
+    expect(out.summary).toBe(
+      "No recap was published because potential secret in diff.",
+    );
+  });
+
+  it("default: neutral 'not generated' when nothing matched", () => {
+    const out = recapCheckOutcome({ ...base });
+    expect(out.conclusion).toBe("neutral");
+    expect(out.title).toBe("Visual recap not generated");
+    expect(out.summary).toBe(
+      "The visual recap did not produce a plan URL. This is informational only and does not block the PR.",
+    );
+    expect(out.detailsUrl).toBe(workflowUrl);
+    expect(out.text).toBe("");
+  });
+});
+
+describe("bundled PR visual recap workflow", () => {
+  it("drives the Visual Recap check run through the recap CLI", () => {
+    // The recap job still needs check-write permission…
+    expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain("checks: write");
+    // …but the start/complete check-run logic now lives in `recap check`, not in
+    // an inline github-script step.
+    expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain("recap check start");
+    expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain("recap check complete");
+    expect(PR_VISUAL_RECAP_WORKFLOW_YML).not.toContain("github.rest.checks");
+    // The completed-check step is gated on a created check id and best-effort.
+    expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain(
+      "steps.recap_check.outputs.check_run_id != ''",
+    );
   });
 });
 

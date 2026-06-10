@@ -519,6 +519,30 @@ export function neonPoolMax(): number {
   return isServerlessRuntime() ? 2 : 10;
 }
 
+/**
+ * Render any rejection reason as a readable message. The Neon serverless
+ * driver surfaces WebSocket failures as raw DOM-style ErrorEvent objects (not
+ * Error instances), which stringify uselessly as "[object ErrorEvent]" — pull
+ * the message off the event (or its nested `.error`) instead so logs carry
+ * actual context.
+ */
+export function describeDbError(err: unknown): string {
+  if (err instanceof Error) return err.message;
+  if (err && typeof err === "object") {
+    const evt = err as {
+      message?: unknown;
+      error?: { message?: unknown };
+      type?: unknown;
+    };
+    const msg = evt.message ?? evt.error?.message;
+    if (typeof msg === "string" && msg) return msg;
+    if (evt.type === "error") {
+      return "WebSocket ErrorEvent (connection failed; no message attached)";
+    }
+  }
+  return String(err);
+}
+
 export function attachNeonPoolErrorLogger(
   pool: unknown,
   label = "db/neon",
@@ -534,7 +558,7 @@ export function attachNeonPoolErrorLogger(
   withEvents.on("error", (err: unknown) => {
     console.warn(
       `[${label}] pool error (will reconnect on next query):`,
-      err instanceof Error ? err.message : err,
+      describeDbError(err),
     );
   });
 
@@ -561,7 +585,7 @@ export function attachNeonPoolErrorLogger(
     clientEvents.on("error", (err: unknown) => {
       console.warn(
         `[${label}] client connection error (connection discarded, next query reconnects):`,
-        err instanceof Error ? err.message : err,
+        describeDbError(err),
       );
     });
   });

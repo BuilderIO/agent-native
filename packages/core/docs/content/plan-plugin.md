@@ -14,7 +14,24 @@ One install gives you:
 - **Two skills** — `/visual-plan` (the canonical entry point) and `/visual-recap`.
 - **The Plan MCP connector** — registered against the hosted app at `https://plan.agent-native.com` (MCP endpoint `https://plan.agent-native.com/_agent-native/mcp`, server name `agent-native-plans`).
 
-Both skills **always publish to the hosted Plan app** — they create a plan via the MCP connector and hand you a link or inline plan to review. They never dump an inline Markdown/ASCII plan into chat as the deliverable. If a Plan tool returns `needs auth`, `Unauthorized`, or `Session terminated`, authenticate the connector (see each route below) instead of falling back to inline output.
+By default, both skills publish to the hosted Plan app — they create a plan via
+the MCP connector and hand you a link or inline plan to review. They never dump
+an inline Markdown/ASCII plan into chat as the deliverable. If a Plan tool
+returns `needs auth`, `Unauthorized`, or `Session terminated`, authenticate the
+connector (see each route below) instead of falling back to inline output.
+
+The exception is explicit **local-files privacy mode**. When you ask for no DB
+writes or set `AGENT_NATIVE_PLANS_MODE=local-files`, the skills must not call
+the Plan MCP connector. They write `plans/<slug>/plan.mdx` plus optional
+`canvas.mdx`, `prototype.mdx`, and `.plan-state.json`, then preview locally with:
+
+```bash
+agent-native plan local preview --dir plans/<slug> --kind plan
+```
+
+This keeps plan content out of the Agent-Native Plan database. Hosted sharing,
+comments, screenshots, and plan history are unavailable until you explicitly
+publish later.
 
 > The plugin (`agent-native-visual-plans`) carries app id `visual-plans`, which is why the Claude Code plugin name and Codex plugin name are both `agent-native-visual-plans`. The Plan app's display name is "Agent-Native Plan".
 

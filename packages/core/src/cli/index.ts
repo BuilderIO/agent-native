@@ -613,6 +613,19 @@ switch (command) {
     break;
   }
 
+  case "reconnect":
+  case "reauth": {
+    // Refresh an existing remote MCP auth/config entry without reinstalling
+    // app skills or running the broader connector setup path.
+    import("./connect.js")
+      .then((m) => m.runConnect(["reconnect", ...args]))
+      .catch((err) => {
+        console.error(err?.message ?? err);
+        process.exit(1);
+      });
+    break;
+  }
+
   case "app-skill": {
     // Package or install an agent-native app as a skill-backed MCP/app bundle.
     import("./app-skill.js")
@@ -641,6 +654,18 @@ switch (command) {
     // call `agent-native recap …` instead of copying helper scripts.
     import("./recap.js")
       .then((m) => m.runRecap(args))
+      .catch((err) => {
+        console.error(err?.message ?? err);
+        process.exit(1);
+      });
+    break;
+  }
+
+  case "plan": {
+    // DB-free local plan helpers. These never call the Plan app action surface;
+    // they only read/write MDX folders and static preview HTML.
+    import("./plan-local.js")
+      .then((m) => m.runPlan(args))
       .catch((err) => {
         console.error(err?.message ?? err);
         process.exit(1);
@@ -746,6 +771,8 @@ Usage:
                                 browser device-code flow. --all connects every
                                 first-party app; --token is the no-browser
                                 fallback. Usually run for you by 'skills add'.
+  agent-native reconnect [url]  Re-authenticate an existing MCP entry without
+                                reinstalling app skills/connectors.
   agent-native app-skill <cmd>  Install, launch, or package app-backed skills.
                                 cmds: ensure | launch | pack
   agent-native skills add assets|design-exploration|visual-plan|visual-questions|ui-plan|prototype-plan|plan-design
@@ -757,6 +784,8 @@ Usage:
                                 Recap workflow into .github/workflows/.
   agent-native recap <cmd>      PR visual recap helpers used by the GitHub Action.
                                 cmds: scan | build-prompt | shot | comment
+  agent-native plan local <cmd> DB-free local plan helpers.
+                                cmds: init | check | preview
   agent-native migrate <source> Create an Agent-Native Code /migrate session, or use
                                 --emit for a portable own-agent dossier.
   agent-native add-app [name]   Add one or more apps to the current workspace

@@ -8,6 +8,37 @@ import { NarrowContainerProvider } from "./narrow-container.js";
 
 const DIFF_MODE_STORAGE_KEY = "agent-native:diff-view-mode";
 
+function rect({
+  left = 20,
+  top,
+  width = 500,
+  height,
+}: {
+  left?: number;
+  top: number;
+  width?: number;
+  height: number;
+}): DOMRect {
+  return {
+    x: left,
+    y: top,
+    left,
+    top,
+    width,
+    height,
+    right: left + width,
+    bottom: top + height,
+    toJSON: () => ({}),
+  } as DOMRect;
+}
+
+function stubRect(element: Element, value: DOMRect) {
+  Object.defineProperty(element, "getBoundingClientRect", {
+    configurable: true,
+    value: () => value,
+  });
+}
+
 describe("DiffBlock", () => {
   let container: HTMLDivElement;
   let root: Root;
@@ -25,6 +56,9 @@ describe("DiffBlock", () => {
       root.unmount();
     });
     container.remove();
+    document
+      .querySelectorAll("[data-annotation-hover-card]")
+      .forEach((node) => node.remove());
     vi.unstubAllGlobals();
   });
 
@@ -95,17 +129,16 @@ describe("DiffBlock", () => {
     expect(container.textContent).toContain("Show all 18 lines");
   });
 
-  it("defaults to unified (single column) when no mode is authored", () => {
+  it("defaults to split (two columns) when no mode is authored", () => {
     renderDiff({ after: "const a = 1\nconst b = 2" });
 
-    // Unified renders ONE code column — none of split's `border-r` divider
-    // columns — and exposes the Unified/Split toggle so the user can still
-    // switch to side-by-side.
-    expect(container.querySelector(".border-r.border-border")).toBeNull();
-    const splitToggle = Array.from(container.querySelectorAll("button")).find(
-      (button) => button.textContent === "Split",
+    // Split renders side-by-side columns by default and exposes the
+    // Unified/Split toggle so the user can still switch to one-column review.
+    expect(container.querySelector(".border-r.border-border")).toBeTruthy();
+    const unifiedToggle = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent === "Unified",
     );
-    expect(splitToggle).toBeTruthy();
+    expect(unifiedToggle).toBeTruthy();
   });
 
   it("renders split (two columns) when split mode is authored", () => {
@@ -157,33 +190,33 @@ describe("DiffBlock", () => {
       );
     });
 
-    // Starts unified (no split divider).
-    expect(container.querySelector(".border-r.border-border")).toBeNull();
-
-    const splitToggle = Array.from(container.querySelectorAll("button")).find(
-      (button) => button.textContent === "Split",
-    );
-    expect(splitToggle).toBeTruthy();
-    act(() => {
-      splitToggle?.dispatchEvent(
-        new MouseEvent("click", { bubbles: true, cancelable: true }),
-      );
-    });
-
-    // Toggling to Split produces the side-by-side columns.
+    // Starts split (with the side-by-side divider).
     expect(container.querySelector(".border-r.border-border")).toBeTruthy();
 
     const unifiedToggle = Array.from(container.querySelectorAll("button")).find(
       (button) => button.textContent === "Unified",
     );
+    expect(unifiedToggle).toBeTruthy();
     act(() => {
       unifiedToggle?.dispatchEvent(
         new MouseEvent("click", { bubbles: true, cancelable: true }),
       );
     });
 
-    // …and back to unified.
+    // Toggling to Unified removes the side-by-side columns.
     expect(container.querySelector(".border-r.border-border")).toBeNull();
+
+    const splitToggle = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent === "Split",
+    );
+    act(() => {
+      splitToggle?.dispatchEvent(
+        new MouseEvent("click", { bubbles: true, cancelable: true }),
+      );
+    });
+
+    // ...and back to split.
+    expect(container.querySelector(".border-r.border-border")).toBeTruthy();
   });
 
   it("persists the selected layout and applies it to future diff blocks", () => {
@@ -191,26 +224,6 @@ describe("DiffBlock", () => {
       before: "const a = 1",
       after: "const a = 2",
       blockId: "diff-persist-first",
-    });
-
-    expect(container.querySelector(".border-r.border-border")).toBeNull();
-
-    const splitToggle = Array.from(container.querySelectorAll("button")).find(
-      (button) => button.textContent === "Split",
-    );
-    act(() => {
-      splitToggle?.dispatchEvent(
-        new MouseEvent("click", { bubbles: true, cancelable: true }),
-      );
-    });
-
-    expect(window.localStorage.getItem(DIFF_MODE_STORAGE_KEY)).toBe("split");
-    expect(container.querySelector(".border-r.border-border")).toBeTruthy();
-
-    renderDiff({
-      before: "const b = 1",
-      after: "const b = 2",
-      blockId: "diff-persist-next",
     });
 
     expect(container.querySelector(".border-r.border-border")).toBeTruthy();
@@ -226,9 +239,29 @@ describe("DiffBlock", () => {
 
     expect(window.localStorage.getItem(DIFF_MODE_STORAGE_KEY)).toBe("unified");
     expect(container.querySelector(".border-r.border-border")).toBeNull();
+
+    renderDiff({
+      before: "const b = 1",
+      after: "const b = 2",
+      blockId: "diff-persist-next",
+    });
+
+    expect(container.querySelector(".border-r.border-border")).toBeNull();
+
+    const splitToggle = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent === "Split",
+    );
+    act(() => {
+      splitToggle?.dispatchEvent(
+        new MouseEvent("click", { bubbles: true, cancelable: true }),
+      );
+    });
+
+    expect(window.localStorage.getItem(DIFF_MODE_STORAGE_KEY)).toBe("split");
+    expect(container.querySelector(".border-r.border-border")).toBeTruthy();
   });
 
-  it("defaults an unspecified diff to unified inside a narrow container", () => {
+  it("defaults an unspecified diff to unified inside a constrained container", () => {
     act(() => {
       root.render(
         <NarrowContainerProvider>
@@ -245,7 +278,7 @@ describe("DiffBlock", () => {
       );
     });
 
-    // No authored mode + narrow container ⇒ unified up front, and the toggle is
+    // No authored mode + constrained container -> unified up front, and the toggle is
     // hidden (split's doubled gutters would crush the code in the tight box).
     expect(container.querySelector(".border-r.border-border")).toBeNull();
     const splitToggle = Array.from(container.querySelectorAll("button")).find(
@@ -322,6 +355,9 @@ describe("DiffBlock annotations", () => {
       root.unmount();
     });
     container.remove();
+    document
+      .querySelectorAll("[data-annotation-hover-card]")
+      .forEach((node) => node.remove());
     vi.unstubAllGlobals();
   });
 
@@ -379,6 +415,7 @@ describe("DiffBlock annotations", () => {
     render({
       before: "",
       after: "const a = 1\nconst b = 2\nconst c = 3\nconst d = 4\nconst e = 5",
+      mode: "unified",
       annotations: [{ lines: "2-4", label: "Block", note: "Three lines." }],
     });
 
@@ -391,6 +428,47 @@ describe("DiffBlock annotations", () => {
       container.querySelectorAll("span[aria-hidden]"),
     ).filter((el) => el.textContent?.trim() === "1");
     expect(pips).toHaveLength(2);
+  });
+
+  it("anchors a multi-line annotation popover to the first row in the range", () => {
+    render({
+      before: "",
+      after: "const a = 1\nconst b = 2\nconst c = 3\nconst d = 4\nconst e = 5",
+      mode: "unified",
+      annotations: [{ lines: "2-4", label: "Block", note: "Three lines." }],
+    });
+
+    const codeSurface = container.querySelector("[data-code-surface]");
+    const codeBox = codeSurface?.parentElement;
+    expect(codeBox).toBeTruthy();
+    stubRect(codeBox!, rect({ top: 80, height: 140 }));
+
+    const rows = Array.from(
+      container.querySelectorAll<HTMLElement>(
+        "[data-code-surface] > div > div",
+      ),
+    );
+    expect(rows).toHaveLength(5);
+    rows.forEach((row, index) => {
+      stubRect(row, rect({ top: 100 + index * 20, height: 20 }));
+    });
+
+    act(() => {
+      rows[3].dispatchEvent(
+        new MouseEvent("mouseover", {
+          bubbles: true,
+          relatedTarget: document.body,
+        }),
+      );
+    });
+
+    const card = document.querySelector<HTMLElement>(
+      "[data-annotation-hover-card]",
+    );
+    expect(card).toBeTruthy();
+    // Line 2 starts at y=120 with a 20px height, so the first-row anchor center
+    // is 130px. Hovering line 4 would have produced 170px before this fix.
+    expect(card!.style.top).toBe("130px");
   });
 
   it("renders unchanged when there are no annotations (back-compat)", () => {

@@ -193,6 +193,7 @@ function buildUnauthorizedBody(event: H3Event): {
   message: string;
   authenticate: {
     command?: string;
+    firstTimeCommand?: string;
     authorizeUrl?: string;
     resourceMetadataUrl?: string;
     mcpUrl?: string;
@@ -201,14 +202,18 @@ function buildUnauthorizedBody(event: H3Event): {
   const issuer = getMcpOAuthIssuer(event);
   const mcpUrl = getMcpOAuthResource(event);
   const resourceMetadataUrl = getMcpOAuthProtectedResourceMetadataUrl(event);
-  const command = issuer ? `agent-native connect ${issuer}` : undefined;
+  const command = issuer ? `agent-native reconnect ${issuer}` : undefined;
+  const firstTimeCommand = issuer
+    ? `agent-native connect ${issuer}`
+    : undefined;
   const authorizeUrl = issuer
     ? `${issuer}/_agent-native/mcp/oauth/authorize`
     : undefined;
   const message = command
-    ? `Authentication required. Run \`${command}\` to authenticate this MCP ` +
-      `connector (or, in an OAuth-capable host, re-run /mcp and choose ` +
-      `Authenticate), then retry.`
+    ? `Authentication required. Run \`${command}\` to re-authenticate this ` +
+      `MCP connector without reinstalling it (or, in an OAuth-capable host, ` +
+      `re-run /mcp and choose Authenticate), then retry. For first-time ` +
+      `setup, run \`${firstTimeCommand}\`.`
     : "Authentication required. Authenticate the MCP connector in your host, " +
       "then retry.";
   return {
@@ -216,6 +221,7 @@ function buildUnauthorizedBody(event: H3Event): {
     message,
     authenticate: {
       ...(command ? { command } : {}),
+      ...(firstTimeCommand ? { firstTimeCommand } : {}),
       ...(authorizeUrl ? { authorizeUrl } : {}),
       ...(resourceMetadataUrl ? { resourceMetadataUrl } : {}),
       ...(mcpUrl ? { mcpUrl } : {}),

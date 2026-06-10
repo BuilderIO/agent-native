@@ -2,6 +2,7 @@
 export const PUBLIC_PLAN_ACTION_PATHS = [
   // Read / review — public plan links, export receipts
   "/_agent-native/actions/get-visual-plan",
+  "/_agent-native/actions/get-local-plan-folder",
   "/_agent-native/actions/export-visual-plan",
   "/_agent-native/actions/get-plan-feedback",
   "/_agent-native/actions/get-plan-blocks",

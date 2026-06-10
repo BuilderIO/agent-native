@@ -793,7 +793,7 @@ export default function CodeAgentsApp({
   openSelectedGoalRef.current = openSelectedGoal;
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      if (!(e.metaKey || e.ctrlKey) || e.key.toLowerCase() !== "n") return;
+      if (!(e.metaKey || e.ctrlKey) || e.key?.toLowerCase() !== "n") return;
       if (e.altKey || e.shiftKey) return;
       e.preventDefault();
       openSelectedGoalRef.current();

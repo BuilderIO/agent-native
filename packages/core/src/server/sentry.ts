@@ -144,13 +144,23 @@ export function initServerSentry(): boolean {
         }
       }
       // Drop SDK-only ErrorEvent promise rejections. These arrive as Node
-      // unhandled rejections with no application frames, usually from a
-      // browser ErrorEvent object crossing the shared browser/server bundle
-      // boundary. Keep any event with app frames so real thrown ErrorEvents
-      // are still visible.
+      // unhandled rejections with no application frames — typically the Neon
+      // serverless driver's WebSocket dying across a Lambda freeze/thaw and
+      // rejecting a floating promise with the raw ErrorEvent (the per-client
+      // logger in db/client.ts already records these with context). Keep any
+      // event with real app frames so thrown ErrorEvents stay visible.
+      //
+      // "Application frame" must exclude the Sentry SDK's own bundled chunks:
+      // serverless bundles place them under the app root (e.g.
+      // `/var/task/_libs/@sentry/node+….mjs`), outside node_modules, so the
+      // SDK marks them in_app and the unhandled-rejection instrumentation
+      // stack alone would defeat this filter.
       if (exceptionValue === "[object ErrorEvent]" && isUnhandledRejection) {
         const frames = event.exception?.values?.[0]?.stacktrace?.frames ?? [];
-        const hasApplicationFrame = frames.some((frame) => frame?.in_app);
+        const hasApplicationFrame = frames.some(
+          (frame) =>
+            frame?.in_app && !String(frame?.filename ?? "").includes("sentry"),
+        );
         const hasSentryFrame = frames.some((frame) =>
           String(frame?.filename ?? "").includes("sentry"),
         );

@@ -4,6 +4,7 @@ import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { codeTabsBlock } from "./code-tabs.js";
+import { DiffRead } from "./DiffBlock.js";
 import { TabsBlockEditor, TabsBlockReader } from "./tabs.js";
 import type { CodeTabsData } from "./code-tabs.config.js";
 import type { TabsData } from "./tabs.config.js";
@@ -58,6 +59,7 @@ describe("shared block tab rails", () => {
 
   beforeEach(() => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    window.localStorage.clear();
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -224,6 +226,52 @@ describe("shared block tab rails", () => {
     expect(
       tablist?.querySelector<HTMLElement>('[role="tab"] span')?.className,
     ).toContain("truncate");
+  });
+
+  it("lets horizontal content tabs render unauthored diffs in split mode", () => {
+    const tabsWithDiff: TabsData = {
+      tabs: [
+        {
+          id: "tab-diff",
+          label: "routes/tasks.ts",
+          blocks: [
+            {
+              id: "diff-route",
+              type: "diff",
+              data: {
+                before: "const status = 'old';",
+                after: "const status = 'new';",
+                filename: "routes/tasks.ts",
+              },
+            },
+          ],
+        },
+      ],
+    };
+
+    act(() => {
+      root.render(
+        <TabsBlockReader
+          blockId="tabs-diff"
+          data={tabsWithDiff}
+          ctx={{
+            renderBlock: ({ block }) =>
+              block.type === "diff" ? (
+                <DiffRead
+                  blockId={block.id}
+                  ctx={{}}
+                  data={block.data as Parameters<typeof DiffRead>[0]["data"]}
+                />
+              ) : null,
+          }}
+        />,
+      );
+    });
+
+    expect(container.querySelector(".border-r.border-border")).toBeTruthy();
+    expect(
+      container.querySelector('[aria-orientation="horizontal"]'),
+    ).toBeTruthy();
   });
 
   it("edits content tab labels from the settings popover instead of an inline field", () => {
