@@ -166,7 +166,10 @@ export default defineAction({
             ),
             preview:
               args.includePreview && "contentPreviewRaw" in row
-                ? contentPreview(row.contentPreviewRaw ?? "", args.previewLength)
+                ? contentPreview(
+                    row.contentPreviewRaw ?? "",
+                    args.previewLength,
+                  )
                 : undefined,
             createdAt: row.createdAt,
             updatedAt: row.updatedAt,

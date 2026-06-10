@@ -7,7 +7,7 @@
  *            capped at MAX_VISIBLE_LINES by default (expandable)
  */
 
-import React, { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   IconChevronDown,
   IconCircleCheck,

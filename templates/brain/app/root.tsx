@@ -195,7 +195,7 @@ export default function Root() {
   );
 
   return (
-    <AppProviders queryClient={queryClient}>
+    <AppProviders queryClient={queryClient} tooltipDelayDuration={250}>
       <DbSyncSetup />
       <AppContent />
     </AppProviders>

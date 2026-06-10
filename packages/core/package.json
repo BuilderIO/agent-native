@@ -21,7 +21,7 @@
     "provenance": true
   },
   "bin": {
-    "agent-native": "dist/cli/index.js"
+    "agent-native": "bin/agent-native.js"
   },
   "exports": {
     ".": {
@@ -121,13 +121,14 @@
     "./tsconfig.base.json": "./tsconfig.base.json"
   },
   "files": [
+    "bin",
     "dist",
     "docs",
     "tsconfig.base.json",
     "src/templates"
   ],
   "scripts": {
-    "build": "tsc && node scripts/finalize-build.mjs",
+    "build": "tsc && tsc -p tsconfig.cli.json && node scripts/finalize-build.mjs",
     "dev": "tsc --watch",
     "typecheck": "tsc --noEmit",
     "test": "vitest --run src",

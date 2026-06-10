@@ -66,8 +66,7 @@ export class NotionApiError extends Error {
 
 function getOrigin(event: H3Event): string {
   const req = event.node?.req;
-  const host =
-    req?.headers["x-forwarded-host"] || req?.headers.host;
+  const host = req?.headers["x-forwarded-host"] || req?.headers.host;
   const proto = req?.headers["x-forwarded-proto"] || "http";
   return `${proto}://${host}`;
 }

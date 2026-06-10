@@ -641,8 +641,7 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
     // or the full DB row. Cast away the "" from the short-circuit type.
     const link = bookingLink || undefined;
 
-    const hostEmail =
-      (link as any)?.ownerEmail || (link as any)?.owner_email;
+    const hostEmail = (link as any)?.ownerEmail || (link as any)?.owner_email;
     if (!hostEmail) {
       setResponseStatus(event, 500);
       return { error: "Booking link has no host email" };

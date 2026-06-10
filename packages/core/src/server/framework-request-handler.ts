@@ -295,7 +295,6 @@ function installPluginReadyPlaceholders(
   const installed = existing ?? new Set<string>();
   nitroApp[PLUGIN_READY_PLACEHOLDERS_KEY] = installed;
 
-  const app = getH3App(nitroApp);
   for (const path of paths) {
     if (!path || installed.has(path)) continue;
     installed.add(path);

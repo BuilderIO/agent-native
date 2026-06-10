@@ -117,9 +117,13 @@ export default function Root() {
   useCommandMenuShortcut(useCallback(() => setCmdkOpen(true), []));
 
   return (
-    <AppProviders queryClient={queryClient}>
+    <AppProviders
+      queryClient={queryClient}
+      defaultTheme="dark"
+      tooltipDelayDuration={300}
+      toaster={<Toaster richColors position="bottom-left" />}
+    >
       <DbSyncSetup />
-      <Toaster richColors position="bottom-left" />
       <CommandMenu open={cmdkOpen} onOpenChange={setCmdkOpen}>
         <CommandMenu.Group heading="Actions">
           <CommandMenu.Item onSelect={() => {}}>Search</CommandMenu.Item>

@@ -204,7 +204,7 @@ export async function processA2ATaskFromQueue(
  */
 const defaultHandler: A2AHandler = async (
   message: Message,
-  context: A2AHandlerContext,
+  _context: A2AHandlerContext,
 ): Promise<A2AHandlerResult> => {
   // Extract text from message parts
   const text = message.parts
@@ -324,7 +324,7 @@ function makeHandlerContext(
  * inside `runWithRequestContext` so downstream actions see the org.
  */
 async function withA2ARequestContext<T>(
-  metadata: Record<string, unknown> | undefined,
+  _metadata: Record<string, unknown> | undefined,
   event: any | undefined,
   fn: () => Promise<T>,
 ): Promise<T> {

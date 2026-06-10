@@ -9,6 +9,7 @@ import {
 import { useCallback, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useTheme } from "next-themes";
+import { Toaster } from "sonner";
 import {
   AppProviders,
   CommandMenu,
@@ -172,6 +173,7 @@ export default function Root() {
       queryClient={queryClient}
       isPublicPath={isPublicBookingPath(location.pathname)}
       clientOnlyFallback={<DefaultSpinner />}
+      toaster={<Toaster richColors position="bottom-center" />}
     >
       <AppContent />
     </AppProviders>

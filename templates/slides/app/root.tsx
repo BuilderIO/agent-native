@@ -23,7 +23,7 @@ import {
 } from "@agent-native/core/client";
 import { Layout as AppLayout } from "@/components/layout/Layout";
 import { IconSun, IconMoon } from "@tabler/icons-react";
-import { ThemeProvider, useTheme } from "next-themes";
+import { useTheme } from "next-themes";
 import { useQueryClient } from "@tanstack/react-query";
 import type { LinksFunction } from "react-router";
 import stylesheet from "./global.css?url";
@@ -193,24 +193,14 @@ export default function Root() {
     return <Outlet />;
   }
 
-  // Outer ThemeProvider sets defaultTheme="dark" for slides; AppProviders'
-  // inner ThemeProvider becomes a no-op Fragment (next-themes skips nested
-  // providers when a context already exists).
   return (
-    <ThemeProvider
-      attribute="class"
-      defaultTheme="dark"
-      enableSystem
-      disableTransitionOnChange
-    >
-      <AppProviders queryClient={queryClient}>
-        <AppContent />
-        {/* useToast-based Toaster — separate from AppProviders' sonner Toaster.
-            Components throughout the app call toast() from @/hooks/use-toast,
-            which requires this Toaster to be mounted. */}
-        <Toaster />
-      </AppProviders>
-    </ThemeProvider>
+    <AppProviders queryClient={queryClient} defaultTheme="dark">
+      <AppContent />
+      {/* useToast-based Toaster — separate from AppProviders' sonner Toaster.
+          Components throughout the app call toast() from @/hooks/use-toast,
+          which requires this Toaster to be mounted. */}
+      <Toaster />
+    </AppProviders>
   );
 }
 

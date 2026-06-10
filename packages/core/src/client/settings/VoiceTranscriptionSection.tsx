@@ -735,7 +735,7 @@ interface ProviderOptionProps {
 }
 
 function ProviderOption({
-  id,
+  id: _id,
   selected,
   disabled,
   onSelect,

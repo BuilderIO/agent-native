@@ -7,7 +7,6 @@ import React, {
   useMemo,
 } from "react";
 import {
-  ComposerPrimitive,
   useComposer,
   useComposerRuntime,
 } from "@assistant-ui/react";
@@ -23,7 +22,6 @@ import { useMentionSearch } from "./use-mention-search.js";
 import { useSkills } from "./use-skills.js";
 import {
   IconArrowUp,
-  IconPlus,
   IconCheck,
   IconChevronDown,
   IconChevronRight,
@@ -557,6 +555,7 @@ function ModeSelector({
 
 const FRIENDLY_MODEL_NAMES: Record<string, string> = {
   auto: "Default model",
+  "claude-fable-5": "Fable 5",
   "grok-code-fast": "Grok Code Fast",
   "qwen3-coder": "Qwen3 Coder",
   "kimi-k2-5": "Kimi K2.5",
@@ -1736,7 +1735,7 @@ export function TiptapComposer({
   // Helper functions that operate on the editor view directly
   // These are called from handleKeyDown which can't use React state
   function selectMention(
-    view: any,
+    _view: any,
     pop: NonNullable<PopoverState>,
     item: MentionItem,
   ) {
@@ -1766,7 +1765,7 @@ export function TiptapComposer({
   }
 
   function executeCommand(
-    view: any,
+    _view: any,
     pop: NonNullable<PopoverState>,
     command: SlashCommand,
   ) {
@@ -1781,7 +1780,7 @@ export function TiptapComposer({
   }
 
   function selectSkill(
-    view: any,
+    _view: any,
     pop: NonNullable<PopoverState>,
     skill: SkillResult,
   ) {

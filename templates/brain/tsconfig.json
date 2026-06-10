@@ -17,7 +17,8 @@
     "jobs/**/*",
     "vite.config.ts",
     "react-router.config.ts",
-    ".react-router/types/**/*"
+    ".react-router/types/**/*",
+    ".generated/**/*"
   ],
   "exclude": ["node_modules", "dist", "build", ".output"]
 }

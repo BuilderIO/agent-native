@@ -8,6 +8,7 @@ import {
 } from "react-router";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigationState } from "@/hooks/use-navigation-state";
+import { Toaster } from "sonner";
 import {
   AppProviders,
   CommandMenu,
@@ -183,7 +184,10 @@ function AppContent() {
 export default function Root() {
   const [queryClient] = useState(() => createAgentNativeQueryClient());
   return (
-    <AppProviders queryClient={queryClient}>
+    <AppProviders
+      queryClient={queryClient}
+      toaster={<Toaster richColors position="bottom-left" closeButton />}
+    >
       <AppContent />
     </AppProviders>
   );

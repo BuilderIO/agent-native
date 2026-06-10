@@ -98,6 +98,18 @@ describe("agent model config catalog", () => {
     expect(BUILDER_MODEL_CONFIG.supportedModels).toContain("claude-opus-4-8");
   });
 
+  it("keeps Opus 4.7 out of current picker catalogs", () => {
+    expect(ANTHROPIC_MODEL_CONFIG.supportedModels).not.toContain(
+      "claude-opus-4-7",
+    );
+    expect(AI_SDK_MODEL_CONFIG.anthropic.supportedModels).not.toContain(
+      "claude-opus-4-7",
+    );
+    expect(BUILDER_MODEL_CONFIG.supportedModels).not.toContain(
+      "claude-opus-4-7",
+    );
+  });
+
   it("does not contain decommissioned Groq models", () => {
     const groqModels = AI_SDK_MODEL_CONFIG.groq
       .supportedModels as readonly string[];
@@ -127,13 +139,13 @@ describe("agent model config catalog", () => {
 // ─── getContextWindowForModel ─────────────────────────────────────────────────
 
 describe("getContextWindowForModel", () => {
-  it("returns 200K for standard Claude models (haiku)", () => {
+  it("returns 200K for standard Claude Haiku models", () => {
     expect(getContextWindowForModel("claude-haiku-4-5")).toBe(200_000);
     expect(getContextWindowForModel("claude-haiku-4-5-20251001")).toBe(200_000);
-    expect(getContextWindowForModel("claude-fable-5")).toBe(200_000);
   });
 
-  it("returns 1M for Claude Sonnet 4.6 and Opus 4.x", () => {
+  it("returns 1M for Claude Fable 5, Sonnet 4.6, and Opus 4.x", () => {
+    expect(getContextWindowForModel("claude-fable-5")).toBe(1_000_000);
     expect(getContextWindowForModel("claude-sonnet-4-6")).toBe(1_000_000);
     expect(getContextWindowForModel("claude-opus-4-7")).toBe(1_000_000);
     expect(getContextWindowForModel("claude-opus-4-8")).toBe(1_000_000);
@@ -142,9 +154,11 @@ describe("getContextWindowForModel", () => {
   it("returns 1.05M for GPT-5.x models", () => {
     expect(getContextWindowForModel("gpt-5.5")).toBe(1_050_000);
     expect(getContextWindowForModel("gpt-5.4")).toBe(1_050_000);
+    expect(getContextWindowForModel("gpt-5.4-mini")).toBe(400_000);
     // Builder gateway dashed form
     expect(getContextWindowForModel("gpt-5-5")).toBe(1_050_000);
     expect(getContextWindowForModel("gpt-5-4")).toBe(1_050_000);
+    expect(getContextWindowForModel("gpt-5-4-mini")).toBe(400_000);
   });
 
   it("returns 1M for Gemini 2.x / 3.x models", () => {

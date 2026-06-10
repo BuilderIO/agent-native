@@ -17,11 +17,7 @@ import {
 } from "../agent/engine/index.js";
 import type { AgentEngine } from "../agent/engine/types.js";
 import { createThread } from "../chat-threads/store.js";
-import type { AgentChatEvent } from "../agent/types.js";
-import {
-  startRun,
-  resolveRunSoftTimeoutMs,
-} from "../agent/run-manager.js";
+import { startRun, resolveRunSoftTimeoutMs } from "../agent/run-manager.js";
 
 // ─── Frontmatter parsing ────────────────────────────────────────────────────
 
@@ -449,10 +445,13 @@ async function executeJob(
 
         // Hard-abort backstop: 5 minutes. On hosted runtimes the soft-timeout
         // will fire first; locally this is the only guard.
-        const hardAbortTimer = setTimeout(() => {
-          // startRun's abort controller handles this below, but we still need
-          // the handle to clear it in the finally block.
-        }, 5 * 60 * 1000);
+        const hardAbortTimer = setTimeout(
+          () => {
+            // startRun's abort controller handles this below, but we still need
+            // the handle to clear it in the finally block.
+          },
+          5 * 60 * 1000,
+        );
 
         let jobError: Error | null = null;
         await new Promise<void>((resolve, reject) => {
@@ -481,11 +480,7 @@ async function executeJob(
               if (run.status === "completed") {
                 resolve();
               } else {
-                reject(
-                  new Error(
-                    `Job run ended with status: ${run.status}`,
-                  ),
-                );
+                reject(new Error(`Job run ended with status: ${run.status}`));
               }
             },
             {
@@ -497,12 +492,15 @@ async function executeJob(
           // Hard-abort backstop: abort the run-manager's own controller after
           // 5 minutes if it hasn't finished naturally.
           clearTimeout(hardAbortTimer);
-          setTimeout(() => {
-            if (activeRun.status === "running") {
-              activeRun.abort.abort("job_hard_timeout");
-              reject(new Error("Job timed out after 5 minutes"));
-            }
-          }, 5 * 60 * 1000);
+          setTimeout(
+            () => {
+              if (activeRun.status === "running") {
+                activeRun.abort.abort("job_hard_timeout");
+                reject(new Error("Job timed out after 5 minutes"));
+              }
+            },
+            5 * 60 * 1000,
+          );
         }).catch((err: any) => {
           jobError = err;
         });

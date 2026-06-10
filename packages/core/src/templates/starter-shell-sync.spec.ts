@@ -57,18 +57,16 @@ function readFile(dir: string, filename: string): string {
  *     future change to the pattern must land in both places at once.
  *   entry.client.tsx — lightweight hydration entry that sets basename from
  *     APP_BASE_PATH; must stay in sync for workspace-mount correctness.
- *     NOTE: add entry.client.tsx to SHELL_FILES once both copies have been
- *     reconciled by sibling agents working on the lazy-chat/barrel restructure.
  */
 const SHELL_FILES: Array<[string, string]> = [
   [
     "entry.server.tsx",
     "re-exports @agent-native/core/server/entry-server; must be identical",
   ],
-  // entry.client.tsx: currently drifted between scaffold and starter while
-  // parallel agents reconcile the lazy-chat import comment. Add it here once
-  // both copies are byte-identical:
-  // ["entry.client.tsx", "basename hydration from APP_BASE_PATH; must be identical"],
+  [
+    "entry.client.tsx",
+    "basename hydration from APP_BASE_PATH; must be identical",
+  ],
 ];
 
 describe("starter-shell sync guard", () => {

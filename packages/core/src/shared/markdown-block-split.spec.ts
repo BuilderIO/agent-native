@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { joinMarkdownBlocks, splitMarkdownBlocks } from "./markdown-block-split.js";
+import {
+  joinMarkdownBlocks,
+  splitMarkdownBlocks,
+} from "./markdown-block-split.js";
 
 describe("splitMarkdownBlocks", () => {
   it("returns empty completed blocks and empty tail for empty string", () => {
@@ -84,8 +87,7 @@ describe("splitMarkdownBlocks", () => {
   });
 
   it("handles a table block", () => {
-    const text =
-      "Intro.\n\n| A | B |\n|---|---|\n| 1 | 2 |\n\nConclusion.";
+    const text = "Intro.\n\n| A | B |\n|---|---|\n| 1 | 2 |\n\nConclusion.";
     const result = splitMarkdownBlocks(text);
     expect(result.completedBlocks).toEqual([
       "Intro.",

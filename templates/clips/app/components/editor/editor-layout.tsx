@@ -135,10 +135,9 @@ function getWaveformMediaUrl({
 
 export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
   // --- server state -------------------------------------------------------
-  const playerDataQuery = useActionQuery(
-    "get-recording-player-data" as any,
-    { recordingId } as any,
-  );
+  const playerDataQuery = useActionQuery("get-recording-player-data", {
+    recordingId,
+  });
 
   const playerData: any = playerDataQuery.data;
   const recording: any = playerData?.recording;
@@ -325,9 +324,9 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
   }, [recordingId, waveformMediaUrl]);
 
   // --- actions ------------------------------------------------------------
-  const trim = useActionMutation("trim-recording" as any);
-  const split = useActionMutation("split-recording" as any);
-  const undo = useActionMutation("undo-edit" as any);
+  const trim = useActionMutation("trim-recording");
+  const split = useActionMutation("split-recording");
+  const undo = useActionMutation("undo-edit");
 
   const callTrim = useCallback(
     async (range: { startMs: number; endMs: number }) => {
@@ -336,7 +335,7 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
           recordingId,
           startMs: Math.round(range.startMs),
           endMs: Math.round(range.endMs),
-        } as any);
+        });
         toast.success("Trimmed");
         setSelectionRange(null);
       } catch (err: any) {
@@ -371,7 +370,7 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
         e.key.toLowerCase() === "z"
       ) {
         e.preventDefault();
-        undo.mutate({ recordingId } as any);
+        undo.mutate({ recordingId });
       } else if (e.key.toLowerCase() === "i") {
         setSelectionRange((r) => ({
           startMs: playheadMs,
@@ -395,7 +394,7 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
               recordingId,
               startMs: Math.round(range.startMs),
               endMs: Math.round(range.endMs),
-            } as any)
+            })
             .then(() => {
               toast.success("Cut");
               setSelectionRange(null);
@@ -406,7 +405,7 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
         // Split at playhead
         e.preventDefault();
         split
-          .mutateAsync({ recordingId, atMs: Math.round(playheadMs) } as any)
+          .mutateAsync({ recordingId, atMs: Math.round(playheadMs) })
           .then(() => toast.success("Split"))
           .catch((err: any) => toast.error(err?.message ?? "Split failed"));
       }

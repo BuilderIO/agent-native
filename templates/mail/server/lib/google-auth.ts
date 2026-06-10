@@ -286,7 +286,10 @@ export async function getClientForAccount(
   const all = await listOAuthAccounts("google");
   const account = all.find((a) => a.accountId === accountId);
   if (!account) return null;
-  return getClientFromAccount({ ...account, owner: account.owner ?? undefined });
+  return getClientFromAccount({
+    ...account,
+    owner: account.owner ?? undefined,
+  });
 }
 
 /**

@@ -351,7 +351,7 @@ export async function applyJson(
   docId: string,
   newJson: any,
   fieldName: string = "data",
-  type: "map" | "array" = "map",
+  _type: "map" | "array" = "map",
   requestSource?: string,
 ): Promise<void> {
   return withDocWriteLock(docId, async () => {

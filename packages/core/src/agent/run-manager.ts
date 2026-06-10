@@ -4,7 +4,6 @@ import { captureError } from "../server/capture-error.js";
 import {
   insertRun,
   insertRunEvent,
-  updateRunStatus,
   updateRunStatusIfRunning,
   markRunAborted,
   getRunAbortState,
@@ -19,7 +18,6 @@ import {
   ensureTerminalRunEvent,
   setRunError,
   STALE_RUN_ERROR_EVENT,
-  tryClaimRunSlot,
 } from "./run-store.js";
 
 export interface ActiveRun {

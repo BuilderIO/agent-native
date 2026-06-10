@@ -160,7 +160,10 @@ export async function getTrackingStats(
     firstClickedAt: r.firstClickedAt ?? undefined,
     lastClickedAt: r.lastClickedAt ?? undefined,
   }));
-  const totalClicks = linkClicks.reduce((sum: number, l: any) => sum + l.count, 0);
+  const totalClicks = linkClicks.reduce(
+    (sum: number, l: any) => sum + l.count,
+    0,
+  );
 
   return {
     opens: tracking.opensCount,

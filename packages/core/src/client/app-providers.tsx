@@ -28,16 +28,22 @@
  *   When `clientOnlyFallback` is omitted, `<DefaultSpinner />` is used.
  *
  * Customisation props:
- *   themeAttribute       — passed to next-themes ThemeProvider `attribute`.
- *                          Defaults to "class". Use ["class", "data-theme"]
- *                          when CSS variables are also keyed off a data-theme
- *                          attribute (mail template).
- *   tooltipDelayDuration — passed to Radix TooltipProvider `delayDuration`
- *                          (ms). Omit to use the Radix default (700 ms).
- *   toaster              — custom Toaster element rendered after children.
- *                          Pass `null` to suppress the built-in Toaster when
- *                          children already include a styled one.
- *                          Defaults to `<Toaster richColors position="bottom-left" />`.
+ *   themeAttribute           — passed to next-themes ThemeProvider `attribute`.
+ *                              Defaults to "class". Use ["class", "data-theme"]
+ *                              when CSS variables are also keyed off a data-theme
+ *                              attribute (mail template).
+ *   tooltipDelayDuration     — passed to Radix TooltipProvider `delayDuration`
+ *                              (ms). Omit to use the Radix default (700 ms).
+ *   toaster                  — custom Toaster element rendered after children.
+ *                              Pass `null` to suppress the built-in Toaster when
+ *                              children already include a styled one.
+ *                              Defaults to `<Toaster richColors position="bottom-left" />`.
+ *   disableThemeTransitions  — passed to next-themes ThemeProvider
+ *                              `disableTransitionOnChange`. Defaults to `true`
+ *                              (suppresses CSS transitions during theme switches,
+ *                              which is the shadcn recommendation and avoids
+ *                              flash artefacts). Set to `false` when the template
+ *                              intentionally animates theme changes (e.g. content).
  */
 
 import React from "react";
@@ -81,6 +87,14 @@ export interface AppProvidersProps {
   toaster?: React.ReactNode | null;
 
   /**
+   * Passed to next-themes ThemeProvider `disableTransitionOnChange`.
+   * Defaults to `true` (suppresses CSS transitions on theme switch, per the
+   * shadcn recommendation). Set to `false` when the template intentionally
+   * animates theme changes (e.g. content's 3-way theme cycle).
+   */
+  disableThemeTransitions?: boolean;
+
+  /**
    * When true the providers render without a `<ClientOnly>` gate so SSR
    * streams real markup for public/unauthenticated paths.
    * Defaults to false (authenticated app shell, ClientOnly-gated).
@@ -104,6 +118,7 @@ function ProvidersInner({
   themeAttribute = "class",
   tooltipDelayDuration,
   toaster = DEFAULT_TOASTER,
+  disableThemeTransitions = true,
   children,
 }: {
   queryClient: QueryClient;
@@ -111,6 +126,7 @@ function ProvidersInner({
   themeAttribute?: Attribute | Attribute[];
   tooltipDelayDuration?: number;
   toaster?: React.ReactNode | null;
+  disableThemeTransitions?: boolean;
   children: React.ReactNode;
 }) {
   return (
@@ -119,7 +135,7 @@ function ProvidersInner({
         attribute={themeAttribute}
         defaultTheme={defaultTheme}
         enableSystem
-        disableTransitionOnChange
+        disableTransitionOnChange={disableThemeTransitions}
       >
         <TooltipProvider delayDuration={tooltipDelayDuration}>
           {children}
@@ -138,6 +154,7 @@ export function AppProviders({
   themeAttribute,
   tooltipDelayDuration,
   toaster,
+  disableThemeTransitions,
   children,
 }: AppProvidersProps) {
   const fallback = clientOnlyFallback ?? <DefaultSpinner />;
@@ -150,6 +167,7 @@ export function AppProviders({
         themeAttribute={themeAttribute}
         tooltipDelayDuration={tooltipDelayDuration}
         toaster={toaster}
+        disableThemeTransitions={disableThemeTransitions}
       >
         {children}
       </ProvidersInner>
@@ -164,6 +182,7 @@ export function AppProviders({
         themeAttribute={themeAttribute}
         tooltipDelayDuration={tooltipDelayDuration}
         toaster={toaster}
+        disableThemeTransitions={disableThemeTransitions}
       >
         {children}
       </ProvidersInner>

@@ -282,9 +282,9 @@ export type { ActionRunContext, ActionCaller } from "../action.js";
 export interface ActionEntry {
   tool: ActionTool;
   run: (
-    args: Record<string, string>,
+    args: any,
     context?: import("../action.js").ActionRunContext,
-  ) => Promise<any>;
+  ) => Promise<any> | any;
   /** HTTP exposure config. `false` = agent-only. Omitted = auto-inferred from name. */
   http?: import("../action.js").ActionHttpConfig | false;
   /** Whether the action is exposed to the agent as a callable tool. Only an
@@ -2302,16 +2302,15 @@ export async function runAgentLoop(opts: {
         // Keep a reference to the action promise so we can attach a zombie-
         // detection continuation AFTER Promise.race abandons it on run abort.
         // The promise itself is not awaited here — Promise.race owns the await.
-        const actionPromise = actionEntry.run(
-          toolCall.input as Record<string, string>,
-          {
+        const actionPromise = Promise.resolve(
+          actionEntry.run(toolCall.input as Record<string, string>, {
             send,
             userEmail: getRequestUserEmail(),
             orgId: getRequestOrgId() ?? null,
             caller: "tool",
             attachments: opts.attachments,
             signal,
-          },
+          }),
         );
 
         // When the run is aborted (soft-timeout / user cancel) while this tool
@@ -2325,7 +2324,7 @@ export async function runAgentLoop(opts: {
           const ledgerThreadId = opts.threadId;
           const ledgerToolKey = toolCallCacheKey(toolCall.name, toolCall.input);
           actionPromise
-            .then((zombieRaw) => {
+            .then((zombieRaw: unknown) => {
               const zombieMcp = isMcpActionResult(zombieRaw) ? zombieRaw : null;
               const zombieText = zombieMcp ? zombieMcp.text : zombieRaw;
               const zombieStr =

@@ -41,7 +41,7 @@ export function ChaptersEditor({
   const [dragIndex, setDragIndex] = useState<number | null>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const mutation = useActionMutation("set-chapters" as any);
+  const mutation = useActionMutation("set-chapters");
 
   useEffect(() => {
     // Sync from server while we're not actively dragging.
@@ -56,7 +56,7 @@ export function ChaptersEditor({
         await mutation.mutateAsync({
           recordingId,
           chapters: next.map((c) => ({ startMs: c.startMs, title: c.title })),
-        } as any);
+        });
       } catch (err: any) {
         console.error(err);
         toast.error(err?.message ?? "Failed to save chapters");

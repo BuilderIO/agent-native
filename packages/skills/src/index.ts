@@ -605,37 +605,25 @@ function instructionContentForSkill(skillName: string): string | null {
   if (skillName === "quick-recap") {
     return `## Quick Recap Status Block
 
-Every response that completes a unit of work must end with this exact three-line status block shape:
+Every response that completes a unit of work must end with one final status line:
 
 \`\`\`md
----
-
-⠀
 🟢 Actual concise status sentence
 \`\`\`
 
-Use 🟢 when the requested work is finished. Use 🟡 when non-routine follow-up work or a manual step remains, and name that pending item. Use 🔴 only when blocked on user input. Keep the status line under 100 characters.
+Use 🟢 when the requested work is finished. Use 🟡 when non-routine follow-up work or a manual step remains, and name that pending item. Use 🔴 only when blocked on user input. Keep the status line under 100 characters. Put the status line at the very end of the response. Do not add \`---\`, spacer lines, or any content after it.
 
 Examples:
 
 \`\`\`md
----
-
-⠀
 🟢 Updated quick recap docs with output examples
 \`\`\`
 
 \`\`\`md
----
-
-⠀
-🟡 Set PROVIDER_WEBHOOK_SECRET before testing webhooks
+🟡 Code updated, set PROVIDER_WEBHOOK_SECRET before testing webhooks
 \`\`\`
 
 \`\`\`md
----
-
-⠀
 🔴 Need the production API key to continue
 \`\`\``;
   }

@@ -54,7 +54,7 @@ export function ThumbnailPicker({
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
 
-  const mutation = useActionMutation("set-thumbnail" as any);
+  const mutation = useActionMutation("set-thumbnail");
 
   // Clean up object URLs when dialog closes.
   useEffect(() => {
@@ -123,7 +123,7 @@ export function ThumbnailPicker({
           recordingId,
           kind: "upload",
           dataUrl: uploadDataUrl,
-        } as any);
+        });
       } else if (tab === "frame" && frameDataUrl) {
         // First upload the captured frame as the static thumbnail, then also
         // record the frame time reference in editsJson.
@@ -131,12 +131,12 @@ export function ThumbnailPicker({
           recordingId,
           kind: "upload",
           dataUrl: frameDataUrl,
-        } as any);
+        });
         await mutation.mutateAsync({
           recordingId,
           kind: "frame",
           timeMs: frameTime,
-        } as any);
+        });
       } else if (tab === "gif" && gifDataUrl) {
         await mutation.mutateAsync({
           recordingId,
@@ -144,7 +144,7 @@ export function ThumbnailPicker({
           dataUrl: gifDataUrl,
           startMs: gifStart,
           durationMs: gifDuration,
-        } as any);
+        });
       } else {
         toast.error("Nothing to apply yet");
         return;

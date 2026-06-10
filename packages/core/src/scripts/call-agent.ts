@@ -3,7 +3,6 @@ import type { ActionRunContext } from "../agent/production-agent.js";
 import { createHash } from "node:crypto";
 import { findAgent, discoverAgents } from "../server/agent-discovery.js";
 import {
-  A2AClient,
   A2ATaskTimeoutError,
   callAgent,
   signA2AToken,
@@ -171,8 +170,6 @@ export async function run(
           );
         } catch {}
       }
-
-      const client = new A2AClient(agent.url, apiKey);
 
       if (process.env.NODE_ENV === "production" && callerEmail) {
         try {

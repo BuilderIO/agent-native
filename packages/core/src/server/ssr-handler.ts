@@ -40,7 +40,6 @@ import {
 import {
   DEFAULT_SSR_CACHE_HEADERS,
   DEFAULT_SPECULATION_RULES_PATH,
-  DEFAULT_SSR_CACHE_CONTROL,
 } from "../shared/cache-control.js";
 
 export {

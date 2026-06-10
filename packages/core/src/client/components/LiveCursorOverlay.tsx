@@ -16,7 +16,6 @@
 import { useState, useEffect, useRef, memo } from "react";
 import { IconSparkles } from "@tabler/icons-react";
 import type { OtherPresence, NormalizedPoint } from "../../collab/presence.js";
-import { AGENT_CLIENT_ID } from "../../collab/agent-identity.js";
 
 export interface CursorMapFn {
   /** Convert normalized coords to pixel offsets within the overlay container. */

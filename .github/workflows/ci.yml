@@ -36,6 +36,9 @@ jobs:
       - name: Prettier check
         run: pnpm fmt:check
 
+      - name: Oxlint
+        run: pnpm oxlint
+
   typecheck:
     name: Typecheck
     runs-on: ubuntu-latest

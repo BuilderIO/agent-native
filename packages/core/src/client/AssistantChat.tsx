@@ -4156,7 +4156,6 @@ const AssistantChatInner = forwardRef<
     planModeDisabledReason,
     selectedModel,
     defaultModel,
-    selectedEngine,
     selectedEffort,
     availableModels,
     onModelChange,

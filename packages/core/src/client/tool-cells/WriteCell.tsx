@@ -2,7 +2,7 @@
  * WriteCell — renders a write tool call as a new-file view with added-line styling.
  */
 
-import React, { memo, useState } from "react";
+import { memo, useState } from "react";
 import {
   IconChevronDown,
   IconFilePlus,

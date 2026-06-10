@@ -3396,7 +3396,6 @@ export function createAgentChatPlugin(
         // This ensures templates without a custom agent-chat plugin (e.g., analytics)
         // still have their domain actions available as tools.
         try {
-          const fs = await import("fs");
           const pathMod = await import("path");
           const cwd = process.cwd();
           const skipFiles = new Set([

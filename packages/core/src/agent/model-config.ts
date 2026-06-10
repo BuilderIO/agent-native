@@ -18,17 +18,17 @@
 //
 // Family defaults (used when a model id isn't listed explicitly):
 //  claude-*        → 200_000  (Haiku 4.5 and earlier models)
-//  gpt-5*          → 1_050_000 (GPT-5.4 and 5.5 both ship 1.05M)
+//  gpt-5*          → 1_050_000 (GPT-5.4/5.5 flagship context)
 //  gemini-2* / gemini-3* → 1_048_576
 //  everything else → 128_000  (safe conservative floor)
 //
-// Note: Sonnet 4.6 and Opus 4.6/4.7/4.8 support 1M via the API but bill at
-// standard prices.  Fable 5 context unconfirmed — use 200K until official.
+// Note: Fable 5, Sonnet 4.6, and Opus 4.6/4.7/4.8 support 1M via the API
+// at standard prices.
 // ---------------------------------------------------------------------------
 
 const MODEL_CONTEXT_WINDOWS: Record<string, number> = {
   // ── Anthropic / Claude (via Builder gateway or Anthropic direct) ──────────
-  "claude-fable-5": 200_000, // unconfirmed; conservative until official
+  "claude-fable-5": 1_000_000,
   "claude-opus-4-8": 1_000_000,
   "claude-opus-4-7": 1_000_000,
   "claude-sonnet-4-6": 1_000_000,
@@ -38,7 +38,7 @@ const MODEL_CONTEXT_WINDOWS: Record<string, number> = {
   // ── Builder gateway OpenAI IDs (dot→dash) ────────────────────────────────
   "gpt-5-5": 1_050_000,
   "gpt-5-4": 1_050_000,
-  "gpt-5-4-mini": 200_000, // mini tier — conservative until confirmed
+  "gpt-5-4-mini": 400_000,
   "gpt-5-1-codex-mini": 128_000,
 
   // ── Gemini (Builder gateway IDs) ─────────────────────────────────────────
@@ -47,7 +47,7 @@ const MODEL_CONTEXT_WINDOWS: Record<string, number> = {
   "gemini-3-1-flash-lite": 1_048_576,
 
   // ── OpenRouter model IDs ──────────────────────────────────────────────────
-  "anthropic/claude-fable-5": 200_000,
+  "anthropic/claude-fable-5": 1_000_000,
   "anthropic/claude-opus-4.8": 1_000_000,
   "anthropic/claude-opus-4.7": 1_000_000,
   "anthropic/claude-sonnet-4.6": 1_000_000,
@@ -58,7 +58,7 @@ const MODEL_CONTEXT_WINDOWS: Record<string, number> = {
   // ── AI-SDK native OpenAI IDs ──────────────────────────────────────────────
   "gpt-5.5": 1_050_000,
   "gpt-5.4": 1_050_000,
-  "gpt-5.4-mini": 200_000,
+  "gpt-5.4-mini": 400_000,
 
   // ── AI-SDK native Google IDs ──────────────────────────────────────────────
   "gemini-3.5-flash": 1_048_576,
@@ -86,8 +86,10 @@ export function getContextWindowForModel(modelId: string): number {
   // Family heuristics for unlisted model IDs
   const id = modelId.toLowerCase();
 
-  // Anthropic Opus 4.x and Sonnet 4.6 = 1M
+  // Anthropic Fable 5, Opus 4.x, and Sonnet 4.6 = 1M
   if (
+    id === "claude-fable-5" ||
+    id.includes("claude-fable-5") ||
     id.startsWith("claude-opus-4") ||
     id === "claude-sonnet-4-6" ||
     id.includes("claude-sonnet-4.6")
@@ -138,7 +140,6 @@ export const AGENT_MODEL_CONFIG = {
     supportedModels: [
       "claude-fable-5",
       "claude-opus-4-8",
-      "claude-opus-4-7",
       FRAMEWORK_DEFAULT_BUILDER_MODEL,
       "claude-haiku-4-5",
       FRAMEWORK_DEFAULT_BUILDER_OPENAI_MODEL,
@@ -161,7 +162,6 @@ export const AGENT_MODEL_CONFIG = {
     supportedModels: [
       "claude-fable-5",
       "claude-opus-4-8",
-      "claude-opus-4-7",
       ANTHROPIC_DEFAULT_MODEL_ID,
       "claude-haiku-4-5-20251001",
     ],
@@ -172,7 +172,6 @@ export const AGENT_MODEL_CONFIG = {
       supportedModels: [
         "claude-fable-5",
         "claude-opus-4-8",
-        "claude-opus-4-7",
         ANTHROPIC_DEFAULT_MODEL_ID,
         "claude-haiku-4-5-20251001",
       ],
@@ -190,7 +189,6 @@ export const AGENT_MODEL_CONFIG = {
       supportedModels: [
         "anthropic/claude-fable-5",
         "anthropic/claude-opus-4.8",
-        "anthropic/claude-opus-4.7",
         "anthropic/claude-sonnet-4.6",
         FRAMEWORK_DEFAULT_OPENROUTER_MODEL,
         "openai/gpt-5.4",

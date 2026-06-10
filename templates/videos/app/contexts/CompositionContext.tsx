@@ -425,3 +425,12 @@ export function useComposition() {
   }
   return context;
 }
+
+/**
+ * Non-throwing variant — returns null when the context is absent (e.g. during
+ * HMR teardown). Prefer this over try-catching `useComposition` so hooks-in-
+ * try-catch linting rules are satisfied.
+ */
+export function useCompositionOptional() {
+  return useContext(CompositionContext);
+}

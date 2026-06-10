@@ -367,6 +367,44 @@ interface DefineActionWithParams<
 }
 
 // ---------------------------------------------------------------------------
+// Return type — carries schema-inferred input + run return for client inference
+// ---------------------------------------------------------------------------
+
+/**
+ * Opaque typed wrapper returned by `defineAction`. The type parameters carry
+ * the schema-inferred input and the `run` return type so that:
+ *
+ * - The generated `.generated/action-types.d.ts` can extract them via
+ *   `typeof import("../actions/my-action").default.run` and augment
+ *   `ActionRegistry` with concrete param/result types.
+ * - `useActionQuery` / `useActionMutation` / `callAction` in the client hooks
+ *   flow the correct types end-to-end without manual generic annotations.
+ *
+ * Runtime shape is unchanged — this is a declaration-only wrapper.
+ */
+export interface ActionDefinition<TInput, TReturn> {
+  /**
+   * Typed run function — declaration only; infer input/return from this.
+   * `TInput` is the schema's input type (optional defaults allowed at call
+   * sites); `TReturn` is the awaited result type of the run callback.
+   */
+  readonly run: (
+    args: TInput,
+    ctx?: ActionRunContext,
+  ) => Promise<TReturn> | TReturn;
+  /** @internal Framework use only — do not call directly. */
+  readonly tool: import("./agent/types.js").ActionTool;
+  readonly http?: ActionHttpConfig | false;
+  readonly agentTool?: boolean;
+  readonly readOnly?: boolean;
+  readonly parallelSafe?: boolean;
+  readonly toolCallable?: boolean;
+  readonly publicAgent?: PublicAgentActionConfig;
+  readonly link?: ActionLinkBuilder;
+  readonly mcpApp?: ActionMcpAppConfig;
+}
+
+// ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
 
@@ -409,11 +447,13 @@ interface DefineActionWithParams<
  */
 export function defineAction<TSchema extends StandardSchemaV1, TReturn>(
   options: DefineActionWithSchema<TSchema, TReturn>,
-): any;
+): ActionDefinition<StandardSchemaV1.InferInput<TSchema>, TReturn>;
 export function defineAction<
   TParams extends Record<string, ParameterSchema> | undefined,
   TReturn,
->(options: DefineActionWithParams<TParams, TReturn>): any;
+>(
+  options: DefineActionWithParams<TParams, TReturn>,
+): ActionDefinition<InferParams<TParams>, TReturn>;
 export function defineAction(options: any) {
   const hasSchema = options.schema && "~standard" in options.schema;
 

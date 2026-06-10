@@ -9,7 +9,7 @@
  * Collapsed by default beyond MAX_COLLAPSED_LINES; expand button shows all.
  */
 
-import React, { memo, useMemo, useState } from "react";
+import { memo, useMemo, useState } from "react";
 import {
   IconChevronDown,
   IconFile,

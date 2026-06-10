@@ -11,7 +11,9 @@ import {
 import { useCallback, useEffect, useState } from "react";
 import { IconDeviceDesktop, IconMoon, IconSun } from "@tabler/icons-react";
 import { useTheme } from "next-themes";
+// shadcn useToast-based toaster — separate from sonner, must stay inline.
 import { Toaster } from "@/components/ui/toaster";
+// Styled sonner wrapper — passed via AppProviders `toaster` prop to avoid duplicate.
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import {
   AgentSidebar,
@@ -214,11 +216,22 @@ export default function Root() {
   // so crawlers and unauthenticated visitors receive full markup on first visit.
   const isPublicPath = location.pathname.startsWith("/p/");
 
+  // Content's 3-way theme cycle (system/light/dark) animates the transition;
+  // pass disableThemeTransitions={false} to restore that behaviour.
+  // The styled Sonner is passed via `toaster` so only one sonner instance
+  // renders; the shadcn useToast-based <Toaster /> stays inline because it is
+  // a different toasting system.
+  const contentToaster = <Sonner closeButton position="bottom-left" />;
+
   if (isPublicPath) {
     return (
-      <AppProviders queryClient={queryClient} isPublicPath>
+      <AppProviders
+        queryClient={queryClient}
+        isPublicPath
+        disableThemeTransitions={false}
+        toaster={contentToaster}
+      >
         <Toaster />
-        <Sonner closeButton position="bottom-left" />
         <PublicAgentShell>
           <Outlet />
         </PublicAgentShell>
@@ -227,10 +240,13 @@ export default function Root() {
   }
 
   return (
-    <AppProviders queryClient={queryClient}>
+    <AppProviders
+      queryClient={queryClient}
+      disableThemeTransitions={false}
+      toaster={contentToaster}
+    >
       <AppSetup />
       <Toaster />
-      <Sonner closeButton position="bottom-left" />
       <CommandMenu open={cmdkOpen} onOpenChange={setCmdkOpen}>
         <CommandMenu.Group heading="Content">
           <CommandMenu.Item onSelect={() => {}}>

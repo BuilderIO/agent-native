@@ -153,7 +153,8 @@ export default defineAction({
         "replyToThreadId",
         "accountEmail",
       ]) {
-        if ((args as any)[key] !== undefined) (draft as any)[key] = (args as any)[key];
+        if ((args as any)[key] !== undefined)
+          (draft as any)[key] = (args as any)[key];
       }
       await writeAppState(`compose-${safeId}`, draft);
       return {

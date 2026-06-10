@@ -99,7 +99,6 @@ export function ContextMeter({
   }, [enabled, threadId]);
 
   const manifest = query.data;
-  const segments = manifest?.segments ?? [];
   const contextWindow = resolveContextWindow(manifest?.model);
   const pct = manifest
     ? Math.min(100, Math.round((manifest.totalTokens / contextWindow) * 100))

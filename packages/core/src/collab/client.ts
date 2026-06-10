@@ -562,11 +562,7 @@ export function useCollaborativeDoc(
               if (requestSource && change.requestSource === requestSource)
                 return;
               try {
-                Y.applyUpdate(
-                  doc,
-                  base64ToUint8Array(change.update),
-                  "remote",
-                );
+                Y.applyUpdate(doc, base64ToUint8Array(change.update), "remote");
               } catch {
                 // Malformed update — trigger state-vector fetch on next poll
               }

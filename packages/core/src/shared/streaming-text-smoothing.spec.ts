@@ -108,8 +108,7 @@ describe("streaming text smoothing helpers", () => {
 
     it("handles ZWJ sequence appended incrementally", () => {
       // Family emoji: man + ZWJ + woman + ZWJ + girl
-      const zwjSeq =
-        "\u{1F468}‍\u{1F469}‍\u{1F467}";
+      const zwjSeq = "\u{1F468}‍\u{1F469}‍\u{1F467}";
       const base = "Family: ";
       const extended = base + zwjSeq;
 

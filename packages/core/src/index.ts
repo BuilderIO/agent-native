@@ -19,6 +19,7 @@ export {
   defineAction,
   AgentActionStopError,
   isAgentActionStopError,
+  type ActionDefinition,
   type ActionHttpConfig,
   type AgentActionStopOptions,
   type PublicAgentActionConfig,

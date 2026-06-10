@@ -15,6 +15,7 @@
     "shared/**/*",
     "actions/**/*",
     "react-router.config.ts",
-    ".react-router/types/**/*"
+    ".react-router/types/**/*",
+    ".generated/**/*"
   ]
 }

@@ -482,7 +482,7 @@ function AssetThumbnail({ asset }: { asset: Asset }) {
     setUnavailable(false);
   }, [sourcesKey]);
 
-  function useNextSource() {
+  function tryNextSource() {
     const nextIndex = sourceIndex + 1;
     if (nextIndex < sources.length) {
       setSourceIndex(nextIndex);
@@ -518,7 +518,7 @@ function AssetThumbnail({ asset }: { asset: Asset }) {
         if (!cancelled) setDisplayUrl(dataUrl);
       })
       .catch(() => {
-        if (!cancelled) useNextSource();
+        if (!cancelled) tryNextSource();
       });
     return () => {
       cancelled = true;

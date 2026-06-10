@@ -26,8 +26,6 @@ const DEFAULT_PROVIDER_ACTIONS = [
   "jira-search",
   "pylon-issues",
 ];
-const DEFAULT_APP_ACTIONS = ["the relevant template action"];
-
 /** Rule 8 — db-* tools are internal only (shared between full and compact). */
 export function sharedRule8(examples?: PromptExamples): string {
   const providers = examples?.providerActions ?? DEFAULT_PROVIDER_ACTIONS;

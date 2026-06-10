@@ -1,7 +1,6 @@
 import type { EngineContentPart, EngineMessage } from "../engine/types.js";
 import type {
   ContextDirective,
-  ContextDirectiveAction,
   ContextSegmentStatus,
 } from "../../shared/context-xray.js";
 import { computeSegments } from "./segments.js";
