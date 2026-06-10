@@ -188,7 +188,12 @@ export function TimelineProvider({
   const compositionContext = useCompositionOptional();
 
   const { compositionId, effectiveComposition, selected, compSettings } =
-    compositionContext ?? { compositionId: undefined, effectiveComposition: undefined, selected: undefined, compSettings: undefined };
+    compositionContext ?? {
+      compositionId: undefined,
+      effectiveComposition: undefined,
+      selected: undefined,
+      compSettings: undefined,
+    };
   const timeline = useTimelineState([]);
   const prevFpsRef = useRef<Record<string, number>>({});
 

@@ -989,7 +989,7 @@ async function handleTestUrl(event: H3Event) {
 
 async function handleTestExisting(
   event: H3Event,
-  manager: McpClientManager,
+  _manager: McpClientManager,
   id: string,
 ) {
   const scope = getQuery(event).scope;

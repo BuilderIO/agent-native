@@ -14,7 +14,7 @@ import { getRequestUserEmail } from "../../server/request-context.js";
 import { fail } from "../utils.js";
 
 export default async function migrateLearningsScript(
-  args: string[],
+  _args: string[],
 ): Promise<void> {
   const filePath = path.resolve(process.cwd(), "learnings.md");
 

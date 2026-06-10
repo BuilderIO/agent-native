@@ -1045,7 +1045,7 @@ export function isFrameworkDevPath(
 function rolldownInputFix(): Plugin {
   return {
     name: "agent-native-rolldown-input-fix",
-    configEnvironment(name, config) {
+    configEnvironment(_name, config) {
       const input = config.build?.rollupOptions?.input;
       if (!Array.isArray(input)) return;
       // Flatten any object entries to just their string values

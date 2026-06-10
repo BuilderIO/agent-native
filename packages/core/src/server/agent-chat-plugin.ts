@@ -4782,7 +4782,7 @@ export function createAgentChatPlugin(
             await import("../coding-tools/index.js");
           const codingRegistry = createCodingToolRegistry({
             cwd: process.cwd(),
-            beforeBash: async ({ command }) => {
+            beforeBash: async ({ command: _command }) => {
               // In plan mode the agent loop blocks via isPlanModeToolCallAllowed;
               // this hook is a belt-and-suspenders guard inside "trusted" production.
               return null;
@@ -5381,7 +5381,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               mode,
               event,
               noProgressCount,
-              resolveConfig: async ({ payload, ownerEmail, orgId }) => {
+              resolveConfig: async ({ payload, ownerEmail, orgId: _orgId }) => {
                 // Resolve the owner's API key so BYO-key sub-agents use the
                 // same credentials as the parent chat.
                 let apiKey: string | undefined;

@@ -6,10 +6,7 @@ import React, {
   useImperativeHandle,
   useMemo,
 } from "react";
-import {
-  useComposer,
-  useComposerRuntime,
-} from "@assistant-ui/react";
+import { useComposer, useComposerRuntime } from "@assistant-ui/react";
 import { useEditor, EditorContent } from "@tiptap/react";
 import type { EditorView } from "@tiptap/pm/view";
 import StarterKit from "@tiptap/starter-kit";
