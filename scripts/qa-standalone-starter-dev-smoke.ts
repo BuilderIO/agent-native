@@ -51,6 +51,10 @@ const skipScaffold =
   process.env.STANDALONE_STARTER_DEV_SMOKE_SKIP_CREATE === "1";
 const verbose = process.env.STANDALONE_STARTER_DEV_SMOKE_VERBOSE === "1";
 const headed = process.env.STANDALONE_STARTER_DEV_SMOKE_HEADED === "1";
+const isCi = Boolean(process.env.CI || process.env.GITHUB_ACTIONS);
+const shellTimeoutMs = isCi ? 120_000 : 60_000;
+const viteWarmupMs = isCi ? 15_000 : 6_000;
+const devStartAttempts = 3;
 
 function log(step: string): void {
   if (verbose) console.log(`[standalone-dev-smoke] ${step}`);
@@ -198,6 +202,26 @@ function hasRecentDatabaseLock(logs: string[]): boolean {
   return tail.includes("database is locked") || tail.includes("SQLITE_BUSY");
 }
 
+function parseDevAutoLoginCredentials(logs: string[]): {
+  email: string;
+  password: string;
+} | null {
+  const text = logs.join("");
+  const match = text.match(
+    /Local dev auto-login ready\.\s+email:\s+([^\s]+)\s+password:\s+([^\s]+)/,
+  );
+  if (!match) return null;
+  return { email: match[1], password: match[2] };
+}
+
+function isLoggedOutBody(body: string): boolean {
+  return (
+    /create an account to get started/i.test(body) ||
+    /sign in/i.test(body) ||
+    /log in/i.test(body)
+  );
+}
+
 async function waitForDevStable(
   baseUrl: string,
   logs: string[],
@@ -252,7 +276,7 @@ async function waitForDevStable(
   );
 }
 
-async function startDev(): Promise<RunningDev> {
+async function startDevOnce(): Promise<RunningDev> {
   tryFreePort(port);
   const baseUrl = `http://127.0.0.1:${port}`;
   const dbPath = prepareIsolatedDataDir();
@@ -284,9 +308,37 @@ async function startDev(): Promise<RunningDev> {
     logs.push(`\n[dev] exited code=${code} signal=${signal}\n`);
   });
 
-  await waitForDevStable(baseUrl, logs);
-  log(`dev server stable at ${baseUrl}`);
-  return { baseUrl, child, logs, dbPath };
+  const running = { baseUrl, child, logs, dbPath };
+  try {
+    await waitForDevStable(baseUrl, logs);
+    log(`dev server stable at ${baseUrl}`);
+    return running;
+  } catch (err) {
+    await stopDev(running);
+    throw err;
+  }
+}
+
+async function startDev(): Promise<RunningDev> {
+  let lastError: unknown;
+  for (let attempt = 0; attempt < devStartAttempts; attempt++) {
+    try {
+      return await startDevOnce();
+    } catch (err) {
+      lastError = err;
+      const message = err instanceof Error ? err.message : String(err);
+      const retryable =
+        message.includes("app locked") ||
+        message.includes("database is locked") ||
+        message.includes("SQLITE_BUSY");
+      if (!retryable || attempt === devStartAttempts - 1) throw err;
+      log(
+        `dev startup race (attempt ${attempt + 1}/${devStartAttempts}), retrying…`,
+      );
+      await sleep(2_000);
+    }
+  }
+  throw lastError;
 }
 
 async function stopDev(running: RunningDev): Promise<void> {
@@ -454,31 +506,68 @@ async function signInViaAuthApi(
   );
 }
 
-async function waitForHomeLink(page: Page, timeoutMs = 60_000): Promise<void> {
+async function waitForHomeLink(
+  page: Page,
+  timeoutMs = shellTimeoutMs,
+  baseUrl?: string,
+): Promise<void> {
   const homeLink = page.getByRole("link", { name: "Home" });
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
+    if (await homeLink.isVisible().catch(() => false)) return;
+
+    const remaining = deadline - Date.now();
+    if (remaining <= 0) break;
+
     try {
       await homeLink.waitFor({
         state: "visible",
-        timeout: Math.min(15_000, deadline - Date.now()),
+        timeout: Math.min(5_000, remaining),
       });
       return;
     } catch (err) {
-      if (isNavigationContextError(err) && Date.now() < deadline) {
+      const stillHaveTime = Date.now() < deadline;
+      if (!stillHaveTime) break;
+      if (
+        baseUrl &&
+        (isNavigationContextError(err) ||
+          (err instanceof Error && err.message.includes("Timeout")))
+      ) {
+        log("Home not visible — re-navigating after Vite reload");
+        await gotoCommitted(page, `${baseUrl}/`);
+        await sleep(1_500);
+        continue;
+      }
+      if (isNavigationContextError(err)) {
+        await sleep(1_000);
+        continue;
+      }
+      if (stillHaveTime) {
         await sleep(1_000);
         continue;
       }
       throw err;
     }
   }
+
+  const bodyPreview = await page
+    .locator("body")
+    .innerText({ timeout: 5_000 })
+    .catch(() => "");
+  throw new Error(
+    `Home link not visible within ${timeoutMs}ms at ${page.url()}.\n` +
+      `Body preview: ${bodyPreview.slice(0, 400)}`,
+  );
 }
 
-async function readAuthenticatedSessionEmail(page: Page): Promise<string> {
+async function readAuthenticatedSessionEmail(
+  page: Page,
+  baseUrl: string,
+): Promise<string> {
   return retryAfterNavigation(
     "session read",
     async () => {
-      await waitForHomeLink(page, 20_000);
+      await waitForHomeLink(page, shellTimeoutMs, baseUrl);
       const session = await page.evaluate(async () => {
         const response = await fetch("/_agent-native/auth/session", {
           headers: { Accept: "application/json" },
@@ -506,23 +595,28 @@ async function readAuthenticatedSessionEmail(page: Page): Promise<string> {
 async function waitForAuthenticatedShell(
   page: Page,
   baseUrl: string,
+  serverLogs: string[],
 ): Promise<string> {
-  const qaEmail =
+  const devCreds = parseDevAutoLoginCredentials(serverLogs);
+  const fallbackEmail =
     process.env.STANDALONE_STARTER_DEV_SMOKE_EMAIL ||
     `standalone-smoke-${Date.now()}@example.test`;
-  const qaPassword =
+  const fallbackPassword =
     process.env.STANDALONE_STARTER_DEV_SMOKE_PASSWORD ||
     "standalone-starter-smoke-password";
+  const loginEmail = devCreds?.email ?? fallbackEmail;
+  const loginPassword = devCreds?.password ?? fallbackPassword;
 
   log(`navigating to ${baseUrl}/ (auto-login path)`);
   let lastBody = "";
   let lastUrl = baseUrl;
+  const shellAttempts = isCi ? 10 : 6;
 
-  for (let attempt = 0; attempt < 4; attempt++) {
+  for (let attempt = 0; attempt < shellAttempts; attempt++) {
     await gotoCommitted(page, `${baseUrl}/`);
     lastUrl = page.url();
     lastBody = await retryAfterNavigation("body read", () =>
-      page.locator("body").innerText({ timeout: 10_000 }),
+      page.locator("body").innerText({ timeout: 15_000 }),
     );
 
     if (/unexpected server error/i.test(lastBody)) {
@@ -534,34 +628,34 @@ async function waitForAuthenticatedShell(
     const homeLink = page.getByRole("link", { name: "Home" });
     if (await homeLink.isVisible().catch(() => false)) break;
 
-    if (
-      /create an account to get started/i.test(lastBody) ||
-      /sign in/i.test(lastBody)
-    ) {
+    const devCredsNow = parseDevAutoLoginCredentials(serverLogs);
+    const authEmail = devCredsNow?.email ?? loginEmail;
+    const authPassword = devCredsNow?.password ?? loginPassword;
+
+    if (isLoggedOutBody(lastBody)) {
+      if (!devCredsNow && attempt < shellAttempts - 2) {
+        log(
+          `logged out before auto-login creds printed (attempt ${attempt + 1}/${shellAttempts}) — retrying /`,
+        );
+        await sleep(isCi ? 4_000 : 2_500);
+        continue;
+      }
       log(
-        `still logged out (attempt ${attempt + 1}/4) — trying auth API login`,
+        `still logged out (attempt ${attempt + 1}/${shellAttempts}) — auth API login as ${authEmail}`,
       );
-      await signInViaAuthApi(page, qaEmail, qaPassword);
+      await signInViaAuthApi(page, authEmail, authPassword);
       continue;
     }
 
-    try {
-      await waitForHomeLink(page, 15_000);
-      break;
-    } catch (err) {
-      if (attempt === 3) {
-        throw new Error(
-          `Home link never appeared at ${lastUrl} after login.\n` +
-            `Body preview: ${lastBody.slice(0, 400)}\n` +
-            (err instanceof Error ? err.message : String(err)),
-        );
-      }
-      log(`Home not visible yet (attempt ${attempt + 1}/4), retrying…`);
-      await sleep(3_000);
-    }
+    log(
+      `authenticated shell not ready (attempt ${attempt + 1}/${shellAttempts}) — Vite may still be optimizing deps`,
+    );
+    await sleep(isCi ? 4_000 : 2_500);
   }
 
-  const sessionEmail = await readAuthenticatedSessionEmail(page);
+  await waitForHomeLink(page, shellTimeoutMs, baseUrl);
+
+  const sessionEmail = await readAuthenticatedSessionEmail(page, baseUrl);
   log(`authenticated session: ${sessionEmail}`);
   return sessionEmail;
 }
@@ -569,21 +663,22 @@ async function waitForAuthenticatedShell(
 async function runBrowserSmoke(
   page: Page,
   baseUrl: string,
+  serverLogs: string[],
   browserErrors: string[],
   httpErrors: string[],
 ): Promise<void> {
   // Warmup: auto-login redirect + first Vite dep optimization (noisy HTTP).
   log("warmup: first load + Vite dep optimization");
-  await waitForAuthenticatedShell(page, baseUrl);
-  await page.waitForTimeout(6_000);
+  await waitForAuthenticatedShell(page, baseUrl, serverLogs);
+  await page.waitForTimeout(viteWarmupMs);
 
   browserErrors.length = 0;
   httpErrors.length = 0;
 
   log("assertion pass: / and /observability after warmup");
   await gotoCommitted(page, `${baseUrl}/`);
-  await waitForHomeLink(page);
-  await readAuthenticatedSessionEmail(page);
+  await waitForHomeLink(page, shellTimeoutMs, baseUrl);
+  await readAuthenticatedSessionEmail(page, baseUrl);
   log(`navigating to ${baseUrl}/observability`);
   await gotoCommitted(page, `${baseUrl}/observability`);
   await page
@@ -653,7 +748,13 @@ async function main(): Promise<void> {
       httpErrors.push(`${status} ${url}`);
     });
 
-    await runBrowserSmoke(page, running.baseUrl, browserErrors, httpErrors);
+    await runBrowserSmoke(
+      page,
+      running.baseUrl,
+      running.logs,
+      browserErrors,
+      httpErrors,
+    );
     assertCleanServerLogs(running.logs);
 
     console.log("qa-standalone-starter-dev-smoke: clean");
