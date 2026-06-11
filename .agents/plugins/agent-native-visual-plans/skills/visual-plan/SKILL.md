@@ -89,7 +89,7 @@ inline output: the usual cause is a connector that did not finish connecting
 this session (it registers zero tools), not auth. Stop and give the user the
 exact restore step — in Claude Code run `/mcp` and choose
 Authenticate/Reconnect (or restart the session); if genuinely unauthenticated,
-run `npx @agent-native/core@latest reconnect https://plan.agent-native.com` — this
+run `npx -y @agent-native/core@latest reconnect https://plan.agent-native.com` — this
 re-authenticates WITHOUT reinstalling. Never reinstall from scratch just to fix
 auth. Publish once the tool is reachable. Local-files privacy mode (after Tool
 Guidance) is the only exception.
@@ -373,7 +373,7 @@ If a Plans tool returns `needs auth`, `Unauthorized`, or `Session terminated`,
 do not keep retrying the tool. Stop and give the user the reconnect step: in
 Claude Code run `/mcp` and choose Authenticate/Reconnect for the plan
 connector; from any terminal run
-`npx @agent-native/core@latest reconnect https://plan.agent-native.com` — this
+`npx -y @agent-native/core@latest reconnect https://plan.agent-native.com` — this
 re-authenticates WITHOUT reinstalling and finds the entry by URL regardless of
 connector name. Never reinstall from scratch just to fix auth. Continue once
 the connector is available.

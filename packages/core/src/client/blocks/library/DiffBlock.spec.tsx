@@ -57,7 +57,9 @@ describe("DiffBlock", () => {
     });
     container.remove();
     document
-      .querySelectorAll("[data-annotation-hover-card]")
+      .querySelectorAll(
+        "[data-annotation-hover-card],[data-annotation-inline-overlay]",
+      )
       .forEach((node) => node.remove());
     vi.useRealTimers();
     vi.unstubAllGlobals();
@@ -448,8 +450,14 @@ describe("DiffBlock annotations", () => {
       { showCodeAnnotationOverlays: true },
     );
 
-    const overlay = container.querySelector("[data-annotation-inline-overlay]");
+    const overlay = document.querySelector("[data-annotation-inline-overlay]");
     expect(overlay).toBeTruthy();
+    expect(
+      container.querySelector("[data-annotation-inline-overlay]"),
+    ).toBeNull();
+    expect(
+      container.querySelector("[data-annotation-inline-overlay-anchor]"),
+    ).toBeTruthy();
     expect(overlay?.textContent).toContain("Visible without hover.");
     expect(document.querySelector("[data-annotation-hover-card]")).toBeNull();
   });

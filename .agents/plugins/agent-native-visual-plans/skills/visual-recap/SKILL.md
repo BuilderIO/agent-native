@@ -75,7 +75,7 @@ NOT necessarily an auth problem — so do not assume the user must authenticate.
 Stop and tell the user how to restore it: reconnect the Plan MCP connector (in
 Claude Code, run `/mcp` and choose Authenticate/Reconnect, or restart the
 session); if it is genuinely unauthenticated, run
-`npx @agent-native/core@latest reconnect https://plan.agent-native.com` — this
+`npx -y @agent-native/core@latest reconnect https://plan.agent-native.com` — this
 re-authenticates WITHOUT reinstalling and finds the entry by URL regardless of
 connector name. Never reinstall from scratch just to fix auth. Then publish once
 the tool is reachable. Falling back to inline content is a defect, not a

@@ -23,7 +23,7 @@ long-lived (30-day default, sliding 365-day refresh), so this should be rare;
 when it happens, the lightweight fix is:
 
 ```bash
-npx @agent-native/core@latest reconnect https://plan.agent-native.com
+npx -y @agent-native/core@latest reconnect https://plan.agent-native.com
 ```
 
 `reconnect` finds and refreshes the connector by URL — no reinstall needed. In
@@ -113,7 +113,7 @@ codex mcp login plan   # OAuth in the browser
 
 After install, **start a new Codex thread** so the skills and MCP tools load into the session. The plugin ships a URL-only connector (`[mcp_servers.plan]` → `https://plan.agent-native.com/_agent-native/mcp`); `codex mcp login plan` runs the OAuth flow. The universal CLI route above also works for Codex (`npx @agent-native/core@latest skills add visual-plan --client codex`) if you prefer one command that installs and authenticates together.
 
-> **Older installs:** if your config still has an `agent-native-plans` entry pointing at the same URL, running `npx @agent-native/core@latest reconnect https://plan.agent-native.com` (or `skills add visual-plan` for a full reinstall) consolidates it to the canonical `plan` name.
+> **Older installs:** if your config still has an `agent-native-plans` entry pointing at the same URL, running `npx -y @agent-native/core@latest reconnect https://plan.agent-native.com` (or `skills add visual-plan` for a full reinstall) consolidates it to the canonical `plan` name.
 
 ## Updates {#updates}
 

@@ -83,7 +83,7 @@ pasted handoff summary or from a plain-language pick like "use direction B".
   connector/session error, do not keep retrying the tool. Stop and give the user
   the reconnect step: in Claude Code run `/mcp` and choose
   Authenticate/Reconnect for the Design connector; from any terminal run
-  `npx @agent-native/core@latest reconnect https://design.agent-native.com` — this
+  `npx -y @agent-native/core@latest reconnect https://design.agent-native.com` — this
   re-authenticates WITHOUT reinstalling. Never reinstall from scratch just to
   fix auth. Continue once the connector is available.
 - Do not hand-roll MCP HTTP requests with curl from the agent session. Use the

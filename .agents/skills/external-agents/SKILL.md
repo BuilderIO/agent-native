@@ -115,14 +115,15 @@ To re-authenticate an already-installed local/fallback client without
 reinstalling skills or connectors, use:
 
 ```bash
-npx @agent-native/core@latest reconnect https://dispatch.agent-native.com --client codex
+npx -y @agent-native/core@latest reconnect https://dispatch.agent-native.com --client codex
 # or:
-npx @agent-native/core@latest connect reconnect https://dispatch.agent-native.com --client codex
+npx -y @agent-native/core@latest connect reconnect https://dispatch.agent-native.com --client codex
 ```
 
-With no URL, `reconnect` searches the selected client config for the existing
-Agent Native MCP entry. Pass `--name <serverName>` when the config has multiple
-entries or a custom server name.
+With no URL, `reconnect` searches local client configs for the existing Agent
+Native MCP entry. With a URL, it reconnects only the clients that already have
+that MCP URL; pass `--client` to limit which configs it searches. Pass
+`--name <serverName>` only when you need to force a custom server name.
 
 Under the hood: a logged-in browser session mints an `A2A_SECRET`-signed JWT
 carrying the caller's `sub` + `org_domain` and a unique `jti`, so tool runs
@@ -360,7 +361,7 @@ before telling the user they are unauthenticated.
 
 - Do connect local/fallback clients to Dispatch with
   `npx @agent-native/core@latest connect https://dispatch.agent-native.com`;
-  use `npx @agent-native/core@latest reconnect ...` for reauth without
+  use `npx -y @agent-native/core@latest reconnect ...` for reauth without
   reinstalling; use a direct app URL only when the host should be isolated to
   one app.
 - Do add a `link` builder to any action that produces or lists a navigable

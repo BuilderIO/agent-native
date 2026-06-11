@@ -1,22 +1,22 @@
 import { describe, expect, it } from "vitest";
 import {
   pickCompressedDimensions,
-  pickVideoBitrate,
   pickVideoFilters,
+  pickVideoRateLimit,
 } from "./compress";
 
 describe("pickCompressedDimensions", () => {
-  it("caps landscape recordings at 720p", () => {
+  it("caps landscape recordings at HandBrake-style 1080p", () => {
     expect(pickCompressedDimensions(3840, 2160)).toEqual({
-      width: 1280,
-      height: 720,
+      width: 1920,
+      height: 1080,
     });
   });
 
   it("caps portrait recordings without changing aspect ratio", () => {
     expect(pickCompressedDimensions(1080, 1920)).toEqual({
-      width: 720,
-      height: 1280,
+      width: 1080,
+      height: 1920,
     });
   });
 
@@ -29,49 +29,45 @@ describe("pickCompressedDimensions", () => {
 
   it("keeps encoder dimensions even", () => {
     expect(pickCompressedDimensions(1921, 1081)).toEqual({
-      width: 1280,
-      height: 720,
+      width: 1920,
+      height: 1080,
     });
   });
 });
 
-describe("pickVideoBitrate", () => {
-  it("caps short 1080p recordings at the 720p compression bitrate", () => {
-    expect(pickVideoBitrate(1920, 1080, 30_000)).toEqual({
-      bitrate: "1.6M",
-      maxrate: "2M",
-      bufsize: "3.2M",
+describe("pickVideoRateLimit", () => {
+  it("uses a HandBrake-like ceiling when duration is unknown", () => {
+    expect(pickVideoRateLimit()).toEqual({
+      maxrate: "6M",
+      bufsize: "12M",
     });
   });
 
-  it("lowers bitrate for multi-minute clips to stay near the upload target", () => {
+  it("lowers the VBV ceiling for multi-minute clips", () => {
     // Target is ~18 MB (kept under Builder's ~32 MB Cloud Run edge cap), so a
-    // 4-minute 1080p clip is budgeted down to ~0.5 Mbps.
-    expect(pickVideoBitrate(1920, 1080, 4 * 60_000)).toEqual({
-      bitrate: "0.5M",
-      maxrate: "0.7M",
-      bufsize: "1.1M",
+    // 4-minute 1080p clip is constrained to about 0.4 Mbps video plus audio.
+    expect(pickVideoRateLimit(4 * 60_000)).toEqual({
+      maxrate: "405k",
+      bufsize: "810k",
     });
   });
 
   it("keeps a quality floor for longer clips", () => {
-    expect(pickVideoBitrate(1920, 1080, 30 * 60_000)).toEqual({
-      bitrate: "0.4M",
-      maxrate: "0.4M",
-      bufsize: "0.7M",
+    expect(pickVideoRateLimit(30 * 60_000)).toEqual({
+      maxrate: "350k",
+      bufsize: "700k",
     });
   });
 });
 
 describe("pickVideoFilters", () => {
-  it("caps frame rate and adds a scale filter when needed", () => {
+  it("adds a scale filter when needed", () => {
     expect(pickVideoFilters(2560, 1440)).toEqual([
-      "fps=24",
-      "scale=1280:720:flags=lanczos",
+      "scale=1920:1080:flags=lanczos",
     ]);
   });
 
-  it("caps frame rate without resizing smaller recordings", () => {
-    expect(pickVideoFilters(1280, 720)).toEqual(["fps=24"]);
+  it("does not resize smaller recordings", () => {
+    expect(pickVideoFilters(1280, 720)).toEqual([]);
   });
 });

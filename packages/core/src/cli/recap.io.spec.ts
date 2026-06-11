@@ -546,7 +546,7 @@ describe("runShot — playwright not available", () => {
 
       expect(contextOptions[0]).toMatchObject({
         viewport: { width: 950, height: 2000 },
-        deviceScaleFactor: 1,
+        deviceScaleFactor: 2,
       });
       expect(viewportSizes[0]).toEqual({ width: 950, height: 1500 });
       expect(gotoUrls[0]).toBe(

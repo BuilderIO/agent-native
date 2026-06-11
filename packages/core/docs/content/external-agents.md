@@ -155,7 +155,7 @@ The connection is **per-user, scoped, and revocable**. In the OAuth path, the ho
 Once connected, auth should persist long-term — access tokens last 30 days by default (override with `MCP_OAUTH_ACCESS_TOKEN_TTL` on the server, e.g. `7d` or `12h`) with a sliding 365-day refresh window, so random 401s should be rare. When one does happen, use the lightweight reconnect command rather than reinstalling:
 
 ```bash
-npx @agent-native/core@latest reconnect https://plan.agent-native.com
+npx -y @agent-native/core@latest reconnect https://plan.agent-native.com
 ```
 
 `reconnect` finds any MCP config entry whose URL ends in `/_agent-native/mcp` for the given host (matching by URL regardless of connector name), then refreshes or replaces the auth material without touching your installed skills or re-running the full install flow. Pass the base app URL (e.g. `https://plan.agent-native.com`) — the `/_agent-native/mcp` suffix is inferred.

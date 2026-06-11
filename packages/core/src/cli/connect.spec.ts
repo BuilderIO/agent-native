@@ -780,6 +780,95 @@ describe("runConnect", () => {
     }
   });
 
+  it("reconnect with a URL auto-selects the canonical entry and cleans duplicate aliases", async () => {
+    const root = tmpDir();
+    const home = tmpDir();
+    const oldHome = process.env.HOME;
+    process.env.HOME = home;
+    process.chdir(root);
+    const codexFile = path.join(home, ".codex", "config.toml");
+    fs.mkdirSync(path.dirname(codexFile), { recursive: true });
+    fs.writeFileSync(
+      codexFile,
+      [
+        '[mcp_servers."agent-native-plan"]',
+        'url = "https://plan.agent-native.com/_agent-native/mcp"',
+        'http_headers = { "Authorization" = "Bearer stale-1" }',
+        "",
+        '[mcp_servers."plan"]',
+        'url = "https://plan.agent-native.com/_agent-native/mcp"',
+        'http_headers = { "Authorization" = "Bearer stale-2" }',
+        "",
+        '[mcp_servers."agent-native-plans"]',
+        'url = "https://plan.agent-native.com/_agent-native/mcp"',
+        'http_headers = { "Authorization" = "Bearer stale-3" }',
+        "",
+      ].join("\n"),
+      "utf-8",
+    );
+
+    const promptClients = vi.fn();
+
+    try {
+      await runConnect(["reconnect", "https://plan.agent-native.com"], {
+        fetchImpl: makeFetch([
+          {
+            status: "approved",
+            token: "fresh-token",
+            mcpUrl: "https://plan.agent-native.com/_agent-native/mcp",
+            serverName: "agent-native-plan",
+          },
+        ]),
+        sleep: noopSleep,
+        openBrowser: vi.fn(),
+        isInteractive: () => true,
+        promptClients,
+      });
+
+      expect(process.exitCode).toBeFalsy();
+      expect(promptClients).not.toHaveBeenCalled();
+      const toml = fs.readFileSync(codexFile, "utf-8");
+      expect(toml).toContain('[mcp_servers."plan"]');
+      expect(toml).toContain('"Authorization" = "Bearer fresh-token"');
+      expect(toml).not.toContain('[mcp_servers."agent-native-plan"]');
+      expect(toml).not.toContain('[mcp_servers."agent-native-plans"]');
+      expect(toml).not.toContain("stale-1");
+      expect(toml).not.toContain("stale-2");
+      expect(toml).not.toContain("stale-3");
+      expect(fs.existsSync(path.join(root, ".mcp.json"))).toBe(false);
+    } finally {
+      process.env.HOME = oldHome;
+    }
+  });
+
+  it("reconnect with a URL fails instead of installing when no existing entry matches", async () => {
+    const root = tmpDir();
+    const home = tmpDir();
+    const oldHome = process.env.HOME;
+    process.env.HOME = home;
+    process.chdir(root);
+    const fetchImpl = vi.fn();
+
+    try {
+      await runConnect(
+        ["reconnect", "https://plan.agent-native.com", "--client", "codex"],
+        {
+          fetchImpl,
+          sleep: noopSleep,
+          openBrowser: vi.fn(),
+        },
+      );
+
+      expect(process.exitCode).toBe(1);
+      expect(fetchImpl).not.toHaveBeenCalled();
+      expect(fs.existsSync(path.join(home, ".codex", "config.toml"))).toBe(
+        false,
+      );
+    } finally {
+      process.env.HOME = oldHome;
+    }
+  });
+
   it("reconnect without a URL fails clearly when no existing entry is present", async () => {
     const root = tmpDir();
     const home = tmpDir();
@@ -1971,7 +2060,7 @@ describe("reconnect — URL-based discovery", () => {
       expect(combined).toContain("plan.agent-native.com");
       expect(combined).toContain("mail.agent-native.com");
       // Should include paste-ready reconnect hints.
-      expect(combined).toMatch(/npx @agent-native\/core@latest reconnect/);
+      expect(combined).toMatch(/npx -y @agent-native\/core@latest reconnect/);
     } finally {
       process.env.HOME = oldHome;
     }
