@@ -16,9 +16,11 @@ import {
 } from "./connect.js";
 
 const tmpRoots: string[] = [];
+const originalHome = process.env.HOME;
 
 beforeEach(() => {
   process.exitCode = undefined;
+  process.env.HOME = tmpDir();
   // Keep CLI output out of the test log; individual tests that assert on
   // output re-spy with their own captured implementation.
   vi.spyOn(process.stdout, "write").mockImplementation(() => true);
@@ -26,6 +28,11 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  if (originalHome === undefined) {
+    delete process.env.HOME;
+  } else {
+    process.env.HOME = originalHome;
+  }
   for (const root of tmpRoots.splice(0)) {
     fs.rmSync(root, { recursive: true, force: true });
   }
