@@ -1009,7 +1009,7 @@ describe("runConnect", () => {
     const cfg = JSON.parse(
       fs.readFileSync(path.join(root, ".mcp.json"), "utf-8"),
     );
-    expect(cfg.mcpServers["agent-native-plan"]).toEqual({
+    expect(cfg.mcpServers.plan).toEqual({
       type: "http",
       url: "https://plan.agent-native.com/_agent-native/mcp",
     });

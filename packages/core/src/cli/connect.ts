@@ -68,6 +68,14 @@ const CANONICAL_SERVER_NAME_BY_MCP_URL: Readonly<Record<string, string>> = {
   "https://context-xray.agent-native.com/_agent-native/mcp":
     "agent-native-context-xray",
 };
+const LEGACY_SERVER_NAMES_BY_MCP_URL: Readonly<Record<string, readonly string[]>> =
+  {
+    "https://plan.agent-native.com/_agent-native/mcp": [
+      "agent-native-plan",
+      "agent-native-plans",
+      "agent-native-visual-plans",
+    ],
+  };
 const CONNECT_PROFILES_VERSION = 1;
 const DEFAULT_DEV_GATEWAY = "http://127.0.0.1:8080";
 const MCP_FULL_CATALOG_HEADER = "X-Agent-Native-MCP-Full-Catalog";
@@ -479,7 +487,26 @@ function appSlugFromUrl(url: string): string {
 }
 
 function defaultServerName(url: string): string {
+  const canonical = canonicalServerNameForMcpUrl(mcpUrlForBaseUrl(url));
+  if (canonical) return canonical;
   return `${SERVER_NAME_PREFIX}-${appSlugFromUrl(url)}`;
+}
+
+function canonicalServerNameForMcpUrl(mcpUrl: string | undefined): string | undefined {
+  const key = canonicalMcpUrl(mcpUrl);
+  return key ? CANONICAL_SERVER_NAME_BY_MCP_URL[key] : undefined;
+}
+
+function reconnectServerNameForMcpUrl(
+  mcpUrl: string | undefined,
+  serverName: string | undefined,
+): string | undefined {
+  const key = canonicalMcpUrl(mcpUrl);
+  if (!key || !serverName) return serverName;
+  const canonical = CANONICAL_SERVER_NAME_BY_MCP_URL[key];
+  if (!canonical || serverName === canonical) return serverName;
+  const legacyNames = LEGACY_SERVER_NAMES_BY_MCP_URL[key] ?? [];
+  return legacyNames.includes(serverName) ? canonical : serverName;
 }
 
 // ---------------------------------------------------------------------------
@@ -1689,7 +1716,9 @@ async function resolveReconnectTarget(
       }
       return {
         rawUrl: parsed.url,
-        serverName: preferred.serverName,
+        serverName:
+          reconnectServerNameForMcpUrl(mcpUrl, preferred.serverName) ??
+          preferred.serverName,
         clients: uniqueClients(matches),
       };
     }
@@ -1747,7 +1776,9 @@ async function resolveReconnectTarget(
     const preferred = preferredReconnectEntry(url, bucket) ?? bucket[0];
     return {
       rawUrl: preferred.url,
-      serverName: preferred.serverName,
+      serverName:
+        reconnectServerNameForMcpUrl(preferred.url, preferred.serverName) ??
+        preferred.serverName,
       clients: uniqueClients(bucket),
     };
   }
@@ -1782,7 +1813,9 @@ async function resolveReconnectTarget(
     if (!chosen || !bucket) return null;
     return {
       rawUrl: chosen.url,
-      serverName: chosen.serverName,
+      serverName:
+        reconnectServerNameForMcpUrl(chosen.url, chosen.serverName) ??
+        chosen.serverName,
       clients: uniqueClients(bucket),
     };
   }
@@ -1874,7 +1907,11 @@ async function connectOne(
     if (!grant) return { ok: false };
     token = grant.token;
     mcpUrl = grant.mcpUrl;
-    serverName = parsed.name ?? grant.serverName ?? defaultServerName(baseUrl);
+    serverName =
+      parsed.name ??
+      reconnectServerNameForMcpUrl(grant.mcpUrl, grant.serverName) ??
+      grant.serverName ??
+      defaultServerName(baseUrl);
     headers = grant.headers;
   }
 
