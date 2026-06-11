@@ -8,7 +8,7 @@ import { getUserSetting, putUserSetting } from "@agent-native/core/settings";
 import { loadDashboardSeed } from "./dashboard-seeds";
 import { getDashboard, upsertDashboard } from "./dashboards-store";
 
-export const DEMO_DASHBOARD_VERSION = "2026-06-11";
+export const DEMO_DASHBOARD_VERSION = "2026-06-11-app-overview-wow";
 export const DEMO_DASHBOARD_STATE_KEY = "analytics-demo-dashboards";
 export const DEMO_NODE_EXPORTER_INSTANCE = "127.0.0.1:9100";
 export const DEMO_NODE_EXPORTER_JOB = "node";

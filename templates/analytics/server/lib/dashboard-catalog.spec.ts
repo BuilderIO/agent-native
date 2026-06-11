@@ -126,6 +126,25 @@ describe("dashboard catalog", () => {
     }
   });
 
+  it("consolidates demo app panels into the App Overview tab in wow-factor order", () => {
+    const entry = getDashboardCatalogEntry("node-exporter-full");
+    expect(entry).not.toBeNull();
+
+    const config = cloneDashboardConfig(entry!);
+    const appPanels = config.panels.filter((panel) =>
+      panel.tab?.startsWith("App"),
+    );
+
+    expect([...new Set(appPanels.map((panel) => panel.tab))]).toEqual([
+      "App / Overview",
+    ]);
+    expect(
+      appPanels
+        .filter((panel) => panel.chartType === "section")
+        .map((panel) => panel.title),
+    ).toEqual(["App Latency", "App Traffic", "App Workload", "App Overview"]);
+  });
+
   it("uses defined theme variables in Node Exporter Full chart colors", () => {
     const entry = getDashboardCatalogEntry("node-exporter-full");
     expect(entry).not.toBeNull();
