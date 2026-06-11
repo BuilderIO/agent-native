@@ -23,6 +23,11 @@ details live in `.agents/skills/`.
   it.
 - Verify before claiming: only present numbers you actually retrieved from a
   source. Never report a value you did not query.
+- The built-in Node Exporter demo dashboard uses the `demo` source. It queries
+  the built-in public demo Prometheus endpoint by default, not the user's
+  Prometheus credential slot. Treat it as demo-environment data: do not use it
+  for `REAL_DATA_REQUIRED`, saved analyses, or real user analytics answers
+  unless the user explicitly asks to inspect the demo dashboard.
 - Every analytical answer should include enough audit context for the user to
   trust it: source(s), time window, filters, sample size or row count,
   join/match method when relevant, and caveats/gaps.
@@ -84,8 +89,38 @@ details live in `.agents/skills/`.
   SQL-backed dashboards. Required: `templateId`. Optional: `dashboardId`,
   `name`, `overwrite`, and `forceNew`.
 - Node Exporter ships as `node-exporter-macos` for Darwin/Homebrew
-  node_exporter scrapes and `node-exporter-full` for the Linux-focused Grafana
-  1860 revision 45 full dashboard converted into native Analytics panels.
+  `node_exporter` scrapes and `node-exporter-full` for the Linux-focused
+  Grafana 1860 revision 45 full dashboard converted into native Analytics
+  panels. `node-exporter-full` also includes Prometheus Observability Demo app
+  metrics (`demo_http_*`, `demo_chaos_mode`, and synthetic CPU/disk/memory
+  workload metrics). Keep the first-open `App / Overview` tab light: it should
+  show the Request Latency highlight plus current app state, while Traffic,
+  Latency, and Workload details stay split across their own `App / *` tabs.
+
+## Demo Dashboard
+
+- `ensure-demo-dashboards` installs one private per-user demo on first app
+  open: `demo-node-exporter`. The Analytics root route calls this before
+  honoring local last-opened state; when the action creates the demo, the user
+  should land directly on the Node Exporter demo's `App / Overview` tab without
+  visiting the template catalog or data-source setup.
+- The demo dashboard is generated from the same `node-exporter-full` seed as
+  the catalog template. Its Prometheus panels keep the same PromQL descriptors
+  and use `source: "demo"` so queries route to the demo Prometheus endpoint
+  instead of the user's `PROMETHEUS_*` credential slot.
+- The demo Prometheus endpoint defaults to the public read-only
+  `https://prometheus.agent-native.foo`, so cloud and local MPX installs work
+  without user setup. Deployments can override it with
+  `ANALYTICS_DEMO_PROMETHEUS_URL` and optional
+  `ANALYTICS_DEMO_PROMETHEUS_USERNAME`,
+  `ANALYTICS_DEMO_PROMETHEUS_PASSWORD`, or
+  `ANALYTICS_DEMO_PROMETHEUS_BEARER_TOKEN`. Do not put credential values in
+  source, docs, fixtures, tests, prompts, or dashboard seeds.
+- Demo dashboards are ordinary SQL dashboard rows, so rename, share, archive,
+  and delete flows apply. Deleted demo IDs are tombstoned in SQL settings and
+  are not recreated unless the user explicitly asks to reset demos.
+- Use `ensure-demo-dashboards --reset=true` only when the user asks to restore
+  a deleted or changed demo dashboard.
 
 ## Deep Analysis Rules
 

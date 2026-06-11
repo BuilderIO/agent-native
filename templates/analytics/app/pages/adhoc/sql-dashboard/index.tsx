@@ -14,6 +14,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -36,10 +37,12 @@ import {
   IconDots,
   IconEye,
   IconEyeOff,
+  IconInfoCircle,
   IconPencil,
   IconPlus,
   IconTrash,
   IconUser,
+  IconX,
 } from "@tabler/icons-react";
 import {
   DropdownMenu,
@@ -115,6 +118,35 @@ import {
 
 const TAB_ID = generateTabId();
 
+type DashboardTabGroup = {
+  name: string;
+  tabs: Array<{ value: string; label: string }>;
+};
+
+function groupDashboardTabs(tabs: string[]): {
+  groups: DashboardTabGroup[];
+  hasNestedTabs: boolean;
+} {
+  const hasNestedTabs = tabs.some((tab) => tab.includes(" / "));
+  const groups: DashboardTabGroup[] = [];
+  const byName = new Map<string, DashboardTabGroup>();
+
+  for (const tab of tabs) {
+    const [rawGroup, ...rest] = tab.split(/\s*\/\s*/);
+    const name = hasNestedTabs && rest.length > 0 ? rawGroup : "Server";
+    const label = hasNestedTabs && rest.length > 0 ? rest.join(" / ") : tab;
+    let group = byName.get(name);
+    if (!group) {
+      group = { name, tabs: [] };
+      byName.set(name, group);
+      groups.push(group);
+    }
+    group.tabs.push({ value: tab, label });
+  }
+
+  return { groups, hasNestedTabs };
+}
+
 type FetchedDashboard = {
   id: string;
   config: SqlDashboardConfig;
@@ -125,6 +157,39 @@ type FetchedDashboard = {
   ownerEmail: string | null;
   updatedAt: string | null;
 } & ResourceAccess;
+
+function parseDashboardDemoMetadata(
+  value: unknown,
+): SqlDashboardConfig["demo"] {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return undefined;
+  }
+  const raw = value as Record<string, unknown>;
+  return typeof raw.id === "string" && raw.id
+    ? {
+        id: raw.id,
+        version: typeof raw.version === "string" ? raw.version : undefined,
+        installedAt:
+          typeof raw.installedAt === "string" ? raw.installedAt : undefined,
+      }
+    : undefined;
+}
+
+function parseDashboardCatalogMetadata(
+  value: unknown,
+): SqlDashboardConfig["catalog"] {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return undefined;
+  }
+  const raw = value as Record<string, unknown>;
+  return {
+    templateId: typeof raw.templateId === "string" ? raw.templateId : undefined,
+    templateVersion:
+      typeof raw.templateVersion === "string" ? raw.templateVersion : undefined,
+    installedAt:
+      typeof raw.installedAt === "string" ? raw.installedAt : undefined,
+  };
+}
 
 async function fetchDashboard(id: string): Promise<FetchedDashboard | null> {
   try {
@@ -139,6 +204,8 @@ async function fetchDashboard(id: string): Promise<FetchedDashboard | null> {
       config: {
         name: data.name ?? "Untitled Dashboard",
         description: data.description,
+        catalog: parseDashboardCatalogMetadata(data.catalog),
+        demo: parseDashboardDemoMetadata(data.demo),
         filters: data.filters,
         variables: data.variables,
         columns: typeof data.columns === "number" ? data.columns : undefined,
@@ -208,6 +275,9 @@ export default function SqlDashboardPage() {
   const viewedDashboardIdRef = useRef<string | null>(null);
   const canEdit = resourceCanEdit(resourceAccess);
   const canManage = resourceCanManage(resourceAccess);
+  const isDemoDashboard = dashboard?.demo?.id === "demo-node-exporter";
+  const showDemoIntro =
+    isDemoDashboard && searchParams.get("demoIntro") === "1";
   const { mutateAsync: hideDashboardAction, isPending: unhidePending } =
     useActionMutation("hide-dashboard");
   const { mutateAsync: deleteDashboardAction } = useActionMutation(
@@ -677,6 +747,12 @@ export default function SqlDashboardPage() {
         ? requestedTab
         : tabs[0]
       : null;
+  const groupedTabs = useMemo(() => groupDashboardTabs(tabs), [tabs]);
+  const activeTabGroup = activeTab
+    ? groupedTabs.groups.find((group) =>
+        group.tabs.some((tab) => tab.value === activeTab),
+      )
+    : null;
 
   const handleTabChange = useCallback(
     (value: string) => {
@@ -690,6 +766,14 @@ export default function SqlDashboardPage() {
       );
     },
     [setSearchParams],
+  );
+  const handleTabGroupChange = useCallback(
+    (groupName: string) => {
+      const group = groupedTabs.groups.find((item) => item.name === groupName);
+      const firstTab = group?.tabs[0]?.value;
+      if (firstTab) handleTabChange(firstTab);
+    },
+    [groupedTabs.groups, handleTabChange],
   );
 
   // Panels visible under the current tab. Untagged panels appear on every
@@ -756,6 +840,17 @@ export default function SqlDashboardPage() {
     });
     navigate("/");
   }, [dashboardId, canManage, deleteDashboardAction, queryClient, navigate]);
+
+  const dismissDemoIntro = useCallback(() => {
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        next.delete("demoIntro");
+        return next;
+      },
+      { replace: true },
+    );
+  }, [setSearchParams]);
 
   const handleArchive = useCallback(async () => {
     if (!dashboardId) return;
@@ -1029,6 +1124,28 @@ export default function SqlDashboardPage() {
           </Button>
         </div>
       ) : null}
+      {showDemoIntro ? (
+        <Alert className="border-cyan-400/50 bg-cyan-400/10 pr-12 text-cyan-950 shadow-sm shadow-cyan-500/10 dark:bg-cyan-400/10 dark:text-cyan-50 [&>svg]:text-cyan-600 dark:[&>svg]:text-cyan-300">
+          <IconInfoCircle className="h-4 w-4" />
+          <AlertTitle>You&apos;re viewing a live demo</AlertTitle>
+          <AlertDescription className="text-cyan-900/80 dark:text-cyan-100/80">
+            This dashboard uses the built-in demo Prometheus endpoint, not your
+            connected sources or provider slots. Start with app metrics here,
+            switch to Node for system metrics, and archive or delete it from the
+            dashboard menu whenever you&apos;re done.
+          </AlertDescription>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="absolute right-2 top-2 h-8 w-8 text-cyan-900 hover:bg-cyan-400/20 hover:text-cyan-950 dark:text-cyan-100 dark:hover:text-cyan-50"
+            onClick={dismissDemoIntro}
+            aria-label="Dismiss demo intro"
+          >
+            <IconX className="h-4 w-4" />
+          </Button>
+        </Alert>
+      ) : null}
       {/* Author, last updated, and visibility metadata */}
       <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
         {hiddenAt && (
@@ -1130,18 +1247,42 @@ export default function SqlDashboardPage() {
 
       {/* Tabs */}
       {tabs.length > 0 && activeTab && (
-        <Tabs value={activeTab} onValueChange={handleTabChange}>
-          <TabsList
-            className="grid w-full"
-            style={{ gridTemplateColumns: `repeat(${tabs.length}, 1fr)` }}
-          >
-            {tabs.map((t) => (
-              <TabsTrigger key={t} value={t}>
-                {t}
-              </TabsTrigger>
-            ))}
-          </TabsList>
-        </Tabs>
+        <div className="space-y-2">
+          {groupedTabs.hasNestedTabs && groupedTabs.groups.length > 1 ? (
+            <Tabs
+              value={activeTabGroup?.name ?? groupedTabs.groups[0]?.name}
+              onValueChange={handleTabGroupChange}
+            >
+              <TabsList className="inline-flex max-w-full justify-start overflow-x-auto">
+                {groupedTabs.groups.map((group) => (
+                  <TabsTrigger
+                    key={group.name}
+                    value={group.name}
+                    className="shrink-0 whitespace-nowrap"
+                  >
+                    {group.name}
+                  </TabsTrigger>
+                ))}
+              </TabsList>
+            </Tabs>
+          ) : null}
+          <Tabs value={activeTab} onValueChange={handleTabChange}>
+            <TabsList className="flex h-auto w-full justify-start overflow-x-auto">
+              {(groupedTabs.hasNestedTabs
+                ? (activeTabGroup?.tabs ?? [])
+                : tabs.map((tab) => ({ value: tab, label: tab }))
+              ).map((tab) => (
+                <TabsTrigger
+                  key={tab.value}
+                  value={tab.value}
+                  className="shrink-0 whitespace-nowrap"
+                >
+                  {tab.label}
+                </TabsTrigger>
+              ))}
+            </TabsList>
+          </Tabs>
+        </div>
       )}
 
       {/* Filters */}

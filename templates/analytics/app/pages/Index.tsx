@@ -1,8 +1,15 @@
 import { useEffect } from "react";
 import { useNavigate } from "react-router";
+import { callAction } from "@agent-native/core/client";
 import { Skeleton } from "@/components/ui/skeleton";
 import { dashboards } from "@/pages/adhoc/registry";
 import { getLastOpenedPath } from "@/lib/last-opened";
+import { withDemoIntro } from "@/lib/demo-dashboard-path";
+
+type EnsureDemoDashboardsResult = {
+  defaultDashboardPath?: string;
+  dashboards?: Array<{ created?: boolean; installed?: boolean }>;
+};
 
 function isSyntheticDefaultDashboardPath(path: string): boolean {
   return (
@@ -22,19 +29,60 @@ export default function Index() {
   const navigate = useNavigate();
 
   useEffect(() => {
-    const lastPath = getLastOpenedPath();
-    if (lastPath && !isSyntheticDefaultDashboardPath(lastPath)) {
-      navigate(lastPath, { replace: true });
-      return;
-    }
-    const lastId = localStorage.getItem("last-dashboard-id");
-    if (lastId && !isSyntheticDefaultDashboardId(lastId)) {
-      navigate(`/adhoc/${lastId}`, { replace: true });
-    } else if (dashboards.length > 0) {
-      navigate(`/adhoc/${dashboards[0].id}`, { replace: true });
-    } else {
-      navigate("/data-sources", { replace: true });
-    }
+    let cancelled = false;
+
+    const ensureDemoDashboards =
+      async (): Promise<EnsureDemoDashboardsResult | null> => {
+        try {
+          return (await callAction(
+            "ensure-demo-dashboards",
+            {},
+          )) as EnsureDemoDashboardsResult | null;
+        } catch (err) {
+          console.warn("[analytics] demo dashboard install failed", err);
+          return null;
+        }
+      };
+
+    const openDefault = async () => {
+      const result = await ensureDemoDashboards();
+      if (cancelled) return;
+
+      const createdDemo =
+        result?.dashboards?.some(
+          (dashboard) => dashboard.installed && dashboard.created,
+        ) ?? false;
+      if (createdDemo && result?.defaultDashboardPath) {
+        navigate(withDemoIntro(result.defaultDashboardPath), { replace: true });
+        return;
+      }
+
+      const lastPath = getLastOpenedPath();
+      if (lastPath && !isSyntheticDefaultDashboardPath(lastPath)) {
+        navigate(lastPath, { replace: true });
+        return;
+      }
+      const lastId = localStorage.getItem("last-dashboard-id");
+      if (lastId && !isSyntheticDefaultDashboardId(lastId)) {
+        navigate(`/adhoc/${lastId}`, { replace: true });
+      } else if (result?.defaultDashboardPath) {
+        navigate(result.defaultDashboardPath, { replace: true });
+      } else if (dashboards.length > 0) {
+        navigate(`/adhoc/${dashboards[0].id}`, { replace: true });
+      } else {
+        try {
+          navigate("/data-sources", { replace: true });
+        } catch {
+          // Navigation can throw if the component unmounted mid-transition.
+        }
+      }
+    };
+
+    void openDefault();
+
+    return () => {
+      cancelled = true;
+    };
   }, [navigate]);
 
   return (

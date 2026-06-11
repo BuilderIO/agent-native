@@ -8,6 +8,7 @@ import {
   IconLoader2,
   IconPackageImport,
   IconPlugConnected,
+  IconSparkles,
 } from "@tabler/icons-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
@@ -22,6 +23,7 @@ import {
 } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { demoNodeExporterDashboardPath } from "@/lib/demo-dashboard-path";
 import { cn } from "@/lib/utils";
 
 type TemplateCategory =
@@ -54,6 +56,7 @@ type DashboardTemplate = {
 };
 
 const CATEGORY_TABS = [
+  "Demo",
   "All",
   "Product",
   "Acquisition",
@@ -61,8 +64,24 @@ const CATEGORY_TABS = [
   "Operations",
 ] as const;
 
+function isDemoTemplate(template: DashboardTemplate): boolean {
+  return template.dataSources.includes("demo");
+}
+
+function dashboardPathForTemplate(
+  template: DashboardTemplate,
+  dashboardId: string,
+  options: { intro?: boolean } = {},
+): string {
+  if (template.id === "demo-node-exporter") {
+    return demoNodeExporterDashboardPath(dashboardId, options);
+  }
+  return `/adhoc/${dashboardId}`;
+}
+
 function sourceLabel(source: string): string {
   if (source === "first-party") return "First-party";
+  if (source === "demo") return "Demo Prometheus";
   if (source === "ga4") return "GA4";
   if (source === "prometheus") return "Prometheus";
   return source;
@@ -106,6 +125,7 @@ function TemplateCard({
     (dashboard) => !dashboard.archivedAt,
   );
   const isInstalled = Boolean(installedDashboard);
+  const isDemo = isDemoTemplate(template);
 
   return (
     <Card className="flex min-h-[270px] flex-col overflow-hidden">
@@ -119,11 +139,19 @@ function TemplateCard({
               {template.description}
             </CardDescription>
           </div>
-          {template.recommended && (
-            <Badge variant="secondary" className="shrink-0">
-              Recommended
-            </Badge>
-          )}
+          <div className="flex shrink-0 flex-col items-end gap-1.5">
+            {isDemo ? (
+              <Badge className="border-cyan-400/60 bg-cyan-400/20 text-cyan-800 shadow-sm shadow-cyan-500/10 dark:text-cyan-100">
+                <IconSparkles className="mr-1 h-3 w-3" />
+                Demo
+              </Badge>
+            ) : null}
+            {template.recommended && (
+              <Badge variant="secondary" className="shrink-0">
+                Recommended
+              </Badge>
+            )}
+          </div>
         </div>
       </CardHeader>
       <CardContent className="flex flex-1 flex-col gap-4">
@@ -133,7 +161,15 @@ function TemplateCard({
             {template.panelCount} panels
           </Badge>
           {template.dataSources.map((source) => (
-            <Badge key={source} variant="outline" className="gap-1.5">
+            <Badge
+              key={source}
+              variant="outline"
+              className={cn(
+                "gap-1.5",
+                source === "demo" &&
+                  "border-cyan-400/50 bg-cyan-400/10 text-cyan-700 dark:text-cyan-200",
+              )}
+            >
               <IconPlugConnected className="h-3 w-3" />
               {sourceLabel(source)}
             </Badge>
@@ -201,7 +237,7 @@ function TemplateCard({
 
 export default function TemplateCatalogRoute() {
   const [category, setCategory] =
-    useState<(typeof CATEGORY_TABS)[number]>("All");
+    useState<(typeof CATEGORY_TABS)[number]>("Demo");
   const [installingIds, setInstallingIds] = useState<Set<string>>(new Set());
   const navigate = useNavigate();
   const install = useActionMutation("install-dashboard-template");
@@ -216,6 +252,7 @@ export default function TemplateCatalogRoute() {
     [data],
   );
   const filtered = useMemo(() => {
+    if (category === "Demo") return templates.filter(isDemoTemplate);
     if (category === "All") return templates;
     return templates.filter((template) => template.category === category);
   }, [category, templates]);
@@ -228,10 +265,19 @@ export default function TemplateCatalogRoute() {
     try {
       const result = (await install.mutateAsync({
         templateId: template.id,
-      })) as { dashboardId?: string; name?: string; message?: string };
+      })) as {
+        dashboardId?: string;
+        name?: string;
+        message?: string;
+        alreadyInstalled?: boolean;
+      };
       if (result.dashboardId) {
         toast.success(result.message ?? `Installed ${template.name}`);
-        navigate(`/adhoc/${result.dashboardId}`);
+        navigate(
+          dashboardPathForTemplate(template, result.dashboardId, {
+            intro: isDemoTemplate(template) && !result.alreadyInstalled,
+          }),
+        );
       }
     } catch (err) {
       toast.error(
@@ -266,7 +312,7 @@ export default function TemplateCatalogRoute() {
             setCategory(next as (typeof CATEGORY_TABS)[number])
           }
         >
-          <TabsList className="grid w-full grid-cols-5 md:w-auto">
+          <TabsList className="grid w-full grid-cols-3 sm:grid-cols-6 md:w-auto">
             {CATEGORY_TABS.map((item) => (
               <TabsTrigger key={item} value={item} className="text-xs">
                 {item}
@@ -302,7 +348,9 @@ export default function TemplateCatalogRoute() {
               template={template}
               installing={installingIds.has(template.id)}
               onInstall={() => void installTemplate(template)}
-              onOpen={(dashboardId) => navigate(`/adhoc/${dashboardId}`)}
+              onOpen={(dashboardId) =>
+                navigate(dashboardPathForTemplate(template, dashboardId))
+              }
             />
           ))}
         </div>

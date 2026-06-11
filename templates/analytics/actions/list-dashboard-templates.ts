@@ -16,7 +16,7 @@ export default defineAction({
       .optional()
       .describe("Optional template category filter"),
     dataSource: z
-      .enum(["first-party", "ga4", "prometheus"])
+      .enum(["demo", "first-party", "ga4", "prometheus"])
       .optional()
       .describe("Optional data source filter"),
   }),

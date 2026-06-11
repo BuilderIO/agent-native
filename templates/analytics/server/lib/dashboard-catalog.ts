@@ -14,7 +14,7 @@ export interface DashboardCatalogMetadata {
   description: string;
   category: DashboardTemplateCategory;
   defaultDashboardId: string;
-  dataSources: Array<"first-party" | "ga4" | "prometheus">;
+  dataSources: Array<"demo" | "first-party" | "ga4" | "prometheus">;
   tags: string[];
   panelCount: number;
   version: string;
@@ -205,6 +205,19 @@ function prometheusTablePanel({
 
 function buildNodeExporterFull(): SqlDashboardConfig {
   return seedConfig("node-exporter-full");
+}
+
+function buildDemoNodeExporterFull(): SqlDashboardConfig {
+  const config = buildNodeExporterFull();
+  return {
+    ...config,
+    name: "Demo Node Exporter Full",
+    description:
+      "The full Node Exporter dashboard wired to the built-in demo Prometheus endpoint.",
+    panels: config.panels.map((panel) =>
+      panel.source === "prometheus" ? { ...panel, source: "demo" } : panel,
+    ),
+  };
 }
 
 function buildNodeExporterMacos(): SqlDashboardConfig {
@@ -878,7 +891,7 @@ function buildNodeExporterMacos(): SqlDashboardConfig {
         id: "instance",
         type: "text",
         label: "Instance",
-        default: "localhost:9100",
+        default: "127.0.0.1:9100",
       },
     ],
     variables: {
@@ -889,6 +902,20 @@ function buildNodeExporterMacos(): SqlDashboardConfig {
 }
 
 export const dashboardCatalogEntries: DashboardCatalogEntry[] = [
+  {
+    id: "demo-node-exporter",
+    name: "Demo Node Exporter Full",
+    description:
+      "The full Node Exporter dashboard, backed by the built-in demo Prometheus endpoint without consuming the Prometheus source slot.",
+    category: "Observability",
+    defaultDashboardId: "demo-node-exporter",
+    dataSources: ["demo"],
+    tags: ["demo", "prometheus", "node_exporter", "observability"],
+    panelCount: 135,
+    version: CATALOG_VERSION,
+    recommended: true,
+    buildConfig: buildDemoNodeExporterFull,
+  },
   {
     id: "first-party-template-traffic",
     name: "First-party Template Traffic",
@@ -948,12 +975,12 @@ export const dashboardCatalogEntries: DashboardCatalogEntry[] = [
     id: "node-exporter-full",
     name: "Node Exporter Full",
     description:
-      "The Linux-focused Grafana Node Exporter Full dashboard converted for Agent Native Analytics.",
+      "Linux node_exporter host observability plus Prometheus demo-app traffic, latency, and workload panels.",
     category: "Observability",
     defaultDashboardId: "node-exporter-full",
     dataSources: ["prometheus"],
     tags: ["prometheus", "node_exporter", "grafana", "capacity"],
-    panelCount: 124,
+    panelCount: 135,
     version: CATALOG_VERSION,
     buildConfig: buildNodeExporterFull,
   },
@@ -980,12 +1007,26 @@ function templateIdFromConfig(config: Record<string, unknown>): string | null {
   return typeof templateId === "string" && templateId ? templateId : null;
 }
 
+function demoIdFromConfig(config: Record<string, unknown>): string | null {
+  const demo = config.demo;
+  if (!demo || typeof demo !== "object" || Array.isArray(demo)) {
+    return null;
+  }
+  const demoId = (demo as Record<string, unknown>).id;
+  return typeof demoId === "string" && demoId ? demoId : null;
+}
+
 function installedDashboardForTemplate(
   row: DashboardRecord,
   entry: DashboardCatalogEntry,
 ): boolean {
   const templateId = templateIdFromConfig(row.config);
-  return templateId === entry.id || row.id === entry.defaultDashboardId;
+  const demoId = demoIdFromConfig(row.config);
+  return (
+    templateId === entry.id ||
+    demoId === entry.id ||
+    row.id === entry.defaultDashboardId
+  );
 }
 
 export async function listDashboardCatalog(
