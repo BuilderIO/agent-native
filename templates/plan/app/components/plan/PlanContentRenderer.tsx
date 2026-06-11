@@ -488,15 +488,25 @@ export function PlanContentRenderer({
     if (changedFilesHeadingBlock) ids.add(changedFilesHeadingBlock.id);
     return ids;
   }, [changedFilesHeadingBlock, filesSidebarBlock, hideChangedFiles]);
-  const renderedBlocks = useMemo(
-    () =>
+  const renderedBlocks = useMemo(() => {
+    const visible =
       hiddenChangedFileBlockIds.size > 0
         ? content.blocks.filter(
             (block) => !hiddenChangedFileBlockIds.has(block.id),
           )
-        : content.blocks,
-    [content.blocks, hiddenChangedFileBlockIds],
-  );
+        : content.blocks;
+    if (!hideChangedFiles || !filesSidebarHeadingBlock) return visible;
+    return visible.map((block) =>
+      block.id === filesSidebarHeadingBlock.id
+        ? stripTrailingChangedFilesHeading(block)
+        : block,
+    );
+  }, [
+    content.blocks,
+    filesSidebarHeadingBlock,
+    hiddenChangedFileBlockIds,
+    hideChangedFiles,
+  ]);
 
   /**
    * Map from file path → first block id that references the file. Built from
@@ -772,6 +782,16 @@ function isChangedFilesHeadingBlock(block: PlanBlock | undefined): boolean {
   return /^#{1,6}\s+(?:Changed files|Files changed)\s*$/i.test(
     block.data.markdown.trim(),
   );
+}
+
+function stripTrailingChangedFilesHeading(block: PlanBlock): PlanBlock {
+  if (block.type !== "rich-text") return block;
+  const markdown = block.data.markdown.replace(
+    /\n{0,2}#{1,6}\s+(?:Changed files|Files changed)\s*$/i,
+    "",
+  );
+  if (markdown === block.data.markdown) return block;
+  return { ...block, data: { ...block.data, markdown: markdown.trimEnd() } };
 }
 
 function filesSidebarHideCss(blockId: string): string {
