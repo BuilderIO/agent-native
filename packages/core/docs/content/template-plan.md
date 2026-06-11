@@ -208,6 +208,28 @@ and commenting, and returns the hosted URL. It does
 not automatically make your coding agent's LLM local; choose a local or approved
 model if that privacy boundary matters too.
 
+## Desktop local file sync {#desktop-local-sync}
+
+Agent Native Desktop also gives hosted Plans a native local-folder bridge. This
+is different from local-files privacy mode: the hosted Plan database remains the
+source of truth for sharing, comments, history, and live review, while Desktop
+can mirror the current plan's source files to a folder you choose.
+
+Open a plan in Agent Native Desktop, use the plan menu's **Local files** actions,
+then:
+
+- **Link local folder** — choose the folder for that plan's MDX source.
+- **Sync to local folder** — write `plan.mdx`, optional `canvas.mdx`,
+  optional `prototype.mdx`, optional `.plan-state.json`, and image assets.
+- **Import local edits** — read the folder and apply it through
+  `import-visual-plan-source` with the plan's current update timestamp.
+- **Auto-sync changes** — keep exporting the hosted plan's latest source after
+  edits made in the app.
+
+This path does not require cloning the Plan app or running a CLI. It is for
+file-first review/editing around a hosted plan, not for keeping plan content out
+of the hosted database.
+
 ## Useful prompts
 
 - "Use `/visual-plan` before changing the auth flow."
