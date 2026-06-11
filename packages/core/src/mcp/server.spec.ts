@@ -2721,7 +2721,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       error: "Unauthorized",
       authenticate: {
         command:
-          "npx @agent-native/core@latest reconnect https://mail.agent-native.com",
+          "npx -y @agent-native/core@latest reconnect https://mail.agent-native.com",
         firstTimeCommand:
           "npx @agent-native/core@latest connect https://mail.agent-native.com",
         authorizeUrl:
@@ -2732,7 +2732,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       },
     });
     expect((res as any).message).toContain(
-      "npx @agent-native/core@latest reconnect https://mail.agent-native.com",
+      "npx -y @agent-native/core@latest reconnect https://mail.agent-native.com",
     );
   });
 
@@ -2765,7 +2765,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       error: "Unauthorized",
       authenticate: {
         command:
-          "npx @agent-native/core@latest reconnect https://assets-local.trycloudflare.com/assets",
+          "npx -y @agent-native/core@latest reconnect https://assets-local.trycloudflare.com/assets",
         firstTimeCommand:
           "npx @agent-native/core@latest connect https://assets-local.trycloudflare.com/assets",
         authorizeUrl:

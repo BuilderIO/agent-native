@@ -53,7 +53,9 @@ describe("AnnotatedCodeBlock annotations", () => {
     });
     container.remove();
     document
-      .querySelectorAll("[data-annotation-hover-card]")
+      .querySelectorAll(
+        "[data-annotation-hover-card],[data-annotation-inline-overlay]",
+      )
       .forEach((node) => node.remove());
     vi.useRealTimers();
     vi.unstubAllGlobals();
@@ -186,8 +188,14 @@ describe("AnnotatedCodeBlock annotations", () => {
       );
     });
 
-    const overlay = container.querySelector("[data-annotation-inline-overlay]");
+    const overlay = document.querySelector("[data-annotation-inline-overlay]");
     expect(overlay).toBeTruthy();
+    expect(
+      container.querySelector("[data-annotation-inline-overlay]"),
+    ).toBeNull();
+    expect(
+      container.querySelector("[data-annotation-inline-overlay-anchor]"),
+    ).toBeTruthy();
     expect(overlay?.textContent).toContain(
       "This note is visible without hover.",
     );

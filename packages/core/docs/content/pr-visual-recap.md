@@ -309,16 +309,24 @@ on:
 
 jobs:
   visual-recap:
+    permissions:
+      actions: write
+      contents: read
+      checks: write
+      issues: write
+      pull-requests: write
     uses: BuilderIO/agent-native/.github/workflows/pr-visual-recap-reusable.yml@main
     secrets:
       PLAN_RECAP_TOKEN: ${{ secrets.PLAN_RECAP_TOKEN }}
       ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-      # OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}  # only when agent: codex
-      # PLAN_RECAP_APP_URL: ${{ secrets.PLAN_RECAP_APP_URL }}  # only when self-hosting
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      PLAN_RECAP_APP_URL: ${{ secrets.PLAN_RECAP_APP_URL }}
     with:
+      agent: ${{ vars.VISUAL_RECAP_AGENT || 'claude' }}
+      model: ${{ vars.VISUAL_RECAP_MODEL || '' }}
+      reasoning: ${{ vars.VISUAL_RECAP_REASONING || '' }}
+      skill-source: ${{ vars.VISUAL_RECAP_SKILL_SOURCE || 'auto' }}
       # cli-version: "latest"  # pin to a specific @agent-native/core version
-      # reasoning: "high"      # codex only: none|minimal|low|medium|high|xhigh
-      # skill-source: "repo"   # pin to committed visual-recap skill
 ```
 
 The same secrets and variables described in [Secrets and variables](#secrets-and-variables) apply — set them in your repo settings the same way as for the copy variant.

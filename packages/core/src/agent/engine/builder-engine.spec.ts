@@ -115,9 +115,11 @@ describe("createBuilderEngine", () => {
     expect(engine.defaultModel).toBe("claude-sonnet-4-6");
     expect(engine.capabilities).toMatchObject(BUILDER_CAPABILITIES);
     expect(engine.supportedModels).toContain("claude-sonnet-4-6");
+    expect(engine.supportedModels).toContain("auto");
+    expect(engine.supportedModels).toContain("claude-opus-4-7");
     expect(engine.supportedModels).toContain("gpt-5-5");
     expect(engine.supportedModels).toContain("gpt-5-4");
-    expect(engine.supportedModels).toContain("z-ai-glm-4-5");
+    expect(engine.supportedModels).not.toContain("z-ai-glm-4-5");
   });
 
   it("emits a missing-credentials stop-error when BUILDER_PRIVATE_KEY is unset", async () => {

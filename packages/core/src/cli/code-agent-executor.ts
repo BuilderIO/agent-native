@@ -25,6 +25,7 @@ import {
 import {
   resolveEngine,
   getStoredModelForEngine,
+  normalizeModelForEngine,
   registerBuiltinEngines,
 } from "../agent/engine/index.js";
 import type {
@@ -194,12 +195,13 @@ export async function executeCodeAgentRun(
     });
   }
 
-  const model =
+  const modelCandidate =
     options.model ??
     metadataString(existing, "model") ??
     process.env.AGENT_MODEL ??
     (await getStoredModelForEngine(engine).catch(() => undefined)) ??
     engine.defaultModel;
+  const model = normalizeModelForEngine(engine, modelCandidate);
   const reasoningEffort =
     options.reasoningEffort ?? metadataReasoningEffort(existing);
   const cwd = existing.cwd || process.cwd();

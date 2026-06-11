@@ -18,6 +18,7 @@ import {
 } from "../agent/production-agent.js";
 import {
   getStoredModelForEngine,
+  normalizeModelForEngine,
   resolveEngine,
 } from "../agent/engine/index.js";
 import { createThread } from "../chat-threads/store.js";
@@ -406,10 +407,11 @@ async function dispatchAgentic(
           apiKey,
           appId: _deps!.appId,
         });
-        const model =
+        const modelCandidate =
           _deps!.model ??
           (await getStoredModelForEngine(engine, { appId: _deps!.appId })) ??
           engine.defaultModel;
+        const model = normalizeModelForEngine(engine, modelCandidate);
         await createThread(jobUserEmail, {
           title: `Trigger: ${triggerName} — ${now.toLocaleDateString()}`,
         });

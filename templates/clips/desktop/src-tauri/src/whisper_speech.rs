@@ -516,7 +516,14 @@ mod macos {
         // Mic stream + capture. The real hardware rate is read back from the
         // capture handle and pushed into the stream (default 48 kHz until then).
         let session_start = Instant::now();
-        let mic_stream = WhisperStream::new(app.clone(), "mic", 48000.0, lang.clone(), ctx.clone(), session_start);
+        let mic_stream = WhisperStream::new(
+            app.clone(),
+            "mic",
+            48000.0,
+            lang.clone(),
+            ctx.clone(),
+            session_start,
+        );
         let mic_for_cb = mic_stream.clone();
         let mic_cap = start_raw_mic_capture(
             app.clone(),
@@ -531,8 +538,14 @@ mod macos {
         mic_stream.set_src_rate(mic_cap.sample_rate());
 
         // System stream + capture (SCK delivers 48 kHz).
-        let sys_stream =
-            WhisperStream::new(app.clone(), "system", 48000.0, lang.clone(), ctx.clone(), session_start);
+        let sys_stream = WhisperStream::new(
+            app.clone(),
+            "system",
+            48000.0,
+            lang.clone(),
+            ctx.clone(),
+            session_start,
+        );
         let sys_for_cb = sys_stream.clone();
         let sys_cap = match start_raw_system_capture(
             app.clone(),
@@ -577,9 +590,7 @@ mod macos {
         // trailing speech is not lost when the frontend unregisters listeners.
         let deadline = Instant::now() + Duration::from_secs(4);
         while Instant::now() < deadline {
-            if session.mic.done.load(Ordering::SeqCst)
-                && session.sys.done.load(Ordering::SeqCst)
-            {
+            if session.mic.done.load(Ordering::SeqCst) && session.sys.done.load(Ordering::SeqCst) {
                 break;
             }
             std::thread::sleep(Duration::from_millis(50));

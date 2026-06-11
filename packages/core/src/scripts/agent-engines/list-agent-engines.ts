@@ -11,6 +11,7 @@ import {
   getAgentEngineEntry,
   isAgentEnginePackageInstalled,
   isStoredEngineUsableForRequest,
+  normalizeModelForEngine,
 } from "../../agent/engine/index.js";
 import { DEFAULT_MODEL } from "../../agent/default-model.js";
 import { getAgentAppModelDefaultForCurrentRequest } from "../../agent/app-model-defaults.js";
@@ -70,13 +71,20 @@ export async function run(args: Record<string, string> = {}): Promise<string> {
       detectedFromUser ??
       detectEngineFromEnv() ??
       undefined);
-  const currentModel =
+  const currentModelCandidate =
     appDefaultUsable && currentEntry?.name === appDefault?.engine
       ? appDefault?.model
       : storedUsable && currentEntry?.name === current?.engine
         ? current?.model
         : undefined;
   const currentEngineName = currentEntry?.name ?? "anthropic";
+  const currentModel =
+    currentEntry && !envUnavailable
+      ? normalizeModelForEngine(
+          currentEntry,
+          currentModelCandidate ?? currentEntry.defaultModel,
+        )
+      : (currentModelCandidate ?? DEFAULT_MODEL);
 
   const result = {
     engines: engines.map((e) => ({
@@ -94,7 +102,7 @@ export async function run(args: Record<string, string> = {}): Promise<string> {
       ? null
       : {
           engine: currentEngineName,
-          model: currentModel ?? currentEntry?.defaultModel ?? DEFAULT_MODEL,
+          model: currentModel,
         },
   };
 

@@ -204,7 +204,7 @@ function buildUnauthorizedBody(event: H3Event): {
   const mcpUrl = getMcpOAuthResource(event);
   const resourceMetadataUrl = getMcpOAuthProtectedResourceMetadataUrl(event);
   const command = issuer
-    ? `npx @agent-native/core@latest reconnect ${issuer}`
+    ? `npx -y @agent-native/core@latest reconnect ${issuer}`
     : undefined;
   const firstTimeCommand = issuer
     ? `npx @agent-native/core@latest connect ${issuer}`
