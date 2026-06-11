@@ -307,6 +307,29 @@ export default function PlanTemplate() {
               review, comments, and approvals.
             </p>
           </div>
+          <div className="rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)] p-5">
+            <div className="mb-3 text-[var(--docs-accent)]">
+              <svg
+                width="20"
+                height="20"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.5"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <path d="M4 4h6l2 3h8v13H4z" />
+                <path d="M8 13h8" />
+                <path d="M12 9v8" />
+              </svg>
+            </div>
+            <h3 className="mb-1 text-sm font-semibold">Desktop File Sync</h3>
+            <p className="m-0 text-sm text-[var(--fg-secondary)]">
+              Mirror hosted plans to local MDX files from Agent Native Desktop
+              without cloning the app or running a CLI.
+            </p>
+          </div>
         </div>
       </section>
 

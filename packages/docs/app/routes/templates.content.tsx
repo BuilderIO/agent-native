@@ -283,9 +283,7 @@ export default function ContentTemplate() {
             </p>
           </div>
           <div className="rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)] p-5">
-            <h3 className="mb-1 text-sm font-semibold">
-              Local Markdown Files
-            </h3>
+            <h3 className="mb-1 text-sm font-semibold">Local Markdown Files</h3>
             <p className="m-0 text-sm text-[var(--fg-secondary)]">
               Export docs to a local content folder, edit in your own tools,
               preview changes, and import them back.
