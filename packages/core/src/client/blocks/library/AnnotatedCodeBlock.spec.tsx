@@ -188,7 +188,9 @@ describe("AnnotatedCodeBlock annotations", () => {
 
     const overlay = container.querySelector("[data-annotation-inline-overlay]");
     expect(overlay).toBeTruthy();
-    expect(overlay?.textContent).toContain("This note is visible without hover.");
+    expect(overlay?.textContent).toContain(
+      "This note is visible without hover.",
+    );
     expect(document.querySelector("[data-annotation-hover-card]")).toBeNull();
   });
 

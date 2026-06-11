@@ -30,6 +30,7 @@ import { cn } from "@/lib/utils";
 
 type PlanBlockRenderContextExtras = {
   onQuestionFormSubmit?: (summary: string) => void;
+  showCodeAnnotationOverlays?: boolean;
 };
 
 /**

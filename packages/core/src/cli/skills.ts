@@ -2655,8 +2655,11 @@ async function promptForGithubAction(
   const clack = await import("@clack/prompts");
   const result = await clack.confirm({
     message:
-      "Optional: add automatic PR Visual Recaps?\n" +
-      `  This writes ${context.workflowPath}; ${context.setupCommand} can finish GitHub secrets.`,
+      "Optional: add automatic PR Visual Recaps? (GitHub Action)\n" +
+      "  Posts a human-friendly recap on every pull request — a high-altitude\n" +
+      "  overview of what the PR does, with annotated code, diagrams, and\n" +
+      "  before/after notes instead of a raw diff.\n" +
+      `  Writes ${context.workflowPath}; ${context.setupCommand} finishes the GitHub secrets.`,
     initialValue: false,
   });
   if (clack.isCancel(result)) {

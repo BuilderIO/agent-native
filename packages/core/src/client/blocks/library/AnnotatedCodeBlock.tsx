@@ -305,7 +305,7 @@ function AnnotatedCodeRead({
                 ? "bg-amber-500 dark:bg-amber-400"
                 : showAnnotationOverlays
                   ? "bg-amber-500/90 dark:bg-amber-300/70"
-                : "bg-amber-400/45 dark:bg-amber-300/35"
+                  : "bg-amber-400/45 dark:bg-amber-300/35"
               : null,
           )}
         />
