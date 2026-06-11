@@ -82,7 +82,7 @@ describe("dashboard catalog", () => {
       values[filter.id] = filter.default ?? "";
     }
     values.job = "node";
-    values.instance = "localhost:9100";
+    values.instance = "127.0.0.1:9100";
 
     const demoPanels = demoConfig.panels.filter(
       (panel) => panel.source === "demo",
@@ -112,7 +112,7 @@ describe("dashboard catalog", () => {
       values[filter.id] = filter.default ?? "";
     }
     values.job = "node";
-    values.instance = "localhost:9100";
+    values.instance = "127.0.0.1:9100";
 
     const prometheusPanels = config.panels.filter(
       (panel) => panel.source === "prometheus",

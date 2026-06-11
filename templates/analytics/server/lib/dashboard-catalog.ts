@@ -896,7 +896,7 @@ function buildNodeExporterMacos(): SqlDashboardConfig {
         id: "instance",
         type: "text",
         label: "Instance",
-        default: "localhost:9100",
+        default: "127.0.0.1:9100",
       },
     ],
     variables: {

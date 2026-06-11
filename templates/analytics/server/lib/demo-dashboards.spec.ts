@@ -26,7 +26,7 @@ const mocks = vi.hoisted(() => {
       filters: [
         { id: "range", type: "select", default: "6h" },
         { id: "job", type: "text", default: "node" },
-        { id: "instance", type: "text", default: "localhost:9100" },
+        { id: "instance", type: "text", default: "127.0.0.1:9100" },
       ],
       panels: [
         {
