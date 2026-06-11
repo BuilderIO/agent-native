@@ -63,6 +63,7 @@ interface AttendeeAutocompleteProps {
   className?: string;
   inputClassName?: string;
   onEscape?: () => void;
+  onEmptyEnter?: () => void;
 }
 
 function parseEmails(value: string): string[] {
@@ -125,6 +126,7 @@ export const AttendeeAutocomplete = forwardRef<
     className,
     inputClassName,
     onEscape,
+    onEmptyEnter,
   },
   ref,
 ) {
@@ -295,6 +297,11 @@ export const AttendeeAutocomplete = forwardRef<
       if (shouldShowPopover || inputValue.trim()) {
         event.preventDefault();
         commitActiveOrManual();
+        return;
+      }
+      if (event.key === "Enter" && onEmptyEnter) {
+        event.preventDefault();
+        onEmptyEnter();
       }
       return;
     }

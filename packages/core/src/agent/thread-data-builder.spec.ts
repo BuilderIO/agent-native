@@ -107,6 +107,57 @@ describe("buildAssistantMessage", () => {
     ]);
   });
 
+  it("settles unresolved tool calls on terminal rebuilt messages", () => {
+    const message = buildAssistantMessage(
+      [
+        {
+          seq: 0,
+          event: {
+            type: "tool_start",
+            tool: "save-analysis",
+            input: { id: "stale-analysis" },
+          },
+        },
+        { seq: 1, event: { type: "done" } },
+      ],
+      "run-stale-tool",
+      { turnId: "turn-stale-tool" },
+    );
+
+    expect(message?.content).toEqual([
+      expect.objectContaining({
+        type: "tool-call",
+        toolName: "save-analysis",
+        result: "Interrupted before this tool returned a result.",
+      }),
+    ]);
+  });
+
+  it("keeps unresolved tool calls pending at internal continuation boundaries", () => {
+    const message = buildAssistantMessage(
+      [
+        {
+          seq: 0,
+          event: {
+            type: "tool_start",
+            tool: "save-analysis",
+            input: { id: "continuing-analysis" },
+          },
+        },
+        { seq: 1, event: { type: "auto_continue", reason: "run_timeout" } },
+      ],
+      "run-continuing-tool",
+      { suppressInternalContinuation: true, turnId: "turn-continuing-tool" },
+    );
+
+    expect(message?.content).toEqual([
+      expect.not.objectContaining({ result: expect.any(String) }),
+    ]);
+    expect(message?.metadata).toMatchObject({
+      custom: { continued: true },
+    });
+  });
+
   it("persists partial output from recoverable gateway errors when suppressed", () => {
     const events: RunEvent[] = [
       { seq: 0, event: { type: "text", text: "checking..." } },

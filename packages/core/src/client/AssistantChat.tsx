@@ -50,6 +50,7 @@ import {
   AgentAutoContinueSignal,
   type ContentPart,
   readSSEStreamRaw,
+  settleInterruptedToolCalls,
 } from "./sse-event-processor.js";
 import { captureError } from "./analytics.js";
 import {
@@ -724,6 +725,14 @@ function ensureMessageMetadata(repo: any): any {
           ? { type: "incomplete", reason: "error" }
           : { type: "complete", reason: "stop" };
       }
+      if (
+        Array.isArray(msg.content) &&
+        (isTerminal ||
+          msg.status?.type === "complete" ||
+          msg.status?.type === "incomplete")
+      ) {
+        settleInterruptedToolCalls(msg.content);
+      }
     }
   }
   return repo;
@@ -1374,6 +1383,7 @@ const AssistantChatInner = forwardRef<
           } catch {
             // Best effort — the important part is unwinding the UI.
           }
+          settleInterruptedToolCalls(latestContent);
           setReconnectContent([...latestContent]);
           setReconnectFrozen(latestContent.length > 0);
           setRunErrorInfo({
@@ -2014,6 +2024,8 @@ const AssistantChatInner = forwardRef<
   const materializeFrozenReconnectContent = useCallback(() => {
     if (!reconnectFrozen || reconnectContent.length === 0) return;
     try {
+      const frozenContent = cloneContentParts(reconnectContent);
+      settleInterruptedToolCalls(frozenContent);
       const repo = normalizeThreadRepository(threadRuntime.export());
       const messages = getRepoMessages(repo);
       const lastEntry = messages[messages.length - 1];
@@ -2035,7 +2047,7 @@ const AssistantChatInner = forwardRef<
             id,
             role: "assistant",
             createdAt: new Date(),
-            content: cloneContentParts(reconnectContent),
+            content: frozenContent,
             status: { type: "complete", reason: "stop" },
             metadata: {
               custom: {

@@ -794,6 +794,7 @@ describe("run manager soft timeout", () => {
     expect(result).toMatchObject({
       runId: "run-recent-completed",
       threadId: "thread-recent",
+      turnId: "run-recent-completed",
       status: "completed",
       heartbeatAt: expect.any(Number),
     });

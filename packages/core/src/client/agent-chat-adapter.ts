@@ -9,6 +9,7 @@ import {
   type AgentActivityTrailEntry,
   type ContentPart,
   readSSEStream,
+  settleInterruptedToolCalls,
 } from "./sse-event-processor.js";
 import { agentNativePath } from "./api-path.js";
 import { formatChatErrorText, normalizeChatError } from "./error-format.js";
@@ -1475,6 +1476,13 @@ export function createAgentChatAdapter(
               }
               const active = await activeRes.json();
               if (active?.active && active.runId) {
+                const activeStatus =
+                  typeof active.status === "string" ? active.status : "";
+                const activeTurnId =
+                  typeof active.turnId === "string" ? active.turnId : "";
+                if (activeStatus !== "running" && activeTurnId !== turnId) {
+                  return false;
+                }
                 const activeRunId = String(active.runId);
                 runId = activeRunId;
                 if (!attemptedRunIds.includes(activeRunId)) {
@@ -1976,6 +1984,7 @@ export function createAgentChatAdapter(
                     }),
                   );
                 }
+                settleInterruptedToolCalls(content);
                 content.push({
                   type: "text",
                   text: `Something went wrong: ${message}`,
@@ -2122,6 +2131,7 @@ export function createAgentChatAdapter(
                     }),
                   );
                 }
+                settleInterruptedToolCalls(content);
                 content.push({
                   type: "text",
                   text: `Something went wrong: ${message}`,

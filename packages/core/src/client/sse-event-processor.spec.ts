@@ -708,6 +708,38 @@ describe("SSE event processor error classification", () => {
     expect(second.done).toBe(true);
   });
 
+  it("settles pending tool calls when a terminal stream error arrives", async () => {
+    const results = await drain(
+      readSSEStream(
+        eventStream([
+          {
+            type: "tool_start",
+            tool: "save-analysis",
+            input: { id: "plane-analysis" },
+          },
+          {
+            type: "error",
+            error: "Gateway error",
+            errorCode: "builder_gateway_error",
+          },
+        ]),
+        [],
+        { value: 0 },
+        "tab-terminal-error",
+      ),
+    );
+
+    const last = results.at(-1) as any;
+    const tool = last.content.find(
+      (part: any) =>
+        part.type === "tool-call" && part.toolName === "save-analysis",
+    );
+    expect(tool?.result).toBe(
+      "Interrupted before this tool returned a result.",
+    );
+    expect(last.status).toEqual({ type: "incomplete", reason: "error" });
+  });
+
   it("surfaces daily gateway caps instead of looping auto-continuation", async () => {
     const iter = readSSEStream(
       eventStream([
