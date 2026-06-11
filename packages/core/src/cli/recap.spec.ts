@@ -1668,9 +1668,7 @@ describe("reusable caller workflow builder", () => {
     // Optional secrets shown as comments (not active).
     expect(yml).toContain("# OPENAI_API_KEY");
     expect(yml).toContain("# PLAN_RECAP_APP_URL");
-    expect(yml).toContain(
-      "agent: ${{ vars.VISUAL_RECAP_AGENT || 'claude' }}",
-    );
+    expect(yml).toContain("agent: ${{ vars.VISUAL_RECAP_AGENT || 'claude' }}");
     expect(yml).toContain("model: ${{ vars.VISUAL_RECAP_MODEL || '' }}");
     expect(yml).toContain(
       "reasoning: ${{ vars.VISUAL_RECAP_REASONING || '' }}",
