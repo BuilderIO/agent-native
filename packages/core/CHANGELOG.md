@@ -1,5 +1,18 @@
 # @agent-native/core
 
+## 0.49.3
+
+### Patch Changes
+
+- b7b105a: Canonicalize hosted Plans MCP connections to the `plan` server name and let the Plan template advertise that name from the connect flow.
+- b7b105a: Make `reconnect <url>` reauthenticate existing MCP entries instead of acting like first-time setup when duplicate server names point at the same URL.
+- b7b105a: Guard Builder gateway runs from stale or unsupported model IDs by normalizing
+  server-side model selection and tightening Builder model saves.
+- b7b105a: Render visual recap screenshot annotation overlays through a portal and capture
+  recap screenshots at 2x device scale.
+- b7b105a: Surface PR visual recap failure diagnostics from missing recap URLs, agent stderr,
+  exit codes, stale workflow result files, and reusable caller permission issues.
+
 ## 0.49.2
 
 ### Patch Changes
