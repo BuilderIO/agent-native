@@ -491,7 +491,9 @@ export function PlanContentRenderer({
   const renderedBlocks = useMemo(
     () =>
       hiddenChangedFileBlockIds.size > 0
-        ? content.blocks.filter((block) => !hiddenChangedFileBlockIds.has(block.id))
+        ? content.blocks.filter(
+            (block) => !hiddenChangedFileBlockIds.has(block.id),
+          )
         : content.blocks,
     [content.blocks, hiddenChangedFileBlockIds],
   );

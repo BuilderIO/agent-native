@@ -224,6 +224,11 @@ describe("PlanContentRenderer recap files sidebar", () => {
 
   it("can hide recap chrome, changed files, and contents for screenshot mode", () => {
     const content = recapContent();
+    content.blocks.unshift({
+      id: "files-heading",
+      type: "rich-text",
+      data: { markdown: "## Changed files" },
+    });
     content.blocks.push({
       id: "rt-c",
       type: "rich-text",
@@ -260,9 +265,13 @@ describe("PlanContentRenderer recap files sidebar", () => {
       ),
     ).toBeNull();
     expect(container.querySelector('[data-block-id="tree-1"]')).toBeNull();
+    expect(
+      container.querySelector('[data-block-id="files-heading"]'),
+    ).toBeNull();
     expect(container.textContent).not.toContain(
       "Files changed (+1529 / -534, 9 files)",
     );
+    expect(container.textContent).not.toContain("Changed files");
     expect(container.textContent).not.toContain("packages/core/src/a.ts");
 
     expect(container.textContent).not.toContain("On this recap");
