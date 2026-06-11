@@ -113,6 +113,11 @@ export interface BlockRenderContext {
     options?: { className?: string },
   ) => React.ReactNode;
   /**
+   * Static capture mode: render every code/diff line annotation as a visible
+   * inline overlay instead of requiring hover.
+   */
+  showCodeAnnotationOverlays?: boolean;
+  /**
    * Render an inline, editable rich-markdown field. The auto-editor calls this
    * for a `markdown()`-tagged field so the app owns the editor wiring (collab,
    * autosave debounce, dialect) rather than core hardcoding it.

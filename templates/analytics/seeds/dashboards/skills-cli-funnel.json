@@ -1,0 +1,173 @@
+{
+  "name": "Skills CLI Funnel",
+  "description": "Install funnel for the `npx @agent-native/skills` and `npx @agent-native/core skills` CLIs, tracked via first-party analytics. Each run is a distinct session_id; unique installs are distinct anonymous_id. Source: first-party analytics_events.",
+  "columns": 3,
+  "panels": [
+    {
+      "id": "skills-cli-total-starts",
+      "title": "Total CLI starts",
+      "chartType": "metric",
+      "source": "first-party",
+      "width": 1,
+      "sql": "SELECT COUNT(*) AS count FROM analytics_events WHERE event_name = 'skills_cli started'",
+      "config": {
+        "yKey": "count",
+        "yFormatter": "number",
+        "description": "Every `skills_cli started` event"
+      }
+    },
+    {
+      "id": "skills-cli-unique-installs",
+      "title": "Unique installs (people)",
+      "chartType": "metric",
+      "source": "first-party",
+      "width": 1,
+      "sql": "SELECT COUNT(DISTINCT anonymous_id) AS count FROM analytics_events WHERE event_name LIKE 'skills_cli %'",
+      "config": {
+        "yKey": "count",
+        "yFormatter": "number",
+        "description": "Distinct anonymous_id (per-machine install id)"
+      }
+    },
+    {
+      "id": "skills-cli-completed-installs",
+      "title": "Completed installs",
+      "chartType": "metric",
+      "source": "first-party",
+      "width": 1,
+      "sql": "SELECT COUNT(DISTINCT session_id) AS count FROM analytics_events WHERE event_name = 'skills_cli install completed'",
+      "config": {
+        "yKey": "count",
+        "yFormatter": "number",
+        "description": "Distinct runs that reached install completed"
+      }
+    },
+    {
+      "id": "skills-cli-completion-rate",
+      "title": "Overall completion rate",
+      "chartType": "metric",
+      "source": "first-party",
+      "width": 1,
+      "sql": "WITH started AS (SELECT COUNT(DISTINCT session_id) AS n FROM analytics_events WHERE event_name = 'skills_cli started'), completed AS (SELECT COUNT(DISTINCT session_id) AS n FROM analytics_events WHERE event_name = 'skills_cli install completed') SELECT CASE WHEN started.n = 0 THEN 0 ELSE ROUND(completed.n * 100.0 / started.n) END AS rate FROM started, completed",
+      "config": {
+        "yKey": "rate",
+        "yFormatter": "percent",
+        "description": "Distinct sessions reaching install completed / distinct sessions that started, x100"
+      }
+    },
+    {
+      "id": "skills-cli-funnel-by-step",
+      "title": "Funnel by step",
+      "chartType": "bar",
+      "source": "first-party",
+      "width": 2,
+      "sql": "WITH steps AS (SELECT 1 AS step_order, 'Started' AS step, COUNT(DISTINCT session_id) AS count FROM analytics_events WHERE event_name = 'skills_cli started' UNION ALL SELECT 2, 'Skills prompted', COUNT(DISTINCT session_id) FROM analytics_events WHERE event_name = 'skills_cli skills prompted' UNION ALL SELECT 3, 'Skills selected', COUNT(DISTINCT session_id) FROM analytics_events WHERE event_name = 'skills_cli skills selected' UNION ALL SELECT 4, 'Clients selected', COUNT(DISTINCT session_id) FROM analytics_events WHERE event_name = 'skills_cli clients selected' UNION ALL SELECT 5, 'Scope selected', COUNT(DISTINCT session_id) FROM analytics_events WHERE event_name = 'skills_cli scope selected' UNION ALL SELECT 6, 'Install completed', COUNT(DISTINCT session_id) FROM analytics_events WHERE event_name = 'skills_cli install completed' UNION ALL SELECT 7, 'Completed', COUNT(DISTINCT session_id) FROM analytics_events WHERE event_name = 'skills_cli completed') SELECT step, count FROM steps ORDER BY step_order",
+      "config": {
+        "xKey": "step",
+        "yKey": "count",
+        "color": "var(--brand-blue)",
+        "description": "Distinct runs (session_id) reaching each step, in funnel order"
+      }
+    },
+    {
+      "id": "skills-cli-skills-popularity",
+      "title": "Skills selected (popularity)",
+      "chartType": "bar",
+      "source": "first-party",
+      "width": 1,
+      "sql": "SELECT trim(s) AS skill, COUNT(*) AS count FROM analytics_events, LATERAL unnest(string_to_array(properties::jsonb ->> 'selected', ',')) AS s WHERE event_name = 'skills_cli skills selected' AND (properties::jsonb ->> 'selected') <> '' GROUP BY trim(s) ORDER BY count DESC LIMIT 30",
+      "config": {
+        "xKey": "skill",
+        "yKey": "count",
+        "color": "var(--brand-teal)",
+        "description": "Occurrences of each skill across the `selected` property of skills selected events"
+      }
+    },
+    {
+      "id": "skills-cli-starts-over-time",
+      "title": "CLI starts over time",
+      "chartType": "area",
+      "source": "first-party",
+      "width": 2,
+      "sql": "SELECT substr(timestamp, 1, 10) AS date, COUNT(*) AS count FROM analytics_events WHERE event_name = 'skills_cli started' GROUP BY substr(timestamp, 1, 10) ORDER BY date",
+      "config": {
+        "xKey": "date",
+        "yKey": "count",
+        "color": "var(--brand-blue)",
+        "description": "Daily count of skills_cli started"
+      }
+    },
+    {
+      "id": "skills-cli-starts-by-cli",
+      "title": "Starts by CLI",
+      "chartType": "bar",
+      "source": "first-party",
+      "width": 1,
+      "sql": "SELECT COALESCE(NULLIF(properties::jsonb ->> 'cli', ''), 'unknown') AS cli, COUNT(*) AS count FROM analytics_events WHERE event_name = 'skills_cli started' GROUP BY COALESCE(NULLIF(properties::jsonb ->> 'cli', ''), 'unknown') ORDER BY count DESC",
+      "config": {
+        "xKey": "cli",
+        "yKey": "count",
+        "color": "#10b981",
+        "description": "@agent-native/skills (skills-installer) vs core"
+      }
+    },
+    {
+      "id": "skills-cli-starts-by-platform",
+      "title": "Starts by platform",
+      "chartType": "bar",
+      "source": "first-party",
+      "width": 1,
+      "sql": "SELECT COALESCE(NULLIF(properties::jsonb ->> 'platform', ''), 'unknown') AS platform, COUNT(*) AS count FROM analytics_events WHERE event_name = 'skills_cli started' GROUP BY COALESCE(NULLIF(properties::jsonb ->> 'platform', ''), 'unknown') ORDER BY count DESC",
+      "config": {
+        "xKey": "platform",
+        "yKey": "count",
+        "color": "#f59e0b",
+        "description": "darwin / linux / win32"
+      }
+    },
+    {
+      "id": "skills-cli-scope-chosen",
+      "title": "Scope chosen",
+      "chartType": "bar",
+      "source": "first-party",
+      "width": 1,
+      "sql": "SELECT COALESCE(NULLIF(properties::jsonb ->> 'scope', ''), 'unknown') AS scope, COUNT(*) AS count FROM analytics_events WHERE event_name = 'skills_cli scope selected' GROUP BY COALESCE(NULLIF(properties::jsonb ->> 'scope', ''), 'unknown') ORDER BY count DESC",
+      "config": {
+        "xKey": "scope",
+        "yKey": "count",
+        "color": "#06b6d4",
+        "description": "project vs user scope at the scope step"
+      }
+    },
+    {
+      "id": "skills-cli-clients-chosen",
+      "title": "Clients chosen",
+      "chartType": "bar",
+      "source": "first-party",
+      "width": 1,
+      "sql": "SELECT trim(c) AS client, COUNT(*) AS count FROM analytics_events, LATERAL unnest(string_to_array(properties::jsonb ->> 'clients', ',')) AS c WHERE event_name = 'skills_cli clients selected' AND (properties::jsonb ->> 'clients') <> '' GROUP BY trim(c) ORDER BY count DESC LIMIT 30",
+      "config": {
+        "xKey": "client",
+        "yKey": "count",
+        "color": "#a855f7",
+        "description": "Occurrences of each client across the `clients` property of clients selected events"
+      }
+    },
+    {
+      "id": "skills-cli-dropoff-table",
+      "title": "Dropoff between steps",
+      "chartType": "table",
+      "source": "first-party",
+      "width": 3,
+      "sql": "WITH steps AS (SELECT 1 AS step_order, 'Started' AS step, COUNT(DISTINCT session_id) AS reached FROM analytics_events WHERE event_name = 'skills_cli started' UNION ALL SELECT 2, 'Skills prompted', COUNT(DISTINCT session_id) FROM analytics_events WHERE event_name = 'skills_cli skills prompted' UNION ALL SELECT 3, 'Skills selected', COUNT(DISTINCT session_id) FROM analytics_events WHERE event_name = 'skills_cli skills selected' UNION ALL SELECT 4, 'Clients selected', COUNT(DISTINCT session_id) FROM analytics_events WHERE event_name = 'skills_cli clients selected' UNION ALL SELECT 5, 'Scope selected', COUNT(DISTINCT session_id) FROM analytics_events WHERE event_name = 'skills_cli scope selected' UNION ALL SELECT 6, 'Install completed', COUNT(DISTINCT session_id) FROM analytics_events WHERE event_name = 'skills_cli install completed' UNION ALL SELECT 7, 'Completed', COUNT(DISTINCT session_id) FROM analytics_events WHERE event_name = 'skills_cli completed'), start_total AS (SELECT COUNT(DISTINCT session_id) AS n FROM analytics_events WHERE event_name = 'skills_cli started') SELECT steps.step, steps.reached, CASE WHEN start_total.n = 0 THEN 0 ELSE ROUND(steps.reached * 100.0 / start_total.n) END AS pct_of_start FROM steps, start_total ORDER BY steps.step_order",
+      "config": {
+        "description": "Distinct runs reaching each step and percent of starting runs, in funnel order",
+        "columns": [
+          { "key": "step", "label": "Step", "format": "text" },
+          { "key": "reached", "label": "Reached (runs)", "format": "number" },
+          { "key": "pct_of_start", "label": "% of start", "format": "percent" }
+        ]
+      }
+    }
+  ]
+}

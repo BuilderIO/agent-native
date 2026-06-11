@@ -252,6 +252,39 @@ export function AnnotationHiddenStack<A extends RailAnnotation>({
   );
 }
 
+export function AnnotationInlineOverlayStack<A extends RailAnnotation>({
+  items,
+  ctx,
+  showMarker = false,
+}: {
+  items: ResolvedAnnotation<A>[];
+  ctx: BlockRenderContext;
+  showMarker?: boolean;
+}) {
+  const resolved = items.filter((item) => item.range);
+  if (resolved.length === 0) return null;
+  return (
+    <div
+      aria-hidden
+      data-annotation-inline-overlay
+      className="pointer-events-none sticky right-3 z-20 ml-auto h-0 w-0 shrink-0 overflow-visible"
+    >
+      <div className="absolute right-0 top-1/2 flex w-[min(20rem,45vw)] -translate-y-1/2 flex-col gap-2">
+        {resolved.map((item) => (
+          <AnnotationCard
+            key={item.index}
+            item={item}
+            ctx={ctx}
+            active
+            showMarker={showMarker}
+            className="border-amber-400/80 bg-amber-50/95 shadow-lg shadow-black/10 dark:border-amber-300/45 dark:bg-amber-300/[0.09] dark:shadow-black/40"
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
 /* ── Hover popover (portal, anchored beside the code) ──────────────────────── */
 
 /** The geometry the hover card anchors to (in viewport coordinates). */

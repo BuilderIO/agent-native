@@ -9,7 +9,9 @@ import os from "node:os";
 import path from "node:path";
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
+import { fileURLToPath } from "node:url";
 
+import { createCliTelemetry, type CliTelemetry } from "./telemetry.js";
 import {
   buildAppSkillPack,
   ensureAppSkill,
@@ -2151,6 +2153,13 @@ interface RunSkillsOptions {
    * browser/device OAuth round-trip.
    */
   runConnect?: (args: string[]) => Promise<void>;
+  /**
+   * Best-effort install-funnel telemetry. Created once per `runSkills` run and
+   * threaded through resolution/install/connect so each `track` is fire-and-
+   * forget and never blocks or throws into the install flow. Absent when
+   * `addAgentNativeSkill` is called directly (e.g. tests).
+   */
+  telemetry?: CliTelemetry;
 }
 
 interface SkillsClientPromptContext {
@@ -2764,9 +2773,16 @@ async function resolveSkillTargets(
     return [parsed.target ?? "assets"];
   }
   const prompt = options.promptSkills ?? promptForSkills;
+  const promptOptions = skillPromptOptions();
+  // The interactive multiselect skill picker is about to be shown (no --skill /
+  // target passed and we are interactive) — record the funnel "prompted" step.
+  options.telemetry?.track("skills_cli skills prompted", {
+    availableCount: promptOptions.length,
+    available: promptOptions.map((option) => option.value).join(","),
+  });
   const selected = await prompt({
     initialTargets: ["visual-plan", "visual-recap"],
-    options: skillPromptOptions(),
+    options: promptOptions,
   });
   if (!selected || selected.length === 0) return null;
   // Both plan skills share one MCP connector, so when both are selected install
@@ -3186,6 +3202,12 @@ async function addPlainSkillRepo(
     if (code !== 0)
       throw new Error(`npx @agent-native/skills add exited with ${code}.`);
   }
+  options.telemetry?.track("skills_cli install completed", {
+    skills: target,
+    clients: clients.join(","),
+    scope: parsed.scope,
+    dryRun: Boolean(parsed.dryRun),
+  });
   return {
     id: target,
     displayName: target,
@@ -3261,6 +3283,7 @@ async function connectAfterEnsure(
   }
 
   options.log?.(`Authenticating ${installTarget.displayName}…`);
+  options.telemetry?.track("skills_cli connect started");
   try {
     await (options.runConnect ?? runConnect)([
       hostedUrl,
@@ -3269,9 +3292,13 @@ async function connectAfterEnsure(
       "--scope",
       parsed.scope,
     ]);
+    options.telemetry?.track("skills_cli connect completed");
     return { connected: true, connectCommand: "" };
   } catch (err: any) {
     // Non-fatal: the MCP connector is registered. Surface the manual command.
+    options.telemetry?.track("skills_cli connect failed", {
+      error: err?.message ?? String(err),
+    });
     options.log?.(
       `Could not finish authentication automatically (${err?.message ?? err}). ` +
         `Run it later with: ${connectCommand}`,
@@ -3322,6 +3349,12 @@ export async function addAgentNativeSkill(
         parsed.withGithubAction && knownTarget === "visual-plans"
           ? prVisualRecapWorkflowDisplayPath()
           : undefined;
+      options.telemetry?.track("skills_cli install completed", {
+        skills: knownBuiltIn.skillName,
+        clients: clients.join(","),
+        scope: parsed.scope,
+        dryRun: true,
+      });
       return {
         id: knownBuiltIn.manifest.id,
         displayName: knownBuiltIn.manifest.displayName,
@@ -3339,6 +3372,12 @@ export async function addAgentNativeSkill(
       baseDir: options.baseDir ?? process.cwd(),
       clients,
       scope: parsed.scope,
+    });
+    options.telemetry?.track("skills_cli install completed", {
+      skills: knownBuiltIn.skillName,
+      clients: clients.join(","),
+      scope: parsed.scope,
+      dryRun: false,
     });
     return {
       id: knownBuiltIn.manifest.id,
@@ -3372,6 +3411,12 @@ export async function addAgentNativeSkill(
         installsRecap && !parsed.withGithubAction
           ? prVisualRecapInstallCommand()
           : undefined;
+      options.telemetry?.track("skills_cli install completed", {
+        skills: installTarget.skillNames.join(","),
+        clients: clients.join(","),
+        scope: parsed.scope,
+        dryRun: true,
+      });
       return {
         id: installTarget.id,
         displayName: installTarget.displayName,
@@ -3447,6 +3492,15 @@ export async function addAgentNativeSkill(
       }
     }
 
+    // Skill instructions are now on disk (built-in folders copied or external
+    // pack materialized) — record the install before MCP registration/connect.
+    options.telemetry?.track("skills_cli install completed", {
+      skills: installTarget.skillNames.join(","),
+      clients: clients.join(","),
+      scope: parsed.scope,
+      dryRun: Boolean(parsed.dryRun),
+    });
+
     if (parsed.mcp) {
       commands.push(
         `npx @agent-native/core@latest app-skill ensure --manifest ${installTarget.loaded.file} --client ${parsed.client} --scope ${parsed.scope} --yes`,
@@ -3459,6 +3513,9 @@ export async function addAgentNativeSkill(
           yes: parsed.yes || Boolean(knownTarget),
           confirm: true,
           log: options.log,
+        });
+        options.telemetry?.track("skills_cli mcp registered", {
+          skills: installTarget.skillNames.join(","),
         });
 
         // One-step install + authenticate: after registering a hosted MCP
@@ -3493,11 +3550,16 @@ export async function addAgentNativeSkill(
     ) {
       if (shouldPrompt(parsed, options)) {
         const prompt = options.promptGithubAction ?? promptForGithubAction;
-        withGithubAction =
-          (await prompt({
-            workflowPath: prVisualRecapWorkflowDisplayPath(),
-            setupCommand: prVisualRecapSetupCommand(),
-          })) === true;
+        const choice = await prompt({
+          workflowPath: prVisualRecapWorkflowDisplayPath(),
+          setupCommand: prVisualRecapSetupCommand(),
+        });
+        if (choice === null) {
+          options.telemetry?.track("skills_cli cancelled", {
+            step: "github-action",
+          });
+        }
+        withGithubAction = choice === true;
       }
       if (!withGithubAction) {
         githubActionSuggestedCommand = prVisualRecapInstallCommand();
@@ -3520,6 +3582,7 @@ export async function addAgentNativeSkill(
         githubActionExisted =
           writeResult.status === "written" ? writeResult.existed : false;
         commands.push(`write ${writeResult.path}`);
+        options.telemetry?.track("skills_cli github action added");
       }
     }
 
@@ -3646,6 +3709,23 @@ function runSkillsStatusOrUpdate(
   process.stdout.write(`${rows.join("\n")}\n`);
 }
 
+/**
+ * Resolve the CLI version the same way `index.ts` does — read it from the
+ * package.json two levels up from the compiled module (dist/cli/skills.js →
+ * ../../package.json). Best-effort: falls back to "unknown".
+ */
+function readCliVersion(): string {
+  try {
+    const here = path.dirname(fileURLToPath(import.meta.url));
+    const pkg = JSON.parse(
+      fs.readFileSync(path.resolve(here, "../../package.json"), "utf8"),
+    ) as { version?: unknown };
+    return typeof pkg.version === "string" ? pkg.version : "unknown";
+  } catch {
+    return "unknown";
+  }
+}
+
 export async function runSkills(
   argv: string[],
   options: RunSkillsOptions = {},
@@ -3660,150 +3740,225 @@ export async function runSkills(
     return;
   }
 
-  if (parsed.command === "list") {
-    const skills = listSkills();
-    if (parsed.printJson) {
-      process.stdout.write(`${JSON.stringify(skills, null, 2)}\n`);
+  // Best-effort install-funnel telemetry. Created once per run and flushed in a
+  // finally so events send on success, error, and cancellation — the CLI is
+  // short-lived, so flushing before exit is essential or the events never send.
+  const startedAt = Date.now();
+  const telemetry =
+    options.telemetry ??
+    createCliTelemetry({
+      cli: "core",
+      cliVersion: readCliVersion(),
+      command: parsed.command,
+      interactive: shouldPrompt(parsed, options),
+    });
+  const optionsWithTelemetry: RunSkillsOptions = { ...options, telemetry };
+
+  try {
+    telemetry.track("skills_cli started");
+
+    if (parsed.command === "list") {
+      const skills = listSkills();
+      telemetry.track("skills_cli skills listed", {
+        availableCount: skills.length,
+        available: skills.map((skill) => skill.id).join(","),
+      });
+      if (parsed.printJson) {
+        process.stdout.write(`${JSON.stringify(skills, null, 2)}\n`);
+        return;
+      }
+      for (const skill of skills) {
+        const description = skill.description.replace(/[.?!]?$/, ".");
+        const aliases = skill.aliases.length
+          ? ` Aliases: ${skill.aliases.join(", ")}.`
+          : "";
+        const target = skill.local ? "local command" : skill.mcpUrl;
+        process.stdout.write(
+          `${skill.id.padEnd(12)} ${description}${aliases} (${target})\n`,
+        );
+      }
       return;
     }
-    for (const skill of skills) {
-      const description = skill.description.replace(/[.?!]?$/, ".");
-      const aliases = skill.aliases.length
-        ? ` Aliases: ${skill.aliases.join(", ")}.`
-        : "";
-      const target = skill.local ? "local command" : skill.mcpUrl;
-      process.stdout.write(
-        `${skill.id.padEnd(12)} ${description}${aliases} (${target})\n`,
+
+    if (parsed.command === "status" || parsed.command === "update") {
+      runSkillsStatusOrUpdate(parsed, options, parsed.command === "update");
+      return;
+    }
+
+    const targets = await resolveSkillTargets(parsed, optionsWithTelemetry);
+    if (!targets) {
+      telemetry.track("skills_cli cancelled", { step: "skills" });
+      return;
+    }
+    const preselected = Boolean(parsed.target);
+    telemetry.track("skills_cli skills selected", {
+      selected: targets.join(","),
+      selectedCount: targets.length,
+      // Best-effort "took everything offered" signal: compare against the
+      // interactive picker's option count (the plan sub-skills collapse into a
+      // single bundle target, so this is approximate, like the standalone CLI).
+      selectedAll: targets.length === skillPromptOptions().length,
+      preselected,
+    });
+
+    const clients = await resolveSkillsClients(parsed, optionsWithTelemetry);
+    if (!clients) {
+      telemetry.track("skills_cli cancelled", { step: "clients" });
+      return;
+    }
+    telemetry.track("skills_cli clients selected", {
+      clients: clients.join(","),
+      clientCount: clients.length,
+    });
+
+    // Ask where to install (project vs user) unless an explicit --scope was
+    // passed or we are running non-interactively.
+    if (!parsed.scopeExplicit && shouldPrompt(parsed, options)) {
+      const promptScope = options.promptScope ?? promptForScope;
+      const scope = await promptScope({ initialScope: "project" });
+      if (!scope) {
+        telemetry.track("skills_cli cancelled", { step: "scope" });
+        return;
+      }
+      parsed.scope = scope;
+    }
+    telemetry.track("skills_cli scope selected", { scope: parsed.scope });
+
+    const results: SkillsAddResult[] = [];
+    for (const target of targets) {
+      results.push(
+        await addAgentNativeSkill(
+          {
+            ...parsed,
+            target,
+            client: clientArgForClients(clients),
+            clients,
+          },
+          {
+            ...optionsWithTelemetry,
+            log,
+          },
+        ),
       );
     }
-    return;
-  }
 
-  if (parsed.command === "status" || parsed.command === "update") {
-    runSkillsStatusOrUpdate(parsed, options, parsed.command === "update");
-    return;
-  }
+    // The add flow succeeded for every target — record the funnel completion
+    // before printing output (output below cannot fail the install).
+    const completedSkills = [
+      ...new Set(results.flatMap((result) => result.skillNames)),
+    ];
+    const completedClients = [
+      ...new Set(results.flatMap((result) => result.mcpClients)),
+    ];
+    telemetry.track("skills_cli completed", {
+      skills: completedSkills.join(","),
+      clients: completedClients.join(","),
+      scope: parsed.scope,
+      durationMs: Date.now() - startedAt,
+    });
 
-  const targets = await resolveSkillTargets(parsed, options);
-  if (!targets) return;
-  const clients = await resolveSkillsClients(parsed, options);
-  if (!clients) return;
+    if (parsed.printJson) {
+      process.stdout.write(
+        `${JSON.stringify(results.length === 1 ? results[0] : results, null, 2)}\n`,
+      );
+      return;
+    }
 
-  // Ask where to install (project vs user) unless an explicit --scope was
-  // passed or we are running non-interactively.
-  if (!parsed.scopeExplicit && shouldPrompt(parsed, options)) {
-    const promptScope = options.promptScope ?? promptForScope;
-    const scope = await promptScope({ initialScope: "project" });
-    if (!scope) return;
-    parsed.scope = scope;
-  }
+    if (parsed.dryRun) {
+      process.stdout.write(
+        `${results.flatMap((result) => result.commands).join("\n")}\n`,
+      );
+      return;
+    }
 
-  const results: SkillsAddResult[] = [];
-  for (const target of targets) {
-    results.push(
-      await addAgentNativeSkill(
-        {
-          ...parsed,
-          target,
-          client: clientArgForClients(clients),
-          clients,
-        },
-        {
-          ...options,
-          log,
-        },
+    const installedNames = results
+      .map((result) => result.displayName)
+      .join(", ");
+    const skillsAgents = [
+      ...new Set(results.flatMap((result) => result.skillsAgents)),
+    ];
+    const mcpClients = [
+      ...new Set(results.flatMap((result) => result.mcpClients)),
+    ];
+    const mcpUrls = [
+      ...new Set(results.map((result) => result.mcpUrl).filter(Boolean)),
+    ];
+    const localCommands = [
+      ...new Set(
+        results
+          .filter((result) => result.local)
+          .flatMap((result) => result.commands),
       ),
-    );
-  }
-
-  if (parsed.printJson) {
-    process.stdout.write(
-      `${JSON.stringify(results.length === 1 ? results[0] : results, null, 2)}\n`,
-    );
-    return;
-  }
-
-  if (parsed.dryRun) {
-    process.stdout.write(
-      `${results.flatMap((result) => result.commands).join("\n")}\n`,
-    );
-    return;
-  }
-
-  const installedNames = results.map((result) => result.displayName).join(", ");
-  const skillsAgents = [
-    ...new Set(results.flatMap((result) => result.skillsAgents)),
-  ];
-  const mcpClients = [
-    ...new Set(results.flatMap((result) => result.mcpClients)),
-  ];
-  const mcpUrls = [
-    ...new Set(results.map((result) => result.mcpUrl).filter(Boolean)),
-  ];
-  const localCommands = [
-    ...new Set(
-      results
-        .filter((result) => result.local)
-        .flatMap((result) => result.commands),
-    ),
-  ];
-  const authConnected = results.some((result) => result.connected);
-  const pendingConnectCommands = [
-    ...new Set(
-      results
-        .map((result) => result.connectCommand)
-        .filter((command): command is string => Boolean(command)),
-    ),
-  ];
-  const authLine = authConnected
-    ? "Authentication: completed."
-    : pendingConnectCommands.length
-      ? `Authentication: pending — run ${pendingConnectCommands.join(" && ")}`
+    ];
+    const authConnected = results.some((result) => result.connected);
+    const pendingConnectCommands = [
+      ...new Set(
+        results
+          .map((result) => result.connectCommand)
+          .filter((command): command is string => Boolean(command)),
+      ),
+    ];
+    const authLine = authConnected
+      ? "Authentication: completed."
+      : pendingConnectCommands.length
+        ? `Authentication: pending — run ${pendingConnectCommands.join(" && ")}`
+        : "";
+    const githubActions = [
+      ...new Set(
+        results
+          .map((result) => result.githubActionPath)
+          .filter((p): p is string => Boolean(p)),
+      ),
+    ];
+    const githubActionLine = githubActions.length
+      ? `PR Visual Recap workflow: wrote ${githubActions.join(", ")}.\nNext: run ${prVisualRecapSetupCommand()} to configure GitHub secrets/variables, or set them manually:\n  ${PR_VISUAL_RECAP_SETUP.join("\n  ")}`
       : "";
-  const githubActions = [
-    ...new Set(
-      results
-        .map((result) => result.githubActionPath)
-        .filter((p): p is string => Boolean(p)),
-    ),
-  ];
-  const githubActionLine = githubActions.length
-    ? `PR Visual Recap workflow: wrote ${githubActions.join(", ")}.\nNext: run ${prVisualRecapSetupCommand()} to configure GitHub secrets/variables, or set them manually:\n  ${PR_VISUAL_RECAP_SETUP.join("\n  ")}`
-    : "";
-  const githubActionSuggestions = [
-    ...new Set(
-      results
-        .map((result) => result.githubActionSuggestedCommand)
-        .filter((command): command is string => Boolean(command)),
-    ),
-  ];
-  const githubActionSuggestionLine = githubActionSuggestions.length
-    ? `Optional PR Visual Recap workflow: run ${githubActionSuggestions.join(
-        " && ",
-      )} to add automatic recap comments on pull requests.`
-    : "";
-  process.stdout.write(
-    [
-      `Installed ${installedNames} skill${results.length === 1 ? "" : "s"}.`,
-      skillsAgents.length
-        ? `Skill instructions: ${skillsAgents.join(", ")}.`
-        : "Skill instructions: skipped.",
-      mcpClients.length
-        ? `MCP config: ${mcpClients.join(", ")}.`
-        : "MCP config: not required.",
-      mcpUrls.length
-        ? `MCP URL${mcpUrls.length === 1 ? "" : "s"}: ${mcpUrls.join(", ")}.`
-        : "",
-      authLine,
-      githubActionLine,
-      githubActionSuggestionLine,
-      localCommands.length ? `Local command: ${localCommands.join(", ")}.` : "",
-      "Restart or reload selected agent clients if the skill is not visible yet.",
-      parsed.clientExplicit
-        ? ""
-        : `To add another client later, rerun with --client <client> (for example: --client claude-code).`,
-    ]
-      .filter(Boolean)
-      .join("\n") + "\n",
-  );
+    const githubActionSuggestions = [
+      ...new Set(
+        results
+          .map((result) => result.githubActionSuggestedCommand)
+          .filter((command): command is string => Boolean(command)),
+      ),
+    ];
+    const githubActionSuggestionLine = githubActionSuggestions.length
+      ? `Optional PR Visual Recap workflow: run ${githubActionSuggestions.join(
+          " && ",
+        )} to add automatic recap comments on pull requests.`
+      : "";
+    process.stdout.write(
+      [
+        `Installed ${installedNames} skill${results.length === 1 ? "" : "s"}.`,
+        skillsAgents.length
+          ? `Skill instructions: ${skillsAgents.join(", ")}.`
+          : "Skill instructions: skipped.",
+        mcpClients.length
+          ? `MCP config: ${mcpClients.join(", ")}.`
+          : "MCP config: not required.",
+        mcpUrls.length
+          ? `MCP URL${mcpUrls.length === 1 ? "" : "s"}: ${mcpUrls.join(", ")}.`
+          : "",
+        authLine,
+        githubActionLine,
+        githubActionSuggestionLine,
+        localCommands.length
+          ? `Local command: ${localCommands.join(", ")}.`
+          : "",
+        "Restart or reload selected agent clients if the skill is not visible yet.",
+        parsed.clientExplicit
+          ? ""
+          : `To add another client later, rerun with --client <client> (for example: --client claude-code).`,
+      ]
+        .filter(Boolean)
+        .join("\n") + "\n",
+    );
+  } catch (error) {
+    telemetry.track("skills_cli failed", {
+      command: parsed.command,
+      error: error instanceof Error ? error.message : String(error),
+      durationMs: Date.now() - startedAt,
+    });
+    throw error;
+  } finally {
+    await telemetry.flush();
+  }
 }

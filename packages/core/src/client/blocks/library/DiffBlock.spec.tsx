@@ -363,22 +363,25 @@ describe("DiffBlock annotations", () => {
     vi.unstubAllGlobals();
   });
 
-  function render(data: {
-    before: string;
-    after: string;
-    mode?: "unified" | "split";
-    annotations?: Array<{
-      side?: "before" | "after";
-      lines: string;
-      label?: string;
-      note: string;
-    }>;
-  }) {
+  function render(
+    data: {
+      before: string;
+      after: string;
+      mode?: "unified" | "split";
+      annotations?: Array<{
+        side?: "before" | "after";
+        lines: string;
+        label?: string;
+        note: string;
+      }>;
+    },
+    ctx: { showCodeAnnotationOverlays?: boolean } = {},
+  ) {
     act(() => {
       root.render(
         <DiffRead
           blockId="diff-anno"
-          ctx={{}}
+          ctx={ctx}
           data={{ filename: "src/example.ts", ...data }}
         />,
       );
@@ -430,6 +433,25 @@ describe("DiffBlock annotations", () => {
       container.querySelectorAll("span[aria-hidden]"),
     ).filter((el) => el.textContent?.trim() === "1");
     expect(pips).toHaveLength(2);
+  });
+
+  it("renders static annotation overlays when screenshot mode requests them", () => {
+    render(
+      {
+        before: "",
+        after: "const a = 1\nconst b = 2",
+        mode: "unified",
+        annotations: [
+          { lines: "2", label: "Changed", note: "Visible without hover." },
+        ],
+      },
+      { showCodeAnnotationOverlays: true },
+    );
+
+    const overlay = container.querySelector("[data-annotation-inline-overlay]");
+    expect(overlay).toBeTruthy();
+    expect(overlay?.textContent).toContain("Visible without hover.");
+    expect(document.querySelector("[data-annotation-hover-card]")).toBeNull();
   });
 
   it("anchors a multi-line annotation popover to the first row in the range", () => {

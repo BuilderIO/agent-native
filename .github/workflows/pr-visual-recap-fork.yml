@@ -416,6 +416,18 @@ jobs:
             echo "plan_url=" >> "$GITHUB_OUTPUT"; echo "ok=false" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Summarize agent failure
+        id: agent_summary
+        if: steps.url.outputs.ok != 'true' && steps.diff.outputs.tiny != 'true' && steps.scan.outputs.suppressed != 'true'
+        continue-on-error: true
+        env:
+          RECAP_AGENT: ${{ needs.gate.outputs.agent }}
+        run: |
+          set -uo pipefail
+          RESULT=claude-result.json
+          if [ "$RECAP_AGENT" = "codex" ]; then RESULT=codex-events.jsonl; fi
+          $RECAP_CLI recap agent-summary --agent "$RECAP_AGENT" --result-file "$RESULT" || true
+
       - name: Attach usage
         if: steps.url.outputs.ok == 'true'
         continue-on-error: true
@@ -470,6 +482,7 @@ jobs:
           DIFF_TINY: ${{ steps.diff.outputs.tiny }}
           PREV_PLAN_ID: ${{ steps.prev.outputs.plan_id }}
           RECAP_AUTH_FAILED: ${{ steps.auth_probe.outputs.auth_failed }}
+          RECAP_AGENT_SUMMARY: ${{ steps.agent_summary.outputs.summary }}
         run: |
           set -euo pipefail
           ARGS=(recap comment upsert --repo "$GITHUB_REPOSITORY" --issue "$PR_NUMBER" --token "$GH_TOKEN")
@@ -487,6 +500,7 @@ jobs:
           SUPPRESSED_JSON: ${{ steps.scan.outputs.json }}
           DIFF_HUGE: ${{ steps.diff.outputs.huge }}
           DIFF_TINY: ${{ steps.diff.outputs.tiny }}
+          RECAP_AGENT_SUMMARY: ${{ steps.agent_summary.outputs.summary }}
         run: |
           set -uo pipefail
           $RECAP_CLI recap check complete \
@@ -497,4 +511,5 @@ jobs:
             --suppressed-json "$SUPPRESSED_JSON" \
             --huge "$DIFF_HUGE" \
             --tiny "$DIFF_TINY" \
+            --failure-summary "$RECAP_AGENT_SUMMARY" \
             --workflow-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"

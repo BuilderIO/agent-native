@@ -789,6 +789,124 @@ export function diffContainsSecret(
   return false;
 }
 
+const AGENT_FAILURE_MAX_CHARS = 1200;
+
+function compactWhitespace(text: string): string {
+  return text.replace(/\s+/g, " ").trim();
+}
+
+export function sanitizeAgentFailureSummary(
+  value: string,
+  maxChars: number = AGENT_FAILURE_MAX_CHARS,
+): string {
+  const sanitizedLines = value
+    .replace(/\u001b\[[0-9;]*m/g, "")
+    .split("\n")
+    .map((line) => (lineLooksSecret(line) ? "[redacted sensitive line]" : line))
+    .map((line) =>
+      line
+        .replace(/Bearer\s+[A-Za-z0-9._-]{8,}/gi, "Bearer [redacted]")
+        .replace(/Authorization:\s*[^\s]+/gi, "Authorization: [redacted]")
+        .replace(/PLAN_RECAP_TOKEN=([^\s]+)/g, "PLAN_RECAP_TOKEN=[redacted]")
+        .replace(/ANTHROPIC_API_KEY=([^\s]+)/g, "ANTHROPIC_API_KEY=[redacted]")
+        .replace(/OPENAI_API_KEY=([^\s]+)/g, "OPENAI_API_KEY=[redacted]"),
+    )
+    .join("\n");
+  const compacted = compactWhitespace(sanitizedLines);
+  if (compacted.length <= maxChars) return compacted;
+  return `${compacted.slice(0, Math.max(0, maxChars - 1)).trimEnd()}…`;
+}
+
+function collectStringFields(
+  value: unknown,
+  fields: string[],
+  seen = new Set<unknown>(),
+): string[] {
+  if (!value || typeof value !== "object" || seen.has(value)) return [];
+  seen.add(value);
+  const obj = value as Record<string, unknown>;
+  const out: string[] = [];
+  for (const field of fields) {
+    const candidate = obj[field];
+    if (typeof candidate === "string" && candidate.trim()) {
+      out.push(candidate.trim());
+    }
+  }
+  for (const nested of Object.values(obj)) {
+    if (nested && typeof nested === "object") {
+      out.push(...collectStringFields(nested, fields, seen));
+    }
+  }
+  return out;
+}
+
+export function summarizeAgentResult(
+  agent: string,
+  resultText: string,
+): string {
+  const normalizedAgent = agent.toLowerCase();
+  const text = resultText.trim();
+  if (!text) return "";
+
+  if (normalizedAgent === "claude") {
+    const obj = parseLastJsonObject(text);
+    if (obj) {
+      const candidates = [
+        ...collectStringFields(obj, [
+          "error",
+          "message",
+          "result",
+          "reason",
+          "subtype",
+          "type",
+        ]),
+      ].filter(Boolean);
+      const preferred =
+        candidates.find((candidate) =>
+          /error|failed|denied|not found|unavailable|unauthorized|forbidden|tool/i.test(
+            candidate,
+          ),
+        ) ?? candidates[0];
+      if (preferred) return sanitizeAgentFailureSummary(preferred);
+    }
+  }
+
+  if (normalizedAgent === "codex") {
+    const candidates: string[] = [];
+    for (const line of text.split("\n")) {
+      const trimmed = line.trim();
+      if (!trimmed.startsWith("{")) continue;
+      try {
+        const obj = JSON.parse(trimmed);
+        candidates.push(
+          ...collectStringFields(obj, [
+            "error",
+            "message",
+            "text",
+            "delta",
+            "reason",
+            "type",
+          ]),
+        );
+      } catch {
+        // Keep scanning.
+      }
+    }
+    const newestFirst = [...candidates].reverse();
+    const preferred =
+      newestFirst.find(
+        (candidate) =>
+          candidate.length > 12 &&
+          /error|failed|denied|not found|unavailable|unauthorized|forbidden|tool/i.test(
+            candidate,
+          ),
+      ) ?? newestFirst[0];
+    if (preferred) return sanitizeAgentFailureSummary(preferred);
+  }
+
+  return sanitizeAgentFailureSummary(text);
+}
+
 /* -------------------------------------------------------------------------- */
 /* Bounded diff collection — was the workflow's "Collect bounded diff" step    */
 /* -------------------------------------------------------------------------- */
@@ -1456,6 +1574,7 @@ export function buildRecapPrompt(input: {
 const MARKER = "<!-- pr-visual-recap -->";
 const RECAP_IMAGE_URL_PATH_PATTERN =
   /\/_agent-native\/recap-image\/[0-9a-f]{32,128}\.png$/;
+const RECAP_SCREENSHOT_QUERY_PARAM = "recapScreenshot";
 
 type GitHubComment = {
   id: number;
@@ -1608,10 +1727,6 @@ function originOf(url: string): string {
 export function buildCommentBody(env: NodeJS.ProcessEnv = process.env): string {
   const lines: string[] = [MARKER];
 
-  // Short head SHA for the "as of" freshness line.
-  const headSha = (env.HEAD_SHA || "").trim();
-  const headShort = headSha ? headSha.slice(0, 7) : "";
-
   // Last-known plan id threaded from the previous run (supplied via PREV_PLAN_ID
   // when the comment is rebuilt from scratch, or parsed from the env on upsert).
   // We always emit the plan-id marker when any plan id is known so that a
@@ -1633,21 +1748,19 @@ export function buildCommentBody(env: NodeJS.ProcessEnv = process.env): string {
     );
     lines.push("");
     lines.push(`Reason: \`${reason}\`.`);
-    if (headShort) lines.push("", `_As of \`${headShort}\`_`);
     if (prevPlanId) lines.push("", `<!-- plan-id: ${prevPlanId} -->`);
     return lines.join("\n");
   }
 
   // Tiny diffs aren't worth a recap. Refresh an existing sticky comment to this
-  // state (the workflow only updates, never creates, on tiny) so it never lingers
-  // pointing at a stale head SHA.
+  // state (the workflow only updates, never creates, on tiny) so stale recap
+  // links do not linger on no-op changes.
   if (env.DIFF_TINY === "true") {
     lines.push("### Visual recap — skipped (diff too small)");
     lines.push("");
     lines.push(
       "The change in this pull request is too small to be worth a visual recap. This is informational only and does **not** block the PR.",
     );
-    if (headShort) lines.push("", `_As of \`${headShort}\`_`);
     if (prevPlanId) lines.push("", `<!-- plan-id: ${prevPlanId} -->`);
     return lines.join("\n");
   }
@@ -1675,6 +1788,10 @@ export function buildCommentBody(env: NodeJS.ProcessEnv = process.env): string {
 
   if (!safeUrl) {
     const authFailed = env.RECAP_AUTH_FAILED === "true";
+    const agentSummary = sanitizeAgentFailureSummary(
+      (env.RECAP_AGENT_SUMMARY || "").trim(),
+      800,
+    );
     lines.push("### Visual recap — generation failed");
     lines.push("");
     if (authFailed) {
@@ -1685,8 +1802,11 @@ export function buildCommentBody(env: NodeJS.ProcessEnv = process.env): string {
       lines.push(
         "The visual recap could not be generated for this pull request. This is informational only and does **not** block the PR.",
       );
+      if (agentSummary) {
+        lines.push("");
+        lines.push(`Agent output: ${agentSummary}`);
+      }
     }
-    if (headShort) lines.push("", `_As of \`${headShort}\`_`);
     // Keep a link to the last-good recap so reviewers are not left in the dark.
     if (prevPlanId && base) {
       const prevSafeUrl = `${base}/recaps/${prevPlanId}`;
@@ -1722,7 +1842,6 @@ export function buildCommentBody(env: NodeJS.ProcessEnv = process.env): string {
       "> Large diff — this recap is a **summarized** view (top files + schema/API deltas).",
     );
   }
-  if (headShort) lines.push("", `_As of \`${headShort}\`_`);
   lines.push("", `<!-- plan-id: ${planId} -->`);
   return lines.join("\n");
 }
@@ -1913,6 +2032,13 @@ export async function uploadRecapImage(input: {
 
 /** Mirrors RECAP_IMAGE_MAX_BYTES on the server — the route rejects larger PNGs. */
 const RECAP_SHOT_MAX_BYTES = 5 * 1024 * 1024;
+const RECAP_SHOT_WIDTH = 950;
+const RECAP_SHOT_MAX_HEIGHT = 2000;
+const RECAP_SHOT_VIEWPORT = {
+  width: RECAP_SHOT_WIDTH,
+  height: RECAP_SHOT_MAX_HEIGHT,
+};
+const RECAP_SHOT_DEVICE_SCALE_FACTOR = 1;
 
 type PlaywrightModule = { chromium: import("playwright").BrowserType };
 
@@ -1921,6 +2047,16 @@ async function defaultImportPlaywright(): Promise<PlaywrightModule> {
     return (await import("playwright")) as unknown as PlaywrightModule;
   } catch {
     return (await import("@playwright/test")) as unknown as PlaywrightModule;
+  }
+}
+
+export function withRecapScreenshotParams(url: string): string {
+  try {
+    const parsed = new URL(url);
+    parsed.searchParams.set(RECAP_SCREENSHOT_QUERY_PARAM, "1");
+    return parsed.toString();
+  } catch {
+    return url;
   }
 }
 
@@ -1959,6 +2095,7 @@ export async function runShot(
       return;
     }
   }
+  const captureUrl = withRecapScreenshotParams(url);
 
   let chromium: import("playwright").BrowserType | undefined;
   try {
@@ -1977,8 +2114,8 @@ export async function runShot(
   try {
     browser = await chromium!.launch({ args: ["--no-sandbox"] });
     const context = await browser.newContext({
-      viewport: { width: 1450, height: 1450 },
-      deviceScaleFactor: 2,
+      viewport: RECAP_SHOT_VIEWPORT,
+      deviceScaleFactor: RECAP_SHOT_DEVICE_SCALE_FACTOR,
     });
     if (attachToken) {
       // Attach the bearer ONLY to same-origin requests. Context-wide
@@ -1998,7 +2135,7 @@ export async function runShot(
       });
     }
     const page = await context.newPage();
-    await page.goto(url, { waitUntil: "networkidle", timeout: 45_000 });
+    await page.goto(captureUrl, { waitUntil: "networkidle", timeout: 45_000 });
     const selectors = [
       "[data-plan-document]",
       "[data-plan-block]",
@@ -2017,66 +2154,57 @@ export async function runShot(
       }
     }
     await page.waitForTimeout(matched ? 1_200 : 500);
-    // Zoom out slightly so more content fits. Keep the plan title (h1) in frame:
-    // the recap reads better led by its own title than cropped to the body.
     await page.evaluate(() => {
-      (document.documentElement as HTMLElement).style.zoom = "90%";
+      (document.documentElement as HTMLElement).style.zoom = "100%";
     });
+    const measuredHeight = await page.evaluate((maxHeight) => {
+      const readHeights = (selectors: string[]) => {
+        const result: number[] = [];
+        for (const selector of selectors) {
+          const el = document.querySelector<HTMLElement>(selector);
+          if (!el) continue;
+          const rect = el.getBoundingClientRect();
+          result.push(el.scrollHeight, rect.top + el.scrollHeight);
+        }
+        return result;
+      };
+      const documentHeights = readHeights([
+        ".plan-document-shell",
+        ".plan-document-flow",
+      ]);
+      const contentHeights = documentHeights.some((height) => height > 0)
+        ? documentHeights
+        : readHeights(["[data-plan-document]", ".plan-content-surface"]);
+      const fallbackHeights = [
+        document.querySelector<HTMLElement>("[data-plan-reader]")
+          ?.scrollHeight ?? 0,
+        document.scrollingElement?.scrollHeight ?? 0,
+        document.documentElement.scrollHeight,
+        document.body?.scrollHeight ?? 0,
+      ];
+      const heights = contentHeights.some((height) => height > 0)
+        ? contentHeights
+        : fallbackHeights;
+      const documentHeight = Math.ceil(
+        Math.max(...heights.filter((height) => Number.isFinite(height))),
+      );
+      return Math.max(1, Math.min(maxHeight, documentHeight || maxHeight));
+    }, RECAP_SHOT_MAX_HEIGHT);
+    await page.setViewportSize({
+      width: RECAP_SHOT_WIDTH,
+      height: measuredHeight,
+    });
+    await page.waitForTimeout(250);
     await page.screenshot({ path: out });
 
-    // If the captured PNG is over the upload cap, retry at half the pixel
-    // density (deviceScaleFactor 1) to produce a smaller file.
+    // If the captured PNG is over the upload cap, remove it so the upload step
+    // sees no file and the comment falls back to a link-only recap.
     const firstSize = fs.existsSync(out) ? fs.statSync(out).size : 0;
     if (firstSize > RECAP_SHOT_MAX_BYTES) {
       process.stderr.write(
-        `[recap shot] PNG is ${firstSize} bytes (cap ${RECAP_SHOT_MAX_BYTES}) — retrying at deviceScaleFactor 1\n`,
+        `[recap shot] PNG is ${firstSize} bytes (cap ${RECAP_SHOT_MAX_BYTES}) — skipping upload\n`,
       );
-      const ctx2 = await browser.newContext({
-        viewport: { width: 1450, height: 1450 },
-        deviceScaleFactor: 1,
-      });
-      if (attachToken) {
-        const appOrigin = new URL(appUrl as string).origin;
-        await ctx2.route("**/*", async (route) => {
-          const request = route.request();
-          if (new URL(request.url()).origin === appOrigin) {
-            await route.continue({
-              headers: {
-                ...request.headers(),
-                authorization: `Bearer ${token}`,
-              },
-            });
-          } else {
-            await route.continue();
-          }
-        });
-      }
-      const page2 = await ctx2.newPage();
-      await page2.goto(url, { waitUntil: "networkidle", timeout: 45_000 });
-      for (const sel of selectors) {
-        try {
-          await page2.waitForSelector(sel, {
-            timeout: 6_000,
-            state: "visible",
-          });
-          break;
-        } catch {
-          /* try the next selector */
-        }
-      }
-      await page2.waitForTimeout(matched ? 1_200 : 500);
-      await page2.evaluate(() => {
-        (document.documentElement as HTMLElement).style.zoom = "90%";
-      });
-      await page2.screenshot({ path: out });
-      const retrySize = fs.existsSync(out) ? fs.statSync(out).size : 0;
-      if (retrySize > RECAP_SHOT_MAX_BYTES) {
-        process.stderr.write(
-          `[recap shot] retry PNG is still ${retrySize} bytes — skipping upload\n`,
-        );
-        // Remove oversized file so the upload step sees no file.
-        fs.unlinkSync(out);
-      }
+      fs.unlinkSync(out);
     }
 
     captured = fs.existsSync(out);
@@ -2547,6 +2675,8 @@ export interface RecapCheckOutcomeInput {
   suppressed: boolean;
   /** steps.scan.outputs.json — the raw scan JSON (carries the suppress reason). */
   suppressedJson: string;
+  /** Sanitized final agent output when no valid plan URL was produced. */
+  failureSummary?: string;
   /** The Actions run URL, used as the default details_url. */
   workflowUrl: string;
 }
@@ -2579,7 +2709,9 @@ export function recapCheckOutcome(
   let title = "Visual recap not generated";
   let summary =
     "The visual recap did not produce a plan URL. This is informational only and does not block the PR.";
-  let text = "";
+  let text = input.failureSummary
+    ? `Agent output: ${sanitizeAgentFailureSummary(input.failureSummary)}`
+    : "";
   let detailsUrl = input.workflowUrl;
 
   if (input.planOk) {
@@ -2604,6 +2736,7 @@ export function recapCheckOutcome(
     conclusion = "skipped";
     title = "Visual recap skipped";
     summary = "The diff is too small to need a visual recap.";
+    text = "";
   } else if (input.suppressed) {
     let reason = "potential secret in diff";
     try {
@@ -2615,6 +2748,10 @@ export function recapCheckOutcome(
     conclusion = "skipped";
     title = "Visual recap suppressed";
     summary = `No recap was published because ${reason}.`;
+    text = "";
+  } else if (input.failureSummary) {
+    summary =
+      "The visual recap agent ran but did not produce a plan URL. See the agent output below.";
   }
 
   return { conclusion, title, summary, text, detailsUrl };
@@ -2711,6 +2848,7 @@ async function runCheckComplete(
     tiny: boolFlag(args, "tiny"),
     suppressed: boolFlag(args, "suppressed"),
     suppressedJson: optionalArg(args, "suppressed-json") ?? "",
+    failureSummary: optionalArg(args, "failure-summary") ?? "",
     workflowUrl: optionalArg(args, "workflow-url") ?? "",
   });
 
@@ -2958,6 +3096,30 @@ async function runUsage(args: Record<string, string | boolean>): Promise<void> {
   }
 }
 
+function writeGitHubOutput(name: string, value: string): void {
+  const out = process.env.GITHUB_OUTPUT;
+  if (!out) return;
+  const delimiter = `__RECAP_${name}_${process.pid}_${Date.now()}__`;
+  fs.appendFileSync(out, `${name}<<${delimiter}\n${value}\n${delimiter}\n`);
+}
+
+function runAgentSummary(args: Record<string, string | boolean>): void {
+  const agent = optionalArg(args, "agent") ?? "claude";
+  const resultFile = stringArg(args, "result-file");
+  let raw = "";
+  try {
+    raw = fs.readFileSync(path.resolve(resultFile), "utf8");
+  } catch (err) {
+    raw = `could not read ${resultFile}: ${String(err)}`;
+  }
+
+  const summary = summarizeAgentResult(agent, raw);
+  writeGitHubOutput("summary", summary);
+  process.stdout.write(
+    `${JSON.stringify({ ok: Boolean(summary), summary })}\n`,
+  );
+}
+
 const HELP = `agent-native recap — PR visual recap helpers (used by the GitHub Action)
 
 Usage:
@@ -2969,6 +3131,7 @@ Usage:
   agent-native recap build-prompt --pr <n> [--repo owner/name] [--head <sha>] [--app-url <url>] [--diff <path>] [--stat <path>] [--prev-plan-id <id>] [--huge] [--local-files] [--local-dir <folder>] [--skill-source auto|latest|repo] [--out <path>]
   agent-native recap shot --url <planUrl> [--token <planToken>] [--app-url <url>] [--out recap.png]
   agent-native recap usage --plan-url <planUrl> --result-file <path> --app-url <url> --token <planToken> [--agent claude|codex] [--model <id>]
+  agent-native recap agent-summary --result-file <path> [--agent claude|codex]
   agent-native recap comment <find-plan-id|upsert> --repo owner/name --issue <n> --token <github-token>
   agent-native recap check start [--repo owner/name] [--sha <headSha>] [--token <github-token>] [--workflow-url <url>]
     Create the in-progress "Visual Recap" GitHub check run and write its id to
@@ -2993,6 +3156,10 @@ Usage:
     packages/core, .claude/**, CLAUDE.md, AGENTS.md, .mcp.json) — failing CLOSED
     on any file-list error. Writes run=<true|false> and agent=<claude|codex> to
     $GITHUB_OUTPUT.
+  agent-native recap agent-summary
+    Read the captured Claude/Codex result file and write a sanitized one-line
+    summary to stdout and $GITHUB_OUTPUT (summary). Used only when no plan URL
+    was produced, so PR comments/checks explain the actual failure.
   agent-native recap setup
     Write/refresh .github/workflows/pr-visual-recap.yml, then configure GitHub
     Actions secrets and variables with gh when values are available from env or
@@ -3030,6 +3197,9 @@ export async function runRecap(argv: string[]): Promise<void> {
       return;
     case "usage":
       await runUsage(args);
+      return;
+    case "agent-summary":
+      runAgentSummary(args);
       return;
     case "comment":
       await runComment(parseArgs(rest.slice(1)), rest[0] ?? "");
