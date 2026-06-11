@@ -74,9 +74,7 @@ describe("update-dashboard demo source validation", () => {
             title: "CPU",
             source: "demo",
             sql: JSON.stringify({
-              adapter: "prometheus",
-              dataset: "node-exporter",
-              query: "cpu-busy-by-mode",
+              promql: "up",
               mode: "range",
             }),
             chartType: "line",
@@ -107,8 +105,7 @@ describe("update-dashboard demo source validation", () => {
               title: "Bad demo",
               source: "demo",
               sql: JSON.stringify({
-                adapter: "prometheus",
-                dataset: "node-exporter",
+                mode: "instant",
               }),
               chartType: "line",
               width: 1,

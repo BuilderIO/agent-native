@@ -14,18 +14,8 @@ export const DEMO_DASHBOARD_STATE_KEY = "analytics-demo-dashboards";
 export const DEMO_DASHBOARDS = [
   {
     id: "demo-node-exporter",
-    seedId: "demo-node-exporter",
-    name: "Demo Node Exporter",
-  },
-  {
-    id: "demo-postgres-saas",
-    seedId: "demo-postgres-saas",
-    name: "Demo PostgreSQL SaaS Ops",
-  },
-  {
-    id: "demo-product-analytics",
-    seedId: "demo-product-analytics",
-    name: "Demo Product Analytics",
+    seedId: "node-exporter-full",
+    name: "Demo Node Exporter Full",
   },
 ] as const;
 
@@ -128,8 +118,25 @@ function applyDemoMetadata(
   seed: Record<string, unknown>,
   demoId: DemoDashboardId,
 ): Record<string, unknown> {
+  const panels = Array.isArray(seed.panels)
+    ? seed.panels.map((panel) => {
+        if (
+          panel &&
+          typeof panel === "object" &&
+          !Array.isArray(panel) &&
+          (panel as Record<string, unknown>).source === "prometheus"
+        ) {
+          return { ...panel, source: "demo" };
+        }
+        return panel;
+      })
+    : seed.panels;
   return {
     ...seed,
+    name: "Demo Node Exporter Full",
+    description:
+      "The full Node Exporter dashboard wired to the built-in demo Prometheus endpoint.",
+    panels,
     demo: {
       id: demoId,
       version: DEMO_DASHBOARD_VERSION,

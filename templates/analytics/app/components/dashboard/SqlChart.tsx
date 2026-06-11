@@ -185,14 +185,7 @@ function csvEscape(value: string): string {
 }
 
 function usesPrometheusPresentation(panel: SqlPanel): boolean {
-  if (panel.source === "prometheus") return true;
-  if (panel.source !== "demo") return false;
-  try {
-    const descriptor = JSON.parse(panel.sql) as { adapter?: unknown };
-    return descriptor?.adapter === "prometheus";
-  } catch {
-    return false;
-  }
+  return panel.source === "prometheus" || panel.source === "demo";
 }
 
 function formatSeriesLabelForPanel(panel: SqlPanel, value: string): string {

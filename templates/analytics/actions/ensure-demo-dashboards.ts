@@ -10,14 +10,14 @@ import { cliBoolean } from "./schema-helpers";
 
 export default defineAction({
   description:
-    "Install the built-in private demo dashboards for the current Analytics user. " +
-    "The dashboards use sample-only demo data and do not configure or consume real data-source credentials. " +
-    "Use reset=true only when the user explicitly asks to restore/reinstall deleted demo dashboards.",
+    "Install the built-in private Node Exporter demo dashboard for the current Analytics user. " +
+    "The dashboard is generated from the Node Exporter Full template and uses a separately configured demo Prometheus endpoint without consuming the user's Prometheus credential slot. " +
+    "Use reset=true only when the user explicitly asks to restore/reinstall a deleted demo dashboard.",
   schema: z.object({
     reset: cliBoolean
       .optional()
       .default(false)
-      .describe("true to reinstall demos that the user previously deleted"),
+      .describe("true to reinstall the demo that the user previously deleted"),
   }),
   mcpApp: {
     compactCatalog: true,

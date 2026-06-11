@@ -59,8 +59,8 @@ describe("dashboard catalog", () => {
   it("lists only the supported Node Exporter catalog templates", () => {
     const ids = dashboardCatalogEntries.map((entry) => entry.id);
     expect(ids).toContain("demo-node-exporter");
-    expect(ids).toContain("demo-postgres-saas");
-    expect(ids).toContain("demo-product-analytics");
+    expect(ids).not.toContain("demo-postgres-saas");
+    expect(ids).not.toContain("demo-product-analytics");
     expect(ids).toContain("node-exporter-macos");
     expect(ids).toContain("node-exporter-full");
     expect(ids).not.toContain("node-exporter-essentials");
@@ -68,27 +68,37 @@ describe("dashboard catalog", () => {
   });
 
   it("ships parseable demo dashboard descriptors", () => {
-    for (const id of [
-      "demo-node-exporter",
-      "demo-postgres-saas",
-      "demo-product-analytics",
-    ]) {
-      const entry = getDashboardCatalogEntry(id);
-      expect(entry).not.toBeNull();
-      const config = cloneDashboardConfig(entry!);
-      const values: Record<string, string> = { ...(config.variables ?? {}) };
-      for (const filter of config.filters ?? []) {
-        values[filter.id] = filter.default ?? "";
-      }
-      const demoPanels = config.panels.filter(
-        (panel) => panel.source === "demo",
-      );
-      expect(demoPanels.length).toBeGreaterThan(0);
-      for (const panel of demoPanels) {
-        expect(() =>
-          parseDemoDescriptor(interpolate(panel.sql, values)),
-        ).not.toThrow();
-      }
+    const demoEntry = getDashboardCatalogEntry("demo-node-exporter");
+    const realEntry = getDashboardCatalogEntry("node-exporter-full");
+    expect(demoEntry).not.toBeNull();
+    expect(realEntry).not.toBeNull();
+
+    const demoConfig = cloneDashboardConfig(demoEntry!);
+    const realConfig = cloneDashboardConfig(realEntry!);
+    expect(demoConfig.panels).toHaveLength(realConfig.panels.length);
+
+    const values: Record<string, string> = { ...(demoConfig.variables ?? {}) };
+    for (const filter of demoConfig.filters ?? []) {
+      values[filter.id] = filter.default ?? "";
+    }
+    values.job = "node";
+    values.instance = "localhost:9100";
+
+    const demoPanels = demoConfig.panels.filter(
+      (panel) => panel.source === "demo",
+    );
+    const realPrometheusPanels = realConfig.panels.filter(
+      (panel) => panel.source === "prometheus",
+    );
+    expect(demoPanels).toHaveLength(realPrometheusPanels.length);
+    expect(
+      demoConfig.panels.filter((panel) => panel.source === "prometheus"),
+    ).toHaveLength(0);
+
+    for (const panel of demoPanels) {
+      expect(() =>
+        parseDemoDescriptor(interpolate(panel.sql, values)),
+      ).not.toThrow();
     }
   });
 

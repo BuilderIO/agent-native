@@ -2,9 +2,6 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import firstPartyTemplateTrafficSeed from "../../seeds/dashboards/agent-native-templates-first-party.json" with { type: "json" };
-import demoNodeExporterSeed from "../../seeds/dashboards/demo-node-exporter.json" with { type: "json" };
-import demoPostgresSaasSeed from "../../seeds/dashboards/demo-postgres-saas.json" with { type: "json" };
-import demoProductAnalyticsSeed from "../../seeds/dashboards/demo-product-analytics.json" with { type: "json" };
 import googleAnalyticsSeed from "../../seeds/dashboards/google-analytics.json" with { type: "json" };
 import nodeExporterFullSeed from "../../seeds/dashboards/node-exporter-full.json" with { type: "json" };
 
@@ -13,9 +10,6 @@ const shippedSeeds: Record<string, Record<string, unknown>> = {
     string,
     unknown
   >,
-  "demo-node-exporter": demoNodeExporterSeed as Record<string, unknown>,
-  "demo-postgres-saas": demoPostgresSaasSeed as Record<string, unknown>,
-  "demo-product-analytics": demoProductAnalyticsSeed as Record<string, unknown>,
   "google-analytics": googleAnalyticsSeed as Record<string, unknown>,
   "node-exporter-full": nodeExporterFullSeed as Record<string, unknown>,
 };

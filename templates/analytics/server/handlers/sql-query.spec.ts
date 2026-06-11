@@ -4,6 +4,20 @@ const mocks = vi.hoisted(() => ({
   body: undefined as unknown,
   setResponseStatus: vi.fn(),
   requireCredential: vi.fn(async () => null),
+  runDemoPanel: vi.fn(async () => ({
+    rows: [
+      {
+        timestamp: "2026-06-10T20:00:00.000Z",
+        series: 'up{instance="demo:9100"}',
+        value: 1,
+      },
+    ],
+    schema: [
+      { name: "timestamp", type: "string" },
+      { name: "series", type: "string" },
+      { name: "value", type: "number" },
+    ],
+  })),
 }));
 
 vi.mock("h3", () => ({
@@ -45,6 +59,13 @@ vi.mock("../lib/prometheus", () => ({
   ),
 }));
 
+vi.mock("../lib/demo-source", () => ({
+  runDemoPanel: mocks.runDemoPanel,
+  serializeDemoDescriptorInput: vi.fn((raw: unknown) =>
+    typeof raw === "string" ? raw : JSON.stringify(raw),
+  ),
+}));
+
 const { handleSqlQuery } = await import("./sql-query");
 
 describe("/api/sql-query demo source", () => {
@@ -52,15 +73,28 @@ describe("/api/sql-query demo source", () => {
     mocks.body = undefined;
     mocks.setResponseStatus.mockClear();
     mocks.requireCredential.mockClear();
+    mocks.runDemoPanel.mockClear();
+    mocks.runDemoPanel.mockResolvedValue({
+      rows: [
+        {
+          timestamp: "2026-06-10T20:00:00.000Z",
+          series: 'up{instance="demo:9100"}',
+          value: 1,
+        },
+      ],
+      schema: [
+        { name: "timestamp", type: "string" },
+        { name: "series", type: "string" },
+        { name: "value", type: "number" },
+      ],
+    });
   });
 
   it("runs valid demo descriptors without credential checks", async () => {
     mocks.body = {
       source: "demo",
       query: {
-        adapter: "prometheus",
-        dataset: "node-exporter",
-        query: "node-up",
+        promql: "up",
         mode: "instant",
       },
     };
@@ -71,10 +105,13 @@ describe("/api/sql-query demo source", () => {
     };
 
     expect(mocks.requireCredential).not.toHaveBeenCalled();
+    expect(mocks.runDemoPanel).toHaveBeenCalledWith(
+      JSON.stringify({ promql: "up", mode: "instant" }),
+    );
     expect(result.rows).toEqual([
       expect.objectContaining({
         timestamp: expect.any(String),
-        series: expect.stringContaining('up{instance="demo-host-01"'),
+        series: expect.stringContaining('up{instance="demo:9100"'),
         value: 1,
       }),
     ]);
@@ -86,6 +123,9 @@ describe("/api/sql-query demo source", () => {
   });
 
   it("rejects malformed demo descriptors", async () => {
+    mocks.runDemoPanel.mockRejectedValueOnce(
+      new Error("demo Prometheus panel sql must be a JSON object"),
+    );
     mocks.body = {
       source: "demo",
       query: "not json",
@@ -95,7 +135,9 @@ describe("/api/sql-query demo source", () => {
 
     expect(mocks.setResponseStatus).toHaveBeenCalledWith({}, 400);
     expect(result).toEqual({
-      error: expect.stringContaining("demo panel sql must be a JSON object"),
+      error: expect.stringContaining(
+        "demo Prometheus panel sql must be a JSON object",
+      ),
     });
   });
 

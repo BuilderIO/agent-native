@@ -22,16 +22,15 @@ const mocks = vi.hoisted(() => {
       },
     ),
     loadDashboardSeed: vi.fn((seedId: string) => ({
-      name: seedId,
+      name: seedId === "node-exporter-full" ? "Node Exporter Full" : seedId,
       panels: [
         {
           id: "demo-panel",
           title: "Demo panel",
-          source: "demo",
+          source: "prometheus",
           sql: JSON.stringify({
-            adapter: "events",
-            dataset: "product-analytics",
-            query: "kpi-summary",
+            promql: "up",
+            mode: "instant",
           }),
           chartType: "metric",
           width: 1,
@@ -113,7 +112,7 @@ describe("demo dashboards", () => {
     mocks.seedFromText.mockClear();
   });
 
-  it("creates private per-user dashboards and opens Node Exporter first", async () => {
+  it("creates a private per-user Node Exporter dashboard and opens it first", async () => {
     const result = await ensureDemoDashboardsForUser(alice);
 
     expect(result.defaultDashboardId).toBe(
@@ -122,17 +121,26 @@ describe("demo dashboards", () => {
     expect(result.defaultDashboardPath).toBe(
       `/adhoc/${result.defaultDashboardId}`,
     );
-    expect(result.dashboards).toHaveLength(3);
+    expect(result.dashboards).toHaveLength(1);
     expect(result.dashboards.every((dashboard) => dashboard.created)).toBe(
       true,
     );
-    expect(mocks.upsertDashboard).toHaveBeenCalledTimes(3);
+    expect(mocks.loadDashboardSeed).toHaveBeenCalledWith("node-exporter-full");
+    expect(mocks.upsertDashboard).toHaveBeenCalledTimes(1);
     expect(mocks.upsertDashboard).toHaveBeenCalledWith(
       result.defaultDashboardId,
       "sql",
       expect.objectContaining({
+        name: "Demo Node Exporter Full",
         demo: expect.objectContaining({ id: "demo-node-exporter" }),
         catalog: expect.objectContaining({ templateId: "demo-node-exporter" }),
+        panels: [
+          expect.objectContaining({
+            id: "demo-panel",
+            source: "demo",
+            sql: JSON.stringify({ promql: "up", mode: "instant" }),
+          }),
+        ],
       }),
       { email: alice.email, orgId: null },
     );
@@ -146,7 +154,7 @@ describe("demo dashboards", () => {
     expect(second.dashboards.every((dashboard) => !dashboard.created)).toBe(
       true,
     );
-    expect(mocks.upsertDashboard).toHaveBeenCalledTimes(3);
+    expect(mocks.upsertDashboard).toHaveBeenCalledTimes(1);
   });
 
   it("tombstones deleted demos and does not recreate them", async () => {
@@ -155,7 +163,7 @@ describe("demo dashboards", () => {
     await markDemoDashboardDeleted(first.defaultDashboardId!, alice);
     const second = await ensureDemoDashboardsForUser(alice);
 
-    expect(mocks.upsertDashboard).toHaveBeenCalledTimes(3);
+    expect(mocks.upsertDashboard).toHaveBeenCalledTimes(1);
     expect(second.dashboards[0]).toEqual(
       expect.objectContaining({
         id: "demo-node-exporter",
@@ -164,9 +172,8 @@ describe("demo dashboards", () => {
         deleted: true,
       }),
     );
-    expect(second.defaultDashboardId).toBe(
-      demoDashboardIdForUser(alice.email, "demo-postgres-saas"),
-    );
+    expect(second.defaultDashboardId).toBeNull();
+    expect(second.defaultDashboardPath).toBeNull();
 
     const state = mocks.settings.get(
       `${alice.email}:${DEMO_DASHBOARD_STATE_KEY}`,

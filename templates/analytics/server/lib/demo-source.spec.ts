@@ -1,145 +1,149 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  DEMO_PROMETHEUS_ENV,
   parseDemoDescriptor,
-  runDemoPanelAt,
+  resolveDemoPrometheusConfig,
+  runDemoPanelWithConfig,
   serializeDemoDescriptorInput,
 } from "./demo-source";
 
-const NOW = new Date("2026-06-10T12:00:00.000Z");
-
 describe("demo source", () => {
-  it("serializes and parses fixed-query descriptors", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("serializes and parses Prometheus panel descriptors", () => {
     const raw = {
-      adapter: "prometheus",
-      dataset: "node-exporter",
-      query: "cpu-busy-by-mode",
+      promql: 'up{job="node"}',
       mode: "range",
-      params: { instance: "demo-host-02" },
+      range: "1h",
+      step: "30s",
     };
 
     const serialized = serializeDemoDescriptorInput(raw);
     expect(parseDemoDescriptor(serialized)).toEqual(raw);
   });
 
-  it("rejects malformed descriptors", () => {
+  it("rejects malformed Prometheus descriptors", () => {
     expect(() => parseDemoDescriptor("not json")).toThrow(
-      /demo panel sql must be a JSON object/,
+      /demo Prometheus panel sql must be a JSON object/,
     );
     expect(() =>
-      parseDemoDescriptor(
-        JSON.stringify({
-          adapter: "prometheus",
-          dataset: "node-exporter",
-        }),
-      ),
-    ).toThrow(/query/);
+      parseDemoDescriptor(JSON.stringify({ mode: "instant" })),
+    ).toThrow(/promql/);
     expect(() => serializeDemoDescriptorInput(["not", "an", "object"])).toThrow(
       /JSON string or object/,
     );
   });
 
-  it("routes only supported adapter and dataset combinations", () => {
-    expect(() =>
-      runDemoPanelAt(
-        JSON.stringify({
-          adapter: "postgres",
-          dataset: "node-exporter",
-          query: "database-health",
-        }),
-        NOW,
-      ),
-    ).toThrow(/requires dataset "postgres-saas"/);
-
-    expect(() =>
-      runDemoPanelAt(
-        JSON.stringify({
-          adapter: "events",
-          dataset: "product-analytics",
-          query: "arbitrary-sql",
-        }),
-        NOW,
-      ),
-    ).toThrow(/Unknown product-analytics demo query/);
-  });
-
-  it("returns deterministic Prometheus-shaped range rows", () => {
-    const query = JSON.stringify({
-      adapter: "prometheus",
-      dataset: "node-exporter",
-      query: "cpu-busy-by-mode",
-      mode: "range",
-      params: { instance: "demo-host-01" },
+  it("resolves dedicated demo Prometheus config from non-slot env keys", () => {
+    const config = resolveDemoPrometheusConfig({
+      [DEMO_PROMETHEUS_ENV.url]: "https://demo-prometheus.example.com/",
+      [DEMO_PROMETHEUS_ENV.username]: "demo-user",
+      [DEMO_PROMETHEUS_ENV.password]: "demo-password",
+      PROMETHEUS_URL: "https://real-prometheus-slot.example.com",
     });
 
-    const first = runDemoPanelAt(query, NOW);
-    const second = runDemoPanelAt(query, NOW);
+    expect(config).toEqual({
+      url: "https://demo-prometheus.example.com",
+      username: "demo-user",
+      password: "demo-password",
+      bearer: undefined,
+    });
+  });
 
-    expect(first).toEqual(second);
-    expect(first.schema).toEqual([
-      { name: "timestamp", type: "string" },
-      { name: "series", type: "string" },
-      { name: "value", type: "number" },
-    ]);
-    expect(first.rows).toHaveLength(72);
-    expect(first.rows[0]).toEqual(
-      expect.objectContaining({
-        timestamp: expect.stringMatching(/^2026-06-10T/),
-        series: expect.stringContaining(
-          'node_cpu_seconds_total{instance="demo-host-01"',
-        ),
-        value: expect.any(Number),
-      }),
+  it("requires the dedicated demo Prometheus URL", () => {
+    expect(() => resolveDemoPrometheusConfig({})).toThrow(
+      /ANALYTICS_DEMO_PROMETHEUS_URL not configured/,
     );
   });
 
-  it("returns bounded postgres demo rows", () => {
-    const result = runDemoPanelAt(
-      JSON.stringify({
-        adapter: "postgres",
-        dataset: "postgres-saas",
-        query: "slow-queries",
+  it("runs instant descriptors against the demo endpoint with basic auth", async () => {
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      json: async () => ({
+        status: "success",
+        data: {
+          resultType: "vector",
+          result: [
+            {
+              metric: { __name__: "up", job: "node", instance: "demo:9100" },
+              value: [1781131200, "1"],
+            },
+          ],
+        },
       }),
-      NOW,
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await runDemoPanelWithConfig(
+      JSON.stringify({ promql: "up", mode: "instant" }),
+      {
+        url: "https://demo-prometheus.example.com",
+        username: "demo-user",
+        password: "demo-password",
+      },
     );
 
-    expect(result.rows.length).toBeGreaterThan(0);
-    expect(result.rows.length).toBeLessThanOrEqual(10);
-    expect(result.schema.map((field) => field.name)).toEqual([
-      "query",
-      "calls",
-      "meanMs",
-      "p95Ms",
-    ]);
-    expect(result.rows[0]).toEqual(
-      expect.objectContaining({
-        query: expect.any(String),
-        calls: expect.any(Number),
-        meanMs: expect.any(Number),
-        p95Ms: expect.any(Number),
-      }),
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://demo-prometheus.example.com/api/v1/query?query=up",
+      {
+        headers: {
+          Accept: "application/json",
+          Authorization: "Basic ZGVtby11c2VyOmRlbW8tcGFzc3dvcmQ=",
+        },
+      },
     );
-  });
-
-  it("returns product analytics event/session rows", () => {
-    const result = runDemoPanelAt(
-      JSON.stringify({
-        adapter: "events",
-        dataset: "product-analytics",
-        query: "activation-funnel",
-      }),
-      NOW,
-    );
-
     expect(result.rows).toEqual([
-      { stage: "Visited", users: 42000 },
-      { stage: "Started demo", users: 12300 },
-      { stage: "Created workspace", users: 4100 },
-      { stage: "Connected source", users: 1760 },
-      { stage: "Saved dashboard", users: 980 },
+      {
+        timestamp: "2026-06-10T22:40:00.000Z",
+        series: 'up{job="node",instance="demo:9100"}',
+        value: 1,
+      },
     ]);
-    expect(result.schema).toEqual([
-      { name: "stage", type: "string" },
-      { name: "users", type: "number" },
-    ]);
+  });
+
+  it("runs range descriptors against the demo endpoint", async () => {
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      json: async () => ({
+        status: "success",
+        data: {
+          resultType: "matrix",
+          result: [
+            {
+              metric: { __name__: "node_load1", instance: "demo:9100" },
+              values: [
+                [1781131200, "1.2"],
+                [1781131260, "1.4"],
+              ],
+            },
+          ],
+        },
+      }),
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await runDemoPanelWithConfig(
+      JSON.stringify({
+        promql: "node_load1",
+        mode: "range",
+        startTime: "2026-06-10T20:00:00.000Z",
+        endTime: "2026-06-10T20:01:00.000Z",
+        step: "60s",
+      }),
+      { url: "https://demo-prometheus.example.com" },
+    );
+
+    const fetchCalls = fetchMock.mock.calls as unknown as Array<
+      [string, unknown]
+    >;
+    expect(String(fetchCalls[0][0])).toContain("/api/v1/query_range?");
+    expect(result.rows).toHaveLength(2);
+    expect(result.rows[0]).toEqual({
+      timestamp: "2026-06-10T22:40:00.000Z",
+      series: 'node_load1{instance="demo:9100"}',
+      value: 1.2,
+    });
   });
 });

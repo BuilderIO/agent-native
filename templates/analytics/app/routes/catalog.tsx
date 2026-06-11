@@ -63,7 +63,7 @@ const CATEGORY_TABS = [
 
 function sourceLabel(source: string): string {
   if (source === "first-party") return "First-party";
-  if (source === "demo") return "Demo";
+  if (source === "demo") return "Demo Prometheus";
   if (source === "ga4") return "GA4";
   if (source === "prometheus") return "Prometheus";
   return source;

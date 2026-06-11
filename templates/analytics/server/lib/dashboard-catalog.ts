@@ -212,6 +212,19 @@ function buildNodeExporterFull(): SqlDashboardConfig {
   return seedConfig("node-exporter-full");
 }
 
+function buildDemoNodeExporterFull(): SqlDashboardConfig {
+  const config = buildNodeExporterFull();
+  return {
+    ...config,
+    name: "Demo Node Exporter Full",
+    description:
+      "The full Node Exporter dashboard wired to the built-in demo Prometheus endpoint.",
+    panels: config.panels.map((panel) =>
+      panel.source === "prometheus" ? { ...panel, source: "demo" } : panel,
+    ),
+  };
+}
+
 function buildNodeExporterMacos(): SqlDashboardConfig {
   const S = '{instance="{{instance}}",job="{{job}}"}';
   const selector = (extra = "") =>
@@ -896,43 +909,17 @@ function buildNodeExporterMacos(): SqlDashboardConfig {
 export const dashboardCatalogEntries: DashboardCatalogEntry[] = [
   {
     id: "demo-node-exporter",
-    name: "Demo Node Exporter",
+    name: "Demo Node Exporter Full",
     description:
-      "Prometheus-shaped node exporter sample data that works before Prometheus is connected.",
+      "The full Node Exporter dashboard, backed by the built-in demo Prometheus endpoint without consuming the Prometheus source slot.",
     category: "Observability",
     defaultDashboardId: "demo-node-exporter",
     dataSources: ["demo"],
     tags: ["demo", "prometheus", "node_exporter", "observability"],
-    panelCount: 8,
+    panelCount: 135,
     version: CATALOG_VERSION,
     recommended: true,
-    buildConfig: () => seedConfig("demo-node-exporter"),
-  },
-  {
-    id: "demo-postgres-saas",
-    name: "Demo PostgreSQL SaaS Ops",
-    description:
-      "Sample PostgreSQL operational metrics for connection, latency, size, and slow-query monitoring.",
-    category: "Operations",
-    defaultDashboardId: "demo-postgres-saas",
-    dataSources: ["demo"],
-    tags: ["demo", "postgres", "database", "operations"],
-    panelCount: 5,
-    version: CATALOG_VERSION,
-    buildConfig: () => seedConfig("demo-postgres-saas"),
-  },
-  {
-    id: "demo-product-analytics",
-    name: "Demo Product Analytics",
-    description:
-      "Sample product analytics events, acquisition, activation, and top event data.",
-    category: "Product",
-    defaultDashboardId: "demo-product-analytics",
-    dataSources: ["demo"],
-    tags: ["demo", "events", "funnel", "product"],
-    panelCount: 5,
-    version: CATALOG_VERSION,
-    buildConfig: () => seedConfig("demo-product-analytics"),
+    buildConfig: buildDemoNodeExporterFull,
   },
   {
     id: "first-party-template-traffic",
