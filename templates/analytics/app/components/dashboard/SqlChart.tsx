@@ -433,23 +433,26 @@ interface SqlChartProps {
   /** SQL with dashboard variables already interpolated. Falls back to panel.sql. */
   resolvedSql?: string;
   className?: string;
+  loadData?: boolean;
   onExportCsvChange?: (handler: (() => void) | null) => void;
 }
 
 export function SqlChart({
   panel,
   resolvedSql,
+  loadData = true,
   onExportCsvChange,
 }: SqlChartProps) {
   // Hooks must be called unconditionally before any early return.
   const isSection = panel.chartType === "section";
+  const shouldQuery = !isSection && loadData;
   const sql = serializePanelSql(resolvedSql ?? panel.sql);
   const { data: result, isLoading } = useSqlQuery(
     ["sql-chart", panel.id, sql, panel.source],
     sql,
     panel.source,
     // Skip the query for section panels — they are pure layout with no data.
-    { enabled: !isSection },
+    { enabled: shouldQuery },
   );
 
   const rawRows = result?.rows ?? [];
@@ -488,7 +491,7 @@ export function SqlChart({
   const placeholderMinH = isMetric ? "min-h-12" : "min-h-[250px]";
   const placeholderPadY = isMetric ? "py-2" : "py-8";
 
-  if (isLoading) {
+  if (!loadData || isLoading) {
     return <Skeleton className={`w-full flex-1 ${placeholderMinH}`} />;
   }
 

@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import {
   buildAuthHeader,
   flattenMatrix,
@@ -26,6 +27,17 @@ export const DEMO_PROMETHEUS_ENV = {
   password: "ANALYTICS_DEMO_PROMETHEUS_PASSWORD",
   bearer: "ANALYTICS_DEMO_PROMETHEUS_BEARER_TOKEN",
 } as const;
+
+export const DEMO_QUERY_CACHE_TTL_MS = 30_000;
+const DEMO_QUERY_CACHE_MAX = 200;
+
+type DemoQueryResult = ReturnType<typeof flattenMatrix>;
+
+const queryCache = new Map<
+  string,
+  { result: DemoQueryResult; expiresAt: number }
+>();
+const inFlightQueries = new Map<string, Promise<DemoQueryResult>>();
 
 export function serializeDemoDescriptorInput(raw: unknown): string {
   return serializePanelDescriptorInput(raw);
@@ -56,6 +68,69 @@ export function resolveDemoPrometheusConfig(
     password: env[DEMO_PROMETHEUS_ENV.password] || undefined,
     bearer: env[DEMO_PROMETHEUS_ENV.bearer] || undefined,
   };
+}
+
+function authFingerprint(config: DemoPrometheusConfig): string {
+  return createHash("sha256")
+    .update(
+      JSON.stringify({
+        username: config.username ?? "",
+        password: config.password ?? "",
+        bearer: config.bearer ?? "",
+      }),
+    )
+    .digest("hex")
+    .slice(0, 16);
+}
+
+function descriptorCacheKey(
+  config: DemoPrometheusConfig,
+  descriptor: DemoDescriptor,
+  nowMs: number,
+): string {
+  const timeBucket = descriptor.endTime
+    ? null
+    : Math.floor(nowMs / DEMO_QUERY_CACHE_TTL_MS);
+  return JSON.stringify({
+    url: config.url,
+    auth: authFingerprint(config),
+    promql: descriptor.promql,
+    mode: descriptor.mode,
+    range: descriptor.range ?? null,
+    step: descriptor.step ?? null,
+    startTime: descriptor.startTime ?? null,
+    endTime: descriptor.endTime ?? null,
+    timeBucket,
+  });
+}
+
+function getCachedResult(key: string, nowMs: number): DemoQueryResult | null {
+  const cached = queryCache.get(key);
+  if (!cached) return null;
+  if (cached.expiresAt <= nowMs) {
+    queryCache.delete(key);
+    return null;
+  }
+  return cached.result;
+}
+
+function setCachedResult(key: string, result: DemoQueryResult, nowMs: number) {
+  queryCache.set(key, {
+    result,
+    expiresAt: nowMs + DEMO_QUERY_CACHE_TTL_MS,
+  });
+  if (queryCache.size <= DEMO_QUERY_CACHE_MAX) return;
+  for (const [cacheKey, cached] of queryCache) {
+    if (cached.expiresAt <= nowMs || queryCache.size > DEMO_QUERY_CACHE_MAX) {
+      queryCache.delete(cacheKey);
+    }
+    if (queryCache.size <= DEMO_QUERY_CACHE_MAX) break;
+  }
+}
+
+export function clearDemoQueryCache() {
+  queryCache.clear();
+  inFlightQueries.clear();
 }
 
 async function demoPrometheusGet<T>(
@@ -94,11 +169,10 @@ async function demoPrometheusGet<T>(
   return body.data as T;
 }
 
-export async function runDemoPanelWithConfig(
-  raw: string,
+async function fetchDemoPanel(
+  descriptor: DemoDescriptor,
   config: DemoPrometheusConfig,
-) {
-  const descriptor = parseDemoDescriptor(raw);
+): Promise<DemoQueryResult> {
   if (descriptor.mode === "instant") {
     const data = await demoPrometheusGet<{
       resultType: string;
@@ -121,6 +195,31 @@ export async function runDemoPanelWithConfig(
     step: String(stepSec),
   });
   return flattenMatrix(data);
+}
+
+export async function runDemoPanelWithConfig(
+  raw: string,
+  config: DemoPrometheusConfig,
+) {
+  const descriptor = parseDemoDescriptor(raw);
+  const nowMs = Date.now();
+  const cacheKey = descriptorCacheKey(config, descriptor, nowMs);
+  const cached = getCachedResult(cacheKey, nowMs);
+  if (cached) return cached;
+
+  const inFlight = inFlightQueries.get(cacheKey);
+  if (inFlight) return inFlight;
+
+  const promise = fetchDemoPanel(descriptor, config)
+    .then((result) => {
+      setCachedResult(cacheKey, result, Date.now());
+      return result;
+    })
+    .finally(() => {
+      inFlightQueries.delete(cacheKey);
+    });
+  inFlightQueries.set(cacheKey, promise);
+  return promise;
 }
 
 export async function runDemoPanel(raw: string) {

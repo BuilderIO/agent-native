@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  clearDemoQueryCache,
   DEFAULT_DEMO_PROMETHEUS_URL,
+  DEMO_QUERY_CACHE_TTL_MS,
   DEMO_PROMETHEUS_ENV,
   parseDemoDescriptor,
   resolveDemoPrometheusConfig,
@@ -10,6 +12,8 @@ import {
 
 describe("demo source", () => {
   afterEach(() => {
+    clearDemoQueryCache();
+    vi.useRealTimers();
     vi.unstubAllGlobals();
   });
 
@@ -153,5 +157,74 @@ describe("demo source", () => {
       series: 'node_load1{instance="demo:9100"}',
       value: 1.2,
     });
+  });
+
+  it("caches successful demo query results for a short TTL", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-06-10T20:00:00.000Z"));
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      json: async () => ({
+        status: "success",
+        data: {
+          resultType: "vector",
+          result: [
+            {
+              metric: { __name__: "up" },
+              value: [1781131200, "1"],
+            },
+          ],
+        },
+      }),
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const descriptor = JSON.stringify({ promql: "up", mode: "instant" });
+    const config = { url: "https://demo-prometheus.example.com" };
+
+    const first = await runDemoPanelWithConfig(descriptor, config);
+    const second = await runDemoPanelWithConfig(descriptor, config);
+    expect(second).toEqual(first);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    vi.advanceTimersByTime(DEMO_QUERY_CACHE_TTL_MS + 1);
+    await runDemoPanelWithConfig(descriptor, config);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("deduplicates in-flight demo Prometheus requests", async () => {
+    let resolveFetch: (value: any) => void = () => {};
+    const fetchMock = vi.fn(
+      () =>
+        new Promise<any>((resolve) => {
+          resolveFetch = resolve;
+        }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const descriptor = JSON.stringify({ promql: "up", mode: "instant" });
+    const config = { url: "https://demo-prometheus.example.com" };
+    const first = runDemoPanelWithConfig(descriptor, config);
+    const second = runDemoPanelWithConfig(descriptor, config);
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    resolveFetch?.({
+      ok: true,
+      json: async () => ({
+        status: "success",
+        data: {
+          resultType: "vector",
+          result: [
+            {
+              metric: { __name__: "up" },
+              value: [1781131200, "1"],
+            },
+          ],
+        },
+      }),
+    });
+
+    await expect(Promise.all([first, second])).resolves.toHaveLength(2);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });
