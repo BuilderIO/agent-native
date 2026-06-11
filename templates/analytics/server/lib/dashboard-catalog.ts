@@ -14,7 +14,7 @@ export interface DashboardCatalogMetadata {
   description: string;
   category: DashboardTemplateCategory;
   defaultDashboardId: string;
-  dataSources: Array<"first-party" | "ga4" | "prometheus">;
+  dataSources: Array<"demo" | "first-party" | "ga4" | "prometheus">;
   tags: string[];
   panelCount: number;
   version: string;
@@ -25,6 +25,11 @@ export type CatalogDashboardConfig = SqlDashboardConfig & {
   catalog?: {
     templateId: string;
     templateVersion: string;
+    installedAt: string;
+  };
+  demo?: {
+    id: string;
+    version: string;
     installedAt: string;
   };
 };
@@ -890,6 +895,46 @@ function buildNodeExporterMacos(): SqlDashboardConfig {
 
 export const dashboardCatalogEntries: DashboardCatalogEntry[] = [
   {
+    id: "demo-node-exporter",
+    name: "Demo Node Exporter",
+    description:
+      "Prometheus-shaped node exporter sample data that works before Prometheus is connected.",
+    category: "Observability",
+    defaultDashboardId: "demo-node-exporter",
+    dataSources: ["demo"],
+    tags: ["demo", "prometheus", "node_exporter", "observability"],
+    panelCount: 8,
+    version: CATALOG_VERSION,
+    recommended: true,
+    buildConfig: () => seedConfig("demo-node-exporter"),
+  },
+  {
+    id: "demo-postgres-saas",
+    name: "Demo PostgreSQL SaaS Ops",
+    description:
+      "Sample PostgreSQL operational metrics for connection, latency, size, and slow-query monitoring.",
+    category: "Operations",
+    defaultDashboardId: "demo-postgres-saas",
+    dataSources: ["demo"],
+    tags: ["demo", "postgres", "database", "operations"],
+    panelCount: 5,
+    version: CATALOG_VERSION,
+    buildConfig: () => seedConfig("demo-postgres-saas"),
+  },
+  {
+    id: "demo-product-analytics",
+    name: "Demo Product Analytics",
+    description:
+      "Sample product analytics events, acquisition, activation, and top event data.",
+    category: "Product",
+    defaultDashboardId: "demo-product-analytics",
+    dataSources: ["demo"],
+    tags: ["demo", "events", "funnel", "product"],
+    panelCount: 5,
+    version: CATALOG_VERSION,
+    buildConfig: () => seedConfig("demo-product-analytics"),
+  },
+  {
     id: "first-party-template-traffic",
     name: "First-party Template Traffic",
     description:
@@ -966,12 +1011,26 @@ function templateIdFromConfig(config: Record<string, unknown>): string | null {
   return typeof templateId === "string" && templateId ? templateId : null;
 }
 
+function demoIdFromConfig(config: Record<string, unknown>): string | null {
+  const demo = config.demo;
+  if (!demo || typeof demo !== "object" || Array.isArray(demo)) {
+    return null;
+  }
+  const demoId = (demo as Record<string, unknown>).id;
+  return typeof demoId === "string" && demoId ? demoId : null;
+}
+
 function installedDashboardForTemplate(
   row: DashboardRecord,
   entry: DashboardCatalogEntry,
 ): boolean {
   const templateId = templateIdFromConfig(row.config);
-  return templateId === entry.id || row.id === entry.defaultDashboardId;
+  const demoId = demoIdFromConfig(row.config);
+  return (
+    templateId === entry.id ||
+    demoId === entry.id ||
+    row.id === entry.defaultDashboardId
+  );
 }
 
 export async function listDashboardCatalog(

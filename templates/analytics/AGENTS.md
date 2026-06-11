@@ -23,6 +23,9 @@ details live in `.agents/skills/`.
   it.
 - Verify before claiming: only present numbers you actually retrieved from a
   source. Never report a value you did not query.
+- Built-in demo dashboards use the `demo` source. Demo rows are deterministic
+  sample data only and must never satisfy `REAL_DATA_REQUIRED`, saved analyses,
+  or real analytics answers unless the user explicitly asks to inspect a demo.
 - Every analytical answer should include enough audit context for the user to
   trust it: source(s), time window, filters, sample size or row count,
   join/match method when relevant, and caveats/gaps.
@@ -90,6 +93,21 @@ details live in `.agents/skills/`.
   Prometheus Observability Demo app metrics (`demo_http_*`, `demo_chaos_mode`,
   and synthetic CPU/disk/memory workload metrics); the dashboard renderer treats
   tab labels in the form `Group / Tab` as primary and secondary tabs.
+
+## Demo Dashboards
+
+- `ensure-demo-dashboards` installs private per-user demos on first app open:
+  `demo-node-exporter`, `demo-postgres-saas`, and `demo-product-analytics`.
+- Demo dashboards are ordinary SQL dashboard rows, so rename, share, archive,
+  and delete flows apply. Deleted demo IDs are tombstoned in SQL settings and
+  are not recreated unless the user explicitly asks to reset demos.
+- Demo panels use `source: "demo"` and a fixed-query descriptor such as
+  `{"adapter":"prometheus","dataset":"node-exporter","query":"cpu-busy-by-mode","mode":"range","params":{...}}`.
+  Demo adapters return sample Prometheus/Postgres/events-shaped rows; they do
+  not write or consume provider credentials and do not enable multiple real
+  provider instances.
+- Use `ensure-demo-dashboards --reset=true` only when the user asks to restore
+  deleted or changed demo dashboards.
 
 ## Deep Analysis Rules
 

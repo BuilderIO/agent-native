@@ -1,8 +1,13 @@
 import { useEffect } from "react";
 import { useNavigate } from "react-router";
+import { callAction } from "@agent-native/core/client";
 import { Skeleton } from "@/components/ui/skeleton";
 import { dashboards } from "@/pages/adhoc/registry";
 import { getLastOpenedPath } from "@/lib/last-opened";
+
+type EnsureDemoDashboardsResult = {
+  defaultDashboardPath?: string;
+};
 
 function isSyntheticDefaultDashboardPath(path: string): boolean {
   return (
@@ -22,10 +27,31 @@ export default function Index() {
   const navigate = useNavigate();
 
   useEffect(() => {
+    let cancelled = false;
+
+    const installAndOpenDemoDashboards = async () => {
+      try {
+        const result = (await callAction("ensure-demo-dashboards", {})) as
+          | EnsureDemoDashboardsResult
+          | undefined;
+        if (cancelled) return;
+        if (result?.defaultDashboardPath) {
+          navigate(result.defaultDashboardPath, { replace: true });
+        } else {
+          navigate("/data-sources", { replace: true });
+        }
+      } catch (err) {
+        console.warn("[analytics] demo dashboard install failed", err);
+        if (!cancelled) navigate("/data-sources", { replace: true });
+      }
+    };
+
     const lastPath = getLastOpenedPath();
     if (lastPath && !isSyntheticDefaultDashboardPath(lastPath)) {
       navigate(lastPath, { replace: true });
-      return;
+      return () => {
+        cancelled = true;
+      };
     }
     const lastId = localStorage.getItem("last-dashboard-id");
     if (lastId && !isSyntheticDefaultDashboardId(lastId)) {
@@ -33,8 +59,12 @@ export default function Index() {
     } else if (dashboards.length > 0) {
       navigate(`/adhoc/${dashboards[0].id}`, { replace: true });
     } else {
-      navigate("/data-sources", { replace: true });
+      void installAndOpenDemoDashboards();
     }
+
+    return () => {
+      cancelled = true;
+    };
   }, [navigate]);
 
   return (

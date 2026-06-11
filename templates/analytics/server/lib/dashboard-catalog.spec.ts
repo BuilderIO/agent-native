@@ -8,6 +8,7 @@ import {
   getDashboardCatalogEntry,
 } from "./dashboard-catalog";
 import { loadDashboardSeed } from "./dashboard-seeds";
+import { parseDemoDescriptor } from "./demo-source";
 import { parsePanelDescriptor } from "./prometheus";
 
 function interpolate(input: string, values: Record<string, string>): string {
@@ -57,10 +58,38 @@ describe("dashboard catalog", () => {
 
   it("lists only the supported Node Exporter catalog templates", () => {
     const ids = dashboardCatalogEntries.map((entry) => entry.id);
+    expect(ids).toContain("demo-node-exporter");
+    expect(ids).toContain("demo-postgres-saas");
+    expect(ids).toContain("demo-product-analytics");
     expect(ids).toContain("node-exporter-macos");
     expect(ids).toContain("node-exporter-full");
     expect(ids).not.toContain("node-exporter-essentials");
     expect(getDashboardCatalogEntry("node-exporter-essentials")).toBeNull();
+  });
+
+  it("ships parseable demo dashboard descriptors", () => {
+    for (const id of [
+      "demo-node-exporter",
+      "demo-postgres-saas",
+      "demo-product-analytics",
+    ]) {
+      const entry = getDashboardCatalogEntry(id);
+      expect(entry).not.toBeNull();
+      const config = cloneDashboardConfig(entry!);
+      const values: Record<string, string> = { ...(config.variables ?? {}) };
+      for (const filter of config.filters ?? []) {
+        values[filter.id] = filter.default ?? "";
+      }
+      const demoPanels = config.panels.filter(
+        (panel) => panel.source === "demo",
+      );
+      expect(demoPanels.length).toBeGreaterThan(0);
+      for (const panel of demoPanels) {
+        expect(() =>
+          parseDemoDescriptor(interpolate(panel.sql, values)),
+        ).not.toThrow();
+      }
+    }
   });
 
   it("ships a parseable Node Exporter Full Prometheus dashboard", () => {
