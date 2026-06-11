@@ -3,8 +3,12 @@ import {
   createH3SSRHandler,
   DEFAULT_SSR_CACHE_HEADERS,
   DEFAULT_SPECULATION_RULES_HEADER,
-  DEFAULT_SSR_CACHE_CONTROL,
 } from "./ssr-handler.js";
+import {
+  DEFAULT_SSR_CACHE_CONTROL,
+  DEFAULT_SSR_CDN_CACHE_CONTROL,
+  DEFAULT_SSR_NETLIFY_CDN_CACHE_CONTROL,
+} from "../shared/cache-control.js";
 import { AGENT_NATIVE_SOCIAL_IMAGE_PATH } from "../shared/social-meta.js";
 import { getRequestUserEmail } from "./request-context.js";
 
@@ -202,7 +206,7 @@ describe("createH3SSRHandler", () => {
     expectDefaultSsrCacheHeaders(response);
   });
 
-  it("sets private/no-store on authenticated .data responses without a loader Cache-Control", async () => {
+  it("serves public SWR on .data even when the request carries a session cookie", async () => {
     mocks.requestHandler.mockResolvedValueOnce(
       new Response('[{"_1":2},"routes/account"]', {
         headers: {
@@ -220,12 +224,21 @@ describe("createH3SSRHandler", () => {
       }),
     );
 
-    // Authenticated requests must not be publicly CDN-cached.
-    expect(response.headers.get("cache-control")).toBe("private, no-store");
-    expectNoDefaultCdnCacheHeaders(response);
+    // Auth makes no difference: SSR .data is hard-cached for everyone, so an
+    // authenticated request gets the exact same public SWR headers as anonymous.
+    expectDefaultSsrCacheHeaders(response);
+    expect(response.headers.get("cache-control")).toBe(
+      DEFAULT_SSR_CACHE_CONTROL,
+    );
+    expect(response.headers.get("cdn-cache-control")).toBe(
+      DEFAULT_SSR_CDN_CACHE_CONTROL,
+    );
+    expect(response.headers.get("netlify-cdn-cache-control")).toBe(
+      DEFAULT_SSR_NETLIFY_CDN_CACHE_CONTROL,
+    );
   });
 
-  it("keeps private/no-store on authenticated .data responses where the route set private/no-store", async () => {
+  it("overrides a route-provided private/no-store on .data with the public SWR policy when authenticated", async () => {
     mocks.requestHandler.mockResolvedValueOnce(
       new Response('[{"_1":2},"routes/private"]', {
         headers: {
@@ -243,9 +256,12 @@ describe("createH3SSRHandler", () => {
       }),
     );
 
-    // Route set private/no-store; auth gate also requires private/no-store.
-    expect(response.headers.get("cache-control")).toBe("private, no-store");
-    expectNoDefaultCdnCacheHeaders(response);
+    // The framework hard-caches SSR .data for everyone: a route can no longer
+    // opt .data into private/no-store, even when the request is authenticated.
+    expectDefaultSsrCacheHeaders(response);
+    expect(response.headers.get("cache-control")).toBe(
+      DEFAULT_SSR_CACHE_CONTROL,
+    );
   });
 
   it("does not replace no-cache on non-React Router .data responses", async () => {
@@ -311,7 +327,7 @@ describe("createH3SSRHandler", () => {
     );
   });
 
-  it("sets private/no-store on HTML responses when a page request carries a framework session cookie", async () => {
+  it("serves public SWR on SSR HTML even when the request carries a session cookie", async () => {
     mocks.requestHandler.mockResolvedValueOnce(
       new Response("<html><head></head><body>ok</body></html>", {
         headers: { "content-type": "text/html; charset=utf-8" },
@@ -325,18 +341,30 @@ describe("createH3SSRHandler", () => {
       }),
     );
 
-    // Authenticated requests must not be publicly CDN-cached.
-    expect(response.headers.get("cache-control")).toBe("private, no-store");
-    expectNoDefaultCdnCacheHeaders(response);
+    // Auth makes no difference: SSR HTML is hard-cached for everyone, so a
+    // request with a session cookie gets the same public SWR headers as anonymous.
+    expectDefaultSsrCacheHeaders(response);
+    expect(response.headers.get("cache-control")).toBe(
+      DEFAULT_SSR_CACHE_CONTROL,
+    );
+    expect(response.headers.get("cdn-cache-control")).toBe(
+      DEFAULT_SSR_CDN_CACHE_CONTROL,
+    );
+    expect(response.headers.get("netlify-cdn-cache-control")).toBe(
+      DEFAULT_SSR_NETLIFY_CDN_CACHE_CONTROL,
+    );
   });
 
-  it("sets private/no-store on authenticated HTML even when loader reads user context", async () => {
+  it("ignores a request session cookie and renders SSR HTML impersonally", async () => {
     mocks.getSession.mockResolvedValueOnce({ email: "alice@example.com" });
     mocks.requestHandler.mockImplementationOnce(async () => {
       const email = getRequestUserEmail();
-      return new Response(`<html><head></head><body>${email}</body></html>`, {
-        headers: { "content-type": "text/html; charset=utf-8" },
-      });
+      return new Response(
+        `<html><head></head><body>${email ?? "anonymous"}</body></html>`,
+        {
+          headers: { "content-type": "text/html; charset=utf-8" },
+        },
+      );
     });
     const handler = createH3SSRHandler(() => ({})) as any;
 
@@ -346,17 +374,22 @@ describe("createH3SSRHandler", () => {
       }),
     );
 
-    // Response contains personalized data — it must not be publicly cached.
-    expect(await response.text()).toContain("alice@example.com");
-    expect(response.headers.get("cache-control")).toBe("private, no-store");
-    expectNoDefaultCdnCacheHeaders(response);
+    // The SSR handler does not read the request session, so a loader that calls
+    // getRequestUserEmail() sees undefined — the HTML is impersonal and safe to
+    // hard-cache for everyone.
+    expect(await response.text()).toContain("anonymous");
+    expect(mocks.getSession).not.toHaveBeenCalled();
+    expectDefaultSsrCacheHeaders(response);
+    expect(response.headers.get("cache-control")).toBe(
+      DEFAULT_SSR_CACHE_CONTROL,
+    );
   });
 
-  it("sets private/no-store on authenticated .data even when loader reads user context", async () => {
+  it("ignores a request session cookie and renders SSR .data impersonally", async () => {
     mocks.getSession.mockResolvedValueOnce({ email: "alice@example.com" });
     mocks.requestHandler.mockImplementationOnce(async () => {
       const email = getRequestUserEmail();
-      return new Response(`[{"email":${JSON.stringify(email)}}]`, {
+      return new Response(`[{"email":${JSON.stringify(email ?? null)}}]`, {
         headers: {
           "cache-control": "no-cache",
           "content-type": "text/x-script",
@@ -372,10 +405,14 @@ describe("createH3SSRHandler", () => {
       }),
     );
 
-    // Response contains personalized data — it must not be publicly cached.
-    expect(await response.text()).toContain("alice@example.com");
-    expect(response.headers.get("cache-control")).toBe("private, no-store");
-    expectNoDefaultCdnCacheHeaders(response);
+    // No per-user data is baked into the .data response — getRequestUserEmail()
+    // returns undefined even with a session cookie — so it is publicly cached.
+    expect(await response.text()).toContain('"email":null');
+    expect(mocks.getSession).not.toHaveBeenCalled();
+    expectDefaultSsrCacheHeaders(response);
+    expect(response.headers.get("cache-control")).toBe(
+      DEFAULT_SSR_CACHE_CONTROL,
+    );
   });
 
   it("keeps public SSR caching for docs anonymous session cookies", async () => {
@@ -418,7 +455,7 @@ describe("createH3SSRHandler", () => {
     expect(mocks.getSession).not.toHaveBeenCalled();
   });
 
-  it("sets private/no-store when anonymous and authenticated cookies coexist", async () => {
+  it("serves public SWR regardless of which cookies are present", async () => {
     mocks.requestHandler.mockResolvedValueOnce(
       new Response("<html><head></head><body>ok</body></html>", {
         headers: { "content-type": "text/html; charset=utf-8" },
@@ -428,15 +465,17 @@ describe("createH3SSRHandler", () => {
 
     const response = await handler(
       createEvent("/docs", "GET", {
-        // an_docs_session is anonymous-only, but an_session is an auth cookie —
-        // the presence of any auth cookie triggers the private/no-store gate.
+        // Even with an auth cookie alongside anonymous ones, SSR is still the
+        // impersonal public shell — no cookie combination changes the policy.
         headers: { cookie: "an_docs_session=anon; an_session=1" },
       }),
     );
 
-    expect(response.headers.get("cache-control")).toBe("private, no-store");
-    expectNoDefaultCdnCacheHeaders(response);
-    expect(mocks.getSession).toHaveBeenCalledTimes(1);
+    expectDefaultSsrCacheHeaders(response);
+    expect(response.headers.get("cache-control")).toBe(
+      DEFAULT_SSR_CACHE_CONTROL,
+    );
+    expect(mocks.getSession).not.toHaveBeenCalled();
   });
 
   it("overwrites explicit SSR cache policies from routes on anonymous requests", async () => {
@@ -458,13 +497,14 @@ describe("createH3SSRHandler", () => {
     );
   });
 
-  it("honours a route-provided Cache-Control on authenticated HTML responses", async () => {
-    // A public share page may explicitly set a public cache header even when
-    // the request carries an auth cookie (e.g. an optional login).
+  it("overrides a route-provided Cache-Control on authenticated HTML with the public SWR policy", async () => {
+    // A route may try to set its own Cache-Control even when the request carries
+    // an auth cookie, but the framework hard-caches SSR HTML for everyone, so
+    // the route-provided policy is overridden with the public SWR default.
     mocks.requestHandler.mockResolvedValueOnce(
       new Response("<html><head></head><body>shared</body></html>", {
         headers: {
-          "cache-control": "public, max-age=60",
+          "cache-control": "private, no-store",
           "content-type": "text/html; charset=utf-8",
         },
       }),
@@ -477,10 +517,11 @@ describe("createH3SSRHandler", () => {
       }),
     );
 
-    // Route explicitly overrode the default; respect it.
-    expect(response.headers.get("cache-control")).toBe("public, max-age=60");
-    // CDN-specific headers must still be stripped — we only keep browser CC.
-    expectNoDefaultCdnCacheHeaders(response);
+    // Route tried to opt out; the framework still enforces the public SWR policy.
+    expectDefaultSsrCacheHeaders(response);
+    expect(response.headers.get("cache-control")).toBe(
+      DEFAULT_SSR_CACHE_CONTROL,
+    );
   });
 
   it("does not resolve auth for anonymous SSR page requests", async () => {
@@ -496,59 +537,86 @@ describe("createH3SSRHandler", () => {
     expect(mocks.getSession).not.toHaveBeenCalled();
   });
 
-  it("resolves auth context when an SSR page request carries credentials", async () => {
-    mocks.requestHandler.mockResolvedValueOnce(
-      new Response("<html><head></head><body>ok</body></html>", {
-        headers: { "content-type": "text/html; charset=utf-8" },
-      }),
-    );
+  it("ignores a request session cookie and renders SSR impersonally", async () => {
+    mocks.getSession.mockResolvedValueOnce({ email: "alice@example.com" });
+    mocks.requestHandler.mockImplementationOnce(async () => {
+      const email = getRequestUserEmail();
+      return new Response(
+        `<html><head></head><body>${email ?? "anonymous"}</body></html>`,
+        { headers: { "content-type": "text/html; charset=utf-8" } },
+      );
+    });
     const handler = createH3SSRHandler(() => ({})) as any;
 
-    await handler(
+    const response = await handler(
       createEvent("/", "GET", { headers: { cookie: "an_session=1" } }),
     );
 
-    expect(mocks.getSession).toHaveBeenCalledTimes(1);
+    // SSR never reads the request session: getSession is not called and a loader
+    // that reads getRequestUserEmail() sees undefined despite the auth cookie.
+    expect(mocks.getSession).not.toHaveBeenCalled();
+    expect(await response.text()).toContain("anonymous");
   });
 
-  it("resolves auth context when an SSR page request carries an embed token", async () => {
+  it("ignores an embed-token credential and renders SSR impersonally", async () => {
     mocks.requestHasEmbedAuthMarker.mockReturnValue(true);
-    mocks.requestHandler.mockResolvedValueOnce(
-      new Response("<html><head></head><body>ok</body></html>", {
-        headers: { "content-type": "text/html; charset=utf-8" },
-      }),
-    );
+    mocks.getSession.mockResolvedValueOnce({ email: "alice@example.com" });
+    mocks.requestHandler.mockImplementationOnce(async () => {
+      const email = getRequestUserEmail();
+      return new Response(
+        `<html><head></head><body>${email ?? "anonymous"}</body></html>`,
+        { headers: { "content-type": "text/html; charset=utf-8" } },
+      );
+    });
     const handler = createH3SSRHandler(() => ({})) as any;
 
-    await handler(createEvent("/inbox?embedded=1&__an_embed_token=signed"));
+    const response = await handler(
+      createEvent("/inbox?embedded=1&__an_embed_token=signed"),
+    );
 
-    expect(mocks.getSession).toHaveBeenCalledTimes(1);
+    // An embed token in the request does not pin a session for SSR.
+    expect(mocks.getSession).not.toHaveBeenCalled();
+    expect(await response.text()).toContain("anonymous");
   });
 
-  it("resolves auth context when an SSR page request carries embed token auth", async () => {
-    mocks.requestHandler.mockResolvedValueOnce(
-      new Response("<html><head></head><body>ok</body></html>", {
-        headers: { "content-type": "text/html; charset=utf-8" },
-      }),
-    );
+  it("ignores an Authorization header credential and renders SSR impersonally", async () => {
+    mocks.getSession.mockResolvedValueOnce({ email: "alice@example.com" });
+    mocks.requestHandler.mockImplementationOnce(async () => {
+      const email = getRequestUserEmail();
+      return new Response(
+        `<html><head></head><body>${email ?? "anonymous"}</body></html>`,
+        { headers: { "content-type": "text/html; charset=utf-8" } },
+      );
+    });
     const handler = createH3SSRHandler(() => ({})) as any;
 
-    await handler(createEvent("/inbox?__an_embed_token=signed-token"));
+    const response = await handler(
+      createEvent("/inbox", "GET", {
+        headers: { authorization: "Bearer signed-token" },
+      }),
+    );
 
-    expect(mocks.getSession).toHaveBeenCalledTimes(1);
+    // An Authorization header in the request does not pin a session for SSR.
+    expect(mocks.getSession).not.toHaveBeenCalled();
+    expect(await response.text()).toContain("anonymous");
   });
 
-  it("resolves auth context when an SSR page request carries mobile session auth", async () => {
-    mocks.requestHandler.mockResolvedValueOnce(
-      new Response("<html><head></head><body>ok</body></html>", {
-        headers: { "content-type": "text/html; charset=utf-8" },
-      }),
-    );
+  it("ignores a mobile-session credential and renders SSR impersonally", async () => {
+    mocks.getSession.mockResolvedValueOnce({ email: "alice@example.com" });
+    mocks.requestHandler.mockImplementationOnce(async () => {
+      const email = getRequestUserEmail();
+      return new Response(
+        `<html><head></head><body>${email ?? "anonymous"}</body></html>`,
+        { headers: { "content-type": "text/html; charset=utf-8" } },
+      );
+    });
     const handler = createH3SSRHandler(() => ({})) as any;
 
-    await handler(createEvent("/inbox?_session=mobile-token"));
+    const response = await handler(createEvent("/inbox?_session=mobile-token"));
 
-    expect(mocks.getSession).toHaveBeenCalledTimes(1);
+    // A mobile session query credential does not pin a session for SSR.
+    expect(mocks.getSession).not.toHaveBeenCalled();
+    expect(await response.text()).toContain("anonymous");
   });
 
   it("does not SSR framework routes under APP_BASE_PATH", async () => {
@@ -808,76 +876,6 @@ describe("createH3SSRHandler", () => {
           process.env.NODE_ENV = previousNodeEnv;
         }
       }
-    });
-  });
-
-  describe("org_members round-trip elimination", () => {
-    it("does not call getOrgContext when session already carries orgId (fast path)", async () => {
-      // Simulates the common case: getSession backfills orgId via backfillSessionOrg,
-      // so readOrgIdForEvent should reuse it instead of issuing a second DB query.
-      mocks.getSession.mockResolvedValueOnce({
-        email: "alice@example.com",
-        orgId: "org-123",
-      });
-      mocks.requestHandler.mockResolvedValueOnce(
-        new Response("<html><head></head><body>ok</body></html>", {
-          headers: { "content-type": "text/html; charset=utf-8" },
-        }),
-      );
-      const handler = createH3SSRHandler(() => ({})) as any;
-
-      await handler(
-        createEvent("/app/dashboard", "GET", {
-          headers: { cookie: "an_session=active" },
-        }),
-      );
-
-      // The session already had orgId — getOrgContext must not have been called.
-      expect(mocks.getOrgContext).not.toHaveBeenCalled();
-      expect(mocks.getSession).toHaveBeenCalledTimes(1);
-    });
-
-    it("calls getOrgContext exactly once when session has no orgId (fallback path)", async () => {
-      // Simulates a new user or a session that could not be backfilled.
-      mocks.getSession.mockResolvedValueOnce({
-        email: "newuser@example.com",
-        // no orgId
-      });
-      mocks.getOrgContext.mockResolvedValueOnce({
-        email: "newuser@example.com",
-        orgId: "org-456",
-        orgName: "New Org",
-        role: "owner",
-      });
-      mocks.requestHandler.mockResolvedValueOnce(
-        new Response("<html><head></head><body>ok</body></html>", {
-          headers: { "content-type": "text/html; charset=utf-8" },
-        }),
-      );
-      const handler = createH3SSRHandler(() => ({})) as any;
-
-      await handler(
-        createEvent("/app/home", "GET", {
-          headers: { cookie: "an_session=active" },
-        }),
-      );
-
-      // getOrgContext issued for the membership lookup, but only once.
-      expect(mocks.getOrgContext).toHaveBeenCalledTimes(1);
-    });
-
-    it("does not call getOrgContext for anonymous requests", async () => {
-      mocks.requestHandler.mockResolvedValueOnce(
-        new Response("<html><head></head><body>ok</body></html>", {
-          headers: { "content-type": "text/html; charset=utf-8" },
-        }),
-      );
-      const handler = createH3SSRHandler(() => ({})) as any;
-
-      await handler(createEvent("/public-page"));
-
-      expect(mocks.getOrgContext).not.toHaveBeenCalled();
-      expect(mocks.getSession).not.toHaveBeenCalled();
     });
   });
 });

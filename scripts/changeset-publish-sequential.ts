@@ -193,6 +193,25 @@ function isAlreadyPublished(output: string): boolean {
   );
 }
 
+// A 404 on the PUT for a package that isn't on npm yet means the registry
+// would not let us CREATE the package. With OIDC trusted publishing this is
+// expected: a brand-new package's first version cannot be created over OIDC
+// and must be bootstrapped with a token (npm/cli#8544).
+function isMissingPackageOnPublish(output: string): boolean {
+  return (
+    (output.includes("E404") || output.includes("404 Not Found")) &&
+    (output.includes("PUT") ||
+      output.includes("could not be found or you do not have permission"))
+  );
+}
+
+function makePublishError(message: string, isMissingPackage: boolean): Error {
+  const error = new Error(message);
+  (error as Error & { isMissingPackage?: boolean }).isMissingPackage =
+    isMissingPackage;
+  return error;
+}
+
 function tagName(pkg: PublishPackage): string {
   return `${pkg.name}@${pkg.version}`;
 }
@@ -272,14 +291,16 @@ async function publishPackage(pkg: PublishPackage): Promise<boolean> {
     return false;
   }
 
-  throw new Error(
+  throw makePublishError(
     `Failed to publish ${pkg.name}@${pkg.version} with exit code ${result.code}`,
+    isMissingPackageOnPublish(output),
   );
 }
 
 async function main() {
   const packages = await getPublishPackages();
   const packagesNeedingTags: PublishPackage[] = [];
+  const failures: { pkg: PublishPackage; error: unknown }[] = [];
 
   for (const pkg of packages) {
     if (await isPublished(pkg)) {
@@ -298,24 +319,51 @@ async function main() {
     console.log(
       `${pkg.name} is being published because local version ${pkg.version} has not been published on npm`,
     );
-    if (await publishPackage(pkg)) {
-      packagesNeedingTags.push(pkg);
+    // Don't let one package's failure abort the whole release: keep going so
+    // packages that DID publish still get their git tags, then fail the run
+    // at the end with a summary of what broke.
+    try {
+      if (await publishPackage(pkg)) {
+        packagesNeedingTags.push(pkg);
+      }
+    } catch (error) {
+      failures.push({ pkg, error });
+      console.error(`::error::Failed to publish ${tagName(pkg)}`);
+      if ((error as { isMissingPackage?: boolean }).isMissingPackage) {
+        console.error(
+          `${pkg.name} does not exist on npm yet, and OIDC trusted publishing ` +
+            `cannot create a brand-new package (npm/cli#8544). Bootstrap it ` +
+            `once: publish its first version manually with a token ` +
+            `(\`cd ${path.relative(rootDir, pkg.dir)} && npm publish --access public --no-provenance\`), ` +
+            `then add a Trusted Publisher for it on npmjs.com matching the other ` +
+            `@agent-native packages (repo BuilderIO/agent-native, workflow ` +
+            `auto-publish.yml, environment npm-publish). After that, OIDC ` +
+            `publishes every future version automatically.`,
+        );
+      }
     }
   }
 
   if (packagesNeedingTags.length === 0) {
     console.log("No unpublished packages found");
-    return;
+  } else {
+    console.log("packages ready for release tags:");
+    for (const pkg of packagesNeedingTags) {
+      console.log(`${pkg.name}@${pkg.version}`);
+    }
+    for (const pkg of packagesNeedingTags) {
+      console.log("Creating git tag...");
+      await createLocalTag(pkg);
+      console.log(`New tag:  ${tagName(pkg)}`);
+    }
   }
 
-  console.log("packages ready for release tags:");
-  for (const pkg of packagesNeedingTags) {
-    console.log(`${pkg.name}@${pkg.version}`);
-  }
-  for (const pkg of packagesNeedingTags) {
-    console.log("Creating git tag...");
-    await createLocalTag(pkg);
-    console.log(`New tag:  ${tagName(pkg)}`);
+  if (failures.length > 0) {
+    throw new Error(
+      `Failed to publish ${failures.length} package(s): ${failures
+        .map((failure) => tagName(failure.pkg))
+        .join(", ")}`,
+    );
   }
 }
 

@@ -224,6 +224,23 @@ export default runMigrations(
         CREATE INDEX IF NOT EXISTS documents_parent_idx ON documents (parent_id);
         CREATE INDEX IF NOT EXISTS document_shares_resource_idx ON document_shares (resource_id, principal_type, principal_id)`,
     },
+    // v28-v31: robust text-anchor + @mention metadata for document comments.
+    {
+      version: 28,
+      sql: `ALTER TABLE document_comments ADD COLUMN IF NOT EXISTS anchor_prefix TEXT`,
+    },
+    {
+      version: 29,
+      sql: `ALTER TABLE document_comments ADD COLUMN IF NOT EXISTS anchor_suffix TEXT`,
+    },
+    {
+      version: 30,
+      sql: `ALTER TABLE document_comments ADD COLUMN IF NOT EXISTS anchor_start_offset INTEGER`,
+    },
+    {
+      version: 31,
+      sql: `ALTER TABLE document_comments ADD COLUMN IF NOT EXISTS mentions_json TEXT`,
+    },
   ],
   { table: "content_migrations" },
 );

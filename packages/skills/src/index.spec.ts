@@ -168,6 +168,37 @@ describe("@agent-native/skills", () => {
     expect(agents).toContain("95%");
   });
 
+  it("defaults to user scope when scope is omitted non-interactively", async () => {
+    const repo = tmpDir();
+    const project = tmpDir();
+    writeSkill(repo, "quick-recap");
+    const home = path.join(project, "home");
+    fs.mkdirSync(home, { recursive: true });
+    const prevHome = process.env.HOME;
+    process.env.HOME = home;
+    try {
+      const result = await installSkills({
+        source: repo,
+        skillNames: ["quick-recap"],
+        clients: ["claude-code"],
+        // scope intentionally omitted so resolveSelectedScope picks a default
+        baseDir: project,
+        updateInstructions: false,
+        yes: true,
+      });
+
+      expect(result.scope).toBe("user");
+      expect(
+        fs.existsSync(
+          path.join(home, ".claude", "skills", "quick-recap", "SKILL.md"),
+        ),
+      ).toBe(true);
+    } finally {
+      if (prevHome === undefined) delete process.env.HOME;
+      else process.env.HOME = prevHome;
+    }
+  });
+
   it("writes the optional PR Visual Recap workflow when visual-recap is selected", async () => {
     const repo = tmpDir();
     const project = tmpDir();

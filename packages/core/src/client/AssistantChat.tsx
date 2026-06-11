@@ -1098,8 +1098,6 @@ const AssistantChatInner = forwardRef<
     runId?: string;
   } | null>(null);
   const [isReconnecting, setIsReconnecting] = useState(false);
-  // Last activity label emitted by agent-chat:activity events (tool name / step label).
-  const [activityLabel, setActivityLabel] = useState<string | null>(null);
   // True during the 250ms continuation window and startup of the next chunk
   // (adapter's auto-continue delay before POSTing the next chunk).
   const [isAutoResuming, setIsAutoResuming] = useState(false);
@@ -1903,7 +1901,11 @@ const AssistantChatInner = forwardRef<
     return () => window.removeEventListener("agent-chat:run-error", handler);
   }, [tabId]);
 
-  // Track the most recent activity label for the running indicator.
+  // Real activity means the next chunk has started — leave the auto-resume
+  // ("Resuming") state so the indicator settles back to "Thinking". The
+  // activity label itself is intentionally not surfaced: the running
+  // indicator stays a steady "Thinking" rather than flipping through
+  // transient step labels.
   useEffect(() => {
     const handler = (e: Event) => {
       const detail = (e as CustomEvent).detail as {
@@ -1913,24 +1915,11 @@ const AssistantChatInner = forwardRef<
       };
       if (tabId && detail?.tabId && detail.tabId !== tabId) return;
       if (typeof detail?.label === "string" && detail.label.trim()) {
-        setActivityLabel(detail.label.trim());
         setIsAutoResuming(false);
       }
     };
     window.addEventListener("agent-chat:activity", handler);
     return () => window.removeEventListener("agent-chat:activity", handler);
-  }, [tabId]);
-
-  // Clear the activity label when the server clears a corrective draft.
-  useEffect(() => {
-    const handler = (e: Event) => {
-      const detail = (e as CustomEvent).detail as { tabId?: string };
-      if (tabId && detail?.tabId && detail.tabId !== tabId) return;
-      setActivityLabel(null);
-    };
-    window.addEventListener("agent-chat:activity-clear", handler);
-    return () =>
-      window.removeEventListener("agent-chat:activity-clear", handler);
   }, [tabId]);
 
   // Show "Resuming…" during the adapter's auto-continuation window (the
@@ -1941,18 +1930,16 @@ const AssistantChatInner = forwardRef<
       const detail = (e as CustomEvent).detail as { tabId?: string };
       if (tabId && detail?.tabId && detail.tabId !== tabId) return;
       setIsAutoResuming(true);
-      setActivityLabel(null);
     };
     window.addEventListener("agent-chat:auto-continue", handler);
     return () =>
       window.removeEventListener("agent-chat:auto-continue", handler);
   }, [tabId]);
 
-  // Clear auto-resume / activity label when the run stops.
+  // Clear auto-resume state when the run stops.
   useEffect(() => {
     if (!isRunning) {
       setIsAutoResuming(false);
-      setActivityLabel(null);
     }
   }, [isRunning]);
 
@@ -2961,7 +2948,10 @@ const AssistantChatInner = forwardRef<
                       ? "Reconnecting"
                       : isAutoResuming
                         ? "Resuming"
-                        : (activityLabel ?? "Thinking")
+                        : // Keep a steady "Thinking" while the model works —
+                          // never flip through transient activity labels
+                          // (e.g. "Contacting model", "Preparing X action").
+                          "Thinking"
                   }
                 />
               )}

@@ -33,6 +33,7 @@ import {
 } from "@agent-native/core/client";
 import { CommentsSidebar } from "./CommentsSidebar";
 import { useComments } from "@/hooks/use-comments";
+import type { CommentTextAnchor } from "./comment-anchors";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
@@ -572,16 +573,29 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
   const [pendingComment, setPendingComment] = useState<{
     quotedText: string;
     offsetTop: number;
+    anchor?: CommentTextAnchor;
+    range?: { from: number; to: number };
   } | null>(null);
+  // The thread whose highlight + card are currently focused (click an inline
+  // highlight to focus its card; hover a card to emphasize its highlight).
+  const [activeThreadId, setActiveThreadId] = useState<string | null>(null);
   const { data: threads } = useComments(documentId);
   const hasComments =
-    canEdit &&
-    ((threads?.some((t) => !t.resolved) ?? false) || !!pendingComment);
+    canEdit && ((threads?.length ?? 0) > 0 || !!pendingComment);
   const isMobile = useIsMobile();
 
-  const handleComment = useCallback((quotedText: string, offsetTop: number) => {
-    setPendingComment({ quotedText, offsetTop });
-  }, []);
+  const handleComment = useCallback(
+    (
+      quotedText: string,
+      offsetTop: number,
+      anchor?: CommentTextAnchor,
+      range?: { from: number; to: number },
+    ) => {
+      setPendingComment({ quotedText, offsetTop, anchor, range });
+      setActiveThreadId(null);
+    },
+    [],
+  );
 
   const focusTitleEnd = useCallback(() => {
     const textarea = titleInputRef.current;
@@ -648,6 +662,9 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
       pendingComment={pendingComment}
       onPendingDone={() => setPendingComment(null)}
       scrollContainerRef={scrollContainerRef}
+      activeThreadId={activeThreadId}
+      onActiveThreadChange={setActiveThreadId}
+      currentUserEmail={session?.email}
     />
   );
   const defaultIconKind = documentEditorDefaultIconKind(document);
@@ -791,6 +808,10 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
                 user={currentUser}
                 editable={canEdit}
                 onComment={canEdit ? handleComment : undefined}
+                commentThreads={threads ?? []}
+                activeThreadId={activeThreadId}
+                pendingHighlight={pendingComment?.range ?? null}
+                onActivateThread={canEdit ? setActiveThreadId : undefined}
                 onJoinTitle={joinFirstBodyBlockToTitle}
                 notionPageLinks={notionPageLinks}
                 onOpenNotionPageLink={handleOpenNotionPageLink}

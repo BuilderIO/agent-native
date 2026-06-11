@@ -49,6 +49,38 @@ describe("getOnboardingHtml", () => {
     });
   });
 
+  describe("googleOnly login is env-independent (safe to CDN-cache)", () => {
+    it("renders a working Google button even when GOOGLE_CLIENT_ID/SECRET are absent at render time", () => {
+      // The login page is a public, CDN-cacheable shell that may be rendered in
+      // any context (build, an env-less cold start, a stale-while-revalidate
+      // refresh). A Google-only app must ALWAYS render a usable button and must
+      // never bake a "not configured" error into that cached HTML — otherwise a
+      // single bad render freezes the broken page for every visitor until the
+      // SWR window expires. A genuinely misconfigured server surfaces the error
+      // at click time via the auth API instead.
+      delete process.env.GOOGLE_CLIENT_ID;
+      delete process.env.GOOGLE_CLIENT_SECRET;
+
+      const html = getOnboardingHtml({ googleOnly: true });
+
+      expect(html).toContain('id="google-btn"');
+      expect(html).toContain("async function signInWithGoogle()");
+      expect(html).not.toContain("Google sign-in is not configured");
+    });
+
+    it("the rendered HTML is byte-for-byte identical with and without Google env vars", () => {
+      delete process.env.GOOGLE_CLIENT_ID;
+      delete process.env.GOOGLE_CLIENT_SECRET;
+      const withoutEnv = getOnboardingHtml({ googleOnly: true });
+
+      vi.stubEnv("GOOGLE_CLIENT_ID", "google-client-id");
+      vi.stubEnv("GOOGLE_CLIENT_SECRET", "google-client-secret");
+      const withEnv = getOnboardingHtml({ googleOnly: true });
+
+      expect(withoutEnv).toBe(withEnv);
+    });
+  });
+
   it("reveals the upgrade note only from explicit upgrade markers", () => {
     const html = getOnboardingHtml();
 

@@ -16,20 +16,14 @@
  * the unknown scheme — silently 302'ing every request to "/".
  */
 import { createRequestHandler } from "react-router";
-import { defineEventHandler, type H3Event } from "h3";
+import { defineEventHandler } from "h3";
 import { getSentryClientConfigScript } from "./sentry-config.js";
 import { computeInlineScriptHash } from "./security-headers.js";
 import {
   getAppBasePathFromViteEnv,
   stripAppBasePath as canonicalStripAppBasePath,
 } from "./app-base-path.js";
-import { BETTER_AUTH_COOKIE_PREFIX, COOKIE_NAME, getSession } from "./auth.js";
 import { runWithRequestContext } from "./request-context.js";
-import { requestHasEmbedAuthMarker } from "./embed-session.js";
-import {
-  EMBED_SESSION_COOKIE,
-  EMBED_TOKEN_QUERY_PARAM,
-} from "../shared/embed-auth.js";
 import {
   AGENT_NATIVE_SOCIAL_IMAGE_ALT,
   AGENT_NATIVE_SOCIAL_IMAGE_HEIGHT,
@@ -47,40 +41,6 @@ export {
   DEFAULT_SPECULATION_RULES_HEADER,
   DEFAULT_SSR_CACHE_CONTROL,
 } from "../shared/cache-control.js";
-const ANONYMOUS_SESSION_COOKIE_NAMES = new Set(["an_docs_session"]);
-const BETTER_AUTH_SESSION_COOKIE_RE = /\.session_(?:token|data)$/;
-
-/**
- * Read the active org for a request without forcing every template to bundle
- * the org module. Mirrors what `core-routes-plugin` does for action handlers.
- *
- * Fast path: when the session already carries a valid orgId (backfilled by
- * backfillSessionOrg during getSession), return it directly — no additional
- * org_members round trip. Only when the session has no orgId do we fall
- * through to getOrgContext for the full membership lookup.
- */
-async function readOrgIdForEvent(
-  event: H3Event,
-  session: Awaited<ReturnType<typeof getSession>>,
-): Promise<string | undefined> {
-  // Reuse orgId already resolved by backfillSessionOrg inside getSession.
-  const sessionOrgId =
-    typeof session?.orgId === "string" && session.orgId.trim()
-      ? session.orgId.trim()
-      : undefined;
-  if (sessionOrgId) return sessionOrgId;
-
-  // No orgId on the session — full org_members lookup needed.
-  // getOrgContext is per-event memoized, so this is at most one DB read
-  // even if other request code calls getOrgContext independently.
-  try {
-    const { getOrgContext } = await import("../org/context.js");
-    const ctx = await getOrgContext(event);
-    return ctx?.orgId ?? undefined;
-  } catch {
-    return undefined;
-  }
-}
 
 function getAppBasePath(): string {
   return getAppBasePathFromViteEnv();
@@ -214,43 +174,6 @@ function injectDefaultSocialImageMeta(html: string, imageUrl: string): string {
   return html.slice(0, headCloseIdx) + tags.join("") + html.slice(headCloseIdx);
 }
 
-function requestHasAuthSignal(event: H3Event): boolean {
-  const headers = event.req.headers;
-  return Boolean(
-    headers.get("authorization") ||
-    requestHasAuthenticatedCookie(headers.get("cookie")) ||
-    event.url.searchParams.has(EMBED_TOKEN_QUERY_PARAM) ||
-    event.url.searchParams.has("_session") ||
-    requestHasEmbedAuthMarker(event),
-  );
-}
-
-function requestHasAuthenticatedCookie(cookieHeader: string | null): boolean {
-  if (!cookieHeader) return false;
-  return cookieHeader
-    .split(";")
-    .map((cookie) => cookie.trim().split("=", 1)[0]?.trim())
-    .filter((name): name is string => Boolean(name))
-    .some(isAuthenticatedCookieName);
-}
-
-function isAuthenticatedCookieName(name: string): boolean {
-  if (ANONYMOUS_SESSION_COOKIE_NAMES.has(name)) return false;
-  const bareName = name.replace(/^__(?:Secure|Host)-/, "");
-  return (
-    bareName === COOKIE_NAME ||
-    bareName === EMBED_SESSION_COOKIE ||
-    bareName === "an_session" ||
-    bareName === "an_session_workspace" ||
-    bareName.startsWith("an_session_") ||
-    bareName === `${BETTER_AUTH_COOKIE_PREFIX}.session_token` ||
-    bareName === `${BETTER_AUTH_COOKIE_PREFIX}.session_data` ||
-    BETTER_AUTH_SESSION_COOKIE_RE.test(bareName)
-  );
-}
-
-const PRIVATE_NO_STORE = "private, no-store";
-
 function isSsrHtmlOrDataResponse(
   headers: Headers,
   status: number,
@@ -263,53 +186,40 @@ function isSsrHtmlOrDataResponse(
 }
 
 /**
- * Apply the correct SSR cache policy to the response headers.
+ * Apply the SSR cache policy to the response headers.
  *
- * Anonymous requests (no auth signal on the incoming request) get the public
- * stale-while-revalidate default so the CDN can serve shared app-shell HTML
- * and React Router loader data to every unauthenticated visitor without
- * hammering origin.
- *
- * Authenticated requests must never be publicly CDN-cached: the loader may
- * have embedded session-personalized data. If the route already returned a
- * Cache-Control header we respect it; otherwise we fall back to
- * `private, no-store` so the browser re-fetches but no shared cache stores
- * the response.
- *
- * The distinction is on the *incoming* auth signal, not on whether the loader
- * actually used the session — that would require inspecting the response body.
- * Erring toward private for any credentialed request is the safe default.
+ * ┌──────────────────────────────────────────────────────────────────────────┐
+ * │ SSR IS A PUBLIC, HARD-CDN-CACHED SHELL — SERVED IDENTICALLY TO EVERYONE.   │
+ * │                                                                            │
+ * │ Every SSR HTML / React Router `.data` response gets the same public        │
+ * │ stale-while-revalidate policy for ALL visitors, authenticated or not, so   │
+ * │ the edge serves one shared copy and never stampedes origin.                │
+ * │                                                                            │
+ * │ DO NOT reintroduce per-user / cookie-based cache variation here (no        │
+ * │ `private`, no `no-store`, no `Vary: Cookie`, no "authenticated → don't     │
+ * │ cache" branch). That makes pages uncacheable for every logged-in visitor,  │
+ * │ which is slow and expensive — exactly the regression this guardrail        │
+ * │ prevents. The reason it is SAFE to hard-cache is that the SSR response is  │
+ * │ impersonal: `createH3SSRHandler` renders without reading the request's     │
+ * │ session/cookies, so there is no per-user data baked into the HTML. ALL     │
+ * │ per-user state (who's logged in, private records, access checks) is        │
+ * │ resolved CLIENT-SIDE after load. Keep it that way: if you need the SSR     │
+ * │ output to differ per user, the fix is to move that work client-side, not   │
+ * │ to disable caching here.                                                   │
+ * └──────────────────────────────────────────────────────────────────────────┘
  */
 function applyDefaultSsrCacheHeader(
   headers: Headers,
   status: number,
   pathname: string,
-  hasAuthSignal: boolean,
 ) {
   if (!isSsrHtmlOrDataResponse(headers, status, pathname)) return;
 
-  if (hasAuthSignal) {
-    // A route that explicitly opts into public caching (e.g. a share page that
-    // accepts an optional auth cookie) can signal intent via a `public` directive.
-    // Any other route-level or framework-default value (no-cache, private, unset)
-    // is overridden with private/no-store so no shared CDN cache stores a
-    // potentially personalized response.
-    const existingCc = headers.get("cache-control") ?? "";
-    if (!existingCc.includes("public")) {
-      headers.set("cache-control", PRIVATE_NO_STORE);
-    }
-    // Never propagate CDN-specific cache headers on authenticated responses,
-    // regardless of what the route set.
-    headers.delete("cdn-cache-control");
-    headers.delete("netlify-cdn-cache-control");
-    return;
-  }
-
-  // Netlify Functions/proxies are not cached by default, and production docs
-  // requests often carry stale auth/doc cookies. Keep all three cache headers:
-  // Cache-Control for browsers, CDN-Cache-Control for generic CDNs, and
-  // Netlify-CDN-Cache-Control (with durable) so Netlify's shared cache actually
-  // serves SSR HTML/.data instead of forwarding every request to origin.
+  // Netlify Functions/proxies are not cached by default. Set all three cache
+  // headers: Cache-Control for browsers, CDN-Cache-Control for generic CDNs,
+  // and Netlify-CDN-Cache-Control (with durable) so Netlify's shared cache
+  // actually serves SSR HTML/.data from the edge instead of forwarding every
+  // request to origin — for every visitor, authenticated or not.
   for (const [name, value] of Object.entries(DEFAULT_SSR_CACHE_HEADERS)) {
     headers.set(name, value);
   }
@@ -430,11 +340,10 @@ async function rewriteMountedResponse(
   basePath: string,
   pathname: string,
   requestUrl: string,
-  hasAuthSignal: boolean,
 ): Promise<Response> {
   const sentryClientConfigScript = getSentryClientConfigScript();
   const headers = new Headers(response.headers);
-  applyDefaultSsrCacheHeader(headers, response.status, pathname, hasAuthSignal);
+  applyDefaultSsrCacheHeader(headers, response.status, pathname);
   applyDefaultSpeculationRulesHeader(headers, response.status, basePath);
 
   const location = headers.get("location");
@@ -484,30 +393,18 @@ export function createH3SSRHandler(getBuild: () => Promise<unknown> | unknown) {
     }
     try {
       const request = requestWithPathname(event.req as Request, p, basePath);
-      // Pin the active session onto the async request context so React Router
-      // loaders that call `getRequestUserEmail()` / `accessFilter()` see the
-      // signed-in user. Without this, SSR loaders fall through to the
-      // unauthenticated branch even when the user is logged in — which broke
-      // shared-deck "Presentation link" access for non-public decks.
-      let session: Awaited<ReturnType<typeof getSession>> | null = null;
-      const hasAuthSignal = requestHasAuthSignal(event);
-      if (hasAuthSignal) {
-        try {
-          session = await getSession(event);
-        } catch {
-          // Auth lookup failures must not break SSR; treat as unauthenticated.
-        }
-      }
-      // readOrgIdForEvent fast-paths when session.orgId is already backfilled
-      // (the common case), avoiding a duplicate org_members query. A second
-      // query only fires for authenticated users whose session has no orgId.
-      const orgId = session?.email
-        ? await readOrgIdForEvent(event, session)
-        : undefined;
-      const ctx = {
-        userEmail: session?.email ?? undefined,
-        orgId,
-      };
+      // SSR renders an IMPERSONAL public shell — we deliberately do NOT read the
+      // request's session/cookies here, and pin an explicitly anonymous request
+      // context. That keeps the SSR HTML/.data identical for every visitor so it
+      // can be hard-cached at the CDN for everyone (see applyDefaultSsrCacheHeader).
+      //
+      // Consequence: SSR loaders that call `getRequestUserEmail()` / `accessFilter()`
+      // always see the unauthenticated branch and render public content only. Any
+      // per-user view (private records, share-grant access, who's logged in) MUST
+      // be resolved CLIENT-SIDE after load, never baked into SSR. Do not re-pin the
+      // session here to "fix" a per-user page — that silently makes the page
+      // uncacheable and/or leaks one user's data into another's cached copy.
+      const ctx = { userEmail: undefined, orgId: undefined };
       if (request.method === "HEAD") {
         const getRequest = new Request(request.url, {
           method: "GET",
@@ -526,7 +423,6 @@ export function createH3SSRHandler(getBuild: () => Promise<unknown> | unknown) {
           basePath,
           p,
           request.url,
-          hasAuthSignal,
         );
       }
       return await rewriteMountedResponse(
@@ -534,7 +430,6 @@ export function createH3SSRHandler(getBuild: () => Promise<unknown> | unknown) {
         basePath,
         p,
         request.url,
-        hasAuthSignal,
       );
     } catch (err) {
       // Log the full stack server-side, but never leak it to the client.

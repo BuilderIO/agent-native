@@ -520,7 +520,11 @@ export {
   type DevDatabaseLinkProps,
 } from "./db-admin/DevDatabaseLink.js";
 export { ErrorBoundary } from "./ErrorBoundary.js";
-export { installRouteChunkRecovery } from "./route-chunk-recovery.js";
+export {
+  installRouteChunkRecovery,
+  reloadForStaleChunk,
+  recoverFromStaleChunkError,
+} from "./route-chunk-recovery.js";
 export { ClientOnly } from "./ClientOnly.js";
 export { DefaultSpinner } from "./DefaultSpinner.js";
 export {

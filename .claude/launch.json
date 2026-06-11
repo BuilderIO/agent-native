@@ -69,6 +69,16 @@
       "runtimeArgs": ["--filter", "@agent-native/docs", "dev"],
       "port": 3000,
       "autoPort": true
+    },
+    {
+      "name": "content-comments",
+      "runtimeExecutable": "bash",
+      "runtimeArgs": [
+        "-c",
+        "NODE_ENV=development APP_NAME=content APP_URL=http://localhost:8088 AGENT_USER_EMAIL=dev@local.test CONTENT_DATABASE_URL=file:/tmp/content-comments-0610.db PORT=8088 pnpm --filter content exec agent-native dev"
+      ],
+      "port": 8088,
+      "autoPort": false
     }
   ]
 }

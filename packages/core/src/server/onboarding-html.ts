@@ -102,6 +102,14 @@ export interface OnboardingHtmlOptions {
 export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
   const showGoogle = hasGoogleOAuth();
   const googleOnly = !!opts.googleOnly;
+  // In a Google-only app, Google is the sole sign-in method, so always render
+  // a working button — never gate it on env vars detected at render time. The
+  // login page is a public, CDN-cacheable shell served to everyone (per-user
+  // and per-config state is resolved client-side after load), so baking a
+  // "not configured" message in here would freeze that error into the cache
+  // for every visitor. A genuinely misconfigured server instead surfaces a
+  // clear error at click time via the auth API.
+  const renderGoogleButton = showGoogle || googleOnly;
   const appBasePath = normalizeAppBasePath(
     process.env.VITE_APP_BASE_PATH || process.env.APP_BASE_PATH,
   );
@@ -154,7 +162,7 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
     </div>`
     : "";
   const googleNoticeHtml =
-    showGoogle && googleSignInNotice
+    renderGoogleButton && googleSignInNotice
       ? `
   <div
     class="google-preflight"
@@ -976,7 +984,7 @@ ${marketingPanelHtml}
   ></p>
 ${identitySsoLoginButtonHtml()}
 ${
-  showGoogle
+  renderGoogleButton
     ? `
   <div class="google-signin" id="google-signin">
   <button class="btn-google" id="google-btn" onclick="signInWithGoogle()"${googleSignInNotice ? ' aria-haspopup="dialog" aria-expanded="false" aria-controls="google-preflight"' : ""}>
@@ -989,14 +997,7 @@ ${googleNoticeHtml}
   </div>
 ${googleOnly ? "" : `\n  <div class="divider" id="auth-divider">or</div>\n`}
 `
-    : googleOnly
-      ? `
-  <p style="color:#f87171;font-size:0.875rem;text-align:center;padding:1rem 0">
-    Google sign-in is not configured. Set <code>GOOGLE_CLIENT_ID</code> and
-    <code>GOOGLE_CLIENT_SECRET</code> environment variables to enable login.
-  </p>
-`
-      : ""
+    : ""
 }
 ${
   googleOnly
@@ -1914,7 +1915,7 @@ ${
 `
 }
 ${
-  showGoogle
+  renderGoogleButton
     ? `
     async function signInWithGoogle() {
     if (__anShouldShowGoogleNotice()) {

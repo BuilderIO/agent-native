@@ -168,7 +168,6 @@ describe("agent-native skills", () => {
 
   it("accepts image-generation aliases for the built-in Assets skill", async () => {
     const root = tmpDir();
-    const commands: { cmd: string; args: string[] }[] = [];
 
     const result = await addAgentNativeSkill(
       parseSkillsArgs([
@@ -179,25 +178,20 @@ describe("agent-native skills", () => {
         "--scope",
         "project",
       ]),
-      {
-        baseDir: root,
-        runCommand: async (cmd, args) => {
-          commands.push({ cmd, args });
-          return 0;
-        },
-      },
+      { baseDir: root, runCommand: async () => 0 },
     );
 
     expect(result.id).toBe("assets");
     expect(result.skillNames).toEqual(["assets"]);
-    expect(commands[0].args).toEqual(
-      expect.arrayContaining(["--skill", "assets", "-a", "codex", "-y"]),
-    );
+    // Built-in skill instructions are written straight into the client's skills
+    // directory (no npx @agent-native/skills shell-out).
+    const skillDir = path.join(root, ".agents", "skills", "assets");
+    expect(result.written).toContain(skillDir);
+    expect(fs.existsSync(path.join(skillDir, "SKILL.md"))).toBe(true);
   });
 
   it("accepts design-exploration aliases for the built-in Design skill", async () => {
     const root = tmpDir();
-    const commands: { cmd: string; args: string[] }[] = [];
 
     const result = await addAgentNativeSkill(
       parseSkillsArgs([
@@ -208,26 +202,14 @@ describe("agent-native skills", () => {
         "--scope",
         "project",
       ]),
-      {
-        baseDir: root,
-        runCommand: async (cmd, args) => {
-          commands.push({ cmd, args });
-          return 0;
-        },
-      },
+      { baseDir: root, runCommand: async () => 0 },
     );
 
     expect(result.id).toBe("design");
     expect(result.skillNames).toEqual(["design-exploration"]);
-    expect(commands[0].args).toEqual(
-      expect.arrayContaining([
-        "--skill",
-        "design-exploration",
-        "-a",
-        "codex",
-        "-y",
-      ]),
-    );
+    const skillDir = path.join(root, ".agents", "skills", "design-exploration");
+    expect(result.written).toContain(skillDir);
+    expect(fs.existsSync(path.join(skillDir, "SKILL.md"))).toBe(true);
     expect(result.mcpUrl).toBe(
       "https://design.agent-native.com/_agent-native/mcp",
     );
@@ -238,9 +220,6 @@ describe("agent-native skills", () => {
     const codexHome = path.join(root, "codex-home");
     fs.mkdirSync(codexHome, { recursive: true });
     const previousCodexHome = process.env.CODEX_HOME;
-    const commands: { cmd: string; args: string[] }[] = [];
-    let materializedVisualPlan = "";
-    let materializedMetadata = "";
 
     process.env.CODEX_HOME = codexHome;
     try {
@@ -253,45 +232,27 @@ describe("agent-native skills", () => {
           "--scope",
           "project",
         ]),
-        {
-          baseDir: root,
-          runCommand: async (cmd, args) => {
-            commands.push({ cmd, args });
-            if (cmd === "npx" && args.includes("@agent-native/skills@latest")) {
-              const source = args[3];
-              if (source) {
-                materializedVisualPlan = fs.readFileSync(
-                  path.join(source, "skills", "visual-plan", "SKILL.md"),
-                  "utf-8",
-                );
-                materializedMetadata = fs.readFileSync(
-                  path.join(
-                    source,
-                    "skills",
-                    "visual-plan",
-                    "agent-native-skill.json",
-                  ),
-                  "utf-8",
-                );
-              }
-            }
-            return 0;
-          },
-        },
+        { baseDir: root, runCommand: async () => 0 },
+      );
+
+      // The `plannotate` alias targets the whole plan bundle, so both skills
+      // install. Project-scope codex instructions land in .agents/skills.
+      const planSkillDir = path.join(root, ".agents", "skills", "visual-plan");
+      const materializedVisualPlan = fs.readFileSync(
+        path.join(planSkillDir, "SKILL.md"),
+        "utf-8",
+      );
+      const materializedMetadata = fs.readFileSync(
+        path.join(planSkillDir, "agent-native-skill.json"),
+        "utf-8",
       );
 
       expect(result.id).toBe("visual-plans");
       expect(result.skillNames).toEqual(PLANS_SKILL_NAMES);
-      expect(commands[0].args).toEqual(
+      expect(result.written).toEqual(
         expect.arrayContaining([
-          "@agent-native/skills@latest",
-          "--skill",
-          "visual-plan",
-          "--skill",
-          "visual-recap",
-          "-a",
-          "codex",
-          "-y",
+          planSkillDir,
+          path.join(root, ".agents", "skills", "visual-recap"),
         ]),
       );
       expect(result.mcpUrl).toBe(
@@ -688,20 +649,12 @@ describe("agent-native skills", () => {
     );
 
     expect(result.skillNames).toEqual(["assets"]);
-    expect(commands).toHaveLength(1);
-    expect(commands[0].cmd).toBe("npx");
-    expect(commands[0].args).toEqual(
-      expect.arrayContaining([
-        "@agent-native/skills@latest",
-        "add",
-        "--copy",
-        "--skill",
-        "assets",
-        "-a",
-        "claude-code",
-        "-y",
-      ]),
-    );
+    // Built-in instructions are written in-process, so nothing shells out to
+    // the standalone @agent-native/skills installer.
+    expect(commands).toHaveLength(0);
+    const skillDir = path.join(root, ".claude", "skills", "assets");
+    expect(result.written).toContain(skillDir);
+    expect(fs.existsSync(path.join(skillDir, "SKILL.md"))).toBe(true);
     expect(
       JSON.parse(fs.readFileSync(path.join(root, ".mcp.json"), "utf-8"))
         .mcpServers["agent-native-assets"].url,
@@ -785,6 +738,7 @@ describe("agent-native skills", () => {
         baseDir: root,
         isInteractive: () => true,
         promptClients,
+        promptScope: async () => "user",
         runConnect,
         runCommand: async (cmd, args, options) => {
           commands.push({ cmd, args, stdio: options?.stdio });
@@ -793,10 +747,15 @@ describe("agent-native skills", () => {
       });
 
       expect(promptClients).toHaveBeenCalledTimes(1);
-      expect(commands[0]).toMatchObject({ cmd: "npx", stdio: "silent" });
-      expect(commands[0].args).toEqual(
-        expect.arrayContaining(["-a", "codex", "-a", "claude-code"]),
-      );
+      // Built-in instructions are written in-process for each selected client.
+      expect(
+        fs.existsSync(path.join(codexHome, "skills", "assets", "SKILL.md")),
+      ).toBe(true);
+      expect(
+        fs.existsSync(
+          path.join(home, ".claude", "skills", "assets", "SKILL.md"),
+        ),
+      ).toBe(true);
       expect(
         fs.readFileSync(path.join(codexHome, "config.toml"), "utf-8"),
       ).toContain("agent-native-assets");
@@ -851,7 +810,7 @@ describe("agent-native skills", () => {
     await runSkills(
       [
         "add",
-        "visual-plan",
+        "visual-recap",
         "--client",
         "codex",
         "--scope",
@@ -893,7 +852,7 @@ describe("agent-native skills", () => {
     await runSkills(
       [
         "add",
-        "visual-plan",
+        "visual-recap",
         "--client",
         "codex",
         "--scope",
@@ -911,7 +870,7 @@ describe("agent-native skills", () => {
     expect(promptGithubAction).toHaveBeenCalledTimes(1);
     expect(fs.existsSync(path.join(root, ".github"))).toBe(false);
     expect(stdout.join("")).toContain(
-      "npx @agent-native/core@latest skills add visual-plan --with-github-action",
+      "npx @agent-native/core@latest skills add visual-recap --with-github-action",
     );
   });
 
@@ -923,7 +882,7 @@ describe("agent-native skills", () => {
     await runSkills(
       [
         "add",
-        "visual-plan",
+        "visual-recap",
         "--client",
         "codex",
         "--scope",
@@ -957,7 +916,6 @@ describe("agent-native skills", () => {
     const previousCodexHome = process.env.CODEX_HOME;
     process.env.HOME = home;
     process.env.CODEX_HOME = codexHome;
-    const commands: { args: string[] }[] = [];
     const promptSkills = vi.fn(async () => ["assets", "design-exploration"]);
     vi.spyOn(process.stdout, "write").mockImplementation(() => true);
 
@@ -967,27 +925,136 @@ describe("agent-native skills", () => {
         isInteractive: () => true,
         promptClients: async () => ["codex"],
         promptSkills,
+        promptScope: async () => "user",
         runConnect: async () => {},
-        runCommand: async (_cmd, args) => {
-          commands.push({ args });
-          return 0;
-        },
+        runCommand: async () => 0,
       });
 
       expect(promptSkills).toHaveBeenCalledTimes(1);
-      expect(commands).toHaveLength(2);
-      expect(commands[0].args).toEqual(
-        expect.arrayContaining(["--skill", "assets"]),
-      );
-      expect(commands[1].args).toEqual(
-        expect.arrayContaining(["--skill", "design-exploration"]),
-      );
+      // Each selected built-in skill is written in-process into the user-scope
+      // codex skills directory.
+      expect(
+        fs.existsSync(path.join(codexHome, "skills", "assets", "SKILL.md")),
+      ).toBe(true);
+      expect(
+        fs.existsSync(
+          path.join(codexHome, "skills", "design-exploration", "SKILL.md"),
+        ),
+      ).toBe(true);
     } finally {
       if (previousHome === undefined) delete process.env.HOME;
       else process.env.HOME = previousHome;
       if (previousCodexHome === undefined) delete process.env.CODEX_HOME;
       else process.env.CODEX_HOME = previousCodexHome;
     }
+  });
+
+  it("offers only the two plan skills, both selected by default", async () => {
+    const root = tmpDir();
+    let context:
+      | { initialTargets: string[]; options: { value: string }[] }
+      | undefined;
+    const promptSkills = vi.fn(async (ctx: typeof context) => {
+      context = ctx;
+      return ctx!.initialTargets;
+    });
+    vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+
+    await runSkills(["add", "--client", "codex", "--scope", "project"], {
+      baseDir: root,
+      isInteractive: () => true,
+      promptSkills,
+      promptGithubAction: async () => false,
+      runConnect: async () => {},
+      runCommand: async () => 0,
+    });
+
+    expect(promptSkills).toHaveBeenCalledTimes(1);
+    expect(context?.options.map((o) => o.value)).toEqual([
+      "visual-plan",
+      "visual-recap",
+    ]);
+    expect(context?.initialTargets).toEqual(["visual-plan", "visual-recap"]);
+    // Both selected installs the whole plan bundle (one shared MCP connector).
+    expect(
+      fs.existsSync(
+        path.join(root, ".agents", "skills", "visual-plan", "SKILL.md"),
+      ),
+    ).toBe(true);
+    expect(
+      fs.existsSync(
+        path.join(root, ".agents", "skills", "visual-recap", "SKILL.md"),
+      ),
+    ).toBe(true);
+  });
+
+  it("installs only visual-recap when only it is selected", async () => {
+    const root = tmpDir();
+    vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+
+    await runSkills(["add", "--client", "codex", "--scope", "project"], {
+      baseDir: root,
+      isInteractive: () => true,
+      promptSkills: async () => ["visual-recap"],
+      promptGithubAction: async () => false,
+      runConnect: async () => {},
+      runCommand: async () => 0,
+    });
+
+    expect(
+      fs.existsSync(
+        path.join(root, ".agents", "skills", "visual-recap", "SKILL.md"),
+      ),
+    ).toBe(true);
+    expect(
+      fs.existsSync(path.join(root, ".agents", "skills", "visual-plan")),
+    ).toBe(false);
+  });
+
+  it("prompts for install scope when --scope is omitted", async () => {
+    const root = tmpDir();
+    const promptScope = vi.fn(async () => "project" as const);
+    vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+
+    await runSkills(["add", "visual-recap", "--client", "codex"], {
+      baseDir: root,
+      isInteractive: () => true,
+      promptScope,
+      promptGithubAction: async () => false,
+      runConnect: async () => {},
+      runCommand: async () => 0,
+    });
+
+    expect(promptScope).toHaveBeenCalledTimes(1);
+    expect(promptScope.mock.calls[0][0]).toMatchObject({
+      initialScope: "project",
+    });
+    // The chosen project scope routes instructions into .agents/skills.
+    expect(
+      fs.existsSync(
+        path.join(root, ".agents", "skills", "visual-recap", "SKILL.md"),
+      ),
+    ).toBe(true);
+  });
+
+  it("does not prompt for scope when --scope is explicit", async () => {
+    const root = tmpDir();
+    const promptScope = vi.fn(async () => "user" as const);
+    vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+
+    await runSkills(
+      ["add", "visual-recap", "--client", "codex", "--scope", "project"],
+      {
+        baseDir: root,
+        isInteractive: () => true,
+        promptScope,
+        promptGithubAction: async () => false,
+        runConnect: async () => {},
+        runCommand: async () => 0,
+      },
+    );
+
+    expect(promptScope).not.toHaveBeenCalled();
   });
 
   it("supports dry-run without writing local agent config", async () => {
@@ -1011,7 +1078,7 @@ describe("agent-native skills", () => {
     const result = await addAgentNativeSkill(
       parseSkillsArgs([
         "add",
-        "visual-plan",
+        "visual-recap",
         "--scope",
         "project",
         "--dry-run",
@@ -1021,7 +1088,7 @@ describe("agent-native skills", () => {
     );
 
     expect(result.commands).toEqual([
-      "agent-native skills add visual-plan --client codex --scope project --with-github-action --yes",
+      "agent-native skills add visual-recap --client codex --scope project --with-github-action --yes",
     ]);
     expect(result.githubActionPath).toBe(
       path.join(".github", "workflows", "pr-visual-recap.yml"),
@@ -1353,13 +1420,13 @@ describe("agent-native skills", () => {
 
       const result = JSON.parse(stdout.join(""));
       expect(result.id).toBe("assets");
-      expect(commands[0]).toMatchObject({
-        cmd: "npx",
-        stdio: "silent",
-      });
-      expect(commands[0].args).toEqual(expect.arrayContaining(["-g"]));
-      expect(commands[0].args).toEqual(
-        expect.arrayContaining(["--skill", "assets", "-a", "codex"]),
+      // User scope writes the built-in instructions into the codex home skills
+      // dir in-process (no npx -g shell-out).
+      expect(
+        fs.existsSync(path.join(codexHome, "skills", "assets", "SKILL.md")),
+      ).toBe(true);
+      expect(result.written).toContain(
+        path.join(codexHome, "skills", "assets"),
       );
       expect(stderr.join("")).toBe("");
     } finally {
