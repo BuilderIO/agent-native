@@ -461,19 +461,39 @@ export function PlanContentRenderer({
   // (see `filesSidebarHideCss`). Gated to recaps so ordinary plans are
   // unaffected, and to the first file-tree block (the conventional files-touched
   // summary).
-  const filesSidebarBlock = useMemo(
+  const filesSidebarBlockIndex = useMemo(
     () =>
       isRecap
-        ? content.blocks.find((block) => block.type === "file-tree")
-        : undefined,
+        ? content.blocks.findIndex((block) => block.type === "file-tree")
+        : -1,
     [isRecap, content.blocks],
   );
+  const filesSidebarBlock =
+    filesSidebarBlockIndex >= 0
+      ? content.blocks[filesSidebarBlockIndex]
+      : undefined;
+  const filesSidebarHeadingBlock =
+    filesSidebarBlockIndex > 0
+      ? content.blocks[filesSidebarBlockIndex - 1]
+      : undefined;
+  const changedFilesHeadingBlock = isChangedFilesHeadingBlock(
+    filesSidebarHeadingBlock,
+  )
+    ? filesSidebarHeadingBlock
+    : undefined;
+  const hiddenChangedFileBlockIds = useMemo(() => {
+    const ids = new Set<string>();
+    if (!hideChangedFiles) return ids;
+    if (filesSidebarBlock) ids.add(filesSidebarBlock.id);
+    if (changedFilesHeadingBlock) ids.add(changedFilesHeadingBlock.id);
+    return ids;
+  }, [changedFilesHeadingBlock, filesSidebarBlock, hideChangedFiles]);
   const renderedBlocks = useMemo(
     () =>
-      hideChangedFiles && filesSidebarBlock
-        ? content.blocks.filter((block) => block.id !== filesSidebarBlock.id)
+      hiddenChangedFileBlockIds.size > 0
+        ? content.blocks.filter((block) => !hiddenChangedFileBlockIds.has(block.id))
         : content.blocks,
-    [content.blocks, filesSidebarBlock, hideChangedFiles],
+    [content.blocks, hiddenChangedFileBlockIds],
   );
 
   /**
@@ -743,6 +763,13 @@ function stripFileTreeTitles(block: PlanBlock): PlanBlock {
     title: undefined,
     data: { ...block.data, title: undefined },
   };
+}
+
+function isChangedFilesHeadingBlock(block: PlanBlock | undefined): boolean {
+  if (!block || block.type !== "rich-text") return false;
+  return /^#{1,6}\s+(?:Changed files|Files changed)\s*$/i.test(
+    block.data.markdown.trim(),
+  );
 }
 
 function filesSidebarHideCss(blockId: string): string {
