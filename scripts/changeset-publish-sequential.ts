@@ -332,10 +332,13 @@ async function main() {
       if ((error as { isMissingPackage?: boolean }).isMissingPackage) {
         console.error(
           `${pkg.name} does not exist on npm yet, and OIDC trusted publishing ` +
-            `cannot create a brand-new package (npm/cli#8544). Bootstrap its ` +
-            `first version by setting the NPM_TOKEN secret on the npm-publish ` +
-            `environment (see .github/workflows/auto-publish.yml), or publish ` +
-            `${tagName(pkg)} once with a token; after that OIDC takes over.`,
+            `cannot create a brand-new package (npm/cli#8544). Bootstrap it ` +
+            `once: publish its first version manually with a token ` +
+            `(\`cd ${path.relative(rootDir, pkg.dir)} && npm publish --access public --no-provenance\`), ` +
+            `then add a Trusted Publisher for it on npmjs.com matching the other ` +
+            `@agent-native packages (repo BuilderIO/agent-native, workflow ` +
+            `auto-publish.yml, environment npm-publish). After that, OIDC ` +
+            `publishes every future version automatically.`,
         );
       }
     }
