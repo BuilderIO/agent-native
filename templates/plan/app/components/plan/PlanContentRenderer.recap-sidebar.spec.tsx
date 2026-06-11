@@ -170,7 +170,7 @@ describe("PlanContentRenderer recap files sidebar", () => {
   it("shows recap source and file stats in one header row outside screenshot mode", () => {
     const content = recapContent();
     const fileTree = content.blocks[0];
-    if (fileTree.type === "file-tree") {
+    if (fileTree?.type === "file-tree") {
       fileTree.data.entries.push({
         path: "packages/core/src/b.ts",
         change: "added",
