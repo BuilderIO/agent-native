@@ -152,7 +152,7 @@ The connection is **per-user, scoped, and revocable**. In the OAuth path, the ho
 
 ### Re-authenticating after a 401 {#reconnect}
 
-Once connected, auth should persist long-term — access tokens last 30 days by default with a sliding 365-day refresh window, so random 401s should be rare. When one does happen, use the lightweight reconnect command rather than reinstalling:
+Once connected, auth should persist long-term — access tokens last 30 days by default (override with `MCP_OAUTH_ACCESS_TOKEN_TTL` on the server, e.g. `7d` or `12h`) with a sliding 365-day refresh window, so random 401s should be rare. When one does happen, use the lightweight reconnect command rather than reinstalling:
 
 ```bash
 npx @agent-native/core@latest reconnect https://plan.agent-native.com

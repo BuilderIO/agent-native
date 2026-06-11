@@ -1872,6 +1872,58 @@ describe("reconnect — URL-based discovery", () => {
     expect(cfg.mcpServers).not.toHaveProperty("agent-native-plans");
   });
 
+  it("auto-selects canonical 'plan' when entries are ordered [agent-native-plan, agent-native-plans, plan] for the same URL", async () => {
+    const root = tmpDir();
+    const home = tmpDir();
+    const oldHome = process.env.HOME;
+    process.env.HOME = home;
+    process.chdir(root);
+    const codexFile = path.join(home, ".codex", "config.toml");
+    fs.mkdirSync(path.dirname(codexFile), { recursive: true });
+    // Three entries for the same MCP URL, worst-case ordering: canonical last.
+    fs.writeFileSync(
+      codexFile,
+      [
+        '[mcp_servers."agent-native-plan"]',
+        'url = "https://plan.agent-native.com/_agent-native/mcp"',
+        'http_headers = { "Authorization" = "Bearer old1" }',
+        "",
+        '[mcp_servers."agent-native-plans"]',
+        'url = "https://plan.agent-native.com/_agent-native/mcp"',
+        'http_headers = { "Authorization" = "Bearer old2" }',
+        "",
+        '[mcp_servers."plan"]',
+        'url = "https://plan.agent-native.com/_agent-native/mcp"',
+        'http_headers = { "Authorization" = "Bearer old3" }',
+        "",
+      ].join("\n"),
+      "utf-8",
+    );
+
+    try {
+      await runConnect(["reconnect", "--client", "codex"], {
+        fetchImpl: makeFetch([
+          {
+            status: "approved",
+            token: "refreshed-token",
+            mcpUrl: "https://plan.agent-native.com/_agent-native/mcp",
+            serverName: "plan",
+          },
+        ]),
+        sleep: noopSleep,
+        openBrowser: vi.fn(),
+      });
+
+      expect(process.exitCode).toBeFalsy();
+      const toml = fs.readFileSync(codexFile, "utf-8");
+      // The canonical 'plan' entry must have been refreshed.
+      expect(toml).toContain('[mcp_servers."plan"]');
+      expect(toml).toContain('"Authorization" = "Bearer refreshed-token"');
+    } finally {
+      process.env.HOME = oldHome;
+    }
+  });
+
   it("non-TTY multi-URL reconnect lists paste-ready commands", async () => {
     const root = tmpDir();
     const home = tmpDir();

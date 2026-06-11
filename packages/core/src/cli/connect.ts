@@ -55,6 +55,19 @@ const DEVICE_POLL_PATH = "/_agent-native/mcp/connect/device/poll";
 const MCP_PATH = "/_agent-native/mcp";
 const SERVER_NAME_PREFIX = "agent-native";
 const CONNECT_PREFERENCES_VERSION = 1;
+
+/**
+ * Maps a normalised hosted MCP URL to the canonical server name for that
+ * first-party app. Kept in sync with BUILT_IN_APP_SKILLS in skills.ts (we
+ * cannot import from there — it imports connect.ts, which would be circular).
+ */
+const CANONICAL_SERVER_NAME_BY_MCP_URL: Readonly<Record<string, string>> = {
+  "https://plan.agent-native.com/_agent-native/mcp": "plan",
+  "https://assets.agent-native.com/_agent-native/mcp": "agent-native-assets",
+  "https://design.agent-native.com/_agent-native/mcp": "agent-native-design",
+  "https://context-xray.agent-native.com/_agent-native/mcp":
+    "agent-native-context-xray",
+};
 const CONNECT_PROFILES_VERSION = 1;
 const DEFAULT_DEV_GATEWAY = "http://127.0.0.1:8080";
 const MCP_FULL_CATALOG_HEADER = "X-Agent-Native-MCP-Full-Catalog";
@@ -1668,11 +1681,19 @@ async function resolveReconnectTarget(
   }
 
   if (byUrl.size === 1) {
-    // Exactly one distinct URL: auto-select the first entry (prefer the
-    // canonical serverName if present among the duplicates).
-    const [bucket] = [...byUrl.values()];
-    const entry = bucket[0];
-    return { rawUrl: entry.url, serverName: entry.serverName };
+    // Exactly one distinct URL: prefer the entry whose serverName matches the
+    // canonical name for this app (e.g. "plan" over "agent-native-plans").
+    // Fall back to any entry whose name doesn't start with "agent-native-"
+    // (short canonical names like "plan"), then bucket[0].
+    const [url, bucket] = [...byUrl.entries()][0];
+    const canonicalName = CANONICAL_SERVER_NAME_BY_MCP_URL[url];
+    const preferred =
+      (canonicalName
+        ? bucket.find((e) => e.serverName === canonicalName)
+        : undefined) ??
+      bucket.find((e) => !e.serverName.startsWith("agent-native-")) ??
+      bucket[0];
+    return { rawUrl: preferred.url, serverName: preferred.serverName };
   }
 
   // Multiple distinct URLs: pick interactively when TTY, else list with hints.
