@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.49.1
+
+### Patch Changes
+
+- dfa79d9: Document deployment code-execution settings and local file sync surfaces.
+
 ## 0.49.0
 
 ### Minor Changes
