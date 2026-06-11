@@ -39,6 +39,7 @@ import {
   CLIENTS,
   ClientId,
   configPathFor,
+  removeSameUrlDuplicatesForClient,
   writeCodexBlock,
   writeHttpEntryForClient,
   writeJsonMcpEntry,
@@ -1589,10 +1590,26 @@ function describeReconnectEntry(entry: ExistingMcpEntry): string {
   return `${entry.serverName} (${entry.url}) in ${entry.client}`;
 }
 
-function resolveReconnectTarget(
+/**
+ * Return true when `url` is an agent-native MCP endpoint.
+ * Matches any URL whose path ends with `/_agent-native/mcp` (after stripping
+ * trailing slashes), regardless of the MCP server's name in the config.
+ */
+function isAgentNativeMcpUrl(url: string | undefined): boolean {
+  if (!url) return false;
+  try {
+    const pathname = new URL(url).pathname.replace(/\/+$/, "");
+    return pathname === MCP_PATH || pathname.endsWith(MCP_PATH);
+  } catch {
+    return false;
+  }
+}
+
+async function resolveReconnectTarget(
   parsed: ParsedConnectArgs,
   clients: ClientId[],
-): ReconnectTarget | null {
+  deps: ConnectDeps,
+): Promise<ReconnectTarget | null> {
   const baseDir = projectBaseDir();
   const scope = parsed.scope === "user" ? "user" : "project";
   const entries = readExistingMcpEntries(clients, baseDir, scope);
@@ -1621,15 +1638,25 @@ function resolveReconnectTarget(
     return { rawUrl: parsed.url };
   }
 
-  const candidates = distinctReconnectEntries(
+  // No URL provided: scan all configs for agent-native MCP entries by URL
+  // pattern, not by server name prefix. This finds the canonical "plan" entry
+  // (and any other custom-named entries) that the old prefix scan missed.
+  const agentNativeEntries = distinctReconnectEntries(
     parsed.name
       ? entries.filter((entry) => entry.serverName === parsed.name)
-      : entries.filter((entry) =>
-          entry.serverName.startsWith(`${SERVER_NAME_PREFIX}-`),
-        ),
+      : entries.filter((entry) => isAgentNativeMcpUrl(entry.url)),
   );
 
-  if (candidates.length === 0) {
+  // Group by normalised URL so we can detect multi-app situations.
+  const byUrl = new Map<string, ExistingMcpEntry[]>();
+  for (const entry of agentNativeEntries) {
+    const key = canonicalMcpUrl(entry.url) ?? entry.url;
+    const bucket = byUrl.get(key) ?? [];
+    bucket.push(entry);
+    byUrl.set(key, bucket);
+  }
+
+  if (byUrl.size === 0) {
     logErr("  No existing Agent Native MCP entry found to reconnect.");
     logErr(
       "  Pass a URL, or use --name <serverName> if the entry has a custom name.",
@@ -1640,17 +1667,53 @@ function resolveReconnectTarget(
     return null;
   }
 
-  if (candidates.length > 1) {
-    logErr("  Found multiple Agent Native MCP entries:");
-    for (const entry of candidates) {
-      logErr(`    ${describeReconnectEntry(entry)}`);
-    }
-    logErr("  Re-run with a URL or --name <serverName>.");
-    return null;
+  if (byUrl.size === 1) {
+    // Exactly one distinct URL: auto-select the first entry (prefer the
+    // canonical serverName if present among the duplicates).
+    const [bucket] = [...byUrl.values()];
+    const entry = bucket[0];
+    return { rawUrl: entry.url, serverName: entry.serverName };
   }
 
-  const [entry] = candidates;
-  return { rawUrl: entry.url, serverName: entry.serverName };
+  // Multiple distinct URLs: pick interactively when TTY, else list with hints.
+  const urlList = [...byUrl.keys()];
+  if (shouldPrompt(deps)) {
+    const clack = await import("@clack/prompts");
+    const result = await clack.select<
+      { value: string; label: string; hint: string }[],
+      string
+    >({
+      message:
+        "Multiple Agent Native apps found. Which one do you want to reconnect?",
+      options: urlList.map((u) => {
+        const representativeEntry = byUrl.get(u)![0];
+        return {
+          value: u,
+          label: representativeEntry.serverName,
+          hint: u,
+        };
+      }),
+    });
+    if (clack.isCancel(result)) {
+      clack.cancel("Cancelled.");
+      return null;
+    }
+    const chosen = byUrl.get(result as string)?.[0];
+    if (!chosen) return null;
+    return { rawUrl: chosen.url, serverName: chosen.serverName };
+  }
+
+  logErr("  Found multiple Agent Native MCP entries:");
+  for (const [u, bucket] of byUrl) {
+    logErr(`    ${bucket[0].serverName} → ${u}`);
+  }
+  logErr("  Re-run with a URL or --name <serverName>. For example:");
+  for (const u of urlList) {
+    // Strip the MCP path suffix for a cleaner reconnect URL suggestion.
+    const baseUrl = u.replace(/\/_agent-native\/mcp$/, "");
+    logErr(`    npx @agent-native/core@latest reconnect ${baseUrl}`);
+  }
+  return null;
 }
 
 async function reconnectOne(
@@ -1658,7 +1721,7 @@ async function reconnectOne(
   clients: ClientId[],
   deps: ConnectDeps,
 ): Promise<boolean> {
-  const target = resolveReconnectTarget(parsed, clients);
+  const target = await resolveReconnectTarget(parsed, clients, deps);
   if (!target) return false;
   const effectiveParsed: ParsedConnectArgs = {
     ...parsed,
@@ -1763,6 +1826,26 @@ async function connectOne(
         baseDir,
         undefined,
       ),
+    );
+  }
+
+  // After writing the canonical entry, remove any same-URL duplicates (alias
+  // names, legacy default names, stale custom names) from the same config
+  // files so each app has exactly one MCP session.
+  const allRemovedNames: string[] = [];
+  for (const client of clients) {
+    const removed = removeSameUrlDuplicatesForClient(
+      client,
+      serverName,
+      mcpUrl,
+      baseDir,
+      scope,
+    );
+    allRemovedNames.push(...removed);
+  }
+  if (allRemovedNames.length > 0) {
+    logOut(
+      `  Removed duplicate MCP entries: ${[...new Set(allRemovedNames)].join(", ")}`,
     );
   }
 

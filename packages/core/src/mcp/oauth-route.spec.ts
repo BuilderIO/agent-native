@@ -33,9 +33,10 @@ const refreshRows = new Map<string, any>();
 let counter = 0;
 
 vi.mock("./oauth-store.js", () => ({
-  MCP_OAUTH_ACCESS_TOKEN_TTL: "1h",
+  MCP_OAUTH_ACCESS_TOKEN_TTL: "30d",
+  MCP_OAUTH_ACCESS_TOKEN_TTL_SECONDS: 30 * 86400,
   MCP_OAUTH_CODE_TTL_MS: 600_000,
-  MCP_OAUTH_REFRESH_TOKEN_TTL_MS: 90 * 24 * 60 * 60_000,
+  MCP_OAUTH_REFRESH_TOKEN_TTL_MS: 365 * 24 * 60 * 60_000,
   generateOpaqueToken: vi.fn(() => `opaque-${++counter}`),
   registerOAuthClient: vi.fn(async (params: any) => {
     const row = {
@@ -92,7 +93,11 @@ vi.mock("./oauth-store.js", () => ({
   }),
   touchOAuthRefreshToken: vi.fn(async (refreshToken: string) => {
     const row = refreshRows.get(refreshToken);
-    if (row && !row.revokedAt) row.lastUsedAt = Date.now();
+    if (row && !row.revokedAt) {
+      const now = Date.now();
+      row.lastUsedAt = now;
+      row.expiresAt = now + 365 * 24 * 60 * 60_000;
+    }
   }),
   rotateOAuthRefreshToken: vi.fn(
     async ({ oldRefreshToken, newRefreshToken }) => {
@@ -359,7 +364,7 @@ describe("MCP OAuth route", () => {
     const body = await token.json();
     expect(body).toMatchObject({
       token_type: "Bearer",
-      expires_in: 3600,
+      expires_in: 30 * 86400,
       scope: "mcp:read mcp:apps",
     });
     expect(body.refresh_token).toBeTruthy();
@@ -841,5 +846,238 @@ describe("MCP OAuth route", () => {
       "/token",
     );
     expect(retry.status).toBe(200);
+  });
+
+  it("expires_in in token response matches the access-token TTL (not hard-coded 3600)", async () => {
+    const client = await (
+      await handleMcpOAuth(
+        event({
+          method: "POST",
+          body: { redirect_uris: ["http://localhost:5555/callback"] } as any,
+        }),
+        "/register",
+      )
+    ).json();
+    const verifier = "v".repeat(50);
+    const consent = await handleMcpOAuth(
+      event({
+        query: {
+          response_type: "code",
+          client_id: client.client_id,
+          redirect_uri: "http://localhost:5555/callback",
+          resource: "https://mail.agent-native.com/_agent-native/mcp",
+          code_challenge: challenge(verifier),
+          code_challenge_method: "S256",
+        },
+      }),
+      "/authorize",
+    );
+    const consentToken =
+      (await consent.text()).match(
+        /name="consent_token" value="([^"]+)"/,
+      )?.[1] ?? "";
+    const authorize = await handleMcpOAuth(
+      event({
+        method: "POST",
+        body: {
+          decision: "approve",
+          response_type: "code",
+          client_id: client.client_id,
+          redirect_uri: "http://localhost:5555/callback",
+          resource: "https://mail.agent-native.com/_agent-native/mcp",
+          code_challenge: challenge(verifier),
+          code_challenge_method: "S256",
+          consent_token: consentToken,
+        },
+      }),
+      "/authorize",
+    );
+    const code = new URL(authorize.headers.get("location")!).searchParams.get(
+      "code",
+    )!;
+    const tokenRes = await handleMcpOAuth(
+      event({
+        method: "POST",
+        body: {
+          grant_type: "authorization_code",
+          client_id: client.client_id,
+          redirect_uri: "http://localhost:5555/callback",
+          code,
+          code_verifier: verifier,
+        },
+      }),
+      "/token",
+    );
+    const body = await tokenRes.json();
+    // expires_in must equal the TTL seconds constant (30d = 2592000s), not 3600.
+    expect(body.expires_in).toBe(30 * 86400);
+    expect(body.expires_in).not.toBe(3600);
+  });
+
+  it("refresh grant expires_in also matches TTL (not hard-coded 3600)", async () => {
+    const client = await (
+      await handleMcpOAuth(
+        event({
+          method: "POST",
+          body: { redirect_uris: ["http://localhost:5555/callback"] } as any,
+        }),
+        "/register",
+      )
+    ).json();
+    const verifier = "v".repeat(50);
+    const consent = await handleMcpOAuth(
+      event({
+        query: {
+          response_type: "code",
+          client_id: client.client_id,
+          redirect_uri: "http://localhost:5555/callback",
+          resource: "https://mail.agent-native.com/_agent-native/mcp",
+          code_challenge: challenge(verifier),
+          code_challenge_method: "S256",
+        },
+      }),
+      "/authorize",
+    );
+    const consentToken =
+      (await consent.text()).match(
+        /name="consent_token" value="([^"]+)"/,
+      )?.[1] ?? "";
+    const authorize = await handleMcpOAuth(
+      event({
+        method: "POST",
+        body: {
+          decision: "approve",
+          response_type: "code",
+          client_id: client.client_id,
+          redirect_uri: "http://localhost:5555/callback",
+          resource: "https://mail.agent-native.com/_agent-native/mcp",
+          code_challenge: challenge(verifier),
+          code_challenge_method: "S256",
+          consent_token: consentToken,
+        },
+      }),
+      "/authorize",
+    );
+    const code = new URL(authorize.headers.get("location")!).searchParams.get(
+      "code",
+    )!;
+    const firstToken = await (
+      await handleMcpOAuth(
+        event({
+          method: "POST",
+          body: {
+            grant_type: "authorization_code",
+            client_id: client.client_id,
+            redirect_uri: "http://localhost:5555/callback",
+            code,
+            code_verifier: verifier,
+          },
+        }),
+        "/token",
+      )
+    ).json();
+
+    const refreshRes = await handleMcpOAuth(
+      event({
+        method: "POST",
+        body: {
+          grant_type: "refresh_token",
+          client_id: client.client_id,
+          refresh_token: firstToken.refresh_token,
+        },
+      }),
+      "/token",
+    );
+    const refreshBody = await refreshRes.json();
+    expect(refreshBody.expires_in).toBe(30 * 86400);
+    expect(refreshBody.expires_in).not.toBe(3600);
+  });
+
+  it("sliding refresh: touchOAuthRefreshToken extends expiry on each use", async () => {
+    const client = await (
+      await handleMcpOAuth(
+        event({
+          method: "POST",
+          body: { redirect_uris: ["http://localhost:5555/callback"] } as any,
+        }),
+        "/register",
+      )
+    ).json();
+    const verifier = "v".repeat(50);
+    const consent = await handleMcpOAuth(
+      event({
+        query: {
+          response_type: "code",
+          client_id: client.client_id,
+          redirect_uri: "http://localhost:5555/callback",
+          resource: "https://mail.agent-native.com/_agent-native/mcp",
+          code_challenge: challenge(verifier),
+          code_challenge_method: "S256",
+        },
+      }),
+      "/authorize",
+    );
+    const consentToken =
+      (await consent.text()).match(
+        /name="consent_token" value="([^"]+)"/,
+      )?.[1] ?? "";
+    const authorize = await handleMcpOAuth(
+      event({
+        method: "POST",
+        body: {
+          decision: "approve",
+          response_type: "code",
+          client_id: client.client_id,
+          redirect_uri: "http://localhost:5555/callback",
+          resource: "https://mail.agent-native.com/_agent-native/mcp",
+          code_challenge: challenge(verifier),
+          code_challenge_method: "S256",
+          consent_token: consentToken,
+        },
+      }),
+      "/authorize",
+    );
+    const code = new URL(authorize.headers.get("location")!).searchParams.get(
+      "code",
+    )!;
+    const firstToken = await (
+      await handleMcpOAuth(
+        event({
+          method: "POST",
+          body: {
+            grant_type: "authorization_code",
+            client_id: client.client_id,
+            redirect_uri: "http://localhost:5555/callback",
+            code,
+            code_verifier: verifier,
+          },
+        }),
+        "/token",
+      )
+    ).json();
+
+    const rowBefore = refreshRows.get(firstToken.refresh_token);
+    expect(rowBefore).toBeTruthy();
+    const expiryBefore = rowBefore.expiresAt;
+
+    // Simulate time passing and use the refresh token.
+    const laterTime = Date.now() + 1000;
+    vi.spyOn(Date, "now").mockReturnValue(laterTime);
+    await handleMcpOAuth(
+      event({
+        method: "POST",
+        body: {
+          grant_type: "refresh_token",
+          client_id: client.client_id,
+          refresh_token: firstToken.refresh_token,
+        },
+      }),
+      "/token",
+    );
+
+    const rowAfter = refreshRows.get(firstToken.refresh_token);
+    // Expiry must have slid forward from the original creation expiry.
+    expect(rowAfter.expiresAt).toBeGreaterThan(expiryBefore);
+    expect(rowAfter.lastUsedAt).toBe(laterTime);
   });
 });

@@ -17,8 +17,17 @@ One install gives you:
 By default, both skills publish to the hosted Plan app — they create a plan via
 the MCP connector and hand you a link or inline plan to review. They never dump
 an inline Markdown/ASCII plan into chat as the deliverable. If a Plan tool
-returns `needs auth`, `Unauthorized`, or `Session terminated`, authenticate the
-connector (see each route below) instead of falling back to inline output.
+returns `needs auth`, `Unauthorized`, or `Session terminated`, re-authenticate
+the connector instead of falling back to inline output. Access tokens are
+long-lived (30-day default, sliding 365-day refresh), so this should be rare;
+when it happens, the lightweight fix is:
+
+```bash
+npx @agent-native/core@latest reconnect https://plan.agent-native.com
+```
+
+`reconnect` finds and refreshes the connector by URL — no reinstall needed. In
+Claude Code, the equivalent is `/mcp` → **Authenticate / Reconnect**.
 
 The exception is explicit **local-files privacy mode**. When you ask for no DB
 writes or set `AGENT_NATIVE_PLANS_MODE=local-files`, the skills must not call

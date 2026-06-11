@@ -348,3 +348,156 @@ export function writeHttpEntryForClient(
   }
   return file;
 }
+
+// ---------------------------------------------------------------------------
+// Same-URL duplicate removal
+// ---------------------------------------------------------------------------
+
+/**
+ * Canonicalise a URL for comparison: strip hash, search params, and trailing
+ * slashes. Returns `undefined` for invalid URLs.
+ */
+export function canonicalUrl(value: string | undefined): string | undefined {
+  if (!value) return undefined;
+  try {
+    const u = new URL(value);
+    u.hash = "";
+    u.search = "";
+    return u.toString().replace(/\/+$/, "");
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * After writing the canonical `keepName` entry into a JSON config file,
+ * remove any OTHER entries whose URL normalises to the same value as
+ * `mcpUrl`. This cleans up stale alias names, legacy default names, and
+ * leftover custom names that all pointed at the same server.
+ *
+ * Returns the list of entry names that were removed.
+ */
+export function removeJsonSameUrlDuplicates(
+  file: string,
+  mcpUrl: string,
+  keepName: string,
+): string[] {
+  let config: Record<string, any>;
+  try {
+    const raw = fs.readFileSync(file, "utf-8");
+    if (!raw.trim()) return [];
+    config = JSON.parse(raw);
+  } catch {
+    return [];
+  }
+  const servers = config?.mcpServers;
+  if (!servers || typeof servers !== "object" || Array.isArray(servers)) {
+    return [];
+  }
+  const targetCanonical = canonicalUrl(mcpUrl);
+  if (!targetCanonical) return [];
+
+  const toRemove: string[] = [];
+  for (const name of Object.keys(servers)) {
+    if (name === keepName) continue;
+    const entry = servers[name];
+    if (!entry || typeof entry !== "object") continue;
+    const entryUrl = typeof entry.url === "string" ? entry.url : undefined;
+    if (canonicalUrl(entryUrl) === targetCanonical) {
+      toRemove.push(name);
+    }
+  }
+  if (toRemove.length === 0) return [];
+  for (const name of toRemove) {
+    delete servers[name];
+  }
+  writeFileAtomic(file, JSON.stringify(config, null, 2) + "\n");
+  return toRemove;
+}
+
+/**
+ * After writing the canonical `keepName` Codex block, remove any OTHER
+ * `[mcp_servers.*]` blocks in the same TOML file whose `url =` line
+ * normalises to the same value as `mcpUrl`. Returns removed entry names.
+ */
+export function removeCodexSameUrlDuplicates(
+  file: string,
+  mcpUrl: string,
+  keepName: string,
+): string[] {
+  let content = "";
+  try {
+    content = fs.readFileSync(file, "utf-8");
+  } catch {
+    return [];
+  }
+  const targetCanonical = canonicalUrl(mcpUrl);
+  if (!targetCanonical) return [];
+
+  const lines = content.split(/\r?\n/);
+  const out: string[] = [];
+  const removed: string[] = [];
+  let i = 0;
+  while (i < lines.length) {
+    const line = lines[i];
+    const trimmed = line.trim();
+    const quoted = trimmed.match(/^\[mcp_servers\."((?:\\.|[^"])*)"\]$/);
+    const bare = trimmed.match(/^\[mcp_servers\.([A-Za-z0-9_-]+)\]$/);
+    const serverName = quoted
+      ? quoted[1].replace(/\\"/g, '"').replace(/\\\\/g, "\\")
+      : bare?.[1];
+    if (serverName !== undefined && serverName !== keepName) {
+      // Collect the block
+      const block: string[] = [line];
+      i++;
+      while (i < lines.length && !/^\s*\[/.test(lines[i])) {
+        block.push(lines[i]);
+        i++;
+      }
+      // Check url in block
+      const urlMatch = block
+        .join("\n")
+        .match(/^\s*url\s*=\s*"((?:\\.|[^"])*)"/m);
+      const blockUrl = urlMatch
+        ? urlMatch[1].replace(/\\"/g, '"').replace(/\\\\/g, "\\")
+        : undefined;
+      if (canonicalUrl(blockUrl) === targetCanonical) {
+        removed.push(serverName);
+        // Skip this block (don't push to out)
+        continue;
+      }
+      // Not a duplicate — keep it
+      for (const l of block) out.push(l);
+      continue;
+    }
+    out.push(line);
+    i++;
+  }
+
+  if (removed.length === 0) return [];
+  const next = out
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .replace(/\n*$/, "\n");
+  writeFileAtomic(file, next);
+  return removed;
+}
+
+/**
+ * Unified helper: after writing the canonical `serverName` entry for the
+ * given `client`, remove same-URL duplicates from its config file.
+ * Returns the list of removed names (empty if nothing was cleaned up).
+ */
+export function removeSameUrlDuplicatesForClient(
+  client: ClientId,
+  serverName: string,
+  mcpUrl: string,
+  baseDir: string,
+  scope: string | undefined,
+): string[] {
+  const file = configPathFor(client, baseDir, scope);
+  if (client === "codex") {
+    return removeCodexSameUrlDuplicates(file, mcpUrl, serverName);
+  }
+  return removeJsonSameUrlDuplicates(file, mcpUrl, serverName);
+}

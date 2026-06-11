@@ -22,6 +22,7 @@ import {
 } from "./build-server.js";
 import {
   buildMcpOAuthChallenge,
+  getMcpOAuthAudiences,
   getMcpOAuthIssuer,
   getMcpOAuthProtectedResourceMetadataUrl,
   getMcpOAuthResource,
@@ -297,7 +298,7 @@ export async function handleMcpRequest(
   const authResult = await verifyAuth(authHeader, ownerEmailHeader, {
     allowDevOpen:
       isLoopbackRequest(event) && isLoopbackOrigin(requestMeta.origin),
-    resourceUrl: getMcpOAuthResource(event),
+    resourceUrl: getMcpOAuthAudiences(event),
   });
   if (!authResult.authed) {
     setResponseStatus(event, 401);

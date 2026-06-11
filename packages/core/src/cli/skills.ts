@@ -152,9 +152,12 @@ of using a generic image generator.
 - Do not call image/video providers directly from another app. Assets owns
   generation, picker UI, search/list/export, and asset context.
 - If an Assets tool call returns \`Session terminated\`, \`needs auth\`, or
-  another connector/session error, do not keep retrying the tool. Tell the user
-  to reconnect or authenticate the Assets MCP connector, then continue after it
-  is available.
+  another connector/session error, do not keep retrying the tool. Stop and give
+  the user the reconnect step: in Claude Code run \`/mcp\` and choose
+  Authenticate/Reconnect for the Assets connector; from any terminal run
+  \`npx @agent-native/core@latest reconnect https://assets.agent-native.com\` — this
+  re-authenticates WITHOUT reinstalling. Never reinstall from scratch just to fix
+  auth. Continue once the connector is available.
 - Do not hand-roll MCP HTTP requests with curl from the agent session. Use the
   host-exposed Assets tools after restart/reload, or use the returned
   browser/deep-link fallback.
@@ -225,9 +228,12 @@ iteration, or a human-in-the-loop choice among design directions.
 - Keep the loop visual: surface the inline MCP App or the returned "Open
   design" link instead of pasting large HTML blobs into chat.
 - If a Design tool call returns \`Session terminated\`, \`needs auth\`, or
-  another connector/session error, do not keep retrying the tool. Tell the user
-  to reconnect or authenticate the Design MCP connector, then continue after it
-  is available.
+  another connector/session error, do not keep retrying the tool. Stop and give
+  the user the reconnect step: in Claude Code run \`/mcp\` and choose
+  Authenticate/Reconnect for the Design connector; from any terminal run
+  \`npx @agent-native/core@latest reconnect https://design.agent-native.com\` — this
+  re-authenticates WITHOUT reinstalling. Never reinstall from scratch just to fix
+  auth. Continue once the connector is available.
 - Do not hand-roll MCP HTTP requests with curl from the agent session. Use the
   host-exposed Design tools after restart/reload, or use the returned
   browser/deep-link fallback.
@@ -274,10 +280,13 @@ your repo as MDX. This local mode is a separate advanced path, not the default
 hosted flow.
 
 If a Plans tool returns \`needs auth\`, \`Unauthorized\`, or \`Session terminated\`,
-do not keep retrying the tool. Authenticate the connector with
-\`npx @agent-native/core@latest connect https://plan.agent-native.com\` (OAuth-capable hosts can
-instead re-run /mcp and choose Authenticate), then continue once the connector
-is available.
+do not keep retrying the tool. Stop and give the user the reconnect step: in
+Claude Code run \`/mcp\` and choose Authenticate/Reconnect for the plan
+connector; from any terminal run
+\`npx @agent-native/core@latest reconnect https://plan.agent-native.com\` — this
+re-authenticates WITHOUT reinstalling and finds the entry by URL regardless of
+connector name. Never reinstall from scratch just to fix auth. Continue once
+the connector is available.
 
 Hosted default: connect \`https://plan.agent-native.com/_agent-native/mcp\`. Do
 not put shared secrets in skill files.`;
@@ -953,11 +962,12 @@ plan over as inline chat content — no Markdown prose, ASCII sketch, table, or
 fenced wireframe. If the connector's tools are missing, do NOT fall back to
 inline output: the usual cause is a connector that did not finish connecting
 this session (it registers zero tools), not auth. Stop and give the user the
-exact restore step — reconnect via \`/mcp\` (or restart the session); only if
-genuinely unauthenticated, run
-\`npx @agent-native/core@latest connect https://plan.agent-native.com\`. Publish once the tool is
-reachable. Local-files privacy mode (after Tool Guidance) is the only
-exception.
+exact restore step — in Claude Code run \`/mcp\` and choose
+Authenticate/Reconnect (or restart the session); if genuinely unauthenticated,
+run \`npx @agent-native/core@latest reconnect https://plan.agent-native.com\` — this
+re-authenticates WITHOUT reinstalling. Never reinstall from scratch just to fix
+auth. Publish once the tool is reachable. Local-files privacy mode (after Tool
+Guidance) is the only exception.
 
 ## Core Workflow
 
@@ -1262,10 +1272,13 @@ because it is named \`agent-native-plans\` instead of \`plan\`. The usual cause 
 connector that did not finish connecting this session (it registers zero tools),
 NOT necessarily an auth problem — so do not assume the user must authenticate.
 Stop and tell the user how to restore it: reconnect the Plan MCP connector (in
-Claude Code, run \`/mcp\` and reconnect, or restart the session); only if it is
-genuinely unauthenticated, run \`npx @agent-native/core@latest connect <plan-app-url>\` or
-re-authenticate via \`/mcp\`. Then publish once the tool is reachable. Falling
-back to inline content is a defect, not a degraded mode.
+Claude Code, run \`/mcp\` and choose Authenticate/Reconnect, or restart the
+session); if it is genuinely unauthenticated, run
+\`npx @agent-native/core@latest reconnect https://plan.agent-native.com\` — this
+re-authenticates WITHOUT reinstalling and finds the entry by URL regardless of
+connector name. Never reinstall from scratch just to fix auth. Then publish once
+the tool is reachable. Falling back to inline content is a defect, not a
+degraded mode.
 
 ## When To Use
 

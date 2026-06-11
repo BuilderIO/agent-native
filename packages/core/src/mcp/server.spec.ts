@@ -128,7 +128,8 @@ vi.mock("../server/embed-route.js", () => ({
 const mockOAuthClients = vi.hoisted(() => new Map<string, any>());
 
 vi.mock("./oauth-store.js", () => ({
-  MCP_OAUTH_ACCESS_TOKEN_TTL: "1h",
+  MCP_OAUTH_ACCESS_TOKEN_TTL: "30d",
+  MCP_OAUTH_ACCESS_TOKEN_TTL_SECONDS: 30 * 86400,
   getOAuthClient: vi.fn(async (clientId: string) => {
     return mockOAuthClients.get(clientId) ?? null;
   }),
