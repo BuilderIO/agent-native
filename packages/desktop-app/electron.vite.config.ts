@@ -45,6 +45,14 @@ export default defineConfig({
         "@shared": resolve("shared"),
       },
     },
+    build: {
+      rollupOptions: {
+        input: {
+          index: resolve("src/preload/index.ts"),
+          webview: resolve("src/preload/webview.ts"),
+        },
+      },
+    },
   },
   renderer: {
     optimizeDeps: {

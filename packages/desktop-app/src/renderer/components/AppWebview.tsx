@@ -592,6 +592,12 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
               ) as ElectronWebviewElement;
               wv.className = "app-webview";
               wv.setAttribute("allowpopups", "");
+              if (window.electronAPI?.webviewPreloadPath) {
+                wv.setAttribute(
+                  "preload",
+                  window.electronAPI.webviewPreloadPath,
+                );
+              }
               wv.setAttribute(
                 "webpreferences",
                 "contextIsolation=true,nodeIntegration=false,sandbox=true,backgroundThrottling=false",

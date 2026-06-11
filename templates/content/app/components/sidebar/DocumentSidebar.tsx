@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useRef, useState } from "react";
-import { useNavigate } from "react-router";
+import { useLocation, useNavigate } from "react-router";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   closestCenter,
@@ -23,6 +23,7 @@ import {
   IconStar,
   IconLayoutSidebarLeftCollapse,
   IconLayoutSidebarLeftExpand,
+  IconFolderOpen,
 } from "@tabler/icons-react";
 import { toast } from "sonner";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -113,6 +114,7 @@ export function DocumentSidebar({
   onResize,
 }: DocumentSidebarProps) {
   const navigate = useNavigate();
+  const location = useLocation();
   const queryClient = useQueryClient();
   const { data: documents = [], isLoading } = useDocuments();
   const createDocument = useCreateDocument();
@@ -126,6 +128,7 @@ export function DocumentSidebar({
   const expandedIdsRef = useRef(new Set<string>());
   const [, forceUpdate] = useState(0);
   const [isResizing, setIsResizing] = useState(false);
+  const localFilesActive = location.pathname.startsWith("/local-files");
   const sensors = useSensors(
     useSensor(PointerSensor, {
       activationConstraint: { distance: 6 },
@@ -490,6 +493,22 @@ export function DocumentSidebar({
           </TooltipTrigger>
           <TooltipContent>New page</TooltipContent>
         </Tooltip>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              className={cn(
+                "w-10 h-10 flex items-center justify-center rounded-lg hover:bg-accent",
+                localFilesActive
+                  ? "bg-accent text-accent-foreground"
+                  : "text-muted-foreground hover:text-foreground",
+              )}
+              onClick={() => navigate("/local-files")}
+            >
+              <IconFolderOpen size={16} />
+            </button>
+          </TooltipTrigger>
+          <TooltipContent>Local files</TooltipContent>
+        </Tooltip>
       </div>
     );
   }
@@ -713,6 +732,18 @@ export function DocumentSidebar({
       {/* Footer */}
       <div className="shrink-0 space-y-2 border-t border-border px-3 py-2">
         <OrgSwitcher />
+        <button
+          className={cn(
+            "flex h-8 w-full items-center gap-2 rounded-md px-2 text-sm",
+            localFilesActive
+              ? "bg-accent text-accent-foreground"
+              : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
+          )}
+          onClick={() => navigate("/local-files")}
+        >
+          <IconFolderOpen size={15} className="shrink-0" />
+          <span className="min-w-0 flex-1 truncate text-left">Local files</span>
+        </button>
         <DevDatabaseLink />
         <div className="flex items-center gap-1">
           <FeedbackButton className="h-8 min-w-0 flex-1 gap-2 rounded-md px-2 py-0" />

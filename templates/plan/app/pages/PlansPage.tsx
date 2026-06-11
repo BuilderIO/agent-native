@@ -26,6 +26,7 @@ import {
   IconDownload,
   IconExternalLink,
   IconFileZip,
+  IconFolder,
   IconDotsVertical,
   IconHistory,
   IconLayoutSidebarRight,
@@ -78,6 +79,7 @@ import {
 } from "@/components/ui/dialog";
 import {
   DropdownMenu,
+  DropdownMenuCheckboxItem,
   DropdownMenuContent,
   DropdownMenuGroup,
   DropdownMenuItem,
@@ -148,10 +150,15 @@ import {
   useUpdatePlanComments,
   useUpdatePlanStatus,
   useExportPlan,
+  useImportPlanSource,
   type PlanCommentInput,
   type PublishVisualPlanResult,
 } from "@/hooks/use-plans";
 import { cn } from "@/lib/utils";
+import {
+  getDesktopPlanFiles,
+  type DesktopPlanFilesFolder,
+} from "@/lib/desktop-plan-files";
 import {
   type PlanBundle,
   type PlanKind,
@@ -209,6 +216,8 @@ type PreferredEditor =
   | "xcode";
 
 const PREFERRED_EDITOR_STORAGE_KEY = "agent-native-plans.preferredEditor";
+const DESKTOP_PLAN_SYNC_AUTO_KEY_PREFIX =
+  "agent-native-plans.desktopSync.auto.";
 const PREFERRED_EDITOR_VALUES: PreferredEditor[] = [
   "vscode",
   "cursor",
@@ -242,6 +251,15 @@ function readPreferredEditor(): PreferredEditor {
   return PREFERRED_EDITOR_VALUES.includes(stored as PreferredEditor)
     ? (stored as PreferredEditor)
     : "vscode";
+}
+
+function desktopPlanAutoSyncKey(planId: string): string {
+  return `${DESKTOP_PLAN_SYNC_AUTO_KEY_PREFIX}${planId}`;
+}
+
+function readDesktopPlanAutoSync(planId: string | undefined): boolean {
+  if (typeof window === "undefined" || !planId) return false;
+  return window.localStorage.getItem(desktopPlanAutoSyncKey(planId)) === "1";
 }
 
 type PlanAnnotationAnchor = PlanCommentAnchor & { x: number; y: number };
@@ -2358,6 +2376,16 @@ export function PlansPage() {
   );
 
   const exportPlan = useExportPlan(selectedId);
+  const importPlanSource = useImportPlanSource();
+  const [desktopPlanFolder, setDesktopPlanFolder] =
+    useState<DesktopPlanFilesFolder | null>(null);
+  const [desktopPlanSyncing, setDesktopPlanSyncing] = useState(false);
+  const [desktopPlanImporting, setDesktopPlanImporting] = useState(false);
+  const [desktopPlanAutoSync, setDesktopPlanAutoSync] = useState(() =>
+    readDesktopPlanAutoSync(selectedId),
+  );
+  const desktopAutoSyncedVersionRef = useRef<Record<string, string>>({});
+  const desktopPlanFilesAvailable = Boolean(getDesktopPlanFiles());
   const { resolvedTheme, setTheme } = useTheme();
   const isDarkTheme = resolvedTheme !== "light";
   const wireframeStyle = useWireframeStyle();
@@ -2399,6 +2427,22 @@ export function PlansPage() {
       </Button>
     ) : null,
   );
+
+  useEffect(() => {
+    setDesktopPlanFolder(null);
+    setDesktopPlanAutoSync(readDesktopPlanAutoSync(selectedId));
+    const planFiles = getDesktopPlanFiles();
+    if (!planFiles || !selectedId) return;
+
+    let cancelled = false;
+    void planFiles.getFolder({ planId: selectedId }).then((result) => {
+      if (cancelled) return;
+      setDesktopPlanFolder(result.ok ? result.folder : null);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedId]);
 
   useEffect(() => {
     if (!selectedId) return;
@@ -2796,14 +2840,138 @@ export function PlansPage() {
     toast.success("Prototype plan ready");
   };
 
-  const readPlanExport = async () => {
+  const readPlanExport = useCallback(async () => {
     const result = await exportPlan.refetch();
     const data = result.data ?? exportPlan.data;
     if (!data) {
       throw new Error("Plan export was not available yet.");
     }
     return data;
-  };
+  }, [exportPlan]);
+
+  const syncPlanToDesktopFolder = useCallback(
+    async (options: { choose?: boolean; quiet?: boolean } = {}) => {
+      const plan = bundle?.plan;
+      const planFiles = getDesktopPlanFiles();
+      if (!plan || !planFiles) {
+        throw new Error("Desktop local file sync is not available.");
+      }
+
+      setDesktopPlanSyncing(true);
+      try {
+        let folder = desktopPlanFolder;
+        if (options.choose || !folder) {
+          const chosen = await planFiles.chooseFolder({
+            planId: plan.id,
+            title: plan.title,
+          });
+          if (!chosen.ok) {
+            if (chosen.canceled) return null;
+            throw new Error(chosen.error);
+          }
+          folder = chosen.folder;
+          setDesktopPlanFolder(folder);
+        }
+
+        const data = await readPlanExport();
+        if (!data.mdx || !data.mdx["plan.mdx"]) {
+          throw new Error("Plan source files were not available yet.");
+        }
+        const written = await planFiles.writePlan({
+          planId: plan.id,
+          title: plan.title,
+          mdx: data.mdx,
+        });
+        if (!written.ok) throw new Error(written.error);
+        setDesktopPlanFolder(written.folder);
+        desktopAutoSyncedVersionRef.current[plan.id] = plan.updatedAt;
+        if (!options.quiet) {
+          toast.success(`Synced ${written.files?.length ?? 0} local files`);
+        }
+        return written.folder;
+      } finally {
+        setDesktopPlanSyncing(false);
+      }
+    },
+    [bundle?.plan, desktopPlanFolder, readPlanExport],
+  );
+
+  const importPlanFromDesktopFolder = useCallback(async () => {
+    const plan = bundle?.plan;
+    const planFiles = getDesktopPlanFiles();
+    if (!plan || !planFiles) {
+      throw new Error("Desktop local file sync is not available.");
+    }
+
+    setDesktopPlanImporting(true);
+    try {
+      const result = await planFiles.readPlan({ planId: plan.id });
+      if (!result.ok) throw new Error(result.error);
+      if (!result.mdx) throw new Error("No Plan source files were found.");
+      const imported = await importPlanSource.mutateAsync({
+        planId: plan.id,
+        expectedUpdatedAt: plan.updatedAt,
+        mdx: result.mdx,
+        repoPath: result.folder.path,
+        currentFocus: "desktop local files sync",
+      });
+      setDesktopPlanFolder(result.folder);
+      toast.success("Imported local source files");
+      const updatedAt = imported.plan?.updatedAt;
+      if (updatedAt) {
+        desktopAutoSyncedVersionRef.current[plan.id] = updatedAt;
+      }
+    } finally {
+      setDesktopPlanImporting(false);
+    }
+  }, [bundle?.plan, importPlanSource]);
+
+  const setDesktopPlanAutoSyncEnabled = useCallback(
+    (enabled: boolean) => {
+      if (!selectedId) return;
+      setDesktopPlanAutoSync(enabled);
+      if (enabled) {
+        window.localStorage.setItem(desktopPlanAutoSyncKey(selectedId), "1");
+        void syncPlanToDesktopFolder({ choose: !desktopPlanFolder }).catch(
+          (error) => {
+            setDesktopPlanAutoSync(false);
+            window.localStorage.removeItem(desktopPlanAutoSyncKey(selectedId));
+            toast.error(
+              error instanceof Error
+                ? error.message
+                : "Could not enable local file sync.",
+            );
+          },
+        );
+      } else {
+        window.localStorage.removeItem(desktopPlanAutoSyncKey(selectedId));
+      }
+    },
+    [desktopPlanFolder, selectedId, syncPlanToDesktopFolder],
+  );
+
+  useEffect(() => {
+    const plan = bundle?.plan;
+    if (!plan || !desktopPlanAutoSync || !desktopPlanFolder) return;
+    if (desktopAutoSyncedVersionRef.current[plan.id] === plan.updatedAt) {
+      return;
+    }
+    desktopAutoSyncedVersionRef.current[plan.id] = plan.updatedAt;
+    void syncPlanToDesktopFolder({ quiet: true }).catch((error) => {
+      setDesktopPlanAutoSync(false);
+      window.localStorage.removeItem(desktopPlanAutoSyncKey(plan.id));
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Could not sync plan to local files.",
+      );
+    });
+  }, [
+    bundle?.plan,
+    desktopPlanAutoSync,
+    desktopPlanFolder,
+    syncPlanToDesktopFolder,
+  ]);
 
   const copyPlanHtml = async () => {
     const data = await readPlanExport();
@@ -2833,7 +3001,7 @@ export function PlansPage() {
 
   const downloadPlanSource = async () => {
     const data = await readPlanExport();
-    const files = (data as { mdx?: Record<string, unknown> }).mdx;
+    const files = data.mdx;
     if (!files || Object.keys(files).length === 0) {
       throw new Error("Plan source files were not available yet.");
     }

@@ -2,6 +2,7 @@ import { useQueryClient, type UseQueryOptions } from "@tanstack/react-query";
 import type { RefObject } from "react";
 import { toast } from "sonner";
 import { useActionMutation, useActionQuery } from "@agent-native/core/client";
+import type { PlanMdxFolder } from "@/lib/desktop-plan-files";
 import type {
   PlanAuthor,
   PlanBundle,
@@ -9,6 +10,7 @@ import type {
   PlanCommentMention,
   PlanCommentResolutionTarget,
   PlanCommentStatus,
+  PlanKind,
   PlanSectionType,
   PlanSource,
   PlanStatus,
@@ -396,11 +398,36 @@ export function usePublishVisualPlan() {
   );
 }
 
+export type ImportPlanSourceInput = {
+  planId?: string;
+  expectedUpdatedAt?: string;
+  title?: string;
+  brief?: string;
+  kind?: PlanKind;
+  source?: PlanSource;
+  repoPath?: string;
+  currentFocus?: string;
+  status?: PlanStatus;
+  mdx: PlanMdxFolder;
+};
+
+export function useImportPlanSource() {
+  const invalidate = usePlanInvalidation();
+  return useActionMutation<
+    PlanBundle & { path?: string; url?: string; html?: string },
+    ImportPlanSourceInput
+  >("import-visual-plan-source", {
+    onSuccess: invalidate,
+    onError: showActionError("Failed to import plan source"),
+  });
+}
+
 export function useExportPlan(planId?: string) {
   return useActionQuery<{
     markdown: string;
     html: string;
     json: PlanBundle;
+    mdx: PlanMdxFolder;
     path: string;
     url: string;
   }>("export-visual-plan", { planId: planId ?? "" }, { enabled: false });

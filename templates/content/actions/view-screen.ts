@@ -649,6 +649,15 @@ export default defineAction({
     const nav = navigation as NavigationState | null;
     const db = getDb();
 
+    if (nav?.view === "local-files") {
+      screen.localFiles = {
+        view: "local-files",
+        actions: ["export-content-source", "import-content-source"],
+        sourceRoot: "content/",
+        fileTypes: [".md", ".mdx"],
+      };
+    }
+
     if (nav?.documentId) {
       const access = await resolveAccess("document", nav.documentId);
       if (access) {

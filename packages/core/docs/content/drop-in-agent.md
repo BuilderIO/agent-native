@@ -15,24 +15,27 @@ You don't need to build agent-native from scratch. The agent chat, workspace tab
 
 ## The components at a glance {#components}
 
-| Component             | What it is                                                             | Use it when                                                     |
-| --------------------- | ---------------------------------------------------------------------- | --------------------------------------------------------------- |
-| `<AgentSidebar>`      | Wraps your app, adds a toggleable side panel containing the full agent | You want the agent available alongside your app on every screen |
-| `<AgentToggleButton>` | Opens/closes `<AgentSidebar>` (put it in your header)                  | Pair with `<AgentSidebar>`                                      |
-| `<AgentPanel>`        | The raw panel itself — chat + CLI + workspace tabs                     | You want full control over layout, or a dedicated agent page    |
-| `<AgentChatSurface>`  | A pre-wired panel/page chat surface                                    | You want chat without the sidebar wrapper                       |
-| `<AssistantChat>`     | Lower-level chat renderer with composer/history hooks                  | You need custom chrome around the standard conversation UI      |
-| `sendToAgentChat()`   | Programmatically send a message to the chat                            | A button that hands work to the agent instead of running inline |
-| `useActionMutation()` | Typesafe frontend wrapper around an action                             | The UI needs to run the same operation an agent tool would run  |
+| Component             | What it is                                                                            | Use it when                                                     |
+| --------------------- | ------------------------------------------------------------------------------------- | --------------------------------------------------------------- |
+| `<AgentSidebar>`      | Wraps your root app layout and adds a toggleable side panel containing the full agent | You want the agent available alongside your app on every screen |
+| `<AgentToggleButton>` | Opens/closes `<AgentSidebar>` (put it in your header)                                 | Pair with `<AgentSidebar>`                                      |
+| `<AgentPanel>`        | The raw panel itself — chat + CLI + workspace tabs                                    | You want full control over layout, or a dedicated agent page    |
+| `<AgentChatSurface>`  | A pre-wired panel/page chat surface                                                   | You want chat without the sidebar wrapper                       |
+| `<AssistantChat>`     | Lower-level chat renderer with composer/history hooks                                 | You need custom chrome around the standard conversation UI      |
+| `sendToAgentChat()`   | Programmatically send a message to the chat                                           | A button that hands work to the agent instead of running inline |
+| `useActionMutation()` | Typesafe frontend wrapper around an action                                            | The UI needs to run the same operation an agent tool would run  |
 
 All of these are exported from `@agent-native/core/client`.
 
 ## The 80% case: `<AgentSidebar>` {#sidebar}
 
-The most common setup is a sidebar that slides in from the right on any screen. Two pieces — the wrapper and a header button:
+The most common setup is a sidebar that opens from the right on any screen.
+Wrap your existing root layout with `<AgentSidebar>`; whatever you pass as
+children stays in the main app area. The agent chat is the side panel.
 
 ```tsx
 // app/root.tsx
+import { Outlet } from "react-router";
 import { AgentSidebar, AgentToggleButton } from "@agent-native/core/client";
 
 export default function Root() {
@@ -48,20 +51,23 @@ export default function Root() {
       defaultSidebarWidth={420}
       position="right"
     >
-      <YourApp />
+      <header>
+        <AgentToggleButton />
+      </header>
+
+      <main>
+        <Outlet />
+      </main>
     </AgentSidebar>
   );
 }
-
-// somewhere in your header / navbar
-<AgentToggleButton />;
 ```
 
 That's it. The user now has a toggleable agent on every page — with chat history, workspace tab, CLI terminal, voice input, and a fullscreen mode. State persists across reloads via `localStorage`.
 
 ### Props
 
-- **`children`** — your app. Rendered in the main area; the sidebar overlays from the chosen side.
+- **`children`** — your app's normal layout and routes. Rendered in the main area; the agent panel mounts beside it on desktop and over it on mobile/fullscreen.
 - **`emptyStateText`** — greeting shown when the chat has no messages. Default: `"How can I help you?"`.
 - **`suggestions`** — starter prompts rendered as clickable chips when empty.
 - **`dynamicSuggestions`** — context-aware prompt chips merged with `suggestions`. Enabled by default; pass `false` to show only static suggestions, or `{ max, includeStatic, getSuggestions }` to customize.
@@ -188,8 +194,9 @@ first so client code does not learn a second, ad hoc transport.
 
 ### Build your own sidebar from pieces {#build-your-own-sidebar}
 
-The stock sidebar is optional. A custom sidebar can keep your own layout and
-still reuse the framework runtime:
+The stock sidebar is optional. This example builds the agent-side UI itself.
+Render it inside your own shell, drawer, split pane, or route when you want to
+own the layout around the agent runtime:
 
 ```tsx
 import { AssistantChat, useChatThreads } from "@agent-native/core/client/chat";
