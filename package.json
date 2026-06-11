@@ -26,6 +26,7 @@
     "test": "pnpm -r --workspace-concurrency=4 test",
     "test:brain-evals": "pnpm --filter brain eval:ci",
     "qa:cli": "tsx scripts/qa-cli-smoke.ts",
+    "qa:standalone-starter-dev": "tsx scripts/qa-standalone-starter-dev-smoke.ts",
     "qa:composer-geometry": "tsx scripts/qa-composer-geometry-smoke.ts",
     "qa:dispatch-workspace-resources": "tsx scripts/qa-dispatch-workspace-resources-smoke.ts",
     "qa:template-routes": "tsx scripts/qa-template-route-matrix.ts",

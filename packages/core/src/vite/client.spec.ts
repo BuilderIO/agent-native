@@ -1,5 +1,11 @@
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { pathToFileURL } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  _findCorePackageRoot,
+  _getClientDedupe,
   defineConfig,
   isFrameworkDevPath,
   stripMountedDevApiPath,
@@ -559,5 +565,40 @@ describe("Vite CSS build defaults", () => {
       cssMinify: "esbuild",
       cssTarget: ["es2020", "safari18"],
     });
+  });
+});
+
+describe("local-core dev aliases and router dedupe", () => {
+  it("dedupes react-router when the app depends on react-router", () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "an-vite-dedupe-"));
+    fs.writeFileSync(
+      path.join(tmpDir, "package.json"),
+      JSON.stringify({
+        dependencies: { "react-router": "^7.16.0" },
+      }),
+    );
+
+    const dedupe = _getClientDedupe(tmpDir);
+    expect(dedupe).toContain("react-router");
+    expect(dedupe).toContain("react-router/dom");
+
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it("resolves file:@agent-native/core to a package root with src/index.ts", () => {
+    const coreRoot = path.resolve(import.meta.dirname, "../..");
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "an-vite-core-root-"));
+    fs.writeFileSync(
+      path.join(tmpDir, "package.json"),
+      JSON.stringify({
+        dependencies: {
+          "@agent-native/core": pathToFileURL(coreRoot).href,
+        },
+      }),
+    );
+
+    expect(_findCorePackageRoot(tmpDir)).toBe(coreRoot);
+
+    fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 });
