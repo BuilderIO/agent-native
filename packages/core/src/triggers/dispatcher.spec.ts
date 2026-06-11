@@ -32,6 +32,10 @@ vi.mock("../agent/production-agent.js", () => ({
 
 vi.mock("../agent/engine/index.js", () => ({
   getStoredModelForEngine: vi.fn(async () => undefined),
+  normalizeModelForEngine: (
+    engine: { defaultModel?: string },
+    model?: string | null,
+  ) => model ?? engine.defaultModel,
   resolveEngine: vi.fn(async () => ({
     name: "test-engine",
     defaultModel: "test-model",

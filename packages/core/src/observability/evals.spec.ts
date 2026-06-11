@@ -27,6 +27,10 @@ const runStore = vi.hoisted(() => ({
 const engineMod = vi.hoisted(() => ({
   resolveEngine: vi.fn(),
   getStoredModelForEngine: vi.fn(),
+  normalizeModelForEngine: vi.fn(
+    (engine: { defaultModel?: string }, model?: string | null) =>
+      model ?? engine.defaultModel,
+  ),
 }));
 
 vi.mock("./store.js", () => ({
@@ -42,6 +46,8 @@ vi.mock("../agent/engine/index.js", () => ({
   resolveEngine: (...a: unknown[]) => engineMod.resolveEngine(...a),
   getStoredModelForEngine: (...a: unknown[]) =>
     engineMod.getStoredModelForEngine(...a),
+  normalizeModelForEngine: (...a: unknown[]) =>
+    engineMod.normalizeModelForEngine(...a),
 }));
 
 const { runAutomatedEvals, runLlmJudgeEval, runDatasetEval, evaluateRun } =
