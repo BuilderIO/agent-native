@@ -99,7 +99,10 @@ details live in `.agents/skills/`.
 ## Demo Dashboard
 
 - `ensure-demo-dashboards` installs one private per-user demo on first app
-  open: `demo-node-exporter`.
+  open: `demo-node-exporter`. The Analytics root route calls this before
+  honoring local last-opened state; when the action creates the demo, the user
+  should land directly on the Node Exporter demo's `App / Overview` tab without
+  visiting the template catalog or data-source setup.
 - The demo dashboard is generated from the same `node-exporter-full` seed as
   the catalog template. Its Prometheus panels keep the same PromQL descriptors
   and use `source: "demo"` so queries route to the demo Prometheus endpoint

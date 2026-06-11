@@ -97,6 +97,7 @@ vi.mock("./dashboards-store", () => ({
 const {
   DEMO_DASHBOARD_VERSION,
   DEMO_DASHBOARD_STATE_KEY,
+  DEMO_NODE_EXPORTER_DEFAULT_TAB,
   DEMO_NODE_EXPORTER_INSTANCE,
   DEMO_NODE_EXPORTER_JOB,
   demoDashboardIdForUser,
@@ -126,8 +127,11 @@ describe("demo dashboards", () => {
     expect(result.defaultDashboardId).toBe(
       demoDashboardIdForUser(alice.email, "demo-node-exporter"),
     );
+    const params = new URLSearchParams({
+      tab: DEMO_NODE_EXPORTER_DEFAULT_TAB,
+    });
     expect(result.defaultDashboardPath).toBe(
-      `/adhoc/${result.defaultDashboardId}`,
+      `/adhoc/${result.defaultDashboardId}?${params.toString()}`,
     );
     expect(result.dashboards).toHaveLength(1);
     expect(result.dashboards.every((dashboard) => dashboard.created)).toBe(

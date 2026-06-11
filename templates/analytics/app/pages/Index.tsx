@@ -7,6 +7,7 @@ import { getLastOpenedPath } from "@/lib/last-opened";
 
 type EnsureDemoDashboardsResult = {
   defaultDashboardPath?: string;
+  dashboards?: Array<{ created?: boolean; installed?: boolean }>;
 };
 
 function isSyntheticDefaultDashboardPath(path: string): boolean {
@@ -29,38 +30,54 @@ export default function Index() {
   useEffect(() => {
     let cancelled = false;
 
-    const installAndOpenDemoDashboards = async () => {
-      try {
-        const result = (await callAction("ensure-demo-dashboards", {})) as
-          | EnsureDemoDashboardsResult
-          | undefined;
-        if (cancelled) return;
-        if (result?.defaultDashboardPath) {
-          navigate(result.defaultDashboardPath, { replace: true });
-        } else {
-          navigate("/data-sources", { replace: true });
+    const ensureDemoDashboards =
+      async (): Promise<EnsureDemoDashboardsResult | null> => {
+        try {
+          return (await callAction(
+            "ensure-demo-dashboards",
+            {},
+          )) as EnsureDemoDashboardsResult | null;
+        } catch (err) {
+          console.warn("[analytics] demo dashboard install failed", err);
+          return null;
         }
-      } catch (err) {
-        console.warn("[analytics] demo dashboard install failed", err);
-        if (!cancelled) navigate("/data-sources", { replace: true });
+      };
+
+    const openDefault = async () => {
+      const result = await ensureDemoDashboards();
+      if (cancelled) return;
+
+      const createdDemo =
+        result?.dashboards?.some(
+          (dashboard) => dashboard.installed && dashboard.created,
+        ) ?? false;
+      if (createdDemo && result?.defaultDashboardPath) {
+        navigate(result.defaultDashboardPath, { replace: true });
+        return;
+      }
+
+      const lastPath = getLastOpenedPath();
+      if (lastPath && !isSyntheticDefaultDashboardPath(lastPath)) {
+        navigate(lastPath, { replace: true });
+        return;
+      }
+      const lastId = localStorage.getItem("last-dashboard-id");
+      if (lastId && !isSyntheticDefaultDashboardId(lastId)) {
+        navigate(`/adhoc/${lastId}`, { replace: true });
+      } else if (result?.defaultDashboardPath) {
+        navigate(result.defaultDashboardPath, { replace: true });
+      } else if (dashboards.length > 0) {
+        navigate(`/adhoc/${dashboards[0].id}`, { replace: true });
+      } else {
+        try {
+          navigate("/data-sources", { replace: true });
+        } catch {
+          // Navigation can throw if the component unmounted mid-transition.
+        }
       }
     };
 
-    const lastPath = getLastOpenedPath();
-    if (lastPath && !isSyntheticDefaultDashboardPath(lastPath)) {
-      navigate(lastPath, { replace: true });
-      return () => {
-        cancelled = true;
-      };
-    }
-    const lastId = localStorage.getItem("last-dashboard-id");
-    if (lastId && !isSyntheticDefaultDashboardId(lastId)) {
-      navigate(`/adhoc/${lastId}`, { replace: true });
-    } else if (dashboards.length > 0) {
-      navigate(`/adhoc/${dashboards[0].id}`, { replace: true });
-    } else {
-      void installAndOpenDemoDashboards();
-    }
+    void openDefault();
 
     return () => {
       cancelled = true;

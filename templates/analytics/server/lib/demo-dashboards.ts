@@ -12,6 +12,7 @@ export const DEMO_DASHBOARD_VERSION = "2026-06-11";
 export const DEMO_DASHBOARD_STATE_KEY = "analytics-demo-dashboards";
 export const DEMO_NODE_EXPORTER_INSTANCE = "127.0.0.1:9100";
 export const DEMO_NODE_EXPORTER_JOB = "node";
+export const DEMO_NODE_EXPORTER_DEFAULT_TAB = "App / Overview";
 
 export const DEMO_DASHBOARDS = [
   {
@@ -53,6 +54,13 @@ export interface EnsuredDemoDashboard {
   created: boolean;
   archivedAt: string | null;
   deleted: boolean;
+}
+
+function demoDashboardPath(dashboardId: string): string {
+  const params = new URLSearchParams({
+    tab: DEMO_NODE_EXPORTER_DEFAULT_TAB,
+  });
+  return `/adhoc/${dashboardId}?${params.toString()}`;
 }
 
 function nowIso(): string {
@@ -224,7 +232,7 @@ export async function ensureDemoDashboardsForUser(
         id: demo.id,
         dashboardId,
         name: demo.name,
-        path: `/adhoc/${dashboardId}`,
+        path: demoDashboardPath(dashboardId),
         installed: false,
         created: false,
         archivedAt: null,
@@ -270,7 +278,7 @@ export async function ensureDemoDashboardsForUser(
       id: demo.id,
       dashboardId,
       name: demo.name,
-      path: `/adhoc/${dashboardId}`,
+      path: demoDashboardPath(dashboardId),
       installed: true,
       created,
       archivedAt,
