@@ -3996,9 +3996,7 @@ export async function runSkills(
       process.stdout.write(`${line}\n`);
     }
 
-    const slashCommands = completedSkills
-      .map((name) => `/${name}`)
-      .join("  ");
+    const slashCommands = completedSkills.map((name) => `/${name}`).join("  ");
     const clientHint = parsed.clientExplicit
       ? ""
       : "\n   Add another client later with --client <client> (e.g. --client claude-code).";

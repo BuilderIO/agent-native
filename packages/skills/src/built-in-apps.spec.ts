@@ -12,12 +12,10 @@ describe("resolveAppForSkill", () => {
     expect(app).toBeDefined();
     expect(app?.appId).toBe("visual-plans");
     expect(app?.serverName).toBe("plan");
-    expect(app?.mcpUrl).toBe(
-      "https://plan.agent-native.com/_agent-native/mcp",
-    );
-    expect(app?.mcpUrl.endsWith("plan.agent-native.com/_agent-native/mcp")).toBe(
-      true,
-    );
+    expect(app?.mcpUrl).toBe("https://plan.agent-native.com/_agent-native/mcp");
+    expect(
+      app?.mcpUrl.endsWith("plan.agent-native.com/_agent-native/mcp"),
+    ).toBe(true);
     expect(app?.aliases).toContain("agent-native-plans");
   });
 

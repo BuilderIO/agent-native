@@ -33,10 +33,7 @@
  * Node-only. Node built-ins + global fetch only; no npm deps.
  */
 
-import {
-  ClientId,
-  writeHttpEntryForClient,
-} from "./mcp-config-writers.js";
+import { ClientId, writeHttpEntryForClient } from "./mcp-config-writers.js";
 
 const DEVICE_START_PATH = "/_agent-native/mcp/connect/device/start";
 const DEVICE_POLL_PATH = "/_agent-native/mcp/connect/device/poll";

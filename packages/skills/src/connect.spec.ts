@@ -147,10 +147,7 @@ describe("registerMcpServer", () => {
       deps: { fetchImpl, sleep: noSleep, now: () => 0 },
     });
 
-    const toml = fs.readFileSync(
-      path.join(codexHome, "config.toml"),
-      "utf-8",
-    );
+    const toml = fs.readFileSync(path.join(codexHome, "config.toml"), "utf-8");
     expect(toml).toContain('[mcp_servers."plan"]');
     expect(toml).toContain(
       'url = "https://plan.agent-native.com/_agent-native/mcp"',
@@ -226,10 +223,7 @@ describe("registerMcpServer", () => {
       deps: { fetchImpl },
     });
 
-    const toml = fs.readFileSync(
-      path.join(codexHome, "config.toml"),
-      "utf-8",
-    );
+    const toml = fs.readFileSync(path.join(codexHome, "config.toml"), "utf-8");
     expect(toml).toContain('[mcp_servers."plan"]');
     expect(toml).not.toContain("Bearer");
     expect(result.authenticated).toBe(false);
