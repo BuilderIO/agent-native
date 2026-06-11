@@ -82,30 +82,37 @@ describe("agent model config catalog", () => {
     }
   });
 
-  it("includes claude-fable-5 in Anthropic-based catalogs", () => {
+  it("includes claude-fable-5 in direct Anthropic catalogs", () => {
     expect(ANTHROPIC_MODEL_CONFIG.supportedModels).toContain("claude-fable-5");
     expect(AI_SDK_MODEL_CONFIG.anthropic.supportedModels).toContain(
       "claude-fable-5",
     );
-    expect(BUILDER_MODEL_CONFIG.supportedModels).toContain("claude-fable-5");
+    expect(BUILDER_MODEL_CONFIG.supportedModels).not.toContain(
+      "claude-fable-5",
+    );
   });
 
-  it("includes claude-opus-4-8 in Anthropic-based catalogs", () => {
+  it("includes claude-opus-4-8 in direct Anthropic catalogs", () => {
     expect(ANTHROPIC_MODEL_CONFIG.supportedModels).toContain("claude-opus-4-8");
     expect(AI_SDK_MODEL_CONFIG.anthropic.supportedModels).toContain(
       "claude-opus-4-8",
     );
-    expect(BUILDER_MODEL_CONFIG.supportedModels).toContain("claude-opus-4-8");
+    expect(BUILDER_MODEL_CONFIG.supportedModels).not.toContain(
+      "claude-opus-4-8",
+    );
   });
 
-  it("keeps Opus 4.7 out of current picker catalogs", () => {
+  it("keeps the Builder catalog aligned to the gateway allow-list", () => {
+    expect(BUILDER_MODEL_CONFIG.supportedModels).toContain("auto");
+    expect(BUILDER_MODEL_CONFIG.supportedModels).toContain("claude-opus-4-7");
+    expect(BUILDER_MODEL_CONFIG.supportedModels).not.toContain(
+      "claude-opus-4-8",
+    );
+    expect(BUILDER_MODEL_CONFIG.supportedModels).not.toContain("z-ai-glm-4-5");
     expect(ANTHROPIC_MODEL_CONFIG.supportedModels).not.toContain(
       "claude-opus-4-7",
     );
     expect(AI_SDK_MODEL_CONFIG.anthropic.supportedModels).not.toContain(
-      "claude-opus-4-7",
-    );
-    expect(BUILDER_MODEL_CONFIG.supportedModels).not.toContain(
       "claude-opus-4-7",
     );
   });

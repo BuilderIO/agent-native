@@ -10,6 +10,7 @@ import type { AgentEngine } from "../agent/engine/types.js";
 import {
   resolveEngine,
   getStoredModelForEngine,
+  normalizeModelForEngine,
 } from "../agent/engine/index.js";
 
 const LATENCY_BASELINE_PER_TOOL_MS = 10_000;
@@ -241,10 +242,11 @@ export async function runLlmJudgeEval(
 
     const engine =
       opts?.engine ?? (await resolveEngine({ engineOption: undefined }));
-    const model =
+    const modelCandidate =
       opts?.model ??
       (await getStoredModelForEngine(engine)) ??
       engine.defaultModel;
+    const model = normalizeModelForEngine(engine, modelCandidate);
 
     const judgePrompt = buildJudgePrompt(transcript, criteria);
 
@@ -324,10 +326,11 @@ export async function runDatasetEval(
 
   const engine =
     opts?.engine ?? (await resolveEngine({ engineOption: undefined }));
-  const model =
+  const modelCandidate =
     opts?.model ??
     (await getStoredModelForEngine(engine)) ??
     engine.defaultModel;
+  const model = normalizeModelForEngine(engine, modelCandidate);
 
   const criteria = opts?.criteria ?? [
     {
