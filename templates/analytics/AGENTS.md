@@ -91,10 +91,11 @@ details live in `.agents/skills/`.
 - Node Exporter ships as `node-exporter-macos` for Darwin/Homebrew
   `node_exporter` scrapes and `node-exporter-full` for the Linux-focused
   Grafana 1860 revision 45 full dashboard converted into native Analytics
-  panels. `node-exporter-full` also includes a consolidated `App / Overview`
-  page for the Prometheus Observability Demo app metrics (`demo_http_*`,
-  `demo_chaos_mode`, and synthetic CPU/disk/memory workload metrics), ordered
-  Latency, Traffic, Workload, then current app state for first-open impact.
+  panels. `node-exporter-full` also includes Prometheus Observability Demo app
+  metrics (`demo_http_*`, `demo_chaos_mode`, and synthetic CPU/disk/memory
+  workload metrics). Keep the first-open `App / Overview` tab light: it should
+  show the Request Latency highlight plus current app state, while Traffic,
+  Latency, and Workload details stay split across their own `App / *` tabs.
 
 ## Demo Dashboard
 

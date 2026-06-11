@@ -126,7 +126,7 @@ describe("dashboard catalog", () => {
     }
   });
 
-  it("consolidates demo app panels into the App Overview tab in wow-factor order", () => {
+  it("keeps demo app overview light and splits app details across tabs", () => {
     const entry = getDashboardCatalogEntry("node-exporter-full");
     expect(entry).not.toBeNull();
 
@@ -137,12 +137,25 @@ describe("dashboard catalog", () => {
 
     expect([...new Set(appPanels.map((panel) => panel.tab))]).toEqual([
       "App / Overview",
+      "App / Latency",
+      "App / Traffic",
+      "App / Workload",
+    ]);
+    expect(
+      appPanels
+        .filter((panel) => panel.tab === "App / Overview")
+        .map((panel) => panel.title),
+    ).toEqual([
+      "App Overview",
+      "Request Latency",
+      "Chaos Mode",
+      "Active Workload Phase",
     ]);
     expect(
       appPanels
         .filter((panel) => panel.chartType === "section")
         .map((panel) => panel.title),
-    ).toEqual(["App Latency", "App Traffic", "App Workload", "App Overview"]);
+    ).toEqual(["App Overview", "App Latency", "App Traffic", "App Workload"]);
   });
 
   it("uses defined theme variables in Node Exporter Full chart colors", () => {
