@@ -400,7 +400,9 @@ describe("recap prompt builder", () => {
 
     expect(prompt).toContain("local-files privacy mode");
     expect(prompt).toContain("plans/private-recap");
-    expect(prompt).toContain("agent-native plan local preview");
+    expect(prompt).toContain(
+      "npx @agent-native/core@latest plan local preview",
+    );
     expect(prompt).toContain("recap-url.txt");
     expect(prompt).not.toContain("mcp__plan__create-visual-recap");
     expect(prompt).not.toContain("set-resource-visibility");
@@ -1395,7 +1397,7 @@ describe("recap comment body — auth-failure differentiation", () => {
     expect(body).toContain("generation failed");
     expect(body).toContain("PLAN_RECAP_TOKEN");
     expect(body).toContain("expired or revoked");
-    expect(body).toContain("agent-native connect");
+    expect(body).toContain("npx @agent-native/core@latest reconnect");
   });
 
   it("shows generic failure copy when RECAP_AUTH_FAILED is absent/false", () => {

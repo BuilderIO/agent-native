@@ -36,6 +36,9 @@
     "test": "vitest --run src --passWithNoTests",
     "prepublishOnly": "npm run build"
   },
+  "dependencies": {
+    "@agent-native/core": "workspace:*"
+  },
   "devDependencies": {
     "@types/node": "^25.9.2",
     "typescript": "catalog:",

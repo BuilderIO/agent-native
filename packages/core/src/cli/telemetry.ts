@@ -23,7 +23,8 @@ import path from "node:path";
 // settings UI). Override with AGENT_NATIVE_ANALYTICS_PUBLIC_KEY for testing or
 // to point telemetry at a different first-party analytics instance.
 // guard:allow-public-key -- first-party analytics write key is public by design.
-const EMBEDDED_PUBLIC_KEY = "";
+const EMBEDDED_PUBLIC_KEY =
+  "anpk_dc523e34b99bc34d76e82d94c46593544e4a8509a4bfc93c";
 const DEFAULT_ENDPOINT = "https://analytics.agent-native.com/track";
 const FLUSH_TIMEOUT_MS = 1500;
 

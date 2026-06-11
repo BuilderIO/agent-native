@@ -1607,7 +1607,9 @@ describe("runConnect", () => {
       .mockImplementation(() => true);
     await runConnect(["--help"]);
     expect(process.exitCode).toBeFalsy();
-    expect(out.mock.calls.flat().join("")).toContain("agent-native connect");
+    expect(out.mock.calls.flat().join("")).toContain(
+      "npx @agent-native/core@latest connect",
+    );
   });
 });
 

@@ -43,10 +43,10 @@ client, and complete authorization-code + PKCE at
 `/_agent-native/mcp/oauth/authorize` / `/_agent-native/mcp/oauth/token`.
 Access tokens are audience-bound to the exact MCP URL and carry user/org
 identity plus `mcp:read`, `mcp:write`, and/or `mcp:apps`; refresh tokens are
-stored hashed and rotate. Keep `ACCESS_TOKEN` and `agent-native connect` for
+stored hashed and rotate. Keep `ACCESS_TOKEN` and `pnpm exec agent-native connect` for
 local stdio proxying and fallback clients. The CLI
 uses the OAuth-native URL-only entry for Claude Code/Claude Code CLI by
-default; use the Connect page or `agent-native connect --token <token>` when a
+default; use the Connect page or `npx @agent-native/core@latest connect --token <token>` when a
 client needs explicit bearer headers.
 
 ## Local → Real Account Migration

@@ -88,7 +88,7 @@ function optionalArg(
 /** GitHub secrets the installed PR Visual Recap workflow needs. */
 export const PR_VISUAL_RECAP_SETUP: string[] = [
   "Required secrets:",
-  "  PLAN_RECAP_TOKEN   — bearer token from `agent-native connect`",
+  "  PLAN_RECAP_TOKEN   — bearer token from `npx @agent-native/core@latest connect`",
   "  ANTHROPIC_API_KEY  — the LLM key for the default Claude Code backend",
   "Optional (only if you change defaults):",
   "  OPENAI_API_KEY (secret) + VISUAL_RECAP_AGENT=codex (variable) — use Codex instead of Claude",
@@ -564,7 +564,7 @@ function runSetup(args: Record<string, string | boolean>): void {
         lines.push(`  ${name}: missing value.`);
         if (name === "PLAN_RECAP_TOKEN") {
           lines.push(
-            `    Run agent-native connect ${plan.appUrl} --client codex, then rerun this setup.`,
+            `    Run npx @agent-native/core@latest connect ${plan.appUrl} --client codex, then rerun this setup.`,
           );
         }
         lines.push(
@@ -593,7 +593,7 @@ function runSetup(args: Record<string, string | boolean>): void {
 
   lines.push("");
   lines.push(
-    `Next: commit ${plan.workflowPath}, then run agent-native recap doctor.`,
+    `Next: commit ${plan.workflowPath}, then run npx @agent-native/core@latest recap doctor.`,
   );
   process.stdout.write(`${lines.join("\n")}\n`);
 }
@@ -621,7 +621,7 @@ function runDoctor(args: Record<string, string | boolean>): void {
     ok = false;
     lines.push(`[missing] Workflow missing: ${plan.workflowPath}.`);
     lines.push(
-      "  Run agent-native skills add visual-plan --with-github-action.",
+      "  Run npx @agent-native/skills add --skill visual-plan --with-github-action.",
     );
   } else {
     const current = fs.readFileSync(workflowFile, "utf-8");
@@ -632,7 +632,9 @@ function runDoctor(args: Record<string, string | boolean>): void {
       lines.push(
         `[missing] Workflow differs from the bundled template: ${plan.workflowPath}.`,
       );
-      lines.push("  Run agent-native recap setup to refresh it.");
+      lines.push(
+        "  Run npx @agent-native/core@latest recap setup to refresh it.",
+      );
     }
   }
 
@@ -641,7 +643,7 @@ function runDoctor(args: Record<string, string | boolean>): void {
   } else {
     lines.push("[warn] Local Plans publish token not found.");
     lines.push(
-      `  Run agent-native connect ${plan.appUrl} --client codex to mint one.`,
+      `  Run npx @agent-native/core@latest connect ${plan.appUrl} --client codex to mint one.`,
     );
   }
 
@@ -1331,7 +1333,7 @@ export function readRepoSkillMd(cwd: string = process.cwd()): {
     }
   }
   throw new Error(
-    "Could not find visual-recap/SKILL.md. Run `agent-native skills add visual-plan` first.",
+    "Could not find visual-recap/SKILL.md. Run `npx @agent-native/skills add --skill visual-plan` first.",
   );
 }
 
@@ -1510,7 +1512,7 @@ export function buildRecapPrompt(input: {
       `1. Create or replace the local MDX folder \`${localDir}\` with \`plan.mdx\` and optional \`canvas.mdx\`, \`prototype.mdx\`, and \`.plan-state.json\` derived ONLY from the real diff. Set \`kind: "recap"\` and \`localOnly: true\` in source metadata/state.`,
     );
     lines.push(
-      `2. Run \`agent-native plan local preview --dir ${JSON.stringify(
+      `2. Run \`npx @agent-native/core@latest plan local preview --dir ${JSON.stringify(
         localDir,
       )} --kind recap --out ${JSON.stringify(
         path.join(localDir, "preview.html"),
@@ -1796,7 +1798,7 @@ export function buildCommentBody(env: NodeJS.ProcessEnv = process.env): string {
     lines.push("");
     if (authFailed) {
       lines.push(
-        "Recap authentication failed — the `PLAN_RECAP_TOKEN` secret may be expired or revoked. Re-mint it with `agent-native connect` and update the repo secret.",
+        "Recap authentication failed — the `PLAN_RECAP_TOKEN` secret may be expired or revoked. Re-mint it with `npx @agent-native/core@latest reconnect <app-url>` (or `npx @agent-native/core@latest connect <app-url>` for first-time setup) and update the repo secret.",
       );
     } else {
       lines.push(
@@ -2266,7 +2268,7 @@ async function runComment(
   }
 
   throw new Error(
-    "Usage: agent-native recap comment <find-plan-id|upsert> --repo owner/name --issue n --token token",
+    "Usage: npx @agent-native/core@latest recap comment <find-plan-id|upsert> --repo owner/name --issue n --token token",
   );
 }
 
@@ -2897,7 +2899,7 @@ async function runCheck(
     return;
   }
   throw new Error(
-    "Usage: agent-native recap check <start|complete> [flags] (see `recap help`)",
+    "Usage: npx @agent-native/core@latest recap check <start|complete> [flags] (see `recap help`)",
   );
 }
 
@@ -3120,31 +3122,31 @@ function runAgentSummary(args: Record<string, string | boolean>): void {
   );
 }
 
-const HELP = `agent-native recap — PR visual recap helpers (used by the GitHub Action)
+const HELP = `npx @agent-native/core@latest recap — PR visual recap helpers (used by the GitHub Action)
 
 Usage:
-  agent-native recap setup [--repo owner/name] [--agent claude|codex] [--app-url <url>] [--skip-secrets] [--dry-run] [--force]
-  agent-native recap doctor [--repo owner/name] [--agent claude|codex] [--app-url <url>]
-  agent-native recap collect-diff --base <baseSha> --head <headSha> [--out recap.diff] [--stat recap.stat]
-  agent-native recap mcp-config --agent claude|codex --app-url <url> [--out <path>]
-  agent-native recap scan --diff <path>
-  agent-native recap build-prompt --pr <n> [--repo owner/name] [--head <sha>] [--app-url <url>] [--diff <path>] [--stat <path>] [--prev-plan-id <id>] [--huge] [--local-files] [--local-dir <folder>] [--skill-source auto|latest|repo] [--out <path>]
-  agent-native recap shot --url <planUrl> [--token <planToken>] [--app-url <url>] [--out recap.png]
-  agent-native recap usage --plan-url <planUrl> --result-file <path> --app-url <url> --token <planToken> [--agent claude|codex] [--model <id>]
-  agent-native recap agent-summary --result-file <path> [--agent claude|codex]
-  agent-native recap comment <find-plan-id|upsert> --repo owner/name --issue <n> --token <github-token>
-  agent-native recap check start [--repo owner/name] [--sha <headSha>] [--token <github-token>] [--workflow-url <url>]
+  npx @agent-native/core@latest recap setup [--repo owner/name] [--agent claude|codex] [--app-url <url>] [--skip-secrets] [--dry-run] [--force]
+  npx @agent-native/core@latest recap doctor [--repo owner/name] [--agent claude|codex] [--app-url <url>]
+  npx @agent-native/core@latest recap collect-diff --base <baseSha> --head <headSha> [--out recap.diff] [--stat recap.stat]
+  npx @agent-native/core@latest recap mcp-config --agent claude|codex --app-url <url> [--out <path>]
+  npx @agent-native/core@latest recap scan --diff <path>
+  npx @agent-native/core@latest recap build-prompt --pr <n> [--repo owner/name] [--head <sha>] [--app-url <url>] [--diff <path>] [--stat <path>] [--prev-plan-id <id>] [--huge] [--local-files] [--local-dir <folder>] [--skill-source auto|latest|repo] [--out <path>]
+  npx @agent-native/core@latest recap shot --url <planUrl> [--token <planToken>] [--app-url <url>] [--out recap.png]
+  npx @agent-native/core@latest recap usage --plan-url <planUrl> --result-file <path> --app-url <url> --token <planToken> [--agent claude|codex] [--model <id>]
+  npx @agent-native/core@latest recap agent-summary --result-file <path> [--agent claude|codex]
+  npx @agent-native/core@latest recap comment <find-plan-id|upsert> --repo owner/name --issue <n> --token <github-token>
+  npx @agent-native/core@latest recap check start [--repo owner/name] [--sha <headSha>] [--token <github-token>] [--workflow-url <url>]
     Create the in-progress "Visual Recap" GitHub check run and write its id to
     $GITHUB_OUTPUT (check_run_id). repo/sha/token default to GITHUB_REPOSITORY /
     HEAD_SHA / GH_TOKEN (or GITHUB_TOKEN). Best-effort: warns and exits 0 on any
     API error without emitting an id.
-  agent-native recap check complete --check-run-id <id> [--repo owner/name] [--token <github-token>] [--plan-ok <bool>] [--plan-url <url>] [--app-url <url>] [--suppressed <bool>] [--suppressed-json <json>] [--huge <bool>] [--tiny <bool>] [--workflow-url <url>]
+  npx @agent-native/core@latest recap check complete --check-run-id <id> [--repo owner/name] [--token <github-token>] [--plan-ok <bool>] [--plan-url <url>] [--app-url <url>] [--suppressed <bool>] [--suppressed-json <json>] [--huge <bool>] [--tiny <bool>] [--workflow-url <url>]
     Mark the "Visual Recap" check run completed with a computed
     conclusion/title/summary/text/details_url (success when the agent published a
     plan whose URL validates against --app-url; neutral/skipped otherwise).
     repo/token/app-url default to GITHUB_REPOSITORY / GH_TOKEN / PLAN_RECAP_APP_URL.
     Best-effort: warns and exits 0 on any API error.
-  agent-native recap gate
+  npx @agent-native/core@latest recap gate
     The PR Visual Recap security gate. Decides whether to run the recap at all
     and which (normalized) backend agent to use. Reads the pull_request payload
     from $GITHUB_EVENT_PATH, the secret-presence/agent/model signals from the
@@ -3156,16 +3158,16 @@ Usage:
     packages/core, .claude/**, CLAUDE.md, AGENTS.md, .mcp.json) — failing CLOSED
     on any file-list error. Writes run=<true|false> and agent=<claude|codex> to
     $GITHUB_OUTPUT.
-  agent-native recap agent-summary
+  npx @agent-native/core@latest recap agent-summary
     Read the captured Claude/Codex result file and write a sanitized one-line
     summary to stdout and $GITHUB_OUTPUT (summary). Used only when no plan URL
     was produced, so PR comments/checks explain the actual failure.
-  agent-native recap setup
+  npx @agent-native/core@latest recap setup
     Write/refresh .github/workflows/pr-visual-recap.yml, then configure GitHub
     Actions secrets and variables with gh when values are available from env or
     the local Plans publish-token store. Missing values are printed as exact next
     commands; secret values are sent to gh through stdin, never argv.
-  agent-native recap doctor
+  npx @agent-native/core@latest recap doctor
     Check workflow presence/drift, local Plans publish-token availability, gh
     repo access, and required GitHub Actions secrets for the selected backend.
 `;

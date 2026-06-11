@@ -33,43 +33,43 @@ import {
 import { CLIENTS, type ClientId } from "./mcp-config-writers.js";
 import { PR_VISUAL_RECAP_SETUP, writePrVisualRecapWorkflow } from "./recap.js";
 
-const HELP = `agent-native skills
+const HELP = `npx @agent-native/core@latest skills
 
 Usage:
-  agent-native skills list
-  agent-native skills status [assets|design-exploration|visual-plan|visual-recap|context-xray] [--client codex|claude-code|all] [--scope user|project] [--json]
-  agent-native skills update [assets|design-exploration|visual-plan|visual-recap|context-xray] [--client codex|claude-code|all] [--scope user|project] [--dry-run] [--json]
-  agent-native skills add assets|design-exploration|visual-plan|visual-recap|context-xray [--client codex|claude-code|claude-code-cli|cowork|all] [--scope user|project] [--mcp-url <url>] [--no-connect] [--with-github-action] [--yes] [--dry-run] [--json]
-  agent-native skills add <manifest-or-app-dir|skill-repo> [--skill <name>] [--client ...] [--yes]
+  npx @agent-native/core@latest skills list
+  npx @agent-native/core@latest skills status [assets|design-exploration|visual-plan|visual-recap|context-xray] [--client codex|claude-code|all] [--scope user|project] [--json]
+  npx @agent-native/core@latest skills update [assets|design-exploration|visual-plan|visual-recap|context-xray] [--client codex|claude-code|all] [--scope user|project] [--dry-run] [--json]
+  npx @agent-native/core@latest skills add assets|design-exploration|visual-plan|visual-recap|context-xray [--client codex|claude-code|claude-code-cli|cowork|all] [--scope user|project] [--mcp-url <url>] [--no-connect] [--with-github-action] [--yes] [--dry-run] [--json]
+  npx @agent-native/core@latest skills add <manifest-or-app-dir|skill-repo> [--skill <name>] [--client ...] [--yes]
 
 Examples:
-  agent-native skills add assets
-  agent-native skills add design-exploration
-  agent-native skills add visual-plan
-  agent-native skills add visual-recap
-  agent-native skills add visual-recap --with-github-action
-  agent-native skills status visual-plan
-  agent-native skills update visual-plan
-  agent-native skills add visual-plan --no-connect
-  agent-native skills add context-xray --client all
-  agent-native skills add assets --client claude-code
-  agent-native skills add assets --mcp-url https://my-app.ngrok-free.dev
-  agent-native skills add ./dist/assets-skill --client codex
-  agent-native skills add BuilderIO/skills --client codex --scope project
-  agent-native skills add BuilderIO/skills --with-github-action
+  npx @agent-native/core@latest skills add assets
+  npx @agent-native/core@latest skills add design-exploration
+  npx @agent-native/core@latest skills add visual-plan
+  npx @agent-native/core@latest skills add visual-recap
+  npx @agent-native/core@latest skills add visual-recap --with-github-action
+  npx @agent-native/core@latest skills status visual-plan
+  npx @agent-native/core@latest skills update visual-plan
+  npx @agent-native/core@latest skills add visual-plan --no-connect
+  npx @agent-native/core@latest skills add context-xray --client all
+  npx @agent-native/core@latest skills add assets --client claude-code
+  npx @agent-native/core@latest skills add assets --mcp-url https://my-app.ngrok-free.dev
+  npx @agent-native/core@latest skills add ./dist/assets-skill --client codex
+  npx @agent-native/core@latest skills add BuilderIO/skills --client codex --scope project
+  npx @agent-native/core@latest skills add BuilderIO/skills --with-github-action
 
 The add command installs the SKILL.md instructions, registers the app-backed
 MCP connector, and then authenticates it in one step so you do not hit an OAuth
-wall on the first tool call. Authentication reuses "agent-native connect":
+wall on the first tool call. Authentication reuses "npx @agent-native/core@latest connect":
 OAuth-capable clients (Claude Code) get a URL-only entry and a /mcp authenticate
 prompt, while Codex / Cowork run the browser device-code flow. In a
 non-interactive shell or CI the auth step is skipped and the exact
-"agent-native connect <url>" command is printed instead.
+"npx @agent-native/core@latest connect <url>" command is printed instead.
 
 Running "npx @agent-native/skills add ..." directly installs instructions only;
 use this Agent Native CLI path when you want MCP setup and auth too. Pass --no-connect to
 register the connector without authenticating (leave auth to the host or run
-"agent-native connect" later). Pass --mcp-url to register that connector against
+"npx @agent-native/core@latest connect" later). Pass --mcp-url to register that connector against
 a custom origin (an ngrok tunnel, a local dev server, or a self-hosted
 deployment) instead of the built-in hosted default — a bare origin gets the
 standard /_agent-native/mcp path appended. Use app-skill pack for marketplace
@@ -77,7 +77,7 @@ bundles and custom adapter output.
 
 When installing visual-recap interactively, the CLI offers to add the optional PR
 Visual Recap GitHub Action. Pass --with-github-action to write it directly, then
-run "agent-native recap setup" / "agent-native recap doctor" to configure and
+run "npx @agent-native/core@latest recap setup" / "npx @agent-native/core@latest recap doctor" to configure and
 verify GitHub Actions.
 
 The status/update commands inspect copied Agent Native skill folders and refresh
@@ -142,7 +142,7 @@ of using a generic image generator.
 
 - Hosted default: connect \`https://assets.agent-native.com/_agent-native/mcp\`.
   Do not put shared secrets in skill files.
-- For CLI/code-editor clients, keep any \`agent-native connect\` command
+- For CLI/code-editor clients, keep any \`npx @agent-native/core@latest connect\` command
   running until browser authorization finishes. Stopping it early can leave the
   browser approved but the local MCP config unwritten. Restart or reload the
   agent client after installing or connecting if Assets tools do not appear in
@@ -215,7 +215,7 @@ iteration, or a human-in-the-loop choice among design directions.
 
 - Hosted default: connect \`https://design.agent-native.com/_agent-native/mcp\`.
   Do not put shared secrets in skill files.
-- For CLI/code-editor clients, keep any \`agent-native connect\` command
+- For CLI/code-editor clients, keep any \`npx @agent-native/core@latest connect\` command
   running until browser authorization finishes. Stopping it early can leave the
   browser approved but the local MCP config unwritten. Restart or reload the
   agent client after installing or connecting if Design tools do not appear in
@@ -2315,7 +2315,7 @@ function writeSkillFolder(
     contentHash: bundle.contentHash,
     mcpUrl: bundle.mcpUrl,
     installedAt,
-    updateCommand: `agent-native skills update ${bundle.skillName}`,
+    updateCommand: `npx @agent-native/core@latest skills update ${bundle.skillName}`,
   };
   fs.writeFileSync(
     path.join(dir, AGENT_NATIVE_SKILL_METADATA_FILE),
@@ -2501,7 +2501,7 @@ function targetIdsForStatus(parsed: ParsedSkillsArgs): BuiltInAppSkillId[] {
   const known = normalizeKnownSkillTarget(parsed.target);
   if (!known) {
     throw new Error(
-      `Unknown built-in skill: ${parsed.target}. Run "agent-native skills list".`,
+      `Unknown built-in skill: ${parsed.target}. Run "npx @agent-native/core@latest skills list".`,
     );
   }
   if (isLocalOnlyBuiltInSkill(BUILT_IN_APP_SKILLS[known])) {
@@ -3017,6 +3017,7 @@ function dryRunInstallCommand(
 ): string {
   const clients = parsed.clients ?? resolveClients(parsed.client);
   const args = [
+    "@agent-native/core@latest",
     "skills",
     "add",
     target,
@@ -3034,7 +3035,7 @@ function dryRunInstallCommand(
   if (parsed.updateInstructions === false)
     args.push("--no-update-instructions");
   if (parsed.yes || isKnownSkill(target)) args.push("--yes");
-  return commandString("agent-native", args);
+  return commandString("npx", args);
 }
 
 async function runCommand(
@@ -3250,6 +3251,7 @@ function connectCommandFor(
   scope: string,
 ): string {
   const args = [
+    "@agent-native/core@latest",
     "connect",
     hostedUrl,
     "--client",
@@ -3257,7 +3259,7 @@ function connectCommandFor(
     "--scope",
     scope,
   ];
-  return commandString("agent-native", args);
+  return commandString("npx", args);
 }
 
 /**
@@ -3337,7 +3339,7 @@ export async function addAgentNativeSkill(
   }
   if (!knownTarget && !fs.existsSync(path.resolve(target))) {
     throw new Error(
-      `Unknown skill or manifest path: ${target}. Run "agent-native skills list".`,
+      `Unknown skill or manifest path: ${target}. Run "npx @agent-native/core@latest skills list".`,
     );
   }
   const knownBuiltIn = knownTarget ? BUILT_IN_APP_SKILLS[knownTarget] : null;
@@ -3697,7 +3699,7 @@ function runSkillsStatusOrUpdate(
   if (before.length === 0) {
     const target = parsed.target ? ` for ${parsed.target}` : "";
     process.stdout.write(
-      `No installed Agent Native skill copies found${target}.\nRun "agent-native skills add ${parsed.target ?? "visual-plan"}" to install one.\n`,
+      `No installed Agent Native skill copies found${target}.\nRun "npx @agent-native/core@latest skills add ${parsed.target ?? "visual-plan"}" to install one.\n`,
     );
     return;
   }
@@ -3752,6 +3754,13 @@ export async function runSkills(
     process.stdout.write(`${HELP}\n`);
     return;
   }
+
+  // `@agent-native/skills` now delegates its interactive install to this
+  // function. For plain skill repos we still shell out to
+  // `npx @agent-native/skills add …`; this env guard tells that child process
+  // to run its OWN headless installer instead of bouncing back into core,
+  // which would otherwise be an infinite skills → core → skills loop.
+  process.env.AGENT_NATIVE_SKILLS_DIRECT = "1";
 
   // Best-effort install-funnel telemetry. Created once per run and flushed in a
   // finally so events send on success, error, and cancellation — the CLI is

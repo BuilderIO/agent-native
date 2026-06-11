@@ -231,7 +231,7 @@ async function postJson(
  * a device-code client is asked to register non-interactively.
  */
 function fallbackConnectCommand(baseUrl: string): string {
-  return `agent-native connect ${baseUrl} --token <token>`;
+  return `npx @agent-native/skills connect ${baseUrl} --token <token>`;
 }
 
 /** Write a URL-only entry (no bearer) for every config key, collecting files. */

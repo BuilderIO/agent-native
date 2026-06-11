@@ -230,7 +230,7 @@ describe("registerMcpServer", () => {
 
     const guidance = result.guidance.join("\n");
     expect(guidance).toContain(
-      "agent-native connect https://plan.agent-native.com --token <token>",
+      "npx @agent-native/skills connect https://plan.agent-native.com --token <token>",
     );
   });
 

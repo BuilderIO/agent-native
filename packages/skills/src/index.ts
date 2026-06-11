@@ -202,11 +202,58 @@ export function parseSkillsCliArgs(argv: string[]): ParsedArgs {
   return out;
 }
 
+/**
+ * Translate this package's parsed args into the argv shape `@agent-native/core`
+ * skills expects. Core takes a single positional target + compatible flags; we
+ * forward one explicit skill as that target and let core's interactive picker
+ * handle 0-or-many selections.
+ */
+function toCoreSkillsArgv(parsed: ParsedArgs): string[] {
+  const out: string[] = [parsed.command];
+  if (parsed.command !== "add") return out;
+  if (parsed.skillNames.length === 1) out.push(parsed.skillNames[0]);
+  else if (parsed.copySource && parsed.source) out.push(parsed.source);
+  if (parsed.clients.length) out.push("--client", parsed.clients.join(","));
+  if (parsed.scopeExplicit) out.push("--scope", parsed.scope);
+  if (parsed.yes) out.push("--yes");
+  if (parsed.dryRun) out.push("--dry-run");
+  if (parsed.printJson) out.push("--json");
+  if (parsed.withGithubAction) out.push("--with-github-action");
+  if (parsed.force) out.push("--force");
+  if (parsed.mcp === false) out.push("--no-mcp");
+  if (parsed.updateInstructions === true) out.push("--update-instructions");
+  if (parsed.updateInstructions === false) out.push("--no-update-instructions");
+  return out;
+}
+
 export async function runSkillsCli(
   argv: string[],
   options: Pick<InstallSkillsOptions, "log" | "isInteractive" | "baseDir"> = {},
 ): Promise<void> {
   const parsed = parseSkillsCliArgs(argv);
+
+  // PIVOT: `@agent-native/skills` delegates its install/list flow to
+  // `@agent-native/core`'s clack-based installer so both CLIs share ONE codebase
+  // and UX. App-backed skills (visual-plan/visual-recap/assets/design-exploration/
+  // context-xray) and the interactive picker go through core. Plain BuilderIO
+  // skills (efficient-fable, quick-recap, …) aren't known to core, so an explicit
+  // plain `--skill` falls through to this package's own headless installer.
+  // AGENT_NATIVE_SKILLS_DIRECT=1 (set when core delegates a plain repo back to us)
+  // always forces the direct path and breaks the skills → core → skills loop.
+  if (process.env.AGENT_NATIVE_SKILLS_DIRECT !== "1") {
+    const appOnly =
+      parsed.skillNames.length === 0 ||
+      parsed.skillNames.every((name) => resolveAppForSkill(name) !== undefined);
+    if (parsed.command === "list" || (parsed.command === "add" && appOnly)) {
+      const { runSkills } = await import("@agent-native/core/cli/skills");
+      await runSkills(toCoreSkillsArgv(parsed), {
+        isInteractive: options.isInteractive,
+        baseDir: parsed.baseDir ?? options.baseDir,
+      });
+      return;
+    }
+  }
+
   const startedAt = Date.now();
   const telemetry = createCliTelemetry({
     cli: "skills-installer",

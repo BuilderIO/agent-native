@@ -370,7 +370,7 @@ function mcpResultPayload(
       url: mcpUrl,
       ...(Object.keys(headers).length ? { headers } : {}),
     },
-    cli: `agent-native connect ${appUrl}`,
+    cli: `npx @agent-native/core@latest connect ${appUrl}`,
   };
 }
 

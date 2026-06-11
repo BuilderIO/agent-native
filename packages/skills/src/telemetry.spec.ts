@@ -58,10 +58,14 @@ describe("createCliTelemetry", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it("no-ops when no public key is configured", async () => {
+  it("falls back to the embedded public key when no env override is set", async () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), "an-telemetry-"));
+    process.env.HOME = home;
+    process.env.USERPROFILE = home;
     delete process.env.AGENT_NATIVE_ANALYTICS_PUBLIC_KEY;
     delete process.env.DO_NOT_TRACK;
-    // Force the non-test gate off so only the missing key disables it.
+    delete process.env.AGENT_NATIVE_TELEMETRY_DISABLED;
+    // Force the non-test gate off so the embedded default decides whether it sends.
     process.env.NODE_ENV = "production";
     const telemetry = createCliTelemetry({
       cli: "skills-installer",
@@ -71,7 +75,13 @@ describe("createCliTelemetry", () => {
     });
     telemetry.track("skills_cli started");
     await telemetry.flush();
-    expect(fetchMock).not.toHaveBeenCalled();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const body = JSON.parse(
+      (fetchMock.mock.calls[0][1] as RequestInit).body as string,
+    );
+    expect(typeof body.publicKey).toBe("string");
+    expect(body.publicKey.startsWith("anpk_")).toBe(true);
+    fs.rmSync(home, { recursive: true, force: true });
   });
 
   it("posts a funnel event with the first-party shape when enabled", async () => {
