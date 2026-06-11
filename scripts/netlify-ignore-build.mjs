@@ -145,19 +145,61 @@ function commitExists(ref) {
   }
 }
 
+function isAncestor(ancestorRef, descendantRef) {
+  try {
+    git(["merge-base", "--is-ancestor", ancestorRef, descendantRef]);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function firstParent(ref) {
+  try {
+    return git(["rev-parse", `${ref}^1`]);
+  } catch {
+    return null;
+  }
+}
+
 function changedFiles() {
   const cachedRef = process.env.CACHED_COMMIT_REF;
   const commitRef = process.env.COMMIT_REF;
 
-  if (!commitExists(cachedRef) || !commitExists(commitRef)) {
+  if (!commitExists(commitRef)) {
     console.log(
-      "[netlify-ignore] Build required: Netlify did not provide comparable commit refs.",
+      "[netlify-ignore] Build required: Netlify did not provide a comparable commit ref.",
     );
     return null;
   }
 
+  // Pick the base commit to diff against. Normally that's CACHED_COMMIT_REF
+  // (the last commit Netlify built for this site). BUT Netlify shares the build
+  // cache across deploy contexts: after a PR's deploy-preview builds, the
+  // production deploy of the squash-merge commit inherits CACHED_COMMIT_REF =
+  // the preview head. That commit has an identical tree to the merge commit, so
+  // the diff comes back empty and the site is wrongly skipped ("no content
+  // change") even though the change really did land on main. Detect that case —
+  // the cached ref is missing or is NOT an ancestor of the commit being built —
+  // and diff against the commit's first parent instead (the true previous state
+  // on this branch), so per-site change detection stays correct on production.
+  let baseRef = cachedRef;
+  if (!commitExists(cachedRef) || !isAncestor(cachedRef, commitRef)) {
+    const parent = firstParent(commitRef);
+    if (!parent) {
+      console.log(
+        "[netlify-ignore] Build required: no usable comparison base (cached ref unusable and commit has no parent).",
+      );
+      return null;
+    }
+    console.log(
+      `[netlify-ignore] CACHED_COMMIT_REF ${cachedRef || "(unset)"} is not an ancestor of ${commitRef} (shared deploy-preview cache); diffing against parent ${parent.slice(0, 8)} instead.`,
+    );
+    baseRef = parent;
+  }
+
   try {
-    return git(["diff", "--name-only", cachedRef, commitRef])
+    return git(["diff", "--name-only", baseRef, commitRef])
       .split("\n")
       .map((file) => normalizePath(file.trim()))
       .filter(Boolean);
