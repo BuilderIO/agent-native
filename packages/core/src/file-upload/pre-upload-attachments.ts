@@ -209,7 +209,7 @@ export async function preUploadAttachments(opts: {
     injectedText = [
       "<chat-image-attachment-upload-error>",
       "The user attached one or more images, but no file-upload provider is configured for this app.",
-      "Tell the user they need to configure one of: (a) Builder.io — recommended, free credits, one-click connect from Settings → File uploads, (b) BUILDER_PRIVATE_KEY environment variable, (c) a custom provider like S3 / R2 / GCS registered via registerFileUploadProvider(). Use `connect-builder` to render an inline connect card for option (a) when available.",
+      "Tell the user to connect or reconnect Builder.io from Settings → File uploads. If `connect-builder` is available, use it to render the inline connection card. Workspaces with a custom storage provider can also use one registered via registerFileUploadProvider().",
       "Until that's done, you can still SEE the image, but you do NOT have a URL to embed it in HTML or share with other apps.",
       "</chat-image-attachment-upload-error>",
     ].join("\n");

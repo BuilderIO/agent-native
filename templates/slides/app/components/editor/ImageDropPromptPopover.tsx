@@ -125,7 +125,7 @@ export default function ImageDropPromptPopover({
       if (!res.ok || !data?.url) {
         throw new Error(
           data?.error ||
-            "Image upload failed. Configure a file upload provider — connect Builder.io in Settings → File uploads, set BUILDER_PRIVATE_KEY, or register a custom provider (S3, etc.) via registerFileUploadProvider().",
+            "Image upload failed. Connect or reconnect Builder.io in Settings → File uploads, or register a custom provider via registerFileUploadProvider().",
         );
       }
 

@@ -131,4 +131,35 @@ describe("ExtensionViewer MCP embeds", () => {
     );
     expect(iframe.getAttribute("sandbox")).toBe("allow-scripts allow-forms");
   });
+
+  it("does not flash not-found while a cached null extension is refetching", async () => {
+    let resolveFetch: (response: Response) => void = () => {};
+    const pendingFetch = new Promise<Response>((resolve) => {
+      resolveFetch = resolve;
+    });
+    vi.mocked(fetch).mockImplementationOnce(() => pendingFetch);
+    queryClient.setQueryData(["extension", "ext-1"], null);
+
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <MemoryRouter initialEntries={["/extensions/ext-1/github-stars"]}>
+            <ExtensionViewer extensionId="ext-1" />
+          </MemoryRouter>
+        </QueryClientProvider>,
+      );
+    });
+
+    expect(container.textContent).not.toContain("Extension not found");
+    expect(container.querySelector(".animate-pulse")).toBeTruthy();
+
+    await act(async () => {
+      resolveFetch(Response.json(extensionResponse));
+      await pendingFetch;
+    });
+
+    await vi.waitFor(() => {
+      expect(container.querySelector("iframe")).toBeTruthy();
+    });
+  });
 });
