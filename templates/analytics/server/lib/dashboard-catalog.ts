@@ -931,6 +931,20 @@ export const dashboardCatalogEntries: DashboardCatalogEntry[] = [
     buildConfig: () => seedConfig("agent-native-templates-first-party"),
   },
   {
+    id: "skills-cli-funnel",
+    name: "Skills CLI Funnel",
+    description:
+      "Install funnel for the `npx @agent-native/skills` and `npx @agent-native/core skills` CLIs: starts, step-by-step dropoff, skill/client popularity, scope, and platform splits.",
+    category: "Product",
+    defaultDashboardId: "skills-cli-funnel",
+    dataSources: ["first-party"],
+    tags: ["skills", "cli", "funnel", "install", "first-party"],
+    panelCount: 12,
+    version: CATALOG_VERSION,
+    recommended: true,
+    buildConfig: () => seedConfig("skills-cli-funnel"),
+  },
+  {
     id: "google-analytics-web",
     name: "Google Analytics Website",
     description:

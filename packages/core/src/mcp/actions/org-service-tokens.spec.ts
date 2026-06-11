@@ -20,9 +20,17 @@ vi.mock("../connect-store.js", () => ({
   revokeOrgServiceToken: (...a: any[]) => revokeOrgServiceTokenMock(...a),
 }));
 
-// org_members role lookup used by the gating helper.
+// org_members lookups used by the gating helper. Two distinct queries hit the
+// same mock: the role lookup (`SELECT role ...`) and the membership lookup
+// (`SELECT org_id ...`) used to auto-resolve an org when the token carries no
+// org context. Route by the selected column so each returns the right rows.
 const roleRows: Array<{ role: string }> = [];
-const dbExecuteMock = vi.fn(async () => ({ rows: roleRows, rowsAffected: 0 }));
+const memberOrgRows: Array<{ org_id: string }> = [];
+const dbExecuteMock = vi.fn(async (query: { sql: string }) =>
+  /select\s+org_id/i.test(query.sql)
+    ? { rows: memberOrgRows, rowsAffected: 0 }
+    : { rows: roleRows, rowsAffected: 0 },
+);
 vi.mock("../../db/client.js", () => ({
   getDbExec: () => ({ execute: dbExecuteMock }),
 }));
@@ -51,9 +59,15 @@ function setRole(role: string | null) {
   if (role) roleRows.push({ role });
 }
 
+function setMemberOrgs(...orgIds: string[]) {
+  memberOrgRows.length = 0;
+  for (const org_id of orgIds) memberOrgRows.push({ org_id });
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
   setRole("admin");
+  setMemberOrgs();
   mintOrgServiceTokenMock.mockResolvedValue({
     token: "svc-secret-value",
     jti: "jti-1",
@@ -119,7 +133,8 @@ describe("create-org-service-token", () => {
     ).rejects.toMatchObject({ statusCode: 401 });
   });
 
-  it("rejects a caller without an active org with 400", async () => {
+  it("rejects a caller without an active org and no memberships with 400", async () => {
+    setMemberOrgs();
     await expect(
       createAction.run({ name: "ci" }, {
         userEmail: "admin@example.com",
@@ -127,6 +142,33 @@ describe("create-org-service-token", () => {
         caller: "http",
       } as any),
     ).rejects.toMatchObject({ statusCode: 400 });
+    expect(mintOrgServiceTokenMock).not.toHaveBeenCalled();
+  });
+
+  it("auto-resolves the single member org when the token carries no org context", async () => {
+    setMemberOrgs("org-7");
+    setRole("admin");
+    const res = await createAction.run({ name: "ci" }, {
+      userEmail: "admin@example.com",
+      orgId: null,
+      caller: "http",
+    } as any);
+    expect(res.token).toBe("svc-secret-value");
+    expect(mintOrgServiceTokenMock).toHaveBeenCalledWith(
+      expect.objectContaining({ orgId: "org-7" }),
+    );
+  });
+
+  it("rejects with 400 when the token has no org context and the caller belongs to multiple orgs", async () => {
+    setMemberOrgs("org-1", "org-2");
+    await expect(
+      createAction.run({ name: "ci" }, {
+        userEmail: "admin@example.com",
+        orgId: null,
+        caller: "http",
+      } as any),
+    ).rejects.toMatchObject({ statusCode: 400 });
+    expect(mintOrgServiceTokenMock).not.toHaveBeenCalled();
   });
 });
 

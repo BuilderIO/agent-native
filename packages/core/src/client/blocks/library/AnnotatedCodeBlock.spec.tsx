@@ -53,7 +53,9 @@ describe("AnnotatedCodeBlock annotations", () => {
     });
     container.remove();
     document
-      .querySelectorAll("[data-annotation-hover-card]")
+      .querySelectorAll(
+        "[data-annotation-hover-card],[data-annotation-inline-overlay]",
+      )
       .forEach((node) => node.remove());
     vi.useRealTimers();
     vi.unstubAllGlobals();
@@ -163,6 +165,41 @@ describe("AnnotatedCodeBlock annotations", () => {
     // Line 2 starts at y=122 with a 22px height, so the first-line anchor center
     // is 133px. Hovering line 4 would have produced 177px before this fix.
     expect(card!.style.top).toBe("133px");
+  });
+
+  it("renders static annotation overlays when screenshot mode requests them", () => {
+    act(() => {
+      root.render(
+        <AnnotatedCodeRead
+          blockId="code-annotations"
+          ctx={{ showCodeAnnotationOverlays: true }}
+          data={{
+            language: "ts",
+            code: ["const one = 1;", "const two = 2;"].join("\n"),
+            annotations: [
+              {
+                lines: "1-2",
+                label: "Entry",
+                note: "This note is visible without hover.",
+              },
+            ],
+          }}
+        />,
+      );
+    });
+
+    const overlay = document.querySelector("[data-annotation-inline-overlay]");
+    expect(overlay).toBeTruthy();
+    expect(
+      container.querySelector("[data-annotation-inline-overlay]"),
+    ).toBeNull();
+    expect(
+      container.querySelector("[data-annotation-inline-overlay-anchor]"),
+    ).toBeTruthy();
+    expect(overlay?.textContent).toContain(
+      "This note is visible without hover.",
+    );
+    expect(document.querySelector("[data-annotation-hover-card]")).toBeNull();
   });
 
   it("does not immediately reopen the popover while scrolling under a hovered line", () => {

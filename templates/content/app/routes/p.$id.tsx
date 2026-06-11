@@ -45,21 +45,19 @@ export async function loader({ params }: LoaderFunctionArgs) {
   if (!doc) throw new Response("Not found", { status: 404 });
   if (doc.visibility === "public") return { document: doc };
 
-  // Doc exists but isn't public. A signed-out visitor here likely
-  // arrived from a share-notification email — send them through
-  // sign-in so the access check above can route them to /page/<id>.
-  if (!userEmail) {
-    // Build both the outer sign-in URL and the inner return path
-    // with APP_BASE_PATH so mounted-app deployments (e.g. served
-    // under `/content`) land back on `/<base>/p/<id>` after
-    // authenticating, not on `/p/<id>` at the gateway root.
-    const returnPath = withBase(`/p/${id}`);
-    throw redirect(
-      `${withBase("/_agent-native/sign-in")}?return=${encodeURIComponent(returnPath)}`,
-    );
-  }
-
-  return { document: null, unavailable: { reason: "private" as const } };
+  // Doc exists but isn't public. SSR renders impersonally (no session is read
+  // server-side, so the page can be CDN-cached for everyone), which means we
+  // must NOT redirect to sign-in from here: a signed-in viewer would loop
+  // (sign-in sees their valid session and bounces back to /p/<id>, which
+  // re-runs this anonymous loader and redirects again). Instead return the
+  // private placeholder and resolve access on the client — PrivateDocumentNotice
+  // routes the viewer to the auth-guarded `/page/<id>` editor, where the real
+  // per-user access check runs (signed-in-with-access sees the doc; everyone
+  // else gets the standard sign-in / no-access handling).
+  return {
+    document: null,
+    unavailable: { reason: "private" as const, id, basePath },
+  };
 }
 
 export const meta: MetaFunction<typeof loader> = ({ data }) => {
@@ -178,7 +176,24 @@ function ReadOnlyMarkdownContent({ content }: { content: string }) {
   );
 }
 
-function PrivateDocumentNotice() {
+function PrivateDocumentNotice({
+  id,
+  basePath,
+}: {
+  id?: string;
+  basePath?: string;
+}) {
+  useEffect(() => {
+    if (!id) return;
+    // The SSR loader can't see the viewer's session (SSR is impersonal so the
+    // page stays CDN-cacheable). Resolve access on the client by sending the
+    // viewer to the auth-guarded `/page/<id>` editor: a signed-in viewer with
+    // access lands on the document, and everyone else gets the standard
+    // sign-in / no-access handling there. This never loops back here because
+    // `/page/<id>` is guard-protected and does not redirect to `/p/<id>`.
+    window.location.replace(`${basePath ?? ""}/page/${id}`);
+  }, [id, basePath]);
+
   return (
     <main className="min-h-screen bg-background text-foreground">
       <section className="mx-auto flex min-h-screen max-w-md flex-col items-center justify-center px-6 text-center">
@@ -198,10 +213,16 @@ function PrivateDocumentNotice() {
 }
 
 export default function PublicDocumentPage() {
-  const { document } = useLoaderData<typeof loader>();
+  const data = useLoaderData<typeof loader>();
+  const document = data.document;
 
   if (!document) {
-    return <PrivateDocumentNotice />;
+    return (
+      <PrivateDocumentNotice
+        id={data.unavailable?.id}
+        basePath={data.unavailable?.basePath}
+      />
+    );
   }
 
   return (

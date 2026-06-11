@@ -1,5 +1,6 @@
 import {
   getStoredModelForEngine,
+  normalizeModelForEngine,
   registerBuiltinEngines,
   resolveEngine,
   type AgentEngine,
@@ -162,10 +163,11 @@ export async function completeText(
     model: options.model,
     appId: options.appId,
   });
-  const model =
+  const modelCandidate =
     options.model ??
     (await getStoredModelForEngine(engine, { appId: options.appId })) ??
     engine.defaultModel;
+  const model = normalizeModelForEngine(engine, modelCandidate);
   const { signal, cleanup } = createCompletionAbortSignal(
     options.signal,
     options.timeoutMs,

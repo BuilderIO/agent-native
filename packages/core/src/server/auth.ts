@@ -1463,6 +1463,9 @@ function loginHtmlResponse(loginHtml: string, event: H3Event): Response {
       // The sign-in document is part of the public server shell. Keep it on the
       // same short-fresh/long-SWR CDN policy as React Router SSR so hosted
       // template roots do not invoke origin just to render anonymous login UI.
+      // The login HTML is env-INDEPENDENT (a Google-only app always renders a
+      // working button), so a cached copy is never "wrong" — never downgrade
+      // this to private/no-store.
       ...DEFAULT_SSR_CACHE_HEADERS,
       "X-Robots-Tag": "noindex, nofollow",
     },

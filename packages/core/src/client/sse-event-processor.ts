@@ -62,6 +62,27 @@ export type AgentAutoContinueReason =
 
 export type AgentActivityTrailEntry = { label: string; tool?: string };
 
+const INTERRUPTED_TOOL_RESULT =
+  "Interrupted before this tool returned a result.";
+
+export function settleInterruptedToolCalls(
+  content: ContentPart[],
+  result = INTERRUPTED_TOOL_RESULT,
+): boolean {
+  let changed = false;
+  for (const part of content) {
+    if (
+      part.type === "tool-call" &&
+      part.result === undefined &&
+      part.activity !== true
+    ) {
+      part.result = result;
+      changed = true;
+    }
+  }
+  return changed;
+}
+
 export class AgentAutoContinueSignal extends Error {
   readonly reason: AgentAutoContinueReason;
   readonly maxIterations?: number;
@@ -616,6 +637,7 @@ export function processEvent(
         }),
       );
     }
+    settleInterruptedToolCalls(content);
     content.push({
       type: "text",
       text: formatChatErrorText(errMsg, ev.upgradeUrl, ev.errorCode),

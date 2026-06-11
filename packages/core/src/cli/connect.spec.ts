@@ -16,9 +16,11 @@ import {
 } from "./connect.js";
 
 const tmpRoots: string[] = [];
+const originalHome = process.env.HOME;
 
 beforeEach(() => {
   process.exitCode = undefined;
+  process.env.HOME = tmpDir();
   // Keep CLI output out of the test log; individual tests that assert on
   // output re-spy with their own captured implementation.
   vi.spyOn(process.stdout, "write").mockImplementation(() => true);
@@ -26,6 +28,11 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  if (originalHome === undefined) {
+    delete process.env.HOME;
+  } else {
+    process.env.HOME = originalHome;
+  }
   for (const root of tmpRoots.splice(0)) {
     fs.rmSync(root, { recursive: true, force: true });
   }
@@ -733,6 +740,40 @@ describe("runConnect", () => {
     });
   });
 
+  it("uses the canonical 'plan' server name for first-party Plans device-flow connects", async () => {
+    const root = tmpDir();
+    const home = tmpDir();
+    const oldHome = process.env.HOME;
+    process.env.HOME = home;
+    process.chdir(root);
+
+    try {
+      await runConnect(["https://plan.agent-native.com", "--client", "codex"], {
+        fetchImpl: makeFetch([
+          {
+            status: "approved",
+            token: "tok-plan-device",
+            mcpUrl: "https://plan.agent-native.com/_agent-native/mcp",
+            serverName: "agent-native-plan",
+          },
+        ]),
+        sleep: noopSleep,
+        openBrowser: vi.fn(),
+      });
+
+      expect(process.exitCode).toBeFalsy();
+      const toml = fs.readFileSync(
+        path.join(home, ".codex", "config.toml"),
+        "utf-8",
+      );
+      expect(toml).toContain('[mcp_servers."plan"]');
+      expect(toml).toContain('"Authorization" = "Bearer tok-plan-device"');
+      expect(toml).not.toContain('[mcp_servers."agent-native-plan"]');
+    } finally {
+      process.env.HOME = oldHome;
+    }
+  });
+
   it("reconnect reauthenticates an existing Codex entry without writing a duplicate", async () => {
     const root = tmpDir();
     const home = tmpDir();
@@ -775,6 +816,142 @@ describe("runConnect", () => {
       expect(toml).toContain('"Authorization" = "Bearer new-token"');
       expect(toml).not.toContain("old-token");
       expect(toml).not.toContain('[mcp_servers."agent-native-plan"]');
+    } finally {
+      process.env.HOME = oldHome;
+    }
+  });
+
+  it("reconnect migrates the legacy first-party Plans server name to canonical 'plan'", async () => {
+    const root = tmpDir();
+    const home = tmpDir();
+    const oldHome = process.env.HOME;
+    process.env.HOME = home;
+    process.chdir(root);
+    const codexFile = path.join(home, ".codex", "config.toml");
+    fs.mkdirSync(path.dirname(codexFile), { recursive: true });
+    fs.writeFileSync(
+      codexFile,
+      [
+        '[mcp_servers."agent-native-plan"]',
+        'url = "https://plan.agent-native.com/_agent-native/mcp"',
+        'http_headers = { "Authorization" = "Bearer stale-token" }',
+        "",
+      ].join("\n"),
+      "utf-8",
+    );
+
+    try {
+      await runConnect(
+        ["reconnect", "https://plan.agent-native.com", "--client", "codex"],
+        {
+          fetchImpl: makeFetch([
+            {
+              status: "approved",
+              token: "fresh-token",
+              mcpUrl: "https://plan.agent-native.com/_agent-native/mcp",
+              serverName: "agent-native-plan",
+            },
+          ]),
+          sleep: noopSleep,
+          openBrowser: vi.fn(),
+        },
+      );
+
+      expect(process.exitCode).toBeFalsy();
+      const toml = fs.readFileSync(codexFile, "utf-8");
+      expect(toml).toContain('[mcp_servers."plan"]');
+      expect(toml).toContain('"Authorization" = "Bearer fresh-token"');
+      expect(toml).not.toContain('[mcp_servers."agent-native-plan"]');
+      expect(toml).not.toContain("stale-token");
+    } finally {
+      process.env.HOME = oldHome;
+    }
+  });
+
+  it("reconnect with a URL auto-selects the canonical entry and cleans duplicate aliases", async () => {
+    const root = tmpDir();
+    const home = tmpDir();
+    const oldHome = process.env.HOME;
+    process.env.HOME = home;
+    process.chdir(root);
+    const codexFile = path.join(home, ".codex", "config.toml");
+    fs.mkdirSync(path.dirname(codexFile), { recursive: true });
+    fs.writeFileSync(
+      codexFile,
+      [
+        '[mcp_servers."agent-native-plan"]',
+        'url = "https://plan.agent-native.com/_agent-native/mcp"',
+        'http_headers = { "Authorization" = "Bearer stale-1" }',
+        "",
+        '[mcp_servers."plan"]',
+        'url = "https://plan.agent-native.com/_agent-native/mcp"',
+        'http_headers = { "Authorization" = "Bearer stale-2" }',
+        "",
+        '[mcp_servers."agent-native-plans"]',
+        'url = "https://plan.agent-native.com/_agent-native/mcp"',
+        'http_headers = { "Authorization" = "Bearer stale-3" }',
+        "",
+      ].join("\n"),
+      "utf-8",
+    );
+
+    const promptClients = vi.fn();
+
+    try {
+      await runConnect(["reconnect", "https://plan.agent-native.com"], {
+        fetchImpl: makeFetch([
+          {
+            status: "approved",
+            token: "fresh-token",
+            mcpUrl: "https://plan.agent-native.com/_agent-native/mcp",
+            serverName: "agent-native-plan",
+          },
+        ]),
+        sleep: noopSleep,
+        openBrowser: vi.fn(),
+        isInteractive: () => true,
+        promptClients,
+      });
+
+      expect(process.exitCode).toBeFalsy();
+      expect(promptClients).not.toHaveBeenCalled();
+      const toml = fs.readFileSync(codexFile, "utf-8");
+      expect(toml).toContain('[mcp_servers."plan"]');
+      expect(toml).toContain('"Authorization" = "Bearer fresh-token"');
+      expect(toml).not.toContain('[mcp_servers."agent-native-plan"]');
+      expect(toml).not.toContain('[mcp_servers."agent-native-plans"]');
+      expect(toml).not.toContain("stale-1");
+      expect(toml).not.toContain("stale-2");
+      expect(toml).not.toContain("stale-3");
+      expect(fs.existsSync(path.join(root, ".mcp.json"))).toBe(false);
+    } finally {
+      process.env.HOME = oldHome;
+    }
+  });
+
+  it("reconnect with a URL fails instead of installing when no existing entry matches", async () => {
+    const root = tmpDir();
+    const home = tmpDir();
+    const oldHome = process.env.HOME;
+    process.env.HOME = home;
+    process.chdir(root);
+    const fetchImpl = vi.fn();
+
+    try {
+      await runConnect(
+        ["reconnect", "https://plan.agent-native.com", "--client", "codex"],
+        {
+          fetchImpl,
+          sleep: noopSleep,
+          openBrowser: vi.fn(),
+        },
+      );
+
+      expect(process.exitCode).toBe(1);
+      expect(fetchImpl).not.toHaveBeenCalled();
+      expect(fs.existsSync(path.join(home, ".codex", "config.toml"))).toBe(
+        false,
+      );
     } finally {
       process.env.HOME = oldHome;
     }
@@ -920,7 +1097,7 @@ describe("runConnect", () => {
     const cfg = JSON.parse(
       fs.readFileSync(path.join(root, ".mcp.json"), "utf-8"),
     );
-    expect(cfg.mcpServers["agent-native-plan"]).toEqual({
+    expect(cfg.mcpServers.plan).toEqual({
       type: "http",
       url: "https://plan.agent-native.com/_agent-native/mcp",
     });
@@ -1607,7 +1784,9 @@ describe("runConnect", () => {
       .mockImplementation(() => true);
     await runConnect(["--help"]);
     expect(process.exitCode).toBeFalsy();
-    expect(out.mock.calls.flat().join("")).toContain("agent-native connect");
+    expect(out.mock.calls.flat().join("")).toContain(
+      "npx @agent-native/core@latest connect",
+    );
   });
 });
 
@@ -1759,5 +1938,219 @@ describe("runConnect --service-token", () => {
     vi.spyOn(process.stderr, "write").mockImplementation(() => true);
     await runConnect(["--service-token", "ci"]);
     expect(process.exitCode).toBe(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// URL-based reconnect discovery
+// ---------------------------------------------------------------------------
+
+describe("reconnect — URL-based discovery", () => {
+  const originalExitCode = process.exitCode;
+  const originalCwd = process.cwd();
+
+  afterEach(() => {
+    process.exitCode = originalExitCode;
+    process.chdir(originalCwd);
+  });
+
+  it("finds the canonical 'plan' entry (not prefixed agent-native-) by MCP URL pattern", async () => {
+    const root = tmpDir();
+    const home = tmpDir();
+    const oldHome = process.env.HOME;
+    process.env.HOME = home;
+    process.chdir(root);
+    const codexFile = path.join(home, ".codex", "config.toml");
+    fs.mkdirSync(path.dirname(codexFile), { recursive: true });
+    // Entry named 'plan' — old prefix scan ('agent-native-') would miss this.
+    fs.writeFileSync(
+      codexFile,
+      [
+        '[mcp_servers."plan"]',
+        'url = "https://plan.agent-native.com/_agent-native/mcp"',
+        'http_headers = { "Authorization" = "Bearer old-token" }',
+        "",
+      ].join("\n"),
+      "utf-8",
+    );
+
+    try {
+      await runConnect(["reconnect", "--client", "codex"], {
+        fetchImpl: makeFetch([
+          {
+            status: "approved",
+            token: "refreshed-token",
+            mcpUrl: "https://plan.agent-native.com/_agent-native/mcp",
+            serverName: "plan",
+          },
+        ]),
+        sleep: noopSleep,
+        openBrowser: vi.fn(),
+      });
+
+      expect(process.exitCode).toBeFalsy();
+      const toml = fs.readFileSync(codexFile, "utf-8");
+      expect(toml).toContain('[mcp_servers."plan"]');
+      expect(toml).toContain('"Authorization" = "Bearer refreshed-token"');
+      expect(toml).not.toContain("old-token");
+    } finally {
+      process.env.HOME = oldHome;
+    }
+  });
+
+  it("removes alias duplicates when connecting (same URL, different name)", async () => {
+    const root = tmpDir();
+    process.chdir(root);
+    // Pre-seed the config with both the canonical 'plan' entry and a stale
+    // 'agent-native-plans' alias pointing at the same MCP URL.
+    fs.writeFileSync(
+      path.join(root, ".mcp.json"),
+      JSON.stringify(
+        {
+          mcpServers: {
+            plan: {
+              type: "http",
+              url: "https://plan.agent-native.com/_agent-native/mcp",
+            },
+            "agent-native-plans": {
+              type: "http",
+              url: "https://plan.agent-native.com/_agent-native/mcp",
+            },
+          },
+        },
+        null,
+        2,
+      ) + "\n",
+      "utf-8",
+    );
+
+    await runConnect([
+      "https://plan.agent-native.com",
+      "--client",
+      "claude-code",
+      "--scope",
+      "project",
+      "--name",
+      "plan",
+      "--token",
+      "tok-fresh",
+    ]);
+
+    expect(process.exitCode).toBeFalsy();
+    const cfg = JSON.parse(
+      fs.readFileSync(path.join(root, ".mcp.json"), "utf-8"),
+    );
+    // Canonical entry should be present and updated.
+    expect(cfg.mcpServers["plan"]).toMatchObject({
+      type: "http",
+      url: "https://plan.agent-native.com/_agent-native/mcp",
+    });
+    // Alias duplicate must have been removed.
+    expect(cfg.mcpServers).not.toHaveProperty("agent-native-plans");
+  });
+
+  it("auto-selects canonical 'plan' when entries are ordered [agent-native-plan, agent-native-plans, plan] for the same URL", async () => {
+    const root = tmpDir();
+    const home = tmpDir();
+    const oldHome = process.env.HOME;
+    process.env.HOME = home;
+    process.chdir(root);
+    const codexFile = path.join(home, ".codex", "config.toml");
+    fs.mkdirSync(path.dirname(codexFile), { recursive: true });
+    // Three entries for the same MCP URL, worst-case ordering: canonical last.
+    fs.writeFileSync(
+      codexFile,
+      [
+        '[mcp_servers."agent-native-plan"]',
+        'url = "https://plan.agent-native.com/_agent-native/mcp"',
+        'http_headers = { "Authorization" = "Bearer old1" }',
+        "",
+        '[mcp_servers."agent-native-plans"]',
+        'url = "https://plan.agent-native.com/_agent-native/mcp"',
+        'http_headers = { "Authorization" = "Bearer old2" }',
+        "",
+        '[mcp_servers."plan"]',
+        'url = "https://plan.agent-native.com/_agent-native/mcp"',
+        'http_headers = { "Authorization" = "Bearer old3" }',
+        "",
+      ].join("\n"),
+      "utf-8",
+    );
+
+    try {
+      await runConnect(["reconnect", "--client", "codex"], {
+        fetchImpl: makeFetch([
+          {
+            status: "approved",
+            token: "refreshed-token",
+            mcpUrl: "https://plan.agent-native.com/_agent-native/mcp",
+            serverName: "plan",
+          },
+        ]),
+        sleep: noopSleep,
+        openBrowser: vi.fn(),
+      });
+
+      expect(process.exitCode).toBeFalsy();
+      const toml = fs.readFileSync(codexFile, "utf-8");
+      // The canonical 'plan' entry must have been refreshed.
+      expect(toml).toContain('[mcp_servers."plan"]');
+      expect(toml).toContain('"Authorization" = "Bearer refreshed-token"');
+    } finally {
+      process.env.HOME = oldHome;
+    }
+  });
+
+  it("non-TTY multi-URL reconnect lists paste-ready commands", async () => {
+    const root = tmpDir();
+    const home = tmpDir();
+    const oldHome = process.env.HOME;
+    process.env.HOME = home;
+    process.chdir(root);
+
+    // Seed two DIFFERENT agent-native apps.
+    const claudeFile = path.join(home, ".claude.json");
+    fs.writeFileSync(
+      claudeFile,
+      JSON.stringify(
+        {
+          mcpServers: {
+            plan: {
+              type: "http",
+              url: "https://plan.agent-native.com/_agent-native/mcp",
+            },
+            "agent-native-mail": {
+              type: "http",
+              url: "https://mail.agent-native.com/_agent-native/mcp",
+            },
+          },
+        },
+        null,
+        2,
+      ) + "\n",
+      "utf-8",
+    );
+
+    const errLines: string[] = [];
+    vi.spyOn(process.stderr, "write").mockImplementation((chunk) => {
+      errLines.push(String(chunk));
+      return true;
+    });
+
+    try {
+      await runConnect(["reconnect", "--client", "claude-code"], {
+        isInteractive: () => false,
+      });
+
+      expect(process.exitCode).toBe(1);
+      const combined = errLines.join("");
+      // Should mention both apps.
+      expect(combined).toContain("plan.agent-native.com");
+      expect(combined).toContain("mail.agent-native.com");
+      // Should include paste-ready reconnect hints.
+      expect(combined).toMatch(/npx -y @agent-native\/core@latest reconnect/);
+    } finally {
+      process.env.HOME = oldHome;
+    }
   });
 });

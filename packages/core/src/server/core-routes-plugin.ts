@@ -435,6 +435,8 @@ export interface CoreRoutesPluginOptions {
   disableMcpConnect?: boolean;
   /** Canonical app id (e.g. `mail`) for the MCP connect server name. */
   mcpConnectAppId?: string;
+  /** Explicit MCP server id for copyable config/device-flow grants. */
+  mcpConnectServerName?: string;
   /** Human app name shown on the MCP connect page. */
   mcpConnectAppName?: string;
   /** Per-template override mapping deep-link params → client SPA path.
@@ -2949,6 +2951,7 @@ export function createCoreRoutesPlugin(
         const mcpConnectOpts = {
           appId: options.mcpConnectAppId,
           appName: options.mcpConnectAppName ?? getAppName(),
+          serverName: options.mcpConnectServerName,
         };
         getH3App(nitroApp).use(
           `${P}/mcp/connect`,

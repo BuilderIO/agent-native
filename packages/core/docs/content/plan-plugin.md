@@ -12,13 +12,22 @@ The Agent-Native **Plan** app ships as one installable bundle. A single install 
 One install gives you:
 
 - **Two skills** — `/visual-plan` (the canonical entry point) and `/visual-recap`.
-- **The Plan MCP connector** — registered against the hosted app at `https://plan.agent-native.com` (MCP endpoint `https://plan.agent-native.com/_agent-native/mcp`, server name `plan`, with legacy alias `agent-native-plans` during migration).
+- **The Plan MCP connector** — registered against the hosted app at `https://plan.agent-native.com` (MCP endpoint `https://plan.agent-native.com/_agent-native/mcp`, server name `plan`).
 
 By default, both skills publish to the hosted Plan app — they create a plan via
 the MCP connector and hand you a link or inline plan to review. They never dump
 an inline Markdown/ASCII plan into chat as the deliverable. If a Plan tool
-returns `needs auth`, `Unauthorized`, or `Session terminated`, authenticate the
-connector (see each route below) instead of falling back to inline output.
+returns `needs auth`, `Unauthorized`, or `Session terminated`, re-authenticate
+the connector instead of falling back to inline output. Access tokens are
+long-lived (30-day default, sliding 365-day refresh), so this should be rare;
+when it happens, the lightweight fix is:
+
+```bash
+npx -y @agent-native/core@latest reconnect https://plan.agent-native.com
+```
+
+`reconnect` finds and refreshes the connector by URL — no reinstall needed. In
+Claude Code, the equivalent is `/mcp` → **Authenticate / Reconnect**.
 
 The exception is explicit **local-files privacy mode**. When you ask for no DB
 writes or set `AGENT_NATIVE_PLANS_MODE=local-files`, the skills must not call
@@ -26,12 +35,18 @@ the Plan MCP connector. They write `plans/<slug>/plan.mdx` plus optional
 `canvas.mdx`, `prototype.mdx`, and `.plan-state.json`, then preview locally with:
 
 ```bash
-agent-native plan local preview --dir plans/<slug> --kind plan
+npx @agent-native/core@latest plan local preview --dir plans/<slug> --kind plan
 ```
 
 This keeps plan content out of the Agent-Native Plan database. Hosted sharing,
 comments, screenshots, and plan history are unavailable until you explicitly
 publish later.
+
+Agent Native Desktop has a separate local-file sync path for hosted plans: the
+Desktop app can mirror a hosted plan to local MDX files and import edits back
+without cloning the Plan app or running a CLI. That workflow keeps the hosted
+Plan database as the source of truth; use local-files privacy mode when the goal
+is no Plan DB writes.
 
 > The plugin (`agent-native-visual-plans`) carries app id `visual-plans`, which is why the Claude Code plugin name and Codex plugin name are both `agent-native-visual-plans`. The Plan app's display name is "Agent-Native Plan".
 
@@ -45,14 +60,12 @@ Works for any host — Claude Code, Codex, Cursor, Cline, Goose, ChatGPT custom 
 
 ```bash
 npx @agent-native/core@latest skills add visual-plan
-# or, if the CLI is already on PATH:
-agent-native skills add visual-plan
 ```
 
-This installs `visual-plan` plus the companion `visual-recap` skill, then registers the `plan` connector and its legacy `agent-native-plans` alias, then runs auth (OAuth prompt for hosted/account-backed sharing). Useful flags:
+This installs `visual-plan` plus the companion `visual-recap` skill, then registers the `plan` connector, then runs auth (OAuth prompt for hosted/account-backed sharing). Useful flags:
 
 - `--client codex|claude-code|claude-code-cli|cowork|all` — which local agents to write the MCP config for (default `codex`).
-- `--no-connect` — register the connector without authenticating; run `agent-native connect https://plan.agent-native.com` later.
+- `--no-connect` — register the connector without authenticating; run `npx @agent-native/core@latest connect https://plan.agent-native.com` later.
 - `--mcp-url <url>` — point the connector at a custom origin (an ngrok tunnel, a local dev server, or a self-hosted deployment) instead of the hosted default.
 - `--with-github-action` — also write the PR Visual Recap GitHub Action (see [PR Visual Recap](/docs/pr-visual-recap)).
 
@@ -61,8 +74,8 @@ present. Say yes to add it during skill setup, or run the command above later
 with `--with-github-action`. After the workflow is written, run:
 
 ```bash
-agent-native recap setup
-agent-native recap doctor
+npx @agent-native/core@latest recap setup
+npx @agent-native/core@latest recap doctor
 ```
 
 `recap setup` configures the GitHub Action secrets and variables where possible,
@@ -96,11 +109,11 @@ The same repo is a Codex plugin marketplace. Add it, install the plugin, then au
 codex plugin marketplace add BuilderIO/agent-native
 codex plugin add agent-native-visual-plans@agent-native-apps
 codex mcp login plan   # OAuth in the browser
-# Existing installs may already be authenticated as:
-codex mcp login agent-native-plans
 ```
 
-After install, **start a new Codex thread** so the skills and MCP tools load into the session. The plugin ships URL-only connectors (`[mcp_servers.plan]` and legacy `[mcp_servers.agent-native-plans]` → `https://plan.agent-native.com/_agent-native/mcp`); `codex mcp login` runs the OAuth flow. The universal CLI route above also works for Codex (`agent-native skills add visual-plan --client codex`) if you prefer one command that installs and authenticates together.
+After install, **start a new Codex thread** so the skills and MCP tools load into the session. The plugin ships a URL-only connector (`[mcp_servers.plan]` → `https://plan.agent-native.com/_agent-native/mcp`); `codex mcp login plan` runs the OAuth flow. The universal CLI route above also works for Codex (`npx @agent-native/core@latest skills add visual-plan --client codex`) if you prefer one command that installs and authenticates together.
+
+> **Older installs:** if your config still has an `agent-native-plans` entry pointing at the same URL, running `npx -y @agent-native/core@latest reconnect https://plan.agent-native.com` (or `skills add visual-plan` for a full reinstall) consolidates it to the canonical `plan` name.
 
 ## Updates {#updates}
 
@@ -129,7 +142,7 @@ In short: ship it as a self-hosted/public git marketplace and users install dire
 
 A **skill** is a single `SKILL.md` instruction file the agent reads when a task matches. A **plugin** (Claude Code marketplace plugin or Codex plugin) is a package that bundles one or more skills **plus** an MCP connector and metadata, so a host can install everything in one step.
 
-Under the hood, all three routes are produced from the same source by the `agent-native app-skill` CLI: `app-skill pack` builds the marketplace/plugin adapters, and `skills add` is the friendly one-step installer that also registers and authenticates the MCP connector. See [Skills Guide](/docs/skills-guide) for the app-skill manifest format, and [External Agents](/docs/external-agents) for connecting any MCP host and the `agent-native connect` flow.
+Under the hood, all three routes are produced from the same source by the `npx @agent-native/core@latest app-skill` CLI: `app-skill pack` builds the marketplace/plugin adapters, and `skills add` is the friendly one-step installer that also registers and authenticates the MCP connector. See [Skills Guide](/docs/skills-guide) for the app-skill manifest format, and [External Agents](/docs/external-agents) for connecting any MCP host and the `npx @agent-native/core@latest connect` flow.
 
 ## What's next {#whats-next}
 

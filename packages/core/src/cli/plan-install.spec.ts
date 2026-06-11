@@ -65,10 +65,10 @@ const PLANS_INSTALL_REFERENCES: Record<string, Record<string, string>> = {
   },
 };
 
+// Bundle aliases install BOTH plan skills. The single-skill names visual-plan
+// and visual-recap install only their own skill and are covered separately.
 const PLANS_INSTALL_ALIASES = [
   "visual-plans",
-  "visual-recap",
-  "visual-recaps",
   "code-review-recap",
   "code-review-recaps",
   "plannotate",
@@ -274,7 +274,6 @@ describe("Plans skills install — materialized output", () => {
     captured: Record<string, string>;
     capturedReferences: Record<string, string>;
     codexConfig: string;
-    npxCalls: number;
   }> {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), "an-plan-skill-"));
     const codexHome = path.join(root, "codex-home");
@@ -283,7 +282,6 @@ describe("Plans skills install — materialized output", () => {
     process.env.CODEX_HOME = codexHome;
     const captured: Record<string, string> = {};
     const capturedReferences: Record<string, string> = {};
-    let npxCalls = 0;
     try {
       const result = await addAgentNativeSkill(
         parseSkillsArgs([
@@ -294,50 +292,37 @@ describe("Plans skills install — materialized output", () => {
           "--scope",
           "project",
         ]),
-        {
-          baseDir: root,
-          runCommand: async (cmd, args) => {
-            if (cmd === "npx" && args.includes("@agent-native/skills@latest")) {
-              npxCalls += 1;
-              const source = args[3];
-              if (source) {
-                const skillsDir = path.join(source, "skills");
-                if (fs.existsSync(skillsDir)) {
-                  for (const name of fs.readdirSync(skillsDir)) {
-                    const file = path.join(skillsDir, name, "SKILL.md");
-                    if (fs.existsSync(file)) {
-                      captured[name] = fs.readFileSync(file, "utf-8");
-                    }
-                    const referencesDir = path.join(
-                      skillsDir,
-                      name,
-                      "references",
-                    );
-                    if (fs.existsSync(referencesDir)) {
-                      for (const entry of fs.readdirSync(referencesDir, {
-                        withFileTypes: true,
-                      })) {
-                        if (!entry.isFile()) continue;
-                        const rel = `references/${entry.name}`;
-                        capturedReferences[`${name}/${rel}`] = fs.readFileSync(
-                          path.join(referencesDir, entry.name),
-                          "utf-8",
-                        );
-                      }
-                    }
-                  }
-                }
-              }
-            }
-            return 0;
-          },
-        },
+        { baseDir: root, runCommand: async () => 0 },
       );
+      // Built-in skills are written straight into the client's skills dir;
+      // project-scope codex lands in .agents/skills.
+      const skillsDir = path.join(root, ".agents", "skills");
+      if (fs.existsSync(skillsDir)) {
+        for (const name of fs.readdirSync(skillsDir)) {
+          const file = path.join(skillsDir, name, "SKILL.md");
+          if (fs.existsSync(file)) {
+            captured[name] = fs.readFileSync(file, "utf-8");
+          }
+          const referencesDir = path.join(skillsDir, name, "references");
+          if (fs.existsSync(referencesDir)) {
+            for (const entry of fs.readdirSync(referencesDir, {
+              withFileTypes: true,
+            })) {
+              if (!entry.isFile()) continue;
+              const rel = `references/${entry.name}`;
+              capturedReferences[`${name}/${rel}`] = fs.readFileSync(
+                path.join(referencesDir, entry.name),
+                "utf-8",
+              );
+            }
+          }
+        }
+      }
       const codexConfig = fs.readFileSync(
         path.join(codexHome, "config.toml"),
         "utf-8",
       );
-      return { result, captured, capturedReferences, codexConfig, npxCalls };
+      return { result, captured, capturedReferences, codexConfig };
     } finally {
       if (prevCodexHome === undefined) delete process.env.CODEX_HOME;
       else process.env.CODEX_HOME = prevCodexHome;
@@ -346,8 +331,8 @@ describe("Plans skills install — materialized output", () => {
   }
 
   it("materializes exactly the Plans SKILL.md files and points at the hosted MCP", async () => {
-    const { result, captured, capturedReferences, codexConfig, npxCalls } =
-      await materializeViaAlias("visual-plan");
+    const { result, captured, capturedReferences, codexConfig } =
+      await materializeViaAlias("visual-plans");
     expect(result.id).toBe("visual-plans");
     expect(result.skillNames).toEqual(PLANS_INSTALL_SKILL_NAMES);
     expect(result.mcpUrl).toBe(
@@ -357,8 +342,10 @@ describe("Plans skills install — materialized output", () => {
     expect(codexConfig).toContain(
       'url = "https://plan.agent-native.com/_agent-native/mcp"',
     );
-    expect(codexConfig).toContain('[mcp_servers."agent-native-plans"]');
-    expect(npxCalls).toBeGreaterThan(0);
+    // "agent-native-plans" is the legacy alias name. Our change repurposes the
+    // alias list as a same-URL cleanup list rather than writing a duplicate
+    // entry, so only the canonical "plan" entry is written.
+    expect(codexConfig).not.toContain('[mcp_servers."agent-native-plans"]');
 
     for (const [name, constant] of PLANS_INSTALL_SKILLS) {
       // The materialized file the user receives must be byte-identical to the
@@ -388,7 +375,7 @@ describe("Plans skills install — materialized output", () => {
     }
   });
 
-  it("normalizes every Plans alias to the same hosted Plans skill", async () => {
+  it("installs both Plans skills for every bundle alias", async () => {
     for (const alias of PLANS_INSTALL_ALIASES) {
       const { result } = await materializeViaAlias(alias);
       expect(result.id, `alias ${alias}`).toBe("visual-plans");
@@ -396,6 +383,21 @@ describe("Plans skills install — materialized output", () => {
         PLANS_INSTALL_SKILL_NAMES,
       );
     }
+  });
+
+  it("installs only the named skill for visual-plan / visual-recap", async () => {
+    const plan = await materializeViaAlias("visual-plan");
+    expect(plan.result.id).toBe("visual-plans");
+    expect(plan.result.skillNames).toEqual(["visual-plan"]);
+    expect(Object.keys(plan.captured)).toEqual(["visual-plan"]);
+
+    const recap = await materializeViaAlias("visual-recap");
+    expect(recap.result.id).toBe("visual-plans");
+    expect(recap.result.skillNames).toEqual(["visual-recap"]);
+    expect(Object.keys(recap.captured)).toEqual(["visual-recap"]);
+
+    // Both single-skill installs still register the shared hosted plan MCP.
+    expect(recap.codexConfig).toContain('[mcp_servers."plan"]');
   });
 
   it("materialized visual-plan handles existing plan text and avoids legacy HTML", async () => {

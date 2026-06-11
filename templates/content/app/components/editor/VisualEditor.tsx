@@ -54,6 +54,14 @@ import {
   type UseCollabReconcileResult,
 } from "@agent-native/core/client";
 import { RegistryBlockNode } from "./extensions/registryBlocks";
+import {
+  CommentHighlight,
+  setCommentHighlights,
+  commentHighlightKey,
+  type CommentHighlightSpec,
+} from "./extensions/CommentHighlight";
+import { resolveAnchor, type CommentTextAnchor } from "./comment-anchors";
+import type { CommentThread } from "@/hooks/use-comments";
 import { contentBlockRegistry } from "@/blocks/contentBlockRegistry";
 import {
   getImageFiles,
@@ -728,7 +736,20 @@ interface VisualEditorProps {
   user?: { name: string; color: string; email?: string };
   editable?: boolean;
   /** Called when user selects text and clicks "Comment" in bubble toolbar. */
-  onComment?: (quotedText: string, offsetTop: number) => void;
+  onComment?: (
+    quotedText: string,
+    offsetTop: number,
+    anchor?: CommentTextAnchor,
+    range?: { from: number; to: number },
+  ) => void;
+  /** Open comment threads, used to render inline highlights. */
+  commentThreads?: CommentThread[];
+  /** Currently focused thread — its highlight is emphasized. */
+  activeThreadId?: string | null;
+  /** Selection range of the in-progress (not yet saved) comment, if any. */
+  pendingHighlight?: { from: number; to: number } | null;
+  /** Called when the user clicks an inline highlight in the document. */
+  onActivateThread?: (threadId: string) => void;
   onJoinTitle?: (text: string) => void;
   notionPageLinks?: NotionPageLink[];
   onOpenNotionPageLink?: (documentId: string) => void;
@@ -1236,6 +1257,7 @@ export function createVisualEditorExtensions({
       // `VisualEditor` below. Mounted after the Notion nodes and before the
       // Markdown extension so the NFM <-> doc round-trip recognizes the node.
       RegistryBlockNode,
+      CommentHighlight,
       DragHandle,
       TypographyReplacements,
       NotionMarkdownShortcuts,
@@ -1502,6 +1524,10 @@ export function VisualEditor({
   user,
   editable = true,
   onComment,
+  commentThreads,
+  activeThreadId,
+  pendingHighlight,
+  onActivateThread,
   onJoinTitle,
   notionPageLinks = [],
   onOpenNotionPageLink,
@@ -1778,6 +1804,142 @@ export function VisualEditor({
     if (!editor || editor.isDestroyed) return;
     editor.setEditable(editable);
   }, [editor, editable]);
+
+  // Resolve each open thread's stored anchor to a live range and push the
+  // highlight specs into the CommentHighlight plugin. Reads threads through a
+  // ref (the query returns a new array each poll) and re-runs on a cheap
+  // signature so we don't thrash, while the plugin maps ranges through edits in
+  // between so highlights track the text live.
+  const threadsRef = useRef(commentThreads);
+  threadsRef.current = commentThreads;
+  const threadsSignature = useMemo(
+    () =>
+      (commentThreads ?? [])
+        .map((t) => `${t.threadId}:${t.resolved ? 1 : 0}:${t.quotedText ?? ""}`)
+        .join("|"),
+    [commentThreads],
+  );
+  const pendingKey = pendingHighlight
+    ? `${pendingHighlight.from}-${pendingHighlight.to}`
+    : "";
+
+  // Push the resolved highlight specs into the plugin. When `force` is false we
+  // KEEP the positions of highlights the plugin is already tracking (so they
+  // stay live-mapped while typing) and only resolve threads that are missing —
+  // this is what establishes highlights after the collaborative doc seeds.
+  // `force` re-resolves everything from scratch (used when the loaded content is
+  // swapped wholesale by an agent / Notion pull).
+  const applyHighlights = useCallback(
+    (force: boolean) => {
+      if (!editor || editor.isDestroyed) return;
+      const view = editor.view;
+      const current = commentHighlightKey.getState(view.state);
+      const mapped = force
+        ? new Map<string, CommentHighlightSpec>()
+        : new Map((current?.specs ?? []).map((s) => [s.threadId, s]));
+      const specs: CommentHighlightSpec[] = [];
+      for (const thread of threadsRef.current ?? []) {
+        if (thread.resolved) continue;
+        const existing = mapped.get(thread.threadId);
+        if (existing) {
+          specs.push(existing);
+          continue;
+        }
+        const range = resolveAnchor(view.state.doc, {
+          quotedText: thread.quotedText,
+          prefix: thread.prefix ?? undefined,
+          suffix: thread.suffix ?? undefined,
+          startOffset: thread.startOffset ?? undefined,
+        });
+        if (range) {
+          specs.push({
+            threadId: thread.threadId,
+            from: range.from,
+            to: range.to,
+          });
+        }
+      }
+      setCommentHighlights(view, {
+        specs,
+        pending: pendingHighlight ?? null,
+        activeId: activeThreadId ?? null,
+      });
+    },
+    [editor, pendingHighlight?.from, pendingHighlight?.to, activeThreadId],
+  );
+
+  const applyRef = useRef(applyHighlights);
+  applyRef.current = applyHighlights;
+  // Coalesce with a macrotask rather than requestAnimationFrame: rAF is throttled
+  // in background/unfocused tabs, which would stall highlight updates whenever
+  // the document isn't the foreground tab.
+  const timerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const scheduleApply = useCallback((force: boolean) => {
+    clearTimeout(timerRef.current);
+    timerRef.current = setTimeout(() => applyRef.current(force), 0);
+  }, []);
+  useEffect(() => () => clearTimeout(timerRef.current), []);
+
+  // Establish highlights when the thread set changes. The collaborative doc
+  // seeds asynchronously AND the seed is applied with `emitUpdate: false`, so we
+  // can neither resolve once on mount (the doc may still be empty) nor rely on
+  // an editor "update" event firing. Instead poll on a short interval, keeping
+  // already-tracked ranges and filling in missing ones each pass, until every
+  // open thread is established (or we give up after a few seconds for anchors
+  // whose text no longer exists). Idempotent once everything is in place.
+  useEffect(() => {
+    if (!editor || editor.isDestroyed) return;
+    let stopped = false;
+    let attempts = 0;
+    let timer: ReturnType<typeof setTimeout>;
+    const tick = () => {
+      if (stopped || editor.isDestroyed) return;
+      applyRef.current(false);
+      attempts += 1;
+      const present = new Set(
+        (commentHighlightKey.getState(editor.view.state)?.specs ?? []).map(
+          (s) => s.threadId,
+        ),
+      );
+      const allPresent = (threadsRef.current ?? [])
+        .filter((t) => !t.resolved)
+        .every((t) => present.has(t.threadId));
+      if (!allPresent && attempts < 25) timer = setTimeout(tick, 150);
+    };
+    timer = setTimeout(tick, 0);
+    return () => {
+      stopped = true;
+      clearTimeout(timer);
+    };
+  }, [editor, threadsSignature]);
+
+  // Active card / pending selection just update the existing highlights.
+  useEffect(() => {
+    scheduleApply(false);
+  }, [editor, scheduleApply, activeThreadId, pendingKey]);
+
+  // Re-resolve from scratch when the loaded content changes wholesale (an agent
+  // edit / Notion pull replaces the document body).
+  useEffect(() => {
+    scheduleApply(true);
+  }, [editor, scheduleApply, content, contentUpdatedAt]);
+
+  // Clicking an inline highlight focuses its thread in the sidebar.
+  useEffect(() => {
+    if (!editor || editor.isDestroyed || !onActivateThread) return;
+    const dom = editor.view.dom;
+    const handleClick = (event: Event) => {
+      const target = event.target as HTMLElement | null;
+      const el = target?.closest?.(
+        "[data-comment-thread]",
+      ) as HTMLElement | null;
+      if (!el) return;
+      const id = el.getAttribute("data-comment-thread");
+      if (id) onActivateThread(id);
+    };
+    dom.addEventListener("click", handleClick);
+    return () => dom.removeEventListener("click", handleClick);
+  }, [editor, onActivateThread]);
 
   if (!editor) {
     return (

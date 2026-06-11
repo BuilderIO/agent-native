@@ -34,7 +34,21 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { DEFAULT_LIBRARY_PRESETS } from "../../shared/library-presets";
+
+type AssetTab = "all" | "generated" | "references";
+
+function isGeneratedAsset(asset: Asset) {
+  const role = asset.role ?? "";
+  return role === "generated" || role === "active" || role === "candidate";
+}
+
+function assetMatchesTab(asset: Asset, tab: AssetTab) {
+  if (tab === "all") return true;
+  if (tab === "generated") return isGeneratedAsset(asset);
+  return !isGeneratedAsset(asset);
+}
 
 const ASPECT_RATIOS = ["16:9", "1:1", "9:16", "4:3", "3:4", "21:9"] as const;
 const GENERATION_COUNTS = [1, 2, 3, 4, 6] as const;
@@ -47,6 +61,7 @@ type PickerMediaType = "image" | "video";
 type Asset = {
   id: string;
   libraryId: string;
+  role?: string | null;
   title?: string | null;
   description?: string | null;
   altText?: string | null;
@@ -534,7 +549,7 @@ function AssetThumbnail({ asset }: { asset: Asset }) {
       src={displayUrl}
       crossOrigin={isCrossOriginPreview(displayUrl) ? "anonymous" : undefined}
       alt={asset.altText ?? asset.title ?? ""}
-      className="h-full w-full object-cover transition group-hover:scale-[1.02]"
+      className="h-full w-full object-contain transition group-hover:scale-[1.02]"
       onError={tryNextSource}
     />
   );
@@ -571,6 +586,7 @@ export default function AssetPicker() {
   );
   const [presetId, setPresetId] = useState(() => hostConfig.presetId ?? "none");
   const [count, setCount] = useState(() => hostConfig.count ?? 3);
+  const [assetTab, setAssetTab] = useState<AssetTab>("all");
   const [selectedLibraryId, setSelectedLibraryId] = useState(
     () => hostConfig.libraryId ?? "",
   );
@@ -752,11 +768,15 @@ export default function AssetPicker() {
         .some((value) => String(value).toLowerCase().includes(needle)),
     );
   }, [query, starterAssets]);
-  const assets = usingStarterLibrary
+  const allAssets = usingStarterLibrary
     ? mediaType === "image"
       ? visibleStarterAssets
       : []
     : (assetData?.assets ?? []);
+  const assets = useMemo(
+    () => allAssets.filter((asset) => assetMatchesTab(asset, assetTab)),
+    [allAssets, assetTab],
+  );
   const [standaloneSelection, setStandaloneSelection] = useState<ReturnType<
     typeof assetPayload
   > | null>(null);
@@ -1248,6 +1268,20 @@ export default function AssetPicker() {
       )}
 
       <main className="min-h-0 flex-1 overflow-y-auto p-3">
+        {selectedLibraryId && (
+          <Tabs
+            value={assetTab}
+            onValueChange={(value) => setAssetTab(value as AssetTab)}
+            className="mb-3"
+          >
+            <TabsList>
+              <TabsTrigger value="all">All</TabsTrigger>
+              <TabsTrigger value="generated">Generated</TabsTrigger>
+              <TabsTrigger value="references">References</TabsTrigger>
+            </TabsList>
+          </Tabs>
+        )}
+
         {!selectedLibraryId && (
           <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
             <Button asChild variant="outline">

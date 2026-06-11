@@ -96,7 +96,7 @@ The rest of this doc is for anyone forking the Assets template or extending it.
 ### Scaffolding
 
 ```bash
-npx @agent-native/core create my-assets --standalone --template assets
+npx @agent-native/core@latest create my-assets --standalone --template assets
 ```
 
 ### Data model
@@ -184,13 +184,13 @@ npx @agent-native/core@latest skills add assets
 npx skills add BuilderIO/agent-native --skill assets
 
 # Hosted install: URL-only MCP connector, no shared secrets in skill files.
-agent-native app-skill ensure --manifest templates/assets/agent-native.app-skill.json
+npx @agent-native/core@latest app-skill ensure --manifest templates/assets/agent-native.app-skill.json
 
 # Local editable launch.
-agent-native app-skill launch --manifest templates/assets/agent-native.app-skill.json --local --into ./assets-local
+npx @agent-native/core@latest app-skill launch --manifest templates/assets/agent-native.app-skill.json --local --into ./assets-local
 
 # Marketplace package, including Claude Code marketplace and Vercel Labs skills adapters.
-agent-native app-skill pack --manifest templates/assets/agent-native.app-skill.json --out ./dist/assets-skill
+npx @agent-native/core@latest app-skill pack --manifest templates/assets/agent-native.app-skill.json --out ./dist/assets-skill
 
 # Install a local exported Assets bundle with the open skills CLI.
 npx skills add ./dist/assets-skill --skill assets -a codex -y

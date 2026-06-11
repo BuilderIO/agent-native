@@ -1,6 +1,5 @@
 import { Link } from "react-router";
 import { useState } from "react";
-import { IconBrandGithub } from "@tabler/icons-react";
 import { trackEvent } from "@agent-native/core/client";
 import { withDefaultSocialImage } from "../seo";
 
@@ -30,9 +29,7 @@ export const meta = () =>
     },
   ]);
 
-const INSTALL_COMMAND = "npx @agent-native/core@latest skills add visual-plan";
-const GITHUB_ACTION_COMMAND =
-  "npx @agent-native/core@latest skills add visual-plan --with-github-action";
+const INSTALL_COMMAND = "npx @agent-native/core@latest skills add";
 const DEMO_URL = "https://plan.agent-native.com";
 
 type Skill = {
@@ -42,7 +39,6 @@ type Skill = {
   description: string;
   features: string[];
   docsTo: string;
-  note?: string;
 };
 
 const SKILLS: Skill[] = [
@@ -73,7 +69,6 @@ const SKILLS: Skill[] = [
       "Posts one sticky PR comment with an inline screenshot",
     ],
     docsTo: "/docs/pr-visual-recap",
-    note: "Interactive install can offer the PR Action, or add it later with --with-github-action.",
   },
 ];
 
@@ -201,12 +196,6 @@ function SkillCard({ skill }: { skill: Skill }) {
         ))}
       </ul>
 
-      {skill.note && (
-        <p className="mb-5 rounded-lg bg-[var(--code-bg)] px-3 py-2 font-mono text-xs text-[var(--fg-secondary)]">
-          {skill.note}
-        </p>
-      )}
-
       <div className="mt-auto flex flex-wrap items-center gap-4 pt-1">
         <Link
           data-an-prefetch="render"
@@ -249,11 +238,6 @@ export default function SkillsPage() {
       <section className="py-12 sm:py-16 lg:py-20">
         <div className="grid min-w-0 gap-10 lg:grid-cols-2 lg:items-center lg:gap-12">
           <div>
-            <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-[var(--docs-border)] bg-[var(--bg-secondary)] px-3 py-1 text-xs text-[var(--fg-secondary)]">
-              <span className="inline-block h-2 w-2 rounded-full bg-[var(--docs-accent)]" />
-              Agent skills
-            </div>
-
             <h1 className="mb-4 text-[2rem] font-bold leading-[1.08] tracking-tight sm:text-4xl md:text-5xl">
               Give your coding agent new superpowers
             </h1>
@@ -265,10 +249,6 @@ export default function SkillsPage() {
             </p>
 
             <CliCopy command={INSTALL_COMMAND} location="skills_hero" />
-            <p className="mt-3 text-xs text-[var(--fg-secondary)]">
-              One install adds the full Agent-Native Plan skill set — including{" "}
-              <code className="font-mono">/visual-recap</code>.
-            </p>
           </div>
 
           <div className="overflow-hidden rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)]">
@@ -297,86 +277,8 @@ export default function SkillsPage() {
         </div>
       </section>
 
-      {/* How it works */}
-      <section className="border-t border-[var(--docs-border)] py-16">
-        <h2 className="mb-8 text-2xl font-bold tracking-tight">How it works</h2>
-        <div className="mx-auto grid max-w-3xl gap-6 sm:grid-cols-3">
-          {[
-            {
-              step: "1",
-              title: "Install",
-              desc: "Run one command. It adds the slash-command skills and wires up the hosted Plan connector your agent publishes to.",
-            },
-            {
-              step: "2",
-              title: "Run a slash command",
-              desc: "Ask your agent for /visual-plan before a change, or /visual-recap after one. It authors the plan and returns a link.",
-            },
-            {
-              step: "3",
-              title: "Review & share",
-              desc: "Open the interactive plan, annotate or comment inline, and share a review link — reviewers edit as a guest.",
-            },
-          ].map((s) => (
-            <div key={s.step} className="text-center">
-              <div className="mx-auto mb-3 flex h-10 w-10 items-center justify-center rounded-full bg-[var(--docs-accent)] text-sm font-bold text-white">
-                {s.step}
-              </div>
-              <h3 className="mb-1 text-sm font-semibold">{s.title}</h3>
-              <p className="m-0 text-sm text-[var(--fg-secondary)]">{s.desc}</p>
-            </div>
-          ))}
-        </div>
-
-        <div className="mx-auto mt-12 max-w-3xl rounded-xl border border-[var(--docs-border)] p-6 sm:p-8">
-          <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-[var(--docs-border)] bg-[var(--bg-secondary)] px-3 py-1 text-xs font-medium text-[var(--docs-accent)]">
-            <IconBrandGithub size={14} stroke={1.5} />
-            GitHub Action
-          </div>
-          <h3 className="mb-2 text-xl font-semibold tracking-tight">
-            Get a visual recap on every pull request
-          </h3>
-          <p className="mb-5 max-w-2xl text-sm leading-relaxed text-[var(--fg-secondary)]">
-            Add the PR Visual Recap action and every PR reviews itself: a coding
-            agent reads the diff, publishes an interactive{" "}
-            <code className="font-mono">/visual-recap</code> plan, and upserts
-            one sticky comment with an inline screenshot linking to it.
-            High-altitude review built into your workflow — informational and
-            non-blocking.
-          </p>
-          <CliCopy
-            command={GITHUB_ACTION_COMMAND}
-            location="skills_github_action"
-          />
-          <p className="mt-4 max-w-2xl text-sm leading-relaxed text-[var(--fg-secondary)]">
-            The interactive install also offers this Action when no workflow is
-            present. After the workflow is written, run{" "}
-            <code className="font-mono">agent-native recap setup</code> and{" "}
-            <code className="font-mono">agent-native recap doctor</code> to
-            configure and verify GitHub Actions.
-          </p>
-          <Link
-            data-an-prefetch="render"
-            to="/docs/pr-visual-recap"
-            onClick={() =>
-              trackEvent("skill read docs", {
-                skill: "/visual-recap",
-                location: "skills_github_action",
-              })
-            }
-            className="mt-5 inline-flex items-center gap-1 text-sm font-medium text-[var(--fg)] no-underline hover:text-[var(--docs-accent)]"
-          >
-            Read the PR Visual Recap docs
-            <span aria-hidden>→</span>
-          </Link>
-        </div>
-      </section>
-
       {/* CTA */}
       <section className="border-t border-[var(--docs-border)] py-16 text-center">
-        <h2 className="mb-3 text-2xl font-bold tracking-tight">
-          Add it to your agent in seconds
-        </h2>
         <p className="mx-auto mb-8 max-w-lg text-base text-[var(--fg-secondary)]">
           Works with Claude Code, Codex, Cursor, and any MCP-compatible agent.
         </p>

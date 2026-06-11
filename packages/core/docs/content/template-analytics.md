@@ -84,7 +84,7 @@ The rest of this doc is for anyone forking the Analytics template or extending i
 Create a new Analytics app from the CLI:
 
 ```bash
-npx @agent-native/core create my-analytics --standalone --template analytics
+npx @agent-native/core@latest create my-analytics --standalone --template analytics
 ```
 
 Local dev:

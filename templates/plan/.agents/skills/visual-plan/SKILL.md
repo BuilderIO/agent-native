@@ -87,11 +87,12 @@ plan over as inline chat content — no Markdown prose, ASCII sketch, table, or
 fenced wireframe. If the connector's tools are missing, do NOT fall back to
 inline output: the usual cause is a connector that did not finish connecting
 this session (it registers zero tools), not auth. Stop and give the user the
-exact restore step — reconnect via `/mcp` (or restart the session); only if
-genuinely unauthenticated, run
-`agent-native connect https://plan.agent-native.com`. Publish once the tool is
-reachable. Local-files privacy mode (after Tool Guidance) is the only
-exception.
+exact restore step — in Claude Code run `/mcp` and choose
+Authenticate/Reconnect (or restart the session); if genuinely unauthenticated,
+run `npx -y @agent-native/core@latest reconnect https://plan.agent-native.com` — this
+re-authenticates WITHOUT reinstalling. Never reinstall from scratch just to fix
+auth. Publish once the tool is reachable. Local-files privacy mode (after Tool
+Guidance) is the only exception.
 
 ## Core Workflow
 
@@ -282,7 +283,7 @@ The local-files contract is:
 - Write the plan as a local MDX folder under `plans/<slug>/`: `plan.mdx`,
   optional `canvas.mdx`, optional `prototype.mdx`, and optional
   `.plan-state.json`.
-- Run `agent-native plan local preview --dir plans/<slug> --kind plan` after
+- Run `npx @agent-native/core@latest plan local preview --dir plans/<slug> --kind plan` after
   writing or updating the folder. Report the returned local URL or the
   `/local-plans/<slug>` route if the local Plan app is running with the same
   `PLAN_LOCAL_DIR`.
@@ -347,7 +348,7 @@ authenticates it in the same step (a one-time browser sign-in at setup — this 
 intended), so the first tool call does not hit an OAuth wall:
 
 ```bash
-agent-native skills add visual-plan
+npx @agent-native/core@latest skills add visual-plan
 ```
 
 After that, `/visual-plan` and `/visual-recap` are the two installed slash
@@ -355,7 +356,7 @@ commands. The other planning modes (`create-ui-plan`, `create-prototype-plan`,
 `create-plan-design`, `create-visual-questions`) are MCP tools reachable from
 `/visual-plan`, not separate slash commands. Pass `--no-connect` to register
 the connector without authenticating, then run
-`agent-native connect https://plan.agent-native.com` whenever you are ready.
+`npx @agent-native/core@latest connect https://plan.agent-native.com` whenever you are ready.
 
 **Browser (people you share with).** Open the Plans editor and create & edit
 with no sign-up — you work as a guest. Sign in only when you want to save or
@@ -369,10 +370,13 @@ your repo as MDX. This local mode is a separate advanced path, not the default
 hosted flow.
 
 If a Plans tool returns `needs auth`, `Unauthorized`, or `Session terminated`,
-do not keep retrying the tool. Authenticate the connector with
-`agent-native connect https://plan.agent-native.com` (OAuth-capable hosts can
-instead re-run /mcp and choose Authenticate), then continue once the connector
-is available.
+do not keep retrying the tool. Stop and give the user the reconnect step: in
+Claude Code run `/mcp` and choose Authenticate/Reconnect for the plan
+connector; from any terminal run
+`npx -y @agent-native/core@latest reconnect https://plan.agent-native.com` — this
+re-authenticates WITHOUT reinstalling and finds the entry by URL regardless of
+connector name. Never reinstall from scratch just to fix auth. Continue once
+the connector is available.
 
 Hosted default: connect `https://plan.agent-native.com/_agent-native/mcp`. Do
 not put shared secrets in skill files.

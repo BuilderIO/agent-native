@@ -8,7 +8,7 @@ import { getDb, schema } from "../server/db/index.js";
 
 export default defineAction({
   description:
-    "Update a document comment. Resolving a comment resolves the full thread.",
+    "Update a document comment. Resolving or reopening a comment applies to the full thread.",
   schema: z.object({
     id: z.string().describe("Comment ID"),
     documentId: z.string().optional().describe("Document ID"),
@@ -35,14 +35,18 @@ export default defineAction({
     }
 
     const userEmail = getRequestUserEmail();
-    if (args.resolved === true || comment.authorEmail !== userEmail) {
+    if (
+      args.resolved === true ||
+      args.resolved === false ||
+      comment.authorEmail !== userEmail
+    ) {
       await assertAccess("document", comment.documentId, "editor");
     } else {
       await assertAccess("document", comment.documentId, "viewer");
     }
 
     const updatedAt = new Date().toISOString();
-    if (args.resolved) {
+    if (args.resolved === true) {
       await db
         .update(schema.documentComments)
         .set({ resolved: 1, updatedAt })
@@ -56,15 +60,29 @@ export default defineAction({
       return { ok: true, resolved: true };
     }
 
-    if (args.content === undefined && args.resolved === undefined) {
+    if (args.resolved === false) {
+      await db
+        .update(schema.documentComments)
+        .set({ resolved: 0, updatedAt })
+        .where(
+          and(
+            eq(schema.documentComments.documentId, comment.documentId),
+            eq(schema.documentComments.threadId, comment.threadId),
+          ),
+        );
+      await writeAppState("refresh-signal", { ts: Date.now() });
+      return { ok: true, resolved: false };
+    }
+
+    // Both resolve and reopen return early above, so only content edits remain.
+    if (args.content === undefined) {
       return { ok: true };
     }
 
     const updates: Partial<typeof schema.documentComments.$inferInsert> = {
       updatedAt,
+      content: args.content,
     };
-    if (args.content !== undefined) updates.content = args.content;
-    if (args.resolved !== undefined) updates.resolved = args.resolved ? 1 : 0;
 
     await db
       .update(schema.documentComments)

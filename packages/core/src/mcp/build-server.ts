@@ -1791,7 +1791,7 @@ async function isConnectTokenAllowed(
 export async function verifyAuth(
   authHeader: string | undefined,
   ownerEmailHeader?: string | undefined,
-  options: { allowDevOpen?: boolean; resourceUrl?: string } = {},
+  options: { allowDevOpen?: boolean; resourceUrl?: string | string[] } = {},
 ): Promise<{
   authed: boolean;
   identity?: MCPCallerIdentity;

@@ -40,6 +40,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { Spinner } from "@/components/ui/spinner";
 import { MonthView } from "@/components/calendar/MonthView";
 import { WeekView } from "@/components/calendar/WeekView";
 import { DayView } from "@/components/calendar/DayView";
@@ -60,6 +61,7 @@ import {
   useUpdateEvent,
   useDeleteEvent,
   prefetchEvents,
+  shouldShowEventsSkeleton,
 } from "@/hooks/use-events";
 import { useOverlayPeople } from "@/hooks/use-overlay-people";
 import { useGoogleAuthStatus } from "@/hooks/use-google-auth";
@@ -361,6 +363,7 @@ export default function CalendarView() {
     data: rawEventsData,
     error: eventsError,
     isLoading,
+    isFetching,
     isPlaceholderData,
   } = useEvents(from, to, overlayEmails);
   const rawEvents = Array.isArray(rawEventsData) ? rawEventsData : [];
@@ -418,9 +421,32 @@ export default function CalendarView() {
     }
   }, [isLoading, viewMode, selectedDate, overlayEmails, queryClient]);
 
-  // Show skeleton only when loading with no cached data (new date range).
-  // Tab refocus keeps cached data visible and refetches in background.
-  const eventsLoading = isLoading || isPlaceholderData;
+  // Show the skeleton only when there is genuinely nothing to show for the
+  // current date range — the first load, or navigating to a range we have not
+  // fetched yet. Crucially, do NOT show it when only the *set* of calendars
+  // changes (adding/removing a feed or person overlay). Those swaps change the
+  // query key, so `keepPreviousData` keeps the user's existing events on screen
+  // as placeholder data; flashing a skeleton over them is the bug. Instead we
+  // keep the events visible and let the refreshed set merge in. We track the
+  // last date range we settled real (non-placeholder) data for, so a skeleton
+  // only appears when the range itself differs.
+  const rangeKey = `${from}|${to}`;
+  const settledRangeRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!isLoading && !isPlaceholderData) {
+      settledRangeRef.current = rangeKey;
+    }
+  }, [isLoading, isPlaceholderData, rangeKey]);
+  const eventsLoading = shouldShowEventsSkeleton({
+    isLoading,
+    isPlaceholderData,
+    settledRangeKey: settledRangeRef.current,
+    rangeKey,
+  });
+  // A quiet background refresh is in flight (e.g. a newly added calendar's
+  // events are still loading) while the existing events stay visible. Drives a
+  // small non-blocking spinner instead of hiding everything behind a skeleton.
+  const eventsRefreshing = isFetching && !eventsLoading;
 
   // Apply overlay colors and filter hidden calendars
   const events = useMemo(() => {
@@ -561,81 +587,75 @@ export default function CalendarView() {
                   : draft.workingLocationLabel,
             };
 
-      createEvent.mutate(
-        {
-          _tempId: eventId,
-          title,
-          description: draft.description ?? "",
-          start: start.toISOString(),
-          end: end.toISOString(),
-          startTimeZone: draft.allDay ? undefined : timezone,
-          endTimeZone: draft.allDay
-            ? undefined
-            : (draft.endTimeZone ?? draft.startTimeZone ?? timezone),
-          location,
-          accountEmail: draft.accountEmail,
-          allDay: draft.allDay ?? false,
-          transparency:
-            eventType === "workingLocation"
-              ? "transparent"
-              : eventType === "default"
-                ? draft.transparency
-                : "opaque",
-          visibility:
-            eventType === "workingLocation" ? "public" : draft.visibility,
-          reminders: draft.reminders,
-          remindersUseDefault: draft.remindersUseDefault,
-          ...statusPatch,
-          addGoogleMeet: draft.addGoogleMeet,
-          addZoom: draft.addZoom,
-          color: draft.colorId
-            ? getGoogleEventColorHex(draft.colorId)
-            : undefined,
-          colorId: draft.colorId,
-          attachments: draft.attachments,
-          attendees: draft.attendees,
-        },
-        {
-          onSuccess: (result) => {
-            discardedCommittingDraftsRef.current.delete(draftId);
-            deletePersistedCalendarDraft(draftId);
-            setEventDraft(null);
-            setQuickEditEventId(null);
-            const createdEventId = result?.id;
-            if (createdEventId) {
-              const undo = () => {
-                deleteEvent.mutate({
-                  id: createdEventId,
-                  scope: "single",
-                  sendUpdates: "none",
-                });
-              };
-              setUndoAction(undo);
-              toast("Event created", {
-                action: { label: "Undo", onClick: undo },
+      const payload: Parameters<typeof createEvent.mutate>[0] = {
+        _tempId: eventId,
+        title,
+        description: draft.description ?? "",
+        start: start.toISOString(),
+        end: end.toISOString(),
+        startTimeZone: draft.allDay ? undefined : timezone,
+        endTimeZone: draft.allDay
+          ? undefined
+          : (draft.endTimeZone ?? draft.startTimeZone ?? timezone),
+        location,
+        accountEmail: draft.accountEmail,
+        allDay: draft.allDay ?? false,
+        transparency:
+          eventType === "workingLocation"
+            ? "transparent"
+            : eventType === "default"
+              ? draft.transparency
+              : "opaque",
+        visibility:
+          eventType === "workingLocation" ? "public" : draft.visibility,
+        reminders: draft.reminders,
+        remindersUseDefault: draft.remindersUseDefault,
+        ...statusPatch,
+        addGoogleMeet: draft.addGoogleMeet,
+        addZoom: draft.addZoom,
+        color: draft.colorId
+          ? getGoogleEventColorHex(draft.colorId)
+          : undefined,
+        colorId: draft.colorId,
+        attachments: draft.attachments,
+        attendees: draft.attendees,
+      };
+
+      deletePersistedCalendarDraft(draftId);
+      setEventDraft(null);
+      setQuickEditEventId(null);
+      createEvent.mutate(payload, {
+        onSuccess: (result) => {
+          discardedCommittingDraftsRef.current.delete(draftId);
+          const createdEventId = result?.id;
+          if (createdEventId) {
+            const undo = () => {
+              deleteEvent.mutate({
+                id: createdEventId,
+                scope: "single",
+                sendUpdates: "none",
               });
-              return;
-            }
-            toast("Event created");
-          },
-          onError: (error) => {
-            const discardedDraft =
-              discardedCommittingDraftsRef.current.get(draftId);
-            if (discardedDraft) {
-              discardedCommittingDraftsRef.current.delete(draftId);
-              persistCalendarDraft(discardedDraft);
-              setEventDraft(discardedDraft);
-              setQuickEditEventId(calendarDraftEventId(draftId));
-            }
-            toast.error(
-              error instanceof Error ? error.message : "Failed to create event",
-            );
-          },
-          onSettled: () => {
-            committingDraftIdsRef.current.delete(draftId);
-          },
+            };
+            setUndoAction(undo);
+          }
         },
-      );
+        onError: (error) => {
+          const restoreDraft =
+            discardedCommittingDraftsRef.current.get(draftId) ?? draft;
+          if (restoreDraft) {
+            discardedCommittingDraftsRef.current.delete(draftId);
+            persistCalendarDraft(restoreDraft);
+            setEventDraft(restoreDraft);
+            setQuickEditEventId(calendarDraftEventId(draftId));
+          }
+          toast.error(
+            error instanceof Error ? error.message : "Failed to create event",
+          );
+        },
+        onSettled: () => {
+          committingDraftIdsRef.current.delete(draftId);
+        },
+      });
     },
     [createEvent, deleteEvent, eventDraft, selectedDate, setEventDraft],
   );
@@ -1320,6 +1340,13 @@ export default function CalendarView() {
               <span className="ml-0.5 min-w-0 flex-1 truncate whitespace-nowrap text-center text-xs font-semibold sm:ml-1 sm:text-sm">
                 {headerLabel}
               </span>
+
+              {eventsRefreshing && (
+                <Spinner
+                  className="ml-1 size-3.5 shrink-0 text-muted-foreground"
+                  aria-label="Loading calendars"
+                />
+              )}
             </div>
 
             {/* Right: search, new event */}

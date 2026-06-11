@@ -26,6 +26,7 @@ import {
   resolveEngine,
   createAnthropicEngine,
   getStoredModelForEngine,
+  normalizeModelForEngine,
   getAgentEngineEntry,
   isAgentEnginePackageInstalled,
   isStoredEngineUsableForRequest,
@@ -3965,12 +3966,13 @@ export function createAgentChatPlugin(
             ? devPrompt + runtimeContext + resources + schemaBlock + extra
             : basePrompt + runtimeContext + resources + schemaBlock + extra;
 
-          const model =
+          const a2aModelCandidate =
             options?.model ??
             (await getStoredModelForEngine(a2aEngine, {
               appId: options?.appId,
             })) ??
             a2aEngine.defaultModel;
+          const model = normalizeModelForEngine(a2aEngine, a2aModelCandidate);
 
           // Build tools — same as interactive handler but WITHOUT call-agent
           // to prevent infinite recursive A2A loops (agent calling itself).
@@ -4165,12 +4167,13 @@ export function createAgentChatPlugin(
             apiKey: options?.apiKey,
             appId: options?.appId,
           });
-          const model =
+          const mcpModelCandidate =
             options?.model ??
             (await getStoredModelForEngine(mcpEngine, {
               appId: options?.appId,
             })) ??
             mcpEngine.defaultModel;
+          const model = normalizeModelForEngine(mcpEngine, mcpModelCandidate);
 
           // Same actions as A2A — without call-agent to prevent loops.
           // In dev mode, template actions go through bash, not native tools.
@@ -5401,13 +5404,14 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                   apiKey: apiKey ?? options?.apiKey,
                   appId: options?.appId,
                 });
-                const model =
+                const modelCandidate =
                   payload.model ??
                   (await getStoredModelForEngine(engine, {
                     appId: options?.appId,
                   })) ??
                   engine.defaultModel ??
                   resolvedModel;
+                const model = normalizeModelForEngine(engine, modelCandidate);
                 return {
                   baseSystemPrompt: basePrompt,
                   actions: buildSubAgentActions(),
@@ -5593,6 +5597,15 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             setResponseStatus(event, 400);
             return {
               error: `Engine "${engine}" requires optional packages that are not installed in this app. Run: pnpm add ${entry.installPackage}`,
+            };
+          }
+          if (
+            entry.name === "builder" &&
+            normalizeModelForEngine(entry, model) !== model
+          ) {
+            setResponseStatus(event, 400);
+            return {
+              error: `Model "${model}" is not supported by Builder. Choose one of: ${entry.supportedModels.join(", ")}`,
             };
           }
 
@@ -6452,6 +6465,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               active: true,
               runId: run.runId,
               threadId: run.threadId,
+              turnId: run.turnId,
               status: run.status,
               heartbeatAt: run.heartbeatAt,
               lastProgressAt: run.lastProgressAt,

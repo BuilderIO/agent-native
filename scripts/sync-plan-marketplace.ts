@@ -193,13 +193,13 @@ async function expectedFiles(): Promise<GeneratedFile[]> {
     }
   }
 
+  // Only the canonical serverName goes into the plugin .mcp.json. Aliases are
+  // handled as a cleanup list by ensureAppSkill / connect — writing them here
+  // would create duplicate OAuth sessions in the host agent.
   const mcpServers = {
-    mcpServers: Object.fromEntries(
-      MCP_SERVER_NAMES.map((name) => [
-        name,
-        { type: "http" as const, url: MCP_URL },
-      ]),
-    ),
+    mcpServers: {
+      [manifest.mcp.serverName]: { type: "http" as const, url: MCP_URL },
+    },
   };
 
   // Shared .mcp.json for both hosts.

@@ -50,7 +50,7 @@ This is the same pipeline used for per-user scoping. For the SQL-level mechanics
 
 ## No configuration needed {#zero-config}
 
-Multi-tenancy is not a feature you enable — it's the default architecture. A fresh `agent-native create` scaffold already has:
+Multi-tenancy is not a feature you enable — it's the default architecture. A fresh `npx @agent-native/core@latest create` scaffold already has:
 
 - User registration and login
 - Organization creation and management

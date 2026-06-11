@@ -489,6 +489,81 @@ describe("runShot — playwright not available", () => {
     }
   });
 
+  it("captures the clean recap screenshot URL at 950px, 100% zoom, and measured height", async () => {
+    const stdoutLines: string[] = [];
+    const origWrite = process.stdout.write.bind(process.stdout);
+    // @ts-expect-error patching for test
+    process.stdout.write = (chunk: string) => {
+      stdoutLines.push(String(chunk));
+      return true;
+    };
+
+    const shotPath = path.join(tmpDir, "recap.png");
+    const contextOptions: unknown[] = [];
+    const viewportSizes: unknown[] = [];
+    const gotoUrls: string[] = [];
+    const evaluateCalls: string[] = [];
+    const fakePage = {
+      goto: vi.fn(async (nextUrl: string) => {
+        gotoUrls.push(nextUrl);
+      }),
+      waitForSelector: vi.fn(async () => {}),
+      waitForTimeout: vi.fn(async () => {}),
+      evaluate: vi.fn(async (fn: unknown) => {
+        evaluateCalls.push(String(fn));
+        if (evaluateCalls.length === 2) return 1500;
+      }),
+      setViewportSize: vi.fn(async (size: unknown) => {
+        viewportSizes.push(size);
+      }),
+      screenshot: vi.fn(async ({ path: outPath }: { path: string }) => {
+        fs.writeFileSync(outPath, Buffer.from(PNG_MAGIC));
+      }),
+    };
+    const fakeContext = {
+      route: vi.fn(),
+      newPage: vi.fn(async () => fakePage),
+    };
+    const fakeBrowser = {
+      newContext: vi.fn(async (options: unknown) => {
+        contextOptions.push(options);
+        return fakeContext;
+      }),
+      close: vi.fn(async () => {}),
+    };
+    const fakeChromium = {
+      launch: vi.fn(async () => fakeBrowser),
+    };
+
+    try {
+      await runShot(
+        {
+          url: "https://plan.agent-native.com/recaps/abc123?foo=bar#section-a",
+          out: shotPath,
+        },
+        async () => ({ chromium: fakeChromium as never }),
+      );
+
+      expect(contextOptions[0]).toMatchObject({
+        viewport: { width: 950, height: 2000 },
+        deviceScaleFactor: 2,
+      });
+      expect(viewportSizes[0]).toEqual({ width: 950, height: 1500 });
+      expect(gotoUrls[0]).toBe(
+        "https://plan.agent-native.com/recaps/abc123?foo=bar&recapScreenshot=1#section-a",
+      );
+      expect(evaluateCalls.join("\n")).toContain('style.zoom = "100%"');
+      expect(evaluateCalls.join("\n")).toContain(".plan-document-shell");
+      expect(evaluateCalls.join("\n")).not.toContain("90%");
+      expect(JSON.parse(stdoutLines.join("").trim())).toMatchObject({
+        ok: true,
+        out: shotPath,
+      });
+    } finally {
+      process.stdout.write = origWrite;
+    }
+  });
+
   it("refuses to attach token when URL origin differs from --app-url, before attempting playwright import", async () => {
     const stdoutLines: string[] = [];
     const origWrite = process.stdout.write.bind(process.stdout);

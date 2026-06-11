@@ -167,6 +167,40 @@ describe("PlanContentRenderer recap files sidebar", () => {
     );
   });
 
+  it("shows recap source and file stats in one header row outside screenshot mode", () => {
+    const content = recapContent();
+    const fileTree = content.blocks[0];
+    if (fileTree?.type === "file-tree") {
+      fileTree.data.entries.push({
+        path: "packages/core/src/b.ts",
+        change: "added",
+      });
+    }
+
+    act(() => {
+      root.render(
+        <PlanContentRenderer
+          content={content}
+          isRecap
+          editingDisabled
+          sourceUrl="https://github.com/BuilderIO/ai-services/pull/5385"
+          fallbackTitle="Untitled plan"
+          fallbackBrief=""
+        />,
+      );
+    });
+
+    const sourceLink = container.querySelector<HTMLAnchorElement>(
+      'header a[href="https://github.com/BuilderIO/ai-services/pull/5385"]',
+    );
+    const stats = container.querySelector<HTMLElement>(
+      'header [aria-label="Change statistics"]',
+    );
+    expect(sourceLink?.textContent).toBe("BuilderIO/ai-services#5385");
+    expect(stats?.textContent).toBe("2 files · +1");
+    expect(sourceLink?.parentElement).toBe(stats?.parentElement);
+  });
+
   it("leaves non-recap plans unchanged (no files sidebar, no hide style)", () => {
     act(() => {
       root.render(
@@ -186,5 +220,64 @@ describe("PlanContentRenderer recap files sidebar", () => {
       .map((node) => node.textContent ?? "")
       .join("\n");
     expect(styles).not.toContain('[data-block-id="tree-1"]');
+  });
+
+  it("can hide recap chrome, changed files, and contents for screenshot mode", () => {
+    const content = recapContent();
+    content.blocks.unshift({
+      id: "read-write",
+      type: "rich-text",
+      data: {
+        markdown:
+          "## Read & write paths\n\nHostname is persisted once.\n\n### Changed files",
+      },
+    });
+    content.blocks.push({
+      id: "rt-c",
+      type: "rich-text",
+      data: { markdown: "## Section C\n\nbody" },
+    });
+
+    act(() => {
+      root.render(
+        <PlanContentRenderer
+          content={content}
+          isRecap
+          editingDisabled
+          hideChangedFiles
+          hideRecapChrome
+          hideFloatingToc
+          sourceUrl="https://github.com/BuilderIO/ai-services/pull/5385"
+          fallbackTitle="Untitled plan"
+          fallbackBrief=""
+        />,
+      );
+    });
+
+    expect(container.querySelector(".plan-document-files")).toBeNull();
+    expect(container.querySelector(".plan-document-toc")).toBeNull();
+    expect(container.querySelector(".plan-toc-fallback")).toBeNull();
+    expect(
+      Array.from(container.querySelectorAll("header p")).some(
+        (node) => node.textContent?.trim() === "Visual Recap",
+      ),
+    ).toBe(false);
+    expect(
+      container.querySelector(
+        'header a[href="https://github.com/BuilderIO/ai-services/pull/5385"]',
+      ),
+    ).toBeNull();
+    expect(container.querySelector('[data-block-id="tree-1"]')).toBeNull();
+    expect(
+      container.querySelector('[data-block-id="read-write"]'),
+    ).not.toBeNull();
+    expect(container.textContent).toContain("Read & write paths");
+    expect(container.textContent).not.toContain(
+      "Files changed (+1529 / -534, 9 files)",
+    );
+    expect(container.textContent).not.toContain("Changed files");
+    expect(container.textContent).not.toContain("packages/core/src/a.ts");
+
+    expect(container.textContent).not.toContain("On this recap");
   });
 });

@@ -4,6 +4,30 @@ import { z } from "zod";
 import { and, asc, eq } from "drizzle-orm";
 import { getDb, schema } from "../server/db/index.js";
 
+type Mention = { email: string; name: string };
+
+function parseMentions(value: string | null): Mention[] {
+  if (!value) return [];
+  try {
+    const parsed = JSON.parse(value);
+    if (!Array.isArray(parsed)) return [];
+    const mentions: Mention[] = [];
+    for (const entry of parsed) {
+      if (!entry || typeof entry !== "object") continue;
+      const email = (entry as Record<string, unknown>).email;
+      const name = (entry as Record<string, unknown>).name;
+      if (typeof email !== "string" || !email) continue;
+      mentions.push({
+        email,
+        name: typeof name === "string" ? name : "",
+      });
+    }
+    return mentions;
+  } catch {
+    return [];
+  }
+}
+
 export default defineAction({
   description: "List all comments on a document, grouped by thread.",
   schema: z.object({
@@ -28,6 +52,26 @@ export default defineAction({
       )
       .orderBy(asc(schema.documentComments.createdAt));
 
-    return { comments: rows };
+    const mapped = rows.map((row) => ({
+      id: row.id,
+      document_id: row.documentId,
+      thread_id: row.threadId,
+      parent_id: row.parentId,
+      content: row.content,
+      quoted_text: row.quotedText,
+      anchor_prefix: row.anchorPrefix,
+      anchor_suffix: row.anchorSuffix,
+      anchor_start_offset:
+        row.anchorStartOffset == null ? null : Number(row.anchorStartOffset),
+      mentions: parseMentions(row.mentionsJson),
+      author_email: row.authorEmail,
+      author_name: row.authorName,
+      resolved: row.resolved,
+      created_at: row.createdAt,
+      updated_at: row.updatedAt,
+      notion_comment_id: row.notionCommentId,
+    }));
+
+    return { comments: mapped };
   },
 });

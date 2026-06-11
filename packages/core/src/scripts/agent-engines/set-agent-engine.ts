@@ -7,6 +7,7 @@ import {
   listAgentEngines,
   getAgentEngineEntry,
   isAgentEnginePackageInstalled,
+  normalizeModelForEngine,
   registerBuiltinEngines,
 } from "../../agent/engine/index.js";
 import { putSetting } from "../../settings/index.js";
@@ -52,9 +53,16 @@ export async function run(args: Record<string, string>): Promise<string> {
   }
 
   const resolvedModel = model ?? entry.defaultModel;
+  if (
+    entry.name === "builder" &&
+    normalizeModelForEngine(entry, resolvedModel) !== resolvedModel
+  ) {
+    return `Error: Model "${resolvedModel}" is not supported by Builder. Choose one of: ${entry.supportedModels.join(", ")}`;
+  }
 
   // supportedModels is a suggestion list, not an allowlist — accept any
-  // string (OpenRouter / Ollama / previews) and flag uncurated saves.
+  // string for BYO/custom engines (OpenRouter / Ollama / previews) and flag
+  // uncurated saves. Builder is an enumerated gateway and is checked above.
   const modelIsCurated =
     entry.supportedModels.length === 0 ||
     entry.supportedModels.includes(resolvedModel);

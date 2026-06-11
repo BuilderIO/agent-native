@@ -4,6 +4,12 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import readline from "node:readline/promises";
+import { fileURLToPath } from "node:url";
+
+import { resolveAppForSkill } from "./built-in-apps.js";
+import { registerMcpServer } from "./connect.js";
+import type { ClientId } from "./mcp-config-writers.js";
+import { createCliTelemetry, type CliTelemetry } from "./telemetry.js";
 
 export type SkillClient = "codex" | "claude-code";
 export type SkillScope = "project" | "user";
@@ -28,6 +34,22 @@ export interface InstallSkillsOptions {
   force?: boolean;
   log?: (message: string) => void;
   isInteractive?: () => boolean;
+  telemetry?: CliTelemetry;
+  /**
+   * Register the hosted MCP server for app-backed skills (e.g. visual-plan /
+   * visual-recap → the Agent-Native Plan MCP). Defaults to `true`; pass
+   * `false` (CLI `--no-mcp`) to install the skill files only.
+   */
+  mcp?: boolean;
+}
+
+export interface InstalledMcpServer {
+  serverName: string;
+  mcpUrl: string;
+  clients: SkillClient[];
+  files: string[];
+  authenticated: boolean;
+  guidance: string[];
 }
 
 export interface InstallSkillsResult {
@@ -38,6 +60,7 @@ export interface InstallSkillsResult {
   written: string[];
   instructionFiles: string[];
   githubActionPath?: string;
+  mcpServers: InstalledMcpServer[];
   dryRun: boolean;
 }
 
@@ -48,6 +71,7 @@ interface ParsedArgs {
   skillNames: string[];
   clients: SkillClient[];
   scope: SkillScope;
+  scopeExplicit: boolean;
   yes: boolean;
   dryRun: boolean;
   printJson: boolean;
@@ -56,6 +80,7 @@ interface ParsedArgs {
   withGithubAction: boolean;
   force: boolean;
   baseDir?: string;
+  mcp: boolean;
 }
 
 const HELP = `@agent-native/skills
@@ -75,9 +100,14 @@ Options:
   --instructions-file <path>  File to receive managed instructions (repeatable)
   --with-github-action        Add .github/workflows/pr-visual-recap.yml when visual-recap is installed
   --force                     Overwrite a different existing PR Visual Recap workflow
+  --no-mcp                    Install skill files only; skip registering the app's MCP server
   -y, --yes                   Use defaults in non-interactive mode
   --dry-run                   Print intended writes without changing files
   --json                      Print the result as JSON
+
+App-backed skills (visual-plan, visual-recap, assets, design-exploration)
+register their hosted MCP server in your agent config by default so the agent
+can actually use them. Use --no-mcp to skip that and copy the files only.
 
 Examples:
   npx @agent-native/skills add
@@ -127,14 +157,19 @@ export function parseSkillsCliArgs(argv: string[]): ParsedArgs {
       out.clients.push(...normalizeClients(value));
     else if ((value = eat("-a")) !== undefined)
       out.clients.push(...normalizeClients(value));
-    else if ((value = eat("--scope")) !== undefined)
+    else if ((value = eat("--scope")) !== undefined) {
       out.scope = parseScope(value);
-    else if ((value = eat("--instructions-file")) !== undefined)
+      out.scopeExplicit = true;
+    } else if ((value = eat("--instructions-file")) !== undefined)
       out.instructionFiles.push(value);
     else if ((value = eat("--cwd")) !== undefined) out.baseDir = value;
-    else if (arg === "-g" || arg === "--global") out.scope = "user";
-    else if (arg === "--project") out.scope = "project";
-    else if (arg === "--copy") {
+    else if (arg === "-g" || arg === "--global") {
+      out.scope = "user";
+      out.scopeExplicit = true;
+    } else if (arg === "--project") {
+      out.scope = "project";
+      out.scopeExplicit = true;
+    } else if (arg === "--copy") {
       // Compatibility with the open `skills` CLI. This installer always copies.
       out.copySource = true;
     } else if (arg === "-y" || arg === "--yes") out.yes = true;
@@ -145,6 +180,8 @@ export function parseSkillsCliArgs(argv: string[]): ParsedArgs {
     else if (arg === "--with-github-action" || arg === "--with-github-actions")
       out.withGithubAction = true;
     else if (arg === "--force") out.force = true;
+    else if (arg === "--no-mcp") out.mcp = false;
+    else if (arg === "--mcp") out.mcp = true;
     else if (arg.startsWith("-")) throw new Error(`Unknown option: ${arg}`);
     else if (!out.source) out.source = arg;
     else throw new Error(`Unexpected argument: ${arg}`);
@@ -165,75 +202,191 @@ export function parseSkillsCliArgs(argv: string[]): ParsedArgs {
   return out;
 }
 
+/**
+ * Translate this package's parsed args into the argv shape `@agent-native/core`
+ * skills expects. Core takes a single positional target + compatible flags; we
+ * forward one explicit skill as that target and let core's interactive picker
+ * handle 0-or-many selections.
+ */
+function toCoreSkillsArgv(parsed: ParsedArgs): string[] {
+  const out: string[] = [parsed.command];
+  if (parsed.command !== "add") return out;
+  if (parsed.skillNames.length === 1) out.push(parsed.skillNames[0]);
+  else if (parsed.copySource && parsed.source) out.push(parsed.source);
+  if (parsed.clients.length) out.push("--client", parsed.clients.join(","));
+  if (parsed.scopeExplicit) out.push("--scope", parsed.scope);
+  if (parsed.yes) out.push("--yes");
+  if (parsed.dryRun) out.push("--dry-run");
+  if (parsed.printJson) out.push("--json");
+  if (parsed.withGithubAction) out.push("--with-github-action");
+  if (parsed.force) out.push("--force");
+  if (parsed.mcp === false) out.push("--no-mcp");
+  if (parsed.updateInstructions === true) out.push("--update-instructions");
+  if (parsed.updateInstructions === false) out.push("--no-update-instructions");
+  return out;
+}
+
 export async function runSkillsCli(
   argv: string[],
   options: Pick<InstallSkillsOptions, "log" | "isInteractive" | "baseDir"> = {},
 ): Promise<void> {
   const parsed = parseSkillsCliArgs(argv);
-  if (parsed.command === "help") {
-    process.stdout.write(`${HELP}\n`);
-    return;
-  }
-  const skillSource = parsed.source ?? DEFAULT_SKILLS_SOURCE;
 
-  if (parsed.command === "list") {
-    const source = await materializeSource(skillSource);
-    try {
-      const skills = discoverSkills(source.root);
-      if (parsed.printJson) {
-        process.stdout.write(`${JSON.stringify(skills, null, 2)}\n`);
-        return;
-      }
-      for (const skill of skills) {
-        process.stdout.write(
-          `${skill.name}${skill.description ? ` - ${skill.description}` : ""}\n`,
-        );
-      }
+  // PIVOT: `@agent-native/skills` delegates its install/list flow to
+  // `@agent-native/core`'s clack-based installer so both CLIs share ONE codebase
+  // and UX. App-backed skills (visual-plan/visual-recap/assets/design-exploration/
+  // context-xray) and the interactive picker go through core. Plain BuilderIO
+  // skills (efficient-fable, quick-recap, …) aren't known to core, so an explicit
+  // plain `--skill` falls through to this package's own headless installer.
+  // AGENT_NATIVE_SKILLS_DIRECT=1 (set when core delegates a plain repo back to us)
+  // always forces the direct path and breaks the skills → core → skills loop.
+  if (process.env.AGENT_NATIVE_SKILLS_DIRECT !== "1") {
+    const appOnly =
+      parsed.skillNames.length === 0 ||
+      parsed.skillNames.every((name) => resolveAppForSkill(name) !== undefined);
+    if (parsed.command === "list" || (parsed.command === "add" && appOnly)) {
+      const { runSkills } = await import("@agent-native/core/cli/skills");
+      await runSkills(toCoreSkillsArgv(parsed), {
+        isInteractive: options.isInteractive,
+        baseDir: parsed.baseDir ?? options.baseDir,
+      });
       return;
-    } finally {
-      source.cleanup?.();
     }
   }
 
-  const result = await installSkills({
-    source: skillSource,
-    skillNames: parsed.skillNames,
-    clients: parsed.clients,
-    scope: parsed.scope,
-    baseDir: parsed.baseDir ?? options.baseDir,
-    yes: parsed.yes,
-    dryRun: parsed.dryRun,
-    updateInstructions: parsed.updateInstructions,
-    instructionFiles: parsed.instructionFiles,
-    withGithubAction: parsed.withGithubAction,
-    force: parsed.force,
-    log: parsed.printJson ? undefined : options.log,
-    isInteractive: options.isInteractive,
+  const startedAt = Date.now();
+  const telemetry = createCliTelemetry({
+    cli: "skills-installer",
+    cliVersion: readCliVersion(),
+    command: parsed.command,
+    interactive: cliInteractive(parsed, options),
   });
 
-  if (parsed.printJson) {
-    process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
-    return;
-  }
+  try {
+    if (parsed.command === "help") {
+      process.stdout.write(`${HELP}\n`);
+      return;
+    }
+    telemetry.track("skills_cli started");
+    const skillSource = parsed.source ?? DEFAULT_SKILLS_SOURCE;
 
-  const verb = parsed.dryRun ? "Would install" : "Installed";
-  process.stdout.write(
-    [
-      `${verb} ${result.skills.join(", ")} for ${result.clients.join(", ")} (${result.scope}).`,
-      result.written.length ? `Skill files: ${result.written.join(", ")}` : "",
-      result.instructionFiles.length
-        ? `Managed instructions: ${result.instructionFiles.join(", ")}`
-        : "",
-      result.githubActionPath
-        ? `PR Visual Recap workflow: ${result.githubActionPath}`
-        : "",
-      parsed.dryRun
-        ? ""
-        : "Restart or reload selected agent clients if needed.",
-    ]
-      .filter(Boolean)
-      .join("\n") + "\n",
-  );
+    if (parsed.command === "list") {
+      const source = await materializeSource(skillSource);
+      try {
+        const skills = discoverSkills(source.root);
+        telemetry.track("skills_cli skills listed", {
+          availableCount: skills.length,
+          available: skills.map((skill) => skill.name).join(","),
+        });
+        if (parsed.printJson) {
+          process.stdout.write(`${JSON.stringify(skills, null, 2)}\n`);
+          return;
+        }
+        for (const skill of skills) {
+          process.stdout.write(
+            `${skill.name}${skill.description ? ` - ${skill.description}` : ""}\n`,
+          );
+        }
+        return;
+      } finally {
+        source.cleanup?.();
+      }
+    }
+
+    const result = await installSkills({
+      source: skillSource,
+      skillNames: parsed.skillNames,
+      clients: parsed.clients,
+      // Leave scope undefined unless the user passed --scope/-g/--project so the
+      // installer can prompt for it interactively.
+      scope: parsed.scopeExplicit ? parsed.scope : undefined,
+      baseDir: parsed.baseDir ?? options.baseDir,
+      yes: parsed.yes,
+      dryRun: parsed.dryRun,
+      updateInstructions: parsed.updateInstructions,
+      instructionFiles: parsed.instructionFiles,
+      withGithubAction: parsed.withGithubAction,
+      force: parsed.force,
+      log: parsed.printJson ? undefined : options.log,
+      isInteractive: options.isInteractive,
+      telemetry,
+      mcp: parsed.mcp,
+    });
+
+    telemetry.track("skills_cli completed", {
+      skills: result.skills.join(","),
+      clients: result.clients.join(","),
+      scope: result.scope,
+      dryRun: result.dryRun,
+      durationMs: Date.now() - startedAt,
+    });
+
+    if (parsed.printJson) {
+      process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+      return;
+    }
+
+    const verb = parsed.dryRun ? "Would install" : "Installed";
+    process.stdout.write(
+      [
+        `${verb} ${result.skills.join(", ")} for ${result.clients.join(", ")} (${result.scope}).`,
+        result.written.length
+          ? `Skill files: ${result.written.join(", ")}`
+          : "",
+        result.instructionFiles.length
+          ? `Managed instructions: ${result.instructionFiles.join(", ")}`
+          : "",
+        result.githubActionPath
+          ? `PR Visual Recap workflow: ${result.githubActionPath}`
+          : "",
+        ...result.mcpServers.flatMap((server) => [
+          `MCP server "${server.serverName}" ${
+            parsed.dryRun ? "would be registered" : "registered"
+          } for ${server.clients.join(", ")}${
+            server.files.length ? `:\n  ${server.files.join("\n  ")}` : ""
+          }`,
+          ...server.guidance.map((line) => `  ${line}`),
+        ]),
+        parsed.dryRun
+          ? ""
+          : "Restart or reload selected agent clients if needed.",
+      ]
+        .filter(Boolean)
+        .join("\n") + "\n",
+    );
+  } catch (error) {
+    telemetry.track("skills_cli failed", {
+      command: parsed.command,
+      error: error instanceof Error ? error.message : String(error),
+      durationMs: Date.now() - startedAt,
+    });
+    throw error;
+  } finally {
+    await telemetry.flush();
+  }
+}
+
+function readCliVersion(): string {
+  try {
+    const here = path.dirname(fileURLToPath(import.meta.url));
+    // dist/index.js → ../package.json
+    const pkg = JSON.parse(
+      fs.readFileSync(path.resolve(here, "../package.json"), "utf8"),
+    ) as { version?: unknown };
+    return typeof pkg.version === "string" ? pkg.version : "unknown";
+  } catch {
+    return "unknown";
+  }
+}
+
+function cliInteractive(
+  parsed: ParsedArgs,
+  options: Pick<InstallSkillsOptions, "isInteractive">,
+): boolean {
+  if (parsed.yes) return false;
+  if (options.isInteractive) return options.isInteractive();
+  if (process.env.CI === "true") return false;
+  return Boolean(process.stdin.isTTY && process.stdout.isTTY);
 }
 
 export async function installSkills(
@@ -251,9 +404,34 @@ export async function installSkills(
       );
     }
 
+    // Fire the "skills prompted" step only when an interactive chooser will
+    // actually be shown (mirrors resolveSelectedSkills's prompt condition), so
+    // the funnel distinguishes "saw the picker" from "passed --skill".
+    const preselected = (options.skillNames ?? []).length > 0;
+    if (isInteractive(options) && !options.yes && !preselected) {
+      options.telemetry?.track("skills_cli skills prompted", {
+        availableCount: entries.length,
+        available: entries.map((entry) => entry.name).join(","),
+      });
+    }
+
     const selected = await resolveSelectedSkills(entries, options);
+    options.telemetry?.track("skills_cli skills selected", {
+      selected: selected.map((skill) => skill.name).join(","),
+      selectedCount: selected.length,
+      selectedAll: selected.length === entries.length,
+      preselected,
+    });
+
     const clients = await resolveSelectedClients(options);
-    const scope = options.scope ?? "user";
+    options.telemetry?.track("skills_cli clients selected", {
+      clients: clients.join(","),
+      clientCount: clients.length,
+    });
+
+    const scope = await resolveSelectedScope(options);
+    options.telemetry?.track("skills_cli scope selected", { scope });
+
     const written: string[] = [];
 
     for (const client of clients) {
@@ -269,11 +447,24 @@ export async function installSkills(
       }
     }
 
+    options.telemetry?.track("skills_cli install completed", {
+      skills: selected.map((skill) => skill.name).join(","),
+      clients: clients.join(","),
+      scope,
+      writtenCount: written.length,
+      dryRun: Boolean(options.dryRun),
+    });
+
     const instructionFiles = await maybeUpdateInstructions(
       selected.map((skill) => skill.name),
       baseDir,
       options,
     );
+    if (instructionFiles.length) {
+      options.telemetry?.track("skills_cli instructions updated", {
+        fileCount: instructionFiles.length,
+      });
+    }
 
     const githubActionPath =
       selected.some((skill) => skill.name === "visual-recap") &&
@@ -281,6 +472,65 @@ export async function installSkills(
         (await shouldPromptGithubAction(options, baseDir)))
         ? writePrVisualRecapWorkflow(baseDir, options)
         : undefined;
+    if (githubActionPath) {
+      options.telemetry?.track("skills_cli github action added");
+    }
+
+    // Register the hosted MCP server for app-backed skills (visual-plan /
+    // visual-recap → Agent-Native Plan, assets, design-exploration) so the
+    // agent can actually call them — not just read the SKILL.md. On by
+    // default; `--no-mcp` installs the skill files only. One registration per
+    // app, so visual-plan + visual-recap share a single "plan" server.
+    const mcpServers: InstalledMcpServer[] = [];
+    if (options.mcp !== false) {
+      const mcpClients: ClientId[] = clients.map((client) =>
+        client === "claude-code" ? "claude-code" : "codex",
+      );
+      const seenApps = new Set<string>();
+      for (const skill of selected) {
+        const app = resolveAppForSkill(skill.name);
+        if (!app || seenApps.has(app.appId)) continue;
+        seenApps.add(app.appId);
+        if (options.dryRun) {
+          mcpServers.push({
+            serverName: app.serverName,
+            mcpUrl: app.mcpUrl,
+            clients,
+            files: [],
+            authenticated: false,
+            guidance: [],
+          });
+          continue;
+        }
+        const registration = await registerMcpServer({
+          descriptor: {
+            serverName: app.serverName,
+            mcpUrl: app.mcpUrl,
+            aliases: app.aliases,
+            authMode: app.authMode,
+            hostedUrl: app.hostedUrl,
+          },
+          clients: mcpClients,
+          scope,
+          baseDir,
+          interactive: isInteractive(options),
+          log,
+        });
+        mcpServers.push({
+          serverName: app.serverName,
+          mcpUrl: app.mcpUrl,
+          clients,
+          files: [...new Set(registration.written.map((entry) => entry.file))],
+          authenticated: registration.authenticated,
+          guidance: registration.guidance,
+        });
+        options.telemetry?.track("skills_cli mcp registered", {
+          serverName: app.serverName,
+          clients: clients.join(","),
+          authenticated: registration.authenticated,
+        });
+      }
+    }
 
     log(
       `Resolved ${selected.length} skill${selected.length === 1 ? "" : "s"} from ${source.root}.`,
@@ -293,6 +543,7 @@ export async function installSkills(
       written,
       instructionFiles,
       githubActionPath,
+      mcpServers,
       dryRun: Boolean(options.dryRun),
     };
   } finally {
@@ -307,12 +558,14 @@ function defaultArgs(command: ParsedArgs["command"]): ParsedArgs {
     skillNames: [],
     clients: [],
     scope: "user",
+    scopeExplicit: false,
     yes: false,
     dryRun: false,
     printJson: false,
     instructionFiles: [],
     withGithubAction: false,
     force: false,
+    mcp: true,
   };
 }
 
@@ -403,6 +656,25 @@ async function resolveSelectedSkills(
     ...options,
     skillNames: selectedNames,
   });
+}
+
+async function resolveSelectedScope(
+  options: InstallSkillsOptions,
+): Promise<SkillScope> {
+  if (options.scope) return options.scope;
+  if (!isInteractive(options) || options.yes) return "user";
+
+  const answer = await promptLine(
+    [
+      "Where do you want to install these skills?",
+      "  1. project - this repo only (.agents / .claude in the current directory)",
+      "  2. user    - your home directory, available across all projects",
+      "Enter project or user [project]: ",
+    ].join("\n"),
+  );
+  const trimmed = answer.trim().toLowerCase();
+  if (trimmed === "2" || trimmed === "user" || trimmed === "u") return "user";
+  return "project";
 }
 
 async function resolveSelectedClients(

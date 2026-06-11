@@ -252,6 +252,127 @@ export function AnnotationHiddenStack<A extends RailAnnotation>({
   );
 }
 
+export function AnnotationInlineOverlayStack<A extends RailAnnotation>({
+  items,
+  ctx,
+  showMarker = false,
+}: {
+  items: ResolvedAnnotation<A>[];
+  ctx: BlockRenderContext;
+  showMarker?: boolean;
+}) {
+  const resolved = items.filter((item) => item.range);
+  const anchorRef = useRef<HTMLDivElement | null>(null);
+  const portalRef = useRef<HTMLDivElement | null>(null);
+  const [position, setPosition] = useState<{
+    top: number;
+    right: number;
+  } | null>(null);
+  const positionKey = resolved
+    .map(
+      (item) =>
+        `${item.index}:${item.marker}:${item.annotation.lines}:${item.annotation.label ?? ""}:${item.annotation.note}`,
+    )
+    .join("|");
+
+  useLayoutEffect(() => {
+    if (typeof window === "undefined") return;
+    const anchor = anchorRef.current;
+    if (!anchor) return;
+
+    let frame: number | null = null;
+    const updatePosition = () => {
+      const anchorRect = anchor.getBoundingClientRect();
+      const portalRect = portalRef.current?.getBoundingClientRect();
+      const viewportWidth = Math.max(
+        window.innerWidth || 0,
+        INLINE_OVERLAY_WIDTH + VIEWPORT_MARGIN * 2,
+      );
+      const viewportHeight = Math.max(
+        window.innerHeight || 0,
+        VIEWPORT_MARGIN * 2,
+      );
+      const width =
+        portalRect && portalRect.width > 0
+          ? portalRect.width
+          : Math.min(INLINE_OVERLAY_WIDTH, viewportWidth * 0.45);
+      const height =
+        portalRect && portalRect.height > 0 ? portalRect.height : 0;
+      setPosition(
+        resolveAnnotationInlineOverlayPosition(
+          {
+            right: anchorRect.right,
+            top: anchorRect.top,
+            height: anchorRect.height,
+          },
+          { width, height },
+          { width: viewportWidth, height: viewportHeight },
+        ),
+      );
+    };
+
+    updatePosition();
+    if (typeof window.requestAnimationFrame === "function") {
+      frame = window.requestAnimationFrame(updatePosition);
+    }
+    window.addEventListener("resize", updatePosition);
+    window.addEventListener("scroll", updatePosition, {
+      capture: true,
+      passive: true,
+    });
+    return () => {
+      if (frame != null && typeof window.cancelAnimationFrame === "function") {
+        window.cancelAnimationFrame(frame);
+      }
+      window.removeEventListener("resize", updatePosition);
+      window.removeEventListener("scroll", updatePosition, { capture: true });
+    };
+  }, [positionKey]);
+
+  if (resolved.length === 0) return null;
+
+  const portal =
+    typeof document === "undefined"
+      ? null
+      : createPortal(
+          <div
+            aria-hidden
+            ref={portalRef}
+            data-annotation-inline-overlay
+            className="pointer-events-none fixed z-50 flex w-[min(20rem,45vw)] flex-col gap-2"
+            style={{
+              top: position?.top ?? VIEWPORT_MARGIN,
+              right: position?.right ?? VIEWPORT_MARGIN,
+              visibility: position ? "visible" : "hidden",
+            }}
+          >
+            {resolved.map((item) => (
+              <AnnotationCard
+                key={item.index}
+                item={item}
+                ctx={ctx}
+                active
+                showMarker={showMarker}
+                className="border-amber-400/80 bg-amber-50/95 shadow-lg shadow-black/10 dark:border-amber-300/45 dark:bg-amber-300/[0.09] dark:shadow-black/40"
+              />
+            ))}
+          </div>,
+          document.body,
+        );
+
+  return (
+    <>
+      <div
+        aria-hidden
+        ref={anchorRef}
+        data-annotation-inline-overlay-anchor
+        className="pointer-events-none sticky right-3 z-20 ml-auto h-0 w-0 shrink-0 overflow-visible"
+      />
+      {portal}
+    </>
+  );
+}
+
 /* ── Hover popover (portal, anchored beside the code) ──────────────────────── */
 
 /** The geometry the hover card anchors to (in viewport coordinates). */
@@ -267,9 +388,34 @@ export interface AnnotationAnchor {
 }
 
 const HOVER_CARD_WIDTH = 280;
+const INLINE_OVERLAY_WIDTH = 320;
 const HOVER_CARD_GAP = 12;
 const VIEWPORT_MARGIN = 8;
 const SCROLL_HOVER_SUPPRESS_MS = 260;
+
+export function resolveAnnotationInlineOverlayPosition(
+  anchor: { right: number; top: number; height: number },
+  card: { width: number; height: number },
+  viewport: { width: number; height: number },
+): { top: number; right: number } {
+  const maxTop = Math.max(
+    VIEWPORT_MARGIN,
+    viewport.height - card.height - VIEWPORT_MARGIN,
+  );
+  const centeredTop = anchor.top + anchor.height / 2 - card.height / 2;
+  const maxRight = Math.max(
+    VIEWPORT_MARGIN,
+    viewport.width - card.width - VIEWPORT_MARGIN,
+  );
+
+  return {
+    top: Math.max(VIEWPORT_MARGIN, Math.min(centeredTop, maxTop)),
+    right: Math.max(
+      VIEWPORT_MARGIN,
+      Math.min(viewport.width - anchor.right, maxRight),
+    ),
+  };
+}
 
 export function resolveAnnotationHoverCardPosition(
   anchor: AnnotationAnchor,

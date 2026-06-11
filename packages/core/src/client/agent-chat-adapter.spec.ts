@@ -1347,6 +1347,85 @@ describe("createAgentChatAdapter", () => {
     );
   });
 
+  it("ignores recent terminal active runs from a previous turn during recovery", async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal("window", { dispatchEvent: vi.fn() });
+    vi.stubGlobal(
+      "CustomEvent",
+      class CustomEvent {
+        type: string;
+        detail: unknown;
+        constructor(type: string, init?: { detail?: unknown }) {
+          this.type = type;
+          this.detail = init?.detail;
+        }
+      },
+    );
+
+    let postCount = 0;
+    const fetchSpy = vi.fn(async (url: string, init?: RequestInit) => {
+      if (init?.method === "POST") {
+        postCount += 1;
+        return postCount === 1
+          ? emptySseResponse("run-current-empty")
+          : sseResponse([
+              { type: "text", text: "finished the new turn" },
+              { type: "done" },
+            ]);
+      }
+      if (url.includes("/runs/run-current-empty/events")) {
+        return jsonResponse({ error: "gone" }, 404);
+      }
+      if (url.includes("/runs/active")) {
+        return jsonResponse({
+          active: true,
+          runId: "run-old-completed",
+          threadId: "thread-terminal-mismatch",
+          turnId: "turn-old",
+          status: "completed",
+          heartbeatAt: Date.now(),
+        });
+      }
+      if (url.includes("/runs/run-old-completed/events")) {
+        return sseResponse([
+          { type: "text", text: "old completed turn" },
+          { type: "done" },
+        ]);
+      }
+      return jsonResponse({ error: "unexpected" }, 500);
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const adapter = createAgentChatAdapter({
+      apiUrl: "/_agent-native/agent-chat",
+      tabId: "chat-terminal-mismatch",
+      threadId: "thread-terminal-mismatch",
+    });
+    const promise = drain(
+      adapter.run({
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: "answer the new request" }],
+          },
+        ],
+        abortSignal: new AbortController().signal,
+      } as any),
+    );
+
+    await vi.advanceTimersByTimeAsync(1000);
+    const results = await promise;
+
+    expect(postCount).toBe(2);
+    expect(
+      fetchSpy.mock.calls.some(([url]) =>
+        String(url).includes("/runs/run-old-completed/events"),
+      ),
+    ).toBe(false);
+    const last = results.at(-1) as any;
+    expect(last.content.at(-1).text).toBe("finished the new turn");
+  });
+
   it("aborts and continues automatically when an SSE stream stays alive without progress", async () => {
     vi.useFakeTimers();
     vi.stubGlobal("window", { dispatchEvent: vi.fn() });
@@ -2608,6 +2687,15 @@ describe("createAgentChatAdapter", () => {
       ([ev]) => ev?.type === "agent-chat:run-error",
     );
     expect(errorEvent).toBeDefined();
+    const last = results.at(-1) as any;
+    const stalledTools = last.content.filter(
+      (part: any) =>
+        part.type === "tool-call" && part.toolName === "create-extension",
+    );
+    expect(stalledTools.length).toBeGreaterThan(0);
+    expect(stalledTools.every((part: any) => part.result !== undefined)).toBe(
+      true,
+    );
   });
 
   it("does NOT bail when create-extension is retried with a CHANGED payload after stream_ended", async () => {

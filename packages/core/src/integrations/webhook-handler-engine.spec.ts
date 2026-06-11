@@ -46,6 +46,10 @@ vi.mock("../agent/production-agent.js", () => ({
 
 vi.mock("../agent/engine/index.js", () => ({
   getStoredModelForEngine: getStoredModelForEngineMock,
+  normalizeModelForEngine: (
+    engine: { defaultModel?: string },
+    model: string | null | undefined,
+  ) => model ?? engine.defaultModel,
   resolveEngine: resolveEngineMock,
 }));
 

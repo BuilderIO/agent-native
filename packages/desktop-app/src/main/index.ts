@@ -70,6 +70,14 @@ import {
   type InterAppMessage,
   type LocalAppFolderInfo,
   type LocalAppFolderSelectResult,
+  type DesktopPlanFilesChooseFolderRequest,
+  type DesktopPlanFilesClearFolderRequest,
+  type DesktopPlanFilesFolder,
+  type DesktopPlanFilesFolderRequest,
+  type DesktopPlanFilesReadRequest,
+  type DesktopPlanFilesResult,
+  type DesktopPlanFilesWriteRequest,
+  type DesktopPlanMdxFolder,
   type UpdateStatus,
 } from "@shared/ipc-channels";
 import {
@@ -4567,6 +4575,510 @@ async function chooseLocalAppFolder(): Promise<LocalAppFolderSelectResult> {
   };
 }
 
+const PLAN_FILES_STORE_FILE = "plan-file-sync.json";
+const PLAN_TEXT_FILE_NAMES = [
+  "plan.mdx",
+  "canvas.mdx",
+  "prototype.mdx",
+  ".plan-state.json",
+] as const;
+const PLAN_OPTIONAL_TEXT_FILE_NAMES = [
+  "canvas.mdx",
+  "prototype.mdx",
+  ".plan-state.json",
+] as const;
+const PLAN_TEXT_FILE_MAX_BYTES = 2 * 1024 * 1024;
+const PLAN_ASSET_MAX_BYTES = 2 * 1024 * 1024;
+const PLAN_ASSETS_MAX_TOTAL_BYTES = 10 * 1024 * 1024;
+const PLAN_ASSET_FILENAME_PATTERN =
+  /^[A-Za-z0-9][A-Za-z0-9._-]*\.(png|jpe?g|gif|webp|svg)$/i;
+
+interface PlanFilesGrant {
+  path: string;
+  title?: string;
+  updatedAt?: string;
+}
+
+interface PlanFilesStore {
+  version: 1;
+  grants: Record<string, PlanFilesGrant>;
+}
+
+function planFilesStorePath(): string {
+  return path.join(app.getPath("userData"), PLAN_FILES_STORE_FILE);
+}
+
+function loadPlanFilesStore(): PlanFilesStore {
+  try {
+    const raw = JSON.parse(
+      fs.readFileSync(planFilesStorePath(), "utf-8"),
+    ) as Partial<PlanFilesStore>;
+    const grants: Record<string, PlanFilesGrant> = {};
+    if (raw.grants && typeof raw.grants === "object") {
+      for (const [planId, grant] of Object.entries(raw.grants)) {
+        if (!isValidPlanFilePlanId(planId)) continue;
+        if (!isObject(grant)) continue;
+        const folder = resolveUsablePlanFolder(firstStringValue(grant.path));
+        if (!folder) continue;
+        grants[planId] = {
+          path: folder,
+          title: firstStringValue(grant.title),
+          updatedAt: firstStringValue(grant.updatedAt),
+        };
+      }
+    }
+    return { version: 1, grants };
+  } catch {
+    return { version: 1, grants: {} };
+  }
+}
+
+function savePlanFilesStore(store: PlanFilesStore): void {
+  writeJsonFileAtomic(planFilesStorePath(), store);
+}
+
+function isValidPlanFilePlanId(value: unknown): value is string {
+  return (
+    typeof value === "string" && /^[A-Za-z0-9._:-]{1,200}$/.test(value.trim())
+  );
+}
+
+function sanitizePlanFilesTitle(value: unknown): string | undefined {
+  const title = firstStringValue(value)?.trim();
+  return title ? title.slice(0, 200) : undefined;
+}
+
+function planFilesFolderInfo(
+  planId: string,
+  grant: PlanFilesGrant,
+): DesktopPlanFilesFolder {
+  return {
+    name: path.basename(grant.path) || grant.path,
+    planId,
+    title: grant.title,
+    updatedAt: grant.updatedAt,
+  };
+}
+
+function getPlanFilesGrant(planId: string): PlanFilesGrant | null {
+  return loadPlanFilesStore().grants[planId] ?? null;
+}
+
+function setPlanFilesGrant(
+  planId: string,
+  grant: Omit<PlanFilesGrant, "updatedAt"> & { updatedAt?: string },
+): PlanFilesGrant {
+  const store = loadPlanFilesStore();
+  const next = {
+    path: grant.path,
+    title: grant.title,
+    updatedAt: grant.updatedAt ?? new Date().toISOString(),
+  };
+  store.grants[planId] = next;
+  savePlanFilesStore(store);
+  return next;
+}
+
+function clearPlanFilesGrant(planId: string): DesktopPlanFilesResult {
+  const store = loadPlanFilesStore();
+  const existing = store.grants[planId];
+  delete store.grants[planId];
+  savePlanFilesStore(store);
+  if (!existing) return { ok: false, error: "No local folder is linked." };
+  return {
+    ok: true,
+    folder: planFilesFolderInfo(planId, existing),
+  };
+}
+
+function normalizePlanFilesRequestPlanId(request: unknown): string | null {
+  if (!isObject(request)) return null;
+  const planId = firstStringValue(request.planId)?.trim();
+  return isValidPlanFilePlanId(planId) ? planId : null;
+}
+
+function isPlanFilesWebviewSender(event: IpcMainInvokeEvent): boolean {
+  const sender = event.sender;
+  if (sender.getType() !== "webview") return false;
+  if (activeAppId !== "plan") return false;
+  if (!activeWebviewContentsId || activeWebviewContentsId !== sender.id) {
+    return false;
+  }
+  const planApp = loadAppsForAuthContext().find(
+    (candidate) => candidate.id === "plan" && candidate.enabled !== false,
+  );
+  if (!planApp) return false;
+
+  let url: URL;
+  try {
+    url = new URL(sender.getURL());
+  } catch {
+    return false;
+  }
+
+  const trustedOrigin = getAppOrigin(planApp);
+  if (trustedOrigin && url.origin === trustedOrigin) return true;
+  return (
+    IS_DEV &&
+    url.origin === `http://localhost:${FRAME_PORT}` &&
+    url.searchParams.get("app") === "plan"
+  );
+}
+
+function requirePlanFilesWebviewAccess(
+  event: IpcMainInvokeEvent,
+): DesktopPlanFilesResult | null {
+  if (isPlanFilesWebviewSender(event)) return null;
+  return {
+    ok: false,
+    error: "Plan local files are only available to the Plan desktop app.",
+  };
+}
+
+function isDesktopPlanMdxFolder(value: unknown): value is DesktopPlanMdxFolder {
+  if (!isObject(value)) return false;
+  if (typeof value["plan.mdx"] !== "string" || !value["plan.mdx"].trim()) {
+    return false;
+  }
+  for (const file of PLAN_OPTIONAL_TEXT_FILE_NAMES) {
+    if (value[file] !== undefined && typeof value[file] !== "string") {
+      return false;
+    }
+  }
+  const assets = value["assets/"];
+  if (assets !== undefined) {
+    if (!isObject(assets)) return false;
+    for (const [filename, base64] of Object.entries(assets)) {
+      if (!PLAN_ASSET_FILENAME_PATTERN.test(filename)) return false;
+      if (typeof base64 !== "string") return false;
+    }
+  }
+  return true;
+}
+
+function assertPlanFileTextSize(file: string, content: string): void {
+  if (Buffer.byteLength(content, "utf-8") > PLAN_TEXT_FILE_MAX_BYTES) {
+    throw new Error(`${file} is larger than 2 MB.`);
+  }
+}
+
+function assertInsidePlanFolder(folder: string, target: string): string {
+  const resolvedFolder = path.resolve(folder);
+  const resolvedTarget = path.resolve(target);
+  const relative = path.relative(resolvedFolder, resolvedTarget);
+  if (
+    relative === "" ||
+    (!relative.startsWith("..") && !path.isAbsolute(relative))
+  ) {
+    return resolvedTarget;
+  }
+  throw new Error("Plan file path escaped the linked folder.");
+}
+
+function resolveUsablePlanFolder(value: unknown): string | null {
+  const folder = resolveUsableDirectory(value);
+  if (!folder) return null;
+  try {
+    const stat = fs.lstatSync(folder);
+    if (stat.isSymbolicLink() || !stat.isDirectory()) return null;
+    return folder;
+  } catch {
+    return null;
+  }
+}
+
+async function assertUsablePlanFolder(folder: string): Promise<void> {
+  const stat = await fs.promises.lstat(folder);
+  if (stat.isSymbolicLink()) {
+    throw new Error("Linked plan folders cannot be symlinks.");
+  }
+  if (!stat.isDirectory()) {
+    throw new Error("The linked plan folder is not a directory.");
+  }
+}
+
+async function assertNoSymlink(filePath: string): Promise<void> {
+  try {
+    const stat = await fs.promises.lstat(filePath);
+    if (stat.isSymbolicLink()) {
+      throw new Error("Linked plan folders cannot contain symlinked files.");
+    }
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code;
+    if (code === "ENOENT") return;
+    throw err;
+  }
+}
+
+async function writePlanTextFile(
+  folder: string,
+  file: (typeof PLAN_TEXT_FILE_NAMES)[number],
+  content: string,
+): Promise<void> {
+  assertPlanFileTextSize(file, content);
+  const filePath = assertInsidePlanFolder(folder, path.join(folder, file));
+  await assertNoSymlink(filePath);
+  await fs.promises.writeFile(filePath, content, "utf-8");
+}
+
+async function removePlanTextFile(
+  folder: string,
+  file: (typeof PLAN_OPTIONAL_TEXT_FILE_NAMES)[number],
+): Promise<void> {
+  const filePath = assertInsidePlanFolder(folder, path.join(folder, file));
+  await assertNoSymlink(filePath);
+  await fs.promises.rm(filePath, { force: true });
+}
+
+async function writePlanAssets(
+  folder: string,
+  assets: Record<string, string> | undefined,
+): Promise<string[]> {
+  const assetsPath = assertInsidePlanFolder(
+    folder,
+    path.join(folder, "assets"),
+  );
+  await assertNoSymlink(assetsPath);
+
+  if (!assets || Object.keys(assets).length === 0) {
+    await fs.promises.rm(assetsPath, { recursive: true, force: true });
+    return [];
+  }
+
+  await fs.promises.mkdir(assetsPath, { recursive: true });
+  const written: string[] = [];
+  let totalBytes = 0;
+  const expected = new Set<string>();
+
+  for (const [filename, base64] of Object.entries(assets)) {
+    if (!PLAN_ASSET_FILENAME_PATTERN.test(filename)) continue;
+    expected.add(filename);
+    const filePath = assertInsidePlanFolder(
+      assetsPath,
+      path.join(assetsPath, filename),
+    );
+    await assertNoSymlink(filePath);
+    const bytes = Buffer.from(base64, "base64");
+    if (bytes.byteLength > PLAN_ASSET_MAX_BYTES) {
+      throw new Error(`${filename} is larger than 2 MB.`);
+    }
+    totalBytes += bytes.byteLength;
+    if (totalBytes > PLAN_ASSETS_MAX_TOTAL_BYTES) {
+      throw new Error("Plan assets are larger than 10 MB total.");
+    }
+    await fs.promises.writeFile(filePath, bytes);
+    written.push(`assets/${filename}`);
+  }
+
+  try {
+    const entries = await fs.promises.readdir(assetsPath, {
+      withFileTypes: true,
+    });
+    await Promise.all(
+      entries.map(async (entry) => {
+        if (!entry.isFile() || expected.has(entry.name)) return;
+        const stalePath = assertInsidePlanFolder(
+          assetsPath,
+          path.join(assetsPath, entry.name),
+        );
+        await assertNoSymlink(stalePath);
+        await fs.promises.rm(stalePath, { force: true });
+      }),
+    );
+  } catch {
+    // Stale asset cleanup is best-effort.
+  }
+
+  return written;
+}
+
+async function writePlanMdxFolder(
+  folder: string,
+  mdx: DesktopPlanMdxFolder,
+): Promise<string[]> {
+  await assertUsablePlanFolder(folder);
+  await fs.promises.mkdir(folder, { recursive: true });
+  await writePlanTextFile(folder, "plan.mdx", mdx["plan.mdx"]);
+  const written = ["plan.mdx"];
+
+  for (const file of PLAN_OPTIONAL_TEXT_FILE_NAMES) {
+    const content = mdx[file];
+    if (typeof content === "string" && content.length > 0) {
+      await writePlanTextFile(folder, file, content);
+      written.push(file);
+    } else {
+      await removePlanTextFile(folder, file);
+    }
+  }
+
+  written.push(...(await writePlanAssets(folder, mdx["assets/"])));
+  return written;
+}
+
+async function readOptionalPlanTextFile(
+  folder: string,
+  file: (typeof PLAN_TEXT_FILE_NAMES)[number],
+): Promise<string | undefined> {
+  const filePath = assertInsidePlanFolder(folder, path.join(folder, file));
+  await assertNoSymlink(filePath);
+  try {
+    const stat = await fs.promises.stat(filePath);
+    if (!stat.isFile()) return undefined;
+    if (stat.size > PLAN_TEXT_FILE_MAX_BYTES) {
+      throw new Error(`${file} is larger than 2 MB.`);
+    }
+    return await fs.promises.readFile(filePath, "utf-8");
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code;
+    if (code === "ENOENT") return undefined;
+    throw err;
+  }
+}
+
+async function readPlanAssets(
+  folder: string,
+): Promise<Record<string, string> | undefined> {
+  const assetsPath = assertInsidePlanFolder(
+    folder,
+    path.join(folder, "assets"),
+  );
+  await assertNoSymlink(assetsPath);
+  let entries: fs.Dirent[];
+  try {
+    entries = await fs.promises.readdir(assetsPath, { withFileTypes: true });
+  } catch {
+    return undefined;
+  }
+
+  const assets: Record<string, string> = {};
+  let totalBytes = 0;
+  for (const entry of entries) {
+    if (!entry.isFile() || !PLAN_ASSET_FILENAME_PATTERN.test(entry.name)) {
+      continue;
+    }
+    const filePath = assertInsidePlanFolder(
+      assetsPath,
+      path.join(assetsPath, entry.name),
+    );
+    await assertNoSymlink(filePath);
+    const stat = await fs.promises.stat(filePath);
+    if (stat.size > PLAN_ASSET_MAX_BYTES) continue;
+    totalBytes += stat.size;
+    if (totalBytes > PLAN_ASSETS_MAX_TOTAL_BYTES) break;
+    const bytes = await fs.promises.readFile(filePath);
+    assets[entry.name] = bytes.toString("base64");
+  }
+
+  return Object.keys(assets).length > 0 ? assets : undefined;
+}
+
+async function readPlanMdxFolder(
+  folder: string,
+): Promise<DesktopPlanMdxFolder> {
+  await assertUsablePlanFolder(folder);
+  const plan = await readOptionalPlanTextFile(folder, "plan.mdx");
+  if (!plan) throw new Error("The linked folder does not contain plan.mdx.");
+  const mdx: DesktopPlanMdxFolder = { "plan.mdx": plan };
+  for (const file of PLAN_OPTIONAL_TEXT_FILE_NAMES) {
+    const content = await readOptionalPlanTextFile(folder, file);
+    if (content !== undefined) mdx[file] = content;
+  }
+  const assets = await readPlanAssets(folder);
+  if (assets) mdx["assets/"] = assets;
+  return mdx;
+}
+
+function getRequiredPlanFilesGrant(planId: string): PlanFilesGrant {
+  const grant = getPlanFilesGrant(planId);
+  if (!grant) {
+    throw new Error("Choose a local folder before syncing this plan.");
+  }
+  const folder = resolveUsablePlanFolder(grant.path);
+  if (!folder) {
+    throw new Error("The linked local folder no longer exists.");
+  }
+  return { ...grant, path: folder };
+}
+
+async function choosePlanFilesFolder(
+  request: DesktopPlanFilesChooseFolderRequest,
+): Promise<DesktopPlanFilesResult> {
+  const planId = normalizePlanFilesRequestPlanId(request);
+  if (!planId) return { ok: false, error: "Invalid plan ID." };
+
+  const result = await dialog.showOpenDialog({
+    title: "Choose local plan folder",
+    message: "Choose the folder that contains this plan's MDX files.",
+    properties: ["openDirectory", "createDirectory"],
+  });
+  if (result.canceled || result.filePaths.length === 0) {
+    return { ok: false, canceled: true, error: "No folder selected." };
+  }
+  const folder = resolveUsablePlanFolder(result.filePaths[0]);
+  if (!folder) {
+    return {
+      ok: false,
+      error: "Choose an existing folder that is not a symlink.",
+    };
+  }
+
+  const grant = setPlanFilesGrant(planId, {
+    path: folder,
+    title: sanitizePlanFilesTitle(request.title),
+  });
+  return { ok: true, folder: planFilesFolderInfo(planId, grant) };
+}
+
+async function writePlanFilesForRequest(
+  request: DesktopPlanFilesWriteRequest,
+): Promise<DesktopPlanFilesResult> {
+  const planId = normalizePlanFilesRequestPlanId(request);
+  if (!planId) return { ok: false, error: "Invalid plan ID." };
+  if (!isDesktopPlanMdxFolder(request.mdx)) {
+    return { ok: false, error: "Invalid Plan MDX folder." };
+  }
+
+  try {
+    const grant = getRequiredPlanFilesGrant(planId);
+    const files = await writePlanMdxFolder(grant.path, request.mdx);
+    const updatedGrant = setPlanFilesGrant(planId, {
+      path: grant.path,
+      title: sanitizePlanFilesTitle(request.title) ?? grant.title,
+    });
+    return {
+      ok: true,
+      folder: planFilesFolderInfo(planId, updatedGrant),
+      files,
+    };
+  } catch (err) {
+    return {
+      ok: false,
+      error: err instanceof Error ? err.message : String(err),
+    };
+  }
+}
+
+async function readPlanFilesForRequest(
+  request: DesktopPlanFilesReadRequest,
+): Promise<DesktopPlanFilesResult> {
+  const planId = normalizePlanFilesRequestPlanId(request);
+  if (!planId) return { ok: false, error: "Invalid plan ID." };
+
+  try {
+    const grant = getRequiredPlanFilesGrant(planId);
+    return {
+      ok: true,
+      folder: planFilesFolderInfo(planId, grant),
+      mdx: await readPlanMdxFolder(grant.path),
+    };
+  } catch (err) {
+    return {
+      ok: false,
+      error: err instanceof Error ? err.message : String(err),
+    };
+  }
+}
+
 function quoteWindowsCmdPath(value: string): string {
   return `"${value.replaceAll('"', '""')}"`;
 }
@@ -5768,6 +6280,72 @@ ipcMain.handle(
   (): Promise<LocalAppFolderSelectResult> => chooseLocalAppFolder(),
 );
 
+ipcMain.handle(
+  IPC.PLAN_FILES_GET_FOLDER,
+  (
+    event: IpcMainInvokeEvent,
+    request: DesktopPlanFilesFolderRequest,
+  ): DesktopPlanFilesResult => {
+    const denied = requirePlanFilesWebviewAccess(event);
+    if (denied) return denied;
+    const planId = normalizePlanFilesRequestPlanId(request);
+    if (!planId) return { ok: false, error: "Invalid plan ID." };
+    const grant = getPlanFilesGrant(planId);
+    if (!grant) return { ok: false, error: "No local folder is linked." };
+    return { ok: true, folder: planFilesFolderInfo(planId, grant) };
+  },
+);
+
+ipcMain.handle(
+  IPC.PLAN_FILES_CHOOSE_FOLDER,
+  (
+    event: IpcMainInvokeEvent,
+    request: DesktopPlanFilesChooseFolderRequest,
+  ): Promise<DesktopPlanFilesResult> => {
+    const denied = requirePlanFilesWebviewAccess(event);
+    if (denied) return Promise.resolve(denied);
+    return choosePlanFilesFolder(request);
+  },
+);
+
+ipcMain.handle(
+  IPC.PLAN_FILES_WRITE,
+  (
+    event: IpcMainInvokeEvent,
+    request: DesktopPlanFilesWriteRequest,
+  ): Promise<DesktopPlanFilesResult> => {
+    const denied = requirePlanFilesWebviewAccess(event);
+    if (denied) return Promise.resolve(denied);
+    return writePlanFilesForRequest(request);
+  },
+);
+
+ipcMain.handle(
+  IPC.PLAN_FILES_READ,
+  (
+    event: IpcMainInvokeEvent,
+    request: DesktopPlanFilesReadRequest,
+  ): Promise<DesktopPlanFilesResult> => {
+    const denied = requirePlanFilesWebviewAccess(event);
+    if (denied) return Promise.resolve(denied);
+    return readPlanFilesForRequest(request);
+  },
+);
+
+ipcMain.handle(
+  IPC.PLAN_FILES_CLEAR_FOLDER,
+  (
+    event: IpcMainInvokeEvent,
+    request: DesktopPlanFilesClearFolderRequest,
+  ): DesktopPlanFilesResult => {
+    const denied = requirePlanFilesWebviewAccess(event);
+    if (denied) return denied;
+    const planId = normalizePlanFilesRequestPlanId(request);
+    if (!planId) return { ok: false, error: "Invalid plan ID." };
+    return clearPlanFilesGrant(planId);
+  },
+);
+
 // ---------- IPC: Frame settings ----------
 
 ipcMain.handle(IPC.FRAME_LOAD, () => {
@@ -6650,6 +7228,25 @@ app.on("web-contents-created", (_event, contents) => {
         key: input.key,
         shiftKey: input.shift,
         altKey: true,
+        ctrlKey: input.control,
+      });
+      return;
+    }
+
+    // Ctrl+Option+X: switch to code tab
+    if (
+      input.control &&
+      input.alt &&
+      !input.meta &&
+      !input.shift &&
+      key === "x"
+    ) {
+      event.preventDefault();
+      win.webContents.send("shortcut:keydown", {
+        key: "x",
+        shiftKey: false,
+        altKey: true,
+        ctrlKey: true,
       });
       return;
     }
@@ -6676,6 +7273,7 @@ app.on("web-contents-created", (_event, contents) => {
         key: isAgentSidebarToggleShortcut ? "\\" : input.key,
         shiftKey: input.shift,
         altKey: false,
+        ctrlKey: input.control,
       });
     }
   });
@@ -6978,6 +7576,7 @@ app.whenReady().then(() => {
       win.webContents.send("shortcut:keydown", {
         key: "r",
         shiftKey: input.shift,
+        ctrlKey: input.control,
       });
       return;
     }
@@ -6988,6 +7587,7 @@ app.whenReady().then(() => {
       win.webContents.send("shortcut:keydown", {
         key: "f",
         shiftKey: input.shift,
+        ctrlKey: input.control,
       });
       return;
     }
@@ -6998,6 +7598,7 @@ app.whenReady().then(() => {
       win.webContents.send("shortcut:keydown", {
         key: "l",
         shiftKey: input.shift,
+        ctrlKey: input.control,
       });
       return;
     }
@@ -7012,6 +7613,7 @@ app.whenReady().then(() => {
       win.webContents.send("shortcut:keydown", {
         key: "\\",
         shiftKey: false,
+        ctrlKey: input.control,
       });
       return;
     }

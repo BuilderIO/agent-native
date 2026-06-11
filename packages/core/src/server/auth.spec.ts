@@ -1,18 +1,24 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import {
+  DEFAULT_SSR_CACHE_CONTROL,
+  DEFAULT_SSR_CDN_CACHE_CONTROL,
+  DEFAULT_SSR_NETLIFY_CDN_CACHE_CONTROL,
+} from "../shared/cache-control.js";
 
-const LOGIN_HTML_CACHE_CONTROL =
-  "public, max-age=5, stale-while-revalidate=604800, stale-if-error=3600";
-const LOGIN_HTML_CDN_CACHE_CONTROL = LOGIN_HTML_CACHE_CONTROL;
-const LOGIN_HTML_NETLIFY_CDN_CACHE_CONTROL =
-  "public, durable, max-age=5, stale-while-revalidate=604800, stale-if-error=3600";
-
+// The login page is the public homepage of every app and is CDN-cached on the
+// same short-fresh / long-SWR policy as the rest of the server shell. Its HTML
+// is intentionally env-INDEPENDENT — it always renders the configured sign-in
+// method (e.g. a Google-only app always renders a working Google button), and
+// per-user / per-config state is resolved client-side after load. So a cached
+// copy is never "wrong": there is no server-config branch baked into it that a
+// stale copy could freeze. Disabling caching here (private, no-store) is wrong.
 function expectLoginHtmlCacheHeaders(response: Response) {
-  expect(response.headers.get("Cache-Control")).toBe(LOGIN_HTML_CACHE_CONTROL);
+  expect(response.headers.get("Cache-Control")).toBe(DEFAULT_SSR_CACHE_CONTROL);
   expect(response.headers.get("CDN-Cache-Control")).toBe(
-    LOGIN_HTML_CDN_CACHE_CONTROL,
+    DEFAULT_SSR_CDN_CACHE_CONTROL,
   );
   expect(response.headers.get("Netlify-CDN-Cache-Control")).toBe(
-    LOGIN_HTML_NETLIFY_CDN_CACHE_CONTROL,
+    DEFAULT_SSR_NETLIFY_CDN_CACHE_CONTROL,
   );
 }
 

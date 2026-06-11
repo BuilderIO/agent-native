@@ -52,6 +52,7 @@
     "guard:no-error-string-returns": "node scripts/guard-no-error-string-returns.mjs",
     "guard:no-action-twin-routes": "node scripts/guard-no-action-twin-routes.mjs",
     "guards": "pnpm guard:no-drizzle-push && pnpm guard:no-unscoped-queries && pnpm guard:no-env-credentials && pnpm guard:no-unscoped-credentials && pnpm guard:no-env-mutation && pnpm guard:no-localhost-fallback && pnpm guard:google-auth-redirects && pnpm guard:db-tool-scoping && pnpm guard:template-list && pnpm guard:workspace-skills && pnpm guard:public-packages && pnpm guard:no-generated-artifacts && pnpm guard:extension-no-public && pnpm guard:no-one-off-mcp-app-html && pnpm guard:plan-marketplace && pnpm guard:no-error-string-returns && pnpm guard:no-action-twin-routes",
+    "sync:netlify-env": "tsx scripts/sync-template-netlify-env.ts",
     "sync:workspace-skills": "tsx scripts/sync-workspace-core-skills.ts",
     "sync:plan-marketplace": "tsx scripts/sync-plan-marketplace.ts",
     "changeset": "changeset",

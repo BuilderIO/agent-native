@@ -1062,13 +1062,6 @@ export function MultiTabAssistantChat({
                 ]
               : []),
           ];
-
-          // Ensure the current model shows in the list even if it's not
-          // in BUILDER_SUPPORTED_MODELS (e.g. custom model string).
-          if (currentModel && !builderModels.includes(currentModel)) {
-            const firstGroup = groups[0];
-            if (firstGroup) firstGroup.models.unshift(currentModel);
-          }
         } else {
           // No Builder connection — show SDK engines this app can run.
           const allowedEngines = new Set([

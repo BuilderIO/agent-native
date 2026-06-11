@@ -7,6 +7,8 @@ import {
   intendedHrefFromClick,
   isDynamicImportFailureMessage,
   isRouteModuleReloadMessage,
+  recoverFromStaleChunkError,
+  reloadForStaleChunk,
   rememberIntendedNavigation,
 } from "./route-chunk-recovery.js";
 
@@ -52,6 +54,16 @@ function createFakeWindow(
     pushState: originalPushState,
     replaceState: originalReplaceState,
   };
+  const sessionStore = new Map<string, string>();
+  const sessionStorage = {
+    getItem: vi.fn((key: string) => sessionStore.get(key) ?? null),
+    setItem: vi.fn((key: string, value: string) => {
+      sessionStore.set(key, value);
+    }),
+    removeItem: vi.fn((key: string) => {
+      sessionStore.delete(key);
+    }),
+  };
   const fakeWindow = {
     document: {
       addEventListener: vi.fn((type: string, listener: EventListener) => {
@@ -63,6 +75,7 @@ function createFakeWindow(
     },
     location: fakeLocation,
     history: fakeHistory,
+    sessionStorage,
     navigator: {
       userAgent: opts.userAgent ?? "Mozilla/5.0",
     },
@@ -422,5 +435,83 @@ describe("route chunk recovery", () => {
 
     expect(fakeLocation.assign).not.toHaveBeenCalled();
     expect(originalReload).toHaveBeenCalledOnce();
+  });
+
+  it("reloads the current page once for a stale chunk, then respects the cooldown", () => {
+    const { fakeWindow, fakeLocation } = createFakeWindow(
+      "https://example.com/dispatch/apps",
+    );
+
+    expect(reloadForStaleChunk(fakeWindow, 1_000)).toBe(true);
+    expect(fakeLocation.assign).toHaveBeenCalledWith(
+      "https://example.com/dispatch/apps",
+    );
+
+    // Within the cooldown window: do not reload again, so genuinely
+    // unreachable assets surface to Sentry instead of thrashing.
+    expect(reloadForStaleChunk(fakeWindow, 5_000)).toBe(false);
+    expect(fakeLocation.assign).toHaveBeenCalledTimes(1);
+
+    // After the cooldown a later stale chunk can recover again.
+    expect(reloadForStaleChunk(fakeWindow, 20_000)).toBe(true);
+    expect(fakeLocation.assign).toHaveBeenCalledTimes(2);
+  });
+
+  it("reloads the current page when an unhandled dynamic import rejection has no fresh target", () => {
+    const { fakeWindow, fakeLocation, dispatchWindow } = createFakeWindow(
+      "https://example.com/dispatch/apps",
+    );
+
+    installRouteChunkRecovery(fakeWindow);
+
+    const preventDefault = vi.fn();
+    dispatchWindow("unhandledrejection", {
+      reason: new Error(
+        "Failed to fetch dynamically imported module: https://example.com/dispatch/assets/AnalysisDetail-stale.js",
+      ),
+      preventDefault,
+    } as unknown as PromiseRejectionEvent);
+
+    expect(fakeLocation.assign).toHaveBeenCalledWith(
+      "https://example.com/dispatch/apps",
+    );
+    expect(preventDefault).toHaveBeenCalled();
+  });
+
+  it("recoverFromStaleChunkError only recovers dynamic import failures", () => {
+    const { fakeWindow, fakeLocation } = createFakeWindow();
+
+    expect(
+      recoverFromStaleChunkError(new Error("totally unrelated"), fakeWindow),
+    ).toBe(false);
+    expect(fakeLocation.assign).not.toHaveBeenCalled();
+
+    expect(
+      recoverFromStaleChunkError(
+        new Error(
+          "Failed to fetch dynamically imported module: https://example.com/dispatch/assets/x.js",
+        ),
+        fakeWindow,
+      ),
+    ).toBe(true);
+    expect(fakeLocation.assign).toHaveBeenCalledOnce();
+  });
+
+  it("does not auto-reload stale chunks inside Agent Native desktop", () => {
+    const { fakeWindow, fakeLocation } = createFakeWindow(
+      "https://example.com/dispatch/apps",
+      { userAgent: "Mozilla/5.0 Electron/41.2.2 AgentNativeDesktop/0.1.7" },
+    );
+
+    expect(reloadForStaleChunk(fakeWindow, 1_000)).toBe(false);
+    expect(
+      recoverFromStaleChunkError(
+        new Error(
+          "Failed to fetch dynamically imported module: https://example.com/dispatch/assets/x.js",
+        ),
+        fakeWindow,
+      ),
+    ).toBe(false);
+    expect(fakeLocation.assign).not.toHaveBeenCalled();
   });
 });

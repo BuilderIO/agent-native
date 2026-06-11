@@ -500,45 +500,6 @@ function injectDefaultSocialImageMeta(html, imageUrl) {
   return html.slice(0, headCloseIdx) + tags.join("") + html.slice(headCloseIdx);
 }
 
-const PRIVATE_NO_STORE = "private, no-store";
-const ANONYMOUS_SESSION_COOKIE_NAMES = new Set(["an_docs_session"]);
-const BETTER_AUTH_SESSION_COOKIE_RE = /\\.session_(?:token|data)$/;
-const EMBED_SESSION_COOKIE = "an_embed_session";
-const AN_COOKIE_NAME = "an_session";
-const BETTER_AUTH_COOKIE_PREFIX = "an";
-
-function isAuthenticatedCookieName(name) {
-  if (ANONYMOUS_SESSION_COOKIE_NAMES.has(name)) return false;
-  const bareName = name.replace(/^__(?:Secure|Host)-/, "");
-  return (
-    bareName === AN_COOKIE_NAME ||
-    bareName === EMBED_SESSION_COOKIE ||
-    bareName === "an_session_workspace" ||
-    bareName.startsWith("an_session_") ||
-    bareName === BETTER_AUTH_COOKIE_PREFIX + ".session_token" ||
-    bareName === BETTER_AUTH_COOKIE_PREFIX + ".session_data" ||
-    BETTER_AUTH_SESSION_COOKIE_RE.test(bareName)
-  );
-}
-
-function requestHasAuthSignal(request) {
-  const headers = request.headers;
-  if (headers.get("authorization")) return true;
-  const cookieHeader = headers.get("cookie");
-  if (cookieHeader) {
-    const hasAuth = cookieHeader
-      .split(";")
-      .map((c) => c.trim().split("=", 1)[0]?.trim())
-      .filter(Boolean)
-      .some(isAuthenticatedCookieName);
-    if (hasAuth) return true;
-  }
-  const url = new URL(request.url);
-  if (url.searchParams.has("__an_embed_token")) return true;
-  if (url.searchParams.has("_session")) return true;
-  return false;
-}
-
 function isSsrHtmlOrDataResponse(headers, status, pathname) {
   if (status < 200 || status >= 400) return false;
   const contentType = (headers.get("content-type") || "").toLowerCase();
@@ -547,41 +508,26 @@ function isSsrHtmlOrDataResponse(headers, status, pathname) {
 }
 
 /**
- * Apply the correct SSR cache policy to the response headers.
+ * Apply the SSR cache policy to the response headers.
  *
- * Anonymous requests get the public stale-while-revalidate default so the
- * CDN can serve shared app-shell HTML and React Router loader data without
- * hammering origin.
- *
- * Authenticated requests must never be publicly CDN-cached: the loader may
- * have embedded session-personalized data. A route-provided Cache-Control is
- * respected; otherwise the fallback is private/no-store.
+ * SSR IS A PUBLIC, HARD-CDN-CACHED SHELL — SERVED IDENTICALLY TO EVERYONE.
+ * Every SSR HTML / React Router .data response gets the same public
+ * stale-while-revalidate policy for ALL visitors, authenticated or not. The SSR
+ * output is impersonal (the handler never reads the request's session/cookies),
+ * so it is safe to hard-cache one shared copy at the edge. Do NOT reintroduce
+ * per-user / cookie-based cache variation here (no private, no no-store, no
+ * "authenticated then don't cache" branch) — that makes every logged-in
+ * visitor's pages uncacheable. Per-user state is resolved client-side instead.
  */
-function applyDefaultSsrCacheHeader(headers, status, pathname, hasAuthSignal) {
+function applyDefaultSsrCacheHeader(headers, status, pathname) {
   if (!isSsrHtmlOrDataResponse(headers, status, pathname)) return;
-
-  if (hasAuthSignal) {
-    // A route that explicitly opts into public caching (e.g. a share page that
-    // accepts an optional auth cookie) can signal intent via a "public" directive.
-    // Any other route-level or framework-default value (no-cache, private, unset)
-    // is overridden with private/no-store so no shared CDN cache stores a
-    // potentially personalized response.
-    const existingCc = headers.get("cache-control") || "";
-    if (!existingCc.includes("public")) {
-      headers.set("cache-control", PRIVATE_NO_STORE);
-    }
-    // Never propagate CDN-specific cache headers on authenticated responses.
-    headers.delete("cdn-cache-control");
-    headers.delete("netlify-cdn-cache-control");
-    return;
-  }
 
   headers.set("cache-control", DEFAULT_SSR_CACHE_CONTROL);
   headers.set("cdn-cache-control", DEFAULT_SSR_CDN_CACHE_CONTROL);
   // Netlify function responses are dynamic by default and can otherwise show
   // Cache-Status fwd=bypass even with Cache-Control: public. Keep this
   // Netlify-specific header so SSR HTML/.data are served from the shared
-  // durable CDN cache instead of stampeding origin under anonymous visitors.
+  // durable CDN cache instead of stampeding origin — for every visitor.
   headers.set("netlify-cdn-cache-control", DEFAULT_SSR_NETLIFY_CDN_CACHE_CONTROL);
 }
 
@@ -619,10 +565,10 @@ function applyImmutableAssetCacheHeaders(response, request) {
   });
 }
 
-async function rewriteMountedResponse(response, basePath, pathname, request, hasAuthSignal) {
+async function rewriteMountedResponse(response, basePath, pathname, request) {
   const sentryClientConfigScript = getSentryClientConfigScript();
   const headers = new Headers(response.headers);
-  applyDefaultSsrCacheHeader(headers, response.status, pathname, hasAuthSignal);
+  applyDefaultSsrCacheHeader(headers, response.status, pathname);
   applyDefaultSpeculationRulesHeader(headers, response.status, basePath);
 
   const location = headers.get("location");
@@ -743,7 +689,6 @@ ${actionRegistrations.join("\n")}
       return new Response(null, { status: 404 });
     }
     const request = requestWithPathname(event.req, p);
-    const hasAuthSignal = requestHasAuthSignal(event.req);
     if (event.req.method === "HEAD") {
       const getRequest = requestWithMethod(request, "GET");
       const response = await rrHandler(getRequest);
@@ -755,11 +700,10 @@ ${actionRegistrations.join("\n")}
         }),
         basePath,
         p,
-        getRequest,
-        hasAuthSignal
+        getRequest
       );
     }
-    return rewriteMountedResponse(await rrHandler(request), basePath, p, request, hasAuthSignal);
+    return rewriteMountedResponse(await rrHandler(request), basePath, p, request);
   }));
 
   _handler = app.fetch.bind(app);

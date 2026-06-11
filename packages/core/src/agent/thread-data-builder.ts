@@ -32,6 +32,9 @@ interface BuildAssistantMessageOptions {
 type AssistantMessage = NonNullable<ReturnType<typeof buildAssistantMessage>>;
 type UserMessage = ReturnType<typeof buildUserMessage>;
 
+const INTERRUPTED_TOOL_RESULT =
+  "Interrupted before this tool returned a result.";
+
 const MAX_STORED_ATTACHMENT_CHARS = 60_000;
 /**
  * When no file-upload provider is configured we fall back to storing base64
@@ -206,6 +209,9 @@ export function buildAssistantMessage(
   if (content.length === 0) return null;
 
   const continued = endedAtInternalContinuationBoundary;
+  if (!continued) {
+    settleInterruptedToolCalls(content);
+  }
 
   const custom: Record<string, unknown> = {};
   if (options.turnId) custom.turnId = options.turnId;
@@ -279,6 +285,14 @@ function messageText(content: unknown): string {
     )
     .map((part: any) => part.text)
     .join("");
+}
+
+function settleInterruptedToolCalls(content: ContentPart[]): void {
+  for (const part of content) {
+    if (part.type === "tool-call" && part.result === undefined) {
+      part.result = INTERRUPTED_TOOL_RESULT;
+    }
+  }
 }
 
 function isTerminalAssistantStatus(status: unknown): boolean {

@@ -63,7 +63,7 @@ The resource shell owns the outer host size. `embedApp({ height })` defaults to 
 
 Claude uses the single-frame transplant path by default. You can also force it in other hosts with `embedMode: "transplant"` or `frame: "transplant"` when debugging host module-loading behavior. You can force the nested diagnostic iframe with `embedMode: "iframe"`, `renderMode: "iframe"`, `nested: true`, or `frame: "iframe"`. If the iframe is blocked, `embedApp()` replaces it with an open-app fallback: the user can retry inline, open a freshly minted embed session through the host, or use the visible route URL. Keep the action's `link` target useful on its own because it is still the universal escape hatch.
 
-When testing Claude through ngrok, use a production build (`agent-native build` then `agent-native start`) or a deployed preview/production URL. Claude's single-frame transplant path works with production asset chunks; raw Vite dev modules such as `/app/root.tsx` can be protected by app auth and fail dynamic imports from the Claude resource origin.
+When testing Claude through ngrok, use a production build (`npx @agent-native/core@latest build` then `npx @agent-native/core@latest start`) or a deployed preview/production URL. Claude's single-frame transplant path works with production asset chunks; raw Vite dev modules such as `/app/root.tsx` can be protected by app auth and fail dynamic imports from the Claude resource origin.
 
 ## Host bridge API {#host-bridge}
 

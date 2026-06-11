@@ -24,6 +24,9 @@ When you open the app, you'll see a sidebar tree of pages on the left, the edito
 - **Write rich text** with headings, lists, tables, code blocks, images, and links. Slash commands (`/`) insert blocks; selecting text pops up a formatting toolbar.
 - **Organize pages in a tree** — nest infinitely, drag to reorder, favorite pages you use often.
 - **Search across everything** with full-text search across titles and content.
+- **Sync with local Markdown/MDX files.** Use the `/local-files` view to export
+  your workspace to files, edit them in your own tools, preview changes, and
+  import them back.
 - **Sync with Notion.** Link a local doc to a Notion page and pull or push content in either direction. Comments sync both ways too.
 - **Collaborate in real time.** Multiple people (and the agent) can edit the same doc at the same time.
 - **Share docs** with teammates or make them public — private by default, with viewer / editor / admin roles.
@@ -43,6 +46,24 @@ When you open the app, click **+ New page** in the sidebar, give it a title, and
 
 Select text and hit Cmd+I to focus the agent with that selection pre-loaded — "make this punchier" then operates on exactly what you highlighted.
 
+## Local Markdown files {#local-files}
+
+Content can round-trip documents through local files without cloning or running
+the Content app locally. Open `/local-files`, choose a folder in your browser or
+Agent Native Desktop, and export the current document tree as Markdown/MDX under
+`content/`.
+
+Each exported file contains frontmatter for document metadata (`id`, `title`,
+`parentId`, `position`, favorite/search/visibility flags, and `updatedAt`) plus
+the document body as Markdown. You can edit those files in your normal editor,
+then return to `/local-files` to preview and import changes back into Content.
+
+This workflow is useful when you want content in source control, want to batch
+edit docs with local tools, or want a no-clone path for teams that prefer files
+as the review surface. The hosted app remains the source of truth for sharing,
+comments, permissions, and live collaboration; the local folder is an explicit
+sync surface.
+
 ## Why it's interesting
 
 Three things make Content a good showcase of the framework:
@@ -60,7 +81,7 @@ The rest of this doc is for anyone forking the Content template or extending it.
 Scaffold a new workspace with the Content template:
 
 ```bash
-npx @agent-native/core create my-workspace --standalone --template content
+npx @agent-native/core@latest create my-workspace --standalone --template content
 cd my-workspace
 pnpm install
 pnpm dev
@@ -110,6 +131,21 @@ Documents can be linked to a Notion page and synced in either direction:
 - `sync-notion-comments` — bidirectionally sync comment threads
 
 Sync state is tracked in the `document_sync_links` table (last synced time, conflict flag, last error). Markdown-to-Notion block conversion lives in `shared/notion-markdown.ts`. Conflict and status UI is in `app/components/editor/NotionConflictBanner.tsx` and `NotionSyncBar.tsx`. See the `notion-integration` skill for the full flow.
+
+### Local file sync
+
+The protected `/local-files` route uses the browser File System Access API (or
+the same Chromium capability inside Agent Native Desktop) to read and write
+Markdown/MDX files from a user-chosen folder. It calls:
+
+- `export-content-source` — reads the accessible document tree and returns a
+  deterministic `content/` file bundle.
+- `import-content-source` — validates files, creates new private documents,
+  updates documents where the caller has editor access, preserves version
+  history, and rejects invalid parent cycles.
+
+The source format lives in `shared/content-source.ts`. Keep that file as the
+single contract for filenames, frontmatter, parsing, and serialization.
 
 ### Comments
 

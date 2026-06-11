@@ -911,6 +911,7 @@ export function getActiveRunForThread(threadId: string): ActiveRun | null {
 export async function getActiveRunForThreadAsync(threadId: string): Promise<{
   runId: string;
   threadId: string;
+  turnId: string;
   status: string;
   heartbeatAt: number;
   lastProgressAt: number | null;
@@ -923,6 +924,7 @@ export async function getActiveRunForThreadAsync(threadId: string): Promise<{
     return {
       runId: memRun.runId,
       threadId: memRun.threadId,
+      turnId: memRun.turnId,
       status: memRun.status,
       // In-memory means this isolate is the producer. By definition, the
       // heartbeat is fresh as of "now" — the client can trust this.
@@ -954,6 +956,7 @@ export async function getActiveRunForThreadAsync(threadId: string): Promise<{
       return {
         runId: sqlRun.id,
         threadId: sqlRun.threadId,
+        turnId: sqlRun.turnId ?? sqlRun.id,
         status: sqlRun.status,
         heartbeatAt: sqlRun.heartbeatAt ?? sqlRun.startedAt,
         lastProgressAt: sqlRun.lastProgressAt,
@@ -978,6 +981,7 @@ export async function getActiveRunForThreadAsync(threadId: string): Promise<{
       return {
         runId: sqlRun.id,
         threadId: sqlRun.threadId,
+        turnId: sqlRun.turnId ?? sqlRun.id,
         status: sqlRun.status,
         heartbeatAt: sqlRun.heartbeatAt ?? sqlRun.startedAt,
         lastProgressAt: sqlRun.lastProgressAt,

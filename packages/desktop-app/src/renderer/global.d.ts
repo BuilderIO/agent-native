@@ -537,6 +537,7 @@ type LocalAppFolderSelectResult = {
 /** Electron APIs exposed to the renderer via the preload contextBridge */
 interface ElectronAPI {
   platform: string;
+  webviewPreloadPath: string;
 
   windowControls: {
     minimize(): void;
@@ -549,7 +550,12 @@ interface ElectronAPI {
   shortcuts: {
     onCloseTab(cb: () => void): () => void;
     onKeydown(
-      cb: (info: { key: string; shiftKey: boolean; altKey?: boolean }) => void,
+      cb: (info: {
+        key: string;
+        shiftKey: boolean;
+        altKey?: boolean;
+        ctrlKey?: boolean;
+      }) => void,
     ): () => void;
     loadBindings(): Promise<DesktopShortcutSettings>;
     upsertBinding(

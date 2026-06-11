@@ -33,16 +33,16 @@ automatic PR Visual Recaps. Say yes to write the GitHub Action, or add it
 explicitly at any time:
 
 ```bash
-agent-native skills add visual-plan --with-github-action
+npx @agent-native/core@latest skills add visual-plan --with-github-action
 ```
 
-This installs the `visual-plan` skill (which includes the `visual-recap` skill the action runs) and writes `.github/workflows/pr-visual-recap.yml` into your repo. The workflow calls **published CLI subcommands** — `agent-native recap gate|collect-diff|mcp-config|scan|build-prompt|shot|comment|check|usage` — so nothing is copied into your repo as helper scripts. `setup` and `doctor` are the interactive helpers you run locally; `gate` is the security-gate step the workflow runs before every recap.
+This installs the `visual-plan` skill (which includes the `visual-recap` skill the action runs) and writes `.github/workflows/pr-visual-recap.yml` into your repo. The workflow calls **published CLI subcommands** through `npx @agent-native/core@latest recap <subcommand>` — including `gate`, `collect-diff`, `mcp-config`, `scan`, `build-prompt`, `shot`, `comment`, `check`, and `usage` — so nothing is copied into your repo as helper scripts. `setup` and `doctor` are the interactive helpers you run locally; `gate` is the security-gate step the workflow runs before every recap.
 
 Then run the guided setup helper:
 
 ```bash
-agent-native recap setup
-agent-native recap doctor
+npx @agent-native/core@latest recap setup
+npx @agent-native/core@latest recap doctor
 ```
 
 `recap setup` refreshes the workflow, uses `gh` to set GitHub Actions
@@ -84,10 +84,10 @@ Set these in your repository's **Settings → Secrets and variables → Actions*
 
 ### Secrets (only two required)
 
-| Secret              | Purpose                                                                                                           |
-| ------------------- | ----------------------------------------------------------------------------------------------------------------- |
-| `PLAN_RECAP_TOKEN`  | Revocable token minted by `agent-native connect`. Authorizes publishing the recap plan and the screenshot upload. |
-| `ANTHROPIC_API_KEY` | The LLM key for the default Claude Code backend.                                                                  |
+| Secret              | Purpose                                                                                                                            |
+| ------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| `PLAN_RECAP_TOKEN`  | Revocable token minted by `npx @agent-native/core@latest connect`. Authorizes publishing the recap plan and the screenshot upload. |
+| `ANTHROPIC_API_KEY` | The LLM key for the default Claude Code backend.                                                                                   |
 
 **Teams: use an org service token.** A personal token is bound to the person
 who minted it — if they leave the org or revoke their tokens, every repo using
@@ -98,7 +98,7 @@ survives any individual leaving, the recaps it publishes are org-visible, and
 any org owner or admin can list or revoke it. Mint one (org owner/admin only):
 
 ```bash
-agent-native connect https://plan.agent-native.com --service-token pr-recap
+npx @agent-native/core@latest connect https://plan.agent-native.com --service-token pr-recap
 ```
 
 The command authenticates you in the browser, then prints the service token
@@ -106,13 +106,13 @@ exactly once — store it as the `PLAN_RECAP_TOKEN` secret. Manage it later with
 the `list-org-service-tokens` and `revoke-org-service-token` actions on the
 Plans app.
 
-**Solo: a personal token still works.** Mint it with `agent-native connect`
+**Solo: a personal token still works.** Mint it with `npx @agent-native/core@latest connect`
 against your Plans app. For the hosted app, this also writes a local
-publish-token file that `agent-native recap setup` can read:
+publish-token file that `npx @agent-native/core@latest recap setup` can read:
 
 ```bash
-agent-native connect https://plan.agent-native.com --client codex
-agent-native recap setup
+npx @agent-native/core@latest connect https://plan.agent-native.com --client codex
+npx @agent-native/core@latest recap setup
 ```
 
 If you prefer manual setup, paste the token into the GitHub secret. Use a
@@ -207,9 +207,9 @@ recap without sending recap content to the Agent-Native Plan database, run the
 same helper flow locally in local-files mode instead:
 
 ```bash
-agent-native recap collect-diff --base main --head HEAD --out recap.diff --stat recap.stat
-agent-native recap scan --diff recap.diff
-agent-native recap build-prompt --pr 123 --diff recap.diff --stat recap.stat --local-files --local-dir plans/pr-123-visual-recap
+npx @agent-native/core@latest recap collect-diff --base main --head HEAD --out recap.diff --stat recap.stat
+npx @agent-native/core@latest recap scan --diff recap.diff
+npx @agent-native/core@latest recap build-prompt --pr 123 --diff recap.diff --stat recap.stat --local-files --local-dir plans/pr-123-visual-recap
 ```
 
 Give the generated `recap-prompt.md` to your coding agent. In local-files mode
@@ -217,7 +217,7 @@ the prompt instructs the agent to write `plans/pr-123-visual-recap/plan.mdx`
 plus optional visual files and then run:
 
 ```bash
-agent-native plan local preview --dir plans/pr-123-visual-recap --kind recap
+npx @agent-native/core@latest plan local preview --dir plans/pr-123-visual-recap --kind recap
 ```
 
 The returned `file://` preview, or `/local-plans/pr-123-visual-recap` in a local
@@ -246,7 +246,7 @@ For the reusable-caller variant, use the `cli-version` input instead (see [Versi
 
 ## Secret-scan allowlist
 
-Before publishing a recap the workflow runs `agent-native recap scan` to detect likely secrets in the diff. Any PR whose diff matches a known-secret pattern is blocked with an explanatory comment — the recap is not published, and no diff content is sent to the coding agent.
+Before publishing a recap the workflow runs `npx @agent-native/core@latest recap scan` to detect likely secrets in the diff. Any PR whose diff matches a known-secret pattern is blocked with an explanatory comment — the recap is not published, and no diff content is sent to the coding agent.
 
 In rare cases a repo has intentional test fixtures or non-secret strings that superficially resemble secret patterns (e.g., a fixture key in a test file). To suppress a false positive, create `.github/recap-scan-allowlist` in the root of your repository.
 
@@ -280,7 +280,7 @@ The allowlist is only consulted by the secret-scan gate. It does not affect what
 
 ### Why use the reusable variant?
 
-The default installer copies the full ~360-line workflow YAML into your repo (the **copy** option). This is the right choice for air-gapped repos or repos that need to audit every line of what runs. The downside is that bug fixes and improvements never reach you — you need to re-run `agent-native recap setup` manually after each release.
+The default installer copies the full ~360-line workflow YAML into your repo (the **copy** option). This is the right choice for air-gapped repos or repos that need to audit every line of what runs. The downside is that bug fixes and improvements never reach you — you need to re-run `npx @agent-native/core@latest recap setup` manually after each release.
 
 The **reusable** option writes a thin ~20-line caller instead. It delegates to `BuilderIO/agent-native/.github/workflows/pr-visual-recap-reusable.yml` via `uses:`. Every caller automatically picks up the latest logic when the workflow runs, with no local update needed.
 
@@ -293,7 +293,7 @@ The **reusable** option writes a thin ~20-line caller instead. It delegates to `
 
 ### Caller snippet
 
-This is what `agent-native recap setup --reusable` writes (or you can paste it manually):
+This is what `npx @agent-native/core@latest recap setup --reusable` writes (or you can paste it manually):
 
 ```yaml
 name: PR Visual Recap
@@ -309,16 +309,24 @@ on:
 
 jobs:
   visual-recap:
+    permissions:
+      actions: write
+      contents: read
+      checks: write
+      issues: write
+      pull-requests: write
     uses: BuilderIO/agent-native/.github/workflows/pr-visual-recap-reusable.yml@main
     secrets:
       PLAN_RECAP_TOKEN: ${{ secrets.PLAN_RECAP_TOKEN }}
       ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-      # OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}  # only when agent: codex
-      # PLAN_RECAP_APP_URL: ${{ secrets.PLAN_RECAP_APP_URL }}  # only when self-hosting
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      PLAN_RECAP_APP_URL: ${{ secrets.PLAN_RECAP_APP_URL }}
     with:
+      agent: ${{ vars.VISUAL_RECAP_AGENT || 'claude' }}
+      model: ${{ vars.VISUAL_RECAP_MODEL || '' }}
+      reasoning: ${{ vars.VISUAL_RECAP_REASONING || '' }}
+      skill-source: ${{ vars.VISUAL_RECAP_SKILL_SOURCE || 'auto' }}
       # cli-version: "latest"  # pin to a specific @agent-native/core version
-      # reasoning: "high"      # codex only: none|minimal|low|medium|high|xhigh
-      # skill-source: "repo"   # pin to committed visual-recap skill
 ```
 
 The same secrets and variables described in [Secrets and variables](#secrets-and-variables) apply — set them in your repo settings the same way as for the copy variant.
@@ -327,15 +335,15 @@ The same secrets and variables described in [Secrets and variables](#secrets-and
 
 ```bash
 # Write the thin caller instead of the full copy:
-agent-native recap setup --reusable
+npx @agent-native/core@latest recap setup --reusable
 
 # Or with a pinned ref for reproducibility:
-agent-native recap setup --reusable --ref v1.2.3
+npx @agent-native/core@latest recap setup --reusable --ref v1.2.3
 ```
 
 Both variants write the workflow to `.github/workflows/pr-visual-recap.yml`. If an existing workflow is already there and differs, the command refuses and tells you to pass `--force` to overwrite.
 
-After writing, run `agent-native recap doctor` as usual to confirm secrets are configured.
+After writing, run `npx @agent-native/core@latest recap doctor` as usual to confirm secrets are configured.
 
 ### Version pinning
 

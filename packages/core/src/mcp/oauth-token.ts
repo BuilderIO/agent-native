@@ -1,7 +1,12 @@
 import * as jose from "jose";
 import { randomUUID } from "node:crypto";
 import { getAuthSecret } from "../server/better-auth-instance.js";
-import { MCP_OAUTH_ACCESS_TOKEN_TTL } from "./oauth-store.js";
+import {
+  MCP_OAUTH_ACCESS_TOKEN_TTL,
+  MCP_OAUTH_ACCESS_TOKEN_TTL_SECONDS,
+} from "./oauth-store.js";
+
+export { MCP_OAUTH_ACCESS_TOKEN_TTL, MCP_OAUTH_ACCESS_TOKEN_TTL_SECONDS };
 
 export const MCP_OAUTH_SCOPES = ["mcp:read", "mcp:write", "mcp:apps"] as const;
 
@@ -18,10 +23,26 @@ export interface McpOAuthAccessTokenClaims {
   typ: "agent-native-mcp-oauth";
 }
 
+/** Primary signing secret: A2A_SECRET when set, else the better-auth secret. */
 function signingSecret(): Uint8Array {
   return new TextEncoder().encode(
     process.env.A2A_SECRET?.trim() || getAuthSecret(),
   );
+}
+
+/**
+ * All candidate verify secrets in priority order.
+ * Mint always uses the primary; verify tries all to survive secret rotation
+ * (e.g. A2A_SECRET being added or removed from a deploy without a redeploy).
+ */
+function verifySecrets(): Uint8Array[] {
+  const enc = new TextEncoder();
+  const a2a = process.env.A2A_SECRET?.trim();
+  const auth = getAuthSecret();
+  if (a2a && a2a !== auth) {
+    return [enc.encode(a2a), enc.encode(auth)];
+  }
+  return [enc.encode(a2a || auth)];
 }
 
 export function normalizeOAuthScope(input: unknown): string | null {
@@ -90,9 +111,39 @@ export async function signMcpOAuthAccessToken(params: {
     .sign(signingSecret());
 }
 
+/**
+ * Normalise a trailing slash so that audience comparisons are not sensitive to
+ * whether the resource URL was written with or without a trailing slash.
+ */
+function normaliseResource(r: string): string {
+  return r.replace(/\/+$/, "");
+}
+
+/**
+ * Deduplicate an audience list after normalising trailing slashes.
+ * Accepts a single string or an array; always returns a non-empty array or
+ * `null` when the input was empty / undefined.
+ */
+function buildAudienceList(
+  resource: string | string[] | undefined,
+): string[] | null {
+  if (!resource) return null;
+  const raw = Array.isArray(resource) ? resource : [resource];
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const r of raw) {
+    const n = normaliseResource(r);
+    if (n && !seen.has(n)) {
+      seen.add(n);
+      out.push(n);
+    }
+  }
+  return out.length ? out : null;
+}
+
 export async function verifyMcpOAuthAccessToken(
   token: string,
-  resource: string | undefined,
+  resource: string | string[] | undefined,
 ): Promise<{
   userEmail: string;
   orgId?: string;
@@ -104,13 +155,45 @@ export async function verifyMcpOAuthAccessToken(
    *  connector-catalog tier filter on hosted multi-tenant deployments. */
   catalogScope?: "full";
 } | null> {
-  if (!resource) return null;
+  const audiences = buildAudienceList(resource);
+  if (!audiences) return null;
+
+  // Try each candidate secret in priority order.  We only fall through to the
+  // next secret on a signature failure (JWSSignatureVerificationFailed /
+  // JWSInvalid).  Expired or wrong-audience errors are definitive — no retry.
+  const secrets = verifySecrets();
+  let payload: jose.JWTPayload | null = null;
+
+  outer: for (const audience of audiences) {
+    for (const secret of secrets) {
+      try {
+        const result = await jose.jwtVerify(token, secret, { audience });
+        payload = result.payload;
+        break outer;
+      } catch (err: any) {
+        const code: string = err?.code ?? "";
+        // Signature failures → try next secret; all other errors → bail.
+        if (
+          code === "ERR_JWS_SIGNATURE_VERIFICATION_FAILED" ||
+          code === "ERR_JWS_INVALID"
+        ) {
+          continue;
+        }
+        // Expired, wrong audience, or malformed → this audience+secret pair is
+        // structurally incompatible; try the next audience.
+        break;
+      }
+    }
+  }
+
+  if (!payload) return null;
+
   try {
-    const { payload } = await jose.jwtVerify(token, signingSecret(), {
-      audience: resource,
-    });
     if (payload.typ !== "agent-native-mcp-oauth") return null;
-    if (payload.resource !== resource) return null;
+    // The embedded `resource` claim must match one of the accepted audiences.
+    if (typeof payload.resource !== "string") return null;
+    const embeddedResource = normaliseResource(payload.resource);
+    if (!audiences.includes(embeddedResource)) return null;
     if (typeof payload.sub !== "string" || !payload.sub) return null;
     if (typeof payload.client_id !== "string" || !payload.client_id) {
       return null;

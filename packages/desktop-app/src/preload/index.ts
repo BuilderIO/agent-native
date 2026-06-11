@@ -1,4 +1,5 @@
 import { contextBridge, ipcRenderer } from "electron";
+import path from "node:path";
 import {
   IPC,
   type ActiveWebviewTarget,
@@ -59,6 +60,9 @@ const electronAPI = {
   /** Current OS platform — used by renderer to adapt UI (e.g. traffic lights vs custom controls) */
   platform: process.platform as string,
 
+  /** Dedicated preload for hosted app webviews. Exposes only app-safe bridges. */
+  webviewPreloadPath: path.join(__dirname, "webview.js"),
+
   /** Window chrome controls */
   windowControls: {
     minimize: () => ipcRenderer.send(IPC.WINDOW_MINIMIZE),
@@ -87,11 +91,21 @@ const electronAPI = {
 
     /** Generic shortcut forwarding from webview guests */
     onKeydown: (
-      cb: (info: { key: string; shiftKey: boolean; altKey?: boolean }) => void,
+      cb: (info: {
+        key: string;
+        shiftKey: boolean;
+        altKey?: boolean;
+        ctrlKey?: boolean;
+      }) => void,
     ): (() => void) => {
       const handler = (
         _: Electron.IpcRendererEvent,
-        info: { key: string; shiftKey: boolean; altKey?: boolean },
+        info: {
+          key: string;
+          shiftKey: boolean;
+          altKey?: boolean;
+          ctrlKey?: boolean;
+        },
       ) => cb(info);
       ipcRenderer.on("shortcut:keydown", handler);
       return () => ipcRenderer.removeListener("shortcut:keydown", handler);

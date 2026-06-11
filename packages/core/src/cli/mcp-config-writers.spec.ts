@@ -5,7 +5,10 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import {
   buildHttpMcpEntry,
+  canonicalUrl,
   hasJsonMcpEntry,
+  removeCodexSameUrlDuplicates,
+  removeJsonSameUrlDuplicates,
   writeHttpEntryForClient,
   writeJsonMcpEntry,
 } from "./mcp-config-writers.js";
@@ -282,5 +285,215 @@ describe("buildHttpMcpEntry", () => {
       "X-Custom": "yes",
       Authorization: "Bearer tok",
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// canonicalUrl
+// ---------------------------------------------------------------------------
+
+describe("canonicalUrl", () => {
+  it("strips trailing slash", () => {
+    expect(canonicalUrl("https://x.com/mcp/")).toBe("https://x.com/mcp");
+  });
+
+  it("strips hash and search params", () => {
+    expect(canonicalUrl("https://x.com/mcp?foo=1#bar")).toBe(
+      "https://x.com/mcp",
+    );
+  });
+
+  it("returns undefined for invalid URLs", () => {
+    expect(canonicalUrl("not-a-url")).toBeUndefined();
+    expect(canonicalUrl(undefined)).toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// removeJsonSameUrlDuplicates
+// ---------------------------------------------------------------------------
+
+describe("removeJsonSameUrlDuplicates", () => {
+  it("removes entries whose URL matches the canonical URL, preserving keepName", () => {
+    const dir = tmpDir();
+    const file = path.join(dir, "claude.json");
+    fs.writeFileSync(
+      file,
+      JSON.stringify(
+        {
+          mcpServers: {
+            plan: {
+              type: "http",
+              url: "https://plan.agent-native.com/_agent-native/mcp",
+            },
+            "agent-native-plans": {
+              type: "http",
+              url: "https://plan.agent-native.com/_agent-native/mcp",
+            },
+            "agent-native-plan": {
+              type: "http",
+              url: "https://plan.agent-native.com/_agent-native/mcp",
+            },
+            "other-server": {
+              type: "http",
+              url: "https://other.example.com/_agent-native/mcp",
+            },
+          },
+        },
+        null,
+        2,
+      ),
+      "utf-8",
+    );
+
+    const removed = removeJsonSameUrlDuplicates(
+      file,
+      "https://plan.agent-native.com/_agent-native/mcp",
+      "plan",
+    );
+
+    expect(removed.sort()).toEqual(["agent-native-plan", "agent-native-plans"]);
+    const cfg = JSON.parse(fs.readFileSync(file, "utf-8"));
+    expect(Object.keys(cfg.mcpServers).sort()).toEqual([
+      "other-server",
+      "plan",
+    ]);
+  });
+
+  it("returns empty array when there are no duplicates", () => {
+    const dir = tmpDir();
+    const file = path.join(dir, "claude.json");
+    fs.writeFileSync(
+      file,
+      JSON.stringify(
+        {
+          mcpServers: {
+            plan: {
+              type: "http",
+              url: "https://plan.agent-native.com/_agent-native/mcp",
+            },
+          },
+        },
+        null,
+        2,
+      ),
+      "utf-8",
+    );
+
+    const removed = removeJsonSameUrlDuplicates(
+      file,
+      "https://plan.agent-native.com/_agent-native/mcp",
+      "plan",
+    );
+
+    expect(removed).toEqual([]);
+    // File should not be rewritten unnecessarily (content unchanged modulo parse).
+    const cfg = JSON.parse(fs.readFileSync(file, "utf-8"));
+    expect(Object.keys(cfg.mcpServers)).toEqual(["plan"]);
+  });
+
+  it("returns empty array for a missing file", () => {
+    const removed = removeJsonSameUrlDuplicates(
+      "/nonexistent/path.json",
+      "https://x.com/mcp",
+      "plan",
+    );
+    expect(removed).toEqual([]);
+  });
+
+  it("normalises trailing slashes when comparing", () => {
+    const dir = tmpDir();
+    const file = path.join(dir, "claude.json");
+    fs.writeFileSync(
+      file,
+      JSON.stringify(
+        {
+          mcpServers: {
+            plan: { type: "http", url: "https://plan.example.com/mcp/" },
+            "old-alias": {
+              type: "http",
+              url: "https://plan.example.com/mcp",
+            },
+          },
+        },
+        null,
+        2,
+      ),
+      "utf-8",
+    );
+
+    const removed = removeJsonSameUrlDuplicates(
+      file,
+      "https://plan.example.com/mcp/",
+      "plan",
+    );
+
+    expect(removed).toEqual(["old-alias"]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// removeCodexSameUrlDuplicates
+// ---------------------------------------------------------------------------
+
+describe("removeCodexSameUrlDuplicates", () => {
+  it("removes Codex TOML blocks whose url matches, preserving keepName", () => {
+    const dir = tmpDir();
+    const file = path.join(dir, "config.toml");
+    fs.writeFileSync(
+      file,
+      [
+        '[mcp_servers."plan"]',
+        'url = "https://plan.agent-native.com/_agent-native/mcp"',
+        "",
+        '[mcp_servers."agent-native-plans"]',
+        'url = "https://plan.agent-native.com/_agent-native/mcp"',
+        "",
+        "[mcp_servers.other]",
+        'url = "https://other.example.com/mcp"',
+        "",
+      ].join("\n"),
+      "utf-8",
+    );
+
+    const removed = removeCodexSameUrlDuplicates(
+      file,
+      "https://plan.agent-native.com/_agent-native/mcp",
+      "plan",
+    );
+
+    expect(removed).toEqual(["agent-native-plans"]);
+    const content = fs.readFileSync(file, "utf-8");
+    expect(content).toContain('[mcp_servers."plan"]');
+    expect(content).not.toContain("agent-native-plans");
+    expect(content).toContain("[mcp_servers.other]");
+  });
+
+  it("returns empty array for a missing file", () => {
+    const removed = removeCodexSameUrlDuplicates(
+      "/nonexistent/config.toml",
+      "https://x.com/mcp",
+      "plan",
+    );
+    expect(removed).toEqual([]);
+  });
+
+  it("returns empty array when no duplicates are present", () => {
+    const dir = tmpDir();
+    const file = path.join(dir, "config.toml");
+    fs.writeFileSync(
+      file,
+      ['[mcp_servers."plan"]', 'url = "https://plan.example.com/mcp"', ""].join(
+        "\n",
+      ),
+      "utf-8",
+    );
+
+    const removed = removeCodexSameUrlDuplicates(
+      file,
+      "https://plan.example.com/mcp",
+      "plan",
+    );
+    expect(removed).toEqual([]);
   });
 });

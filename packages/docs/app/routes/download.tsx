@@ -345,7 +345,7 @@ export default function DownloadPage() {
             Linux.
           </p>
           <pre className="overflow-x-auto rounded-md bg-[var(--docs-code-bg,rgba(0,0,0,0.04))] px-4 py-3 text-xs">
-            <code>{`npx @agent-native/core create my-platform
+            <code>{`npx @agent-native/core@latest create my-platform
 cd my-platform
 pnpm install && pnpm dev`}</code>
           </pre>

@@ -7,6 +7,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   RECAP_DIFF_BYTE_CAP,
+  buildRecapFailureDiagnostic,
   buildRecapSetupPlan,
   buildCommentBody,
   buildRecapClaudeMcpConfig,
@@ -18,6 +19,7 @@ import {
   countDiffLines,
   diffContainsSecret,
   evaluateRecapGate,
+  inferLocalRecapUrlFailureReason,
   isRecapSensitivePath,
   lineMatchesAllowlist,
   normalizeRecapAgent,
@@ -27,7 +29,11 @@ import {
   recapCheckOutcome,
   recapRequiredSecrets,
   readVisualRecapSkillBundle,
+  sanitizeAgentFailureSummary,
   sortDiffSourceFirst,
+  summarizeAgentRun,
+  summarizeLocalAgentFailure,
+  summarizeAgentResult,
   truncateDiffAtLineBoundary,
   waitForPublicRecapImage,
   writePrVisualRecapReusableCallerWorkflow,
@@ -66,6 +72,113 @@ describe("recap secret scan", () => {
       "+}",
     ].join("\n");
     expect(diffContainsSecret(diffText)).toBe(false);
+  });
+});
+
+describe("recap agent failure summaries", () => {
+  it("extracts the useful final Claude result text", () => {
+    const summary = summarizeAgentResult(
+      "claude",
+      JSON.stringify({
+        type: "result",
+        subtype: "success",
+        result:
+          "I could not call create-visual-recap because get-plan-blocks was unavailable.",
+        usage: { input_tokens: 1, output_tokens: 2 },
+      }),
+    );
+    expect(summary).toContain("create-visual-recap");
+    expect(summary).toContain("get-plan-blocks was unavailable");
+  });
+
+  it("extracts recent Codex JSONL error messages", () => {
+    const summary = summarizeAgentResult(
+      "codex",
+      [
+        JSON.stringify({ type: "turn.started" }),
+        JSON.stringify({
+          type: "error",
+          message: "Tool create-visual-recap failed with 403 Forbidden",
+        }),
+      ].join("\n"),
+    );
+    expect(summary).toContain("create-visual-recap failed");
+    expect(summary).toContain("403 Forbidden");
+  });
+
+  it("combines agent stderr and exit code when stdout is not useful", () => {
+    const summary = summarizeAgentRun({
+      agent: "claude",
+      resultText: "",
+      stderrText: `MCP server failed\nAuthorization: Bearer ${"a".repeat(24)}`,
+      exitCode: "1",
+    });
+    expect(summary).toContain("Claude exited with code 1");
+    expect(summary).toContain("stderr: MCP server failed");
+    expect(summary).toContain("Bearer [redacted]");
+  });
+
+  it("recovers failure summaries from local agent result files", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "an-recap-agent-"));
+    try {
+      fs.writeFileSync(
+        path.join(dir, "claude-result.json"),
+        JSON.stringify({
+          type: "result",
+          subtype: "success",
+          result:
+            "I could not call create-visual-recap because the Plan MCP tool failed.",
+        }),
+      );
+      const summary = summarizeLocalAgentFailure({ cwd: dir, agent: "claude" });
+      expect(summary).toContain("create-visual-recap");
+      expect(summary).toContain("Plan MCP tool failed");
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("infers why recap-url.txt was not accepted", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "an-recap-url-"));
+    try {
+      expect(inferLocalRecapUrlFailureReason({ cwd: dir })).toContain(
+        "not created",
+      );
+      fs.writeFileSync(path.join(dir, "recap-url.txt"), "");
+      expect(inferLocalRecapUrlFailureReason({ cwd: dir })).toContain("empty");
+      fs.writeFileSync(
+        path.join(dir, "recap-url.txt"),
+        "https://evil.example.com/recaps/abc",
+      );
+      expect(
+        inferLocalRecapUrlFailureReason({
+          cwd: dir,
+          appUrl: "https://plan.agent-native.com",
+        }),
+      ).toContain("expected https://plan.agent-native.com");
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("builds a combined recap failure diagnostic", () => {
+    const diagnostic = buildRecapFailureDiagnostic({
+      urlReason: "recap-url.txt was not created by the agent",
+      failureSummary: "Tool create-visual-recap failed with 403 Forbidden",
+    });
+    expect(diagnostic).toContain("No plan URL:");
+    expect(diagnostic).toContain("Agent output:");
+    expect(diagnostic).toContain("403 Forbidden");
+  });
+
+  it("redacts secret-looking lines before surfacing output", () => {
+    const summary = sanitizeAgentFailureSummary(
+      `failed\nAuthorization: Bearer ${"a".repeat(24)}\nOPENAI_API_KEY=sk-${"b".repeat(24)}`,
+    );
+    expect(summary).toContain("failed");
+    expect(summary).toContain("[redacted");
+    expect(summary).not.toContain("Bearer a");
+    expect(summary).not.toContain("sk-b");
   });
 });
 
@@ -356,7 +469,9 @@ describe("recap prompt builder", () => {
 
     expect(prompt).toContain("local-files privacy mode");
     expect(prompt).toContain("plans/private-recap");
-    expect(prompt).toContain("agent-native plan local preview");
+    expect(prompt).toContain(
+      "npx @agent-native/core@latest plan local preview",
+    );
     expect(prompt).toContain("recap-url.txt");
     expect(prompt).not.toContain("mcp__plan__create-visual-recap");
     expect(prompt).not.toContain("set-resource-visibility");
@@ -471,8 +586,7 @@ describe("recap comment body", () => {
     expect(body).toContain("Open the full interactive recap");
     expect(body).toContain("<!-- plan-id: plan-abc123 -->");
     expect(body).toContain("<!-- pr-visual-recap -->");
-    // Freshness line should include the shortened head SHA.
-    expect(body).toContain("_As of `abcdef1`_");
+    expect(body).not.toContain("_As of `");
   });
 
   it("rebuilds a canonical /recaps/ link from a legacy /plans/ URL, dropping any crafted path/query", () => {
@@ -523,8 +637,7 @@ describe("recap comment body", () => {
     expect(body).toContain("too small");
     expect(body).not.toContain("Updated for");
     expect(body).not.toContain("Open the full interactive recap");
-    // Freshness line present even on tiny.
-    expect(body).toContain("_As of `abcdef1`_");
+    expect(body).not.toContain("_As of `");
   });
 
   it("tiny diff preserves the previous plan-id marker so the next push can replace in-place", () => {
@@ -604,8 +717,7 @@ describe("recap comment body", () => {
     expect(body).toContain("Reason: `potential secret in diff`.");
     expect(body).not.toContain("Updated for");
     expect(body).not.toContain("Open the full interactive recap");
-    // Freshness line still present.
-    expect(body).toContain("_As of `abcdef1`_");
+    expect(body).not.toContain("_As of `");
   });
 
   it("suppressed branch preserves plan-id marker from previous run", () => {
@@ -624,12 +736,28 @@ describe("recap comment body", () => {
     } as NodeJS.ProcessEnv);
     expect(body).toContain("generation failed");
     expect(body).not.toContain("Updated for");
+    expect(body).not.toContain("_As of `");
   });
 
-  it("omits the freshness line when no HEAD_SHA is available", () => {
+  it("includes sanitized agent output on generic generation failure", () => {
+    const body = buildCommentBody({
+      PLAN_URL: "",
+      PLAN_RECAP_APP_URL: "https://plan.agent-native.com",
+      RECAP_AGENT_SUMMARY:
+        "Tool create-visual-recap failed because get-plan-blocks was unavailable",
+      HEAD_SHA: "abcdef1",
+    } as NodeJS.ProcessEnv);
+    expect(body).toContain("generation failed");
+    expect(body).toContain("Agent output:");
+    expect(body).toContain("get-plan-blocks was unavailable");
+    expect(body).not.toContain("_As of `");
+  });
+
+  it("does not include a freshness line in the GitHub comment", () => {
     const body = buildCommentBody({
       PLAN_URL: "https://plan.agent-native.com/recaps/plan-abc123",
       PLAN_RECAP_APP_URL: "https://plan.agent-native.com",
+      HEAD_SHA: "abcdef1",
     } as NodeJS.ProcessEnv);
     expect(body).not.toContain("_As of `");
     expect(body).toContain("Open the full interactive recap");
@@ -1194,6 +1322,31 @@ describe("recap check — outcome mapper", () => {
     expect(out.detailsUrl).toBe(workflowUrl);
     expect(out.text).toBe("");
   });
+
+  it("default with failure summary: adds agent output to the check", () => {
+    const out = recapCheckOutcome({
+      ...base,
+      failureSummary:
+        "Tool create-visual-recap failed because get-plan-blocks was unavailable",
+    });
+    expect(out.conclusion).toBe("neutral");
+    expect(out.title).toBe("Visual recap not generated");
+    expect(out.summary).toContain("See diagnostics below");
+    expect(out.text).toContain("### Diagnostic");
+    expect(out.text).toContain("Agent output:");
+    expect(out.text).toContain("get-plan-blocks was unavailable");
+  });
+
+  it("default with URL reason: adds a no-plan-url diagnostic to the check", () => {
+    const out = recapCheckOutcome({
+      ...base,
+      urlReason: "recap-url.txt was not created by the agent",
+    });
+    expect(out.conclusion).toBe("neutral");
+    expect(out.summary).toContain("See diagnostics below");
+    expect(out.text).toContain("No plan URL:");
+    expect(out.text).toContain("recap-url.txt was not created");
+  });
 });
 
 describe("bundled PR visual recap workflow", () => {
@@ -1204,6 +1357,13 @@ describe("bundled PR visual recap workflow", () => {
     // an inline github-script step.
     expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain("recap check start");
     expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain("recap check complete");
+    expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain("Summarize agent failure");
+    expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain("recap agent-summary");
+    expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain("--failure-summary");
+    expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain("--stderr-file");
+    expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain("--exit-code-file");
+    expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain("RECAP_URL_REASON");
+    expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain("--url-reason");
     expect(PR_VISUAL_RECAP_WORKFLOW_YML).not.toContain("github.rest.checks");
     // The completed-check step is gated on a created check id and best-effort.
     expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain(
@@ -1322,7 +1482,7 @@ describe("recap comment body — auth-failure differentiation", () => {
     expect(body).toContain("generation failed");
     expect(body).toContain("PLAN_RECAP_TOKEN");
     expect(body).toContain("expired or revoked");
-    expect(body).toContain("agent-native connect");
+    expect(body).toContain("npx -y @agent-native/core@latest reconnect");
   });
 
   it("shows generic failure copy when RECAP_AUTH_FAILED is absent/false", () => {
@@ -1334,6 +1494,22 @@ describe("recap comment body — auth-failure differentiation", () => {
     expect(body).toContain("generation failed");
     expect(body).not.toContain("expired or revoked");
     expect(body).toContain("this pull request");
+  });
+
+  it("shows URL and agent diagnostics when a recap was not generated", () => {
+    const body = buildCommentBody({
+      PLAN_URL: "",
+      PLAN_RECAP_APP_URL: "https://plan.agent-native.com",
+      RECAP_URL_REASON: "recap-url.txt was not created by the agent",
+      RECAP_AGENT_SUMMARY:
+        "Tool create-visual-recap failed because get-plan-blocks was unavailable",
+      HEAD_SHA: "abc1234",
+    } as NodeJS.ProcessEnv);
+    expect(body).toContain("Diagnostic:");
+    expect(body).toContain("No plan URL:");
+    expect(body).toContain("recap-url.txt was not created");
+    expect(body).toContain("Agent output:");
+    expect(body).toContain("get-plan-blocks was unavailable");
   });
 });
 
@@ -1484,14 +1660,29 @@ describe("reusable caller workflow builder", () => {
     expect(yml).toContain(
       "uses: BuilderIO/agent-native/.github/workflows/pr-visual-recap-reusable.yml@main",
     );
+    expect(yml).toContain("actions: write");
+    expect(yml).toContain("checks: write");
+    expect(yml).toContain("issues: write");
+    expect(yml).toContain("pull-requests: write");
     // Required secrets are threaded through.
     expect(yml).toContain("PLAN_RECAP_TOKEN: ${{ secrets.PLAN_RECAP_TOKEN }}");
     expect(yml).toContain(
       "ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}",
     );
-    // Optional secrets shown as comments (not active).
-    expect(yml).toContain("# OPENAI_API_KEY");
-    expect(yml).toContain("# PLAN_RECAP_APP_URL");
+    // Optional secrets are threaded through so repo variables can select codex
+    // or self-hosting without changing the workflow YAML.
+    expect(yml).toContain("OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}");
+    expect(yml).toContain(
+      "PLAN_RECAP_APP_URL: ${{ secrets.PLAN_RECAP_APP_URL }}",
+    );
+    expect(yml).toContain("agent: ${{ vars.VISUAL_RECAP_AGENT || 'claude' }}");
+    expect(yml).toContain("model: ${{ vars.VISUAL_RECAP_MODEL || '' }}");
+    expect(yml).toContain(
+      "reasoning: ${{ vars.VISUAL_RECAP_REASONING || '' }}",
+    );
+    expect(yml).toContain(
+      "skill-source: ${{ vars.VISUAL_RECAP_SKILL_SOURCE || 'auto' }}",
+    );
   });
 
   it("respects a custom ref for version pinning", () => {
@@ -1513,10 +1704,9 @@ describe("reusable caller workflow builder", () => {
     expect(yml).toContain("agent: codex");
   });
 
-  it("omits the agent input line for the default claude backend", () => {
+  it("pins the agent input line when explicitly set to claude", () => {
     const yml = buildReusableCallerWorkflow({ agent: "claude" });
-    // claude is the default — no need to set it explicitly.
-    expect(yml).not.toContain("agent: claude");
+    expect(yml).toContain("agent: claude");
   });
 
   it("adds the model input line when a model is specified", () => {
@@ -1676,6 +1866,18 @@ describe("reusable workflow file structure", () => {
   it("passes RECAP_AUTH_FAILED to the upsert comment step (parity with copy workflow)", () => {
     const content = fs.readFileSync(reusableFile, "utf8");
     expect(content).toContain("RECAP_AUTH_FAILED:");
+  });
+
+  it("passes sanitized agent failure output to the comment and check", () => {
+    const content = fs.readFileSync(reusableFile, "utf8");
+    expect(content).toContain("Summarize agent failure");
+    expect(content).toContain("recap agent-summary");
+    expect(content).toContain("RECAP_AGENT_SUMMARY:");
+    expect(content).toContain("--failure-summary");
+    expect(content).toContain("--stderr-file");
+    expect(content).toContain("--exit-code-file");
+    expect(content).toContain("RECAP_URL_REASON:");
+    expect(content).toContain("--url-reason");
   });
 
   it("gate job has issues: write permission for the skip-comment refresh", () => {

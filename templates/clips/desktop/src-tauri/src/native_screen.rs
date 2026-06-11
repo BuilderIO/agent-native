@@ -31,6 +31,9 @@ const UPLOAD_CHUNK_BYTES: usize = 3 * 1024 * 1024;
 const TRANSCODE_THRESHOLD_BYTES: u64 = 24 * 1024 * 1024;
 const TARGET_UPLOAD_BYTES: u64 = 18 * 1024 * 1024;
 const SERVER_STAGING_LIMIT_BYTES: u64 = 30 * 1024 * 1024;
+const MIN_TRANSCODE_VIDEO_RATE_KBPS: u32 = 350;
+const TRANSCODE_RATE_LIMIT_OVERHEAD_KBPS: f64 = 64.0;
+const TRANSCODE_FRAME_RATE_LIMIT: u32 = 30;
 const NATIVE_CAPTURE_MAX_LONG_EDGE: u32 = 1280;
 const NATIVE_CAPTURE_FPS: u32 = 24;
 const AVCONVERT_PATH: &str = "/usr/bin/avconvert";
@@ -421,6 +424,14 @@ pub async fn native_fullscreen_recording_stop_and_upload(
         multi_segment,
     } = take_and_finalize_active_session(&state)?;
 
+    // The camera bubble is the ONE overlay we deliberately leave
+    // capture-included (see `show_bubble`), so it has to stay on-screen
+    // until the SCStream stops. Now that capture is finalized, tear it
+    // down immediately — otherwise the user's face keeps floating in the
+    // corner through the (multi-second) finalize + upload phase, reading
+    // as "still recording" while the bottom-left card says "processing".
+    let _ = crate::clips::close_bubble(app.clone()).await;
+
     let mut saved = saved_recording_from_session(
         &session,
         &server_url,
@@ -506,6 +517,9 @@ pub async fn native_fullscreen_recording_stop_and_save(
         consolidate_outcome,
         multi_segment,
     } = take_and_finalize_active_session(&state)?;
+    // Capture is finalized — drop the camera bubble now so the face
+    // doesn't linger while the clip saves (mirrors the upload path).
+    let _ = crate::clips::close_bubble(app.clone()).await;
     if let Err(err) = &stop_outcome {
         eprintln!(
             "[clips-tray] native local recording stop reported an error; attempting to save file anyway: {err}"
@@ -2195,8 +2209,15 @@ fn prepare_recording_file(
             );
             let compressed_path = compressed_recording_path(path);
             let _ = std::fs::remove_file(&compressed_path);
-            match transcode_with_ffmpeg(&ffmpeg_path, path, &compressed_path, preset, width, height)
-            {
+            match transcode_with_ffmpeg(
+                &ffmpeg_path,
+                path,
+                &compressed_path,
+                preset,
+                width,
+                height,
+                duration_ms,
+            ) {
                 Ok(()) => {
                     let compressed_bytes = std::fs::metadata(&compressed_path)
                         .map_err(|e| format!("compressed recording file missing: {e}"))?
@@ -2393,8 +2414,11 @@ fn compressed_recording_path(path: &Path) -> PathBuf {
 struct FfmpegTranscodePreset {
     label: &'static str,
     max_long_edge: u32,
-    video_bitrate_kbps: u32,
+    max_short_edge: u32,
+    crf: u8,
+    encoder_preset: &'static str,
     audio_bitrate_kbps: u32,
+    max_video_rate_kbps: u32,
 }
 
 fn resolve_ffmpeg_path() -> Option<String> {
@@ -2421,62 +2445,64 @@ fn command_available(command: &str) -> bool {
         .unwrap_or(false)
 }
 
-fn duration_target_video_bitrate_kbps(
+fn duration_video_rate_limit_kbps(
     duration_ms: Option<u128>,
     audio_bitrate_kbps: u32,
-) -> Option<u32> {
+) -> Option<f64> {
     let seconds = duration_ms? as f64 / 1000.0;
     if seconds < 1.0 {
         return None;
     }
     let total_kbps = (TARGET_UPLOAD_BYTES as f64 * 8.0 / 1000.0) / seconds;
-    let video_kbps = total_kbps - audio_bitrate_kbps as f64 - 48.0;
-    if !video_kbps.is_finite() || video_kbps <= 0.0 {
+    let video_kbps = total_kbps - audio_bitrate_kbps as f64 - TRANSCODE_RATE_LIMIT_OVERHEAD_KBPS;
+    if !video_kbps.is_finite() {
         return None;
     }
-    Some((video_kbps.round() as u32).clamp(320, 2_200))
-}
-
-fn scale_bitrate(base: u32, multiplier: f64, min: u32, max: u32) -> u32 {
-    ((base as f64 * multiplier).round() as u32).clamp(min, max)
+    Some(video_kbps)
 }
 
 fn ffmpeg_transcode_presets(
     _width: Option<u32>,
     _height: Option<u32>,
-    source_bytes: u64,
-    duration_ms: Option<u128>,
+    _source_bytes: u64,
+    _duration_ms: Option<u128>,
 ) -> Vec<FfmpegTranscodePreset> {
-    let fallback_base = if source_bytes >= 96 * 1024 * 1024 {
-        1_200
-    } else {
-        1_000
-    };
-    let base = duration_target_video_bitrate_kbps(duration_ms, 64).unwrap_or(fallback_base);
     vec![
         FfmpegTranscodePreset {
-            label: "720p target",
-            max_long_edge: 1280,
-            video_bitrate_kbps: base.clamp(450, 1_800),
-            audio_bitrate_kbps: 64,
+            label: "HandBrake Fast 1080p30",
+            max_long_edge: 1920,
+            max_short_edge: 1080,
+            crf: 22,
+            encoder_preset: "fast",
+            audio_bitrate_kbps: 160,
+            max_video_rate_kbps: 6_000,
+        },
+        FfmpegTranscodePreset {
+            label: "1080p compact",
+            max_long_edge: 1920,
+            max_short_edge: 1080,
+            crf: 24,
+            encoder_preset: "fast",
+            audio_bitrate_kbps: 128,
+            max_video_rate_kbps: 4_000,
         },
         FfmpegTranscodePreset {
             label: "720p compact",
             max_long_edge: 1280,
-            video_bitrate_kbps: scale_bitrate(base, 0.75, 360, 1_400),
-            audio_bitrate_kbps: 48,
+            max_short_edge: 720,
+            crf: 26,
+            encoder_preset: "fast",
+            audio_bitrate_kbps: 96,
+            max_video_rate_kbps: 2_200,
         },
         FfmpegTranscodePreset {
-            label: "540p compact",
+            label: "540p small",
             max_long_edge: 960,
-            video_bitrate_kbps: scale_bitrate(base, 0.65, 300, 1_000),
-            audio_bitrate_kbps: 48,
-        },
-        FfmpegTranscodePreset {
-            label: "480p small",
-            max_long_edge: 854,
-            video_bitrate_kbps: scale_bitrate(base, 0.5, 240, 760),
-            audio_bitrate_kbps: 40,
+            max_short_edge: 540,
+            crf: 28,
+            encoder_preset: "fast",
+            audio_bitrate_kbps: 80,
+            max_video_rate_kbps: 1_200,
         },
     ]
 }
@@ -2489,15 +2515,15 @@ fn ffmpeg_scaled_dimensions(
     width: Option<u32>,
     height: Option<u32>,
     max_long_edge: u32,
+    max_short_edge: u32,
 ) -> Option<(u32, u32)> {
     let width = width?;
     let height = height?;
     let long_side = width.max(height).max(1);
-    let scale = if long_side > max_long_edge {
-        max_long_edge as f64 / long_side as f64
-    } else {
-        1.0
-    };
+    let short_side = width.min(height).max(1);
+    let scale = (max_long_edge as f64 / long_side as f64)
+        .min(max_short_edge as f64 / short_side as f64)
+        .min(1.0);
     Some((
         even_ffmpeg_dimension((width as f64 * scale).floor() as u32),
         even_ffmpeg_dimension((height as f64 * scale).floor() as u32),
@@ -2546,6 +2572,7 @@ fn transcode_with_ffmpeg(
     preset: &FfmpegTranscodePreset,
     width: Option<u32>,
     height: Option<u32>,
+    duration_ms: Option<u128>,
 ) -> Result<(), String> {
     let mut command = Command::new(ffmpeg_path);
     command
@@ -2561,37 +2588,39 @@ fn transcode_with_ffmpeg(
         .arg("0:a?");
 
     if let Some((scaled_w, scaled_h)) =
-        ffmpeg_scaled_dimensions(width, height, preset.max_long_edge)
+        ffmpeg_scaled_dimensions(width, height, preset.max_long_edge, preset.max_short_edge)
     {
-        command.arg("-vf").arg(format!(
-            "fps={NATIVE_CAPTURE_FPS},scale={scaled_w}:{scaled_h}:flags=lanczos"
-        ));
-    } else {
-        command.arg("-r").arg(NATIVE_CAPTURE_FPS.to_string());
+        command
+            .arg("-vf")
+            .arg(format!("scale={scaled_w}:{scaled_h}:flags=lanczos"));
     }
 
-    let video_bitrate = format!("{}k", preset.video_bitrate_kbps);
-    let maxrate = format!(
-        "{}k",
-        scale_bitrate(preset.video_bitrate_kbps, 1.35, 320, 3_000)
-    );
-    let bufsize = format!(
-        "{}k",
-        scale_bitrate(preset.video_bitrate_kbps, 2.5, 640, 5_500)
-    );
+    let duration_rate_limit =
+        duration_video_rate_limit_kbps(duration_ms, preset.audio_bitrate_kbps)
+            .unwrap_or(preset.max_video_rate_kbps as f64);
+    let video_rate_limit_kbps = duration_rate_limit.round().clamp(
+        MIN_TRANSCODE_VIDEO_RATE_KBPS as f64,
+        preset.max_video_rate_kbps as f64,
+    ) as u32;
+    let maxrate = format!("{video_rate_limit_kbps}k");
+    let bufsize = format!("{}k", video_rate_limit_kbps * 2);
     let audio_bitrate = format!("{}k", preset.audio_bitrate_kbps);
 
     command
+        .arg("-fpsmax")
+        .arg(TRANSCODE_FRAME_RATE_LIMIT.to_string())
         .arg("-c:v")
         .arg("libx264")
         .arg("-preset")
-        .arg("fast")
+        .arg(preset.encoder_preset)
         .arg("-profile:v")
         .arg("main")
+        .arg("-level:v")
+        .arg("4.0")
         .arg("-pix_fmt")
         .arg("yuv420p")
-        .arg("-b:v")
-        .arg(video_bitrate)
+        .arg("-crf")
+        .arg(preset.crf.to_string())
         .arg("-maxrate")
         .arg(maxrate)
         .arg("-bufsize")
@@ -2601,7 +2630,7 @@ fn transcode_with_ffmpeg(
         .arg("-b:a")
         .arg(audio_bitrate)
         .arg("-ac")
-        .arg("1")
+        .arg("2")
         .arg("-movflags")
         .arg("+faststart")
         .arg("-f")

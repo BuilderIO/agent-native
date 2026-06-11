@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  resolveAnnotationInlineOverlayPosition,
   resolveAnnotationHoverCardPosition,
   type AnnotationAnchor,
 } from "./annotation-rail.js";
@@ -40,5 +41,37 @@ describe("annotation hover card placement", () => {
         { width: 900, height: 600 },
       ),
     ).toEqual({ left: 100, top: 223 });
+  });
+});
+
+describe("annotation inline overlay placement", () => {
+  it("anchors to the row while staying inside the viewport", () => {
+    expect(
+      resolveAnnotationInlineOverlayPosition(
+        { right: 860, top: 120, height: 22 },
+        { width: 320, height: 120 },
+        { width: 950, height: 700 },
+      ),
+    ).toEqual({ right: 90, top: 71 });
+  });
+
+  it("clamps horizontally when the row anchor is too far left", () => {
+    expect(
+      resolveAnnotationInlineOverlayPosition(
+        { right: 100, top: 120, height: 22 },
+        { width: 320, height: 120 },
+        { width: 950, height: 700 },
+      ),
+    ).toEqual({ right: 622, top: 71 });
+  });
+
+  it("clamps vertically when the row anchor is near the viewport edge", () => {
+    expect(
+      resolveAnnotationInlineOverlayPosition(
+        { right: 860, top: 5, height: 22 },
+        { width: 320, height: 120 },
+        { width: 950, height: 700 },
+      ),
+    ).toEqual({ right: 90, top: 8 });
   });
 });

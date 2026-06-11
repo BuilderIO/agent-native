@@ -283,6 +283,13 @@ export default function ContentTemplate() {
             </p>
           </div>
           <div className="rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)] p-5">
+            <h3 className="mb-1 text-sm font-semibold">Local Markdown Files</h3>
+            <p className="m-0 text-sm text-[var(--fg-secondary)]">
+              Export docs to a local content folder, edit in your own tools,
+              preview changes, and import them back.
+            </p>
+          </div>
+          <div className="rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)] p-5">
             <h3 className="mb-1 text-sm font-semibold">
               Code Block Syntax Highlighting
             </h3>
@@ -381,7 +388,7 @@ export default function ContentTemplate() {
                 >
                   <polyline points="20 6 9 17 4 12" />
                 </svg>
-                All content stored as files you own
+                Optional local Markdown/MDX sync for file-first workflows
               </li>
             </ul>
           </div>

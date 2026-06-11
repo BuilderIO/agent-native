@@ -87,6 +87,7 @@ function isShellShortcut(e: KeyboardEvent): boolean {
   const key = (e.key ?? "").toLowerCase();
   if (e.altKey && (key === "arrowup" || key === "arrowdown")) return true;
   if (isAgentSidebarToggleShortcut(e)) return true;
+  if (isCodeTabShortcut(e)) return true;
 
   return (
     key === "f" ||
@@ -105,6 +106,16 @@ function isAgentSidebarToggleShortcut(e: KeyboardEvent): boolean {
     !e.altKey &&
     !e.shiftKey &&
     (e.key === "\\" || e.code === "Backslash")
+  );
+}
+
+function isCodeTabShortcut(e: KeyboardEvent): boolean {
+  return (
+    e.ctrlKey &&
+    e.altKey &&
+    !e.metaKey &&
+    !e.shiftKey &&
+    (e.key ?? "").toLowerCase() === "x"
   );
 }
 
@@ -524,7 +535,12 @@ export default function App() {
   }, []);
 
   const handleShortcut = useCallback(
-    (key: string, shiftKey: boolean, altKey: boolean = false) => {
+    (
+      key: string,
+      shiftKey: boolean,
+      altKey: boolean = false,
+      ctrlKey: boolean = false,
+    ) => {
       const k = key.toLowerCase();
 
       // Cmd+Option+Up/Down — previous/next app
@@ -555,6 +571,11 @@ export default function App() {
 
       if (k === "\\") {
         webviewRefs.current.get(activeTabIdRef.current)?.toggleAgentSidebar();
+        return;
+      }
+
+      if (ctrlKey && altKey && k === "x") {
+        handleCodeAgentsClick();
         return;
       }
 
@@ -599,6 +620,7 @@ export default function App() {
       handleCopyCurrentUrl,
       handleNewTab,
       handleReopenTab,
+      handleCodeAgentsClick,
       appDefs,
     ],
   );
@@ -613,6 +635,7 @@ export default function App() {
         e.code === "Backslash" ? "\\" : e.key,
         e.shiftKey,
         e.altKey,
+        e.ctrlKey,
       );
     };
     window.addEventListener("keydown", handler);
@@ -622,8 +645,8 @@ export default function App() {
   useEffect(() => {
     if (!window.electronAPI?.shortcuts?.onKeydown) return;
     return window.electronAPI.shortcuts.onKeydown(
-      ({ key, shiftKey, altKey }) => {
-        handleShortcut(key, shiftKey, altKey);
+      ({ key, shiftKey, altKey, ctrlKey }) => {
+        handleShortcut(key, shiftKey, altKey, ctrlKey);
       },
     );
   }, [handleShortcut]);

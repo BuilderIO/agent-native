@@ -84,6 +84,8 @@ cd templates/content && pnpm action <name> [args]
 | Action                         | Args                                                                                                                         | Purpose                                                                               |
 | ------------------------------ | ---------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
 | `list-documents`               | `[--format json]`                                                                                                            | List document metadata/tree; no full bodies                                           |
+| `export-content-source`        | `[--format json]`                                                                                                            | Export editable docs as `content/*.mdx` source files                                  |
+| `import-content-source`        | `--files <json> [--dryRun true\|false]`                                                                                      | Import `.md`/`.mdx` source files into editable docs                                   |
 | `navigate`                     | `--path <path>` or `--documentId <id>` or `--databaseId <id>`                                                                | Open a route, document page, or database page in the UI                               |
 | `search-documents`             | `--query <text> [--format json]`                                                                                             | Search by title/content and return snippets                                           |
 | `get-document`                 | `--id <id> [--format json]`                                                                                                  | Get a single document with content                                                    |
@@ -128,6 +130,17 @@ returns `{ id, title, content, format, deepLink }`, and surfaces an
 "Open document" deep link for external agents. Use `--format text` for a
 plain-text strip of the markdown.
 
+### Local Source Files
+
+The `/local-files` view syncs Content documents with Markdown/MDX files. Export
+uses `export-content-source` and writes one file per document under `content/`.
+Each file has frontmatter (`id`, `title`, `parentId`, `position`,
+`isFavorite`, `hideFromSearch`) followed by the document markdown body. Import
+uses `import-content-source`; files with known `id` values update existing docs
+only when the caller has editor access, and files without ids create new private
+docs for the current user. Use `--dryRun true` before a large import when the
+source folder may contain unexpected files.
+
 ### Notion Integration
 
 | Action                  | Args                                    | Purpose                                   |
@@ -141,12 +154,31 @@ plain-text strip of the markdown.
 
 ### Comments
 
-| Action           | Args                                                           | Purpose                  |
-| ---------------- | -------------------------------------------------------------- | ------------------------ |
-| `list-comments`  | `--documentId <id>`                                            | List all comment threads |
-| `add-comment`    | `--documentId <id> --content <text> [--threadId] [--parentId]` | Add a comment or reply   |
-| `update-comment` | `--id <id> [--content <text>] [--resolved true\|false]`        | Edit or resolve comments |
-| `delete-comment` | `--id <id>`                                                    | Delete a comment         |
+Comments are Notion/Google-Docs-style **inline comments**. Selecting text and
+commenting leaves the passage **highlighted inline** in the editor via a
+ProseMirror decoration overlay — nothing is written into the markdown body, so
+the NFM/Notion round-trip is unchanged. Each thread stores the quoted text plus
+surrounding context (`anchorPrefix`/`anchorSuffix`) and an approximate
+`anchorStartOffset`, so the highlight follows the text as the document is
+edited, disambiguates repeated text, and degrades gracefully (the thread stays
+in the sidebar) when its text is deleted. Resolving a thread clears its
+highlight and moves it to a collapsible **"Resolved (n)"** sidebar section where
+it can be **reopened** with `update-comment --resolved false`. Comments support
+**@mentions** of org members, stored as a `mentions` array of `{email, name}`.
+
+| Action           | Args                                                                                                                                                                     | Purpose                                            |
+| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------- |
+| `list-comments`  | `--documentId <id>`                                                                                                                                                      | List threads with anchor fields + parsed mentions  |
+| `add-comment`    | `--documentId <id> --content <text> [--threadId] [--parentId] [--quotedText] [--anchorPrefix] [--anchorSuffix] [--anchorStartOffset] [--authorName] [--mentions <json>]` | Add a comment or reply, optionally anchored inline |
+| `update-comment` | `--id <id> [--content <text>] [--resolved true\|false]`                                                                                                                  | Edit a comment, or resolve/reopen its thread       |
+| `delete-comment` | `--id <id>`                                                                                                                                                              | Delete a comment                                   |
+
+`add-comment` anchors a thread inline when passed `--quotedText` plus the
+surrounding `--anchorPrefix`/`--anchorSuffix` and `--anchorStartOffset`.
+`--mentions` is a JSON array of `{email, name}`, e.g.
+`'[{"email":"a@x.com","name":"A"}]'`. `--authorName` sets the display name and
+defaults to a name derived from the author's email. `--resolved true` resolves a
+whole thread; `--resolved false` reopens it.
 
 ### Versions
 
