@@ -38,6 +38,7 @@ type LocalDirectoryHandle = {
     name: string,
     options?: { create?: boolean },
   ): Promise<LocalFileHandle>;
+  removeEntry(name: string, options?: { recursive?: boolean }): Promise<void>;
   queryPermission?(descriptor: {
     mode: "read" | "readwrite";
   }): Promise<PermissionState>;
@@ -162,6 +163,37 @@ async function writeFile(
   await writable.close();
 }
 
+async function sourceWriteRoot(
+  handle: LocalDirectoryHandle,
+): Promise<{ handle: LocalDirectoryHandle; prefix: string }> {
+  if (handle.name === CONTENT_SOURCE_ROOT) {
+    return { handle, prefix: `${CONTENT_SOURCE_ROOT}/` };
+  }
+  const contentHandle = await handle.getDirectoryHandle(CONTENT_SOURCE_ROOT, {
+    create: true,
+  });
+  return { handle: contentHandle, prefix: `${CONTENT_SOURCE_ROOT}/` };
+}
+
+async function removeStaleMarkdownFiles(
+  handle: LocalDirectoryHandle,
+  prefix: string,
+  expectedPaths: Set<string>,
+) {
+  for await (const entry of handle.values()) {
+    const path = `${prefix}${entry.name}`;
+    if (entry.kind === "directory") {
+      if (IGNORED_DIRECTORIES.has(entry.name)) continue;
+      await removeStaleMarkdownFiles(entry, `${path}/`, expectedPaths);
+      continue;
+    }
+
+    if (isMarkdownPath(path) && !expectedPaths.has(path)) {
+      await handle.removeEntry(entry.name);
+    }
+  }
+}
+
 function resultSummary(result: ImportContentSourceResult) {
   return [
     `${result.created.length} created`,
@@ -224,10 +256,17 @@ export default function LocalFilesRoute() {
         {} as never,
         { method: "GET" },
       );
+      const expectedPaths = new Set(Object.keys(bundle.files));
       await Promise.all(
         Object.entries(bundle.files).map(([path, content]) =>
           writeFile(directory, path, content),
         ),
+      );
+      const writeRoot = await sourceWriteRoot(directory);
+      await removeStaleMarkdownFiles(
+        writeRoot.handle,
+        writeRoot.prefix,
+        expectedPaths,
       );
       setStatus({
         kind: "success",

@@ -187,6 +187,13 @@ export default defineAction({
 
     for (let index = 0; index < parsed.length; index += 1) {
       const file = parsed[index];
+      if (file.errors && file.errors.length > 0) {
+        errors.push({
+          path: file.path,
+          reason: file.errors.join(" "),
+        });
+        continue;
+      }
       if (file.id && duplicateIds.has(file.id)) {
         errors.push({
           path: file.path,

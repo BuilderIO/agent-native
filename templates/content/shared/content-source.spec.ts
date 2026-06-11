@@ -74,6 +74,19 @@ describe("content source files", () => {
     });
   });
 
+  it("reports invalid parent frontmatter instead of reparenting", () => {
+    expect(
+      parseContentSourceFile(
+        "content/pricing-page.mdx",
+        '---\nid: "doc_1234"\ntitle: "Pricing"\nparentId: "bad id"\n---\n\nBody',
+      ),
+    ).toMatchObject({
+      id: "doc_1234",
+      parentId: undefined,
+      errors: ["Invalid parentId frontmatter."],
+    });
+  });
+
   it("builds a deterministic content bundle path per document", () => {
     const doc = {
       id: "abc123",

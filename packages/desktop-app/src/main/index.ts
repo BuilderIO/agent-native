@@ -4775,6 +4775,16 @@ function assertInsidePlanFolder(folder: string, target: string): string {
   throw new Error("Plan file path escaped the linked folder.");
 }
 
+async function assertUsablePlanFolder(folder: string): Promise<void> {
+  const stat = await fs.promises.lstat(folder);
+  if (stat.isSymbolicLink()) {
+    throw new Error("Linked plan folders cannot be symlinks.");
+  }
+  if (!stat.isDirectory()) {
+    throw new Error("The linked plan folder is not a directory.");
+  }
+}
+
 async function assertNoSymlink(filePath: string): Promise<void> {
   try {
     const stat = await fs.promises.lstat(filePath);
@@ -4874,6 +4884,7 @@ async function writePlanMdxFolder(
   folder: string,
   mdx: DesktopPlanMdxFolder,
 ): Promise<string[]> {
+  await assertUsablePlanFolder(folder);
   await fs.promises.mkdir(folder, { recursive: true });
   await writePlanTextFile(folder, "plan.mdx", mdx["plan.mdx"]);
   const written = ["plan.mdx"];
@@ -4952,6 +4963,7 @@ async function readPlanAssets(
 async function readPlanMdxFolder(
   folder: string,
 ): Promise<DesktopPlanMdxFolder> {
+  await assertUsablePlanFolder(folder);
   const plan = await readOptionalPlanTextFile(folder, "plan.mdx");
   if (!plan) throw new Error("The linked folder does not contain plan.mdx.");
   const mdx: DesktopPlanMdxFolder = { "plan.mdx": plan };

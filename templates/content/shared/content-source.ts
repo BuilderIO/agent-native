@@ -35,6 +35,7 @@ export interface ParsedContentSourceFile {
   position?: number;
   isFavorite?: boolean;
   hideFromSearch?: boolean;
+  errors?: string[];
 }
 
 const FRONTMATTER_RE =
@@ -163,19 +164,22 @@ export function parseContentSourceFile(
   const match = source.match(FRONTMATTER_RE);
   const metadata = match ? parseFrontmatter(match[1]) : {};
   const content = match ? source.slice(match[0].length) : source;
+  const errors: string[] = [];
   const rawId = typeof metadata.id === "string" ? metadata.id : undefined;
   const id = isValidContentSourceId(rawId) ? rawId : undefined;
-  const rawParentId = hasOwn(metadata, "parentId")
-    ? typeof metadata.parentId === "string"
-      ? metadata.parentId
-      : null
-    : undefined;
-  const parentId =
-    rawParentId === undefined
-      ? undefined
-      : rawParentId && isValidContentSourceId(rawParentId)
-        ? rawParentId
-        : null;
+  let parentId: string | null | undefined;
+  if (hasOwn(metadata, "parentId")) {
+    if (metadata.parentId === null) {
+      parentId = null;
+    } else if (
+      typeof metadata.parentId === "string" &&
+      isValidContentSourceId(metadata.parentId)
+    ) {
+      parentId = metadata.parentId;
+    } else {
+      errors.push("Invalid parentId frontmatter.");
+    }
+  }
   const rawTitle = typeof metadata.title === "string" ? metadata.title : "";
   const title = rawTitle.trim() || titleFromPath(filePath) || "Untitled";
   const rawPosition = metadata.position;
@@ -203,6 +207,7 @@ export function parseContentSourceFile(
       typeof metadata.hideFromSearch === "boolean"
         ? metadata.hideFromSearch
         : undefined,
+    errors: errors.length > 0 ? errors : undefined,
   };
 }
 
