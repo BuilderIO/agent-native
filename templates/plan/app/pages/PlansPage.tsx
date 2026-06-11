@@ -2865,7 +2865,7 @@ export function PlansPage() {
             planId: plan.id,
             title: plan.title,
           });
-          if (!chosen.ok) {
+          if (chosen.ok === false) {
             if (chosen.canceled) return null;
             throw new Error(chosen.error);
           }
@@ -2882,7 +2882,7 @@ export function PlansPage() {
           title: plan.title,
           mdx: data.mdx,
         });
-        if (!written.ok) throw new Error(written.error);
+        if (written.ok === false) throw new Error(written.error);
         setDesktopPlanFolder(written.folder);
         desktopAutoSyncedVersionRef.current[plan.id] = plan.updatedAt;
         if (!options.quiet) {
@@ -2906,7 +2906,7 @@ export function PlansPage() {
     setDesktopPlanImporting(true);
     try {
       const result = await planFiles.readPlan({ planId: plan.id });
-      if (!result.ok) throw new Error(result.error);
+      if (result.ok === false) throw new Error(result.error);
       if (!result.mdx) throw new Error("No Plan source files were found.");
       const imported = await importPlanSource.mutateAsync({
         planId: plan.id,
@@ -4173,6 +4173,77 @@ export function PlansPage() {
                         <IconFileZip className="size-4" />
                         Download source (.zip)
                       </DropdownMenuItem>
+                      {desktopPlanFilesAvailable && (
+                        <>
+                          <DropdownMenuSeparator />
+                          <DropdownMenuLabel className="text-xs font-medium text-muted-foreground">
+                            Local files
+                          </DropdownMenuLabel>
+                          <DropdownMenuItem
+                            onClick={() =>
+                              runPlanExportAction(async () => {
+                                await syncPlanToDesktopFolder({
+                                  choose: true,
+                                });
+                              })
+                            }
+                            disabled={desktopPlanSyncing}
+                            className="gap-2"
+                          >
+                            {desktopPlanSyncing ? (
+                              <IconLoader2 className="size-4 animate-spin" />
+                            ) : (
+                              <IconFolder className="size-4" />
+                            )}
+                            {desktopPlanFolder
+                              ? "Change local folder"
+                              : "Link local folder"}
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            onClick={() =>
+                              runPlanExportAction(async () => {
+                                await syncPlanToDesktopFolder();
+                              })
+                            }
+                            disabled={!desktopPlanFolder || desktopPlanSyncing}
+                            className="gap-2"
+                          >
+                            {desktopPlanSyncing ? (
+                              <IconLoader2 className="size-4 animate-spin" />
+                            ) : (
+                              <IconRefresh className="size-4" />
+                            )}
+                            Sync to local folder
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            onClick={() =>
+                              runPlanExportAction(importPlanFromDesktopFolder)
+                            }
+                            disabled={
+                              !desktopPlanFolder ||
+                              desktopPlanImporting ||
+                              !canEditPlanContent
+                            }
+                            className="gap-2"
+                          >
+                            {desktopPlanImporting ? (
+                              <IconLoader2 className="size-4 animate-spin" />
+                            ) : (
+                              <IconDownload className="size-4" />
+                            )}
+                            Import local edits
+                          </DropdownMenuItem>
+                          <DropdownMenuCheckboxItem
+                            checked={desktopPlanAutoSync}
+                            disabled={desktopPlanSyncing}
+                            onCheckedChange={(checked) =>
+                              setDesktopPlanAutoSyncEnabled(checked === true)
+                            }
+                          >
+                            Auto-sync changes
+                          </DropdownMenuCheckboxItem>
+                        </>
+                      )}
                       <DropdownMenuSub>
                         <DropdownMenuSubTrigger className="gap-2">
                           <IconDownload className="size-4" />
