@@ -79,7 +79,8 @@ function loadDatabaseUrl(): string {
   const parsed = parseEnv(fs.readFileSync(envPath, "utf8"));
   const url =
     parsed.ANALYTICS_DATABASE_URL?.trim() || parsed.DATABASE_URL?.trim();
-  if (!url) throw new Error("DATABASE_URL is not set in templates/analytics/.env");
+  if (!url)
+    throw new Error("DATABASE_URL is not set in templates/analytics/.env");
   return url;
 }
 
@@ -132,7 +133,9 @@ async function main(): Promise<void> {
       `SELECT id FROM organizations WHERE LOWER(COALESCE(allowed_domain, '')) = ? ORDER BY created_at ASC LIMIT 1`,
       [ORG_DOMAIN],
     );
-    const orgId: string | null = org.rows[0]?.id ? String(org.rows[0].id) : null;
+    const orgId: string | null = org.rows[0]?.id
+      ? String(org.rows[0].id)
+      : null;
 
     const existing = await db.execute(
       `SELECT id, public_key, public_key_prefix, revoked_at
