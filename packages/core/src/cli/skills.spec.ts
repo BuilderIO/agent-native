@@ -768,9 +768,13 @@ describe("agent-native skills", () => {
       expect(runConnect.mock.calls[0][0]).toEqual(
         expect.arrayContaining(["https://assets.agent-native.com"]),
       );
-      expect(stdout.join("")).toContain("MCP config: codex, claude-code.");
-      expect(stdout.join("")).toContain("Authentication: completed.");
-      expect(stdout.join("")).toContain("rerun with --client <client>");
+      expect(stdout.join("")).toContain("MCP config");
+      expect(stdout.join("")).toContain("codex, claude-code");
+      expect(stdout.join("")).toContain("Authentication");
+      expect(stdout.join("")).toContain("completed");
+      expect(stdout.join("")).toContain("Add another client later");
+      // Final "all done" outro + slash-command guidance.
+      expect(stdout.join("")).toContain("All set!");
     } finally {
       if (previousHome === undefined) delete process.env.HOME;
       else process.env.HOME = previousHome;
