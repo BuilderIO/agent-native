@@ -1,5 +1,13 @@
 # @agent-native/core
 
+## 0.49.4
+
+### Patch Changes
+
+- 25454af: Improve extension direct-link loading by retrying transient detail misses, avoiding false not-found flashes, and slimming extension list responses.
+- 25454af: Clarify file upload provider guidance so connected Builder.io is presented as
+  the primary upload setup path.
+
 ## 0.49.3
 
 ### Patch Changes
