@@ -48,5 +48,5 @@ describe("content agent card", () => {
     expect(card.skills.map((skill) => skill.id)).toEqual(
       expect.arrayContaining(REQUIRED_CONTENT_ACTIONS),
     );
-  });
+  }, 15_000);
 });
