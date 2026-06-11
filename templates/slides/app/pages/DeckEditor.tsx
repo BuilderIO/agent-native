@@ -1111,6 +1111,7 @@ export default function DeckEditor() {
         onOpenChange={setHistoryOpen}
         canRestore={canEdit}
         anchorRef={historyButtonRef}
+        designSystem={designSystem}
       />
       <ImageDropPromptPopover
         open={imageDropPopover.open}

@@ -541,7 +541,7 @@ export function SlideInner({
     height: dims.height,
   };
 
-  const bg = slide.background || "bg-[#000000]";
+  const bg = slide.background || "var(--ds-bg, #000000)";
   const isGradientClass = bg.startsWith("bg-");
   const safeBackground = !isGradientClass ? sanitizeCssValue(bg) : null;
   const bgStyle = safeBackground ? { background: safeBackground } : undefined;

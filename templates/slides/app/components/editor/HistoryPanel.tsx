@@ -26,6 +26,7 @@ import {
 } from "@/hooks/use-deck-versions";
 import type { AspectRatio } from "@/lib/aspect-ratios";
 import type { DeckVersionSummary } from "../../../shared/api";
+import type { DesignSystemData } from "../../../shared/api";
 
 interface HistoryPanelProps {
   deckId: string;
@@ -33,6 +34,7 @@ interface HistoryPanelProps {
   onOpenChange: (open: boolean) => void;
   canRestore?: boolean;
   anchorRef?: RefObject<HTMLButtonElement | null>;
+  designSystem?: DesignSystemData;
 }
 
 function formatRelativeTime(dateStr: string): string {
@@ -66,6 +68,7 @@ export default function HistoryPanel({
   open,
   onOpenChange,
   canRestore = true,
+  designSystem,
 }: HistoryPanelProps) {
   const [selectedVersionId, setSelectedVersionId] = useState<string | null>(
     null,
@@ -185,6 +188,7 @@ export default function HistoryPanel({
                             | undefined
                         }
                         className="border border-border bg-black"
+                        designSystem={designSystem}
                       />
                       <p className="mt-1.5 truncate text-[11px] text-muted-foreground">
                         Slide {index + 1}

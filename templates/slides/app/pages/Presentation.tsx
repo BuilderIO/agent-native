@@ -4,6 +4,7 @@ import { useDecks } from "@/context/DeckContext";
 import type { Deck } from "@/context/DeckContext";
 import PresentationView from "@/components/presentation/PresentationView";
 import { callAction } from "@agent-native/core/client";
+import { useDeckDesignSystem } from "@/hooks/use-deck-design-system";
 
 export default function Presentation() {
   const { id } = useParams<{ id: string }>();
@@ -16,6 +17,8 @@ export default function Presentation() {
   const [searchParams] = useSearchParams();
   const contextDeck = getDeck(id || "");
   const deck = contextDeck ?? fallbackDeck;
+
+  const { designSystem } = useDeckDesignSystem(deck?.designSystemId);
 
   useEffect(() => {
     if (!id || loading || contextDeck) {
@@ -63,6 +66,7 @@ export default function Presentation() {
       deckId={id}
       startIndex={startSlide}
       aspectRatio={deck.aspectRatio}
+      designSystem={designSystem}
     />
   );
 }

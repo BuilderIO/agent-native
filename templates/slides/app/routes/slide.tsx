@@ -9,6 +9,7 @@ import {
 import SlideRenderer from "@/components/deck/SlideRenderer";
 import type { Slide } from "@/context/DeckContext";
 import type { AspectRatio } from "@/lib/aspect-ratios";
+import { useDeckDesignSystem } from "@/hooks/use-deck-design-system";
 
 export function meta() {
   return [{ title: "Slide Preview" }];
@@ -39,6 +40,9 @@ export default function SlideRoute() {
   );
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [designSystemId, setDesignSystemId] = useState<string | null>(null);
+
+  const { designSystem } = useDeckDesignSystem(designSystemId);
 
   const slideNumber =
     slideNumberParam !== null ? parseInt(slideNumberParam, 10) : null;
@@ -86,6 +90,7 @@ export default function SlideRoute() {
         const idx = Math.max(0, Math.min(slideIndex, slides.length - 1));
         setSlide(slides[idx]);
         setAspectRatio(deck.aspectRatio);
+        setDesignSystemId(deck.designSystemId ?? null);
         setLoading(false);
       })
       .catch((err: unknown) => {
@@ -112,6 +117,7 @@ export default function SlideRoute() {
         slide={slide}
         thumbnail={false}
         aspectRatio={aspectRatio}
+        designSystem={designSystem}
       />
 
       {inEmbed && (

@@ -244,7 +244,11 @@ function SortableSlideThumb({
                   : "rgba(255,255,255,0.06)",
             }}
           >
-            <SlideRenderer slide={slide} aspectRatio={aspectRatio} designSystem={designSystem} />
+            <SlideRenderer
+              slide={slide}
+              aspectRatio={aspectRatio}
+              designSystem={designSystem}
+            />
           </div>
         </div>
       </button>

@@ -13,6 +13,7 @@ import type {
 } from "@/context/DeckContext";
 import SlideRenderer from "@/components/deck/SlideRenderer";
 import type { AspectRatio } from "@/lib/aspect-ratios";
+import type { DesignSystemData } from "../../../shared/api";
 import {
   findLegacyAnimationContainer,
   resolveSlideAnimationElement,
@@ -23,6 +24,7 @@ interface PresentationViewProps {
   deckId: string;
   startIndex?: number;
   aspectRatio?: AspectRatio;
+  designSystem?: DesignSystemData;
 }
 
 // ─── Element animation helpers ────────────────────────────────────────────────
@@ -151,6 +153,7 @@ export default function PresentationView({
   deckId,
   startIndex = 0,
   aspectRatio,
+  designSystem,
 }: PresentationViewProps) {
   const safeSlides = useMemo(
     () =>
@@ -445,6 +448,7 @@ export default function PresentationView({
             slide={safeSlides[prevIndex]}
             thumbnail={false}
             aspectRatio={aspectRatio}
+            designSystem={designSystem}
           />
         </div>
       )}
@@ -459,6 +463,7 @@ export default function PresentationView({
           slide={displaySlide}
           thumbnail={false}
           aspectRatio={aspectRatio}
+          designSystem={designSystem}
         />
       </div>
 

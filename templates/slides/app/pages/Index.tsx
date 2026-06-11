@@ -6,13 +6,9 @@ import { useDecks } from "@/context/DeckContext";
 import DeckCard from "@/components/deck/DeckCard";
 import PromptPopover from "@/components/editor/PromptDialog";
 import type { UploadedFile } from "@/components/editor/PromptDialog";
-import type { DesignSystemData } from "../../shared/api";
 import { useAgentGenerating } from "@/hooks/use-agent-generating";
 import { useDesignSystems } from "@/hooks/use-design-systems";
-import {
-  mergeDesignSystemData,
-  DEFAULT_DESIGN_SYSTEM,
-} from "@/hooks/use-deck-design-system";
+import { mergeDesignSystemData } from "@/hooks/use-deck-design-system";
 import { savePromptToComposerDraft } from "@/lib/composer-draft";
 import {
   useSetHeaderActions,
@@ -167,15 +163,16 @@ export default function Index() {
     [designSystems],
   );
   const designSystemById = useMemo(
-    () => new Map(
-      designSystems.flatMap((ds) => {
-        try {
-          return [[ds.id, mergeDesignSystemData(JSON.parse(ds.data))]];
-        } catch {
-          return [];
-        }
-      })
-    ),
+    () =>
+      new Map(
+        designSystems.flatMap((ds) => {
+          try {
+            return [[ds.id, mergeDesignSystemData(JSON.parse(ds.data))]];
+          } catch {
+            return [];
+          }
+        }),
+      ),
     [designSystems],
   );
   const deckFilter = searchParams.get("createdBy") === "me" ? "mine" : "all";
@@ -580,9 +577,7 @@ export default function Index() {
                     ? designSystemTitleById.get(deck.designSystemId)
                     : null
                 }
-                designSystem={
-                  designSystemById.get(deck.designSystemId ?? "") ?? DEFAULT_DESIGN_SYSTEM
-                }
+                designSystem={designSystemById.get(deck.designSystemId ?? "")}
               />
             ))}
             {visibleDecks.length === 0 && (
