@@ -29,6 +29,10 @@ import {
   deleteOrHideExtension,
   invalidateExtensionRemoval,
 } from "./delete-extension.js";
+import {
+  extensionLoadError,
+  shouldRetryExtensionLoad,
+} from "./extension-load-error.js";
 import { extensionPath } from "../../extensions/path.js";
 
 interface Extension {
@@ -97,16 +101,29 @@ export function EmbeddedExtension({
     return () => observer.disconnect();
   }, []);
 
-  const { data: extension, isLoading } = useQuery<Extension | null>({
+  const {
+    data: extension,
+    isFetching,
+    isLoading,
+  } = useQuery<Extension>({
     queryKey: ["extension", extensionId],
     queryFn: async () => {
       const res = await fetch(
         agentNativePath(`/_agent-native/extensions/${extensionId}`),
       );
-      if (res.status === 403 || res.status === 404) return null;
-      if (!res.ok) throw new Error("Failed to fetch extension");
+      if (res.status === 404) {
+        throw extensionLoadError(404, "Extension not found");
+      }
+      if (res.status === 403) {
+        throw extensionLoadError(403, "Extension access denied");
+      }
+      if (!res.ok) {
+        throw extensionLoadError(res.status, "Failed to fetch extension");
+      }
       return res.json();
     },
+    retry: shouldRetryExtensionLoad,
+    retryDelay: (attempt) => Math.min(1000 * 2 ** attempt, 4000),
   });
 
   // Initial dark state is baked into the URL on first load only; subsequent
@@ -258,7 +275,7 @@ export function EmbeddedExtension({
   }, [extensionId]);
 
   if (!extension) {
-    if (!isLoading) return null;
+    if (!isLoading && !isFetching) return null;
     return (
       <div
         className={className}

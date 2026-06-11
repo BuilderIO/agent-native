@@ -130,7 +130,7 @@ export async function uploadImageAsset(args: {
 
   if (!result) {
     const err: Error & { statusCode?: number } = new Error(
-      "No file upload provider is configured. Connect Builder.io in Settings → File uploads, set BUILDER_PRIVATE_KEY, or register a custom provider via registerFileUploadProvider().",
+      "No file upload provider is configured. Connect or reconnect Builder.io in Settings → File uploads, or register a custom provider via registerFileUploadProvider().",
     );
     err.statusCode = 503;
     throw err;

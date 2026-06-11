@@ -40,6 +40,11 @@ import {
   deleteOrHideExtension,
   invalidateExtensionRemoval,
 } from "./delete-extension.js";
+import {
+  extensionLoadError,
+  extensionLoadErrorStatus,
+  shouldRetryExtensionLoad,
+} from "./extension-load-error.js";
 import { extensionPath, isExtensionPathname } from "../../extensions/path.js";
 import { buildExtensionHtml } from "../../extensions/html-shell.js";
 import { getThemeVars } from "../../extensions/theme.js";
@@ -905,16 +910,30 @@ export function ExtensionViewer({ extensionId }: ExtensionViewerProps) {
     return () => window.removeEventListener("message", handleMessage);
   }, [extensionId, queryClient]);
 
-  const { data: extension, isLoading } = useQuery<Extension | null>({
+  const {
+    data: extension,
+    error: extensionError,
+    isFetching,
+    isLoading,
+  } = useQuery<Extension>({
     queryKey: ["extension", extensionId],
     queryFn: async () => {
       const res = await fetch(
         agentNativePath(`/_agent-native/extensions/${extensionId}`),
       );
-      if (res.status === 403 || res.status === 404) return null;
-      if (!res.ok) throw new Error("Failed to fetch extension");
+      if (res.status === 404) {
+        throw extensionLoadError(404, "Extension not found");
+      }
+      if (res.status === 403) {
+        throw extensionLoadError(403, "Extension access denied");
+      }
+      if (!res.ok) {
+        throw extensionLoadError(res.status, "Failed to fetch extension");
+      }
       return res.json();
     },
+    retry: shouldRetryExtensionLoad,
+    retryDelay: (attempt) => Math.min(1000 * 2 ** attempt, 4000),
   });
 
   toolRef.current = extension ?? null;
@@ -998,7 +1017,7 @@ export function ExtensionViewer({ extensionId }: ExtensionViewerProps) {
     }
   }, [renameValue, extension, extensionId, queryClient]);
 
-  if (isLoading) {
+  if (isLoading || (!extension && isFetching)) {
     return (
       <div className="flex h-full flex-col">
         <div className="flex h-12 items-center gap-2 px-3 border-b shrink-0">
@@ -1011,9 +1030,10 @@ export function ExtensionViewer({ extensionId }: ExtensionViewerProps) {
   }
 
   if (!extension) {
+    const status = extensionLoadErrorStatus(extensionError);
     return (
       <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
-        Extension not found
+        {status === 403 ? "Extension access denied" : "Extension not found"}
       </div>
     );
   }
