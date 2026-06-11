@@ -304,32 +304,66 @@ async function stopDev(running: RunningDev): Promise<void> {
 }
 
 async function launchBrowser(): Promise<Browser> {
-  const channel = process.env.PLAYWRIGHT_CHANNEL || "chrome";
-  try {
-    return await chromium.launch({ channel, headless: !headed });
-  } catch (channelError) {
-    if (process.env.PLAYWRIGHT_CHANNEL) throw channelError;
+  const channel =
+    process.env.PLAYWRIGHT_CHANNEL ||
+    (process.env.CI || process.env.GITHUB_ACTIONS ? undefined : "chrome");
+  if (channel) {
     try {
-      return await chromium.launch({ headless: !headed });
-    } catch (bundledError) {
-      throw new Error(
-        [
-          "Could not launch Playwright Chromium.",
-          `Chrome channel error: ${
-            channelError instanceof Error
-              ? channelError.message.split("\n")[0]
-              : String(channelError)
-          }`,
-          `Bundled Chromium error: ${
-            bundledError instanceof Error
-              ? bundledError.message.split("\n")[0]
-              : String(bundledError)
-          }`,
-          "Install a browser with `pnpm exec playwright install chromium` or set PLAYWRIGHT_CHANNEL.",
-        ].join("\n"),
+      return await chromium.launch({ channel, headless: !headed });
+    } catch (channelError) {
+      if (process.env.PLAYWRIGHT_CHANNEL) throw channelError;
+      log(
+        `Chrome channel launch failed (${channelError instanceof Error ? channelError.message.split("\n")[0] : String(channelError)}); using bundled Chromium`,
       );
     }
   }
+  try {
+    return await chromium.launch({ headless: !headed });
+  } catch (bundledError) {
+    throw new Error(
+      [
+        "Could not launch Playwright Chromium.",
+        `Bundled Chromium error: ${
+          bundledError instanceof Error
+            ? bundledError.message.split("\n")[0]
+            : String(bundledError)
+        }`,
+        "Install a browser with `pnpm exec playwright install chromium` or set PLAYWRIGHT_CHANNEL.",
+      ].join("\n"),
+    );
+  }
+}
+
+function isNavigationContextError(err: unknown): boolean {
+  const message = err instanceof Error ? err.message : String(err);
+  return (
+    message.includes("Execution context was destroyed") ||
+    message.includes("context was destroyed") ||
+    message.includes("net::ERR_ABORTED")
+  );
+}
+
+async function retryAfterNavigation<T>(
+  label: string,
+  fn: () => Promise<T>,
+  options: { attempts?: number; delayMs?: number } = {},
+): Promise<T> {
+  const attempts = options.attempts ?? 12;
+  const delayMs = options.delayMs ?? 1_500;
+  let lastError: unknown;
+  for (let attempt = 0; attempt < attempts; attempt++) {
+    try {
+      return await fn();
+    } catch (err) {
+      lastError = err;
+      if (!isNavigationContextError(err) || attempt === attempts - 1) throw err;
+      log(
+        `${label} interrupted by navigation (attempt ${attempt + 1}/${attempts}), retrying…`,
+      );
+      await sleep(delayMs);
+    }
+  }
+  throw lastError;
 }
 
 async function gotoCommitted(page: Page, url: string): Promise<void> {
@@ -377,41 +411,95 @@ async function signInViaAuthApi(
   email: string,
   password: string,
 ): Promise<void> {
-  await page.evaluate(
-    async ({ email, password }) => {
-      const post = async (path: string, body: Record<string, unknown>) => {
-        const response = await fetch(path, {
-          method: "POST",
-          credentials: "include",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(body),
-        });
-        const text = await response.text();
-        return { ok: response.ok, status: response.status, text };
-      };
+  await retryAfterNavigation("auth API login", () =>
+    page.evaluate(
+      async ({ email, password }) => {
+        const post = async (path: string, body: Record<string, unknown>) => {
+          const response = await fetch(path, {
+            method: "POST",
+            credentials: "include",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(body),
+          });
+          const text = await response.text();
+          return { ok: response.ok, status: response.status, text };
+        };
 
-      let login = await post("/_agent-native/auth/login", { email, password });
-      if (!login.ok) {
-        const register = await post("/_agent-native/auth/register", {
+        let login = await post("/_agent-native/auth/login", {
           email,
           password,
-          name: "Smoke Tester",
-          callbackURL: "/",
         });
-        if (!register.ok && register.status !== 409) {
+        if (!login.ok) {
+          const register = await post("/_agent-native/auth/register", {
+            email,
+            password,
+            name: "Smoke Tester",
+            callbackURL: "/",
+          });
+          if (!register.ok && register.status !== 409) {
+            throw new Error(
+              `register failed with HTTP ${register.status}: ${register.text}`,
+            );
+          }
+          login = await post("/_agent-native/auth/login", { email, password });
+        }
+        if (!login.ok) {
           throw new Error(
-            `register failed with HTTP ${register.status}: ${register.text}`,
+            `login failed with HTTP ${login.status}: ${login.text}`,
           );
         }
-        login = await post("/_agent-native/auth/login", { email, password });
+      },
+      { email, password },
+    ),
+  );
+}
+
+async function waitForHomeLink(page: Page, timeoutMs = 60_000): Promise<void> {
+  const homeLink = page.getByRole("link", { name: "Home" });
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    try {
+      await homeLink.waitFor({
+        state: "visible",
+        timeout: Math.min(15_000, deadline - Date.now()),
+      });
+      return;
+    } catch (err) {
+      if (isNavigationContextError(err) && Date.now() < deadline) {
+        await sleep(1_000);
+        continue;
       }
-      if (!login.ok) {
-        throw new Error(
-          `login failed with HTTP ${login.status}: ${login.text}`,
-        );
-      }
+      throw err;
+    }
+  }
+}
+
+async function readAuthenticatedSessionEmail(page: Page): Promise<string> {
+  return retryAfterNavigation(
+    "session read",
+    async () => {
+      await waitForHomeLink(page, 20_000);
+      const session = await page.evaluate(async () => {
+        const response = await fetch("/_agent-native/auth/session", {
+          headers: { Accept: "application/json" },
+          credentials: "include",
+        });
+        const text = await response.text();
+        return text ? JSON.parse(text) : null;
+      });
+      const sessionEmail =
+        typeof session?.email === "string"
+          ? session.email
+          : typeof session?.user?.email === "string"
+            ? session.user.email
+            : "";
+      assert.ok(
+        sessionEmail.length > 0,
+        `expected authenticated session, got ${JSON.stringify(session)}`,
+      );
+      return sessionEmail;
     },
-    { email, password },
+    { attempts: 20, delayMs: 2_000 },
   );
 }
 
@@ -433,7 +521,9 @@ async function waitForAuthenticatedShell(
   for (let attempt = 0; attempt < 4; attempt++) {
     await gotoCommitted(page, `${baseUrl}/`);
     lastUrl = page.url();
-    lastBody = await page.locator("body").innerText({ timeout: 10_000 });
+    lastBody = await retryAfterNavigation("body read", () =>
+      page.locator("body").innerText({ timeout: 10_000 }),
+    );
 
     if (/unexpected server error/i.test(lastBody)) {
       throw new Error(
@@ -456,7 +546,7 @@ async function waitForAuthenticatedShell(
     }
 
     try {
-      await homeLink.waitFor({ state: "visible", timeout: 15_000 });
+      await waitForHomeLink(page, 15_000);
       break;
     } catch (err) {
       if (attempt === 3) {
@@ -471,24 +561,7 @@ async function waitForAuthenticatedShell(
     }
   }
 
-  const session = await page.evaluate(async () => {
-    const response = await fetch("/_agent-native/auth/session", {
-      headers: { Accept: "application/json" },
-      credentials: "include",
-    });
-    const text = await response.text();
-    return text ? JSON.parse(text) : null;
-  });
-  const sessionEmail =
-    typeof session?.email === "string"
-      ? session.email
-      : typeof session?.user?.email === "string"
-        ? session.user.email
-        : "";
-  assert.ok(
-    sessionEmail.length > 0,
-    `expected authenticated session after auto-login, got ${JSON.stringify(session)}`,
-  );
+  const sessionEmail = await readAuthenticatedSessionEmail(page);
   log(`authenticated session: ${sessionEmail}`);
   return sessionEmail;
 }
@@ -508,7 +581,9 @@ async function runBrowserSmoke(
   httpErrors.length = 0;
 
   log("assertion pass: / and /observability after warmup");
-  await waitForAuthenticatedShell(page, baseUrl);
+  await gotoCommitted(page, `${baseUrl}/`);
+  await waitForHomeLink(page);
+  await readAuthenticatedSessionEmail(page);
   log(`navigating to ${baseUrl}/observability`);
   await gotoCommitted(page, `${baseUrl}/observability`);
   await page
