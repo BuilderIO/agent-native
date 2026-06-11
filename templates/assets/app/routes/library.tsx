@@ -549,7 +549,7 @@ function AssetThumbnail({ asset }: { asset: Asset }) {
       src={displayUrl}
       crossOrigin={isCrossOriginPreview(displayUrl) ? "anonymous" : undefined}
       alt={asset.altText ?? asset.title ?? ""}
-      className="h-full w-full object-cover transition group-hover:scale-[1.02]"
+      className="h-full w-full object-contain transition group-hover:scale-[1.02]"
       onError={tryNextSource}
     />
   );
