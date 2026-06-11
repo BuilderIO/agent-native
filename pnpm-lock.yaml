@@ -1115,11 +1115,10 @@ importers:
         version: 6.0.3
 
   packages/skills:
-    dependencies:
+    devDependencies:
       '@agent-native/core':
         specifier: workspace:*
         version: link:../core
-    devDependencies:
       '@types/node':
         specifier: ^25.9.2
         version: 25.9.2
