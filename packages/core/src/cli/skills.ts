@@ -2030,6 +2030,13 @@ export interface ParsedSkillsArgs {
    */
   withGithubAction?: boolean;
   /**
+   * Set once the PR Visual Recap workflow decision has already been made up
+   * front (in `runSkills`, before any install/registration) so the per-target
+   * `addAgentNativeSkill` doesn't prompt for it again mid-flow. The chosen
+   * value lands in `withGithubAction`.
+   */
+  githubActionResolved?: boolean;
+  /**
    * Plain skill repos can add a managed AGENTS.md / CLAUDE.md block for skills
    * that only become automatic through project instructions.
    */
@@ -3551,7 +3558,10 @@ export async function addAgentNativeSkill(
       !withGithubAction &&
       !fs.existsSync(prVisualRecapWorkflowPath(baseDir))
     ) {
-      if (shouldPrompt(parsed, options)) {
+      // Normally the recap decision is made up front in `runSkills` (so it's
+      // resolved here). Only prompt inline when a direct caller invoked
+      // addAgentNativeSkill without going through that up-front step.
+      if (!parsed.githubActionResolved && shouldPrompt(parsed, options)) {
         const prompt = options.promptGithubAction ?? promptForGithubAction;
         const choice = await prompt({
           workflowPath: prVisualRecapWorkflowDisplayPath(),
@@ -3827,6 +3837,34 @@ export async function runSkills(
     }
     telemetry.track("skills_cli scope selected", { scope: parsed.scope });
 
+    // Decide the optional PR Visual Recap GitHub Action UP FRONT — before any
+    // install or MCP registration — so every prompt is answered before we touch
+    // disk. The choice is threaded into each install via `withGithubAction` +
+    // `githubActionResolved` (so addAgentNativeSkill doesn't re-prompt mid-flow).
+    const recapBaseDir = options.baseDir ?? process.cwd();
+    const anyRecapTarget = targets.some((target) => {
+      if (normalizeKnownSkillTarget(target) !== "visual-plans") return false;
+      const only = builtInOnlySkillNames(target);
+      return !only || only.includes("visual-recap");
+    });
+    if (
+      anyRecapTarget &&
+      !parsed.withGithubAction &&
+      !fs.existsSync(prVisualRecapWorkflowPath(recapBaseDir)) &&
+      shouldPrompt(parsed, options)
+    ) {
+      const prompt = options.promptGithubAction ?? promptForGithubAction;
+      const choice = await prompt({
+        workflowPath: prVisualRecapWorkflowDisplayPath(),
+        setupCommand: prVisualRecapSetupCommand(),
+      });
+      if (choice === null) {
+        telemetry.track("skills_cli cancelled", { step: "github-action" });
+      }
+      parsed.withGithubAction = choice === true;
+      parsed.githubActionResolved = true;
+    }
+
     const results: SkillsAddResult[] = [];
     for (const target of targets) {
       results.push(
@@ -3928,31 +3966,46 @@ export async function runSkills(
           " && ",
         )} to add automatic recap comments on pull requests.`
       : "";
-    process.stdout.write(
-      [
-        `Installed ${installedNames} skill${results.length === 1 ? "" : "s"}.`,
-        skillsAgents.length
-          ? `Skill instructions: ${skillsAgents.join(", ")}.`
-          : "Skill instructions: skipped.",
-        mcpClients.length
-          ? `MCP config: ${mcpClients.join(", ")}.`
-          : "MCP config: not required.",
-        mcpUrls.length
-          ? `MCP URL${mcpUrls.length === 1 ? "" : "s"}: ${mcpUrls.join(", ")}.`
+    const clack = await import("@clack/prompts");
+    const summary = [
+      skillsAgents.length
+        ? `Skill instructions   ${skillsAgents.join(", ")}`
+        : "Skill instructions   skipped",
+      mcpClients.length
+        ? `MCP config           ${mcpClients.join(", ")}`
+        : "MCP config           not required",
+      mcpUrls.length ? `MCP URL              ${mcpUrls.join(", ")}` : "",
+      authConnected
+        ? "Authentication       completed"
+        : pendingConnectCommands.length
+          ? `Authentication       pending — run ${pendingConnectCommands.join(" && ")}`
           : "",
-        authLine,
-        githubActionLine,
-        githubActionSuggestionLine,
-        localCommands.length
-          ? `Local command: ${localCommands.join(", ")}.`
-          : "",
-        "Restart or reload selected agent clients if the skill is not visible yet.",
-        parsed.clientExplicit
-          ? ""
-          : `To add another client later, rerun with --client <client> (for example: --client claude-code).`,
-      ]
-        .filter(Boolean)
-        .join("\n") + "\n",
+      localCommands.length
+        ? `Local command        ${localCommands.join(", ")}`
+        : "",
+    ].filter(Boolean);
+    clack.note(
+      summary.join("\n"),
+      `Installed ${installedNames} skill${results.length === 1 ? "" : "s"}`,
+    );
+
+    // GitHub Action follow-ups — kept as exact, copy-pasteable command lines.
+    for (const line of [githubActionLine, githubActionSuggestionLine].filter(
+      Boolean,
+    )) {
+      process.stdout.write(`${line}\n`);
+    }
+
+    const slashCommands = completedSkills
+      .map((name) => `/${name}`)
+      .join("  ");
+    const clientHint = parsed.clientExplicit
+      ? ""
+      : "\n   Add another client later with --client <client> (e.g. --client claude-code).";
+    clack.outro(
+      `✅ All set! Start using ${slashCommands || "your new skills"} in your agent client.` +
+        `\n   You may need to reload the client for the skill + MCP server to appear.` +
+        clientHint,
     );
   } catch (error) {
     telemetry.track("skills_cli failed", {
