@@ -1,19 +1,23 @@
+import { useEffect } from "react";
 import SharedPresentation from "@/pages/SharedPresentation";
 import {
   toSharedDeckSlide,
   type SharedDeckResponse,
   type SharedDeckSlide,
 } from "@shared/api";
-import { and, eq, or } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import type { LoaderFunctionArgs, MetaFunction } from "react-router";
 import { useLoaderData } from "react-router";
-import { getRequestUserEmail } from "@agent-native/core/server";
-import { accessFilter } from "@agent-native/core/sharing";
+import { getConfiguredAppBasePath } from "@agent-native/core/server";
 import { getDb, schema } from "../../server/db";
 
 type LoaderData =
   | { deck: SharedDeckResponse; error?: undefined }
-  | { deck: null; error: string };
+  | {
+      deck: null;
+      error: string;
+      restricted?: { id: string; basePath: string };
+    };
 
 /**
  * Loose shape of the persisted deck JSON. Each slide is `Partial` because
@@ -48,35 +52,34 @@ export async function loader({
   const id = params.id;
   if (!id) throw new Response("Not found", { status: 404 });
 
-  // Mirror Google Slides: access is checked on the deck, not on the URL shape.
-  // `/p/<id>` (presentation) and `/deck/<id>` (editor) share the same access
-  // rules. Anyone with at least viewer access — owner, explicit share grant,
-  // org visibility for an org member, or public visibility — can open the
-  // presentation. Earlier behavior gated `/p/<id>` on `visibility = "public"`,
-  // which 404'd shared admins and broke the share-link copy flow.
+  // Access is checked on the deck, not the URL shape: `/p/<id>` (presentation)
+  // and `/deck/<id>` (editor) share the same rules. SSR renders impersonally (no
+  // session is read server-side, so this public page can be CDN-cached for
+  // everyone), so we serve only PUBLIC decks here and resolve restricted access
+  // on the client. Querying by id alone distinguishes "deck does not exist"
+  // (real 404) from "deck exists but isn't public" — for the latter we route the
+  // viewer to the auth-guarded `/deck/<id>` editor, where the real per-user
+  // access check runs (viewer-with-access sees it; everyone else gets the
+  // standard sign-in / no-access handling). This never loops: `/deck` is
+  // protected and never bounces back to `/p`.
   const db = getDb();
-  const userEmail = getRequestUserEmail();
-  const where = userEmail
-    ? and(
-        eq(schema.decks.id, id),
-        or(
-          accessFilter(schema.decks, schema.deckShares),
-          eq(schema.decks.visibility, "public"),
-        ),
-      )
-    : and(eq(schema.decks.id, id), eq(schema.decks.visibility, "public"));
-
   const [deck] = await db
     .select({
       title: schema.decks.title,
       data: schema.decks.data,
+      visibility: schema.decks.visibility,
     })
     .from(schema.decks)
-    .where(where)
+    .where(eq(schema.decks.id, id))
     .limit(1);
 
   if (!deck) throw new Response("Not found", { status: 404 });
-  return { deck: toSharedDeck(deck) };
+  if (deck.visibility === "public") return { deck: toSharedDeck(deck) };
+  return {
+    deck: null,
+    error: "restricted",
+    restricted: { id, basePath: getConfiguredAppBasePath() },
+  };
 }
 
 export const meta: MetaFunction<typeof loader> = ({ data }) => {
@@ -86,6 +89,17 @@ export const meta: MetaFunction<typeof loader> = ({ data }) => {
 
 export default function PublicDeckRoute() {
   const data = useLoaderData<typeof loader>();
+  const restricted = data.deck === null ? data.restricted : undefined;
+
+  useEffect(() => {
+    if (restricted) {
+      window.location.replace(`${restricted.basePath}/deck/${restricted.id}`);
+    }
+  }, [restricted]);
+
+  // Redirecting to the guarded editor to resolve per-user access client-side.
+  if (restricted) return null;
+
   return (
     <SharedPresentation initialDeck={data.deck} initialError={data.error} />
   );
