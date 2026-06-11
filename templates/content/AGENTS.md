@@ -141,12 +141,31 @@ plain-text strip of the markdown.
 
 ### Comments
 
-| Action           | Args                                                           | Purpose                  |
-| ---------------- | -------------------------------------------------------------- | ------------------------ |
-| `list-comments`  | `--documentId <id>`                                            | List all comment threads |
-| `add-comment`    | `--documentId <id> --content <text> [--threadId] [--parentId]` | Add a comment or reply   |
-| `update-comment` | `--id <id> [--content <text>] [--resolved true\|false]`        | Edit or resolve comments |
-| `delete-comment` | `--id <id>`                                                    | Delete a comment         |
+Comments are Notion/Google-Docs-style **inline comments**. Selecting text and
+commenting leaves the passage **highlighted inline** in the editor via a
+ProseMirror decoration overlay — nothing is written into the markdown body, so
+the NFM/Notion round-trip is unchanged. Each thread stores the quoted text plus
+surrounding context (`anchorPrefix`/`anchorSuffix`) and an approximate
+`anchorStartOffset`, so the highlight follows the text as the document is
+edited, disambiguates repeated text, and degrades gracefully (the thread stays
+in the sidebar) when its text is deleted. Resolving a thread clears its
+highlight and moves it to a collapsible **"Resolved (n)"** sidebar section where
+it can be **reopened** with `update-comment --resolved false`. Comments support
+**@mentions** of org members, stored as a `mentions` array of `{email, name}`.
+
+| Action           | Args                                                                                                                                                                     | Purpose                                            |
+| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------- |
+| `list-comments`  | `--documentId <id>`                                                                                                                                                      | List threads with anchor fields + parsed mentions  |
+| `add-comment`    | `--documentId <id> --content <text> [--threadId] [--parentId] [--quotedText] [--anchorPrefix] [--anchorSuffix] [--anchorStartOffset] [--authorName] [--mentions <json>]` | Add a comment or reply, optionally anchored inline |
+| `update-comment` | `--id <id> [--content <text>] [--resolved true\|false]`                                                                                                                  | Edit a comment, or resolve/reopen its thread       |
+| `delete-comment` | `--id <id>`                                                                                                                                                              | Delete a comment                                   |
+
+`add-comment` anchors a thread inline when passed `--quotedText` plus the
+surrounding `--anchorPrefix`/`--anchorSuffix` and `--anchorStartOffset`.
+`--mentions` is a JSON array of `{email, name}`, e.g.
+`'[{"email":"a@x.com","name":"A"}]'`. `--authorName` sets the display name and
+defaults to a name derived from the author's email. `--resolved true` resolves a
+whole thread; `--resolved false` reopens it.
 
 ### Versions
 

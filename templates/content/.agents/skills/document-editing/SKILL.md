@@ -83,6 +83,34 @@ Delete a document and all its children recursively.
 pnpm action delete-document --id abc123
 ```
 
+## Comments
+
+Comments are Notion/Google-Docs-style **inline comments**. Selecting text and commenting leaves the passage **highlighted inline** via a ProseMirror decoration overlay — nothing is written into the markdown body, so the document round-trips unchanged. Each thread stores the quoted text plus surrounding context (`anchorPrefix`/`anchorSuffix`) and an approximate `anchorStartOffset`, so the highlight follows the text as the document is edited, disambiguates repeated text, and degrades gracefully (the thread stays in the sidebar) when its text is deleted.
+
+Resolving a thread clears its highlight and moves it to a collapsible **"Resolved (n)"** sidebar section, from which it can be **reopened**. Comments support **@mentions** of org members, stored as a `mentions` array of `{email, name}`.
+
+```bash
+# List threads (returns anchor fields + parsed mentions)
+pnpm action list-comments --documentId abc123
+
+# Plain comment on the document
+pnpm action add-comment --documentId abc123 --content "Looks good"
+
+# Inline-anchored comment with a mention
+pnpm action add-comment --documentId abc123 --content "@Sam check this" \
+  --quotedText "the second paragraph" --anchorPrefix "above " --anchorSuffix " here" \
+  --anchorStartOffset 120 --mentions '[{"email":"sam@x.com","name":"Sam"}]'
+
+# Reply to a thread
+pnpm action add-comment --documentId abc123 --threadId t123 --content "Agreed"
+
+# Resolve / reopen the whole thread
+pnpm action update-comment --id c123 --resolved true
+pnpm action update-comment --id c123 --resolved false
+```
+
+`--authorName` sets the comment's display name; it defaults to a name derived from the author's email.
+
 ### refresh-list
 
 Trigger the UI to refresh the document list.
