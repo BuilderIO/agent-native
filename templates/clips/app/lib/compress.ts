@@ -448,6 +448,7 @@ export async function compressBlobIfTooLarge(
       compressedBytes: number;
       outputMimeType: string;
     } | null = null;
+    const encodeFailures: string[] = [];
 
     for (let index = 0; index < COMPRESSION_PROFILES.length; index += 1) {
       const profile = COMPRESSION_PROFILES[index];
@@ -470,9 +471,15 @@ export async function compressBlobIfTooLarge(
       });
 
       if (exitCode !== 0) {
-        throw new Error(
-          `ffmpeg exited with code ${exitCode} while using ${profile.label}`,
+        encodeFailures.push(
+          `${profile.label}: ffmpeg exited with code ${exitCode}`,
         );
+        try {
+          await ffmpeg.deleteFile(outputName);
+        } catch {
+          // ignore
+        }
+        continue;
       }
 
       const data = (await ffmpeg.readFile(outputName)) as Uint8Array;
@@ -516,7 +523,10 @@ export async function compressBlobIfTooLarge(
     }
 
     opts.onError?.({
-      message: "ffmpeg compression did not produce a smaller file",
+      message:
+        encodeFailures.length > 0
+          ? `ffmpeg compression did not produce a smaller file; profile failures: ${encodeFailures.join("; ")}`
+          : "ffmpeg compression did not produce a smaller file",
       stderrTail,
       elapsedMs,
     });

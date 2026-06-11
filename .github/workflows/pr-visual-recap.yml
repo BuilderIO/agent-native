@@ -305,8 +305,11 @@ jobs:
           $RECAP_CLI recap mcp-config --agent claude --app-url "$PLAN_RECAP_APP_URL" --out "$MCP_CONFIG"
           CLAUDE_ARGS=(-p "$(cat recap-prompt.md)" --mcp-config "$MCP_CONFIG" --allowedTools "Read,Write,Bash(git diff:*),mcp__plan__get-plan-blocks,mcp__plan__create-visual-recap,mcp__plan__set-resource-visibility" --permission-mode dontAsk --output-format json)
           if [ -n "${VISUAL_RECAP_MODEL:-}" ]; then CLAUDE_ARGS+=(--model "$VISUAL_RECAP_MODEL"); fi
+          set +e
           npx -y @anthropic-ai/claude-code@2 "${CLAUDE_ARGS[@]}" > claude-result.json 2> claude-stderr.log
-          echo "$?" > claude-exit-code.txt
+          CLAUDE_STATUS="$?"
+          set -e
+          echo "$CLAUDE_STATUS" > claude-exit-code.txt
           rm -f "$MCP_CONFIG" || true
 
       - name: Run agent (Codex)
@@ -332,8 +335,11 @@ jobs:
             "") ;;
             *) echo "Ignoring invalid VISUAL_RECAP_REASONING: $VISUAL_RECAP_REASONING" ;;
           esac
+          set +e
           npx -y @openai/codex@0 "${CODEX_ARGS[@]}" --json "$(cat recap-prompt.md)" 2> codex-stderr.log | tee codex-events.jsonl
-          echo "${PIPESTATUS[0]}" > codex-exit-code.txt
+          CODEX_STATUS="${PIPESTATUS[0]}"
+          set -e
+          echo "$CODEX_STATUS" > codex-exit-code.txt
 
       - name: Read plan URL
         id: url
