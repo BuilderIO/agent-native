@@ -131,7 +131,9 @@ async function main(): Promise<void> {
           );
         }
       }
-      console.log(`  panels that execute cleanly: ${ok}/${config.panels.length}`);
+      console.log(
+        `  panels that execute cleanly: ${ok}/${config.panels.length}`,
+      );
       for (const f of failures) console.log(`  FAILED ${f}`);
     }
   } finally {

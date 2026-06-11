@@ -136,8 +136,8 @@ Claude/ChatGPT conversation. Hidden context stays in model context; do not put
 internal app-state file instructions into the visible prompt. `submit: false`
 stays local as a prefill/review path.
 
-When testing Claude through ngrok, use a production build (`agent-native build`
-then `agent-native start`) or a deployed preview/production URL. Claude's
+When testing Claude through ngrok, use a production build (`pnpm exec agent-native build`
+then `pnpm exec agent-native start`) or a deployed preview/production URL. Claude's
 transplant path works with production asset chunks; raw Vite dev modules such
 as `/app/root.tsx` can be app-auth protected and fail dynamic imports from the
 Claude resource origin.
