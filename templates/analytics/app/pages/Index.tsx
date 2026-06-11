@@ -4,6 +4,7 @@ import { callAction } from "@agent-native/core/client";
 import { Skeleton } from "@/components/ui/skeleton";
 import { dashboards } from "@/pages/adhoc/registry";
 import { getLastOpenedPath } from "@/lib/last-opened";
+import { withDemoIntro } from "@/lib/demo-dashboard-path";
 
 type EnsureDemoDashboardsResult = {
   defaultDashboardPath?: string;
@@ -52,7 +53,7 @@ export default function Index() {
           (dashboard) => dashboard.installed && dashboard.created,
         ) ?? false;
       if (createdDemo && result?.defaultDashboardPath) {
-        navigate(result.defaultDashboardPath, { replace: true });
+        navigate(withDemoIntro(result.defaultDashboardPath), { replace: true });
         return;
       }
 

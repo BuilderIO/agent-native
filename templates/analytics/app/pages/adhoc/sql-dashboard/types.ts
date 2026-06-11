@@ -115,6 +115,16 @@ export interface SqlPanel {
 export interface SqlDashboardConfig {
   name: string;
   description?: string;
+  catalog?: {
+    templateId?: string;
+    templateVersion?: string;
+    installedAt?: string;
+  };
+  demo?: {
+    id: string;
+    version?: string;
+    installedAt?: string;
+  };
   filters?: DashboardFilter[];
   variables?: Record<string, string>;
   /**

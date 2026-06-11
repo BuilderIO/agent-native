@@ -14,6 +14,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -36,10 +37,12 @@ import {
   IconDots,
   IconEye,
   IconEyeOff,
+  IconInfoCircle,
   IconPencil,
   IconPlus,
   IconTrash,
   IconUser,
+  IconX,
 } from "@tabler/icons-react";
 import {
   DropdownMenu,
@@ -155,6 +158,39 @@ type FetchedDashboard = {
   updatedAt: string | null;
 } & ResourceAccess;
 
+function parseDashboardDemoMetadata(
+  value: unknown,
+): SqlDashboardConfig["demo"] {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return undefined;
+  }
+  const raw = value as Record<string, unknown>;
+  return typeof raw.id === "string" && raw.id
+    ? {
+        id: raw.id,
+        version: typeof raw.version === "string" ? raw.version : undefined,
+        installedAt:
+          typeof raw.installedAt === "string" ? raw.installedAt : undefined,
+      }
+    : undefined;
+}
+
+function parseDashboardCatalogMetadata(
+  value: unknown,
+): SqlDashboardConfig["catalog"] {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return undefined;
+  }
+  const raw = value as Record<string, unknown>;
+  return {
+    templateId: typeof raw.templateId === "string" ? raw.templateId : undefined,
+    templateVersion:
+      typeof raw.templateVersion === "string" ? raw.templateVersion : undefined,
+    installedAt:
+      typeof raw.installedAt === "string" ? raw.installedAt : undefined,
+  };
+}
+
 async function fetchDashboard(id: string): Promise<FetchedDashboard | null> {
   try {
     const data: any = await callAction(
@@ -168,6 +204,8 @@ async function fetchDashboard(id: string): Promise<FetchedDashboard | null> {
       config: {
         name: data.name ?? "Untitled Dashboard",
         description: data.description,
+        catalog: parseDashboardCatalogMetadata(data.catalog),
+        demo: parseDashboardDemoMetadata(data.demo),
         filters: data.filters,
         variables: data.variables,
         columns: typeof data.columns === "number" ? data.columns : undefined,
@@ -237,6 +275,9 @@ export default function SqlDashboardPage() {
   const viewedDashboardIdRef = useRef<string | null>(null);
   const canEdit = resourceCanEdit(resourceAccess);
   const canManage = resourceCanManage(resourceAccess);
+  const isDemoDashboard = dashboard?.demo?.id === "demo-node-exporter";
+  const showDemoIntro =
+    isDemoDashboard && searchParams.get("demoIntro") === "1";
   const { mutateAsync: hideDashboardAction, isPending: unhidePending } =
     useActionMutation("hide-dashboard");
   const { mutateAsync: deleteDashboardAction } = useActionMutation(
@@ -800,6 +841,17 @@ export default function SqlDashboardPage() {
     navigate("/");
   }, [dashboardId, canManage, deleteDashboardAction, queryClient, navigate]);
 
+  const dismissDemoIntro = useCallback(() => {
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        next.delete("demoIntro");
+        return next;
+      },
+      { replace: true },
+    );
+  }, [setSearchParams]);
+
   const handleArchive = useCallback(async () => {
     if (!dashboardId) return;
     if (!canEdit) return;
@@ -1071,6 +1123,28 @@ export default function SqlDashboardPage() {
             Unhide
           </Button>
         </div>
+      ) : null}
+      {showDemoIntro ? (
+        <Alert className="border-cyan-400/50 bg-cyan-400/10 pr-12 text-cyan-950 shadow-sm shadow-cyan-500/10 dark:bg-cyan-400/10 dark:text-cyan-50 [&>svg]:text-cyan-600 dark:[&>svg]:text-cyan-300">
+          <IconInfoCircle className="h-4 w-4" />
+          <AlertTitle>You&apos;re viewing a live demo</AlertTitle>
+          <AlertDescription className="text-cyan-900/80 dark:text-cyan-100/80">
+            This dashboard uses the built-in demo Prometheus endpoint, not your
+            connected sources or provider slots. Start with app metrics here,
+            switch to Node for system metrics, and archive or delete it from the
+            dashboard menu whenever you&apos;re done.
+          </AlertDescription>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="absolute right-2 top-2 h-8 w-8 text-cyan-900 hover:bg-cyan-400/20 hover:text-cyan-950 dark:text-cyan-100 dark:hover:text-cyan-50"
+            onClick={dismissDemoIntro}
+            aria-label="Dismiss demo intro"
+          >
+            <IconX className="h-4 w-4" />
+          </Button>
+        </Alert>
       ) : null}
       {/* Author, last updated, and visibility metadata */}
       <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">

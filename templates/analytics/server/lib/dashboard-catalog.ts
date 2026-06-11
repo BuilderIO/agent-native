@@ -27,11 +27,6 @@ export type CatalogDashboardConfig = SqlDashboardConfig & {
     templateVersion: string;
     installedAt: string;
   };
-  demo?: {
-    id: string;
-    version: string;
-    installedAt: string;
-  };
 };
 
 export type DashboardCatalogEntry = DashboardCatalogMetadata & {
