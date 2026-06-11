@@ -587,81 +587,75 @@ export default function CalendarView() {
                   : draft.workingLocationLabel,
             };
 
-      createEvent.mutate(
-        {
-          _tempId: eventId,
-          title,
-          description: draft.description ?? "",
-          start: start.toISOString(),
-          end: end.toISOString(),
-          startTimeZone: draft.allDay ? undefined : timezone,
-          endTimeZone: draft.allDay
-            ? undefined
-            : (draft.endTimeZone ?? draft.startTimeZone ?? timezone),
-          location,
-          accountEmail: draft.accountEmail,
-          allDay: draft.allDay ?? false,
-          transparency:
-            eventType === "workingLocation"
-              ? "transparent"
-              : eventType === "default"
-                ? draft.transparency
-                : "opaque",
-          visibility:
-            eventType === "workingLocation" ? "public" : draft.visibility,
-          reminders: draft.reminders,
-          remindersUseDefault: draft.remindersUseDefault,
-          ...statusPatch,
-          addGoogleMeet: draft.addGoogleMeet,
-          addZoom: draft.addZoom,
-          color: draft.colorId
-            ? getGoogleEventColorHex(draft.colorId)
-            : undefined,
-          colorId: draft.colorId,
-          attachments: draft.attachments,
-          attendees: draft.attendees,
-        },
-        {
-          onSuccess: (result) => {
-            discardedCommittingDraftsRef.current.delete(draftId);
-            deletePersistedCalendarDraft(draftId);
-            setEventDraft(null);
-            setQuickEditEventId(null);
-            const createdEventId = result?.id;
-            if (createdEventId) {
-              const undo = () => {
-                deleteEvent.mutate({
-                  id: createdEventId,
-                  scope: "single",
-                  sendUpdates: "none",
-                });
-              };
-              setUndoAction(undo);
-              toast("Event created", {
-                action: { label: "Undo", onClick: undo },
+      const payload: Parameters<typeof createEvent.mutate>[0] = {
+        _tempId: eventId,
+        title,
+        description: draft.description ?? "",
+        start: start.toISOString(),
+        end: end.toISOString(),
+        startTimeZone: draft.allDay ? undefined : timezone,
+        endTimeZone: draft.allDay
+          ? undefined
+          : (draft.endTimeZone ?? draft.startTimeZone ?? timezone),
+        location,
+        accountEmail: draft.accountEmail,
+        allDay: draft.allDay ?? false,
+        transparency:
+          eventType === "workingLocation"
+            ? "transparent"
+            : eventType === "default"
+              ? draft.transparency
+              : "opaque",
+        visibility:
+          eventType === "workingLocation" ? "public" : draft.visibility,
+        reminders: draft.reminders,
+        remindersUseDefault: draft.remindersUseDefault,
+        ...statusPatch,
+        addGoogleMeet: draft.addGoogleMeet,
+        addZoom: draft.addZoom,
+        color: draft.colorId
+          ? getGoogleEventColorHex(draft.colorId)
+          : undefined,
+        colorId: draft.colorId,
+        attachments: draft.attachments,
+        attendees: draft.attendees,
+      };
+
+      deletePersistedCalendarDraft(draftId);
+      setEventDraft(null);
+      setQuickEditEventId(null);
+      createEvent.mutate(payload, {
+        onSuccess: (result) => {
+          discardedCommittingDraftsRef.current.delete(draftId);
+          const createdEventId = result?.id;
+          if (createdEventId) {
+            const undo = () => {
+              deleteEvent.mutate({
+                id: createdEventId,
+                scope: "single",
+                sendUpdates: "none",
               });
-              return;
-            }
-            toast("Event created");
-          },
-          onError: (error) => {
-            const discardedDraft =
-              discardedCommittingDraftsRef.current.get(draftId);
-            if (discardedDraft) {
-              discardedCommittingDraftsRef.current.delete(draftId);
-              persistCalendarDraft(discardedDraft);
-              setEventDraft(discardedDraft);
-              setQuickEditEventId(calendarDraftEventId(draftId));
-            }
-            toast.error(
-              error instanceof Error ? error.message : "Failed to create event",
-            );
-          },
-          onSettled: () => {
-            committingDraftIdsRef.current.delete(draftId);
-          },
+            };
+            setUndoAction(undo);
+          }
         },
-      );
+        onError: (error) => {
+          const restoreDraft =
+            discardedCommittingDraftsRef.current.get(draftId) ?? draft;
+          if (restoreDraft) {
+            discardedCommittingDraftsRef.current.delete(draftId);
+            persistCalendarDraft(restoreDraft);
+            setEventDraft(restoreDraft);
+            setQuickEditEventId(calendarDraftEventId(draftId));
+          }
+          toast.error(
+            error instanceof Error ? error.message : "Failed to create event",
+          );
+        },
+        onSettled: () => {
+          committingDraftIdsRef.current.delete(draftId);
+        },
+      });
     },
     [createEvent, deleteEvent, eventDraft, selectedDate, setEventDraft],
   );

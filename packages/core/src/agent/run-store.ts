@@ -516,6 +516,7 @@ export async function getRunByThread(
 ): Promise<{
   id: string;
   threadId: string;
+  turnId?: string | null;
   status: string;
   startedAt: number;
   heartbeatAt: number | null;
@@ -525,13 +526,14 @@ export async function getRunByThread(
   await ensureRunTables();
   const client = getDbExec();
   const sql = options?.includeTerminal
-    ? `SELECT id, thread_id, status, started_at, heartbeat_at, completed_at, last_progress_at FROM agent_runs WHERE thread_id = ? ORDER BY started_at DESC LIMIT 1`
-    : `SELECT id, thread_id, status, started_at, heartbeat_at, completed_at, last_progress_at FROM agent_runs WHERE thread_id = ? AND status = 'running' ORDER BY started_at DESC LIMIT 1`;
+    ? `SELECT id, thread_id, turn_id, status, started_at, heartbeat_at, completed_at, last_progress_at FROM agent_runs WHERE thread_id = ? ORDER BY started_at DESC LIMIT 1`
+    : `SELECT id, thread_id, turn_id, status, started_at, heartbeat_at, completed_at, last_progress_at FROM agent_runs WHERE thread_id = ? AND status = 'running' ORDER BY started_at DESC LIMIT 1`;
   const { rows } = await client.execute({ sql, args: [threadId] });
   if (rows.length === 0) return null;
   const r = rows[0] as {
     id: string;
     thread_id: string;
+    turn_id?: string | null;
     status: string;
     started_at: number | string;
     heartbeat_at: number | string | null;
@@ -541,6 +543,7 @@ export async function getRunByThread(
   return {
     id: r.id,
     threadId: r.thread_id,
+    turnId: r.turn_id ?? null,
     status: r.status,
     startedAt: Number(r.started_at),
     heartbeatAt: r.heartbeat_at == null ? null : Number(r.heartbeat_at),

@@ -71,7 +71,6 @@ import {
   validateAttachmentDrafts,
 } from "@/lib/event-form-utils";
 import { getGoogleEventColorHex } from "@/lib/event-colors";
-import { shortcutModifierLabel } from "@/lib/utils";
 
 type VideoProvider = "none" | "google_meet" | "zoom";
 type EventType = "default" | "outOfOffice" | "focusTime" | "workingLocation";
@@ -516,7 +515,8 @@ Write a short, useful meeting description. Keep it paste-ready and avoid adding 
     toast("Time selected");
   }
 
-  // ⌘+Enter to submit
+  // Keep the global shortcut for long-form fields while regular inputs submit
+  // through the form-level Enter handler below.
   useEffect(() => {
     if (!open) return;
     function onKey(e: KeyboardEvent) {
@@ -529,6 +529,17 @@ Write a short, useful meeting description. Keep it paste-ready and avoid adding 
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [findTimeOpen, open]);
+
+  function handleFormKeyDown(e: React.KeyboardEvent<HTMLFormElement>) {
+    if (e.key !== "Enter" || e.defaultPrevented || e.nativeEvent.isComposing) {
+      return;
+    }
+
+    if (!(e.target instanceof HTMLInputElement)) return;
+
+    e.preventDefault();
+    formRef.current?.requestSubmit();
+  }
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -584,70 +595,66 @@ Write a short, useful meeting description. Keep it paste-ready and avoid adding 
               workingLocationType === "customLocation" ? location : undefined,
           };
 
-    createEvent.mutate(
-      {
-        title: title.trim(),
-        description,
-        start: startISO,
-        end: endISO,
-        startTimeZone: effectiveAllDay ? undefined : timezone,
-        endTimeZone: effectiveAllDay ? undefined : timezone,
-        location,
-        accountEmail: draft?.accountEmail,
-        allDay: effectiveAllDay,
-        transparency:
-          eventType === "workingLocation"
-            ? "transparent"
-            : eventType === "default"
-              ? availability
-              : "opaque",
-        visibility: eventType === "workingLocation" ? "public" : visibility,
-        ...reminderPatch,
-        ...statusPatch,
-        addGoogleMeet: videoProvider === "google_meet",
-        addZoom: videoProvider === "zoom",
-        color: colorId ? getGoogleEventColorHex(colorId) : undefined,
-        colorId,
-        attachments:
-          (attachmentResult.attachments?.length ?? 0) > 0
-            ? attachmentResult.attachments
-            : undefined,
-        attendees:
-          finalAttendees.length > 0
-            ? finalAttendees.map((attendee) => ({
-                email: attendee.email,
-                displayName: attendee.displayName,
-              }))
-            : undefined,
+    const payload: Parameters<typeof createEvent.mutate>[0] = {
+      title: title.trim(),
+      description,
+      start: startISO,
+      end: endISO,
+      startTimeZone: effectiveAllDay ? undefined : timezone,
+      endTimeZone: effectiveAllDay ? undefined : timezone,
+      location,
+      accountEmail: draft?.accountEmail,
+      allDay: effectiveAllDay,
+      transparency:
+        eventType === "workingLocation"
+          ? "transparent"
+          : eventType === "default"
+            ? availability
+            : "opaque",
+      visibility: eventType === "workingLocation" ? "public" : visibility,
+      ...reminderPatch,
+      ...statusPatch,
+      addGoogleMeet: videoProvider === "google_meet",
+      addZoom: videoProvider === "zoom",
+      color: colorId ? getGoogleEventColorHex(colorId) : undefined,
+      colorId,
+      attachments:
+        (attachmentResult.attachments?.length ?? 0) > 0
+          ? attachmentResult.attachments
+          : undefined,
+      attendees:
+        finalAttendees.length > 0
+          ? finalAttendees.map((attendee) => ({
+              email: attendee.email,
+              displayName: attendee.displayName,
+            }))
+          : undefined,
+    };
+
+    onOpenChange(false);
+    createEvent.mutate(payload, {
+      onSuccess: (result) => {
+        if (activeDraftId) {
+          deletePersistedDraft(activeDraftId);
+          onDraftCreated?.(activeDraftId);
+        }
+        const eventId = result?.id;
+        const undo = eventId
+          ? () => {
+              delEvent.mutate({
+                id: eventId,
+                scope: "single",
+                sendUpdates: "none",
+              });
+            }
+          : undefined;
+        if (undo) setUndoAction(undo);
       },
-      {
-        onSuccess: (result) => {
-          if (activeDraftId) {
-            deletePersistedDraft(activeDraftId);
-            onDraftCreated?.(activeDraftId);
-          }
-          onOpenChange(false);
-          const eventId = result?.id;
-          const undo = eventId
-            ? () => {
-                delEvent.mutate({
-                  id: eventId,
-                  scope: "single",
-                  sendUpdates: "none",
-                });
-              }
-            : undefined;
-          if (undo) setUndoAction(undo);
-          toast("Event created", {
-            action: undo ? { label: "Undo", onClick: undo } : undefined,
-          });
-        },
-        onError: (error) =>
-          toast.error(
-            error instanceof Error ? error.message : "Failed to create event",
-          ),
-      },
-    );
+      onError: (error) =>
+        toast.error(
+          error instanceof Error ? error.message : "Failed to create event",
+        ),
+    });
   }
 
   return (
@@ -677,7 +684,12 @@ Write a short, useful meeting description. Keep it paste-ready and avoid adding 
         <div className="mb-3 text-sm font-semibold">
           {draft ? "Review Invite" : "New Event"}
         </div>
-        <form ref={formRef} onSubmit={handleSubmit} className="space-y-3">
+        <form
+          ref={formRef}
+          onSubmit={handleSubmit}
+          onKeyDown={handleFormKeyDown}
+          className="space-y-3"
+        >
           <div className="space-y-3">
             <div className="space-y-1.5">
               <Label htmlFor="event-title" className="text-xs">
@@ -891,6 +903,7 @@ Write a short, useful meeting description. Keep it paste-ready and avoid adding 
                 onRemove={removeAttendee}
                 inputId="event-attendees"
                 placeholder="Search contacts or type an email"
+                onEmptyEnter={() => formRef.current?.requestSubmit()}
               />
               {attendees.length > 0 && (
                 <p className="flex items-center gap-1 text-[10px] text-muted-foreground">
@@ -1122,7 +1135,7 @@ Write a short, useful meeting description. Keep it paste-ready and avoid adding 
           <div className="flex items-center justify-between pt-1">
             <p className="text-[10px] text-muted-foreground/60">
               <kbd className="rounded border border-border bg-muted px-1 font-mono text-[10px]">
-                {shortcutModifierLabel()}+↵
+                ↵
               </kbd>{" "}
               to save
             </p>
