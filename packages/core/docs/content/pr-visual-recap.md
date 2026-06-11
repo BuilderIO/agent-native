@@ -309,12 +309,18 @@ on:
 
 jobs:
   visual-recap:
+    permissions:
+      actions: write
+      contents: read
+      checks: write
+      issues: write
+      pull-requests: write
     uses: BuilderIO/agent-native/.github/workflows/pr-visual-recap-reusable.yml@main
     secrets:
       PLAN_RECAP_TOKEN: ${{ secrets.PLAN_RECAP_TOKEN }}
       ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-      # OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}  # only when agent: codex
-      # PLAN_RECAP_APP_URL: ${{ secrets.PLAN_RECAP_APP_URL }}  # only when self-hosting
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      PLAN_RECAP_APP_URL: ${{ secrets.PLAN_RECAP_APP_URL }}
     with:
       agent: ${{ vars.VISUAL_RECAP_AGENT || 'claude' }}
       model: ${{ vars.VISUAL_RECAP_MODEL || '' }}

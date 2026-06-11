@@ -1660,14 +1660,21 @@ describe("reusable caller workflow builder", () => {
     expect(yml).toContain(
       "uses: BuilderIO/agent-native/.github/workflows/pr-visual-recap-reusable.yml@main",
     );
+    expect(yml).toContain("actions: write");
+    expect(yml).toContain("checks: write");
+    expect(yml).toContain("issues: write");
+    expect(yml).toContain("pull-requests: write");
     // Required secrets are threaded through.
     expect(yml).toContain("PLAN_RECAP_TOKEN: ${{ secrets.PLAN_RECAP_TOKEN }}");
     expect(yml).toContain(
       "ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}",
     );
-    // Optional secrets shown as comments (not active).
-    expect(yml).toContain("# OPENAI_API_KEY");
-    expect(yml).toContain("# PLAN_RECAP_APP_URL");
+    // Optional secrets are threaded through so repo variables can select codex
+    // or self-hosting without changing the workflow YAML.
+    expect(yml).toContain("OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}");
+    expect(yml).toContain(
+      "PLAN_RECAP_APP_URL: ${{ secrets.PLAN_RECAP_APP_URL }}",
+    );
     expect(yml).toContain("agent: ${{ vars.VISUAL_RECAP_AGENT || 'claude' }}");
     expect(yml).toContain("model: ${{ vars.VISUAL_RECAP_MODEL || '' }}");
     expect(yml).toContain(

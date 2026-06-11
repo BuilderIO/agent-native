@@ -163,6 +163,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
+      actions: write
       checks: write
       contents: read
       issues: write

@@ -3,4 +3,4 @@
 ---
 
 Surface PR visual recap failure diagnostics from missing recap URLs, agent stderr,
-exit codes, and stale workflow result files.
+exit codes, stale workflow result files, and reusable caller permission issues.

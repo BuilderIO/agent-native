@@ -179,12 +179,18 @@ export function buildReusableCallerWorkflow(
     `\n` +
     `jobs:\n` +
     `  visual-recap:\n` +
+    `    permissions:\n` +
+    `      actions: write\n` +
+    `      contents: read\n` +
+    `      checks: write\n` +
+    `      issues: write\n` +
+    `      pull-requests: write\n` +
     `    uses: BuilderIO/agent-native/.github/workflows/pr-visual-recap-reusable.yml@${ref}\n` +
     `    secrets:\n` +
     `      PLAN_RECAP_TOKEN: \${{ secrets.PLAN_RECAP_TOKEN }}\n` +
     `      ANTHROPIC_API_KEY: \${{ secrets.ANTHROPIC_API_KEY }}\n` +
-    `      # OPENAI_API_KEY: \${{ secrets.OPENAI_API_KEY }}  # only when agent: codex\n` +
-    `      # PLAN_RECAP_APP_URL: \${{ secrets.PLAN_RECAP_APP_URL }}  # only when self-hosting\n` +
+    `      OPENAI_API_KEY: \${{ secrets.OPENAI_API_KEY }}\n` +
+    `      PLAN_RECAP_APP_URL: \${{ secrets.PLAN_RECAP_APP_URL }}\n` +
     `    with:\n` +
     `      agent: ${agentValue}\n` +
     `      model: ${modelValue}\n` +
