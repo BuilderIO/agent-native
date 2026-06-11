@@ -68,14 +68,15 @@ const CANONICAL_SERVER_NAME_BY_MCP_URL: Readonly<Record<string, string>> = {
   "https://context-xray.agent-native.com/_agent-native/mcp":
     "agent-native-context-xray",
 };
-const LEGACY_SERVER_NAMES_BY_MCP_URL: Readonly<Record<string, readonly string[]>> =
-  {
-    "https://plan.agent-native.com/_agent-native/mcp": [
-      "agent-native-plan",
-      "agent-native-plans",
-      "agent-native-visual-plans",
-    ],
-  };
+const LEGACY_SERVER_NAMES_BY_MCP_URL: Readonly<
+  Record<string, readonly string[]>
+> = {
+  "https://plan.agent-native.com/_agent-native/mcp": [
+    "agent-native-plan",
+    "agent-native-plans",
+    "agent-native-visual-plans",
+  ],
+};
 const CONNECT_PROFILES_VERSION = 1;
 const DEFAULT_DEV_GATEWAY = "http://127.0.0.1:8080";
 const MCP_FULL_CATALOG_HEADER = "X-Agent-Native-MCP-Full-Catalog";
@@ -492,7 +493,9 @@ function defaultServerName(url: string): string {
   return `${SERVER_NAME_PREFIX}-${appSlugFromUrl(url)}`;
 }
 
-function canonicalServerNameForMcpUrl(mcpUrl: string | undefined): string | undefined {
+function canonicalServerNameForMcpUrl(
+  mcpUrl: string | undefined,
+): string | undefined {
   const key = canonicalMcpUrl(mcpUrl);
   return key ? CANONICAL_SERVER_NAME_BY_MCP_URL[key] : undefined;
 }

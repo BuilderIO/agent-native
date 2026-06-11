@@ -733,6 +733,40 @@ describe("runConnect", () => {
     });
   });
 
+  it("uses the canonical 'plan' server name for first-party Plans device-flow connects", async () => {
+    const root = tmpDir();
+    const home = tmpDir();
+    const oldHome = process.env.HOME;
+    process.env.HOME = home;
+    process.chdir(root);
+
+    try {
+      await runConnect(["https://plan.agent-native.com", "--client", "codex"], {
+        fetchImpl: makeFetch([
+          {
+            status: "approved",
+            token: "tok-plan-device",
+            mcpUrl: "https://plan.agent-native.com/_agent-native/mcp",
+            serverName: "agent-native-plan",
+          },
+        ]),
+        sleep: noopSleep,
+        openBrowser: vi.fn(),
+      });
+
+      expect(process.exitCode).toBeFalsy();
+      const toml = fs.readFileSync(
+        path.join(home, ".codex", "config.toml"),
+        "utf-8",
+      );
+      expect(toml).toContain('[mcp_servers."plan"]');
+      expect(toml).toContain('"Authorization" = "Bearer tok-plan-device"');
+      expect(toml).not.toContain('[mcp_servers."agent-native-plan"]');
+    } finally {
+      process.env.HOME = oldHome;
+    }
+  });
+
   it("reconnect reauthenticates an existing Codex entry without writing a duplicate", async () => {
     const root = tmpDir();
     const home = tmpDir();
@@ -775,6 +809,53 @@ describe("runConnect", () => {
       expect(toml).toContain('"Authorization" = "Bearer new-token"');
       expect(toml).not.toContain("old-token");
       expect(toml).not.toContain('[mcp_servers."agent-native-plan"]');
+    } finally {
+      process.env.HOME = oldHome;
+    }
+  });
+
+  it("reconnect migrates the legacy first-party Plans server name to canonical 'plan'", async () => {
+    const root = tmpDir();
+    const home = tmpDir();
+    const oldHome = process.env.HOME;
+    process.env.HOME = home;
+    process.chdir(root);
+    const codexFile = path.join(home, ".codex", "config.toml");
+    fs.mkdirSync(path.dirname(codexFile), { recursive: true });
+    fs.writeFileSync(
+      codexFile,
+      [
+        '[mcp_servers."agent-native-plan"]',
+        'url = "https://plan.agent-native.com/_agent-native/mcp"',
+        'http_headers = { "Authorization" = "Bearer stale-token" }',
+        "",
+      ].join("\n"),
+      "utf-8",
+    );
+
+    try {
+      await runConnect(
+        ["reconnect", "https://plan.agent-native.com", "--client", "codex"],
+        {
+          fetchImpl: makeFetch([
+            {
+              status: "approved",
+              token: "fresh-token",
+              mcpUrl: "https://plan.agent-native.com/_agent-native/mcp",
+              serverName: "agent-native-plan",
+            },
+          ]),
+          sleep: noopSleep,
+          openBrowser: vi.fn(),
+        },
+      );
+
+      expect(process.exitCode).toBeFalsy();
+      const toml = fs.readFileSync(codexFile, "utf-8");
+      expect(toml).toContain('[mcp_servers."plan"]');
+      expect(toml).toContain('"Authorization" = "Bearer fresh-token"');
+      expect(toml).not.toContain('[mcp_servers."agent-native-plan"]');
+      expect(toml).not.toContain("stale-token");
     } finally {
       process.env.HOME = oldHome;
     }
