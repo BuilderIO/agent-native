@@ -84,6 +84,8 @@ cd templates/content && pnpm action <name> [args]
 | Action                         | Args                                                                                                                         | Purpose                                                                               |
 | ------------------------------ | ---------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
 | `list-documents`               | `[--format json]`                                                                                                            | List document metadata/tree; no full bodies                                           |
+| `export-content-source`        | `[--format json]`                                                                                                            | Export editable docs as `content/*.mdx` source files                                  |
+| `import-content-source`        | `--files <json> [--dryRun true\|false]`                                                                                      | Import `.md`/`.mdx` source files into editable docs                                   |
 | `navigate`                     | `--path <path>` or `--documentId <id>` or `--databaseId <id>`                                                                | Open a route, document page, or database page in the UI                               |
 | `search-documents`             | `--query <text> [--format json]`                                                                                             | Search by title/content and return snippets                                           |
 | `get-document`                 | `--id <id> [--format json]`                                                                                                  | Get a single document with content                                                    |
@@ -127,6 +129,17 @@ skipped. It is GET + read-only + public-agent exposed (`requiresAuth: true`),
 returns `{ id, title, content, format, deepLink }`, and surfaces an
 "Open document" deep link for external agents. Use `--format text` for a
 plain-text strip of the markdown.
+
+### Local Source Files
+
+The `/local-files` view syncs Content documents with Markdown/MDX files. Export
+uses `export-content-source` and writes one file per document under `content/`.
+Each file has frontmatter (`id`, `title`, `parentId`, `position`,
+`isFavorite`, `hideFromSearch`) followed by the document markdown body. Import
+uses `import-content-source`; files with known `id` values update existing docs
+only when the caller has editor access, and files without ids create new private
+docs for the current user. Use `--dryRun true` before a large import when the
+source folder may contain unexpected files.
 
 ### Notion Integration
 

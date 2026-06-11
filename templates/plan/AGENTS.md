@@ -130,6 +130,11 @@ sync-guarded skills (not just one stored plan) so the improvement sticks.
   persists the runtime model. Prefer this over regenerating a whole plan when the
   requested change is a few lines, one annotation, one artboard, or one
   wireframe node.
+- In Agent Native Desktop, the Plan menu can link a user-chosen local folder for
+  the current plan, write the exported MDX files to it, import local edits back
+  through `import-visual-plan-source`, and optionally auto-export whenever the
+  hosted plan changes. This is a native desktop bridge; it does not require a
+  cloned Plan app or CLI process.
 - Do not fork the vocabulary. MDX components must map to the same runtime terms:
   `DesignBoard`, `Section`, `Artboard`, `Screen`, `Annotation`, `Connector`, and
   the wireframe kit primitives from `shared/plan-content.ts`.

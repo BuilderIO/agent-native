@@ -210,13 +210,14 @@ export default defineConfig({
 
 ### Build / Runtime {#env-runtime}
 
-| Variable              | Description                                                                                                                           |
-| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
-| `PORT`                | Server port (Node.js only)                                                                                                            |
-| `NITRO_PRESET`        | Override build preset at build time                                                                                                   |
-| `APP_BASE_PATH`       | Mount the app under a prefix (e.g. `/mail`). Set automatically by `npx @agent-native/core@latest deploy`; leave unset for standalone. |
-| `DATABASE_URL`        | Persistent SQL connection string. Required in production. See [Database](/docs/database#production) for adapter and dialect details.  |
-| `DATABASE_AUTH_TOKEN` | Auth token for providers that require a separate token, such as Turso/libSQL.                                                         |
+| Variable                    | Description                                                                                                                                       |
+| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `PORT`                      | Server port (Node.js only)                                                                                                                        |
+| `NITRO_PRESET`              | Override build preset at build time                                                                                                               |
+| `APP_BASE_PATH`             | Mount the app under a prefix (e.g. `/mail`). Set automatically by `npx @agent-native/core@latest deploy`; leave unset for standalone.             |
+| `DATABASE_URL`              | Persistent SQL connection string. Required in production. See [Database](/docs/database#production) for adapter and dialect details.              |
+| `DATABASE_AUTH_TOKEN`       | Auth token for providers that require a separate token, such as Turso/libSQL.                                                                     |
+| `AGENT_PROD_CODE_EXECUTION` | Optional production code-execution mode: `off` (default), `sandboxed`, or `trusted`. See [Production Code Execution](#production-code-execution). |
 
 ### Required in Production {#env-required-prod}
 
@@ -289,11 +290,34 @@ openssl rand -hex 32
 
 Rotate them by replacing the env var on every instance and redeploying — sessions / OAuth state envelopes signed under the old key become invalid, so users may need to sign in again.
 
+## Production Code Execution {#production-code-execution}
+
+By default, production agents run without code-execution tools. They can call app actions, database tools, MCP tools, browser/session tools, and other registered framework tools, but they do not get shell or filesystem access.
+
+Node-compatible deployments can opt into production code execution through the agent chat plugin or an environment override:
+
+```ts
+// server/plugins/agent-chat.ts
+export default createAgentChatPlugin({
+  codeExecution: { production: "sandboxed" },
+});
+```
+
+The available modes are:
+
+- `off` — the default. No code-execution tools are registered in production.
+- `sandboxed` — registers `run-code`, an isolated Node.js JavaScript runner with a scrubbed environment, a fresh temp directory, output/time limits, and a localhost bridge to allowlisted registered tools such as `provider-api-request`, `provider-api-docs`, `provider-api-catalog`, `web-request`, and `workspace-files`.
+- `trusted` — registers `run-code` plus the full coding tool registry (`bash`, `read`, `edit`, `write`). Use this only for single-tenant or operator-controlled deployments where full shell access to the host is intentional.
+
+Set `AGENT_PROD_CODE_EXECUTION=sandboxed` or `AGENT_PROD_CODE_EXECUTION=trusted` to override the plugin option for a specific deployment without a code change. `AGENT_PROD_CODE_EXECUTION=off` forces code execution off even when the plugin option enables it.
+
+The `run-code` sandbox is process-level isolation, not an OS container. It strips app secrets from the child process environment and uses the Node permission model when available, but outbound network is not blocked by Node itself; authenticated calls should go through the bridge helpers the tool exposes.
+
 ## Updating UI in Production {#updating-ui-in-production}
 
 One of agent-native's core features is that the agent can modify your app's source code — components, routes, styles, actions. During local development this works seamlessly because the agent has full filesystem access.
 
-In a standard production deployment, however, the agent runs in **production mode** with access to app tools (actions, database, MCP) but **not** the filesystem. This means the agent can read and write data, run actions, and interact with external services — but it can't edit your React components or add new routes on a deployed instance.
+In a standard production deployment with [production code execution](#production-code-execution) left off, the agent has access to app tools (actions, database, MCP) but not the filesystem. This means the agent can read and write data, run actions, and interact with external services — but it can't edit your React components or add new routes on a deployed instance.
 
 ### Builder.io: Visual Editing in Production {#builderio}
 

@@ -33,6 +33,13 @@ export const IPC = {
   APPS_RESET: "apps:reset",
   APPS_CHOOSE_LOCAL_FOLDER: "apps:choose-local-folder",
 
+  /** Hosted Plan app local-file sync (Plan webview ↔ main) */
+  PLAN_FILES_GET_FOLDER: "plan-files:get-folder",
+  PLAN_FILES_CHOOSE_FOLDER: "plan-files:choose-folder",
+  PLAN_FILES_WRITE: "plan-files:write",
+  PLAN_FILES_READ: "plan-files:read",
+  PLAN_FILES_CLEAR_FOLDER: "plan-files:clear-folder",
+
   /** Active webview tracking (renderer → main) */
   SET_ACTIVE_APP: "webview:set-active-app",
   SET_ACTIVE_WEBVIEW: "webview:set-active-webview",
@@ -131,6 +138,58 @@ export interface LocalAppFolderSelectResult {
   folder?: LocalAppFolderInfo;
   error?: string;
 }
+
+export interface DesktopPlanMdxFolder {
+  "plan.mdx": string;
+  "canvas.mdx"?: string;
+  "prototype.mdx"?: string;
+  ".plan-state.json"?: string;
+  "assets/"?: Record<string, string>;
+}
+
+export interface DesktopPlanFilesFolder {
+  name: string;
+  planId: string;
+  title?: string;
+  updatedAt?: string;
+}
+
+export interface DesktopPlanFilesFolderRequest {
+  planId: string;
+}
+
+export interface DesktopPlanFilesChooseFolderRequest {
+  planId: string;
+  title?: string;
+}
+
+export interface DesktopPlanFilesWriteRequest {
+  planId: string;
+  title?: string;
+  mdx: DesktopPlanMdxFolder;
+}
+
+export interface DesktopPlanFilesReadRequest {
+  planId: string;
+}
+
+export interface DesktopPlanFilesClearFolderRequest {
+  planId: string;
+}
+
+export type DesktopPlanFilesResult =
+  | {
+      ok: true;
+      folder: DesktopPlanFilesFolder;
+      files?: string[];
+      mdx?: DesktopPlanMdxFolder;
+    }
+  | {
+      ok: false;
+      error: string;
+      canceled?: boolean;
+      folder?: DesktopPlanFilesFolder;
+    };
 
 export type CodeAgentRunStatus =
   | "queued"

@@ -45,6 +45,19 @@ export default defineConfig({
         "@shared": resolve("shared"),
       },
     },
+    build: {
+      rollupOptions: {
+        input: {
+          index: resolve("src/preload/index.ts"),
+          webview: resolve("src/preload/webview.ts"),
+        },
+        output: {
+          format: "cjs",
+          entryFileNames: "[name].js",
+          chunkFileNames: "chunks/[name]-[hash].js",
+        },
+      },
+    },
   },
   renderer: {
     optimizeDeps: {

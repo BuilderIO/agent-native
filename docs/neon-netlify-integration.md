@@ -32,6 +32,24 @@ The Neon/Netlify specifics live in the workflow and each template's
 | `NETLIFY_AUTH_TOKEN` | Netlify User Settings → Personal Access Token |
 | `NETLIFY_ACCOUNT_ID` | Netlify team settings → Team ID               |
 
+## Restoring production env vars
+
+Preview DB overrides are managed by GitHub Actions, but production template
+secrets are not. If a Netlify project loses its env vars during a migration,
+restore them from the local ignored template env files:
+
+```bash
+pnpm sync:netlify-env -- --template clips
+NETLIFY_AUTH_TOKEN=... NETLIFY_ACCOUNT_ID=... pnpm sync:netlify-env -- --template clips --write
+```
+
+The script is dry-run by default, logs key names only, writes the production
+context, and marks real secrets as Netlify secret values while leaving public
+deployment metadata plain so Netlify's secret scanner does not block deploys.
+It merges `templates/<name>/.env` and `templates/<name>/.env.local` because
+some deploy-relevant auth keys, such as `BETTER_AUTH_SECRET`, currently live in
+`.env.local`. Pass `--all` to restore every known template site.
+
 ## Site ↔ Neon project mapping
 
 Defined in the workflow's matrix. Update it when adding a new hosted template.

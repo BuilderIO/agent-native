@@ -42,6 +42,12 @@ This keeps plan content out of the Agent-Native Plan database. Hosted sharing,
 comments, screenshots, and plan history are unavailable until you explicitly
 publish later.
 
+Agent Native Desktop has a separate local-file sync path for hosted plans: the
+Desktop app can mirror a hosted plan to local MDX files and import edits back
+without cloning the Plan app or running a CLI. That workflow keeps the hosted
+Plan database as the source of truth; use local-files privacy mode when the goal
+is no Plan DB writes.
+
 > The plugin (`agent-native-visual-plans`) carries app id `visual-plans`, which is why the Claude Code plugin name and Codex plugin name are both `agent-native-visual-plans`. The Plan app's display name is "Agent-Native Plan".
 
 ## Install routes {#install}
