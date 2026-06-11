@@ -1,5 +1,73 @@
 # @agent-native/core
 
+## 0.48.4
+
+### Patch Changes
+
+- 7ee8be6: Always hard-CDN-cache SSR for every visitor; make the login page an
+  env-independent cacheable shell.
+
+  The SSR handler was downgrading every authenticated request (any request
+  carrying a session cookie) to `private, no-store`, so logged-in visitors got
+  zero CDN caching on every page — including fully public pages like the docs
+  site. SSR responses are now served with the standard public
+  short-fresh / long-stale-while-revalidate policy for ALL visitors,
+  authenticated or not. To make that safe, the SSR handler no longer reads the
+  request session/cookies: it renders an impersonal public shell, and all
+  per-user state (who is signed in, private records, share-grant access) is
+  resolved client-side after load. A strong guardrail comment now documents that
+  SSR must never vary by cookie/session and must never be marked private/no-store.
+
+  Relatedly, the login page (the public homepage of every app) is now
+  env-independent: a Google-only app always renders a working Google sign-in
+  button instead of baking a render-time "Google sign-in is not configured"
+  message into the CDN-cached HTML. A genuinely misconfigured server surfaces the
+  error at click time via the auth API instead.
+
+- 7ee8be6: Add a reusable `RequireSession` client gate that redirects unauthenticated
+  visitors to the framework sign-in page instead of leaving a protected app shell
+  stuck on an infinite loading spinner. The server-side auth guard only protects
+  requests that reach the Nitro function; a statically-served/cached SPA shell or
+  a client-side navigation after the session expired never re-hits it, so the app
+  boots with no session and every data query 401s into a permanent loading state.
+  Wrap a private app shell with `<RequireSession>` (with optional `bypass` for
+  embed/popout surfaces that authenticate by another mechanism) to close that gap.
+- 7ee8be6: Service token mint auto-resolves org from membership when bearer token has no org context
+- 7ee8be6: Keep the agent sidebar's running indicator showing a steady "Thinking" while the
+  model works, instead of flipping through transient framework step labels (e.g.
+  "Contacting model", "Preparing X action") right after a message is submitted.
+  The Reconnecting and Resuming connection states are unchanged.
+- 7ee8be6: Skills installer: offer the two plan skills independently, prompt for scope, and
+  install built-in instructions in-process.
+
+  The interactive `agent-native skills` installer now offers exactly `visual-plan`
+  and `visual-recap` as two separate, independently selectable entries (both
+  checked by default) instead of a single bundled "Agent-Native Plan" row.
+  Selecting both still registers the shared hosted plan MCP connector once;
+  selecting only one installs just that skill. `agent-native skills add
+visual-plan` / `visual-recap` likewise install only the named skill, while the
+  bundle aliases (`visual-plans`, `plannotate`, …) still install both. The PR
+  Visual Recap GitHub Action offer is now gated on `visual-recap` being part of
+  the install.
+
+  The installer also prompts for install scope (Project vs User) when `--scope`
+  is not passed, matching the open `skills` CLI UX.
+
+  Built-in skill instructions are now written straight into each client's skills
+  directory instead of shelling out to `npx @agent-native/skills@latest` — that
+  package is not published yet, so the previous delegation failed with a 404
+  mid-install. External/plain skill repos still use the standalone installer.
+
+- 7ee8be6: Recover from stale lazy-chunk failures on the current route. After a deploy,
+  an old tab whose hashed chunk filenames no longer exist would strand the user
+  on a broken view (and report `Failed to fetch dynamically imported module` to
+  Sentry) whenever the failure was not tied to a fresh cross-route navigation.
+  The route chunk recovery now performs a single, loop-guarded reload of the
+  current page (via sessionStorage cooldown) for both unhandled dynamic-import
+  rejections and `React.lazy` failures caught by the framework `ErrorBoundary`,
+  fetching fresh assets instead of failing. Desktop webviews are left untouched,
+  matching existing behavior.
+
 ## 0.48.3
 
 ### Patch Changes
