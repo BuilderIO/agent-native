@@ -2633,7 +2633,7 @@ function prVisualRecapWorkflowDisplayPath(): string {
 }
 
 function prVisualRecapInstallCommand(): string {
-  return "npx @agent-native/core@latest skills add visual-plan --with-github-action";
+  return "npx @agent-native/core@latest skills add visual-recap --with-github-action";
 }
 
 function prVisualRecapSetupCommand(): string {
