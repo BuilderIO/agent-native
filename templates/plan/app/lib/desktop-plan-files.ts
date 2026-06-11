@@ -7,7 +7,6 @@ export interface PlanMdxFolder {
 }
 
 export interface DesktopPlanFilesFolder {
-  path: string;
   name: string;
   planId: string;
   title?: string;

@@ -4653,7 +4653,6 @@ function planFilesFolderInfo(
   grant: PlanFilesGrant,
 ): DesktopPlanFilesFolder {
   return {
-    path: grant.path,
     name: path.basename(grant.path) || grant.path,
     planId,
     title: grant.title,
@@ -4701,8 +4700,29 @@ function normalizePlanFilesRequestPlanId(request: unknown): string | null {
 function isPlanFilesWebviewSender(event: IpcMainInvokeEvent): boolean {
   const sender = event.sender;
   if (sender.getType() !== "webview") return false;
-  const appConfig = findAppForSourceUrl(sender.getURL());
-  return appConfig?.id === "plan";
+  if (activeAppId !== "plan") return false;
+  if (!activeWebviewContentsId || activeWebviewContentsId !== sender.id) {
+    return false;
+  }
+  const planApp = loadAppsForAuthContext().find(
+    (candidate) => candidate.id === "plan" && candidate.enabled !== false,
+  );
+  if (!planApp) return false;
+
+  let url: URL;
+  try {
+    url = new URL(sender.getURL());
+  } catch {
+    return false;
+  }
+
+  const trustedOrigin = getAppOrigin(planApp);
+  if (trustedOrigin && url.origin === trustedOrigin) return true;
+  return (
+    IS_DEV &&
+    url.origin === `http://localhost:${FRAME_PORT}` &&
+    url.searchParams.get("app") === "plan"
+  );
 }
 
 function requirePlanFilesWebviewAccess(

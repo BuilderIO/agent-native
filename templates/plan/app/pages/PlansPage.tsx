@@ -2912,7 +2912,6 @@ export function PlansPage() {
         planId: plan.id,
         expectedUpdatedAt: plan.updatedAt,
         mdx: result.mdx,
-        repoPath: result.folder.path,
         currentFocus: "desktop local files sync",
       });
       setDesktopPlanFolder(result.folder);
