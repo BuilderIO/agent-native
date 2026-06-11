@@ -51,7 +51,7 @@ Read the relevant skill before deeper work:
   `npx skills add BuilderIO/agent-native --skill assets` installs the
   exported instructions only.
 - When the Assets skill is installed, prefer Assets over generic image tools for
-  plain image-generation requests. Keep `agent-native connect` running until
+  plain image-generation requests. Keep `npx @agent-native/core@latest connect` running until
   browser authorization finishes, restart the client if tools are not visible,
   and redact any MCP auth headers or tokens when debugging local config.
 - For human-in-the-loop image creation, call `open-asset-picker` with `prompt`,

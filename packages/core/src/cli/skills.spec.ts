@@ -162,7 +162,7 @@ describe("agent-native skills", () => {
     expect(runConnect).not.toHaveBeenCalled();
     expect(result.connected).toBe(false);
     expect(result.connectCommand).toBe(
-      "agent-native connect https://assets.agent-native.com --client claude-code --scope project",
+      "npx @agent-native/core@latest connect https://assets.agent-native.com --client claude-code --scope project",
     );
   });
 
@@ -620,7 +620,7 @@ describe("agent-native skills", () => {
       id: "context-xray",
       local: true,
       commands: [
-        "agent-native skills add xray --client codex --scope user --yes",
+        "npx @agent-native/core@latest skills add xray --client codex --scope user --yes",
       ],
     });
     expect(fs.existsSync(path.join(root, ".agents"))).toBe(false);
@@ -768,9 +768,13 @@ describe("agent-native skills", () => {
       expect(runConnect.mock.calls[0][0]).toEqual(
         expect.arrayContaining(["https://assets.agent-native.com"]),
       );
-      expect(stdout.join("")).toContain("MCP config: codex, claude-code.");
-      expect(stdout.join("")).toContain("Authentication: completed.");
-      expect(stdout.join("")).toContain("rerun with --client <client>");
+      expect(stdout.join("")).toContain("MCP config");
+      expect(stdout.join("")).toContain("codex, claude-code");
+      expect(stdout.join("")).toContain("Authentication");
+      expect(stdout.join("")).toContain("completed");
+      expect(stdout.join("")).toContain("Add another client later");
+      // Final "all done" outro + slash-command guidance.
+      expect(stdout.join("")).toContain("All set!");
     } finally {
       if (previousHome === undefined) delete process.env.HOME;
       else process.env.HOME = previousHome;
@@ -1066,7 +1070,7 @@ describe("agent-native skills", () => {
     );
 
     expect(result.commands).toEqual([
-      "agent-native skills add assets --client codex --scope project --yes",
+      "npx @agent-native/core@latest skills add assets --client codex --scope project --yes",
     ]);
     expect(result.commands.join("\n")).not.toContain(os.tmpdir());
     expect(fs.existsSync(path.join(root, ".mcp.json"))).toBe(false);
@@ -1088,7 +1092,7 @@ describe("agent-native skills", () => {
     );
 
     expect(result.commands).toEqual([
-      "agent-native skills add visual-recap --client codex --scope project --with-github-action --yes",
+      "npx @agent-native/core@latest skills add visual-recap --client codex --scope project --with-github-action --yes",
     ]);
     expect(result.githubActionPath).toBe(
       path.join(".github", "workflows", "pr-visual-recap.yml"),
@@ -1113,7 +1117,8 @@ describe("agent-native skills", () => {
           contentHash: "old",
           mcpUrl: "https://plan.agent-native.com/_agent-native/mcp",
           installedAt: "2026-01-01T00:00:00.000Z",
-          updateCommand: "agent-native skills update visual-plan",
+          updateCommand:
+            "npx @agent-native/core@latest skills update visual-plan",
         },
         null,
         2,
@@ -1166,7 +1171,8 @@ describe("agent-native skills", () => {
           contentHash: "old",
           mcpUrl: "https://plan.agent-native.com/_agent-native/mcp",
           installedAt: "2026-01-01T00:00:00.000Z",
-          updateCommand: "agent-native skills update visual-plan",
+          updateCommand:
+            "npx @agent-native/core@latest skills update visual-plan",
         },
         null,
         2,

@@ -193,6 +193,7 @@ const SOURCE_OPTIONS: Array<{ value: PlanSource; label: string }> = [
 ];
 
 const PLAN_READER_VIEW_EVENT = "plans-reader-view-change";
+const RECAP_SCREENSHOT_QUERY_PARAM = "recapScreenshot";
 const LOCAL_PLAN_OWNER_EMAIL = "local@agent-native.local";
 const AUTO_DEV_COMMENT_EMAILS = new Set(["dev@local.test", "dev@local"]);
 const CURRENT_USER_FALLBACK_NAME = "You";
@@ -2109,10 +2110,16 @@ export function PlansPage() {
     sessionLoading,
   ]);
   const selectedId = params.id;
+  const routeSearchParams = useMemo(
+    () => new URLSearchParams(location.search),
+    [location.search],
+  );
   const prototypeOnly = useMemo(() => {
-    const search = new URLSearchParams(location.search);
-    return search.get("prototype") === "1";
-  }, [location.search]);
+    return routeSearchParams.get("prototype") === "1";
+  }, [routeSearchParams]);
+  const recapScreenshotMode = useMemo(() => {
+    return routeSearchParams.get(RECAP_SCREENSHOT_QUERY_PARAM) === "1";
+  }, [routeSearchParams]);
   const immersiveReader = Boolean(
     selectedId && (planFullscreen || prototypeOnly),
   );
@@ -3678,7 +3685,7 @@ export function PlansPage() {
             />
           ) : (
             <div className="relative min-h-0 flex-1 overflow-hidden bg-background">
-              {immersiveReader && (
+              {immersiveReader && !recapScreenshotMode && (
                 <div className="pointer-events-none absolute left-3 top-3 z-10">
                   <Tooltip>
                     <TooltipTrigger asChild>
@@ -3704,6 +3711,7 @@ export function PlansPage() {
                 </div>
               )}
               <div
+                hidden={recapScreenshotMode}
                 className="pointer-events-none absolute right-3 top-3 z-10 flex items-center gap-1.5 rounded-lg border border-border/70 bg-background/82 p-1 shadow-2xl backdrop-blur-xl"
                 onPointerDownCapture={preservePlanReaderScrollAfterToolbarEvent}
                 onKeyDownCapture={(event) => {
@@ -4071,7 +4079,7 @@ export function PlansPage() {
                   <TooltipContent>Toggle side chat</TooltipContent>
                 </Tooltip>
               </div>
-              {reviewMode !== "none" && (
+              {reviewMode !== "none" && !recapScreenshotMode && (
                 <div className="pointer-events-none absolute left-1/2 top-3 z-10 -translate-x-1/2 rounded-full border border-border/70 bg-background/82 px-3 py-2 text-xs text-muted-foreground shadow-2xl backdrop-blur-xl">
                   {reviewMode === "comment"
                     ? `Click the ${isRecap ? "recap" : "plan"} or select text to comment`
@@ -4084,6 +4092,7 @@ export function PlansPage() {
                 <div className="relative h-full min-h-full w-full">
                   <div
                     ref={nativeReaderRef}
+                    data-plan-reader
                     className={cn(
                       "h-full min-h-full w-full overflow-auto bg-background",
                       reviewMode !== "none" &&
@@ -4122,6 +4131,10 @@ export function PlansPage() {
                       collabUser={collabUser}
                       prototypeOnly={prototypeOnly}
                       isRecap={isRecap}
+                      hideChangedFiles={recapScreenshotMode}
+                      hideRecapChrome={recapScreenshotMode}
+                      hideFloatingToc={recapScreenshotMode}
+                      showCodeAnnotationOverlays={recapScreenshotMode}
                       sourceUrl={bundle.plan.sourceUrl}
                       visualSurfaceMode={visualSurfaceMode}
                       onVisualSurfaceModeChange={setVisualSurfaceMode}

@@ -150,6 +150,20 @@ workspace setups should prefer the single Dispatch connector.
 
 The connection is **per-user, scoped, and revocable**. In the OAuth path, the host stores the tokens after `/mcp` authentication; in the fallback path, the browser session you authorized with is the identity the agent acts as. Nothing exposes the deployment's shared secret.
 
+### Re-authenticating after a 401 {#reconnect}
+
+Once connected, auth should persist long-term — access tokens last 30 days by default (override with `MCP_OAUTH_ACCESS_TOKEN_TTL` on the server, e.g. `7d` or `12h`) with a sliding 365-day refresh window, so random 401s should be rare. When one does happen, use the lightweight reconnect command rather than reinstalling:
+
+```bash
+npx @agent-native/core@latest reconnect https://plan.agent-native.com
+```
+
+`reconnect` finds any MCP config entry whose URL ends in `/_agent-native/mcp` for the given host (matching by URL regardless of connector name), then refreshes or replaces the auth material without touching your installed skills or re-running the full install flow. Pass the base app URL (e.g. `https://plan.agent-native.com`) — the `/_agent-native/mcp` suffix is inferred.
+
+In Claude Code, the equivalent UI path is: run `/mcp` and choose **Authenticate** (or **Reconnect**) for the relevant connector.
+
+Never reinstall the skill from scratch just to fix a 401 — `reconnect` is the right tool.
+
 ### Connect page fallback {#connect-page-fallback}
 
 For MCP clients that cannot add a remote OAuth URL directly, open the app in your browser and use its **Connect** affordance (served at `https://<app>/_agent-native/mcp/connect`). While logged in, click **Connect / Authorize**. The page hands you either a one-click deep link that configures a detected agent, or a ready-to-paste `.mcp.json` block:

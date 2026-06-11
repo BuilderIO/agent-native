@@ -17,12 +17,17 @@ import {
 } from "@tabler/icons-react";
 import { common, createLowlight } from "lowlight";
 import { cn } from "../../utils.js";
-import type { BlockEditProps, BlockReadProps } from "../types.js";
+import type {
+  BlockEditProps,
+  BlockReadProps,
+  BlockRenderContext,
+} from "../types.js";
 import type { DiffAnnotation, DiffData, DiffMode } from "./diff.config.js";
 import {
   AnnotationGutterMarker,
   AnnotationHiddenStack,
   AnnotationHoverCard,
+  AnnotationInlineOverlayStack,
   anchorFromElements,
   buildLineMarkerMap,
   hasRailAnnotations,
@@ -680,6 +685,7 @@ function DiffRead({
   // authoring-order across BOTH sides so a note ↔ row ↔ rail card share one id.
   const beforeLineCount = useMemo(() => countLines(data.before), [data.before]);
   const afterLineCount = useMemo(() => countLines(data.after), [data.after]);
+  const showAnnotationOverlays = Boolean(ctx.showCodeAnnotationOverlays);
   const resolved = useMemo(
     () =>
       resolveAnnotations(data.annotations, (annotation) =>
@@ -880,6 +886,8 @@ function DiffRead({
           onRowEnter={onRowEnter}
           onRowLeave={onRowLeave}
           onRowClick={onRowClick}
+          showAnnotationOverlays={showAnnotationOverlays}
+          ctx={ctx}
         />
       ) : (
         <UnifiedView
@@ -893,6 +901,8 @@ function DiffRead({
           onRowEnter={onRowEnter}
           onRowLeave={onRowLeave}
           onRowClick={onRowClick}
+          showAnnotationOverlays={showAnnotationOverlays}
+          ctx={ctx}
         />
       )}
       {!unchanged && shouldLimitRows && (
@@ -989,6 +999,8 @@ interface RowAnnotationProps {
   markersForRow: MarkersForRow;
   anchoredRow?: (row: DiffRow) => boolean;
   activeIndex: number | null;
+  showAnnotationOverlays: boolean;
+  ctx: BlockRenderContext;
   /** Hovering an annotated row opens its popover, anchored to this row's box. */
   onRowEnter: (index: number, rowEl: HTMLElement) => void;
   /** Leaving an annotated row schedules the popover's close. */
@@ -1049,6 +1061,8 @@ function UnifiedView({
   onRowEnter,
   onRowLeave,
   onRowClick,
+  showAnnotationOverlays,
+  ctx,
 }: {
   rows: DiffRow[];
   language: string;
@@ -1072,6 +1086,8 @@ function UnifiedView({
     onRowLeave,
     onRowClick,
     showMarkerColumn,
+    showAnnotationOverlays,
+    ctx,
   };
   let runIndex = 0;
   return (
@@ -1115,6 +1131,8 @@ function UnifiedRow({
   onRowLeave,
   onRowClick,
   showMarkerColumn,
+  showAnnotationOverlays,
+  ctx,
 }: {
   language: string;
   row: DiffRow;
@@ -1124,11 +1142,15 @@ function UnifiedRow({
   onRowLeave: () => void;
   onRowClick: (index: number, rowEl: HTMLElement) => void;
   showMarkerColumn: boolean;
+  showAnnotationOverlays: boolean;
+  ctx: BlockRenderContext;
 }) {
   const markers = markersForRow(row);
   const info = rowMarkerInfo(markers, activeIndex);
   const startMarker = markers.find((marker) => isMarkerRangeStart(row, marker));
   const primaryIndex = startMarker?.index ?? info?.primaryIndex;
+  const overlayItems =
+    showAnnotationOverlays && startMarker ? [startMarker] : [];
   return (
     <div
       data-annot-row={startMarker ? startMarker.index : undefined}
@@ -1136,7 +1158,7 @@ function UnifiedRow({
       role={info ? "button" : undefined}
       aria-expanded={info ? info.isActive : undefined}
       className={cn(
-        "flex min-h-5 min-w-full",
+        "relative flex min-h-5 min-w-full",
         info && "cursor-pointer",
         ROW_BG[row.kind],
         annotatedRowBg(info),
@@ -1186,6 +1208,13 @@ function UnifiedRow({
         />
       )}
       <DiffLineText text={row.text} language={language} />
+      {overlayItems.length > 0 && (
+        <AnnotationInlineOverlayStack
+          items={overlayItems}
+          ctx={ctx}
+          showMarker
+        />
+      )}
     </div>
   );
 }
@@ -1283,6 +1312,8 @@ function SplitView({
   onRowEnter,
   onRowLeave,
   onRowClick,
+  showAnnotationOverlays,
+  ctx,
 }: {
   language: string;
   rowLimit?: number;
@@ -1312,6 +1343,8 @@ function SplitView({
     onRowEnter,
     onRowLeave,
     onRowClick,
+    showAnnotationOverlays,
+    ctx,
   };
   return (
     <div
@@ -1358,6 +1391,8 @@ function SplitCell({
   onRowLeave,
   onRowClick,
   showMarkerColumn,
+  showAnnotationOverlays,
+  ctx,
 }: {
   language: string;
   row?: DiffRow;
@@ -1368,6 +1403,8 @@ function SplitCell({
   onRowLeave: () => void;
   onRowClick: (index: number, rowEl: HTMLElement) => void;
   showMarkerColumn: boolean;
+  showAnnotationOverlays: boolean;
+  ctx: BlockRenderContext;
 }) {
   if (!row) {
     return (
@@ -1385,6 +1422,8 @@ function SplitCell({
   const info = rowMarkerInfo(markers, activeIndex);
   const startMarker = markers.find((marker) => isMarkerRangeStart(row, marker));
   const primaryIndex = startMarker?.index ?? info?.primaryIndex;
+  const overlayItems =
+    showAnnotationOverlays && startMarker ? [startMarker] : [];
   return (
     <div
       data-annot-row={startMarker ? startMarker.index : undefined}
@@ -1392,7 +1431,7 @@ function SplitCell({
       role={info ? "button" : undefined}
       aria-expanded={info ? info.isActive : undefined}
       className={cn(
-        "flex min-h-5 min-w-full",
+        "relative flex min-h-5 min-w-full",
         info && "cursor-pointer",
         ROW_BG[row.kind],
         annotatedRowBg(info),
@@ -1443,6 +1482,13 @@ function SplitCell({
         />
       )}
       <DiffLineText text={row.text} language={language} />
+      {overlayItems.length > 0 && (
+        <AnnotationInlineOverlayStack
+          items={overlayItems}
+          ctx={ctx}
+          showMarker
+        />
+      )}
     </div>
   );
 }

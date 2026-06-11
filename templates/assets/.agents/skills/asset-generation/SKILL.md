@@ -83,7 +83,7 @@ deferred.
 
 - Hosted default: connect `https://assets.agent-native.com/_agent-native/mcp`.
   Do not put shared secrets in skill files.
-- Local customization: run `agent-native app-skill launch --local` from the
+- Local customization: run `npx @agent-native/core@latest app-skill launch --local` from the
   Assets app-skill manifest, or pass `--into <path>` for editable source.
 - For A2A or MCP callers, include exact `assetId`, `runId`, media type, and
   URLs in the final response so the caller can attach or embed the media.

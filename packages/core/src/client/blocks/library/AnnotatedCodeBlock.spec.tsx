@@ -165,6 +165,35 @@ describe("AnnotatedCodeBlock annotations", () => {
     expect(card!.style.top).toBe("133px");
   });
 
+  it("renders static annotation overlays when screenshot mode requests them", () => {
+    act(() => {
+      root.render(
+        <AnnotatedCodeRead
+          blockId="code-annotations"
+          ctx={{ showCodeAnnotationOverlays: true }}
+          data={{
+            language: "ts",
+            code: ["const one = 1;", "const two = 2;"].join("\n"),
+            annotations: [
+              {
+                lines: "1-2",
+                label: "Entry",
+                note: "This note is visible without hover.",
+              },
+            ],
+          }}
+        />,
+      );
+    });
+
+    const overlay = container.querySelector("[data-annotation-inline-overlay]");
+    expect(overlay).toBeTruthy();
+    expect(overlay?.textContent).toContain(
+      "This note is visible without hover.",
+    );
+    expect(document.querySelector("[data-annotation-hover-card]")).toBeNull();
+  });
+
   it("does not immediately reopen the popover while scrolling under a hovered line", () => {
     vi.useFakeTimers();
     vi.setSystemTime(0);

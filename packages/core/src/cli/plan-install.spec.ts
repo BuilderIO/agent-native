@@ -342,7 +342,10 @@ describe("Plans skills install — materialized output", () => {
     expect(codexConfig).toContain(
       'url = "https://plan.agent-native.com/_agent-native/mcp"',
     );
-    expect(codexConfig).toContain('[mcp_servers."agent-native-plans"]');
+    // "agent-native-plans" is the legacy alias name. Our change repurposes the
+    // alias list as a same-URL cleanup list rather than writing a duplicate
+    // entry, so only the canonical "plan" entry is written.
+    expect(codexConfig).not.toContain('[mcp_servers."agent-native-plans"]');
 
     for (const [name, constant] of PLANS_INSTALL_SKILLS) {
       // The materialized file the user receives must be byte-identical to the

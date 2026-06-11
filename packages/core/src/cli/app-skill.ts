@@ -13,7 +13,11 @@ import path from "node:path";
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 
-import { type ClientId, buildHttpMcpEntry } from "./mcp-config-writers.js";
+import {
+  type ClientId,
+  buildHttpMcpEntry,
+  removeSameUrlDuplicatesForClient,
+} from "./mcp-config-writers.js";
 import { resolveClients, writeConfigs } from "./connect.js";
 
 export type SkillVisibility = "internal" | "exported" | "both";
@@ -1214,31 +1218,39 @@ export async function ensureAppSkill(
     await confirmMcpRegistration(result, loaded.manifest.displayName, scope);
   }
 
+  const baseDir = options.baseDir ?? process.cwd();
   result.written = writeConfigs(
     clients,
     serverName,
     plan.mcpUrl,
     undefined,
     scope,
-    options.baseDir ?? process.cwd(),
+    baseDir,
   );
-  if (!options.serverName) {
-    for (const alias of manifest.mcp.aliases ?? []) {
-      result.written.push(
-        ...writeConfigs(
-          clients,
-          alias,
-          plan.mcpUrl,
-          undefined,
-          scope,
-          options.baseDir ?? process.cwd(),
-        ),
-      );
-    }
+
+  // Aliases are intentionally NOT written as separate entries. Instead,
+  // repurpose the alias list as a cleanup list: remove any other entries in
+  // the same config files that point at the same URL (covers legacy alias
+  // names, old default names like 'agent-native-<slug>', and any stale
+  // custom names left from previous installs).
+  const allRemovedNames: string[] = [];
+  for (const client of clients) {
+    const removed = removeSameUrlDuplicatesForClient(
+      client,
+      serverName,
+      plan.mcpUrl,
+      baseDir,
+      scope,
+    );
+    allRemovedNames.push(...removed);
   }
-  options.log?.(
-    `Registered ${mcpServerNames(manifest, options.serverName).join(", ")} for ${clients.join(", ")} at ${plan.mcpUrl}`,
-  );
+
+  const uniqueRemoved = [...new Set(allRemovedNames)];
+  const logMsg =
+    uniqueRemoved.length > 0
+      ? `Registered "${serverName}" for ${clients.join(", ")} at ${plan.mcpUrl}; removed duplicate entries: ${uniqueRemoved.join(", ")}`
+      : `Registered "${serverName}" for ${clients.join(", ")} at ${plan.mcpUrl}`;
+  options.log?.(logMsg);
   return result;
 }
 

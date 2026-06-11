@@ -95,7 +95,8 @@ vi.mock("../server/embed-route.js", () => ({
 }));
 
 vi.mock("./oauth-store.js", () => ({
-  MCP_OAUTH_ACCESS_TOKEN_TTL: "1h",
+  MCP_OAUTH_ACCESS_TOKEN_TTL: "30d",
+  MCP_OAUTH_ACCESS_TOKEN_TTL_SECONDS: 30 * 86400,
   getOAuthClient: vi.fn(async () => null),
 }));
 
@@ -287,6 +288,9 @@ vi.mock("../server/auth.js", () => ({
 
 vi.mock("../mcp/oauth-route.js", () => ({
   getMcpOAuthResource: () => "https://plan.agent-native.com/_agent-native/mcp",
+  getMcpOAuthAudiences: () => [
+    "https://plan.agent-native.com/_agent-native/mcp",
+  ],
   getMcpOAuthIssuer: () => "https://plan.agent-native.com",
   getMcpOAuthProtectedResourceMetadataUrl: () =>
     "https://plan.agent-native.com/.well-known/oauth-protected-resource",

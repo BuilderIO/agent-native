@@ -87,11 +87,12 @@ plan over as inline chat content — no Markdown prose, ASCII sketch, table, or
 fenced wireframe. If the connector's tools are missing, do NOT fall back to
 inline output: the usual cause is a connector that did not finish connecting
 this session (it registers zero tools), not auth. Stop and give the user the
-exact restore step — reconnect via `/mcp` (or restart the session); only if
-genuinely unauthenticated, run
-`npx @agent-native/core@latest connect https://plan.agent-native.com`. Publish once the tool is
-reachable. Local-files privacy mode (after Tool Guidance) is the only
-exception.
+exact restore step — in Claude Code run `/mcp` and choose
+Authenticate/Reconnect (or restart the session); if genuinely unauthenticated,
+run `npx @agent-native/core@latest reconnect https://plan.agent-native.com` — this
+re-authenticates WITHOUT reinstalling. Never reinstall from scratch just to fix
+auth. Publish once the tool is reachable. Local-files privacy mode (after Tool
+Guidance) is the only exception.
 
 ## Core Workflow
 
@@ -369,10 +370,13 @@ your repo as MDX. This local mode is a separate advanced path, not the default
 hosted flow.
 
 If a Plans tool returns `needs auth`, `Unauthorized`, or `Session terminated`,
-do not keep retrying the tool. Authenticate the connector with
-`npx @agent-native/core@latest connect https://plan.agent-native.com` (OAuth-capable hosts can
-instead re-run /mcp and choose Authenticate), then continue once the connector
-is available.
+do not keep retrying the tool. Stop and give the user the reconnect step: in
+Claude Code run `/mcp` and choose Authenticate/Reconnect for the plan
+connector; from any terminal run
+`npx @agent-native/core@latest reconnect https://plan.agent-native.com` — this
+re-authenticates WITHOUT reinstalling and finds the entry by URL regardless of
+connector name. Never reinstall from scratch just to fix auth. Continue once
+the connector is available.
 
 Hosted default: connect `https://plan.agent-native.com/_agent-native/mcp`. Do
 not put shared secrets in skill files.
