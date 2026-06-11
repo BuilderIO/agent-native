@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.49.2
+
+### Patch Changes
+
+- b57b183: Prevent stale interrupted agent tool calls from appearing as live running tools after chat stream recovery.
+
 ## 0.49.1
 
 ### Patch Changes
