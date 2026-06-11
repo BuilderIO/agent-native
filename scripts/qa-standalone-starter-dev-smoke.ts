@@ -13,6 +13,12 @@
  *
  * Production `pnpm build` does not catch this class of bug because it exercises
  * a different SSR pipeline than Vite dev + React Router's environment API.
+ *
+ * CI flake strategy (do not fight Vite first-load dep optimization):
+ * 1. One page.goto to `/` so auto-login runs in the browser.
+ * 2. Poll for Home / auth — never re-goto during active Vite reloads.
+ * 3. waitForViteDepsQuiet(server logs) before strict assertions.
+ * 4. Retry goto/evaluate only for transient Playwright navigation errors.
  */
 import assert from "node:assert/strict";
 import {
@@ -26,7 +32,7 @@ import fs from "node:fs";
 import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { fileURLToPath } from "node:url";
 import type { Browser, Page } from "playwright";
 
 const repoRoot = path.resolve(
@@ -53,7 +59,6 @@ const verbose = process.env.STANDALONE_STARTER_DEV_SMOKE_VERBOSE === "1";
 const headed = process.env.STANDALONE_STARTER_DEV_SMOKE_HEADED === "1";
 const isCi = Boolean(process.env.CI || process.env.GITHUB_ACTIONS);
 const shellTimeoutMs = isCi ? 120_000 : 60_000;
-const viteWarmupMs = isCi ? 15_000 : 6_000;
 const devStartAttempts = 3;
 
 function log(step: string): void {
@@ -63,11 +68,31 @@ function log(step: string): void {
 const cliEntry = path.join(repoRoot, "packages/core/dist/cli/index.js");
 const nodeBin = process.execPath;
 
+interface ViteReloadTracker {
+  /** Wall-clock ms when the latest Vite full-page reload log chunk arrived. */
+  lastReloadAt: number;
+}
+
 interface RunningDev {
   baseUrl: string;
   child: ChildProcessWithoutNullStreams;
   logs: string[];
   dbPath: string;
+  viteReload: ViteReloadTracker;
+}
+
+function appendDevLog(
+  logs: string[],
+  chunk: string,
+  viteReload: ViteReloadTracker,
+): void {
+  logs.push(chunk);
+  if (
+    chunk.includes("reloading the page") ||
+    chunk.includes("optimized dependencies changed")
+  ) {
+    viteReload.lastReloadAt = Date.now();
+  }
 }
 
 function run(
@@ -217,8 +242,43 @@ function parseDevAutoLoginCredentials(logs: string[]): {
 function isLoggedOutBody(body: string): boolean {
   return (
     /create an account to get started/i.test(body) ||
-    /sign in/i.test(body) ||
-    /log in/i.test(body)
+    /sign in to your account/i.test(body) ||
+    /log in to your account/i.test(body)
+  );
+}
+
+/**
+ * Wait until no Vite full-page reload log chunk has arrived for `quietMs`.
+ * Uses chunk timestamps — old "reloading" text in the log buffer never clears.
+ */
+async function waitForViteDepsQuiet(
+  viteReload: ViteReloadTracker,
+  logs: string[],
+  options: { quietMs?: number; timeoutMs?: number } = {},
+): Promise<void> {
+  const quietMs = options.quietMs ?? (isCi ? 8_000 : 4_000);
+  const timeoutMs = options.timeoutMs ?? 120_000;
+  const deadline = Date.now() + timeoutMs;
+
+  while (Date.now() < deadline) {
+    if (viteReload.lastReloadAt === 0) {
+      await sleep(500);
+      continue;
+    }
+    if (Date.now() - viteReload.lastReloadAt >= quietMs) return;
+    await sleep(500);
+  }
+
+  if (viteReload.lastReloadAt === 0) {
+    console.warn(
+      "[standalone-dev-smoke] no Vite reload logs seen before timeout; continuing",
+    );
+    return;
+  }
+
+  throw new Error(
+    `Vite dep optimization did not settle within ${timeoutMs}ms ` +
+      `(lastReloadAt=${viteReload.lastReloadAt}).\n${logTail(logs)}`,
   );
 }
 
@@ -282,6 +342,7 @@ async function startDevOnce(): Promise<RunningDev> {
   const dbPath = prepareIsolatedDataDir();
   log(`database: file:${dbPath}`);
   const logs: string[] = [];
+  const viteReload: ViteReloadTracker = { lastReloadAt: 0 };
   const child = spawn(
     "pnpm",
     [
@@ -302,13 +363,21 @@ async function startDevOnce(): Promise<RunningDev> {
     },
   );
 
-  child.stdout.on("data", (chunk) => logs.push(chunk.toString()));
-  child.stderr.on("data", (chunk) => logs.push(chunk.toString()));
+  child.stdout.on("data", (chunk) =>
+    appendDevLog(logs, chunk.toString(), viteReload),
+  );
+  child.stderr.on("data", (chunk) =>
+    appendDevLog(logs, chunk.toString(), viteReload),
+  );
   child.on("exit", (code, signal) => {
-    logs.push(`\n[dev] exited code=${code} signal=${signal}\n`);
+    appendDevLog(
+      logs,
+      `\n[dev] exited code=${code} signal=${signal}\n`,
+      viteReload,
+    );
   });
 
-  const running = { baseUrl, child, logs, dbPath };
+  const running = { baseUrl, child, logs, dbPath, viteReload };
   try {
     await waitForDevStable(baseUrl, logs);
     log(`dev server stable at ${baseUrl}`);
@@ -391,7 +460,17 @@ function isNavigationContextError(err: unknown): boolean {
   return (
     message.includes("Execution context was destroyed") ||
     message.includes("context was destroyed") ||
-    message.includes("net::ERR_ABORTED")
+    message.includes("net::ERR_ABORTED") ||
+    message.includes("interrupted by another navigation")
+  );
+}
+
+function isRetryableGotoError(message: string): boolean {
+  return (
+    message.includes("net::ERR_ABORTED") ||
+    message.includes("Vite environment") ||
+    message.includes("503") ||
+    message.includes("interrupted by another navigation")
   );
 }
 
@@ -419,19 +498,21 @@ async function retryAfterNavigation<T>(
 }
 
 async function gotoCommitted(page: Page, url: string): Promise<void> {
+  const attempts = isCi ? 12 : 6;
   let lastError: unknown;
-  for (let attempt = 0; attempt < 5; attempt++) {
+  for (let attempt = 0; attempt < attempts; attempt++) {
     try {
       await page.goto(url, { waitUntil: "commit", timeout: 90_000 });
       return;
     } catch (err) {
       lastError = err;
       const message = err instanceof Error ? err.message : String(err);
-      const retryable =
-        message.includes("net::ERR_ABORTED") ||
-        message.includes("Vite environment") ||
-        message.includes("503");
-      if (!retryable || attempt === 4) throw err;
+      if (!isRetryableGotoError(message) || attempt === attempts - 1) throw err;
+      if (isCi || verbose) {
+        console.warn(
+          `[standalone-dev-smoke] goto retry ${attempt + 1}/${attempts}: ${message.split("\n")[0]}`,
+        );
+      }
       await page.waitForTimeout(750 * (attempt + 1));
     }
   }
@@ -506,13 +587,21 @@ async function signInViaAuthApi(
   );
 }
 
+interface WaitForHomeLinkOptions {
+  baseUrl?: string;
+  /** Only safe after Vite deps are quiet — re-goto races active reloads. */
+  renavigateOnTimeout?: boolean;
+}
+
 async function waitForHomeLink(
   page: Page,
   timeoutMs = shellTimeoutMs,
-  baseUrl?: string,
+  options: WaitForHomeLinkOptions = {},
 ): Promise<void> {
+  const { baseUrl, renavigateOnTimeout = false } = options;
   const homeLink = page.getByRole("link", { name: "Home" });
   const deadline = Date.now() + timeoutMs;
+
   while (Date.now() < deadline) {
     if (await homeLink.isVisible().catch(() => false)) return;
 
@@ -522,31 +611,26 @@ async function waitForHomeLink(
     try {
       await homeLink.waitFor({
         state: "visible",
-        timeout: Math.min(5_000, remaining),
+        timeout: Math.min(3_000, remaining),
       });
       return;
     } catch (err) {
-      const stillHaveTime = Date.now() < deadline;
-      if (!stillHaveTime) break;
+      if (Date.now() >= deadline) break;
       if (
+        renavigateOnTimeout &&
         baseUrl &&
-        (isNavigationContextError(err) ||
-          (err instanceof Error && err.message.includes("Timeout")))
+        err instanceof Error &&
+        err.message.includes("Timeout")
       ) {
-        log("Home not visible — re-navigating after Vite reload");
         await gotoCommitted(page, `${baseUrl}/`);
-        await sleep(1_500);
+        await sleep(1_000);
         continue;
       }
       if (isNavigationContextError(err)) {
         await sleep(1_000);
         continue;
       }
-      if (stillHaveTime) {
-        await sleep(1_000);
-        continue;
-      }
-      throw err;
+      await sleep(1_000);
     }
   }
 
@@ -560,14 +644,10 @@ async function waitForHomeLink(
   );
 }
 
-async function readAuthenticatedSessionEmail(
-  page: Page,
-  baseUrl: string,
-): Promise<string> {
+async function readAuthenticatedSessionEmail(page: Page): Promise<string> {
   return retryAfterNavigation(
     "session read",
     async () => {
-      await waitForHomeLink(page, shellTimeoutMs, baseUrl);
       const session = await page.evaluate(async () => {
         const response = await fetch("/_agent-native/auth/session", {
           headers: { Accept: "application/json" },
@@ -588,35 +668,35 @@ async function readAuthenticatedSessionEmail(
       );
       return sessionEmail;
     },
-    { attempts: 20, delayMs: 2_000 },
+    { attempts: 10, delayMs: 1_500 },
   );
 }
 
 async function waitForAuthenticatedShell(
   page: Page,
   baseUrl: string,
-  serverLogs: string[],
+  running: RunningDev,
 ): Promise<string> {
-  const devCreds = parseDevAutoLoginCredentials(serverLogs);
+  const serverLogs = running.logs;
   const fallbackEmail =
     process.env.STANDALONE_STARTER_DEV_SMOKE_EMAIL ||
     `standalone-smoke-${Date.now()}@example.test`;
   const fallbackPassword =
     process.env.STANDALONE_STARTER_DEV_SMOKE_PASSWORD ||
     "standalone-starter-smoke-password";
-  const loginEmail = devCreds?.email ?? fallbackEmail;
-  const loginPassword = devCreds?.password ?? fallbackPassword;
 
   log(`navigating to ${baseUrl}/ (auto-login path)`);
-  let lastBody = "";
-  let lastUrl = baseUrl;
-  const shellAttempts = isCi ? 10 : 6;
+  await gotoCommitted(page, `${baseUrl}/`);
 
-  for (let attempt = 0; attempt < shellAttempts; attempt++) {
-    await gotoCommitted(page, `${baseUrl}/`);
-    lastUrl = page.url();
-    lastBody = await retryAfterNavigation("body read", () =>
-      page.locator("body").innerText({ timeout: 15_000 }),
+  const homeLink = page.getByRole("link", { name: "Home" });
+  const shellDeadline = Date.now() + shellTimeoutMs;
+
+  while (Date.now() < shellDeadline) {
+    if (await homeLink.isVisible().catch(() => false)) break;
+
+    const lastUrl = page.url();
+    const lastBody = await retryAfterNavigation("body read", () =>
+      page.locator("body").innerText({ timeout: 10_000 }),
     );
 
     if (/unexpected server error/i.test(lastBody)) {
@@ -625,61 +705,46 @@ async function waitForAuthenticatedShell(
       );
     }
 
-    const homeLink = page.getByRole("link", { name: "Home" });
     if (await homeLink.isVisible().catch(() => false)) break;
 
-    const devCredsNow = parseDevAutoLoginCredentials(serverLogs);
-    const authEmail = devCredsNow?.email ?? loginEmail;
-    const authPassword = devCredsNow?.password ?? loginPassword;
+    const devCreds = parseDevAutoLoginCredentials(serverLogs);
+    const authEmail = devCreds?.email ?? fallbackEmail;
+    const authPassword = devCreds?.password ?? fallbackPassword;
 
-    if (isLoggedOutBody(lastBody)) {
-      if (!devCredsNow && attempt < shellAttempts - 2) {
-        log(
-          `logged out before auto-login creds printed (attempt ${attempt + 1}/${shellAttempts}) — retrying /`,
-        );
-        await sleep(isCi ? 4_000 : 2_500);
-        continue;
-      }
-      log(
-        `still logged out (attempt ${attempt + 1}/${shellAttempts}) — auth API login as ${authEmail}`,
-      );
+    if (isLoggedOutBody(lastBody) && devCreds) {
+      log(`auth API login as ${authEmail}`);
       await signInViaAuthApi(page, authEmail, authPassword);
+      await sleep(2_000);
       continue;
     }
 
-    log(
-      `authenticated shell not ready (attempt ${attempt + 1}/${shellAttempts}) — Vite may still be optimizing deps`,
-    );
-    await sleep(isCi ? 4_000 : 2_500);
+    // Auto-login redirect or Vite reload in progress — poll, do not page.goto again.
+    await sleep(2_000);
   }
 
-  await waitForHomeLink(page, shellTimeoutMs, baseUrl);
+  await waitForViteDepsQuiet(running.viteReload, serverLogs);
+  await waitForHomeLink(page, Math.max(15_000, shellDeadline - Date.now()));
 
-  const sessionEmail = await readAuthenticatedSessionEmail(page, baseUrl);
+  const sessionEmail = await readAuthenticatedSessionEmail(page);
   log(`authenticated session: ${sessionEmail}`);
   return sessionEmail;
 }
 
 async function runBrowserSmoke(
   page: Page,
-  baseUrl: string,
-  serverLogs: string[],
+  running: RunningDev,
   browserErrors: string[],
   httpErrors: string[],
 ): Promise<void> {
-  // Warmup: auto-login redirect + first Vite dep optimization (noisy HTTP).
-  log("warmup: first load + Vite dep optimization");
-  await waitForAuthenticatedShell(page, baseUrl, serverLogs);
-  await page.waitForTimeout(viteWarmupMs);
+  const baseUrl = running.baseUrl;
+  // Warmup covers `/` + auto-login + Vite quiet + authenticated session.
+  log("warmup: auto-login, Vite dep quiet, authenticated /");
+  await waitForAuthenticatedShell(page, baseUrl, running);
 
   browserErrors.length = 0;
   httpErrors.length = 0;
 
-  log("assertion pass: / and /observability after warmup");
-  await gotoCommitted(page, `${baseUrl}/`);
-  await waitForHomeLink(page, shellTimeoutMs, baseUrl);
-  await readAuthenticatedSessionEmail(page, baseUrl);
-  log(`navigating to ${baseUrl}/observability`);
+  log("assertion pass: /observability after warmup");
   await gotoCommitted(page, `${baseUrl}/observability`);
   await page
     .getByRole("link", { name: "Observability" })
@@ -748,13 +813,7 @@ async function main(): Promise<void> {
       httpErrors.push(`${status} ${url}`);
     });
 
-    await runBrowserSmoke(
-      page,
-      running.baseUrl,
-      running.logs,
-      browserErrors,
-      httpErrors,
-    );
+    await runBrowserSmoke(page, running, browserErrors, httpErrors);
     assertCleanServerLogs(running.logs);
 
     console.log("qa-standalone-starter-dev-smoke: clean");
