@@ -17,6 +17,9 @@ export interface DemoPrometheusConfig {
   bearer?: string;
 }
 
+export const DEFAULT_DEMO_PROMETHEUS_URL =
+  "https://prometheus.agent-native.foo";
+
 export const DEMO_PROMETHEUS_ENV = {
   url: "ANALYTICS_DEMO_PROMETHEUS_URL",
   username: "ANALYTICS_DEMO_PROMETHEUS_USERNAME",
@@ -44,10 +47,9 @@ export function parseDemoDescriptor(raw: string): DemoDescriptor {
 export function resolveDemoPrometheusConfig(
   env: Record<string, string | undefined> = process.env,
 ): DemoPrometheusConfig {
-  const url = env[DEMO_PROMETHEUS_ENV.url]?.trim().replace(/\/+$/, "");
-  if (!url) {
-    throw new Error(`${DEMO_PROMETHEUS_ENV.url} not configured`);
-  }
+  const url = (
+    env[DEMO_PROMETHEUS_ENV.url]?.trim() || DEFAULT_DEMO_PROMETHEUS_URL
+  ).replace(/\/+$/, "");
   return {
     url,
     username: env[DEMO_PROMETHEUS_ENV.username]?.trim() || undefined,

@@ -24,7 +24,7 @@ details live in `.agents/skills/`.
 - Verify before claiming: only present numbers you actually retrieved from a
   source. Never report a value you did not query.
 - The built-in Node Exporter demo dashboard uses the `demo` source. It queries
-  the separately configured demo Prometheus endpoint, not the user's
+  the built-in public demo Prometheus endpoint by default, not the user's
   Prometheus credential slot. Treat it as demo-environment data: do not use it
   for `REAL_DATA_REQUIRED`, saved analyses, or real user analytics answers
   unless the user explicitly asks to inspect the demo dashboard.
@@ -104,12 +104,14 @@ details live in `.agents/skills/`.
   the catalog template. Its Prometheus panels keep the same PromQL descriptors
   and use `source: "demo"` so queries route to the demo Prometheus endpoint
   instead of the user's `PROMETHEUS_*` credential slot.
-- The demo Prometheus endpoint is deploy/runtime configuration under
-  `ANALYTICS_DEMO_PROMETHEUS_URL`,
+- The demo Prometheus endpoint defaults to the public read-only
+  `https://prometheus.agent-native.foo`, so cloud and local MPX installs work
+  without user setup. Deployments can override it with
+  `ANALYTICS_DEMO_PROMETHEUS_URL` and optional
   `ANALYTICS_DEMO_PROMETHEUS_USERNAME`,
   `ANALYTICS_DEMO_PROMETHEUS_PASSWORD`, or
-  `ANALYTICS_DEMO_PROMETHEUS_BEARER_TOKEN`. Do not put those values in source,
-  docs, fixtures, tests, prompts, or dashboard seeds.
+  `ANALYTICS_DEMO_PROMETHEUS_BEARER_TOKEN`. Do not put credential values in
+  source, docs, fixtures, tests, prompts, or dashboard seeds.
 - Demo dashboards are ordinary SQL dashboard rows, so rename, share, archive,
   and delete flows apply. Deleted demo IDs are tombstoned in SQL settings and
   are not recreated unless the user explicitly asks to reset demos.

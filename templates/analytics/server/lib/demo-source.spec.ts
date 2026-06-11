@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  DEFAULT_DEMO_PROMETHEUS_URL,
   DEMO_PROMETHEUS_ENV,
   parseDemoDescriptor,
   resolveDemoPrometheusConfig,
@@ -52,10 +53,17 @@ describe("demo source", () => {
     });
   });
 
-  it("requires the dedicated demo Prometheus URL", () => {
-    expect(() => resolveDemoPrometheusConfig({})).toThrow(
-      /ANALYTICS_DEMO_PROMETHEUS_URL not configured/,
-    );
+  it("defaults to the public read-only demo Prometheus endpoint", () => {
+    expect(
+      resolveDemoPrometheusConfig({
+        PROMETHEUS_URL: "https://real-prometheus-slot.example.com",
+      }),
+    ).toEqual({
+      url: DEFAULT_DEMO_PROMETHEUS_URL,
+      username: undefined,
+      password: undefined,
+      bearer: undefined,
+    });
   });
 
   it("runs instant descriptors against the demo endpoint with basic auth", async () => {
