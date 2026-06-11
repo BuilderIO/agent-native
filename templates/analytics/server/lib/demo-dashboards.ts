@@ -8,8 +8,10 @@ import { getUserSetting, putUserSetting } from "@agent-native/core/settings";
 import { loadDashboardSeed } from "./dashboard-seeds";
 import { getDashboard, upsertDashboard } from "./dashboards-store";
 
-export const DEMO_DASHBOARD_VERSION = "2026-06-10";
+export const DEMO_DASHBOARD_VERSION = "2026-06-11";
 export const DEMO_DASHBOARD_STATE_KEY = "analytics-demo-dashboards";
+export const DEMO_NODE_EXPORTER_INSTANCE = "127.0.0.1:9100";
+export const DEMO_NODE_EXPORTER_JOB = "node";
 
 export const DEMO_DASHBOARDS = [
   {
@@ -118,6 +120,21 @@ function applyDemoMetadata(
   seed: Record<string, unknown>,
   demoId: DemoDashboardId,
 ): Record<string, unknown> {
+  const filters = Array.isArray(seed.filters)
+    ? seed.filters.map((filter) => {
+        if (!filter || typeof filter !== "object" || Array.isArray(filter)) {
+          return filter;
+        }
+        const id = (filter as Record<string, unknown>).id;
+        if (id === "instance") {
+          return { ...filter, default: DEMO_NODE_EXPORTER_INSTANCE };
+        }
+        if (id === "job") {
+          return { ...filter, default: DEMO_NODE_EXPORTER_JOB };
+        }
+        return filter;
+      })
+    : seed.filters;
   const panels = Array.isArray(seed.panels)
     ? seed.panels.map((panel) => {
         if (
@@ -136,6 +153,7 @@ function applyDemoMetadata(
     name: "Demo Node Exporter Full",
     description:
       "The full Node Exporter dashboard wired to the built-in demo Prometheus endpoint.",
+    filters,
     panels,
     demo: {
       id: demoId,
@@ -222,9 +240,16 @@ export async function ensureDemoDashboardsForUser(
     }
 
     const existing = await getDashboard(dashboardId, privateCtx);
+    const existingVersion =
+      existing?.config?.demo &&
+      typeof existing.config.demo === "object" &&
+      !Array.isArray(existing.config.demo)
+        ? (existing.config.demo as Record<string, unknown>).version
+        : undefined;
+    const isOutdated = existingVersion !== DEMO_DASHBOARD_VERSION;
     let archivedAt = existing?.archivedAt ?? null;
     let created = false;
-    if (!existing || reset) {
+    if (!existing || reset || isOutdated) {
       const seed = loadDashboardSeed(demo.seedId);
       if (!seed)
         throw new Error(`Demo dashboard seed not found: ${demo.seedId}`);

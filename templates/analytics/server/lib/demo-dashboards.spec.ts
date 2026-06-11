@@ -23,6 +23,11 @@ const mocks = vi.hoisted(() => {
     ),
     loadDashboardSeed: vi.fn((seedId: string) => ({
       name: seedId === "node-exporter-full" ? "Node Exporter Full" : seedId,
+      filters: [
+        { id: "range", type: "select", default: "6h" },
+        { id: "job", type: "text", default: "node" },
+        { id: "instance", type: "text", default: "localhost:9100" },
+      ],
       panels: [
         {
           id: "demo-panel",
@@ -90,7 +95,10 @@ vi.mock("./dashboards-store", () => ({
 }));
 
 const {
+  DEMO_DASHBOARD_VERSION,
   DEMO_DASHBOARD_STATE_KEY,
+  DEMO_NODE_EXPORTER_INSTANCE,
+  DEMO_NODE_EXPORTER_JOB,
   demoDashboardIdForUser,
   ensureDemoDashboardsForUser,
   markDemoDashboardDeleted,
@@ -134,6 +142,16 @@ describe("demo dashboards", () => {
         name: "Demo Node Exporter Full",
         demo: expect.objectContaining({ id: "demo-node-exporter" }),
         catalog: expect.objectContaining({ templateId: "demo-node-exporter" }),
+        filters: expect.arrayContaining([
+          expect.objectContaining({
+            id: "job",
+            default: DEMO_NODE_EXPORTER_JOB,
+          }),
+          expect.objectContaining({
+            id: "instance",
+            default: DEMO_NODE_EXPORTER_INSTANCE,
+          }),
+        ]),
         panels: [
           expect.objectContaining({
             id: "demo-panel",
@@ -155,6 +173,49 @@ describe("demo dashboards", () => {
       true,
     );
     expect(mocks.upsertDashboard).toHaveBeenCalledTimes(1);
+  });
+
+  it("refreshes existing demos when the embedded demo version is outdated", async () => {
+    const dashboardId = demoDashboardIdForUser(
+      alice.email,
+      "demo-node-exporter",
+    );
+    const key = mocks.keyFor(alice.email, null, dashboardId);
+    mocks.dashboards.set(key, {
+      id: dashboardId,
+      kind: "sql",
+      title: "Old demo",
+      archivedAt: null,
+      config: {
+        name: "Old demo",
+        demo: { id: "demo-node-exporter", version: "2026-06-10" },
+        panels: [],
+      },
+    });
+    mocks.settings.set(`${alice.email}:${DEMO_DASHBOARD_STATE_KEY}`, {
+      dashboards: {
+        "demo-node-exporter": {
+          dashboardId,
+          seedId: "node-exporter-full",
+          installedAt: "2026-06-10T00:00:00.000Z",
+        },
+      },
+      deleted: {},
+    });
+
+    const result = await ensureDemoDashboardsForUser(alice);
+
+    expect(result.dashboards[0]).toEqual(
+      expect.objectContaining({ dashboardId, created: false }),
+    );
+    expect(mocks.upsertDashboard).toHaveBeenCalledWith(
+      dashboardId,
+      "sql",
+      expect.objectContaining({
+        demo: expect.objectContaining({ version: DEMO_DASHBOARD_VERSION }),
+      }),
+      { email: alice.email, orgId: null },
+    );
   });
 
   it("tombstones deleted demos and does not recreate them", async () => {
