@@ -4618,7 +4618,7 @@ function loadPlanFilesStore(): PlanFilesStore {
       for (const [planId, grant] of Object.entries(raw.grants)) {
         if (!isValidPlanFilePlanId(planId)) continue;
         if (!isObject(grant)) continue;
-        const folder = resolveUsableDirectory(firstStringValue(grant.path));
+        const folder = resolveUsablePlanFolder(firstStringValue(grant.path));
         if (!folder) continue;
         grants[planId] = {
           path: folder,
@@ -4773,6 +4773,18 @@ function assertInsidePlanFolder(folder: string, target: string): string {
     return resolvedTarget;
   }
   throw new Error("Plan file path escaped the linked folder.");
+}
+
+function resolveUsablePlanFolder(value: unknown): string | null {
+  const folder = resolveUsableDirectory(value);
+  if (!folder) return null;
+  try {
+    const stat = fs.lstatSync(folder);
+    if (stat.isSymbolicLink() || !stat.isDirectory()) return null;
+    return folder;
+  } catch {
+    return null;
+  }
 }
 
 async function assertUsablePlanFolder(folder: string): Promise<void> {
@@ -4981,7 +4993,7 @@ function getRequiredPlanFilesGrant(planId: string): PlanFilesGrant {
   if (!grant) {
     throw new Error("Choose a local folder before syncing this plan.");
   }
-  const folder = resolveUsableDirectory(grant.path);
+  const folder = resolveUsablePlanFolder(grant.path);
   if (!folder) {
     throw new Error("The linked local folder no longer exists.");
   }
@@ -5002,8 +5014,13 @@ async function choosePlanFilesFolder(
   if (result.canceled || result.filePaths.length === 0) {
     return { ok: false, canceled: true, error: "No folder selected." };
   }
-  const folder = resolveUsableDirectory(result.filePaths[0]);
-  if (!folder) return { ok: false, error: "Choose an existing folder." };
+  const folder = resolveUsablePlanFolder(result.filePaths[0]);
+  if (!folder) {
+    return {
+      ok: false,
+      error: "Choose an existing folder that is not a symlink.",
+    };
+  }
 
   const grant = setPlanFilesGrant(planId, {
     path: folder,
