@@ -194,6 +194,12 @@ beside frames with `targetId` plus `placement`; keep implementation details,
 tradeoffs, file maps, data contracts, risks, and verification in the document
 body below the canvas.
 
+Keep product wireframes and explanatory/meta diagrams separate. Start with pure
+screens that look like the app state under discussion, without callout prose or
+architecture notes embedded inside the UI. Put arrows, labels, contracts, data
+flow, and mode explanations in separate annotations, separate canvas diagrams,
+or the document body.
+
 - **No visual surface** for architecture-only, backend-only, data migration,
   copy-only, or otherwise non-visual plans. Do not use the top canvas for
   architecture diagrams, dependency maps, file plans, API contracts, or

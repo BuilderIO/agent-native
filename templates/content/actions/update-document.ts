@@ -8,6 +8,10 @@ import {
 import { assertAccess } from "@agent-native/core/sharing";
 import { writeAppState } from "@agent-native/core/application-state";
 import { z } from "zod";
+import {
+  isContentLocalFileMode,
+  updateLocalFileDocument,
+} from "./_local-file-documents.js";
 
 function nanoid(size = 12): string {
   const chars =
@@ -40,6 +44,15 @@ export default defineAction({
   run: async (args) => {
     const id = args.id;
     if (!id) throw new Error("--id is required");
+
+    if (await isContentLocalFileMode()) {
+      const doc = await updateLocalFileDocument(id, args);
+      await writeAppState("refresh-signal", { ts: Date.now() });
+      return {
+        ...doc,
+        urlPath: `/page/${doc.id}`,
+      };
+    }
 
     const access = await assertAccess("document", id, "editor");
     const existing = access.resource;

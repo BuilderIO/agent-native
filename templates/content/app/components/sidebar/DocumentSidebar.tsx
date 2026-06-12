@@ -245,15 +245,26 @@ export function DocumentSidebar({
       onNavigate?.();
 
       try {
-        await createDocument.mutateAsync({
+        const created = await createDocument.mutateAsync({
           id,
           title: "",
           parentId: parentId ?? undefined,
         });
+        const nextId = created?.id || id;
+        if (nextId !== id) {
+          queryClient.removeQueries({
+            queryKey: ["action", "get-document", { id }],
+          });
+          queryClient.setQueryData(
+            ["action", "get-document", { id: nextId }],
+            created,
+          );
+          navigateToDocument(nextId);
+        }
         // Replace optimistic doc with real server doc + clear any 404 error
         // state from the in-flight fetch that ran before create completed.
         queryClient.invalidateQueries({
-          queryKey: ["action", "get-document", { id }],
+          queryKey: ["action", "get-document", { id: nextId }],
         });
         queryClient.invalidateQueries({
           queryKey: ["action", "list-documents"],

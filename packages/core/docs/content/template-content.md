@@ -64,6 +64,15 @@ as the review surface. The hosted app remains the source of truth for sharing,
 comments, permissions, and live collaboration; the local folder is an explicit
 sync surface.
 
+Content can also run in **Local File Mode**, where files are the source of
+truth instead of SQL documents. Add `agent-native.json` to a repo, set
+`mode: "local-files"`, and configure roots such as `docs/`, `blog/`,
+`content/`, and `resources/`. The standard Content editor then populates its
+left sidebar from those local `.md`/`.mdx` files and writes edits back to the
+selected file through the normal document actions. Use this for repo-first docs,
+blogs, resource libraries, or Obsidian-style personal content; switch back to
+database mode when you want hosted collaboration and SQL-backed sharing.
+
 ## Why it's interesting
 
 Three things make Content a good showcase of the framework:

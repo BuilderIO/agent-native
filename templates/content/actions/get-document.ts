@@ -16,6 +16,10 @@ import {
   serializeDatabaseMembership,
 } from "./_database-utils.js";
 import "../server/db/index.js";
+import {
+  getLocalFileDocument,
+  isContentLocalFileMode,
+} from "./_local-file-documents.js";
 
 function canEditRole(role: string) {
   return role === "owner" || role === "admin" || role === "editor";
@@ -35,6 +39,10 @@ export default defineAction({
   publicAgent: { expose: true, readOnly: true, requiresAuth: true },
   run: async (args) => {
     if (!args.id) throw new Error("--id is required");
+
+    if (await isContentLocalFileMode()) {
+      return getLocalFileDocument(args.id);
+    }
 
     const access = await resolveAccess("document", args.id);
     if (!access) throw new Error(`Document "${args.id}" not found`);

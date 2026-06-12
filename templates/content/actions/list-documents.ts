@@ -18,6 +18,10 @@ import {
   getRequestUserEmail,
 } from "@agent-native/core/server/request-context";
 import { z } from "zod";
+import {
+  isContentLocalFileMode,
+  listLocalFileDocuments,
+} from "./_local-file-documents.js";
 
 function contentPreview(content: string, maxLength = 180) {
   const compact = content.replace(/\s+/g, " ").trim();
@@ -46,6 +50,10 @@ export default defineAction({
   schema: z.object({}),
   http: { method: "GET" },
   run: async () => {
+    if (await isContentLocalFileMode()) {
+      return { documents: await listLocalFileDocuments() };
+    }
+
     const db = getDb();
     const userEmail = getRequestUserEmail();
     const orgId = getRequestOrgId();

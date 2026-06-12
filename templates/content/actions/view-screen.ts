@@ -36,6 +36,12 @@ import {
   getDatabaseItemByDocumentId,
   serializeDatabaseMembership,
 } from "./_database-utils.js";
+import {
+  getLocalFileDocument,
+  isContentLocalFileMode,
+  isLocalDocumentId,
+  localContentViewScreenSummary,
+} from "./_local-file-documents.js";
 
 type ScreenTreeDocument = Pick<
   typeof schema.documents.$inferSelect,
@@ -647,6 +653,23 @@ export default defineAction({
     if (navigation) screen.navigation = navigation;
 
     const nav = navigation as NavigationState | null;
+    if (await isContentLocalFileMode()) {
+      screen.localFiles = {
+        ...(await localContentViewScreenSummary()),
+        actions: [
+          "list-documents",
+          "get-document",
+          "create-document",
+          "update-document",
+          "delete-document",
+        ],
+      };
+      if (nav?.documentId && isLocalDocumentId(nav.documentId)) {
+        screen.document = await getLocalFileDocument(nav.documentId);
+      }
+      return screen;
+    }
+
     const db = getDb();
 
     if (nav?.view === "local-files") {

@@ -132,14 +132,51 @@ plain-text strip of the markdown.
 
 ### Local Source Files
 
-The `/local-files` view syncs Content documents with Markdown/MDX files. Export
-uses `export-content-source` and writes one file per document under `content/`.
-Each file has frontmatter (`id`, `title`, `parentId`, `position`,
-`isFavorite`, `hideFromSearch`) followed by the document markdown body. Import
-uses `import-content-source`; files with known `id` values update existing docs
-only when the caller has editor access, and files without ids create new private
-docs for the current user. Use `--dryRun true` before a large import when the
-source folder may contain unexpected files.
+Content has two file workflows:
+
+- **Database mode import/export:** the `/local-files` view syncs SQL documents
+  with Markdown/MDX files. Export uses `export-content-source` and writes one
+  file per document under `content/`. Import uses `import-content-source`; files
+  with known `id` values update existing docs only when the caller has editor
+  access, and files without ids create new private docs for the current user.
+  Use `--dryRun true` before a large import when the source folder may contain
+  unexpected files.
+- **Local File Mode editing:** when the app runs with `AGENT_NATIVE_MODE=local-files`
+  or an `agent-native.json` whose app config enables local files, the standard
+  Content editor reads and writes configured repo files directly. The left
+  sidebar is populated from local roots such as `docs/`, `blog/`, `content/`,
+  and `resources/`; selecting a file opens `/page/<local-file-id>` and
+  `update-document` writes the selected `.md`/`.mdx` file. The document id is
+  derived from the file path, and unknown frontmatter is preserved when title,
+  content, icon, or favorite state changes.
+
+Minimal `agent-native.json`:
+
+```json
+{
+  "version": 1,
+  "mode": "local-files",
+  "apps": {
+    "content": {
+      "roots": [
+        { "name": "Docs", "path": "docs", "extensions": [".md", ".mdx"] },
+        { "name": "Blog", "path": "blog", "extensions": [".md", ".mdx"] },
+        {
+          "name": "Resources",
+          "path": "resources",
+          "extensions": [".md", ".mdx"]
+        }
+      ],
+      "components": "components"
+    }
+  }
+}
+```
+
+In Local File Mode, use the normal document actions (`list-documents`,
+`get-document`, `create-document`, `update-document`, `delete-document`) instead
+of raw filesystem writes when operating through the app. Provider sync such as
+Builder.io pull/push should remain a Content-specific explicit sync action.
 
 ### Notion Integration
 
