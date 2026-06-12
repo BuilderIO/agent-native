@@ -194,6 +194,7 @@ function documentFromLocalFile(
       mode: "local-files",
       kind: "file",
       path: file.path,
+      absolutePath: file.absolutePath,
       rootName: file.rootName,
       rootPath: file.rootPath,
       hash: file.hash,

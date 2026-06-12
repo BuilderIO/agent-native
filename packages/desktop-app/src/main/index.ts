@@ -70,6 +70,8 @@ import {
   type InterAppMessage,
   type LocalAppFolderInfo,
   type LocalAppFolderSelectResult,
+  type DesktopContentFileRevealRequest,
+  type DesktopContentFileWriteRequest,
   type DesktopContentFilesFolder,
   type DesktopContentFilesResult,
   type DesktopContentFilesWriteRequest,
@@ -4649,6 +4651,7 @@ function contentFilesFolderInfo(
 ): DesktopContentFilesFolder {
   return {
     name: path.basename(grant.path) || grant.path,
+    path: grant.path,
     updatedAt: grant.updatedAt,
   };
 }
@@ -4886,11 +4889,24 @@ async function writeContentSourceFile(
   filePath: string,
   content: string,
 ): Promise<string> {
+  const { normalized, target } = await resolveContentSourceFilePath(root, {
+    createDirectories: true,
+    filePath,
+  });
+  assertContentSourceTextSize(normalized, content);
+  await fs.promises.writeFile(target, content, "utf-8");
+  return normalized;
+}
+
+async function resolveContentSourceFilePath(
+  root: string,
+  options: { filePath: string; createDirectories?: boolean },
+): Promise<{ normalized: string; target: string }> {
+  const { filePath, createDirectories = false } = options;
   const normalized = normalizeContentSourcePath(filePath);
   if (!normalized || !isContentSourceMarkdownPath(normalized)) {
-    throw new Error("Only .md and .mdx source files can be written.");
+    throw new Error("Only .md and .mdx source files can be used.");
   }
-  assertContentSourceTextSize(normalized, content);
   const writePath =
     path.basename(root) === CONTENT_SOURCE_ROOT &&
     normalized.startsWith(`${CONTENT_SOURCE_ROOT}/`)
@@ -4904,13 +4920,14 @@ async function writeContentSourceFile(
   for (const part of parts) {
     dir = assertInsideContentFolder(root, path.join(dir, part));
     await assertNoContentSymlink(dir);
-    await fs.promises.mkdir(dir, { recursive: true });
+    if (createDirectories) {
+      await fs.promises.mkdir(dir, { recursive: true });
+    }
   }
 
   const target = assertInsideContentFolder(root, path.join(dir, filename));
   await assertNoContentSymlink(target);
-  await fs.promises.writeFile(target, content, "utf-8");
-  return normalized;
+  return { normalized, target };
 }
 
 async function removeStaleContentMarkdownFiles(
@@ -4968,6 +4985,25 @@ function normalizeContentFilesWriteRequest(
   return files;
 }
 
+function normalizeContentFileWriteRequest(
+  request: DesktopContentFileWriteRequest,
+): { path: string; content: string } | null {
+  if (!isObject(request) || typeof request.content !== "string") return null;
+  const filePath = normalizeContentSourcePath(firstStringValue(request.path));
+  if (!filePath || !isContentSourceMarkdownPath(filePath)) return null;
+  assertContentSourceTextSize(filePath, request.content);
+  return { path: filePath, content: request.content };
+}
+
+function normalizeContentFileRevealRequest(
+  request: DesktopContentFileRevealRequest,
+): { path: string } | null {
+  if (!isObject(request)) return null;
+  const filePath = normalizeContentSourcePath(firstStringValue(request.path));
+  if (!filePath || !isContentSourceMarkdownPath(filePath)) return null;
+  return { path: filePath };
+}
+
 async function writeContentFilesForRequest(
   request: DesktopContentFilesWriteRequest,
 ): Promise<DesktopContentFilesResult> {
@@ -4992,6 +5028,62 @@ async function writeContentFilesForRequest(
       ok: true,
       folder: contentFilesFolderInfo(updatedGrant),
       files: written,
+    };
+  } catch (err) {
+    return {
+      ok: false,
+      error: err instanceof Error ? err.message : String(err),
+    };
+  }
+}
+
+async function writeContentFileForRequest(
+  request: DesktopContentFileWriteRequest,
+): Promise<DesktopContentFilesResult> {
+  try {
+    const file = normalizeContentFileWriteRequest(request);
+    if (!file) return { ok: false, error: "Invalid Content source file." };
+
+    const grant = getRequiredContentFilesGrant();
+    const writeRoot = await contentWriteRoot(grant.path);
+    const written = await writeContentSourceFile(
+      writeRoot.folder,
+      file.path,
+      file.content,
+    );
+    const updatedGrant = setContentFilesGrant(grant.path);
+    return {
+      ok: true,
+      folder: contentFilesFolderInfo(updatedGrant),
+      files: [written],
+    };
+  } catch (err) {
+    return {
+      ok: false,
+      error: err instanceof Error ? err.message : String(err),
+    };
+  }
+}
+
+async function revealContentFileForRequest(
+  request: DesktopContentFileRevealRequest,
+): Promise<DesktopContentFilesResult> {
+  try {
+    const file = normalizeContentFileRevealRequest(request);
+    if (!file) return { ok: false, error: "Invalid Content source file." };
+
+    const grant = getRequiredContentFilesGrant();
+    const readRoot = await contentReadRoot(grant.path);
+    const { target } = await resolveContentSourceFilePath(readRoot.folder, {
+      filePath: file.path,
+    });
+    await fs.promises.access(target, fs.constants.F_OK);
+    shell.showItemInFolder(target);
+    const updatedGrant = setContentFilesGrant(grant.path);
+    return {
+      ok: true,
+      folder: contentFilesFolderInfo(updatedGrant),
+      files: [file.path],
     };
   } catch (err) {
     return {
@@ -6824,11 +6916,35 @@ ipcMain.handle(
 );
 
 ipcMain.handle(
+  IPC.CONTENT_FILES_WRITE_FILE,
+  (
+    event: IpcMainInvokeEvent,
+    request: DesktopContentFileWriteRequest,
+  ): Promise<DesktopContentFilesResult> => {
+    const denied = requireContentFilesWebviewAccess(event);
+    if (denied) return Promise.resolve(denied);
+    return writeContentFileForRequest(request);
+  },
+);
+
+ipcMain.handle(
   IPC.CONTENT_FILES_READ,
   (event: IpcMainInvokeEvent): Promise<DesktopContentFilesResult> => {
     const denied = requireContentFilesWebviewAccess(event);
     if (denied) return Promise.resolve(denied);
     return readContentFilesForRequest();
+  },
+);
+
+ipcMain.handle(
+  IPC.CONTENT_FILES_REVEAL_FILE,
+  (
+    event: IpcMainInvokeEvent,
+    request: DesktopContentFileRevealRequest,
+  ): Promise<DesktopContentFilesResult> => {
+    const denied = requireContentFilesWebviewAccess(event);
+    if (denied) return Promise.resolve(denied);
+    return revealContentFileForRequest(request);
   },
 );
 

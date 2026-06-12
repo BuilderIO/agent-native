@@ -1,6 +1,8 @@
 import { contextBridge, ipcRenderer } from "electron";
 import {
   IPC,
+  type DesktopContentFileRevealRequest,
+  type DesktopContentFileWriteRequest,
   type DesktopContentFilesResult,
   type DesktopContentFilesWriteRequest,
   type DesktopPlanFilesChooseFolderRequest,
@@ -43,8 +45,16 @@ const agentNativeDesktop = {
       request: DesktopContentFilesWriteRequest,
     ): Promise<DesktopContentFilesResult> =>
       ipcRenderer.invoke(IPC.CONTENT_FILES_WRITE, request),
+    writeFile: (
+      request: DesktopContentFileWriteRequest,
+    ): Promise<DesktopContentFilesResult> =>
+      ipcRenderer.invoke(IPC.CONTENT_FILES_WRITE_FILE, request),
     readFiles: (): Promise<DesktopContentFilesResult> =>
       ipcRenderer.invoke(IPC.CONTENT_FILES_READ),
+    revealFile: (
+      request: DesktopContentFileRevealRequest,
+    ): Promise<DesktopContentFilesResult> =>
+      ipcRenderer.invoke(IPC.CONTENT_FILES_REVEAL_FILE, request),
     clearFolder: (): Promise<DesktopContentFilesResult> =>
       ipcRenderer.invoke(IPC.CONTENT_FILES_CLEAR_FOLDER),
   },

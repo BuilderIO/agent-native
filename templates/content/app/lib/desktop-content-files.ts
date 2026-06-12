@@ -1,5 +1,6 @@
 export interface DesktopContentFilesFolder {
   name: string;
+  path?: string;
   updatedAt?: string;
 }
 
@@ -23,7 +24,12 @@ export interface DesktopContentFilesApi {
   writeFiles(request: {
     files: Record<string, string>;
   }): Promise<DesktopContentFilesResult>;
+  writeFile(request: {
+    path: string;
+    content: string;
+  }): Promise<DesktopContentFilesResult>;
   readFiles(): Promise<DesktopContentFilesResult>;
+  revealFile(request: { path: string }): Promise<DesktopContentFilesResult>;
   clearFolder(): Promise<DesktopContentFilesResult>;
 }
 

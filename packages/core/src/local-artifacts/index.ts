@@ -83,6 +83,7 @@ export interface LoadedLocalArtifactApp {
 
 export interface LocalArtifactFileMeta {
   path: string;
+  absolutePath: string;
   rootName: string;
   rootPath: string;
   kind?: string;
@@ -482,6 +483,7 @@ async function fileMetaForPath(
   const extension = extensionOf(artifactPath);
   return {
     path: artifactPath,
+    absolutePath,
     rootName: root.name,
     rootPath: root.path,
     kind: root.kind,
