@@ -16,14 +16,11 @@ import { newId, nowIso } from "../server/plans.js";
 import { PLAN_REPORT_REASONS } from "../shared/types.js";
 
 const optionalTrimmed = (max: number) =>
-  z.preprocess(
-    (value) => {
-      if (typeof value !== "string") return undefined;
-      const trimmed = value.trim();
-      return trimmed ? trimmed : undefined;
-    },
-    z.string().max(max).optional(),
-  );
+  z.preprocess((value) => {
+    if (typeof value !== "string") return undefined;
+    const trimmed = value.trim();
+    return trimmed ? trimmed : undefined;
+  }, z.string().max(max).optional());
 
 export default defineAction({
   description:
