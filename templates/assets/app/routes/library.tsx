@@ -17,6 +17,8 @@ import {
 import {
   IconArrowUpRight,
   IconCheck,
+  IconChevronLeft,
+  IconChevronRight,
   IconClipboard,
   IconX,
 } from "@tabler/icons-react";
@@ -1419,44 +1421,83 @@ export default function AssetPicker() {
           if (!open) setPreviewAsset(null);
         }}
       >
-        {previewAsset && (
-          <DialogContent
-            hideClose
-            className="max-w-4xl border-0 bg-transparent p-0 shadow-none"
-          >
-            <DialogTitle className="sr-only">
-              {assetDisplayTitle(previewAsset)}
-            </DialogTitle>
-            <DialogDescription className="sr-only">
-              Full-size preview of {assetDisplayTitle(previewAsset)}
-            </DialogDescription>
-            <div className="relative">
-              <DialogClose
-                aria-label="Close preview"
-                className="absolute right-2 top-2 z-10 inline-flex h-9 w-9 items-center justify-center rounded-full bg-black/60 text-white transition hover:bg-black/80 focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
+        {previewAsset &&
+          (() => {
+            const previewIndex = assets.findIndex(
+              (asset) => asset.id === previewAsset.id,
+            );
+            const hasPrev = previewIndex > 0;
+            const hasNext =
+              previewIndex >= 0 && previewIndex < assets.length - 1;
+            const showPreviousAsset = () => {
+              if (hasPrev) setPreviewAsset(assets[previewIndex - 1]);
+            };
+            const showNextAsset = () => {
+              if (hasNext) setPreviewAsset(assets[previewIndex + 1]);
+            };
+            return (
+              <DialogContent
+                hideClose
+                onKeyDown={(event) => {
+                  if (event.key === "ArrowLeft") showPreviousAsset();
+                  if (event.key === "ArrowRight") showNextAsset();
+                }}
+                className="max-w-4xl border-0 bg-transparent p-0 shadow-none"
               >
-                <IconX className="h-5 w-5" />
-              </DialogClose>
-              {previewAsset.mediaType === "video" ||
-              previewAsset.mimeType?.startsWith("video/") ? (
-                <video
-                  src={
-                    previewAsset.previewUrl ??
-                    previewAsset.downloadUrl ??
-                    previewAsset.url
-                  }
-                  poster={previewAsset.thumbnailUrl}
-                  controls
-                  autoPlay
-                  playsInline
-                  className="max-h-[85vh] w-full rounded-lg bg-black object-contain"
-                />
-              ) : (
-                <AssetOverlayImage asset={previewAsset} />
-              )}
-            </div>
-          </DialogContent>
-        )}
+                <DialogTitle className="sr-only">
+                  {assetDisplayTitle(previewAsset)}
+                </DialogTitle>
+                <DialogDescription className="sr-only">
+                  Full-size preview of {assetDisplayTitle(previewAsset)}
+                </DialogDescription>
+                <div className="relative">
+                  <DialogClose
+                    aria-label="Close preview"
+                    className="absolute right-2 top-2 z-10 inline-flex h-9 w-9 items-center justify-center rounded-full bg-black/60 text-white transition hover:bg-black/80 focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
+                  >
+                    <IconX className="h-5 w-5" />
+                  </DialogClose>
+                  {hasPrev && (
+                    <button
+                      type="button"
+                      aria-label="Previous image"
+                      onClick={showPreviousAsset}
+                      className="absolute left-2 top-1/2 z-10 inline-flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-full bg-black/60 text-white transition hover:bg-black/80 focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
+                    >
+                      <IconChevronLeft className="h-5 w-5" />
+                    </button>
+                  )}
+                  {hasNext && (
+                    <button
+                      type="button"
+                      aria-label="Next image"
+                      onClick={showNextAsset}
+                      className="absolute right-2 top-1/2 z-10 inline-flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-full bg-black/60 text-white transition hover:bg-black/80 focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
+                    >
+                      <IconChevronRight className="h-5 w-5" />
+                    </button>
+                  )}
+                  {previewAsset.mediaType === "video" ||
+                  previewAsset.mimeType?.startsWith("video/") ? (
+                    <video
+                      src={
+                        previewAsset.previewUrl ??
+                        previewAsset.downloadUrl ??
+                        previewAsset.url
+                      }
+                      poster={previewAsset.thumbnailUrl}
+                      controls
+                      autoPlay
+                      playsInline
+                      className="max-h-[85vh] w-full rounded-lg bg-black object-contain"
+                    />
+                  ) : (
+                    <AssetOverlayImage asset={previewAsset} />
+                  )}
+                </div>
+              </DialogContent>
+            );
+          })()}
       </Dialog>
     </div>
   );
