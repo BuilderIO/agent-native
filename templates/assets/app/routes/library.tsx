@@ -1371,8 +1371,11 @@ export default function AssetPicker() {
                   type="button"
                   aria-label={`Open ${assetDisplayTitle(asset)}`}
                   onClick={() => {
-                    chooseAsset(asset);
-                    if (!embedded) setPreviewAsset(asset);
+                    if (embedded) {
+                      chooseAsset(asset);
+                    } else {
+                      setPreviewAsset(asset);
+                    }
                   }}
                   title={assetDisplayTitle(asset)}
                   className="block w-full text-left focus-visible:outline-none"
