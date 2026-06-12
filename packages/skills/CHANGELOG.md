@@ -1,5 +1,13 @@
 # @agent-native/skills
 
+## 0.2.1
+
+### Patch Changes
+
+- a784d3c: Keep the default add/list flows and public-repo-backed app skills on the live BuilderIO skills collection instead of delegating them to the app-backed core picker.
+- a784d3c: Default app-backed skill setup to all supported clients, clarify Plan MCP auth as per-client, and make reconnect output name which local agent configs were actually refreshed.
+- a784d3c: Update user-facing `npx` guidance to recommend explicit `@latest` package invocations.
+
 ## 0.2.0
 
 ### Minor Changes
