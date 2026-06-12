@@ -9,7 +9,10 @@ import {
   DEFAULT_SSR_CDN_CACHE_CONTROL,
   DEFAULT_SSR_NETLIFY_CDN_CACHE_CONTROL,
 } from "../shared/cache-control.js";
-import { AGENT_NATIVE_SOCIAL_IMAGE_PATH } from "../shared/social-meta.js";
+import {
+  AGENT_NATIVE_SOCIAL_IMAGE_CACHE_BUSTER,
+  AGENT_NATIVE_SOCIAL_IMAGE_PATH,
+} from "../shared/social-meta.js";
 import { getRequestUserEmail } from "./request-context.js";
 
 const mocks = vi.hoisted(() => {
@@ -294,12 +297,13 @@ describe("createH3SSRHandler", () => {
 
     const response = await handler(createEvent("/"));
     const html = await response.text();
+    const expectedImageUrl = `http://example.test${AGENT_NATIVE_SOCIAL_IMAGE_PATH}?v=${AGENT_NATIVE_SOCIAL_IMAGE_CACHE_BUSTER}`;
 
     expect(html).toContain(
-      `<meta property="og:image" content="http://example.test${AGENT_NATIVE_SOCIAL_IMAGE_PATH}">`,
+      `<meta property="og:image" content="${expectedImageUrl}">`,
     );
     expect(html).toContain(
-      `<meta name="twitter:image" content="http://example.test${AGENT_NATIVE_SOCIAL_IMAGE_PATH}">`,
+      `<meta name="twitter:image" content="${expectedImageUrl}">`,
     );
     expect(html).toContain(
       '<meta name="twitter:card" content="summary_large_image">',

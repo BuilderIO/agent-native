@@ -30,7 +30,9 @@ vi.mock("./credentials", () => ({
 }));
 
 import {
+  GONG_ANALYTICS_CREDENTIAL_KEYS,
   HUBSPOT_ANALYTICS_CREDENTIAL_KEYS,
+  resolveAnalyticsGongCredentials,
   resolveAnalyticsProviderCredential,
   resolveWorkspaceConnectionProviderCredential,
 } from "./provider-credentials.js";
@@ -146,6 +148,70 @@ describe("analytics provider credentials", () => {
       key: "HUBSPOT_ACCESS_TOKEN",
       source: "analytics_local",
     });
+  });
+
+  it("splits legacy Gong API keys for current access key and secret lookups", async () => {
+    mocks.localCredentials.set("GONG_API_KEY", "access-key:access-secret");
+
+    await expect(
+      resolveAnalyticsProviderCredential({
+        provider: "gong",
+        keys: ["GONG_ACCESS_KEY"],
+        ctx: { userEmail: "owner@example.test", orgId: "org-1" },
+      }),
+    ).resolves.toMatchObject({
+      value: "access-key",
+      key: "GONG_API_KEY",
+      source: "analytics_local",
+    });
+
+    await expect(
+      resolveAnalyticsProviderCredential({
+        provider: "gong",
+        keys: ["GONG_ACCESS_SECRET"],
+        ctx: { userEmail: "owner@example.test", orgId: "org-1" },
+      }),
+    ).resolves.toMatchObject({
+      value: "access-secret",
+      key: "GONG_API_KEY",
+      source: "analytics_local",
+    });
+
+    await expect(
+      resolveAnalyticsGongCredentials({
+        ctx: { userEmail: "owner@example.test", orgId: "org-1" },
+      }),
+    ).resolves.toMatchObject({
+      accessKey: "access-key",
+      accessSecret: "access-secret",
+    });
+  });
+
+  it("prefers current Gong access key and secret over the legacy combined key", async () => {
+    mocks.localCredentials.set("GONG_API_KEY", "legacy-key:legacy-secret");
+    mocks.localCredentials.set("GONG_ACCESS_KEY", "current-key");
+    mocks.localCredentials.set("GONG_ACCESS_SECRET", "current-secret");
+
+    await expect(
+      resolveAnalyticsGongCredentials({
+        ctx: { userEmail: "owner@example.test", orgId: "org-1" },
+      }),
+    ).resolves.toMatchObject({
+      accessKey: "current-key",
+      accessSecret: "current-secret",
+    });
+  });
+
+  it("does not treat malformed legacy Gong API keys as current credentials", async () => {
+    mocks.localCredentials.set("GONG_API_KEY", "not-a-basic-pair");
+
+    await expect(
+      resolveAnalyticsProviderCredential({
+        provider: "gong",
+        keys: GONG_ANALYTICS_CREDENTIAL_KEYS,
+        ctx: { userEmail: "owner@example.test", orgId: "org-1" },
+      }),
+    ).resolves.toBeNull();
   });
 
   it("can disable workspace connection lookup for app-specific secondary credentials", async () => {

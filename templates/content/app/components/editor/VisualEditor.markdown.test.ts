@@ -19,6 +19,7 @@ import {
   uploadAndInsertImageFiles,
   uploadAndInsertVideoFiles,
   shouldApplyExternalContentSync,
+  shouldPersistLocalFileEditorUpdate,
   shouldSeedCollaborativeContent,
 } from "./VisualEditor";
 import { CodeBlock } from "./extensions/CodeBlockNode";
@@ -642,6 +643,33 @@ describe("VisualEditor markdown round-tripping", () => {
         editorFocused: false,
         lastTypedAt: 0,
         now: 10_000,
+      }),
+    ).toBe(false);
+  });
+
+  it("does not persist local-file mount-time normalization transactions", () => {
+    expect(
+      shouldPersistLocalFileEditorUpdate({
+        docChanged: true,
+        editorFocused: false,
+        recentUserEditIntent: false,
+        transactionUiEvent: undefined,
+      }),
+    ).toBe(false);
+    expect(
+      shouldPersistLocalFileEditorUpdate({
+        docChanged: true,
+        editorFocused: true,
+        recentUserEditIntent: false,
+        transactionUiEvent: undefined,
+      }),
+    ).toBe(true);
+    expect(
+      shouldPersistLocalFileEditorUpdate({
+        docChanged: false,
+        editorFocused: true,
+        recentUserEditIntent: true,
+        transactionUiEvent: "paste",
       }),
     ).toBe(false);
   });

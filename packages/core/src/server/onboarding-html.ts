@@ -25,6 +25,7 @@ import {
   AGENT_NATIVE_SOCIAL_IMAGE_PATH,
   AGENT_NATIVE_SOCIAL_IMAGE_TYPE,
   AGENT_NATIVE_SOCIAL_IMAGE_WIDTH,
+  withAgentNativeSocialImageCacheBuster,
 } from "../shared/social-meta.js";
 import { normalizeAppBasePath } from "./app-base-path.js";
 
@@ -126,9 +127,11 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
   const hasMarketing = !!marketing;
   const runLocalCommand = marketing?.runLocalCommand?.trim();
   const brandMarkSrc = withAppBasePath("/agent-native-icon-dark.svg");
-  const socialImageUrl = opts.requestOrigin
-    ? `${opts.requestOrigin}${withAppBasePath(AGENT_NATIVE_SOCIAL_IMAGE_PATH)}`
-    : withAppBasePath(AGENT_NATIVE_SOCIAL_IMAGE_PATH);
+  const socialImageUrl = withAgentNativeSocialImageCacheBuster(
+    opts.requestOrigin
+      ? `${opts.requestOrigin}${withAppBasePath(AGENT_NATIVE_SOCIAL_IMAGE_PATH)}`
+      : withAppBasePath(AGENT_NATIVE_SOCIAL_IMAGE_PATH),
+  );
   const esc = (s: string) =>
     s
       .replace(/&/g, "&amp;")

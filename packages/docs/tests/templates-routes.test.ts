@@ -2,7 +2,13 @@ import { describe, expect, it } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { loader } from "../app/routes/templates.$slug";
+import {
+  loader,
+  meta as genericTemplateMeta,
+} from "../app/routes/templates.$slug";
+import { AGENT_NATIVE_SOCIAL_IMAGE_CACHE_BUSTER } from "@agent-native/core/shared";
+import { meta as designTemplateMeta } from "../app/routes/templates.design";
+import { meta as slidesTemplateMeta } from "../app/routes/templates.slides";
 import { featuredTemplates, templates } from "../app/components/TemplateCard";
 import { getTemplateDocsPath } from "../app/components/template-docs";
 import { NAV_SECTIONS, type NavItem } from "../app/components/docsNavItems";
@@ -10,6 +16,20 @@ import { buildSitemapPaths } from "../app/vite-sitemap-plugin";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const docsRoot = path.resolve(__dirname, "..");
+
+function ogImageTitle(meta: Array<Record<string, unknown>>): string | null {
+  const image = meta.find(
+    (item) => item.property === "og:image" && typeof item.content === "string",
+  );
+  expect(image?.content).toMatch(
+    /^https:\/\/www\.agent-native\.com\/_agent-native\/og-image\.png\?/,
+  );
+  const url = new URL(image!.content as string);
+  expect(url.searchParams.get("v")).toBe(
+    AGENT_NATIVE_SOCIAL_IMAGE_CACHE_BUSTER,
+  );
+  return url.searchParams.get("title");
+}
 
 describe("template routes", () => {
   it("redirects the registry video folder slug to the public video page", () => {
@@ -34,6 +54,14 @@ describe("template routes", () => {
         params: { slug: "starter" },
       } as unknown as Parameters<typeof loader>[0]),
     ).toThrow(expect.objectContaining({ status: 404 }));
+  });
+
+  it("uses product-specific OG image titles for template pages", () => {
+    expect(ogImageTitle(slidesTemplateMeta())).toBe("Agent-Native Slides");
+    expect(ogImageTitle(designTemplateMeta())).toBe("Agent-Native Design");
+    expect(
+      ogImageTitle(genericTemplateMeta({ params: { slug: "assets" } })),
+    ).toBe("Agent-Native Assets");
   });
 
   it("keeps docs sidebar template links aligned with the featured catalog", () => {

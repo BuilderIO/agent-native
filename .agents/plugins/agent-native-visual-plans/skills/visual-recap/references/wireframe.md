@@ -79,7 +79,19 @@ and footer actions that are visible in the workflow.
 **Modify, don't redesign.** When the task changes an existing screen, reproduce
 the current screen's real layout and footprint FIRST, then change only the delta
 and call it out with a single annotation. Do not restack the page into a new
-layout. For net-new surfaces, compose from the real app shell.
+layout. For net-new surfaces, compose from the real app shell. Inspect the
+actual app components before drawing an existing product: sidebar density,
+toolbar actions, overflow menus, property panels, and framework chrome should
+match the product unless the plan intentionally changes them.
+
+**Keep product screens pure.** A product wireframe shows the app state a user
+would actually see. Do not embed file contracts, architecture arrows, repo pills,
+mode explanations, or implementation callouts inside the screen just to explain
+the plan. Put those in canvas annotations, a separate diagram, or the document
+body. Secondary UI such as properties, history, sync, export, or agent controls
+should appear where the real product would put them: an overflow popover, sheet,
+panel, or separate framework sidebar state, not a generic permanent right
+inspector unless that inspector is the actual design.
 
 **Classify mockup scope before implementation.** Before turning a plan mockup
 into source code, decide whether each artboard represents the whole page/app

@@ -13,6 +13,10 @@ import { buildDeepLink } from "@agent-native/core/server";
 import { writeAppState } from "@agent-native/core/application-state";
 import { assertAccess, type ShareRole } from "@agent-native/core/sharing";
 import { z } from "zod";
+import {
+  createLocalFileDocument,
+  isContentLocalFileMode,
+} from "./_local-file-documents.js";
 
 function nanoid(size = 12): string {
   const chars =
@@ -47,6 +51,20 @@ export default defineAction({
     }),
   },
   run: async (args) => {
+    if (await isContentLocalFileMode()) {
+      const doc = await createLocalFileDocument(args);
+      await writeAppState("refresh-signal", { ts: Date.now() });
+      return {
+        ...doc,
+        urlPath: `/page/${doc.id}`,
+        deepLink: buildDeepLink({
+          app: "content",
+          view: "editor",
+          params: { documentId: doc.id },
+        }),
+      };
+    }
+
     const title = args.title;
 
     let content = args.content || "";

@@ -111,6 +111,7 @@ import {
   AGENT_NATIVE_SOCIAL_IMAGE_PATH,
   AGENT_NATIVE_SOCIAL_IMAGE_TYPE,
   AGENT_NATIVE_SOCIAL_IMAGE_WIDTH,
+  withAgentNativeSocialImageCacheBuster,
 } from "../shared/social-meta.js";
 import { DEFAULT_SSR_CACHE_HEADERS } from "../shared/cache-control.js";
 import {
@@ -1417,7 +1418,9 @@ function injectLoginSocialImageMeta(loginHtml: string, event: H3Event): string {
     LOGIN_OG_IMAGE_META_RE.test(loginHtml) ||
     LOGIN_TWITTER_IMAGE_META_RE.test(loginHtml);
   const imageUrl = escapeHtmlAttr(
-    getAppUrl(event, AGENT_NATIVE_SOCIAL_IMAGE_PATH),
+    withAgentNativeSocialImageCacheBuster(
+      getAppUrl(event, AGENT_NATIVE_SOCIAL_IMAGE_PATH),
+    ),
   );
   const tags: string[] = [];
 

@@ -11,6 +11,7 @@ import {
   limitGongCalls,
   normalizeGongCallLimit,
 } from "./gong-limits";
+import { resolveAnalyticsGongCredentials } from "./provider-credentials";
 
 const DEFAULT_API_BASE = "https://api.gong.io/v2";
 
@@ -20,11 +21,12 @@ const MAX_CACHE = 120;
 
 async function getAuthHeader(): Promise<string> {
   const ctx = requireRequestCredentialContext("GONG_ACCESS_KEY");
-  const accessKey = await resolveCredential("GONG_ACCESS_KEY", ctx);
-  const secret = await resolveCredential("GONG_ACCESS_SECRET", ctx);
-  if (!accessKey || !secret)
+  const credentials = await resolveAnalyticsGongCredentials({ ctx });
+  if (!credentials)
     throw new Error("GONG_ACCESS_KEY and GONG_ACCESS_SECRET not configured");
-  return `Basic ${Buffer.from(`${accessKey}:${secret}`).toString("base64")}`;
+  return `Basic ${Buffer.from(
+    `${credentials.accessKey}:${credentials.accessSecret}`,
+  ).toString("base64")}`;
 }
 
 async function getApiBase(): Promise<string> {

@@ -217,9 +217,12 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
   // Shared with DocumentToolbar via the same localStorage key — both read it.
   const [autoSync] = useLocalStorage(`notion-auto-sync:${documentId}`, false);
   const canEdit = document.canEdit ?? true;
+  const isLocalFileDocument = document.source?.mode === "local-files";
   // Polls Notion sync status to drive the conflict banner / sync bar and the
   // push-on-save path below (read via the query cache, not this return value).
-  useDocumentSyncStatus(canEdit ? documentId : null, { autoSync });
+  useDocumentSyncStatus(canEdit && !isLocalFileDocument ? documentId : null, {
+    autoSync,
+  });
   const [localTitle, setLocalTitle] = useState("");
   const [localContent, setLocalContent] = useState("");
   const [isSaving, setIsSaving] = useState(false);
@@ -309,7 +312,7 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
     agentActive,
     agentPresent,
   } = useCollaborativeDoc({
-    docId: documentId,
+    docId: isLocalFileDocument ? "" : documentId,
     requestSource: TAB_ID,
     user: currentUser,
   });
@@ -397,17 +400,23 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
   // stale "unsaved" local text.
   useEffect(() => {
     if (!document || !isInitializedRef.current) return;
-    if (document.title === localTitle) {
+    const titleMatchesLocal = document.title === localTitle;
+    const contentMatchesLocal = document.content === localContent;
+
+    if (titleMatchesLocal) {
       lastSavedTitleRef.current = {
         title: document.title,
         updatedAt: document.updatedAt ?? lastSavedTitleRef.current.updatedAt,
       };
     }
-    if (document.content === localContent) {
+    if (contentMatchesLocal) {
       lastSavedContentRef.current = {
         content: document.content,
         updatedAt: document.updatedAt ?? lastSavedContentRef.current.updatedAt,
       };
+    }
+    if (titleMatchesLocal && contentMatchesLocal) {
+      setIsSaving(false);
     }
   }, [document, localTitle, localContent]);
 
@@ -490,7 +499,7 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
   // key we force an immediate (non-debounced) save of the current editor
   // state, then delete the key so `pull-document` knows the flush landed.
   useEffect(() => {
-    if (!canEdit) return;
+    if (!canEdit || isLocalFileDocument) return;
     let active = true;
     const flushKey = `flush-request-${documentId}`;
     const flushPath = agentNativePath(
@@ -549,7 +558,7 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
       active = false;
       clearTimeout(timer);
     };
-  }, [canEdit, documentId, updateDocument]);
+  }, [canEdit, documentId, isLocalFileDocument, updateDocument]);
 
   const handleTitleChange = useCallback(
     (newTitle: string) => {
@@ -579,9 +588,13 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
   // The thread whose highlight + card are currently focused (click an inline
   // highlight to focus its card; hover a card to emphasize its highlight).
   const [activeThreadId, setActiveThreadId] = useState<string | null>(null);
-  const { data: threads } = useComments(documentId);
+  const { data: threads } = useComments(
+    isLocalFileDocument ? null : documentId,
+  );
   const hasComments =
-    canEdit && ((threads?.length ?? 0) > 0 || !!pendingComment);
+    !isLocalFileDocument &&
+    canEdit &&
+    ((threads?.length ?? 0) > 0 || !!pendingComment);
   const isMobile = useIsMobile();
 
   const handleComment = useCallback(
@@ -652,7 +665,7 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
     }
   });
 
-  if (collabLoading) {
+  if (!isLocalFileDocument && collabLoading) {
     return <DocumentEditorSkeleton />;
   }
 
@@ -699,9 +712,12 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
             currentUserEmail={session?.email}
             canEdit={canEdit}
             hideFromSearch={document.hideFromSearch}
+            source={document.source}
           />
 
-          <NotionConflictBanner documentId={documentId} canEdit={canEdit} />
+          {!isLocalFileDocument ? (
+            <NotionConflictBanner documentId={documentId} canEdit={canEdit} />
+          ) : null}
 
           <div
             ref={scrollContainerRef}
@@ -776,7 +792,7 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
                   isDatabasePage ? "text-3xl" : "text-3xl md:text-4xl",
                 )}
               />
-              {document.databaseMembership ? (
+              {document.databaseMembership && !isLocalFileDocument ? (
                 <DocumentProperties documentId={documentId} canEdit={canEdit} />
               ) : null}
             </div>
@@ -803,15 +819,22 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
                 content={document.content}
                 contentUpdatedAt={document.updatedAt}
                 onChange={handleContentChange}
-                ydoc={canEdit ? ydoc : null}
-                awareness={canEdit ? awareness : null}
+                ydoc={canEdit && !isLocalFileDocument ? ydoc : null}
+                awareness={canEdit && !isLocalFileDocument ? awareness : null}
                 user={currentUser}
                 editable={canEdit}
-                onComment={canEdit ? handleComment : undefined}
+                localFileMode={isLocalFileDocument}
+                onComment={
+                  canEdit && !isLocalFileDocument ? handleComment : undefined
+                }
                 commentThreads={threads ?? []}
                 activeThreadId={activeThreadId}
                 pendingHighlight={pendingComment?.range ?? null}
-                onActivateThread={canEdit ? setActiveThreadId : undefined}
+                onActivateThread={
+                  canEdit && !isLocalFileDocument
+                    ? setActiveThreadId
+                    : undefined
+                }
                 onJoinTitle={joinFirstBodyBlockToTitle}
                 notionPageLinks={notionPageLinks}
                 onOpenNotionPageLink={handleOpenNotionPageLink}

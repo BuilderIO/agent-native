@@ -36,6 +36,7 @@ import { generateActionRegistryForProject } from "../vite/action-types-plugin.js
 import { mcpEmbedStaticAssetRouteRules } from "../shared/mcp-embed-headers.js";
 import {
   AGENT_NATIVE_SOCIAL_IMAGE_ALT,
+  AGENT_NATIVE_SOCIAL_IMAGE_CACHE_BUSTER,
   AGENT_NATIVE_SOCIAL_IMAGE_HEIGHT,
   AGENT_NATIVE_SOCIAL_IMAGE_PATH,
   AGENT_NATIVE_SOCIAL_IMAGE_TYPE,
@@ -452,6 +453,9 @@ const IMMUTABLE_ASSET_PATHS = new Set(${JSON.stringify(
 const AGENT_NATIVE_SOCIAL_IMAGE_PATH = ${JSON.stringify(
     AGENT_NATIVE_SOCIAL_IMAGE_PATH,
   )};
+const AGENT_NATIVE_SOCIAL_IMAGE_CACHE_BUSTER = ${JSON.stringify(
+    AGENT_NATIVE_SOCIAL_IMAGE_CACHE_BUSTER,
+  )};
 const AGENT_NATIVE_SOCIAL_IMAGE_ALT = ${JSON.stringify(
     AGENT_NATIVE_SOCIAL_IMAGE_ALT,
   )};
@@ -468,8 +472,15 @@ const OG_IMAGE_META_RE = /<meta\\b(?=[^>]*\\bproperty=(["'])og:image\\1)[^>]*>/i
 const TWITTER_CARD_META_RE = /<meta\\b(?=[^>]*\\bname=(["'])twitter:card\\1)[^>]*>/i;
 const TWITTER_IMAGE_META_RE = /<meta\\b(?=[^>]*\\bname=(["'])twitter:image\\1)[^>]*>/i;
 
+function withAgentNativeSocialImageCacheBuster(image) {
+  const separator = image.includes("?") ? "&" : "?";
+  return image + separator + "v=" + encodeURIComponent(AGENT_NATIVE_SOCIAL_IMAGE_CACHE_BUSTER);
+}
+
 function defaultSocialImageUrl(request, basePath) {
-  return new URL(prefixMountedPath(AGENT_NATIVE_SOCIAL_IMAGE_PATH, basePath), request.url).toString();
+  return withAgentNativeSocialImageCacheBuster(
+    new URL(prefixMountedPath(AGENT_NATIVE_SOCIAL_IMAGE_PATH, basePath), request.url).toString()
+  );
 }
 
 function injectDefaultSocialImageMeta(html, imageUrl) {

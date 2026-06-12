@@ -23,11 +23,24 @@ export interface Document {
   accessRole?: DocumentAccessRole;
   canEdit?: boolean;
   canManage?: boolean;
+  source?: DocumentSourceInfo;
   properties?: DocumentProperty[];
   database?: ContentDatabase;
   databaseMembership?: ContentDatabaseMembership;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface DocumentSourceInfo {
+  mode: "database" | "local-files";
+  kind?: "file" | "folder" | string;
+  path?: string;
+  rootName?: string;
+  rootPath?: string;
+  hash?: string;
+  contentType?: string;
+  sizeBytes?: number;
+  updatedAt?: string;
 }
 
 export type SyncState = "idle" | "linked" | "syncing" | "error" | "conflict";

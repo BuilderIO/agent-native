@@ -235,3 +235,11 @@ export function resolveBuiltInAuthMarketing(
   }
   return undefined;
 }
+
+export function resolveBuiltInAuthMarketingByName(
+  value: string | undefined,
+): AuthMarketingContent | undefined {
+  const slug = normalizeSlug(value);
+  const marketing = slug ? BUILT_IN_AUTH_MARKETING[slug] : undefined;
+  return marketing ? cloneMarketing(marketing) : undefined;
+}

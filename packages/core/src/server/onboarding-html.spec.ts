@@ -1,6 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { getOnboardingHtml } from "./onboarding-html.js";
 import { BUILT_IN_AUTH_MARKETING } from "./auth-marketing.js";
+import {
+  AGENT_NATIVE_SOCIAL_IMAGE_CACHE_BUSTER,
+  AGENT_NATIVE_SOCIAL_IMAGE_PATH,
+} from "../shared/social-meta.js";
 
 describe("getOnboardingHtml", () => {
   afterEach(() => {
@@ -119,6 +123,9 @@ describe("getOnboardingHtml", () => {
       "Your AI agent manages secrets, orchestrates other agents",
     );
     expect(html).toContain("100% free and open source");
+    expect(html).toContain(
+      `${AGENT_NATIVE_SOCIAL_IMAGE_PATH}?v=${AGENT_NATIVE_SOCIAL_IMAGE_CACHE_BUSTER}`,
+    );
   });
 
   it("puts hosted Google warnings in a popover with a run-local choice", () => {

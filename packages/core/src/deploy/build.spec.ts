@@ -14,7 +14,10 @@ import {
   runNitroBuildPipeline,
   shouldBundleFfmpegStaticForServerless,
 } from "./build.js";
-import { AGENT_NATIVE_SOCIAL_IMAGE_PATH } from "../shared/social-meta.js";
+import {
+  AGENT_NATIVE_SOCIAL_IMAGE_CACHE_BUSTER,
+  AGENT_NATIVE_SOCIAL_IMAGE_PATH,
+} from "../shared/social-meta.js";
 import { IMMUTABLE_ASSET_CACHE_CONTROL } from "./immutable-assets.js";
 
 const DEFAULT_SSR_CACHE_CONTROL =
@@ -250,7 +253,7 @@ export default (event) =>
     expect(html).toContain('action="/docs/api/search"');
     expect(html).toContain('url("/docs/hero.png")');
     expect(html).toContain(
-      `<meta property="og:image" content="https://app.test/docs${AGENT_NATIVE_SOCIAL_IMAGE_PATH}">`,
+      `<meta property="og:image" content="https://app.test/docs${AGENT_NATIVE_SOCIAL_IMAGE_PATH}?v=${AGENT_NATIVE_SOCIAL_IMAGE_CACHE_BUSTER}">`,
     );
     expectDefaultWorkerSsrCacheHeaders(response);
     expect(response.headers.get("speculation-rules")).toBe(

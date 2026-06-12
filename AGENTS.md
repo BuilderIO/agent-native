@@ -41,7 +41,10 @@ step is still pending. Use `🔴` only when blocked on user input.
 
 ## Architecture Contract
 
-- Data lives in SQL via Drizzle. Keep schemas provider-agnostic.
+- Data lives in SQL via Drizzle by default. Explicit Local File Mode artifacts
+  declared through `agent-native.json` may use repo files as the source of truth,
+  but app state, auth, settings, and hosted/collaborative mode still use SQL.
+  Keep schemas provider-agnostic.
 - Actions are the single source of truth. Define app operations in `actions/`
   with `defineAction`; the agent calls them as tools and the frontend calls the
   shared action surface through `useActionQuery` / `useActionMutation`.

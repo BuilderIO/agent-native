@@ -3,6 +3,7 @@ import {
   IconArrowBarDown,
   IconArrowBarUp,
   IconAlertTriangle,
+  IconCopy,
   IconDownload,
   IconDotsVertical,
   IconExternalLink,
@@ -28,6 +29,7 @@ import {
   DropdownMenuContent,
   DropdownMenuGroup,
   DropdownMenuItem,
+  DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuSub,
   DropdownMenuSubContent,
@@ -64,6 +66,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { useLocalStorage } from "@/hooks/use-local-storage";
+import type { DocumentSourceInfo } from "@shared/api";
 
 type ExportFormat = "pdf" | "markdown" | "html";
 
@@ -150,6 +153,7 @@ interface DocumentToolbarProps {
   currentUserEmail?: string;
   canEdit?: boolean;
   hideFromSearch?: boolean;
+  source?: DocumentSourceInfo;
 }
 
 export function DocumentToolbar({
@@ -163,15 +167,17 @@ export function DocumentToolbar({
   currentUserEmail,
   canEdit = true,
   hideFromSearch = false,
+  source,
 }: DocumentToolbarProps) {
   const queryClient = useQueryClient();
+  const isLocalFileDocument = source?.mode === "local-files";
   const [autoSync, setAutoSync] = useLocalStorage(
     `notion-auto-sync:${documentId}`,
     false,
   );
   const { data: connection } = useNotionConnection();
   const { data: syncStatus } = useDocumentSyncStatus(
-    canEdit ? documentId : null,
+    canEdit && !isLocalFileDocument ? documentId : null,
     {
       autoSync,
     },
@@ -278,6 +284,13 @@ export function DocumentToolbar({
     },
     [documentId, hideFromSearch, queryClient, setDocumentDiscoverability],
   );
+
+  const handleCopyLocalPath = useCallback(() => {
+    const filePath = source?.path;
+    if (!filePath) return;
+    void navigator.clipboard?.writeText(filePath);
+    toast.success("Copied file path");
+  }, [source?.path]);
 
   // Debounce search
   useEffect(() => {
@@ -431,36 +444,40 @@ export function DocumentToolbar({
           currentUserEmail={currentUserEmail}
           className="mr-1"
         />
-        <ShareButton
-          resourceType="document"
-          resourceId={documentId}
-          resourceTitle={documentTitle}
-          shareUrl={shareUrl}
-          visibilityCopy={{
-            org: {
-              description: effectiveHideFromSearch
-                ? "Anyone in your organization with the link can view"
-                : "Anyone in your organization can find and view",
-            },
-          }}
-          hideInSearchControl={{
-            checked: effectiveHideFromSearch,
-            pending: setDocumentDiscoverability.isPending,
-            label: "Hide in search",
-            description:
-              "Hide from Organization and search. People with the link can still view.",
-            onCheckedChange: handleHideFromSearchChange,
-          }}
-          variant="compact"
-        />
+        {!isLocalFileDocument ? (
+          <>
+            <ShareButton
+              resourceType="document"
+              resourceId={documentId}
+              resourceTitle={documentTitle}
+              shareUrl={shareUrl}
+              visibilityCopy={{
+                org: {
+                  description: effectiveHideFromSearch
+                    ? "Anyone in your organization with the link can view"
+                    : "Anyone in your organization can find and view",
+                },
+              }}
+              hideInSearchControl={{
+                checked: effectiveHideFromSearch,
+                pending: setDocumentDiscoverability.isPending,
+                label: "Hide in search",
+                description:
+                  "Hide from Organization and search. People with the link can still view.",
+                onCheckedChange: handleHideFromSearchChange,
+              }}
+              variant="compact"
+            />
 
-        <VersionHistoryPanel
-          documentId={documentId}
-          open={historyOpen}
-          onOpenChange={setHistoryOpen}
-          canRestore={canEdit}
-          activeUsers={activeUsers}
-        />
+            <VersionHistoryPanel
+              documentId={documentId}
+              open={historyOpen}
+              onOpenChange={setHistoryOpen}
+              canRestore={canEdit}
+              activeUsers={activeUsers}
+            />
+          </>
+        ) : null}
 
         <DropdownMenu>
           <Tooltip>
@@ -476,51 +493,69 @@ export function DocumentToolbar({
             </TooltipTrigger>
             <TooltipContent>More page actions</TooltipContent>
           </Tooltip>
-          <DropdownMenuContent align="end" className="w-52">
-            <DropdownMenuGroup>
-              <DropdownMenuItem onSelect={() => setHistoryOpen(true)}>
-                <IconHistory className="mr-2 h-4 w-4" />
-                Version history
-              </DropdownMenuItem>
-            </DropdownMenuGroup>
-            <DropdownMenuSeparator />
-            <DropdownMenuSub>
-              <DropdownMenuSubTrigger disabled={exportDocument.isPending}>
-                {exportDocument.isPending ? (
-                  <IconLoader2 className="mr-2 h-4 w-4 animate-spin" />
-                ) : (
-                  <IconDownload className="mr-2 h-4 w-4" />
-                )}
-                Export
-              </DropdownMenuSubTrigger>
-              <DropdownMenuSubContent className="w-44">
-                <DropdownMenuItem
-                  disabled={exportDocument.isPending}
-                  onSelect={() => void handleExport("pdf")}
-                >
-                  <IconFileTypePdf className="mr-2 h-4 w-4" />
-                  PDF
+          <DropdownMenuContent align="end" className="w-56">
+            {isLocalFileDocument ? (
+              <DropdownMenuGroup>
+                <DropdownMenuLabel className="text-xs text-muted-foreground">
+                  Local file
+                </DropdownMenuLabel>
+                <DropdownMenuItem disabled className="min-w-0">
+                  <IconFileText className="mr-2 h-4 w-4 shrink-0" />
+                  <span className="truncate">{source?.path}</span>
                 </DropdownMenuItem>
-                <DropdownMenuItem
-                  disabled={exportDocument.isPending}
-                  onSelect={() => void handleExport("markdown")}
-                >
-                  <IconMarkdown className="mr-2 h-4 w-4" />
-                  Markdown
+                <DropdownMenuItem onSelect={handleCopyLocalPath}>
+                  <IconCopy className="mr-2 h-4 w-4" />
+                  Copy path
                 </DropdownMenuItem>
-                <DropdownMenuItem
-                  disabled={exportDocument.isPending}
-                  onSelect={() => void handleExport("html")}
-                >
-                  <IconFileTypeHtml className="mr-2 h-4 w-4" />
-                  HTML
-                </DropdownMenuItem>
-              </DropdownMenuSubContent>
-            </DropdownMenuSub>
+              </DropdownMenuGroup>
+            ) : (
+              <>
+                <DropdownMenuGroup>
+                  <DropdownMenuItem onSelect={() => setHistoryOpen(true)}>
+                    <IconHistory className="mr-2 h-4 w-4" />
+                    Version history
+                  </DropdownMenuItem>
+                </DropdownMenuGroup>
+                <DropdownMenuSeparator />
+                <DropdownMenuSub>
+                  <DropdownMenuSubTrigger disabled={exportDocument.isPending}>
+                    {exportDocument.isPending ? (
+                      <IconLoader2 className="mr-2 h-4 w-4 animate-spin" />
+                    ) : (
+                      <IconDownload className="mr-2 h-4 w-4" />
+                    )}
+                    Export
+                  </DropdownMenuSubTrigger>
+                  <DropdownMenuSubContent className="w-44">
+                    <DropdownMenuItem
+                      disabled={exportDocument.isPending}
+                      onSelect={() => void handleExport("pdf")}
+                    >
+                      <IconFileTypePdf className="mr-2 h-4 w-4" />
+                      PDF
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      disabled={exportDocument.isPending}
+                      onSelect={() => void handleExport("markdown")}
+                    >
+                      <IconMarkdown className="mr-2 h-4 w-4" />
+                      Markdown
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      disabled={exportDocument.isPending}
+                      onSelect={() => void handleExport("html")}
+                    >
+                      <IconFileTypeHtml className="mr-2 h-4 w-4" />
+                      HTML
+                    </DropdownMenuItem>
+                  </DropdownMenuSubContent>
+                </DropdownMenuSub>
+              </>
+            )}
           </DropdownMenuContent>
         </DropdownMenu>
 
-        {canEdit ? (
+        {canEdit && !isLocalFileDocument ? (
           <Popover open={open} onOpenChange={setOpen}>
             <Tooltip>
               <TooltipTrigger asChild>

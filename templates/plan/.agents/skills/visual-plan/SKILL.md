@@ -57,6 +57,12 @@ plan needs a richer review surface.
   even if most of the feature ships later. Then scope to the smallest first cut that
   proves the approach without foreclosing it, stating both what is in and what is
   explicitly deferred.
+- **Keep examples at the right altitude.** When the user's idea is a broad
+  framework, product, or operating-model change, do not collapse it into the
+  first concrete example, provider, or sync path they mention. Separate the core
+  abstraction from motivating examples and app/provider adapters. Use examples
+  to make the plan legible, but label them as examples unless they are the whole
+  requested scope.
 - **Publish standalone plans.** If the user pasted, referenced, or already has a
   Codex / Claude Code / Markdown plan, treat it as source material, but rewrite
   the published plan as a clean standalone proposal. Preserve the source plan's
@@ -64,6 +70,13 @@ plan needs a richer review surface.
   revision language such as "preserve the prior plan", "do not drop the old
   idea", "unlike the previous version", or "this revision changes...". A reader
   who never saw the chat or earlier drafts should understand the plan.
+- **Make the first read concrete.** If the plan is meant to be shared with
+  someone outside the chat, or if the concept is abstract, lead near the top with
+  one concrete product example before mode tables, architecture, or roadmaps. For
+  UI-capable concepts, that usually means a top-canvas app state that shows the
+  real user workflow in product terms. Do not rely on phrases that only make
+  sense in conversation, and do not frame the plan as "not the old idea"; state
+  the positive model directly.
 - **Planning is read-only.** Make no source edits while building or reviewing the
   plan. Start editing only after the user approves the direction.
 - **Clarify vs. assume.** Do not ask how to build it — explore and present the
@@ -73,7 +86,10 @@ plan needs a richer review surface.
   questions before finalizing. Do not call `create-visual-questions` from
   `/visual-plan`. Otherwise state the assumption explicitly and proceed, and
   keep anything unresolved in the plan's single bottom `question-form` Open
-  Questions block.
+  Questions block. For complex plans, do a final open-question pass before
+  handoff: if a decision would affect architecture, scope, UX, data shape, or
+  rollout, either decide it in the plan with rationale or put it in that bottom
+  form with a recommended default.
 - **The plan is the approval gate.** After surfacing it, ask the user to review
   and approve before you write code, and name which files/areas the work touches.
   Presenting the plan and requesting sign-off is the approval step — do not ask a
@@ -120,8 +136,10 @@ exception.
    producing a standalone plan document, not a revision memo.
 3. For UI/product plans, compose the top canvas first with the primary
    wireframes and annotated states, then write the document with native blocks
-   (see `references/canvas.md` and `references/document-quality.md`). Keep the
-   document close to the standalone
+   (see `references/canvas.md` and `references/document-quality.md`). For
+   broad product architecture plans with a user-facing implication, add a
+   concrete "what this looks like in the app" visual before the abstract
+   architecture or mode tables. Keep the document close to the standalone
    Markdown plan the agent would normally output. If an existing plan was
    provided, carry forward the right facts and decisions without referring to
    the previous draft or explaining how this version differs. For non-visual
@@ -147,9 +165,13 @@ exception.
    review events, and any focused screenshots from browser handoff as the source
    of truth for exactly what changed and exactly what each comment points at.
 6. Apply changes with `update-visual-plan`, preferring targeted `contentPatches`.
-   When the user wants source-control friendly edits, use
-   `patch-visual-plan-source` against the MDX files instead of regenerating the
-   plan.
+   Treat the top-level `content` payload as a full replacement, not a merge; do
+   not send a partial `content` object to add a canvas or one block. If a full
+   replacement is unavoidable, first read the complete plan source/content, carry
+   forward every existing block and visual surface, and verify the source/export
+   afterward so the document body was not truncated. When the user wants
+   source-control friendly edits, use `patch-visual-plan-source` against the MDX
+   files instead of regenerating the plan.
 7. Export with `export-visual-plan` only when the user wants a shareable receipt
    or repo-check-in artifacts.
 
@@ -193,6 +215,20 @@ overflow menu or popover, a side panel, loading, or error. Put short annotations
 beside frames with `targetId` plus `placement`; keep implementation details,
 tradeoffs, file maps, data contracts, risks, and verification in the document
 body below the canvas.
+
+Keep product wireframes and explanatory/meta diagrams separate. Start with pure
+screens that look like the app state under discussion, without callout prose or
+architecture notes embedded inside the UI. Put arrows, labels, contracts, data
+flow, and mode explanations in separate annotations, separate canvas diagrams,
+or the document body.
+
+When the plan touches an existing app, inspect the current shell/components
+before drawing. The first artboard should look like the real app at the same
+density: existing sidebars, toolbar placement, overflow menus, app chrome, and
+framework agent chrome stay in their real places. Model secondary surfaces as
+separate states, such as a top-right overflow popover, sheet, panel, loading
+state, or separate AgentSidebar, rather than inventing a permanent inspector or
+folding framework chrome into the product UI.
 
 - **No visual surface** for architecture-only, backend-only, data migration,
   copy-only, or otherwise non-visual plans. Do not use the top canvas for

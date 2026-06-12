@@ -5,6 +5,10 @@ import { writeAppState } from "@agent-native/core/application-state";
 import { assertAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
 import { deleteDatabaseDataForDocument } from "./_database-utils.js";
+import {
+  deleteLocalFileDocument,
+  isContentLocalFileMode,
+} from "./_local-file-documents.js";
 
 async function deleteRecursive(
   db: ReturnType<typeof getDb>,
@@ -61,6 +65,12 @@ export default defineAction({
   run: async (args) => {
     const id = args.id;
     if (!id) throw new Error("--id is required");
+
+    if (await isContentLocalFileMode()) {
+      const result = await deleteLocalFileDocument(id);
+      await writeAppState("refresh-signal", { ts: Date.now() });
+      return result;
+    }
 
     const access = await assertAccess("document", id, "admin");
     const existing = access.resource;

@@ -2,33 +2,36 @@ import { Link } from "react-router";
 import { useState } from "react";
 import { templates, trackEvent } from "../components/TemplateCard";
 import { TemplateDocsLink } from "../components/template-docs";
-import { withDefaultSocialImage } from "../seo";
+import { withTemplateSocialImage } from "../seo";
 
 export const meta = () =>
-  withDefaultSocialImage([
-    {
-      title: "Agent-Native Clips — Open-Source Loom + Granola + Wisprflow",
-    },
-    {
-      name: "description",
-      content:
-        "Screen recording, calendar-synced meeting notes, and Fn-hold voice dictation in one app you own. Auto-transcripts, AI summaries, and shareable links — open source alternative to Loom, Granola, and Wisprflow.",
-    },
-    {
-      property: "og:title",
-      content: "Agent-Native Clips — Open-Source Loom + Granola + Wisprflow",
-    },
-    {
-      property: "og:description",
-      content:
-        "Screen recordings, meeting notes from your calendar, and push-to-talk voice dictation — all transcribed, summarized, and yours to own.",
-    },
-    {
-      name: "keywords",
-      content:
-        "screen recording, async video, open source screen recorder, AI transcripts, AI video summaries, agent-native clips, meeting notes, meeting recorder, granola alternative, wisprflow alternative, loom alternative, voice dictation, voice to text, push to talk dictation, calendar sync, action items, transcription, video messaging, async communication, shareable video links",
-    },
-  ]);
+  withTemplateSocialImage(
+    [
+      {
+        title: "Agent-Native Clips — Open-Source Loom + Granola + Wisprflow",
+      },
+      {
+        name: "description",
+        content:
+          "Screen recording, calendar-synced meeting notes, and Fn-hold voice dictation in one app you own. Auto-transcripts, AI summaries, and shareable links — open source alternative to Loom, Granola, and Wisprflow.",
+      },
+      {
+        property: "og:title",
+        content: "Agent-Native Clips — Open-Source Loom + Granola + Wisprflow",
+      },
+      {
+        property: "og:description",
+        content:
+          "Screen recordings, meeting notes from your calendar, and push-to-talk voice dictation — all transcribed, summarized, and yours to own.",
+      },
+      {
+        name: "keywords",
+        content:
+          "screen recording, async video, open source screen recorder, AI transcripts, AI video summaries, agent-native clips, meeting notes, meeting recorder, granola alternative, wisprflow alternative, loom alternative, voice dictation, voice to text, push to talk dictation, calendar sync, action items, transcription, video messaging, async communication, shareable video links",
+      },
+    ],
+    "Clips",
+  );
 
 const template = templates.find((t) => t.slug === "clips")!;
 

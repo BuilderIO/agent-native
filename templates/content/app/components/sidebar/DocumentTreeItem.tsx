@@ -2,6 +2,7 @@ import { useState } from "react";
 import {
   IconChevronRight,
   IconDatabase,
+  IconFolder,
   IconFileText,
   IconPlus,
   IconStar,
@@ -53,8 +54,14 @@ interface DocumentTreeItemProps {
 }
 
 export function getDocumentSidebarIconKind(
-  document: Pick<DocumentTreeNode, "icon" | "database">,
+  document: Pick<DocumentTreeNode, "icon" | "database" | "source">,
 ) {
+  if (
+    document.source?.mode === "local-files" &&
+    document.source.kind === "folder"
+  ) {
+    return "folder";
+  }
   if (document.icon?.trim()) return "custom";
   if (document.database) return "database";
   return "page";
@@ -63,13 +70,16 @@ export function getDocumentSidebarIconKind(
 export function DocumentSidebarIcon({
   document,
 }: {
-  document: Pick<DocumentTreeNode, "icon" | "database">;
+  document: Pick<DocumentTreeNode, "icon" | "database" | "source">;
 }) {
   const iconKind = getDocumentSidebarIconKind(document);
 
   if (iconKind === "custom") return <>{document.icon}</>;
   if (iconKind === "database") {
     return <IconDatabase size={14} className="text-muted-foreground" />;
+  }
+  if (iconKind === "folder") {
+    return <IconFolder size={14} className="text-muted-foreground" />;
   }
   return <IconFileText size={14} className="text-muted-foreground" />;
 }
@@ -89,12 +99,15 @@ export function DocumentTreeItem({
   const expanded = expandedIds.has(node.id);
   const hasChildren = node.children.length > 0;
   const isActive = node.id === activeId;
+  const isLocalFileNode = node.source?.mode === "local-files";
+  const isLocalFolder = isLocalFileNode && node.source?.kind === "folder";
   const canEdit = node.canEdit !== false;
   const canManage =
     node.canManage === true ||
     node.accessRole === "owner" ||
     node.accessRole === "admin";
   const hasMenuActions = canEdit || canManage;
+  const canCreateChild = canEdit && !isLocalFileNode;
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const indent = depth * 12 + 12;
   const rowWidth =
@@ -110,7 +123,7 @@ export function DocumentTreeItem({
     isDragging,
   } = useSortable({
     id: node.id,
-    disabled: !canEdit,
+    disabled: !canEdit || isLocalFileNode,
   });
 
   return (
@@ -123,12 +136,12 @@ export function DocumentTreeItem({
       }}
     >
       <div
-        {...attributes}
-        {...listeners}
+        {...(isLocalFileNode ? {} : attributes)}
+        {...(isLocalFileNode ? {} : listeners)}
         aria-label={node.title || "Untitled"}
         className={cn(
           "group relative flex min-w-56 items-center gap-1.5 rounded-md py-[5px] pr-2 text-sm cursor-pointer select-none",
-          canEdit && "cursor-grab active:cursor-grabbing",
+          canEdit && !isLocalFileNode && "cursor-grab active:cursor-grabbing",
           isDragging && "bg-accent/70 text-accent-foreground shadow-sm",
           isActive
             ? "bg-accent text-accent-foreground"
@@ -138,7 +151,13 @@ export function DocumentTreeItem({
           paddingLeft: `${indent}px`,
           width: rowWidth === undefined ? undefined : `${rowWidth}px`,
         }}
-        onClick={() => onSelect(node.id)}
+        onClick={() => {
+          if (isLocalFolder && hasChildren) {
+            onToggleExpanded(node.id);
+            return;
+          }
+          onSelect(node.id);
+        }}
         aria-expanded={hasChildren ? expanded : undefined}
       >
         <span className="relative flex-shrink-0 w-5 h-5">
@@ -229,7 +248,7 @@ export function DocumentTreeItem({
             </DropdownMenu>
           )}
 
-          {canEdit && (
+          {canCreateChild && (
             <Tooltip>
               <TooltipTrigger asChild>
                 <button

@@ -223,6 +223,34 @@ describe("nfm converter — structural parsing", () => {
     expect(doc.content[0].content?.[0].type).toBe("paragraph");
   });
 
+  it("models local MDX components as source-preserving atoms", () => {
+    const source = L(
+      '<FrameworkTabs framework="react" tone="success">',
+      "Rendered child content from MDX.",
+      "</FrameworkTabs>",
+    );
+    const doc = nfmToDoc(source);
+    expect(doc.content[0].type).toBe("localMdxComponent");
+    expect(doc.content[0].attrs?.name).toBe("FrameworkTabs");
+    expect(JSON.parse(String(doc.content[0].attrs?.propsJson))).toEqual({
+      framework: "react",
+      tone: "success",
+    });
+    expect(doc.content[0].attrs?.children).toBe(
+      "Rendered child content from MDX.",
+    );
+    expect(docToNfm(doc)).toBe(source);
+  });
+
+  it("marks local MDX components with JSX props as unsupported previews", () => {
+    const source = "<Chart compact columns={3} items={[1, 2, 3]} />";
+    const doc = nfmToDoc(source);
+    expect(doc.content[0].type).toBe("localMdxComponent");
+    expect(doc.content[0].attrs?.name).toBe("Chart");
+    expect(doc.content[0].attrs?.unsupportedProps).toBe(true);
+    expect(docToNfm(doc)).toBe(source);
+  });
+
   it("parses table header cells and cell colors", () => {
     const doc = nfmToDoc(
       '<table header-row="true">\n<tr>\n<td>A</td>\n</tr>\n<tr>\n<td color="red">b</td>\n</tr>\n</table>',

@@ -2,35 +2,38 @@ import { Link } from "react-router";
 import { useState } from "react";
 import { templates, trackEvent } from "../components/TemplateCard";
 import { TemplateDocsLink } from "../components/template-docs";
-import { withDefaultSocialImage } from "../seo";
+import { withTemplateSocialImage } from "../seo";
 
 export const meta = () =>
-  withDefaultSocialImage([
-    {
-      title:
-        "Agent-Native Analytics — Open Source Alternative to Amplitude & Mixpanel",
-    },
-    {
-      name: "description",
-      content:
-        "Build AI-powered analytics dashboards you own. Open source alternative to Amplitude, Mixpanel, and Looker. Multiple data connectors, SQL query explorer, reusable dashboards, data dictionary, and natural language chart generation.",
-    },
-    {
-      property: "og:title",
-      content:
-        "Agent-Native Analytics — Open Source Alternative to Amplitude & Mixpanel",
-    },
-    {
-      property: "og:description",
-      content:
-        "Build AI-powered analytics dashboards you own. Multiple data connectors, SQL query explorer, and natural language chart generation.",
-    },
-    {
-      name: "keywords",
-      content:
-        "AI analytics, open source analytics, Amplitude alternative, Mixpanel alternative, Looker alternative, AI dashboard builder, AI data visualization, agent-native analytics, AI-powered BI tool, open source business intelligence, AI chart generator, natural language SQL, BigQuery dashboard",
-    },
-  ]);
+  withTemplateSocialImage(
+    [
+      {
+        title:
+          "Agent-Native Analytics — Open Source Alternative to Amplitude & Mixpanel",
+      },
+      {
+        name: "description",
+        content:
+          "Build AI-powered analytics dashboards you own. Open source alternative to Amplitude, Mixpanel, and Looker. Multiple data connectors, SQL query explorer, reusable dashboards, data dictionary, and natural language chart generation.",
+      },
+      {
+        property: "og:title",
+        content:
+          "Agent-Native Analytics — Open Source Alternative to Amplitude & Mixpanel",
+      },
+      {
+        property: "og:description",
+        content:
+          "Build AI-powered analytics dashboards you own. Multiple data connectors, SQL query explorer, and natural language chart generation.",
+      },
+      {
+        name: "keywords",
+        content:
+          "AI analytics, open source analytics, Amplitude alternative, Mixpanel alternative, Looker alternative, AI dashboard builder, AI data visualization, agent-native analytics, AI-powered BI tool, open source business intelligence, AI chart generator, natural language SQL, BigQuery dashboard",
+      },
+    ],
+    "Analytics",
+  );
 
 const template = templates.find((t) => t.slug === "analytics")!;
 

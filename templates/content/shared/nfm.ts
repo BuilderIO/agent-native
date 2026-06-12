@@ -35,6 +35,10 @@
  * the editor's typed data). This module stays React-free — it only consults the
  * content registry's tag set (`@agent-native/core/blocks/server` config) to tell
  * a registered PascalCase block tag from a lowercase Notion container tag.
+ *
+ * Local-file content can also use repo-local MDX components. Unknown PascalCase
+ * tags become `localMdxComponent` atoms that preserve their exact source while
+ * exposing simple string props for the editor preview layer.
  */
 
 import { isRegistryBlockTag, registryBlockSpecByTag } from "./nfm-registry.js";
@@ -134,6 +138,13 @@ function parseAttrs(raw: string): Record<string, string> {
   let m: RegExpExecArray | null;
   while ((m = re.exec(raw))) attrs[m[1]] = unescapeAttr(m[2]);
   return attrs;
+}
+function hasUnsupportedJsxProps(raw: string): boolean {
+  const withoutDoubleQuotedStrings = raw.replace(/"[^"]*"/g, '""');
+  return (
+    /\s[a-zA-Z_:][\w:-]*\s*=\s*(?:\{|`|')/.test(withoutDoubleQuotedStrings) ||
+    /\s[a-zA-Z_:][\w:-]*(?=\s*\/?>)/.test(withoutDoubleQuotedStrings)
+  );
 }
 
 // Trailing `{toggle="true" color="red"}` attribute list on a block line.
@@ -662,13 +673,12 @@ function serializeBlock(node: PMNode, indent: number): string[] {
       return serializeBlockAtom(node, ind);
     case "registryBlock":
       return serializeRegistryBlock(node, ind);
+    case "localMdxComponent":
+      return serializeRawSourceBlock(node, ind);
     default: {
       // Unknown block: preserve its raw text if present so nothing is lost.
-      if (typeof node.attrs?.__raw === "string") {
-        return (node.attrs.__raw as string)
-          .split("\n")
-          .map((l) => indentStr(ind) + l);
-      }
+      const raw = serializeRawSourceBlock(node, ind);
+      if (raw.length > 0) return raw;
       const inline = serializeInline(node.content);
       return inline ? [indentStr(ind) + inline] : [];
     }
@@ -836,6 +846,13 @@ function serializeRegistryBlock(node: PMNode, ind: number): string[] {
         : "";
   if (!mdx) return [];
   return mdx.split("\n").map((l) => (l.length ? indentStr(ind) + l : l));
+}
+
+function serializeRawSourceBlock(node: PMNode, ind: number): string[] {
+  if (typeof node.attrs?.__raw !== "string" || !node.attrs.__raw) return [];
+  return (node.attrs.__raw as string)
+    .split("\n")
+    .map((l) => (l.length ? indentStr(ind) + l : l));
 }
 
 function serializeList(node: PMNode, indent: number): string[] {
@@ -1194,6 +1211,20 @@ function parseSingleBlock(
     return parseRegistryBlock(lines, start, indent, rel, registryTag);
   }
 
+  // Repo-local MDX component (PascalCase element not owned by the shared block
+  // registry). It remains source-of-truth MDX on disk, but can render through
+  // the local `components/*` preview bridge in the editor.
+  const localMdxComponentTag = matchLocalMdxComponentOpen(dedent);
+  if (localMdxComponentTag) {
+    return parseLocalMdxComponent(
+      lines,
+      start,
+      indent,
+      rel,
+      localMdxComponentTag,
+    );
+  }
+
   // Container tags
   const containerTag = matchContainerOpen(dedent);
   if (containerTag) {
@@ -1255,6 +1286,13 @@ function matchRegistryBlockOpen(dedent: string): string | null {
   if (!m) return null;
   const tag = m[1];
   return registryBlockSpecByTag(tag) ? tag : null;
+}
+
+function matchLocalMdxComponentOpen(dedent: string): string | null {
+  const m = dedent.match(/^<([A-Z][\w-]*)(?:[\s/>]|$)/);
+  if (!m) return null;
+  const tag = m[1];
+  return registryBlockSpecByTag(tag) ? null : tag;
 }
 
 /**
@@ -1384,6 +1422,81 @@ function parseRegistryBlock(
     },
   };
   return { nodes: [withIndentAttr(node)], end };
+}
+
+function parseLocalMdxComponent(
+  lines: string[],
+  start: number,
+  indent: number,
+  rel: number,
+  tag: string,
+): ParseResult {
+  const withIndentAttr = (node: PMNode): PMNode => {
+    if (rel > 0) node.attrs = { ...(node.attrs || {}), indent: rel };
+    return node;
+  };
+  const closeTag = `</${tag}>`;
+  const dedented = lines.map((l) => stripTabs(l, indent));
+
+  let openEndLine = start;
+  let selfClosing = false;
+  {
+    let joined = "";
+    for (let i = start; i < lines.length; i++) {
+      joined += (i === start ? "" : "\n") + dedented[i];
+      const res = scanOpenTagEnd(joined);
+      if (res) {
+        openEndLine = i;
+        selfClosing = res.selfClosing;
+        break;
+      }
+      openEndLine = i;
+    }
+  }
+
+  let end: number;
+  if (selfClosing) {
+    end = openEndLine + 1;
+  } else {
+    let depth = 1;
+    let i = openEndLine + 1;
+    for (; i < lines.length; i++) {
+      const li = leadingTabs(lines[i]);
+      const ld = lines[i].slice(li);
+      if (li >= indent) {
+        if (new RegExp(`^<${tag}(?:[\\s/>]|$)`).test(ld)) depth++;
+        if (ld.trimEnd().endsWith(closeTag)) {
+          depth--;
+          if (depth === 0) break;
+        }
+      }
+    }
+    end = Math.min(i + 1, lines.length);
+  }
+
+  const rawLines = dedented.slice(start, end);
+  const raw = rawLines.join("\n");
+  const openingSource = dedented.slice(start, openEndLine + 1).join("\n");
+  const props = parseAttrs(openingSource);
+  const node: PMNode = {
+    type: "localMdxComponent",
+    attrs: {
+      name: tag,
+      propsJson: JSON.stringify(props),
+      unsupportedProps: hasUnsupportedJsxProps(openingSource),
+      children: selfClosing ? "" : extractLocalMdxComponentChildren(raw, tag),
+      __raw: raw,
+    },
+  };
+  return { nodes: [withIndentAttr(node)], end };
+}
+
+function extractLocalMdxComponentChildren(raw: string, tag: string): string {
+  const open = scanOpenTagEnd(raw);
+  if (!open || open.selfClosing) return "";
+  const closeIndex = raw.lastIndexOf(`</${tag}>`);
+  if (closeIndex < open.end) return "";
+  return raw.slice(open.end, closeIndex).trim();
 }
 
 function matchContainerOpen(dedent: string): string | null {

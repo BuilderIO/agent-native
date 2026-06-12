@@ -387,7 +387,19 @@ and footer actions that are visible in the workflow.
 **Modify, don't redesign.** When the task changes an existing screen, reproduce
 the current screen's real layout and footprint FIRST, then change only the delta
 and call it out with a single annotation. Do not restack the page into a new
-layout. For net-new surfaces, compose from the real app shell.
+layout. For net-new surfaces, compose from the real app shell. Inspect the
+actual app components before drawing an existing product: sidebar density,
+toolbar actions, overflow menus, property panels, and framework chrome should
+match the product unless the plan intentionally changes them.
+
+**Keep product screens pure.** A product wireframe shows the app state a user
+would actually see. Do not embed file contracts, architecture arrows, repo pills,
+mode explanations, or implementation callouts inside the screen just to explain
+the plan. Put those in canvas annotations, a separate diagram, or the document
+body. Secondary UI such as properties, history, sync, export, or agent controls
+should appear where the real product would put them: an overflow popover, sheet,
+panel, or separate framework sidebar state, not a generic permanent right
+inspector unless that inspector is the actual design.
 
 **Classify mockup scope before implementation.** Before turning a plan mockup
 into source code, decide whether each artboard represents the whole page/app
@@ -617,6 +629,11 @@ the canonical runtime shape; MDX is the repo-friendly authoring/export surface.
 In the browser, humans edit \`rich-text\` prose inline; agents should still use
 \`update-rich-text\` content patches or source patches for prose, and use
 comments/structured patches for canvas, artboard, wireframe, and diagram edits.
+Never send a partial top-level \`content\` object as a shortcut to add a canvas,
+frame, or block: \`content\` is a full structured replacement, so omitted blocks
+or surfaces can disappear. If a full replacement is truly unavoidable, read the
+complete source/JSON first, include every existing block and surface in the new
+payload, and verify the source/export immediately after the update.
 
 **Never emit a titled artboard with no interior wireframe content.** Every artboard
 you place on the canvas must carry an \`html\` wireframe or reference a wireframe
@@ -643,6 +660,12 @@ are easier to produce. If the canvas/prototype surface cannot represent the
 requested UI fidelity, still keep the closest top-surface representation and
 call out or extend the needed renderer capability. A skeleton/loading mockup
 also lives in a canvas artboard — never move a mockup out of the canvas.
+
+For abstract product concepts, use the canvas to create the first "I get it"
+moment: one real app state near the top showing how the concept appears to a
+user, followed by separate annotations or diagrams for mechanics. Do not make
+the first artboard a hybrid of app UI and architecture notes; the app screen
+should be inspectable as product UI on its own.
 
 **Legacy kit tree.** Older plans set a \`screen\` array of \`{ el, ...props }\` kit
 nodes instead of \`html\`; the renderer still accepts and displays it, but new
@@ -673,7 +696,25 @@ conversation. Do not write phrases like "preserve the previous plan", "do not
 drop the old idea", "as discussed above", "this revision", "unlike the prior
 version", or "correction from the earlier plan". Fold the right decisions into
 the plan as normal objective, architecture, scope, and roadmap prose. A reviewer
-who opens the plan from a link with no chat history should understand it.
+who opens the plan from a link with no chat history should understand it. Avoid
+negative framing that only makes sense against absent context ("not the old
+mode", "not just X") unless the contrast is defined in the plan and genuinely
+helps; state the positive model directly.
+
+**Make abstract plans instantly legible.** If the idea is broad, strategic, or
+intended for a third-party reviewer, put one concrete product snapshot near the
+top before dense architecture, mode tables, manifests, or roadmaps. For
+UI-capable concepts, that snapshot is usually a top-canvas app state plus a
+short paragraph that says what the user sees and what changes under the hood.
+Then put mechanics, data flow, sync boundaries, and implementation detail in
+separate diagrams or document sections.
+
+**Preserve the user's level of abstraction.** A motivating use case is not
+automatically the architecture. When the prompt describes a broader framework,
+product mode, or reusable primitive, separate the reusable core from specific
+apps, providers, customers, scripts, or launch examples. Use the concrete
+example to make the plan understandable, then make clear which parts are core,
+which are app-specific adapters, and which are future examples.
 
 **When top visuals exist, they and the document never duplicate each other.**
 For UI work, the UI story lives in the top visual surface: canvas artboards for
@@ -769,6 +810,20 @@ Keep non-answerable assumptions or risks as concise \`callout\` blocks in
 the relevant section. Never bury a questions/decisions wall inside the plan
 narrative, and never ask the same question twice.
 
+For complex plans, do not end without an open-question audit. If architecture,
+scope, UX, data shape, rollout, provider mapping, or ownership still depends on
+a choice, either commit to a recommendation with rationale or add it to the
+bottom form with a recommended default. A complex plan with no open questions is
+fine only when every meaningful decision has been explicitly made.
+
+**Verification must exercise the real workflow.** The final verification section
+should go beyond typecheck/unit tests when the plan changes UI, local files,
+sync, providers, browser behavior, or multi-app flows. Include at least one
+end-to-end smoke that matches the user journey, such as a fresh repo/folder,
+real manifest or data fixture, browser interaction, save/sync action, and an
+on-disk or database assertion. Name the command or manual browser path when it
+is known.
+
 **\`custom-html\` is a bounded escape hatch only** — a single complete fragment
 inside a block, never \`html\`/\`head\`/\`body\`/\`script\` tags, never a generic
 placeholder, density demo, or proof that custom HTML works. Prefer the native
@@ -805,6 +860,17 @@ changes a multi-step completion flow, the same top area includes a Prototype tab
 whose screens use the same labels and states as the canvas artboards, with
 \`data-goto\` controls for the sequence. This is the bar.
 
+**GOOD.** A broad product-architecture plan opens with a plain recommendation
+and one concrete app state before the abstraction. The first canvas artboard is
+pure product UI that matches the current app shell; nearby notes explain the
+user-visible delta. A separate diagram below shows the mechanics, such as file
+or data flow. The document then separates the reusable core from app/provider
+adapters and examples, covers contracts, folder or schema shape, sync
+boundaries, roadmap, non-goals, a bottom Open Questions form for unresolved
+decisions, and a verification section with at least one realistic end-to-end
+smoke. A reviewer who was not in the chat gets the idea from the top snapshot
+before reading the technical plan.
+
 **GOOD.** A \`/visual-plan\` for a backend architecture review: no top canvas.
 The document opens with context and a legend, then repeats recommendation cards:
 title, confidence/category badges, a monospace grid of real file paths, one
@@ -824,7 +890,10 @@ tab; a mockup escaped into a document \`custom-html\` block; and a marketing-sty
 document with a hero heading and value props that just restates what the canvas
 already shows. Also bad: an architecture-only plan forced into a top canvas of
 labeled boxes with overlapping text, where the actual code evidence and
-recommendations live elsewhere. Never produce this.
+recommendations live elsewhere; a product wireframe that mixes a real screen
+with repo names, file-contract arrows, architecture explanations, or a made-up
+permanent inspector; and a plan that describes itself as a revision of a prior
+conversation instead of a standalone proposal. Never produce this.
 
 <!-- SHARED-CORE:exemplar END -->`;
 
@@ -947,6 +1016,12 @@ plan needs a richer review surface.
   even if most of the feature ships later. Then scope to the smallest first cut that
   proves the approach without foreclosing it, stating both what is in and what is
   explicitly deferred.
+- **Keep examples at the right altitude.** When the user's idea is a broad
+  framework, product, or operating-model change, do not collapse it into the
+  first concrete example, provider, or sync path they mention. Separate the core
+  abstraction from motivating examples and app/provider adapters. Use examples
+  to make the plan legible, but label them as examples unless they are the whole
+  requested scope.
 - **Publish standalone plans.** If the user pasted, referenced, or already has a
   Codex / Claude Code / Markdown plan, treat it as source material, but rewrite
   the published plan as a clean standalone proposal. Preserve the source plan's
@@ -954,6 +1029,13 @@ plan needs a richer review surface.
   revision language such as "preserve the prior plan", "do not drop the old
   idea", "unlike the previous version", or "this revision changes...". A reader
   who never saw the chat or earlier drafts should understand the plan.
+- **Make the first read concrete.** If the plan is meant to be shared with
+  someone outside the chat, or if the concept is abstract, lead near the top with
+  one concrete product example before mode tables, architecture, or roadmaps. For
+  UI-capable concepts, that usually means a top-canvas app state that shows the
+  real user workflow in product terms. Do not rely on phrases that only make
+  sense in conversation, and do not frame the plan as "not the old idea"; state
+  the positive model directly.
 - **Planning is read-only.** Make no source edits while building or reviewing the
   plan. Start editing only after the user approves the direction.
 - **Clarify vs. assume.** Do not ask how to build it — explore and present the
@@ -963,7 +1045,10 @@ plan needs a richer review surface.
   questions before finalizing. Do not call \`create-visual-questions\` from
   \`/visual-plan\`. Otherwise state the assumption explicitly and proceed, and
   keep anything unresolved in the plan's single bottom \`question-form\` Open
-  Questions block.
+  Questions block. For complex plans, do a final open-question pass before
+  handoff: if a decision would affect architecture, scope, UX, data shape, or
+  rollout, either decide it in the plan with rationale or put it in that bottom
+  form with a recommended default.
 - **The plan is the approval gate.** After surfacing it, ask the user to review
   and approve before you write code, and name which files/areas the work touches.
   Presenting the plan and requesting sign-off is the approval step — do not ask a
@@ -1010,8 +1095,10 @@ exception.
    producing a standalone plan document, not a revision memo.
 3. For UI/product plans, compose the top canvas first with the primary
    wireframes and annotated states, then write the document with native blocks
-   (see \`references/canvas.md\` and \`references/document-quality.md\`). Keep the
-   document close to the standalone
+   (see \`references/canvas.md\` and \`references/document-quality.md\`). For
+   broad product architecture plans with a user-facing implication, add a
+   concrete "what this looks like in the app" visual before the abstract
+   architecture or mode tables. Keep the document close to the standalone
    Markdown plan the agent would normally output. If an existing plan was
    provided, carry forward the right facts and decisions without referring to
    the previous draft or explaining how this version differs. For non-visual
@@ -1037,9 +1124,13 @@ exception.
    review events, and any focused screenshots from browser handoff as the source
    of truth for exactly what changed and exactly what each comment points at.
 6. Apply changes with \`update-visual-plan\`, preferring targeted \`contentPatches\`.
-   When the user wants source-control friendly edits, use
-   \`patch-visual-plan-source\` against the MDX files instead of regenerating the
-   plan.
+   Treat the top-level \`content\` payload as a full replacement, not a merge; do
+   not send a partial \`content\` object to add a canvas or one block. If a full
+   replacement is unavoidable, first read the complete plan source/content, carry
+   forward every existing block and visual surface, and verify the source/export
+   afterward so the document body was not truncated. When the user wants
+   source-control friendly edits, use \`patch-visual-plan-source\` against the MDX
+   files instead of regenerating the plan.
 7. Export with \`export-visual-plan\` only when the user wants a shareable receipt
    or repo-check-in artifacts.
 
@@ -1084,6 +1175,20 @@ beside frames with \`targetId\` plus \`placement\`; keep implementation details,
 tradeoffs, file maps, data contracts, risks, and verification in the document
 body below the canvas.
 
+Keep product wireframes and explanatory/meta diagrams separate. Start with pure
+screens that look like the app state under discussion, without callout prose or
+architecture notes embedded inside the UI. Put arrows, labels, contracts, data
+flow, and mode explanations in separate annotations, separate canvas diagrams,
+or the document body.
+
+When the plan touches an existing app, inspect the current shell/components
+before drawing. The first artboard should look like the real app at the same
+density: existing sidebars, toolbar placement, overflow menus, app chrome, and
+framework agent chrome stay in their real places. Model secondary surfaces as
+separate states, such as a top-right overflow popover, sheet, panel, loading
+state, or separate AgentSidebar, rather than inventing a permanent inspector or
+folding framework chrome into the product UI.
+
 - **No visual surface** for architecture-only, backend-only, data migration,
   copy-only, or otherwise non-visual plans. Do not use the top canvas for
   architecture diagrams, dependency maps, file plans, API contracts, or
@@ -1111,19 +1216,38 @@ design direction.
 
 ## Wireframe quality — read \`references/wireframe.md\`
 
-${WIREFRAME_REFERENCE_POINTER}
+UI recap/plan wireframes must meet a strict quality bar — full-width chrome,
+pinned bottom bars, real product content, before/after comparability, the right
+\`surface\` preset, \`--wf-*\` tokens instead of hex, and no \`<html>\`/\`<style>\`/font
+tags. Before authoring ANY wireframe / \`<Screen>\` / \`WireframeBlock\`, READ
+\`references/wireframe.md\` in this skill directory — it is the single source of
+truth for HTML wireframe quality, shared word for word with \`/visual-plan\`
+and \`/visual-recap\`. Do not author wireframes from memory.
 
 ## Canvas — read \`references/canvas.md\`
 
-${CANVAS_REFERENCE_POINTER}
+The canvas is the single source of truth for static UI mockups: the \`surface\`
+locks each artboard's footprint, mixed surfaces lay out
+in lanes, annotations are plain-text designer notes anchored by
+\`targetId\`/\`placement\`, and edits are surgical \`contentPatches\`. Before
+authoring or editing ANY canvas, artboard, or annotation, READ
+\`references/canvas.md\` in this skill directory — it is the single source of truth
+for canvas/artboard mechanics. Do not author canvas layouts from memory.
 
 ## Document quality — read \`references/document-quality.md\`
 
-${DOCUMENT_QUALITY_REFERENCE_POINTER}
+The document is a serious technical plan, not marketing: outcome-first,
+prose-first, self-contained, built from the right native blocks, with open
+questions in a single bottom \`question-form\` and a pre-handoff visual check.
+Before authoring the plan document, READ \`references/document-quality.md\` in this
+skill directory — it is the single source of truth for the document quality bar.
+Do not write the document from memory.
 
 ## Good vs. bad exemplar — read \`references/exemplar.md\`
 
-${EXEMPLAR_REFERENCE_POINTER}
+For a worked example of the bar — a great UI-first plan and \`/visual-plan\`, plus
+the anti-patterns to avoid — READ \`references/exemplar.md\` in this skill
+directory before authoring a plan.
 
 ## Tool Guidance
 
@@ -1228,7 +1352,54 @@ by email or role. Gate visibility before sharing any plan that covers
 unreleased or private work — default to the narrowest scope that meets the
 review need.
 
-${PLAN_SETUP_AUTH_MD}
+## Setup & Authentication
+
+There are two ways into Plans.
+
+**Coding agent (CLI).** Install once with the Agent-Native CLI. The command
+installs the Plans skills, registers the hosted Plans MCP connector, and runs
+auth/setup for the selected local client(s) in the same step (a one-time browser
+sign-in at setup — this is intended), so the first tool call in that client does
+not hit an OAuth wall:
+
+\`\`\`bash
+npx @agent-native/core@latest skills add visual-plan
+\`\`\`
+
+After that, \`/visual-plan\` and \`/visual-recap\` are the two installed slash
+commands. The other planning modes (\`create-ui-plan\`, \`create-prototype-plan\`,
+\`create-plan-design\`, \`create-visual-questions\`) are MCP tools reachable from
+\`/visual-plan\`, not separate slash commands. Pass \`--no-connect\` to register
+the connector without authenticating, then run
+\`npx @agent-native/core@latest connect https://plan.agent-native.com --client all\`
+whenever you are ready, or choose a narrower \`--client\`. Auth and MCP tool
+loading are per client config/session.
+
+**Browser (people you share with).** Open the Plans editor and create & edit
+with no sign-up — you work as a guest. Sign in only when you want to save or
+share; signing in claims the plans you made as a guest into your account.
+
+Sharing and commenting require an account: public/shared plans are viewable by
+anyone with the link, but commenting on them needs an agent-native account.
+
+For fully offline, no-account use, run the Plans app locally and sync plans to
+your repo as MDX. This local mode is a separate advanced path, not the default
+hosted flow.
+
+If a Plans tool returns \`needs auth\`, \`Unauthorized\`, or \`Session terminated\`,
+do not keep retrying the tool. Stop and give the user the reconnect step for the
+client they are using: Codex/Codex Desktop should run
+\`npx -y @agent-native/core@latest reconnect https://plan.agent-native.com --client codex\`
+and start a new Codex session; Claude Code should run \`/mcp\` and choose
+Authenticate/Reconnect for the plan connector, or run the reconnect command with
+\`--client claude-code\` and restart Claude. To refresh every local client config
+that already has the Plan entry, use \`--client all\`, then restart/reload each
+client. Reconnect re-authenticates WITHOUT reinstalling and finds the entry by
+URL regardless of connector name. Never reinstall from scratch just to fix auth.
+Continue once the connector is available.
+
+Hosted default: connect \`https://plan.agent-native.com/_agent-native/mcp\`. Do
+not put shared secrets in skill files.
 `;
 
 export const VISUAL_RECAP_SKILL_MD = `---

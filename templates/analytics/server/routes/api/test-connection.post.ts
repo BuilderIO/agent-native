@@ -4,6 +4,7 @@ import {
   withRequestContextFromEvent,
 } from "../../lib/credentials";
 import { readBody } from "@agent-native/core/server";
+import { resolveAnalyticsGongCredentials } from "../../lib/provider-credentials";
 
 export default defineEventHandler(async (event) => {
   const body = await readBody(event);
@@ -205,14 +206,14 @@ export default defineEventHandler(async (event) => {
         }
 
         case "gong": {
-          const accessKey = await resolveCredential("GONG_ACCESS_KEY", ctx);
-          const secret = await resolveCredential("GONG_ACCESS_SECRET", ctx);
+          const credentials = await resolveAnalyticsGongCredentials({ ctx });
           const apiBase =
             (await resolveCredential("GONG_API_BASE", ctx)) ||
             "https://api.gong.io/v2";
-          if (!accessKey || !secret)
-            return { ok: false, error: "Missing credentials" };
-          const auth = `Basic ${Buffer.from(`${accessKey}:${secret}`).toString("base64")}`;
+          if (!credentials) return { ok: false, error: "Missing credentials" };
+          const auth = `Basic ${Buffer.from(
+            `${credentials.accessKey}:${credentials.accessSecret}`,
+          ).toString("base64")}`;
           const res = await fetch(
             `${apiBase.replace(/\/+$/, "")}/users?limit=1`,
             {

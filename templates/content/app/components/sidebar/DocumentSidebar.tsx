@@ -172,6 +172,9 @@ export function DocumentSidebar({
   const privateTree = tree.filter((node) => node.visibility !== "org");
   const organizationTree = tree.filter((node) => node.visibility === "org");
   const favorites = documents.filter((d) => d.isFavorite);
+  const localFileMode = documents.some(
+    (document) => document.source?.mode === "local-files",
+  );
   const parentByDocumentId = useMemo(
     () => new Map(documents.map((doc) => [doc.id, doc.parentId])),
     [documents],
@@ -214,6 +217,30 @@ export function DocumentSidebar({
 
   const handleCreatePage = useCallback(
     async (parentId?: string) => {
+      if (localFileMode) {
+        try {
+          const created = await createDocument.mutateAsync({
+            title: "",
+            parentId: parentId ?? undefined,
+          });
+          queryClient.setQueryData(
+            ["action", "get-document", { id: created.id }],
+            created,
+          );
+          queryClient.invalidateQueries({
+            queryKey: ["action", "list-documents"],
+          });
+          navigateToDocument(created.id);
+          onNavigate?.();
+        } catch (err) {
+          toast.error("Failed to create page", {
+            description:
+              err instanceof Error ? err.message : "Something went wrong",
+          });
+        }
+        return;
+      }
+
       const id = nanoid();
       const now = new Date().toISOString();
       const tempDoc: Document = {
@@ -245,15 +272,26 @@ export function DocumentSidebar({
       onNavigate?.();
 
       try {
-        await createDocument.mutateAsync({
+        const created = await createDocument.mutateAsync({
           id,
           title: "",
           parentId: parentId ?? undefined,
         });
+        const nextId = created?.id || id;
+        if (nextId !== id) {
+          queryClient.removeQueries({
+            queryKey: ["action", "get-document", { id }],
+          });
+          queryClient.setQueryData(
+            ["action", "get-document", { id: nextId }],
+            created,
+          );
+          navigateToDocument(nextId);
+        }
         // Replace optimistic doc with real server doc + clear any 404 error
         // state from the in-flight fetch that ran before create completed.
         queryClient.invalidateQueries({
-          queryKey: ["action", "get-document", { id }],
+          queryKey: ["action", "get-document", { id: nextId }],
         });
         queryClient.invalidateQueries({
           queryKey: ["action", "list-documents"],
@@ -273,7 +311,14 @@ export function DocumentSidebar({
         });
       }
     },
-    [createDocument, navigate, navigateToDocument, onNavigate, queryClient],
+    [
+      createDocument,
+      localFileMode,
+      navigate,
+      navigateToDocument,
+      onNavigate,
+      queryClient,
+    ],
   );
 
   const handleDelete = useCallback(
@@ -285,9 +330,12 @@ export function DocumentSidebar({
       const survivingDocuments = documents.filter(
         (doc) => !deletedIds.has(doc.id),
       );
+      const navigationCandidates = localFileMode
+        ? survivingDocuments.filter((doc) => doc.source?.kind !== "folder")
+        : survivingDocuments;
       const nextDocument =
-        survivingDocuments.find((doc) => doc.isFavorite) ??
-        [...survivingDocuments].sort(compareDocumentsByPosition)[0] ??
+        navigationCandidates.find((doc) => doc.isFavorite) ??
+        [...navigationCandidates].sort(compareDocumentsByPosition)[0] ??
         null;
 
       queryClient.setQueryData(LIST_DOCUMENTS_QUERY_KEY, (old: unknown) => {
@@ -333,7 +381,14 @@ export function DocumentSidebar({
         });
       }
     },
-    [activeDocumentId, deleteDocument, documents, navigate, queryClient],
+    [
+      activeDocumentId,
+      deleteDocument,
+      documents,
+      localFileMode,
+      navigate,
+      queryClient,
+    ],
   );
 
   const handleReorderPage = useCallback(
@@ -631,7 +686,7 @@ export function DocumentSidebar({
           ) : (
             <>
               {/* Favorites */}
-              {favorites.length > 0 && (
+              {!localFileMode && favorites.length > 0 && (
                 <div className="mb-2">
                   <div className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1">
                     <IconStar size={10} />
@@ -662,45 +717,80 @@ export function DocumentSidebar({
                 </div>
               )}
 
-              {/* Private page tree */}
-              <div>
-                <div className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                  Private
-                </div>
-                <DndContext
-                  sensors={sensors}
-                  collisionDetection={closestCenter}
-                  onDragEnd={handleDragEnd}
-                >
-                  {isLoading ? (
-                    <div className="space-y-1 px-3 py-1">
-                      {[70, 55, 85, 60, 45].map((w, i) => (
-                        <div
-                          key={i}
-                          className="flex items-center gap-2 px-1 py-1.5"
-                        >
-                          <div className="h-3.5 w-3.5 rounded bg-muted animate-pulse flex-shrink-0" />
+              {localFileMode ? (
+                <div>
+                  <DndContext
+                    sensors={sensors}
+                    collisionDetection={closestCenter}
+                    onDragEnd={handleDragEnd}
+                  >
+                    {isLoading ? (
+                      <div className="space-y-1 px-3 py-1">
+                        {[70, 55, 85, 60, 45].map((w, i) => (
                           <div
-                            className="h-3.5 rounded bg-muted animate-pulse"
-                            style={{ width: `${w}%` }}
-                          />
+                            key={i}
+                            className="flex items-center gap-2 px-1 py-1.5"
+                          >
+                            <div className="h-3.5 w-3.5 rounded bg-muted animate-pulse flex-shrink-0" />
+                            <div
+                              className="h-3.5 rounded bg-muted animate-pulse"
+                              style={{ width: `${w}%` }}
+                            />
+                          </div>
+                        ))}
+                      </div>
+                    ) : privateTree.length === 0 ? (
+                      <div className="px-3 py-4 text-sm text-muted-foreground text-center">
+                        No files yet
+                      </div>
+                    ) : (
+                      renderDocumentTree(privateTree)
+                    )}
+                  </DndContext>
+                </div>
+              ) : (
+                <>
+                  {/* Private page tree */}
+                  <div>
+                    <div className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                      Private
+                    </div>
+                    <DndContext
+                      sensors={sensors}
+                      collisionDetection={closestCenter}
+                      onDragEnd={handleDragEnd}
+                    >
+                      {isLoading ? (
+                        <div className="space-y-1 px-3 py-1">
+                          {[70, 55, 85, 60, 45].map((w, i) => (
+                            <div
+                              key={i}
+                              className="flex items-center gap-2 px-1 py-1.5"
+                            >
+                              <div className="h-3.5 w-3.5 rounded bg-muted animate-pulse flex-shrink-0" />
+                              <div
+                                className="h-3.5 rounded bg-muted animate-pulse"
+                                style={{ width: `${w}%` }}
+                              />
+                            </div>
+                          ))}
                         </div>
-                      ))}
-                    </div>
-                  ) : privateTree.length === 0 ? (
-                    <div className="px-3 py-4 text-sm text-muted-foreground text-center">
-                      No private pages yet
-                    </div>
-                  ) : (
-                    renderDocumentTree(privateTree)
-                  )}
-                </DndContext>
-              </div>
+                      ) : privateTree.length === 0 ? (
+                        <div className="px-3 py-4 text-sm text-muted-foreground text-center">
+                          No private pages yet
+                        </div>
+                      ) : (
+                        renderDocumentTree(privateTree)
+                      )}
+                    </DndContext>
+                  </div>
+                </>
+              )}
 
               {/* New page button — private pages are the default */}
               {renderNewPageButton()}
 
-              {!isLoading && (
+              {!localFileMode && !isLoading && (
                 <div className="mt-3">
                   <div className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
                     Organization

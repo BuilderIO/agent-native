@@ -6,7 +6,10 @@ import {
   getRequestURL,
   type H3Event,
 } from "h3";
-import { resolveBuiltInAuthMarketing } from "./auth-marketing.js";
+import {
+  resolveBuiltInAuthMarketing,
+  resolveBuiltInAuthMarketingByName,
+} from "./auth-marketing.js";
 import { getAppName } from "./app-name.js";
 import { OG_FONT_FAMILY, resolveOgFontFiles } from "./og-fonts.js";
 
@@ -220,16 +223,31 @@ function textBlock({
     .join("")}</text>`;
 }
 
-function resolveDefaultAppName(event?: H3Event): string {
+export function resolveAgentNativeOgImageAppName(event?: H3Event): string {
+  const explicitAppName = cleanText(process.env.APP_NAME);
+  if (explicitAppName) {
+    return (
+      resolveBuiltInAuthMarketingByName(explicitAppName)?.appName ??
+      explicitAppName
+    );
+  }
+
   const requestHost = event
     ? (getHeader(event, "x-forwarded-host") ?? getHeader(event, "host"))
     : undefined;
   const requestPath = event ? getRequestURL(event).pathname : undefined;
-  return (
-    getAppName() ??
-    resolveBuiltInAuthMarketing({ requestHost, requestPath })?.appName ??
-    "Agent-Native"
-  );
+  const builtInAppName = resolveBuiltInAuthMarketing({
+    requestHost,
+    requestPath,
+  })?.appName;
+  if (builtInAppName) return builtInAppName;
+
+  const appName = getAppName();
+  if (appName) {
+    return resolveBuiltInAuthMarketingByName(appName)?.appName ?? appName;
+  }
+
+  return "Agent-Native";
 }
 
 function queryStringValue(
@@ -266,7 +284,8 @@ export function isResvgRuntimeUnavailableError(error: unknown): boolean {
 export function renderAgentNativeOgImageSvg(
   input: AgentNativeOgImageInput = {},
 ): string {
-  const appName = cleanText(input.appName) || resolveDefaultAppName();
+  const appName =
+    cleanText(input.appName) || resolveAgentNativeOgImageAppName();
   const title = cleanText(input.title) || titleFromAppName(appName);
   const accentText = cleanText(input.accentText) || DEFAULT_ACCENT_TEXT;
   const titleLayout = getTitleLayout(title);
@@ -358,7 +377,8 @@ export function createAgentNativeOgImageHandler(
     }
 
     const query = getQuery(event);
-    const appName = cleanText(options.appName) || resolveDefaultAppName(event);
+    const appName =
+      cleanText(options.appName) || resolveAgentNativeOgImageAppName(event);
     const input = {
       ...options,
       appName,

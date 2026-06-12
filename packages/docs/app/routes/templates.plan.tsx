@@ -2,35 +2,38 @@ import { Link } from "react-router";
 import { useState } from "react";
 import { templates, trackEvent } from "../components/TemplateCard";
 import { TemplateDocsLink } from "../components/template-docs";
-import { withDefaultSocialImage } from "../seo";
+import { withTemplateSocialImage } from "../seo";
 
 export const meta = () =>
-  withDefaultSocialImage([
-    {
-      title:
-        "Agent-Native Plans — Visual Planning for Codex, Claude Code & Coding Agents",
-    },
-    {
-      name: "description",
-      content:
-        "Give your coding agent a visual plan surface. Wireframes, diagrams, annotated code, prototypes, and shareable review links — installed in seconds as a skill for Codex, Claude Code, and any coding agent.",
-    },
-    {
-      property: "og:title",
-      content:
-        "Agent-Native Plans — Visual Planning for Codex, Claude Code & Coding Agents",
-    },
-    {
-      property: "og:description",
-      content:
-        "Give your coding agent a visual plan surface. Wireframes, diagrams, annotated code, and shareable review links.",
-    },
-    {
-      name: "keywords",
-      content:
-        "AI coding agent plans, visual planning, Codex visual plan, Claude Code plans, coding agent wireframe, agent plan skill, visual plan mode, AI diagram generator, agent-native plans, annotated code review, shareable agent plans",
-    },
-  ]);
+  withTemplateSocialImage(
+    [
+      {
+        title:
+          "Agent-Native Plans — Visual Planning for Codex, Claude Code & Coding Agents",
+      },
+      {
+        name: "description",
+        content:
+          "Give your coding agent a visual plan surface. Wireframes, diagrams, annotated code, prototypes, and shareable review links — installed in seconds as a skill for Codex, Claude Code, and any coding agent.",
+      },
+      {
+        property: "og:title",
+        content:
+          "Agent-Native Plans — Visual Planning for Codex, Claude Code & Coding Agents",
+      },
+      {
+        property: "og:description",
+        content:
+          "Give your coding agent a visual plan surface. Wireframes, diagrams, annotated code, and shareable review links.",
+      },
+      {
+        name: "keywords",
+        content:
+          "AI coding agent plans, visual planning, Codex visual plan, Claude Code plans, coding agent wireframe, agent plan skill, visual plan mode, AI diagram generator, agent-native plans, annotated code review, shareable agent plans",
+      },
+    ],
+    "Plans",
+  );
 
 const template = templates.find((t) => t.slug === "plan")!;
 

@@ -2,35 +2,38 @@ import { Link } from "react-router";
 import { useState } from "react";
 import { templates, trackEvent } from "../components/TemplateCard";
 import { TemplateDocsLink } from "../components/template-docs";
-import { withDefaultSocialImage } from "../seo";
+import { withTemplateSocialImage } from "../seo";
 
 export const meta = () =>
-  withDefaultSocialImage([
-    {
-      title:
-        "Agent-Native Dispatch — Open Source Slack & Telegram Agent Router",
-    },
-    {
-      name: "description",
-      content:
-        "Your agent's home base. Talk to it from Slack, Telegram, or any messenger and it routes to your other agents. Jobs, memory, approvals, and A2A delegation built in. The central hub for all your agent-native apps.",
-    },
-    {
-      property: "og:title",
-      content:
-        "Agent-Native Dispatch — Open Source Slack & Telegram Agent Router",
-    },
-    {
-      property: "og:description",
-      content:
-        "Talk to your agent from any messenger. Jobs, memory, approvals, and A2A delegation — the central router for your agent-native apps.",
-    },
-    {
-      name: "keywords",
-      content:
-        "Slack agent, Telegram agent, agent router, A2A protocol, agent-to-agent, AI orchestration, AI assistant Slack, agent memory, recurring jobs agent, AI approvals, agent-native dispatch",
-    },
-  ]);
+  withTemplateSocialImage(
+    [
+      {
+        title:
+          "Agent-Native Dispatch — Open Source Slack & Telegram Agent Router",
+      },
+      {
+        name: "description",
+        content:
+          "Your agent's home base. Talk to it from Slack, Telegram, or any messenger and it routes to your other agents. Jobs, memory, approvals, and A2A delegation built in. The central hub for all your agent-native apps.",
+      },
+      {
+        property: "og:title",
+        content:
+          "Agent-Native Dispatch — Open Source Slack & Telegram Agent Router",
+      },
+      {
+        property: "og:description",
+        content:
+          "Talk to your agent from any messenger. Jobs, memory, approvals, and A2A delegation — the central router for your agent-native apps.",
+      },
+      {
+        name: "keywords",
+        content:
+          "Slack agent, Telegram agent, agent router, A2A protocol, agent-to-agent, AI orchestration, AI assistant Slack, agent memory, recurring jobs agent, AI approvals, agent-native dispatch",
+      },
+    ],
+    "Dispatch",
+  );
 
 const template = templates.find((t) => t.slug === "dispatch")!;
 

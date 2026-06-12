@@ -3,6 +3,16 @@ import { getWorkspaceAppIdValidationError } from "@agent-native/core/shared";
 import { z } from "zod";
 import { scaffoldWorkspaceAppFromTemplate } from "../server/lib/app-creation-store.js";
 
+function userFacingActionError(err: unknown): Error & { statusCode: number } {
+  const message =
+    err instanceof Error && err.message ? err.message : String(err);
+  const error = new Error(
+    message || "Could not scaffold workspace app.",
+  ) as Error & { statusCode: number };
+  error.statusCode = 400;
+  return error;
+}
+
 export default defineAction({
   description:
     "Scaffold a first-party template (mail, calendar, slides, etc.) into apps/<id>/ in the current workspace. Local-dev only — runs `agent-native add-app` as a subprocess. The workspace gateway picks the new app up automatically and serves it at /<id>. For natural-language app creation, call start-workspace-app-creation instead.",
@@ -26,9 +36,14 @@ export default defineAction({
         "Optional override for the apps/<id>/ directory name; defaults to the template name",
       ),
   }),
-  run: async (input) =>
-    scaffoldWorkspaceAppFromTemplate({
-      template: input.template,
-      appId: input.appId ?? null,
-    }),
+  run: async (input) => {
+    try {
+      return await scaffoldWorkspaceAppFromTemplate({
+        template: input.template,
+        appId: input.appId ?? null,
+      });
+    } catch (err) {
+      throw userFacingActionError(err);
+    }
+  },
 });

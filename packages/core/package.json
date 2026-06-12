@@ -114,6 +114,10 @@
     "./provider-api/actions/query-staged-dataset": "./dist/provider-api/actions/query-staged-dataset.js",
     "./provider-api/actions/list-staged-datasets": "./dist/provider-api/actions/list-staged-datasets.js",
     "./provider-api/actions/delete-staged-dataset": "./dist/provider-api/actions/delete-staged-dataset.js",
+    "./local-artifacts": {
+      "types": "./dist/local-artifacts/index.d.ts",
+      "default": "./dist/local-artifacts/index.js"
+    },
     "./workspace-files": "./dist/workspace-files/index.js",
     "./code-agents": "./dist/code-agents/index.js",
     "./code-agents/transcript-normalizer": "./dist/code-agents/transcript-normalizer.js",

@@ -31,9 +31,7 @@ use state::{
     DictationActive, DictationEnabled, LastTranscript, MeetingActive, PopoverShownAt,
     RecordingActive, TrayAnchor, TrayMeetings, VoiceTargetBundle, VoiceWakePopover,
 };
-use util::{
-    configure_overlay_behavior, is_recording_active, mark_popover_shown, set_capture_included,
-};
+use util::{configure_overlay_behavior, is_recording_active, set_capture_included};
 
 // Embedded fallback icon — a tiny 16x16 solid purple PNG so the binary always
 // has *something* to display even if `icons/tray.png` is missing on disk. The
@@ -187,15 +185,6 @@ pub fn run() {
             }
 
             tray::build_tray(app)?;
-            if let Some(window) = app.get_webview_window("popover") {
-                set_capture_included(&window);
-                configure_overlay_behavior(&window);
-                position_popover(app.handle(), &window);
-                mark_popover_shown(app.handle());
-                let _ = window.show();
-                let _ = window.set_focus();
-                let _ = app.emit("clips:popover-visible", true);
-            }
             config::sync_launch_at_login(app.handle());
             // Re-show always-on region guides after relaunch/reboot when the
             // setting is on (no-op if a recording owns the window or the

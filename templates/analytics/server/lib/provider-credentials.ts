@@ -10,6 +10,13 @@ export const HUBSPOT_ANALYTICS_CREDENTIAL_KEYS = [
   "HUBSPOT_ACCESS_TOKEN",
 ] as const;
 
+export const GONG_ANALYTICS_CREDENTIAL_KEYS = [
+  "GONG_ACCESS_KEY",
+  "GONG_ACCESS_SECRET",
+] as const;
+
+const GONG_LEGACY_API_KEY = "GONG_API_KEY";
+
 export type AnalyticsProviderCredentialSource =
   | "workspace_connection"
   | "analytics_local";
@@ -30,6 +37,12 @@ export interface ResolveProviderCredentialOptions {
   ctx: CredentialContext;
   workspaceConnection?: boolean;
   connectionId?: string | null;
+}
+
+export interface AnalyticsGongCredentials {
+  accessKey: string;
+  accessSecret: string;
+  sources: AnalyticsProviderCredential[];
 }
 
 function normalizeKey(key: string): string {
@@ -68,6 +81,41 @@ function normalizeCoreCredentialResult(
     connectionId: result.provenance?.connectionId,
     connectionLabel: result.provenance?.connectionLabel,
     scope,
+  };
+}
+
+function isGongAuthKey(
+  key: string,
+): key is (typeof GONG_ANALYTICS_CREDENTIAL_KEYS)[number] {
+  return (GONG_ANALYTICS_CREDENTIAL_KEYS as readonly string[]).includes(
+    normalizeKey(key),
+  );
+}
+
+function parseLegacyGongApiKey(
+  value: string,
+): { accessKey: string; accessSecret: string } | null {
+  const separator = value.indexOf(":");
+  if (separator <= 0) return null;
+  const accessKey = value.slice(0, separator).trim();
+  const accessSecret = value.slice(separator + 1).trim();
+  if (!accessKey || !accessSecret) return null;
+  return { accessKey, accessSecret };
+}
+
+function deriveGongCredentialFromLegacy(
+  credential: AnalyticsProviderCredential,
+  requestedKey: string,
+): AnalyticsProviderCredential | null {
+  const parsed = parseLegacyGongApiKey(credential.value);
+  if (!parsed) return null;
+  return {
+    ...credential,
+    key: GONG_LEGACY_API_KEY,
+    value:
+      normalizeKey(requestedKey) === "GONG_ACCESS_SECRET"
+        ? parsed.accessSecret
+        : parsed.accessKey,
   };
 }
 
@@ -135,14 +183,85 @@ export async function resolveLocalAnalyticsProviderCredential(
   return null;
 }
 
+async function resolveLegacyGongProviderCredential(
+  options: ResolveProviderCredentialOptions,
+  requestedKey: string,
+): Promise<AnalyticsProviderCredential | null> {
+  if (
+    normalizeKey(options.provider) !== "GONG" ||
+    !isGongAuthKey(requestedKey)
+  ) {
+    return null;
+  }
+
+  const legacyOptions = { ...options, keys: [GONG_LEGACY_API_KEY] };
+  if (options.workspaceConnection !== false) {
+    const workspaceCredential =
+      await resolveWorkspaceConnectionProviderCredential(legacyOptions);
+    const derived = workspaceCredential
+      ? deriveGongCredentialFromLegacy(workspaceCredential, requestedKey)
+      : null;
+    if (derived) return derived;
+  }
+
+  if (options.connectionId?.trim()) return null;
+
+  const localCredential =
+    await resolveLocalAnalyticsProviderCredential(legacyOptions);
+  return localCredential
+    ? deriveGongCredentialFromLegacy(localCredential, requestedKey)
+    : null;
+}
+
 export async function resolveAnalyticsProviderCredential(
   options: ResolveProviderCredentialOptions,
 ): Promise<AnalyticsProviderCredential | null> {
+  const keys = uniqueKeys(options.keys);
   const workspaceCredential =
-    await resolveWorkspaceConnectionProviderCredential(options);
+    await resolveWorkspaceConnectionProviderCredential({ ...options, keys });
   if (workspaceCredential) return workspaceCredential;
-  if (options.connectionId?.trim()) return null;
-  return resolveLocalAnalyticsProviderCredential(options);
+
+  if (!options.connectionId?.trim()) {
+    const localCredential = await resolveLocalAnalyticsProviderCredential({
+      ...options,
+      keys,
+    });
+    if (localCredential) return localCredential;
+  }
+
+  for (const key of keys) {
+    const legacyGongCredential = await resolveLegacyGongProviderCredential(
+      options,
+      key,
+    );
+    if (legacyGongCredential) return legacyGongCredential;
+  }
+
+  return null;
+}
+
+export async function resolveAnalyticsGongCredentials(
+  options: Omit<ResolveProviderCredentialOptions, "provider" | "keys">,
+): Promise<AnalyticsGongCredentials | null> {
+  const accessKey = await resolveAnalyticsProviderCredential({
+    ...options,
+    provider: "gong",
+    keys: ["GONG_ACCESS_KEY"],
+  });
+  const accessSecret = await resolveAnalyticsProviderCredential({
+    ...options,
+    provider: "gong",
+    keys: ["GONG_ACCESS_SECRET"],
+  });
+  if (!accessKey?.value || !accessSecret?.value) return null;
+  return {
+    accessKey: accessKey.value,
+    accessSecret: accessSecret.value,
+    sources:
+      accessKey.key === accessSecret.key
+        ? [accessKey]
+        : [accessKey, accessSecret],
+  };
 }
 
 export async function hasAnalyticsProviderCredential(

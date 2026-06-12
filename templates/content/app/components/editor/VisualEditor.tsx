@@ -54,6 +54,7 @@ import {
   type UseCollabReconcileResult,
 } from "@agent-native/core/client";
 import { RegistryBlockNode } from "./extensions/registryBlocks";
+import { LocalMdxComponentNode } from "./extensions/LocalMdxComponentNode";
 import {
   CommentHighlight,
   setCommentHighlights,
@@ -735,6 +736,8 @@ interface VisualEditorProps {
   /** Current user info for cursor labels. */
   user?: { name: string; color: string; email?: string };
   editable?: boolean;
+  /** Local-file docs should not persist mount-time/schema normalization echoes. */
+  localFileMode?: boolean;
   /** Called when user selects text and clicks "Comment" in bubble toolbar. */
   onComment?: (
     quotedText: string,
@@ -839,6 +842,23 @@ export function shouldApplyExternalContentSync({
   if (typingRightNow && !docChanged) return false;
 
   return true;
+}
+
+export function shouldPersistLocalFileEditorUpdate({
+  docChanged,
+  editorFocused,
+  recentUserEditIntent,
+  transactionUiEvent,
+}: {
+  docChanged: boolean;
+  editorFocused: boolean;
+  recentUserEditIntent: boolean;
+  transactionUiEvent: unknown;
+}): boolean {
+  if (!docChanged) return false;
+  if (editorFocused) return true;
+  if (recentUserEditIntent) return true;
+  return Boolean(transactionUiEvent);
 }
 
 interface VisualEditorExtensionOptions {
@@ -1257,6 +1277,7 @@ export function createVisualEditorExtensions({
       // `VisualEditor` below. Mounted after the Notion nodes and before the
       // Markdown extension so the NFM <-> doc round-trip recognizes the node.
       RegistryBlockNode,
+      LocalMdxComponentNode,
       CommentHighlight,
       DragHandle,
       TypographyReplacements,
@@ -1523,6 +1544,7 @@ export function VisualEditor({
   awareness,
   user,
   editable = true,
+  localFileMode = false,
   onComment,
   commentThreads,
   activeThreadId,
@@ -1606,6 +1628,10 @@ export function VisualEditor({
   // through `guardsRef`, populated right after the hook runs below. `onUpdate`
   // only fires once the editor exists, by which point the ref holds the guards.
   const guardsRef = useRef<UseCollabReconcileResult | null>(null);
+  const lastUserEditIntentAtRef = useRef(0);
+  const markUserEditIntent = useCallback(() => {
+    lastUserEditIntentAtRef.current = Date.now();
+  }, []);
 
   const editor = useEditor({
     extensions,
@@ -1621,6 +1647,7 @@ export function VisualEditor({
         class: "notion-editor",
       },
       handleDrop(view, event) {
+        if (view.editable) markUserEditIntent();
         setIsDraggingMedia(false);
         if (!view.editable || !event.dataTransfer) return false;
 
@@ -1653,6 +1680,7 @@ export function VisualEditor({
         return true;
       },
       handlePaste(view, event) {
+        if (view.editable) markUserEditIntent();
         if (!view.editable || !event.clipboardData) return false;
 
         const imageFiles = getImageFiles(event.clipboardData.files);
@@ -1691,6 +1719,18 @@ export function VisualEditor({
         return true;
       },
       handleDOMEvents: {
+        beforeinput(view) {
+          if (view.editable) markUserEditIntent();
+          return false;
+        },
+        keydown(view) {
+          if (view.editable) markUserEditIntent();
+          return false;
+        },
+        cut(view) {
+          if (view.editable) markUserEditIntent();
+          return false;
+        },
         dragover(view, event) {
           if (
             !view.editable ||
@@ -1725,8 +1765,27 @@ export function VisualEditor({
       // and (collab) remote-origin transactions — the exact guards content used
       // inline before, now owned by the shared hook.
       if (!guards || guards.shouldIgnoreUpdate(transaction)) return;
+      if (
+        localFileMode &&
+        transaction.getMeta(normalizeTableHeadersPluginKey)
+      ) {
+        return;
+      }
+      if (
+        localFileMode &&
+        !shouldPersistLocalFileEditorUpdate({
+          docChanged: transaction.docChanged,
+          editorFocused: editor.isFocused,
+          recentUserEditIntent:
+            Date.now() - lastUserEditIntentAtRef.current < 2000,
+          transactionUiEvent: transaction.getMeta("uiEvent"),
+        })
+      ) {
+        return;
+      }
       try {
         const normalized = docToNfm(editor.getJSON() as any);
+        if (localFileMode && normalized === content) return;
         // Don't persist an empty doc before Collaboration has seeded (would
         // clobber DB content with an empty string). `registerEmitted` records
         // this as the last-emitted value and returns false to skip the save.

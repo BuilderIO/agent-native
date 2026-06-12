@@ -1,21 +1,28 @@
 import { defineEventHandler, getQuery, setResponseStatus } from "h3";
-import {
-  requireCredential,
-  runApiHandlerWithContext,
-} from "../lib/credentials";
+import { runApiHandlerWithContext } from "../lib/credentials";
 import {
   DEFAULT_GONG_CALL_LIMIT,
   limitGongCalls,
   normalizeGongCallLimit,
 } from "../lib/gong-limits";
 import { getCalls, getUsers, searchCalls } from "../lib/gong";
+import { resolveAnalyticsGongCredentials } from "../lib/provider-credentials";
+
+function missingGongCredentials() {
+  return {
+    error: "missing_api_key",
+    key: "GONG_ACCESS_KEY",
+    label: "Gong",
+    message:
+      "Connect Gong with GONG_ACCESS_KEY and GONG_ACCESS_SECRET, or sync a legacy GONG_API_KEY value from Dispatch Vault.",
+    settingsPath: "/data-sources",
+  };
+}
 
 export const handleGongCalls = defineEventHandler(async (event) => {
-  return runApiHandlerWithContext(event, async () => {
-    const missing =
-      (await requireCredential(event, "GONG_ACCESS_KEY", "Gong")) ||
-      (await requireCredential(event, "GONG_ACCESS_SECRET", "Gong"));
-    if (missing) return missing;
+  return runApiHandlerWithContext(event, async (ctx) => {
+    const credentials = await resolveAnalyticsGongCredentials({ ctx });
+    if (!credentials) return missingGongCredentials();
     try {
       const { company, days: daysParam, limit: limitParam } = getQuery(event);
       const limit = normalizeGongCallLimit(
@@ -45,11 +52,9 @@ export const handleGongCalls = defineEventHandler(async (event) => {
 });
 
 export const handleGongUsers = defineEventHandler(async (event) => {
-  return runApiHandlerWithContext(event, async () => {
-    const missing =
-      (await requireCredential(event, "GONG_ACCESS_KEY", "Gong")) ||
-      (await requireCredential(event, "GONG_ACCESS_SECRET", "Gong"));
-    if (missing) return missing;
+  return runApiHandlerWithContext(event, async (ctx) => {
+    const credentials = await resolveAnalyticsGongCredentials({ ctx });
+    if (!credentials) return missingGongCredentials();
     try {
       const users = await getUsers();
       return { users, total: users.length };

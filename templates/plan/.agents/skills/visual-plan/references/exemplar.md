@@ -24,6 +24,17 @@ changes a multi-step completion flow, the same top area includes a Prototype tab
 whose screens use the same labels and states as the canvas artboards, with
 `data-goto` controls for the sequence. This is the bar.
 
+**GOOD.** A broad product-architecture plan opens with a plain recommendation
+and one concrete app state before the abstraction. The first canvas artboard is
+pure product UI that matches the current app shell; nearby notes explain the
+user-visible delta. A separate diagram below shows the mechanics, such as file
+or data flow. The document then separates the reusable core from app/provider
+adapters and examples, covers contracts, folder or schema shape, sync
+boundaries, roadmap, non-goals, a bottom Open Questions form for unresolved
+decisions, and a verification section with at least one realistic end-to-end
+smoke. A reviewer who was not in the chat gets the idea from the top snapshot
+before reading the technical plan.
+
 **GOOD.** A `/visual-plan` for a backend architecture review: no top canvas.
 The document opens with context and a legend, then repeats recommendation cards:
 title, confidence/category badges, a monospace grid of real file paths, one
@@ -43,6 +54,9 @@ tab; a mockup escaped into a document `custom-html` block; and a marketing-style
 document with a hero heading and value props that just restates what the canvas
 already shows. Also bad: an architecture-only plan forced into a top canvas of
 labeled boxes with overlapping text, where the actual code evidence and
-recommendations live elsewhere. Never produce this.
+recommendations live elsewhere; a product wireframe that mixes a real screen
+with repo names, file-contract arrows, architecture explanations, or a made-up
+permanent inspector; and a plan that describes itself as a revision of a prior
+conversation instead of a standalone proposal. Never produce this.
 
 <!-- SHARED-CORE:exemplar END -->
