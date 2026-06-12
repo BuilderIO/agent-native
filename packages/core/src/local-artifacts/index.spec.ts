@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import crypto from "node:crypto";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -154,6 +155,9 @@ describe("local artifact helpers", () => {
       expectedHash: first.hash,
     });
     expect(second.hash).not.toBe(first.hash);
+    expect(second.hash).toBe(
+      crypto.createHash("sha256").update("# New").digest("hex"),
+    );
   });
 
   it("blocks traversal outside configured roots", async () => {

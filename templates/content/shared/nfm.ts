@@ -139,6 +139,13 @@ function parseAttrs(raw: string): Record<string, string> {
   while ((m = re.exec(raw))) attrs[m[1]] = unescapeAttr(m[2]);
   return attrs;
 }
+function hasUnsupportedJsxProps(raw: string): boolean {
+  const withoutDoubleQuotedStrings = raw.replace(/"[^"]*"/g, '""');
+  return (
+    /\s[a-zA-Z_:][\w:-]*\s*=\s*(?:\{|`|')/.test(withoutDoubleQuotedStrings) ||
+    /\s[a-zA-Z_:][\w:-]*(?=\s*\/?>)/.test(withoutDoubleQuotedStrings)
+  );
+}
 
 // Trailing `{toggle="true" color="red"}` attribute list on a block line.
 function blockAttrSuffix(opts: {
@@ -1470,11 +1477,13 @@ function parseLocalMdxComponent(
   const rawLines = dedented.slice(start, end);
   const raw = rawLines.join("\n");
   const openingSource = dedented.slice(start, openEndLine + 1).join("\n");
+  const props = parseAttrs(openingSource);
   const node: PMNode = {
     type: "localMdxComponent",
     attrs: {
       name: tag,
-      propsJson: JSON.stringify(parseAttrs(openingSource)),
+      propsJson: JSON.stringify(props),
+      unsupportedProps: hasUnsupportedJsxProps(openingSource),
       children: selfClosing ? "" : extractLocalMdxComponentChildren(raw, tag),
       __raw: raw,
     },

@@ -24,10 +24,28 @@ function LocalMdxComponentView({ node, selected }: NodeViewProps) {
   const name = typeof node.attrs.name === "string" ? node.attrs.name : "";
   const Component = name ? localContentComponents[name] : null;
   const props = parseProps(node.attrs.propsJson);
+  const unsupportedProps =
+    node.attrs.unsupportedProps === true ||
+    node.attrs.unsupportedProps === "true";
   const children =
     typeof node.attrs.children === "string" && node.attrs.children.trim()
       ? node.attrs.children
       : undefined;
+
+  if (unsupportedProps) {
+    return (
+      <NodeViewWrapper
+        className={`my-4 rounded-md border border-dashed border-muted-foreground/30 bg-muted/30 px-4 py-3 text-sm text-muted-foreground ${
+          selected ? "ring-2 ring-ring" : ""
+        }`}
+        contentEditable={false}
+        data-local-mdx-component={name}
+      >
+        <code>{name ? `<${name} />` : "Local MDX component"}</code> uses JSX
+        props that cannot be previewed yet.
+      </NodeViewWrapper>
+    );
+  }
 
   if (!Component) {
     return (
@@ -66,6 +84,7 @@ export const LocalMdxComponentNode = TiptapNode.create({
     return {
       name: { default: "" },
       propsJson: { default: "{}" },
+      unsupportedProps: { default: false },
       children: { default: "" },
       __raw: { default: "" },
       indent: { default: 0 },

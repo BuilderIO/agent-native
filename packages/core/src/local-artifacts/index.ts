@@ -418,8 +418,12 @@ async function fileMetaForPath(
   root: LoadedLocalArtifactRoot,
   artifactPath: string,
   absolutePath: string,
+  contentOverride?: string,
 ): Promise<LocalArtifactFileMeta> {
-  const content = await fs.readFile(absolutePath, "utf8");
+  const content =
+    contentOverride === undefined
+      ? await fs.readFile(absolutePath, "utf8")
+      : contentOverride;
   const stat = await fs.stat(absolutePath);
   const extension = extensionOf(artifactPath);
   return {
@@ -580,7 +584,7 @@ export async function readLocalArtifactFile(
   try {
     await assertNoSymlinkPath(root, absolutePath);
     const content = await fs.readFile(absolutePath, "utf8");
-    const meta = await fileMetaForPath(root, safePath, absolutePath);
+    const meta = await fileMetaForPath(root, safePath, absolutePath, content);
     return { ...meta, content };
   } catch (error) {
     if (errorCode(error) === "ENOENT") {
@@ -619,7 +623,7 @@ export async function writeLocalArtifactFile(
   );
   await fs.writeFile(tempPath, options.content, "utf8");
   await fs.rename(tempPath, absolutePath);
-  return fileMetaForPath(root, safePath, absolutePath);
+  return fileMetaForPath(root, safePath, absolutePath, options.content);
 }
 
 export async function deleteLocalArtifactFile(
