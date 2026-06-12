@@ -71,7 +71,9 @@ truth instead of SQL documents. Add `agent-native.json` to a repo, set
 left sidebar from those local `.md`/`.mdx` files and writes edits back to the
 selected file through the normal document actions. Use this for repo-first docs,
 blogs, resource libraries, or Obsidian-style personal content; switch back to
-database mode when you want hosted collaboration and SQL-backed sharing.
+database mode when you want hosted collaboration and SQL-backed sharing. See
+[Local File Mode](/docs/local-file-mode) for the standalone repo layout,
+configuration, custom MDX component, and production safety guide.
 
 ## Why it's interesting
 
