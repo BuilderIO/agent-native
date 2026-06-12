@@ -148,7 +148,14 @@ Sync state is tracked in the `document_sync_links` table (last synced time, conf
 
 The protected `/local-files` route uses the browser File System Access API, or a
 guarded native folder bridge inside Agent Native Desktop, to read and write
-Markdown/MDX files from a user-chosen folder. It calls:
+Markdown/MDX files from a user-chosen folder. After the folder is linked and
+imported, normal editor saves write through to the selected source file as well
+as the SQL document row. The top-right page menu exposes the local source path:
+relative path is always available, absolute path is available in true local-file
+mode and Agent Native Desktop, and Reveal in Finder is available through the
+desktop bridge or server-backed local-file mode.
+
+The bulk sync route calls:
 
 - `export-content-source` — reads the accessible document tree and returns a
   deterministic `content/` file bundle.

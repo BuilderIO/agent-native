@@ -134,15 +134,18 @@ plain-text strip of the markdown.
 
 Content has two file workflows:
 
-- **Database mode import/export:** the `/local-files` view syncs SQL documents
-  with Markdown/MDX files. Export uses `export-content-source` and writes one
-  file per document under `content/`. Import uses `import-content-source`; files
-  with known `id` values update existing docs only when the caller has editor
-  access, and files without ids create new private docs for the current user.
-  Imported rows keep `source.mode: "local-files"` and `source.path`, so
+- **Database mode source folder:** the `/local-files` view links a browser or
+  Agent Native Desktop folder to SQL-backed documents. Export uses
+  `export-content-source` and writes one file per document under `content/`.
+  Import uses `import-content-source`; files with known `id` values update
+  existing docs only when the caller has editor access, and files without ids
+  create new private docs for the current user. Imported rows keep
+  `source.mode: "local-files"` and `source.path`, so
   `list-documents`/`get-document` can distinguish them from ordinary private
-  pages and the sidebar can show them under Local files. Use `--dryRun true`
-  before a large import when the source folder may contain unexpected files.
+  pages and the sidebar can show them under Local files. Once a source folder is
+  linked, normal editor saves write through to the selected `.md`/`.mdx` file.
+  Use `--dryRun true` before a large import when the source folder may contain
+  unexpected files.
 - **Local File Mode editing:** when the app runs with `AGENT_NATIVE_MODE=local-files`
   or an `agent-native.json` whose app config enables local files, the standard
   Content editor reads and writes configured repo files directly. The left
