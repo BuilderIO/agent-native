@@ -17,6 +17,8 @@ import {
 import {
   IconArrowUpRight,
   IconCheck,
+  IconChevronLeft,
+  IconChevronRight,
   IconClipboard,
   IconX,
 } from "@tabler/icons-react";
@@ -24,6 +26,12 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import {
   Select,
@@ -35,6 +43,13 @@ import {
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { DEFAULT_LIBRARY_PRESETS } from "../../shared/library-presets";
 
 type AssetTab = "all" | "generated" | "references";
@@ -257,6 +272,17 @@ function assetThumbnailSources(asset: Asset) {
   return uniqueSources(
     [asset.thumbnailUrl, asset.previewUrl, asset.downloadUrl].map((source) =>
       absoluteAssetUrl(source),
+    ),
+  );
+}
+
+function assetOverlaySources(asset: Asset) {
+  if (shouldUseContentProxyForPreview(asset)) {
+    return uniqueSources([assetContentUrl(asset)]);
+  }
+  return uniqueSources(
+    [asset.previewUrl, asset.downloadUrl, asset.url, asset.thumbnailUrl].map(
+      (source) => absoluteAssetUrl(source),
     ),
   );
 }
@@ -555,6 +581,39 @@ function AssetThumbnail({ asset }: { asset: Asset }) {
   );
 }
 
+function AssetOverlayImage({ asset }: { asset: Asset }) {
+  const sources = assetOverlaySources(asset);
+  const sourcesKey = sources.join("\n");
+  const [sourceIndex, setSourceIndex] = useState(0);
+  const source = sources[sourceIndex];
+
+  useEffect(() => {
+    setSourceIndex(0);
+  }, [sourcesKey]);
+
+  if (!source) {
+    return (
+      <div className="flex aspect-square w-full items-center justify-center rounded-lg bg-muted text-sm text-muted-foreground">
+        Preview unavailable
+      </div>
+    );
+  }
+
+  return (
+    <img
+      src={source}
+      crossOrigin={isCrossOriginPreview(source) ? "anonymous" : undefined}
+      alt={asset.altText ?? asset.title ?? ""}
+      className="max-h-[85vh] w-full rounded-lg object-contain"
+      onError={() =>
+        setSourceIndex((index) =>
+          index + 1 < sources.length ? index + 1 : index,
+        )
+      }
+    />
+  );
+}
+
 export default function AssetPicker() {
   const [searchParams] = useSearchParams();
   const searchParamsKey = searchParams.toString();
@@ -777,6 +836,7 @@ export default function AssetPicker() {
     () => allAssets.filter((asset) => assetMatchesTab(asset, assetTab)),
     [allAssets, assetTab],
   );
+  const [previewAsset, setPreviewAsset] = useState<Asset | null>(null);
   const [standaloneSelection, setStandaloneSelection] = useState<ReturnType<
     typeof assetPayload
   > | null>(null);
@@ -1311,33 +1371,157 @@ export default function AssetPicker() {
         {assets.length > 0 && (
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
             {assets.map((asset) => (
-              <button
+              <div
                 key={asset.id}
-                type="button"
-                aria-label={`Select ${assetDisplayTitle(asset)}`}
-                onClick={() => chooseAsset(asset)}
-                title={assetDisplayTitle(asset)}
-                className="group overflow-hidden rounded-md border border-border bg-card text-left shadow-sm transition hover:border-primary/60 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                className="group relative overflow-hidden rounded-md border border-border bg-card shadow-sm transition hover:border-primary/60 hover:shadow-md focus-within:ring-2 focus-within:ring-ring"
               >
-                <div className="aspect-square bg-muted">
-                  {asset.mediaType === "video" ||
-                  asset.mimeType?.startsWith("video/") ? (
-                    <video
-                      src={asset.previewUrl ?? asset.downloadUrl ?? asset.url}
-                      poster={asset.thumbnailUrl}
-                      muted
-                      playsInline
-                      className="h-full w-full object-cover transition group-hover:scale-[1.02]"
-                    />
-                  ) : (
-                    <AssetThumbnail asset={asset} />
-                  )}
-                </div>
-              </button>
+                <button
+                  type="button"
+                  aria-label={`Open ${assetDisplayTitle(asset)}`}
+                  onClick={() => {
+                    if (embedded) {
+                      chooseAsset(asset);
+                    } else {
+                      setPreviewAsset(asset);
+                    }
+                  }}
+                  title={assetDisplayTitle(asset)}
+                  className="block w-full text-left focus-visible:outline-none"
+                >
+                  <div className="aspect-square bg-muted">
+                    {asset.mediaType === "video" ||
+                    asset.mimeType?.startsWith("video/") ? (
+                      <video
+                        src={asset.previewUrl ?? asset.downloadUrl ?? asset.url}
+                        poster={asset.thumbnailUrl}
+                        muted
+                        playsInline
+                        className="h-full w-full object-cover transition group-hover:scale-[1.02]"
+                      />
+                    ) : (
+                      <AssetThumbnail asset={asset} />
+                    )}
+                  </div>
+                </button>
+                <TooltipProvider>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button
+                        type="button"
+                        aria-label={`Copy ${assetDisplayTitle(asset)}`}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          chooseAsset(asset);
+                        }}
+                        className="absolute right-2 top-2 z-10 inline-flex h-8 w-8 items-center justify-center rounded-full bg-background/80 text-foreground opacity-0 shadow-sm backdrop-blur transition hover:bg-primary hover:text-primary-foreground focus:outline-none focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-ring group-hover:opacity-100"
+                      >
+                        <IconClipboard className="h-4 w-4" />
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent>Copy to clipboard</TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+              </div>
             ))}
           </div>
         )}
       </main>
+
+      <Dialog
+        open={Boolean(previewAsset)}
+        onOpenChange={(open) => {
+          if (!open) setPreviewAsset(null);
+        }}
+      >
+        {previewAsset &&
+          (() => {
+            const previewIndex = assets.findIndex(
+              (asset) => asset.id === previewAsset.id,
+            );
+            const hasPrev = previewIndex > 0;
+            const hasNext =
+              previewIndex >= 0 && previewIndex < assets.length - 1;
+            const showPreviousAsset = () => {
+              if (hasPrev) setPreviewAsset(assets[previewIndex - 1]);
+            };
+            const showNextAsset = () => {
+              if (hasNext) setPreviewAsset(assets[previewIndex + 1]);
+            };
+            return (
+              <DialogContent
+                hideClose
+                onKeyDown={(event) => {
+                  if (event.key === "ArrowLeft") showPreviousAsset();
+                  if (event.key === "ArrowRight") showNextAsset();
+                }}
+                className="max-w-4xl border-0 bg-transparent p-0 shadow-none"
+              >
+                <DialogTitle className="sr-only">
+                  {assetDisplayTitle(previewAsset)}
+                </DialogTitle>
+                <DialogDescription className="sr-only">
+                  Full-size preview of {assetDisplayTitle(previewAsset)}
+                </DialogDescription>
+                <div className="relative">
+                  <div className="absolute right-2 top-2 z-10 flex items-center gap-2">
+                    <Button asChild variant="outline" size="sm">
+                      <Link
+                        to={`/asset/${encodeURIComponent(previewAsset.id)}`}
+                      >
+                        View details
+                      </Link>
+                    </Button>
+                    <DialogClose
+                      aria-label="Close preview"
+                      className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-black/60 text-white transition hover:bg-black/80 focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
+                    >
+                      <IconX className="h-5 w-5" />
+                    </DialogClose>
+                  </div>
+                  {previewAsset.mediaType === "video" ||
+                  previewAsset.mimeType?.startsWith("video/") ? (
+                    <video
+                      src={
+                        previewAsset.previewUrl ??
+                        previewAsset.downloadUrl ??
+                        previewAsset.url
+                      }
+                      poster={previewAsset.thumbnailUrl}
+                      controls
+                      autoPlay
+                      playsInline
+                      className="max-h-[85vh] w-full rounded-lg bg-black object-contain"
+                    />
+                  ) : (
+                    <AssetOverlayImage asset={previewAsset} />
+                  )}
+                </div>
+                {(hasPrev || hasNext) && (
+                  <div className="mt-5 flex justify-center gap-2">
+                    <button
+                      type="button"
+                      aria-label="Previous image"
+                      onClick={showPreviousAsset}
+                      disabled={!hasPrev}
+                      className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-black/60 text-white transition hover:bg-black/80 focus:outline-none focus-visible:ring-2 focus-visible:ring-white disabled:cursor-not-allowed disabled:opacity-40"
+                    >
+                      <IconChevronLeft className="h-5 w-5" />
+                    </button>
+                    <button
+                      type="button"
+                      aria-label="Next image"
+                      onClick={showNextAsset}
+                      disabled={!hasNext}
+                      className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-black/60 text-white transition hover:bg-black/80 focus:outline-none focus-visible:ring-2 focus-visible:ring-white disabled:cursor-not-allowed disabled:opacity-40"
+                    >
+                      <IconChevronRight className="h-5 w-5" />
+                    </button>
+                  </div>
+                )}
+              </DialogContent>
+            );
+          })()}
+      </Dialog>
     </div>
   );
 }
