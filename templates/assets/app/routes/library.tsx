@@ -26,6 +26,12 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import {
   Select,
@@ -1397,18 +1403,24 @@ export default function AssetPicker() {
                     )}
                   </div>
                 </button>
-                <button
-                  type="button"
-                  aria-label={`Copy ${assetDisplayTitle(asset)}`}
-                  title="Copy asset"
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    chooseAsset(asset);
-                  }}
-                  className="absolute right-2 top-2 z-10 inline-flex h-8 w-8 items-center justify-center rounded-full bg-background/80 text-foreground opacity-0 shadow-sm backdrop-blur transition hover:bg-background focus:outline-none focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-ring group-hover:opacity-100"
-                >
-                  <IconClipboard className="h-4 w-4" />
-                </button>
+                <TooltipProvider>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button
+                        type="button"
+                        aria-label={`Copy ${assetDisplayTitle(asset)}`}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          chooseAsset(asset);
+                        }}
+                        className="absolute right-2 top-2 z-10 inline-flex h-8 w-8 items-center justify-center rounded-full bg-background/80 text-foreground opacity-0 shadow-sm backdrop-blur transition hover:bg-background focus:outline-none focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-ring group-hover:opacity-100"
+                      >
+                        <IconClipboard className="h-4 w-4" />
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent>Copy to clipboard</TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
               </div>
             ))}
           </div>
