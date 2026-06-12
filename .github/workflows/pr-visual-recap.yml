@@ -331,8 +331,8 @@ jobs:
           $RECAP_CLI recap mcp-config --agent claude --app-url "$PLAN_RECAP_APP_URL" --out "$MCP_CONFIG"
           CLAUDE_ARGS=(-p "$(cat recap-prompt.md)" --mcp-config "$MCP_CONFIG" --allowedTools "Read,Write,Bash(git diff:*),mcp__plan__get-plan-blocks,mcp__plan__create-visual-recap,mcp__plan__set-resource-visibility" --permission-mode dontAsk --output-format json)
           if [ -n "${VISUAL_RECAP_MODEL:-}" ]; then CLAUDE_ARGS+=(--model "$VISUAL_RECAP_MODEL"); fi
+          rm -f recap-url.txt claude-result.json claude-stderr.log
           run_claude() {
-            rm -f recap-url.txt claude-result.json claude-stderr.log
             set +e
             npx -y @anthropic-ai/claude-code@2 "${CLAUDE_ARGS[@]}" > claude-result.json 2> claude-stderr.log
             CLAUDE_STATUS="$?"
@@ -370,8 +370,8 @@ jobs:
             "") ;;
             *) echo "Ignoring invalid VISUAL_RECAP_REASONING: $VISUAL_RECAP_REASONING" ;;
           esac
+          rm -f recap-url.txt codex-events.jsonl codex-stderr.log
           run_codex() {
-            rm -f recap-url.txt codex-events.jsonl codex-stderr.log
             set +e
             npx -y @openai/codex@0 "${CODEX_ARGS[@]}" --json "$(cat recap-prompt.md)" 2> codex-stderr.log | tee codex-events.jsonl
             CODEX_STATUS="${PIPESTATUS[0]}"
