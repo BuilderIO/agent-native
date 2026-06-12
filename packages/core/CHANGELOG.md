@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.49.5
+
+### Patch Changes
+
+- 809e96b: Fix Vite dev SSR for standalone apps using `file:@agent-native/core` by aliasing monorepo core source and deduping `react-router`. Add a Playwright dev smoke test that catches HydratedRouter/Meta render failures after auto-login.
+
 ## 0.49.4
 
 ### Patch Changes
