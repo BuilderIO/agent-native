@@ -2412,7 +2412,9 @@ export function PlansPage() {
   const desktopAutoSyncedVersionRef = useRef<Record<string, string>>({});
   const desktopPlanFilesAvailable = Boolean(getDesktopPlanFiles());
   const { resolvedTheme, setTheme } = useTheme();
-  const isDarkTheme = resolvedTheme !== "light";
+  const isDarkTheme = recapScreenshotTheme
+    ? recapScreenshotTheme === "dark"
+    : resolvedTheme !== "light";
   const wireframeStyle = useWireframeStyle();
   const planTheme = isDarkTheme ? "dark" : "light";
   const iframeRuntimeDefaultsRef = useRef<{
@@ -2430,6 +2432,36 @@ export function PlansPage() {
       annotateMode ||
       Boolean(activeAnnotation) ||
       hasOpenThreads);
+
+  useEffect(() => {
+    if (!recapScreenshotTheme || !recapScreenshotBackground) return;
+    const root = document.documentElement;
+    const body = document.body;
+    const previousRootClass = root.className;
+    const previousDataTheme = root.getAttribute("data-theme");
+    const previousColorScheme = root.style.colorScheme;
+    const previousRootBackground = root.style.backgroundColor;
+    const previousBodyBackground = body.style.backgroundColor;
+
+    root.classList.remove("light", "dark");
+    root.classList.add(recapScreenshotTheme);
+    root.setAttribute("data-theme", recapScreenshotTheme);
+    root.style.colorScheme = recapScreenshotTheme;
+    root.style.backgroundColor = recapScreenshotBackground;
+    body.style.backgroundColor = recapScreenshotBackground;
+
+    return () => {
+      root.className = previousRootClass;
+      if (previousDataTheme === null) {
+        root.removeAttribute("data-theme");
+      } else {
+        root.setAttribute("data-theme", previousDataTheme);
+      }
+      root.style.colorScheme = previousColorScheme;
+      root.style.backgroundColor = previousRootBackground;
+      body.style.backgroundColor = previousBodyBackground;
+    };
+  }, [recapScreenshotBackground, recapScreenshotTheme]);
   const showingPrototypeSurface =
     prototypeOnly || visualSurfaceMode === "prototype";
 
@@ -3878,7 +3910,10 @@ export function PlansPage() {
   };
 
   return (
-    <div className="plans-workspace flex h-full min-h-0 flex-col overflow-hidden bg-background">
+    <div
+      className="plans-workspace flex h-full min-h-0 flex-col overflow-hidden bg-background"
+      style={recapScreenshotBackgroundStyle}
+    >
       <div
         className="plans-grid flex min-h-0 flex-1"
         data-view={immersiveReader ? "immersive" : "app"}
@@ -3913,7 +3948,10 @@ export function PlansPage() {
               viewerEmail={session?.email ?? null}
             />
           ) : (
-            <div className="relative min-h-0 flex-1 overflow-hidden bg-background">
+            <div
+              className="relative min-h-0 flex-1 overflow-hidden bg-background"
+              style={recapScreenshotBackgroundStyle}
+            >
               {immersiveReader &&
                 !recapScreenshotMode &&
                 !showingPrototypeSurface && (
@@ -4400,6 +4438,7 @@ export function PlansPage() {
                       reviewMode !== "none" &&
                         "ring-1 ring-inset ring-primary/35",
                     )}
+                    style={recapScreenshotBackgroundStyle}
                     onScroll={handleNativeReaderScroll}
                     onPointerDown={handleNativeReaderPointerDown}
                     onPointerUp={handleNativeReaderPointerUp}
@@ -4437,6 +4476,7 @@ export function PlansPage() {
                       hideRecapChrome={recapScreenshotMode}
                       hideFloatingToc={recapScreenshotMode}
                       showCodeAnnotationOverlays={recapScreenshotMode}
+                      recapScreenshotTheme={recapScreenshotTheme}
                       sourceUrl={bundle.plan.sourceUrl}
                       visualSurfaceMode={visualSurfaceMode}
                       onVisualSurfaceModeChange={setVisualSurfaceMode}

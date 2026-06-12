@@ -62,6 +62,20 @@ export const PLAN_COMMENT_STATUSES = ["open", "resolved"] as const;
 
 export const PLAN_AUTHORS = ["agent", "human", "import"] as const;
 
+export const PLAN_REPORT_REASONS = [
+  "spam",
+  "harassment",
+  "hate",
+  "sexual",
+  "violence",
+  "self-harm",
+  "privacy",
+  "illegal",
+  "other",
+] as const;
+
+export const PLAN_REPORT_STATUSES = ["open", "reviewed", "dismissed"] as const;
+
 export type PlanStatus = (typeof PLAN_STATUSES)[number];
 export type PlanSource = (typeof PLAN_SOURCES)[number];
 export type PlanKind = (typeof PLAN_KINDS)[number];
@@ -69,6 +83,8 @@ export type PlanSectionType = (typeof PLAN_SECTION_TYPES)[number];
 export type PlanCommentKind = (typeof PLAN_COMMENT_KINDS)[number];
 export type PlanCommentStatus = (typeof PLAN_COMMENT_STATUSES)[number];
 export type PlanAuthor = (typeof PLAN_AUTHORS)[number];
+export type PlanReportReason = (typeof PLAN_REPORT_REASONS)[number];
+export type PlanReportStatus = (typeof PLAN_REPORT_STATUSES)[number];
 
 export interface PlanSummary {
   id: string;
@@ -153,6 +169,20 @@ export interface PlanEvent {
   payload?: Record<string, unknown> | null;
   createdBy: PlanAuthor;
   createdAt: string;
+}
+
+export interface PlanReport {
+  id: string;
+  planId: string;
+  reason: PlanReportReason;
+  details?: string | null;
+  status: PlanReportStatus;
+  reporterEmail?: string | null;
+  reporterName?: string | null;
+  pageUrl?: string | null;
+  occurrenceCount: number;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface PlanBundle {
