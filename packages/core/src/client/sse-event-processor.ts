@@ -1,4 +1,8 @@
 import type { ChatModelRunResult } from "@assistant-ui/react";
+import {
+  LLM_MISSING_CREDENTIALS_ERROR_CODE,
+  LLM_MISSING_CREDENTIALS_MESSAGE,
+} from "../agent/engine/credential-errors.js";
 import type { AgentMcpAppPayload } from "../mcp-client/app-result.js";
 import { formatChatErrorText, normalizeChatError } from "./error-format.js";
 import { humanizeToolLabelText, runningToolLabel } from "./tool-display.js";
@@ -523,18 +527,31 @@ export function processEvent(
   }
 
   if (ev.type === "missing_api_key") {
+    const errMsg = LLM_MISSING_CREDENTIALS_MESSAGE;
+    const errorCode = LLM_MISSING_CREDENTIALS_ERROR_CODE;
+    const runError = {
+      message: normalizeChatError(errMsg).message,
+      errorCode,
+    };
     if (typeof window !== "undefined") {
       window.dispatchEvent(new Event("agent-chat:missing-api-key"));
+      window.dispatchEvent(
+        new CustomEvent("agent-chat:run-error", {
+          detail: { ...runError, tabId },
+        }),
+      );
     }
+    settleInterruptedToolCalls(content);
     content.push({
       type: "text",
-      text: "No LLM provider is connected. Open Agent settings > LLM, then connect Builder.io or add a provider key.",
+      text: formatChatErrorText(errMsg, undefined, errorCode),
     });
     return {
       action: "missing_api_key",
       result: {
         content: [...content],
         status: { type: "incomplete" as const, reason: "error" as const },
+        metadata: { custom: { runError } },
       } as ChatModelRunResult,
     };
   }
@@ -610,17 +627,6 @@ export function processEvent(
       if (typeof window !== "undefined") {
         window.dispatchEvent(new Event("agent-chat:missing-api-key"));
       }
-      content.push({
-        type: "text",
-        text: formatChatErrorText(errMsg, ev.upgradeUrl, ev.errorCode),
-      });
-      return {
-        action: "missing_api_key",
-        result: {
-          content: [...content],
-          status: { type: "incomplete" as const, reason: "error" as const },
-        } as ChatModelRunResult,
-      };
     }
     const runError = {
       message: normalized.message,
