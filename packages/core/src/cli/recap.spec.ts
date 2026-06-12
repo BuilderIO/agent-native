@@ -608,7 +608,9 @@ describe("recap comment body", () => {
       RECAP_DARK_IMAGE_URL: `https://plan.agent-native.com/_agent-native/recap-image/${darkToken}.png`,
       HEAD_SHA: "abcdef1234567",
     } as NodeJS.ProcessEnv);
-    expect(body).toContain(`<a href="https://plan.agent-native.com/recaps/plan-abc123">`);
+    expect(body).toContain(
+      `<a href="https://plan.agent-native.com/recaps/plan-abc123">`,
+    );
     expect(body).toContain("<picture>");
     expect(body).toContain(
       `<source media="(prefers-color-scheme: dark)" srcset="https://plan.agent-native.com/_agent-native/recap-image/${darkToken}.png">`,
@@ -653,7 +655,8 @@ describe("recap comment body", () => {
       PLAN_URL: "https://plan.agent-native.com/recaps/plan-abc123",
       PLAN_RECAP_APP_URL: "https://plan.agent-native.com",
       RECAP_LIGHT_IMAGE_URL: `https://plan.agent-native.com/_agent-native/recap-image/${token}.png`,
-      RECAP_DARK_IMAGE_URL: "https://plan.agent-native.com/evil.png)](javascript:0)",
+      RECAP_DARK_IMAGE_URL:
+        "https://plan.agent-native.com/evil.png)](javascript:0)",
       HEAD_SHA: "abcdef1",
     } as NodeJS.ProcessEnv);
     expect(body).not.toContain("<picture>");
@@ -1412,7 +1415,9 @@ describe("bundled PR visual recap workflow", () => {
     expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain("--exit-code-file");
     expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain("RECAP_URL_REASON");
     expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain("--url-reason");
-    expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain("--out recap.png --theme light");
+    expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain(
+      "--out recap.png --theme light",
+    );
     expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain(
       "--out recap-dark.png --theme dark",
     );

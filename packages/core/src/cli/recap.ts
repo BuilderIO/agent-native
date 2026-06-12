@@ -1870,10 +1870,7 @@ function originOf(url: string): string {
   }
 }
 
-function trustedRecapImageUrl(
-  raw: string | undefined,
-  base: string,
-): string {
+function trustedRecapImageUrl(raw: string | undefined, base: string): string {
   const value = (raw || "").trim();
   return value &&
     sameOrigin(value, base) &&
@@ -2234,7 +2231,10 @@ export function withRecapScreenshotParams(
     const parsed = new URL(url);
     parsed.searchParams.set(RECAP_SCREENSHOT_QUERY_PARAM, "1");
     if (options.theme) {
-      parsed.searchParams.set(RECAP_SCREENSHOT_THEME_QUERY_PARAM, options.theme);
+      parsed.searchParams.set(
+        RECAP_SCREENSHOT_THEME_QUERY_PARAM,
+        options.theme,
+      );
     }
     return parsed.toString();
   } catch {
@@ -2365,21 +2365,24 @@ export async function runShot(
       }
     }
     await page.waitForTimeout(matched ? 1_200 : 500);
-    await page.evaluate((background) => {
-      (document.documentElement as HTMLElement).style.zoom = "100%";
-      if (!background) return;
-      const root = document.documentElement as HTMLElement;
-      root.style.backgroundColor = background;
-      document.body.style.backgroundColor = background;
-      for (const selector of [
-        ".plans-workspace",
-        "[data-plan-reader]",
-        "[data-plan-document]",
-      ]) {
-        const el = document.querySelector<HTMLElement>(selector);
-        if (el) el.style.backgroundColor = background;
-      }
-    }, theme ? recapScreenshotBackground(theme) : "");
+    await page.evaluate(
+      (background) => {
+        (document.documentElement as HTMLElement).style.zoom = "100%";
+        if (!background) return;
+        const root = document.documentElement as HTMLElement;
+        root.style.backgroundColor = background;
+        document.body.style.backgroundColor = background;
+        for (const selector of [
+          ".plans-workspace",
+          "[data-plan-reader]",
+          "[data-plan-document]",
+        ]) {
+          const el = document.querySelector<HTMLElement>(selector);
+          if (el) el.style.backgroundColor = background;
+        }
+      },
+      theme ? recapScreenshotBackground(theme) : "",
+    );
     const measuredHeight = await page.evaluate((maxHeight) => {
       const readHeights = (selectors: string[]) => {
         const result: number[] = [];
