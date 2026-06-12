@@ -140,7 +140,7 @@ function scaffoldStandaloneStarter(): void {
       cwd: scaffoldParent,
       env: {
         AGENT_NATIVE_CREATE_USE_LOCAL_CORE:
-          process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE ?? "1",
+          process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE ?? "0",
       },
     },
   );
