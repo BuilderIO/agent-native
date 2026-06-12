@@ -36,6 +36,8 @@ import { useCreatePage } from "@/hooks/use-create-page";
 import { focusMostRecentEmptyToggleSummary } from "./extensions/NotionExtensions";
 import { contentBlockRegistry } from "@/blocks/contentBlockRegistry";
 import { buildRegistrySlashItems } from "./registrySlashItems";
+import { localContentComponents } from "@/local-components";
+import { buildLocalComponentSlashItems } from "./localComponentSlashItems";
 
 interface SlashCommandMenuProps {
   editor: Editor;
@@ -536,6 +538,15 @@ export function SlashCommandMenu({
           }) as unknown as CommandItem[]),
     [isTurnInto, notionPageId],
   );
+  const localComponentCommands = useMemo<CommandItem[]>(
+    () =>
+      isTurnInto
+        ? []
+        : (buildLocalComponentSlashItems(
+            localContentComponents,
+          ) as unknown as CommandItem[]),
+    [isTurnInto],
+  );
 
   const aiCommands = isTurnInto ? [] : [generateCommand];
   const blockCommands = isTurnInto ? turnIntoCommands : commands;
@@ -551,12 +562,15 @@ export function SlashCommandMenu({
   const filteredAiCommands = aiCommands.filter(commandMatchesQuery);
   const filteredBlockCommands = blockCommands.filter(commandMatchesQuery);
   const filteredRegistryCommands = registryCommands.filter(commandMatchesQuery);
+  const filteredLocalComponentCommands =
+    localComponentCommands.filter(commandMatchesQuery);
   const filteredPageCommands = pageCommands.filter(commandMatchesQuery);
   const filteredMediaCommands = mediaCommands.filter(commandMatchesQuery);
   const filteredCommands = [
     ...filteredAiCommands,
     ...filteredBlockCommands,
     ...filteredRegistryCommands,
+    ...filteredLocalComponentCommands,
     ...filteredMediaCommands,
     ...filteredPageCommands,
   ];
@@ -807,6 +821,14 @@ export function SlashCommandMenu({
                   Blocks
                 </div>
                 {filteredRegistryCommands.map(renderCommand)}
+              </>
+            ) : null}
+            {filteredLocalComponentCommands.length > 0 ? (
+              <>
+                <div className="px-3 pt-2 pb-1 text-xs font-semibold text-muted-foreground">
+                  Local components
+                </div>
+                {filteredLocalComponentCommands.map(renderCommand)}
               </>
             ) : null}
             {filteredMediaCommands.length > 0 ? (

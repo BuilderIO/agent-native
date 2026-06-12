@@ -155,6 +155,12 @@ Content has two file workflows:
   `update-document` writes the selected `.md`/`.mdx` file. The document id is
   derived from the file path, and unknown frontmatter is preserved when title,
   content, icon, or favorite state changes.
+- **Local MDX components:** local file workspaces can expose React components
+  from the configured `components` folder. Export PascalCase components such as
+  `ImpactCounter` from `.tsx` files, then use `<ImpactCounter />` in MDX or pick
+  it from the editor slash menu under Local components. Simple string props are
+  previewed; JSX expression props are preserved in source but shown as an
+  unsupported preview until richer prop editing exists.
 
 Minimal `agent-native.json`:
 

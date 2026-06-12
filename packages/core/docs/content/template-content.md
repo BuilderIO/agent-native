@@ -168,6 +168,13 @@ The bulk sync route calls:
 The source format lives in `shared/content-source.ts`. Keep that file as the
 single contract for filenames, frontmatter, parsing, and serialization.
 
+Local file workspaces can also provide repo-local React components through the
+configured `components` folder. The Content dev server imports PascalCase
+exports from those files, renders matching MDX tags such as `<ImpactCounter />`
+inside the editor, and exposes them in the slash menu under Local components.
+This keeps custom MDX blocks local to the workspace without cloning the Content
+app.
+
 ### Comments
 
 Threaded comments on documents with quoted-text anchors, replies, and resolve state. Backed by the `document_comments` table and `app/components/editor/CommentsSidebar.tsx`. Actions: `list-comments`, `add-comment`. Notion comments can sync both ways via `sync-notion-comments`.
