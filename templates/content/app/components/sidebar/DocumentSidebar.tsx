@@ -35,7 +35,6 @@ import {
   ExtensionSlot,
   ExtensionsSidebarSection,
 } from "@agent-native/core/client/extensions";
-import { NotionButton } from "./NotionButton";
 import { DocumentSidebarIcon, DocumentTreeItem } from "./DocumentTreeItem";
 import {
   useDocuments,
@@ -923,7 +922,6 @@ export function DocumentSidebar({
         <div className="flex items-center gap-1">
           <FeedbackButton className="h-8 min-w-0 flex-1 gap-2 rounded-md px-2 py-0" />
           <div className="flex shrink-0 items-center gap-0.5">
-            <NotionButton />
             <ThemeToggle />
           </div>
         </div>

@@ -1,5 +1,6 @@
 import {
   CONTENT_SOURCE_ROOT,
+  parseContentSourceFile,
   serializeContentSourceDocument,
 } from "@shared/content-source";
 import type { Document, DocumentSourceInfo } from "@shared/api";
@@ -42,6 +43,17 @@ export type LocalSourceFileResult =
       path: string;
       absolutePath?: string;
       runtime: "browser" | "desktop" | "server-local";
+    }
+  | { ok: false; error: string; unavailable?: boolean };
+
+export type LocalSourceDocumentReadResult =
+  | {
+      ok: true;
+      path: string;
+      content: string;
+      document: Document;
+      updatedAt: string;
+      runtime: "browser" | "desktop";
     }
   | { ok: false; error: string; unavailable?: boolean };
 
@@ -128,6 +140,28 @@ async function writeBrowserFile(
   await writable.close();
 }
 
+async function readBrowserFile(root: LocalDirectoryHandle, filePath: string) {
+  const readPath =
+    root.name === CONTENT_SOURCE_ROOT &&
+    filePath.startsWith(`${CONTENT_SOURCE_ROOT}/`)
+      ? filePath.slice(CONTENT_SOURCE_ROOT.length + 1)
+      : filePath;
+  const parts = readPath.split("/").filter(Boolean);
+  const filename = parts.pop();
+  if (!filename) throw new Error("Invalid content source path.");
+
+  let dir = root;
+  for (const part of parts) {
+    dir = await dir.getDirectoryHandle(part);
+  }
+  const handle = await dir.getFileHandle(filename);
+  const file = await handle.getFile();
+  return {
+    content: await file.text(),
+    updatedAt: new Date(file.lastModified).toISOString(),
+  };
+}
+
 function joinDesktopAbsolutePath(folderPath: string, filePath: string) {
   const folder = folderPath.replace(/[\\/]+$/, "");
   const separator = folder.includes("\\") ? "\\" : "/";
@@ -156,6 +190,40 @@ function sourceFileContent(document: Document) {
     visibility: document.visibility,
     updatedAt: document.updatedAt,
   });
+}
+
+function documentFromSourceContent(input: {
+  base: Document;
+  path: string;
+  source: DocumentSourceInfo | undefined;
+  content: string;
+  updatedAt: string;
+}): LocalSourceDocumentReadResult {
+  const parsed = parseContentSourceFile(input.path, input.content);
+  if (parsed.errors && parsed.errors.length > 0) {
+    return { ok: false, error: parsed.errors.join(" ") };
+  }
+
+  return {
+    ok: true,
+    path: input.path,
+    content: input.content,
+    updatedAt: input.updatedAt,
+    runtime: "browser",
+    document: {
+      ...input.base,
+      parentId:
+        parsed.parentId === undefined ? input.base.parentId : parsed.parentId,
+      title: parsed.title,
+      content: parsed.content,
+      icon: parsed.icon === undefined ? null : parsed.icon,
+      position: parsed.position ?? input.base.position,
+      isFavorite: parsed.isFavorite ?? false,
+      hideFromSearch: parsed.hideFromSearch ?? false,
+      updatedAt: input.updatedAt,
+      source: input.source,
+    },
+  };
 }
 
 export function isServerLocalFileDocumentId(id: string) {
@@ -226,6 +294,82 @@ export async function writeDocumentToLinkedLocalSource(
   }
   await writeBrowserFile(handle, filePath, content);
   return { ok: true, path: filePath, runtime: "browser" };
+}
+
+export async function readDocumentFromLinkedLocalSource(
+  document: Document,
+  source: DocumentSourceInfo | undefined = document.source,
+): Promise<LocalSourceDocumentReadResult> {
+  const filePath = normalizeSourcePath(source?.path);
+  if (!filePath) {
+    return {
+      ok: false,
+      error: "This document is not linked to a source file.",
+    };
+  }
+  if (isServerLocalFileDocumentId(document.id)) {
+    return {
+      ok: false,
+      unavailable: true,
+      error:
+        "Server-backed local files are already read by the document action.",
+    };
+  }
+
+  const desktopFiles = getDesktopContentFiles();
+  if (desktopFiles) {
+    const result = await desktopFiles.readFiles();
+    if (!result.ok) return { ok: false, error: result.error };
+    const content = result.sources?.[filePath];
+    if (content === undefined) {
+      return { ok: false, error: `Local file "${filePath}" was not found.` };
+    }
+    const updatedAt = result.folder.updatedAt ?? new Date().toISOString();
+    const read = documentFromSourceContent({
+      base: document,
+      path: filePath,
+      source,
+      content,
+      updatedAt,
+    });
+    return read.ok ? { ...read, runtime: "desktop" } : read;
+  }
+
+  const handle = await readPersistedSourceDirectory();
+  if (!handle) {
+    return {
+      ok: false,
+      unavailable: true,
+      error:
+        "Choose the source folder in Local files before opening this page.",
+    };
+  }
+  if (!(await ensureReadWritePermission(handle))) {
+    return {
+      ok: false,
+      unavailable: true,
+      error: "Read/write permission was not granted for the source folder.",
+    };
+  }
+
+  try {
+    const file = await readBrowserFile(handle, filePath);
+    return documentFromSourceContent({
+      base: document,
+      path: filePath,
+      source,
+      content: file.content,
+      updatedAt: file.updatedAt,
+    });
+  } catch (error) {
+    return {
+      ok: false,
+      error:
+        error instanceof Error
+          ? error.message
+          : `Local file "${filePath}" could not be read.`,
+    };
+  }
 }
 
 export async function localSourceAbsolutePath(

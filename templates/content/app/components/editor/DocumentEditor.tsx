@@ -56,6 +56,7 @@ import {
 import { cn } from "@/lib/utils";
 import {
   canWriteLinkedLocalSource,
+  readDocumentFromLinkedLocalSource,
   writeDocumentToLinkedLocalSource,
 } from "@/lib/local-content-source-files";
 
@@ -230,6 +231,9 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
   });
   const [localTitle, setLocalTitle] = useState("");
   const [localContent, setLocalContent] = useState("");
+  const [localContentUpdatedAt, setLocalContentUpdatedAt] = useState<
+    string | null
+  >(document.updatedAt ?? null);
   const [isSaving, setIsSaving] = useState(false);
   const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Separate freshness watermarks for title and content so that a content save
@@ -337,6 +341,7 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
     if (!isInitializedRef.current) {
       setLocalTitle(document.title);
       setLocalContent(document.content);
+      setLocalContentUpdatedAt(document.updatedAt ?? null);
       lastSavedTitleRef.current = {
         title: document.title,
         updatedAt: document.updatedAt ?? null,
@@ -351,6 +356,69 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
       }
     }
   }, [document, documentId]);
+
+  useEffect(() => {
+    if (
+      !isInitializedRef.current ||
+      !canWriteLinkedLocalSource(documentId, document.source)
+    ) {
+      return;
+    }
+
+    let cancelled = false;
+    readDocumentFromLinkedLocalSource(document)
+      .then((result) => {
+        if (cancelled) return;
+        if (!result.ok) {
+          toast.error("Could not read local source file", {
+            description: result.error,
+          });
+          return;
+        }
+
+        const fileDocument = result.document;
+        setLocalTitle(fileDocument.title);
+        setLocalContent(fileDocument.content);
+        setLocalContentUpdatedAt(result.updatedAt);
+        lastSavedTitleRef.current = {
+          title: fileDocument.title,
+          updatedAt: result.updatedAt,
+        };
+        lastSavedContentRef.current = {
+          content: fileDocument.content,
+          updatedAt: result.updatedAt,
+        };
+        queryClient.setQueryData(
+          ["action", "get-document", { id: documentId }],
+          (old: Document | undefined) =>
+            old && typeof old === "object" ? { ...old, ...fileDocument } : old,
+        );
+        queryClient.setQueryData(
+          ["action", "list-documents", undefined],
+          (old: any) => {
+            const docs = old?.documents ?? (Array.isArray(old) ? old : null);
+            if (!Array.isArray(docs)) return old;
+            const nextDocs = docs.map((doc: Document) =>
+              doc.id === documentId ? { ...doc, ...fileDocument } : doc,
+            );
+            return Array.isArray(old)
+              ? nextDocs
+              : { ...old, documents: nextDocs };
+          },
+        );
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        toast.error("Could not read local source file", {
+          description:
+            error instanceof Error ? error.message : "Something went wrong",
+        });
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [documentId, document.source?.path, queryClient]);
 
   // NOTE: External body changes (agent edit, Notion pull, update-document) are
   // reconciled into the editor by VisualEditor via its content prop + the
@@ -426,28 +494,67 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
     }
   }, [document, localTitle, localContent]);
 
-  const writeSavedDocumentToLocalSource = useCallback(
-    async (savedDocument: Document) => {
-      const source = savedDocument.source ?? document.source;
-      if (!canWriteLinkedLocalSource(savedDocument.id, source)) return;
-
-      const result = await writeDocumentToLinkedLocalSource(
-        { ...savedDocument, source },
-        source,
+  const persistDocumentUpdates = useCallback(
+    async (updates: {
+      title?: string;
+      content?: string;
+      icon?: string | null;
+    }): Promise<Document> => {
+      const localSource = document.source;
+      const isLinkedLocalSource = canWriteLinkedLocalSource(
+        documentId,
+        localSource,
       );
-      if (result.ok) {
+      const nextSavedAt = new Date().toISOString();
+      const fileFirstDocument: Document = {
+        ...document,
+        title: updates.title ?? localTitleRef.current,
+        content: updates.content ?? localContentRef.current,
+        icon: updates.icon !== undefined ? updates.icon : document.icon,
+        updatedAt: nextSavedAt,
+        source: localSource,
+      };
+
+      if (isLinkedLocalSource) {
+        const result = await writeDocumentToLinkedLocalSource(
+          fileFirstDocument,
+          localSource,
+        );
+        if (!result.ok) {
+          if (!localSourceWriteErrorShownRef.current) {
+            toast.error("Could not save local file", {
+              description: result.error,
+            });
+            localSourceWriteErrorShownRef.current = true;
+          }
+          throw new Error(result.error);
+        }
         localSourceWriteErrorShownRef.current = false;
-        return;
+        setLocalContentUpdatedAt(nextSavedAt);
       }
 
-      if (!localSourceWriteErrorShownRef.current) {
-        toast.error("Saved in Content, but not the local file", {
-          description: result.error,
+      try {
+        return await updateDocument.mutateAsync({
+          id: documentId,
+          ...updates,
         });
-        localSourceWriteErrorShownRef.current = true;
+      } catch (error) {
+        if (!isLinkedLocalSource) throw error;
+        toast.warning("Local file saved, but history was not updated", {
+          description:
+            error instanceof Error ? error.message : "Something went wrong",
+        });
+        queryClient.setQueryData(
+          ["action", "get-document", { id: documentId }],
+          fileFirstDocument,
+        );
+        queryClient.invalidateQueries({
+          queryKey: ["action", "list-documents"],
+        });
+        return fileFirstDocument;
       }
     },
-    [document.source],
+    [document, documentId, queryClient, updateDocument],
   );
 
   const debouncedSave = useCallback(
@@ -475,11 +582,7 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
 
         setIsSaving(true);
         try {
-          const saved = await updateDocument.mutateAsync({
-            id: documentId,
-            ...updates,
-          });
-          await writeSavedDocumentToLocalSource(saved);
+          const saved = await persistDocumentUpdates(updates);
           // Adopt the server updatedAt per saved field.
           const savedAt = saved?.updatedAt ?? new Date().toISOString();
           if (updates.title !== undefined) {
@@ -519,13 +622,7 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
         }
       }, 500);
     },
-    [
-      documentId,
-      updateDocument,
-      autoSync,
-      queryClient,
-      writeSavedDocumentToLocalSource,
-    ],
+    [documentId, autoSync, persistDocumentUpdates, queryClient],
   );
 
   // Collab-aware ingest flush: the `pull-document` action writes a one-shot
@@ -559,11 +656,7 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
             }
             try {
               if (Object.keys(updates).length > 0) {
-                const saved = await updateDocument.mutateAsync({
-                  id: documentId,
-                  ...updates,
-                });
-                await writeSavedDocumentToLocalSource(saved);
+                const saved = await persistDocumentUpdates(updates);
                 const savedAt = saved?.updatedAt ?? new Date().toISOString();
                 if (updates.title !== undefined) {
                   lastSavedTitleRef.current = { title, updatedAt: savedAt };
@@ -596,13 +689,7 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
       active = false;
       clearTimeout(timer);
     };
-  }, [
-    canEdit,
-    documentId,
-    isLocalFileDocument,
-    updateDocument,
-    writeSavedDocumentToLocalSource,
-  ]);
+  }, [canEdit, documentId, isLocalFileDocument, persistDocumentUpdates]);
 
   const handleTitleChange = useCallback(
     (newTitle: string) => {
@@ -792,11 +879,7 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
                         void (async () => {
                           setIsSaving(true);
                           try {
-                            const saved = await updateDocument.mutateAsync({
-                              id: documentId,
-                              icon: emoji,
-                            });
-                            await writeSavedDocumentToLocalSource(saved);
+                            await persistDocumentUpdates({ icon: emoji });
                           } finally {
                             setIsSaving(false);
                           }
@@ -871,8 +954,12 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
               <VisualEditor
                 key={documentId}
                 documentId={documentId}
-                content={document.content}
-                contentUpdatedAt={document.updatedAt}
+                content={isLocalFileDocument ? localContent : document.content}
+                contentUpdatedAt={
+                  isLocalFileDocument
+                    ? (localContentUpdatedAt ?? document.updatedAt)
+                    : document.updatedAt
+                }
                 onChange={handleContentChange}
                 ydoc={canEdit && !isLocalFileDocument ? ydoc : null}
                 awareness={canEdit && !isLocalFileDocument ? awareness : null}
