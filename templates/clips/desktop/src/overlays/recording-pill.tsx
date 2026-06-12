@@ -36,18 +36,6 @@ interface PillContext {
  * and capture-excluded — see `recording_indicator.rs`. We only deal with
  * sizing the window when the user toggles the chevron.
  */
-/** Short relative time for the notes auto-save label, e.g. "just now",
- * "30s ago", "2m ago", "1h ago". */
-function formatSavedAgo(savedAt: number, now: number): string {
-  const secs = Math.max(0, Math.floor((now - savedAt) / 1000));
-  if (secs < 5) return "just now";
-  if (secs < 60) return `${secs}s ago`;
-  const mins = Math.floor(secs / 60);
-  if (mins < 60) return `${mins}m ago`;
-  const hrs = Math.floor(mins / 60);
-  return `${hrs}h ago`;
-}
-
 export function RecordingPill() {
   const [expanded, setExpanded] = useState(false);
   const [paused, setPaused] = useState(false);
@@ -61,12 +49,7 @@ export function RecordingPill() {
   const [transcriptCopied, setTranscriptCopied] = useState(false);
   const [preloadedLines, setPreloadedLines] = useState<FinalLine[]>([]);
   const [notes, setNotes] = useState("");
-  const [savedAt, setSavedAt] = useState<number | null>(null);
-  const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState(false);
-  // Bumped on an interval so the relative "saved 2m ago" label stays fresh
-  // without a save actually happening.
-  const [, setNowTick] = useState(0);
   const notesDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Latest typed notes, mirrored into a ref so the unmount/blur flush can
   // read the current value without re-subscribing.
@@ -135,9 +118,7 @@ export function RecordingPill() {
         setError(null);
         // Reset notes and transcript state for the new session.
         setNotes("");
-        setSaving(false);
         setSaveError(false);
-        setSavedAt(null);
         setPreloadedLines([]);
         pendingNotesRef.current = null;
         // Only clear the meeting id when leaving meeting mode. In meeting mode
@@ -183,20 +164,16 @@ export function RecordingPill() {
       }),
     );
     // Unified auto-save signal from the popover — fires after either the
-    // transcript or the notes are persisted. Drives the single "Auto-saved"
-    // indicator below the notes editor.
+    // transcript or the notes are persisted.
     trackListen(
       listen<{ meetingId: string; ts: number }>("clips:meeting-saved", (ev) => {
         if (ev.payload?.meetingId !== activeMeetingIdRef.current) return;
-        setSaving(false);
         setSaveError(false);
         pendingNotesRef.current = null;
-        setSavedAt(ev.payload?.ts ?? Date.now());
       }),
     );
     trackListen(
       listen("clips:meeting-save-failed", () => {
-        setSaving(false);
         setSaveError(true);
       }),
     );
@@ -271,13 +248,6 @@ export function RecordingPill() {
       tickRef.current = null;
     };
   }, [paused]);
-
-  // Keep the "Auto-saved · Xm ago" label fresh while the pill is open.
-  useEffect(() => {
-    if (savedAt === null) return;
-    const id = setInterval(() => setNowTick((t) => t + 1), 15000);
-    return () => clearInterval(id);
-  }, [savedAt]);
 
   // Dual-stream waveform — one bar group per source. When system-audio
   // hasn't emitted any levels yet (e.g. dictation-only flow), the system
@@ -692,7 +662,6 @@ export function RecordingPill() {
                       const val = e.target.value;
                       setNotes(val);
                       pendingNotesRef.current = val;
-                      if (!saving) setSaving(true);
                       if (saveError) setSaveError(false);
                       if (notesDebounceRef.current)
                         clearTimeout(notesDebounceRef.current);
@@ -703,8 +672,6 @@ export function RecordingPill() {
                             meetingId: mid,
                             notes: val,
                           }).catch(() => {});
-                        // `saving` clears when the popover confirms the write
-                        // via `clips:meeting-saved`.
                       }, 800);
                     }}
                     onBlur={flushNotesNow}
@@ -739,13 +706,7 @@ export function RecordingPill() {
                 Open in browser
               </button>
               <span className="pill-saved-status">
-                {saveError
-                  ? "Save failed — retrying on next edit"
-                  : saving
-                    ? "Saving…"
-                    : savedAt !== null
-                      ? `Auto-saved · ${formatSavedAgo(savedAt, Date.now())}`
-                      : ""}
+                {saveError ? "Save failed — retrying on next edit" : ""}
               </span>
             </div>
           ) : null}

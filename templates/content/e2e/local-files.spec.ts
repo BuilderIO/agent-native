@@ -130,8 +130,16 @@ async function installDirectoryPicker(page: Page, root: string) {
         }
       }
 
-      api.showDirectoryPicker = async () =>
-        new E2EDirectoryHandle(rootPath, rootName);
+      const createRootHandle = () => new E2EDirectoryHandle(rootPath, rootName);
+      if (localStorage.getItem("__contentE2eDirectoryGranted") === "true") {
+        api.__contentLocalSourceDirectoryHandle = createRootHandle();
+      }
+      api.showDirectoryPicker = async () => {
+        localStorage.setItem("__contentE2eDirectoryGranted", "true");
+        const handle = createRootHandle();
+        api.__contentLocalSourceDirectoryHandle = handle;
+        return handle;
+      };
     },
     { rootPath: root, rootName: path.basename(root) },
   );
@@ -198,4 +206,21 @@ test("browser local folder edits write the selected MDX file", async ({
   await expect
     .poll(async () => readSourceFile(root), { timeout: 20_000 })
     .toContain('title: "Getting Started"');
+
+  await fs.writeFile(
+    path.join(root, SOURCE_PATH),
+    [
+      "---",
+      'title: "Getting Started"',
+      "---",
+      "",
+      "Externally changed source of truth.",
+    ].join("\n"),
+    "utf8",
+  );
+
+  await page.reload();
+  await expect(editor).toContainText("Externally changed source of truth.", {
+    timeout: 20_000,
+  });
 });
