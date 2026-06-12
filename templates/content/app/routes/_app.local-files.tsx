@@ -1009,7 +1009,9 @@ export default function LocalFilesRoute() {
                     colSpan={4}
                     className="h-24 text-center text-sm text-muted-foreground"
                   >
-                    Add a folder to sync local Markdown and MDX files.
+                    <div className="ml-0 mr-auto max-w-[calc(100vw-4rem)] text-left sm:mx-auto sm:max-w-none sm:text-center">
+                      Add a folder to sync local Markdown and MDX files.
+                    </div>
                   </TableCell>
                 </TableRow>
               ) : (
