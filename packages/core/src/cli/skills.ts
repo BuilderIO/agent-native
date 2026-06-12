@@ -667,6 +667,14 @@ behavior). Replace vague prose with specifics; never ship a step like "make it
 work." No hero art, gradients, logos, nav bars, slogans, value props, giant
 landing-page headings, or marketing cards unless the user explicitly asks.
 
+**Every published plan must stand alone.** Even when the agent is revising an
+existing plan, the output is a plan to do the work, not a changelog of the
+conversation. Do not write phrases like "preserve the previous plan", "do not
+drop the old idea", "as discussed above", "this revision", "unlike the prior
+version", or "correction from the earlier plan". Fold the right decisions into
+the plan as normal objective, architecture, scope, and roadmap prose. A reviewer
+who opens the plan from a link with no chat history should understand it.
+
 **When top visuals exist, they and the document never duplicate each other.**
 For UI work, the UI story lives in the top visual surface: canvas artboards for
 static inspection, plus prototype tabs when the flow should be functional. The
@@ -939,10 +947,13 @@ plan needs a richer review surface.
   even if most of the feature ships later. Then scope to the smallest first cut that
   proves the approach without foreclosing it, stating both what is in and what is
   explicitly deferred.
-- **Preserve existing plans.** If the user pasted, referenced, or already has a
-  Codex / Claude Code / Markdown plan, treat it as source material. Preserve its
-  intent, do not invent codebase facts, label inferred visuals as inferred, and
-  build the visual review structure around the plan the user already has.
+- **Publish standalone plans.** If the user pasted, referenced, or already has a
+  Codex / Claude Code / Markdown plan, treat it as source material, but rewrite
+  the published plan as a clean standalone proposal. Preserve the source plan's
+  useful intent and codebase facts, label inferred visuals as inferred, and avoid
+  revision language such as "preserve the prior plan", "do not drop the old
+  idea", "unlike the previous version", or "this revision changes...". A reader
+  who never saw the chat or earlier drafts should understand the plan.
 - **Planning is read-only.** Make no source edits while building or reviewing the
   plan. Start editing only after the user approves the direction.
 - **Clarify vs. assume.** Do not ask how to build it — explore and present the
@@ -959,7 +970,9 @@ plan needs a richer review surface.
   separate "does this look good?" question.
 - **The document is the source of truth, not the chat.** When scope shifts,
   update the plan with \`update-visual-plan\` rather than only changing course in
-  chat, and re-read the approved plan before major steps.
+  chat, and make the updated document stand alone. Do not describe the update as
+  a correction to an earlier draft inside the plan itself. Re-read the approved
+  plan before major steps.
 
 ## Always Publish As An Agent-Native Plan — Never Inline
 
@@ -993,14 +1006,16 @@ exception.
    for prototype-first plans, \`create-plan-design\` for design-first plans,
    \`create-visual-questions\` only when the user explicitly asks for a visual
    intake questionnaire. When a source plan already exists,
-   pass it as \`planText\` and preserve the original plan's intent while adding
-   structured review content.
+   pass it as \`planText\` and preserve the original plan's useful intent while
+   producing a standalone plan document, not a revision memo.
 3. Compose or enrich any top UI/product visual surface and write the document
    with native blocks (see \`references/canvas.md\` and
-   \`references/document-quality.md\`). Keep the document close to the Markdown
-   plan the agent would normally output, or to the existing plan when one was
-   provided. For non-visual plans, skip the top visual surface (Visual Surface
-   Choice below owns the rule) and put \`diagram\`, \`data-model\`,
+   \`references/document-quality.md\`). Keep the document close to the standalone
+   Markdown plan the agent would normally output. If an existing plan was
+   provided, carry forward the right facts and decisions without referring to
+   the previous draft or explaining how this version differs. For non-visual
+   plans, skip the top visual surface (Visual Surface Choice below owns the rule)
+   and put \`diagram\`, \`data-model\`,
    \`api-endpoint\`, \`diff\`, \`file-tree\`, \`code\`, and \`annotated-code\` blocks
    directly next to the relevant prose.
 4. Surface the returned Plans link or inline MCP App and ask the user to review.
