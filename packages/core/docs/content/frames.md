@@ -81,7 +81,7 @@ allow-list to prevent injection:
 | OpenCode    | `opencode` | `opencode-ai`               |
 
 If the selected CLI isn't found on `PATH`, the terminal falls back to running it
-through `npx --yes <install-package>` (where an install package exists). The
+through `npx --yes <install-package>@latest` (where an install package exists). The
 default command is `claude`. Switch CLIs from the agent panel settings at any
 time.
 

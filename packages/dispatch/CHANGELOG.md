@@ -399,7 +399,7 @@ workspace:*`, but the templates-meta entries were missing
     had even added an app, which felt confusing.
   - Agent system prompt (chat-in-browser-on-localdev): when a user asks to
     scaffold a new workspace app from a localhost browser tab, point them
-    at \`npx @agent-native/core add-app\` first since they're already in
+    at \`npx @agent-native/core@latest add-app\` first since they're already in
     that terminal. The desktop / Claude Code / Codex / Builder.io
     alternatives still follow for general source-editing work.
 

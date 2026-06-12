@@ -196,7 +196,7 @@ describe("handleMcpConnect", () => {
         "claude mcp add --transport http agent-native-mail",
       );
       expect(body).toContain(
-        "npx @agent-native/core connect https://mail.agent-native.com",
+        "npx @agent-native/core@latest connect https://mail.agent-native.com",
       );
       expect(body).toContain('<details id="assistantSetup" class="hosts">');
       expect(body).not.toContain(

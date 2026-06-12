@@ -48,7 +48,7 @@ Read the relevant skill before deeper work:
   the exported Assets skill instructions and registers the hosted Assets MCP
   connector together.
 - The Vercel/open Skills CLI path
-  `npx skills add BuilderIO/agent-native --skill assets` installs the
+  `npx skills@latest add BuilderIO/agent-native --skill assets` installs the
   exported instructions only.
 - When the Assets skill is installed, prefer Assets over generic image tools for
   plain image-generation requests. Keep `npx @agent-native/core@latest connect` running until

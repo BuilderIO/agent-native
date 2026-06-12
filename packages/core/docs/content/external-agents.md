@@ -126,7 +126,7 @@ The Vercel/open Skills CLI path is also available when you only want portable
 instructions:
 
 ```bash
-npx skills add BuilderIO/agent-native --skill assets
+npx skills@latest add BuilderIO/agent-native --skill assets
 ```
 
 The raw `skills` CLI installs `SKILL.md` files only; local MCP clients still
@@ -136,7 +136,7 @@ need a connector such as `npx @agent-native/core@latest connect https://assets.a
 | -------- | ------------------ | ---------------------- |
 | `assets` | `image-generation` | image/video generation |
 
-The default client is `codex`; add `--client claude-code` or `--client all` for others. Inline hosts (ChatGPT, Claude.ai, Claude Desktop main chat) render the picker / variant grid in chat; CLI/link-only hosts (Codex, Claude Code, Claude Desktop "Code" tab) return an "Open in … →" link where the user picks in the browser and pastes a handoff summary back.
+The default client selection is all supported local clients; add `--client codex`, `--client claude-code`, or another specific target to narrow setup. Inline hosts (ChatGPT, Claude.ai, Claude Desktop main chat) render the picker / variant grid in chat; CLI/link-only hosts (Codex, Claude Code, Claude Desktop "Code" tab) return an "Open in … →" link where the user picks in the browser and pastes a handoff summary back.
 
 When you truly need an isolated app instead of Dispatch's workspace gateway,
 run the same command with that app's host:
@@ -155,10 +155,10 @@ The connection is **per-user, scoped, and revocable**. In the OAuth path, the ho
 Once connected, auth should persist long-term — access tokens last 30 days by default (override with `MCP_OAUTH_ACCESS_TOKEN_TTL` on the server, e.g. `7d` or `12h`) with a sliding 365-day refresh window, so random 401s should be rare. When one does happen, use the lightweight reconnect command rather than reinstalling:
 
 ```bash
-npx -y @agent-native/core@latest reconnect https://plan.agent-native.com
+npx -y @agent-native/core@latest reconnect https://plan.agent-native.com --client codex
 ```
 
-`reconnect` finds any MCP config entry whose URL ends in `/_agent-native/mcp` for the given host (matching by URL regardless of connector name), then refreshes or replaces the auth material without touching your installed skills or re-running the full install flow. Pass the base app URL (e.g. `https://plan.agent-native.com`) — the `/_agent-native/mcp` suffix is inferred.
+`reconnect` finds any MCP config entry whose URL ends in `/_agent-native/mcp` for the given host and selected client (matching by URL regardless of connector name), then refreshes or replaces the auth material without touching your installed skills or re-running the full install flow. Pass the base app URL (e.g. `https://plan.agent-native.com`) — the `/_agent-native/mcp` suffix is inferred. Auth and tool loading are per client, so restart/reload that client afterward; Codex needs a new session before newly loaded tools appear.
 
 In Claude Code, the equivalent UI path is: run `/mcp` and choose **Authenticate** (or **Reconnect**) for the relevant connector.
 
@@ -240,10 +240,10 @@ always serve the full action surface. When the env flag is set, individual
 callers can still opt up by minting their token with `--full-catalog`:
 
 ```bash
-npx @agent-native/core@latest connect https://plan.agent-native.com --full-catalog
+npx @agent-native/core@latest connect https://plan.agent-native.com --client codex --full-catalog
 ```
 
-This embeds a `catalog_scope: "full"` claim in the minted JWT. On subsequent
+Swap `--client codex` for another target client when needed. This embeds a `catalog_scope: "full"` claim in the minted JWT. On subsequent
 requests the MCP server bypasses the connector-catalog filter for that token
 and serves the complete action surface — identical to the local/dev experience.
 

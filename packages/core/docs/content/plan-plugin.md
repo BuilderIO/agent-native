@@ -23,11 +23,13 @@ long-lived (30-day default, sliding 365-day refresh), so this should be rare;
 when it happens, the lightweight fix is:
 
 ```bash
-npx -y @agent-native/core@latest reconnect https://plan.agent-native.com
+npx -y @agent-native/core@latest reconnect https://plan.agent-native.com --client codex
 ```
 
-`reconnect` finds and refreshes the connector by URL — no reinstall needed. In
-Claude Code, the equivalent is `/mcp` → **Authenticate / Reconnect**.
+`reconnect` finds and refreshes the connector by URL for the selected local
+client — no reinstall needed. Start a new Codex thread after reconnecting so the
+tool registry reloads. In Claude Code, the equivalent is `/mcp` →
+**Authenticate / Reconnect**, or the same command with `--client claude-code`.
 
 The exception is explicit **local-files privacy mode**. When you ask for no DB
 writes or set `AGENT_NATIVE_PLANS_MODE=local-files`, the skills must not call
@@ -56,7 +58,7 @@ There are three ways in. The **universal CLI route** is the one we recommend by 
 
 ### Universal skill route (any MCP host) {#universal}
 
-Works for any host — Claude Code, Codex, Cursor, Cline, Goose, ChatGPT custom MCP apps, Claude Cowork, and anything else MCP-compatible. The Agent-Native CLI installs both skills, registers the hosted Plan MCP connector, **and authenticates it in the same step**, so your first tool call does not hit an OAuth wall:
+Works for any host — Claude Code, Codex, Cursor, Cline, Goose, ChatGPT custom MCP apps, Claude Cowork, and anything else MCP-compatible. The Agent-Native CLI installs both skills, registers the hosted Plan MCP connector, **and runs auth for the selected local client(s) in the same step**, so your first tool call does not hit an OAuth wall:
 
 ```bash
 npx @agent-native/core@latest skills add visual-plan
@@ -64,8 +66,8 @@ npx @agent-native/core@latest skills add visual-plan
 
 This installs `visual-plan` plus the companion `visual-recap` skill, then registers the `plan` connector, then runs auth (OAuth prompt for hosted/account-backed sharing). Useful flags:
 
-- `--client codex|claude-code|claude-code-cli|cowork|all` — which local agents to write the MCP config for (default `codex`).
-- `--no-connect` — register the connector without authenticating; run `npx @agent-native/core@latest connect https://plan.agent-native.com` later.
+- `--client codex|claude-code|claude-code-cli|cowork|all` — which local agents to write the MCP config for (default `all`).
+- `--no-connect` — register the connector without authenticating; run `npx @agent-native/core@latest connect https://plan.agent-native.com --client all` later, or choose a narrower `--client`.
 - `--mcp-url <url>` — point the connector at a custom origin (an ngrok tunnel, a local dev server, or a self-hosted deployment) instead of the hosted default.
 - `--with-github-action` — also write the PR Visual Recap GitHub Action (see [PR Visual Recap](/docs/pr-visual-recap)).
 
@@ -84,7 +86,7 @@ access, and required Actions configuration. After install finishes, restart or
 reload the agent client so the new skills and tools load, then run
 `/visual-plan`.
 
-> Note: the bare `npx skills add BuilderIO/agent-native --skill visual-plan` (Vercel/open Skills CLI) installs **instructions only** — it does not register the MCP connector. Use the Agent-Native CLI above when you want the connector wired up too.
+> Note: the bare `npx skills@latest add BuilderIO/agent-native --skill visual-plan` (Vercel/open Skills CLI) installs **instructions only** — it does not register the MCP connector. Use the Agent-Native CLI above when you want the connector wired up too.
 
 ### Claude Code (plugin) {#claude-code}
 
@@ -113,7 +115,7 @@ codex mcp login plan   # OAuth in the browser
 
 After install, **start a new Codex thread** so the skills and MCP tools load into the session. The plugin ships a URL-only connector (`[mcp_servers.plan]` → `https://plan.agent-native.com/_agent-native/mcp`); `codex mcp login plan` runs the OAuth flow. The universal CLI route above also works for Codex (`npx @agent-native/core@latest skills add visual-plan --client codex`) if you prefer one command that installs and authenticates together.
 
-> **Older installs:** if your config still has an `agent-native-plans` entry pointing at the same URL, running `npx -y @agent-native/core@latest reconnect https://plan.agent-native.com` (or `skills add visual-plan` for a full reinstall) consolidates it to the canonical `plan` name.
+> **Older installs:** if your config still has an `agent-native-plans` entry pointing at the same URL, running `npx -y @agent-native/core@latest reconnect https://plan.agent-native.com --client codex` for Codex, or the same command with your target `--client`, consolidates it to the canonical `plan` name.
 
 ## Updates {#updates}
 

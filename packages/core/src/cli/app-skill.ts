@@ -899,7 +899,7 @@ function writeVercelSkillsAdapter(
       "Install instructions only with the Vercel Labs/open skills CLI:",
       "",
       "```bash",
-      `npx skills add . --skill ${skills.map(skillExportName).join(" --skill ")} -a codex`,
+      `npx skills@latest add . --skill ${skills.map(skillExportName).join(" --skill ")} -a codex`,
       "```",
       "",
       "Then register the app-backed MCP connector:",

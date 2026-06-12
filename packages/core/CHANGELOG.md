@@ -58,9 +58,9 @@
     as the documented one-line reauth path and consistently teaches that
     reinstalling from scratch is never needed to fix auth.
 
-- d77a37f: Add best-effort install-funnel analytics to both skills CLIs (`npx @agent-native/skills` and `npx @agent-native/core skills`). Each run reports a step-by-step funnel — started, skills prompted, skills selected, clients selected, scope selected, install completed, MCP registered, connect, and completed/failed/cancelled — to the first-party Agent Native Analytics endpoint, so install volume, skill selection, and step-by-step dropoff can be measured. Events carry a stable per-machine install id (unique installs) and a per-run id (dropoff) and never include paths, repo names, or other identifying data. Telemetry is fire-and-forget, flushes before exit, and is opt-out via `DO_NOT_TRACK=1` or `AGENT_NATIVE_TELEMETRY_DISABLED=1`.
+- d77a37f: Add best-effort install-funnel analytics to both skills CLIs (`npx @agent-native/skills@latest` and `npx @agent-native/core@latest skills`). Each run reports a step-by-step funnel — started, skills prompted, skills selected, clients selected, scope selected, install completed, MCP registered, connect, and completed/failed/cancelled — to the first-party Agent Native Analytics endpoint, so install volume, skill selection, and step-by-step dropoff can be measured. Events carry a stable per-machine install id (unique installs) and a per-run id (dropoff) and never include paths, repo names, or other identifying data. Telemetry is fire-and-forget, flushes before exit, and is opt-out via `DO_NOT_TRACK=1` or `AGENT_NATIVE_TELEMETRY_DISABLED=1`.
 - d77a37f: Unify the two skills installers onto one codebase + UX.
-  - `npx @agent-native/skills add` / `list` now delegate to `@agent-native/core`'s
+  - `npx @agent-native/skills@latest add` / `list` now delegate to `@agent-native/core`'s
     clack-based installer (`runSkills`, newly exported at `@agent-native/core/cli/skills`),
     so the standalone CLI and `agent-native skills` share the exact same interactive
     experience, MCP-server registration, and authentication. A `AGENT_NATIVE_SKILLS_DIRECT`
@@ -2609,7 +2609,7 @@ canToggle, isLoading, setCodeMode }`.
 
 ### Patch Changes
 
-- b5fc3b7: `/_agent-native/mcp/connect` now leads with the no-CLI path: the remote MCP URL is shown with a copy button, and a Claude/ChatGPT/Cursor/Claude Code/Codex/Other tab strip walks users through each host (paste-the-URL for OAuth hosts, one-line `claude mcp add` / `npx @agent-native/core connect` snippets for CLI hosts) so non-developers can connect a chat host without ever opening a terminal. The static-token mint flow and connections list keep their existing endpoints; tests cover the new sections.
+- b5fc3b7: `/_agent-native/mcp/connect` now leads with the no-CLI path: the remote MCP URL is shown with a copy button, and a Claude/ChatGPT/Cursor/Claude Code/Codex/Other tab strip walks users through each host (paste-the-URL for OAuth hosts, one-line `claude mcp add` / `npx @agent-native/core@latest connect` snippets for CLI hosts) so non-developers can connect a chat host without ever opening a terminal. The static-token mint flow and connections list keep their existing endpoints; tests cover the new sections.
 
 ## 0.22.3
 
@@ -3157,7 +3157,7 @@ workspace:*`, but the templates-meta entries were missing
     had even added an app, which felt confusing.
   - Agent system prompt (chat-in-browser-on-localdev): when a user asks to
     scaffold a new workspace app from a localhost browser tab, point them
-    at \`npx @agent-native/core add-app\` first since they're already in
+    at \`npx @agent-native/core@latest add-app\` first since they're already in
     that terminal. The desktop / Claude Code / Codex / Builder.io
     alternatives still follow for general source-editing work.
 

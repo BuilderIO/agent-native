@@ -1,6 +1,6 @@
 {
   "name": "Skills CLI Funnel",
-  "description": "Install funnel for the `npx @agent-native/skills` and `npx @agent-native/core skills` CLIs, tracked via first-party analytics. Each run is a distinct session_id; unique installs are distinct anonymous_id. Source: first-party analytics_events.",
+  "description": "Install funnel for the `npx @agent-native/skills@latest` and `npx @agent-native/core@latest skills` CLIs, tracked via first-party analytics. Each run is a distinct session_id; unique installs are distinct anonymous_id. Source: first-party analytics_events.",
   "columns": 3,
   "panels": [
     {

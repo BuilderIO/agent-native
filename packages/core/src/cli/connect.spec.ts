@@ -821,6 +821,51 @@ describe("runConnect", () => {
     }
   });
 
+  it("reconnect adds bearer auth to an existing URL-only Codex entry", async () => {
+    const root = tmpDir();
+    const home = tmpDir();
+    const oldHome = process.env.HOME;
+    process.env.HOME = home;
+    process.chdir(root);
+    const codexFile = path.join(home, ".codex", "config.toml");
+    fs.mkdirSync(path.dirname(codexFile), { recursive: true });
+    fs.writeFileSync(
+      codexFile,
+      [
+        '[mcp_servers."plan"]',
+        'url = "https://plan.agent-native.com/_agent-native/mcp"',
+        "",
+      ].join("\n"),
+      "utf-8",
+    );
+
+    try {
+      await runConnect(
+        ["reconnect", "https://plan.agent-native.com", "--client", "codex"],
+        {
+          fetchImpl: makeFetch([
+            {
+              status: "approved",
+              token: "fresh-token",
+              mcpUrl: "https://plan.agent-native.com/_agent-native/mcp",
+              serverName: "plan",
+            },
+          ]),
+          sleep: noopSleep,
+          openBrowser: vi.fn(),
+        },
+      );
+
+      expect(process.exitCode).toBeFalsy();
+      const toml = fs.readFileSync(codexFile, "utf-8");
+      expect(toml).toContain('[mcp_servers."plan"]');
+      expect(toml).toContain('"Authorization" = "Bearer fresh-token"');
+      expect(toml).toContain('"X-Agent-Native-MCP-Full-Catalog" = "1"');
+    } finally {
+      process.env.HOME = oldHome;
+    }
+  });
+
   it("reconnect migrates the legacy first-party Plans server name to canonical 'plan'", async () => {
     const root = tmpDir();
     const home = tmpDir();
@@ -924,6 +969,69 @@ describe("runConnect", () => {
       expect(toml).not.toContain("stale-2");
       expect(toml).not.toContain("stale-3");
       expect(fs.existsSync(path.join(root, ".mcp.json"))).toBe(false);
+    } finally {
+      process.env.HOME = oldHome;
+    }
+  });
+
+  it("reconnect reports requested clients that had no matching local entry", async () => {
+    const root = tmpDir();
+    const home = tmpDir();
+    const oldHome = process.env.HOME;
+    process.env.HOME = home;
+    process.chdir(root);
+    const codexFile = path.join(home, ".codex", "config.toml");
+    fs.mkdirSync(path.dirname(codexFile), { recursive: true });
+    fs.writeFileSync(
+      codexFile,
+      [
+        '[mcp_servers."plan"]',
+        'url = "https://plan.agent-native.com/_agent-native/mcp"',
+        'http_headers = { "Authorization" = "Bearer stale-token" }',
+        "",
+      ].join("\n"),
+      "utf-8",
+    );
+    const outLines: string[] = [];
+    vi.spyOn(process.stdout, "write").mockImplementation((chunk) => {
+      outLines.push(String(chunk));
+      return true;
+    });
+
+    try {
+      await runConnect(
+        [
+          "reconnect",
+          "https://plan.agent-native.com",
+          "--client",
+          "codex,cowork",
+        ],
+        {
+          fetchImpl: makeFetch([
+            {
+              status: "approved",
+              token: "fresh-token",
+              mcpUrl: "https://plan.agent-native.com/_agent-native/mcp",
+              serverName: "plan",
+            },
+          ]),
+          sleep: noopSleep,
+          openBrowser: vi.fn(),
+        },
+      );
+
+      expect(process.exitCode).toBeFalsy();
+      const combined = outLines.join("");
+      expect(combined).toContain(
+        "Reconnected existing client configs for Codex.",
+      );
+      expect(combined).toContain(
+        "Did not touch Claude Cowork because no matching MCP entry was found.",
+      );
+      expect(combined).toContain(
+        "connect https://plan.agent-native.com --client <client>",
+      );
+      expect(fs.existsSync(path.join(home, ".cowork", "mcp.json"))).toBe(false);
     } finally {
       process.env.HOME = oldHome;
     }

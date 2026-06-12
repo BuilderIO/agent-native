@@ -291,7 +291,7 @@ describe("app skill packaging", () => {
           path.join(outDir, "adapters", "vercel-skills", "README.md"),
           "utf-8",
         )
-        .includes("npx skills add . --skill assets -a codex"),
+        .includes("npx skills@latest add . --skill assets -a codex"),
     ).toBe(true);
     expect(
       JSON.parse(

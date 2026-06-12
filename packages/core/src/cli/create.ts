@@ -139,7 +139,7 @@ async function createWorkspaceInteractive(
       "container — it isn't an app itself. Inside it you pick one or more apps",
       "(below), and each app gets its own route, agent, and UI. Apps in the",
       "same workspace share auth, database, and the agent chat. Add more apps",
-      "later with `npx @agent-native/core add-app`. Starter is a minimal scaffold —",
+      "later with `npx @agent-native/core@latest add-app`. Starter is a minimal scaffold —",
       "useful as a blank app to build from scratch alongside the others.",
       "Dispatch is always included as the workspace control plane —",
       "it owns shared secrets, messaging, approvals, and cross-app routing.",
@@ -272,7 +272,7 @@ async function createWorkspaceInteractive(
       ``,
       ...dispatchNextStep,
       ``,
-      `Add another app later:        npx @agent-native/core add-app`,
+      `Add another app later:        npx @agent-native/core@latest add-app`,
       `Deploy the whole workspace:   pnpm exec agent-native deploy`,
     ].join("\n"),
   );

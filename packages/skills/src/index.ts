@@ -86,12 +86,12 @@ interface ParsedArgs {
 const HELP = `@agent-native/skills
 
 Usage:
-  npx @agent-native/skills add [options]
-  npx @agent-native/skills list
+  npx @agent-native/skills@latest add [options]
+  npx @agent-native/skills@latest list
 
 Options:
   --skill <name>              Install only this skill (repeatable)
-  --client, -a <client>       codex, claude-code, or all (repeatable or comma-separated)
+  --client, -a <client>       codex, claude-code, or all (default: all; repeatable or comma-separated)
   --scope <user|project>      Install globally or into the current project (default: user)
   -g, --global                Alias for --scope user
   --project                   Alias for --scope project
@@ -110,13 +110,14 @@ register their hosted MCP server in your agent config by default so the agent
 can actually use them. Use --no-mcp to skip that and copy the files only.
 
 Examples:
-  npx @agent-native/skills add
-  npx @agent-native/skills add --skill quick-recap
-  npx @agent-native/skills add --skill visual-recap --with-github-action
+  npx @agent-native/skills@latest add
+  npx @agent-native/skills@latest add --skill quick-recap
+  npx @agent-native/skills@latest add --skill visual-recap --with-github-action
 `;
 
 const CLIENTS: SkillClient[] = ["codex", "claude-code"];
 const DEFAULT_SKILLS_SOURCE = "BuilderIO/skills";
+const PUBLIC_SKILLS_REPO_APP_SKILLS = new Set(["visual-plan", "visual-recap"]);
 const MANAGED_INSTRUCTIONS_START = "<!-- BEGIN @agent-native/skills -->";
 const MANAGED_INSTRUCTIONS_END = "<!-- END @agent-native/skills -->";
 
@@ -232,19 +233,21 @@ export async function runSkillsCli(
 ): Promise<void> {
   const parsed = parseSkillsCliArgs(argv);
 
-  // PIVOT: `@agent-native/skills` delegates its install/list flow to
-  // `@agent-native/core`'s clack-based installer so both CLIs share ONE codebase
-  // and UX. App-backed skills (visual-plan/visual-recap/assets/design-exploration/
-  // context-xray) and the interactive picker go through core. Plain BuilderIO
-  // skills (efficient-fable, quick-recap, …) aren't known to core, so an explicit
-  // plain `--skill` falls through to this package's own headless installer.
+  // PIVOT: `@agent-native/skills` delegates explicitly selected core-only
+  // app-backed installs to `@agent-native/core` for app setup. The default
+  // add/list flow, plain skills, and public-repo-backed app skills stay here so
+  // they always come from the live BuilderIO skills collection (quick-recap,
+  // efficient-fable, visual-plan, visual-recap, …), which core does not own.
   // AGENT_NATIVE_SKILLS_DIRECT=1 (set when core delegates a plain repo back to us)
   // always forces the direct path and breaks the skills → core → skills loop.
   if (process.env.AGENT_NATIVE_SKILLS_DIRECT !== "1") {
-    const appOnly =
-      parsed.skillNames.length === 0 ||
-      parsed.skillNames.every((name) => resolveAppForSkill(name) !== undefined);
-    if (parsed.command === "list" || (parsed.command === "add" && appOnly)) {
+    const coreOnlyAppSkills =
+      parsed.skillNames.length > 0 &&
+      parsed.skillNames.every(
+        (name) => resolveAppForSkill(name) !== undefined,
+      ) &&
+      parsed.skillNames.every((name) => !skillComesFromPublicSkillsRepo(name));
+    if (parsed.command === "add" && coreOnlyAppSkills) {
       const { runSkills } = await import("@agent-native/core/cli/skills");
       await runSkills(toCoreSkillsArgv(parsed), {
         isInteractive: options.isInteractive,
@@ -364,6 +367,10 @@ export async function runSkillsCli(
   } finally {
     await telemetry.flush();
   }
+}
+
+function skillComesFromPublicSkillsRepo(name: string): boolean {
+  return PUBLIC_SKILLS_REPO_APP_SKILLS.has(normalizeSkillName(name));
 }
 
 function readCliVersion(): string {
@@ -682,13 +689,13 @@ async function resolveSelectedClients(
 ): Promise<SkillClient[]> {
   const requested = unique(options.clients ?? []);
   if (requested.length > 0) return requested;
-  if (!isInteractive(options) || options.yes) return ["codex"];
+  if (!isInteractive(options) || options.yes) return CLIENTS;
 
   const answer = await promptLine(
-    "Install for which clients? Enter codex, claude-code, or all [codex]: ",
+    "Install for which clients? Enter codex, claude-code, or all [all]: ",
   );
   const trimmed = answer.trim();
-  return trimmed ? unique(normalizeClients(trimmed)) : ["codex"];
+  return trimmed ? unique(normalizeClients(trimmed)) : CLIENTS;
 }
 
 function isInteractive(

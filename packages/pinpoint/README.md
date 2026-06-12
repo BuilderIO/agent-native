@@ -17,7 +17,7 @@ pnpm add @agent-native/pinpoint
 ### Step 2: Initialize agent actions and skill
 
 ```sh
-npx @agent-native/pinpoint init
+npx @agent-native/pinpoint@latest init
 ```
 
 This copies agent actions to `actions/` and the Pinpoint skill to `.agents/skills/pinpoint/`. No manual file copying needed.
@@ -91,7 +91,7 @@ Pins are stored as individual JSON files in `data/pins/{uuid}.json`:
 - `selector` — CSS selector to find the element in the DOM
 - `comment` — what the user wants changed
 
-**Agent commands** (available after `npx @agent-native/pinpoint init`):
+**Agent commands** (available after `npx @agent-native/pinpoint@latest init`):
 
 - `pnpm action get-pins --status open` — list unresolved pins
 - `pnpm action resolve-pin --id <uuid>` — mark as resolved after fixing
@@ -174,7 +174,7 @@ pnpm add @agent-native/pinpoint
 ### 2. Initialize
 
 ```sh
-npx @agent-native/pinpoint init
+npx @agent-native/pinpoint@latest init
 ```
 
 Copies agent actions to `actions/` and the Pinpoint skill to `.agents/skills/pinpoint/`.
@@ -249,8 +249,8 @@ All options can be passed as props to `<Pinpoint />` or as the config object to 
 ## CLI
 
 ```sh
-npx @agent-native/pinpoint init   # Copy actions and skill to your project
-npx @agent-native/pinpoint        # Show help
+npx @agent-native/pinpoint@latest init   # Copy actions and skill to your project
+npx @agent-native/pinpoint@latest        # Show help
 ```
 
 ## Keyboard Shortcuts
@@ -294,7 +294,7 @@ app.use("/api/pins", pagePinRoutes({ dataDir: "data/pins" }));
 
 ## Agent Actions
 
-Available after running `npx @agent-native/pinpoint init`:
+Available after running `npx @agent-native/pinpoint@latest init`:
 
 | Action          | Purpose              | Args                                   |
 | --------------- | -------------------- | -------------------------------------- |

@@ -111,7 +111,7 @@ export const BUILT_IN_AUTH_MARKETING: Record<string, AuthMarketingContent> = {
       "Autonomous triage, archiving, and follow-ups",
     ],
     runLocalCommand:
-      "npx @agent-native/core create my-mail-app --template mail",
+      "npx @agent-native/core@latest create my-mail-app --template mail",
   },
   slides: {
     appName: "Agent-Native Slides",
