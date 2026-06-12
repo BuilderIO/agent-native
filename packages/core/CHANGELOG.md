@@ -1,5 +1,16 @@
 # @agent-native/core
 
+## 0.49.11
+
+### Patch Changes
+
+- c5abc5c: Keep generated app SSR entries on their app-local React Router singleton by
+  passing the local `ServerRouter` into the shared document request handler.
+- c5abc5c: Render default social OG images with branded first-party app names.
+- c5abc5c: Fix extension secret setup guidance and hosted Dispatch template scaffolding.
+- c5abc5c: Add server-side local artifact helpers for manifest-driven local file mode.
+- c5abc5c: Version default Agent-Native social image URLs so social crawlers pick up the fixed rendered preview instead of stale cached images.
+
 ## 0.49.10
 
 ### Patch Changes
