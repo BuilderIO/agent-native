@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.49.12
+
+### Patch Changes
+
+- 32672b7: Fix Vite dev SSR for npm-installed standalone apps by aliasing react-router to the app's install so SSR and the dev router share one React Router context.
+
 ## 0.49.11
 
 ### Patch Changes
