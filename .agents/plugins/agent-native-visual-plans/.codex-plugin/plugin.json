@@ -1,6 +1,6 @@
 {
   "name": "agent-native-visual-plans",
-  "version": "1.0.0+codex.e73960d40cf0",
+  "version": "1.0.0+codex.4cade31f9fa1",
   "description": "Generate and review coding-agent plans as structured documents with inline diagrams, annotated code walkthroughs, file trees, annotations, feedback, and HTML export.",
   "author": { "name": "Agent-Native", "url": "https://agent-native.com" },
   "homepage": "https://plan.agent-native.com",

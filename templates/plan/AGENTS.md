@@ -196,6 +196,11 @@ elementId, styles }]`. Elements must have `data-design-id` or
   members, and replies also notify prior human participants in that thread.
   Reuse the shared `renderEmail` template; do not invent a separate
   plan-specific email style.
+- `report-visual-plan` records a bounded abuse report for a public plan or recap
+  without changing plan content. It requires the caller to be scoped to an
+  accessible public plan, accepts a fixed reason plus optional short details,
+  and updates an existing open report from the same reporter instead of creating
+  duplicate rows.
 
 ## Events
 

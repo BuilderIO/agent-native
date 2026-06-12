@@ -55,6 +55,10 @@ function asOwner(fn: () => Promise<any> | any) {
   return runWithRequestContext({ userEmail: OWNER, orgId: ORG }, fn);
 }
 
+function asOwnerWithoutOrg(fn: () => Promise<any> | any) {
+  return runWithRequestContext({ userEmail: OWNER }, fn);
+}
+
 async function rawPlan(planId: string) {
   // guard:allow-unscoped -- test-only fixture assertion reads the row just created.
   const [row] = await db
@@ -148,6 +152,31 @@ describe("create-visual-recap: sourceUrl", () => {
     );
     const row = await rawPlan(result.planId as string);
     expect(row?.sourceUrl).toBeNull();
+  });
+
+  it("binds the current org when applying org visibility to an unscoped existing recap", async () => {
+    const first = await asOwnerWithoutOrg(() =>
+      createVisualRecap.run({
+        mdx: MINIMAL_MDX,
+        visibility: "private",
+      }),
+    );
+    const planId = first.planId as string;
+    const before = await rawPlan(planId);
+    expect(before?.orgId).toBeNull();
+    expect(before?.visibility).toBe("private");
+
+    await asOwner(() =>
+      createVisualRecap.run({
+        planId,
+        mdx: MINIMAL_MDX,
+        visibility: "org",
+      }),
+    );
+
+    const after = await rawPlan(planId);
+    expect(after?.visibility).toBe("org");
+    expect(after?.orgId).toBe(ORG);
   });
 
   it("stores sourceUrl when replacing an existing recap (planId path)", async () => {

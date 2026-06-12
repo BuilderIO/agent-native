@@ -13,4 +13,5 @@ export const PUBLIC_PLAN_ACTION_PATHS = [
   "/_agent-native/actions/update-visual-plan",
   "/_agent-native/actions/patch-visual-plan-source",
   "/_agent-native/actions/publish-visual-plan",
+  "/_agent-native/actions/report-visual-plan",
 ] as const;

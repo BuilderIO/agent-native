@@ -1790,6 +1790,73 @@ async function hasAutoDevAccountUser(
   return rows.length > 0;
 }
 
+type AutoDevAccountCreationResult = { password: string } | null;
+
+const autoDevAccountCreationPromises = new Map<
+  string,
+  Promise<AutoDevAccountCreationResult>
+>();
+
+function getAutoDevAccountCreationKey(): string {
+  return `${process.cwd()}:${process.env.APP_BASE_PATH ?? ""}`;
+}
+
+async function createAutoDevAccountForSession(
+  auth: NonNullable<Awaited<ReturnType<typeof getBetterAuth>>>,
+  db: ReturnType<typeof getDbExec>,
+): Promise<string | null> {
+  const key = getAutoDevAccountCreationKey();
+  let creationPromise = autoDevAccountCreationPromises.get(key);
+
+  if (!creationPromise) {
+    const devPassword = crypto.randomBytes(18).toString("base64url");
+
+    creationPromise = (async () => {
+      try {
+        await auth.api.signUpEmail({
+          body: {
+            email: AUTO_DEV_ACCOUNT_EMAIL,
+            password: devPassword,
+            name: "Dev",
+          },
+        });
+      } catch (e) {
+        // Another process can still win the create race after our SELECT.
+        // In-process first-page races share this promise and do not issue a
+        // duplicate Better Auth signup, which keeps local SQLite logs quiet.
+        if (await hasAutoDevAccountUser(db)) return null;
+        if (!isExpectedAuthFailure(e)) throw e;
+        return null;
+      }
+
+      // Print the throwaway credential exactly once so the developer can
+      // sign back in manually after logout (auto-flow won't refire once the
+      // dev row exists). Local console only — never Sentry.
+      console.log(
+        `\n[agent-native] Local dev auto-login ready.\n` +
+          `  email:    ${AUTO_DEV_ACCOUNT_EMAIL}\n` +
+          `  password: ${devPassword}\n` +
+          `  (random, this DB only — needed to sign back in after logout.\n` +
+          `   Set AGENT_NATIVE_DISABLE_AUTO_DEV_ACCOUNT=1 to disable.)\n`,
+      );
+
+      return { password: devPassword };
+    })();
+
+    autoDevAccountCreationPromises.set(key, creationPromise);
+    creationPromise
+      .finally(() => {
+        if (autoDevAccountCreationPromises.get(key) === creationPromise) {
+          autoDevAccountCreationPromises.delete(key);
+        }
+      })
+      .catch(() => {});
+  }
+
+  const result = await creationPromise;
+  return result?.password ?? null;
+}
+
 /**
  * Local-dev convenience: skip the sign-up wall on first run.
  *
@@ -1859,33 +1926,13 @@ async function maybeAutoCreateDevSession(
     const auth = await getBetterAuth();
     if (!auth) return null;
 
-    // Random per-DB password — there is no source-code-known credential
-    // for this account. Printed once below so the developer can sign back
-    // in after logout (the auto-flow won't refire while the dev row
-    // exists).
-    const devPassword = crypto.randomBytes(18).toString("base64url");
-
     // The dev account does not exist at this point (the devUsers check
-    // above returned early otherwise). The "already exists" swallow only
-    // matters under a rare concurrent first-hit race — in that case the
-    // sign-in below fails the password check and we return null, leaving
-    // the racing request that already won to keep the session.
-    try {
-      await auth.api.signUpEmail({
-        body: {
-          email: AUTO_DEV_ACCOUNT_EMAIL,
-          password: devPassword,
-          name: "Dev",
-        },
-      });
-    } catch (e) {
-      // A concurrent first page load can win the Better Auth signup after our
-      // preflight SELECT. Once the dev row exists, do not sign in with this
-      // request's random password or log a scary local-only stack trace.
-      if (await hasAutoDevAccountUser(db)) return null;
-      if (!isExpectedAuthFailure(e)) throw e;
-      return null;
-    }
+    // above returned early otherwise). Concurrent in-process first page
+    // loads share one signup promise so the losing request never asks Better
+    // Auth to insert the same email and therefore never emits a SQLite
+    // unique-constraint log.
+    const devPassword = await createAutoDevAccountForSession(auth, db);
+    if (!devPassword) return null;
 
     const result = await auth.api.signInEmail({
       body: {
@@ -1897,17 +1944,6 @@ async function maybeAutoCreateDevSession(
 
     setFrameworkSessionCookie(event, result.token);
     await addSession(result.token, AUTO_DEV_ACCOUNT_EMAIL);
-
-    // Print the throwaway credential exactly once so the developer can
-    // sign back in manually after logout (auto-flow won't refire once the
-    // dev row exists). Local console only — never Sentry.
-    console.log(
-      `\n[agent-native] Local dev auto-login ready.\n` +
-        `  email:    ${AUTO_DEV_ACCOUNT_EMAIL}\n` +
-        `  password: ${devPassword}\n` +
-        `  (random, this DB only — needed to sign back in after logout.\n` +
-        `   Set AGENT_NATIVE_DISABLE_AUTO_DEV_ACCOUNT=1 to disable.)\n`,
-    );
 
     // Emit the session cookie ON the 302 itself. Returning a bare
     // `new Response(...)` here drops the cookie staged on event.node.res

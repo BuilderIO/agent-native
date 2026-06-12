@@ -11,6 +11,8 @@ import {
   PLAN_COMMENT_RESOLUTION_TARGETS,
   PLAN_COMMENT_STATUSES,
   PLAN_KINDS,
+  PLAN_REPORT_REASONS,
+  PLAN_REPORT_STATUSES,
   PLAN_SECTION_TYPES,
   PLAN_SOURCES,
   PLAN_STATUSES,
@@ -110,6 +112,24 @@ export const planEvents = table("plan_events", {
     .notNull()
     .default("agent"),
   createdAt: text("created_at").notNull(),
+});
+
+export const planReports = table("plan_reports", {
+  id: text("id").primaryKey(),
+  planId: text("plan_id")
+    .notNull()
+    .references(() => plans.id),
+  reason: text("reason", { enum: PLAN_REPORT_REASONS }).notNull(),
+  details: text("details"),
+  status: text("status", { enum: PLAN_REPORT_STATUSES })
+    .notNull()
+    .default("open"),
+  reporterEmail: text("reporter_email"),
+  reporterName: text("reporter_name"),
+  pageUrl: text("page_url"),
+  occurrenceCount: integer("occurrence_count").notNull().default(1),
+  createdAt: text("created_at").notNull(),
+  updatedAt: text("updated_at").notNull(),
 });
 
 export const planVersions = table("plan_versions", {

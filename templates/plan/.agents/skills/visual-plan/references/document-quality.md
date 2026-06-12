@@ -18,6 +18,14 @@ behavior). Replace vague prose with specifics; never ship a step like "make it
 work." No hero art, gradients, logos, nav bars, slogans, value props, giant
 landing-page headings, or marketing cards unless the user explicitly asks.
 
+**Every published plan must stand alone.** Even when the agent is revising an
+existing plan, the output is a plan to do the work, not a changelog of the
+conversation. Do not write phrases like "preserve the previous plan", "do not
+drop the old idea", "as discussed above", "this revision", "unlike the prior
+version", or "correction from the earlier plan". Fold the right decisions into
+the plan as normal objective, architecture, scope, and roadmap prose. A reviewer
+who opens the plan from a link with no chat history should understand it.
+
 **When top visuals exist, they and the document never duplicate each other.**
 For UI work, the UI story lives in the top visual surface: canvas artboards for
 static inspection, plus prototype tabs when the flow should be functional. The

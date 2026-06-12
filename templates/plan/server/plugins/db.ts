@@ -236,6 +236,28 @@ CREATE INDEX IF NOT EXISTS plan_assets_plan_idx ON plan_assets(plan_id, created_
       version: 23,
       sql: `ALTER TABLE plans ADD COLUMN IF NOT EXISTS source_url TEXT`,
     },
+    {
+      version: 24,
+      sql: `CREATE TABLE IF NOT EXISTS plan_reports (
+  id TEXT PRIMARY KEY,
+  plan_id TEXT NOT NULL REFERENCES plans(id),
+  reason TEXT NOT NULL,
+  details TEXT,
+  status TEXT NOT NULL DEFAULT 'open',
+  reporter_email TEXT,
+  reporter_name TEXT,
+  page_url TEXT,
+  occurrence_count INTEGER NOT NULL DEFAULT 1,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS plan_reports_plan_status_idx ON plan_reports(plan_id, status, updated_at);
+CREATE INDEX IF NOT EXISTS plan_reports_status_updated_idx ON plan_reports(status, updated_at)`,
+    },
+    {
+      version: 25,
+      sql: `CREATE INDEX IF NOT EXISTS plan_reports_plan_reporter_status_idx ON plan_reports(plan_id, reporter_email, status)`,
+    },
   ],
   { table: "plans_migrations" },
 );

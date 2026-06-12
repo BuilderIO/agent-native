@@ -37,4 +37,10 @@ describe("PUBLIC_PLAN_ACTION_PATHS", () => {
       "/_agent-native/actions/publish-visual-plan",
     );
   });
+
+  it("allows signed-out public-link viewers to submit bounded abuse reports", () => {
+    expect(PUBLIC_PLAN_ACTION_PATHS).toContain(
+      "/_agent-native/actions/report-visual-plan",
+    );
+  });
 });

@@ -1079,6 +1079,108 @@ describe("server/auth", () => {
       logSpy.mockRestore();
     });
 
+    it("serializes concurrent auto dev account creation requests", async () => {
+      vi.stubEnv("NODE_ENV", "development");
+      vi.stubEnv("APP_BASE_PATH", "/dispatch");
+      delete process.env.ACCESS_TOKEN;
+      delete process.env.ACCESS_TOKENS;
+
+      let resolveSignupStarted!: () => void;
+      let resolveSignup!: () => void;
+      const signupStarted = new Promise<void>((resolve) => {
+        resolveSignupStarted = resolve;
+      });
+      const signupCanFinish = new Promise<void>((resolve) => {
+        resolveSignup = resolve;
+      });
+
+      const signUpEmail = vi.fn(async () => {
+        resolveSignupStarted();
+        await signupCanFinish;
+      });
+      let tokenCount = 0;
+      const signInEmail = vi.fn(async () => ({
+        token: `dev-token-${++tokenCount}`,
+      }));
+
+      vi.doMock("./better-auth-instance.js", () => ({
+        getBetterAuth: vi.fn(async () => ({
+          handler: vi.fn(async () => new Response("{}")),
+          api: {
+            getSession: vi.fn(async () => null),
+            signInEmail,
+            signUpEmail,
+            signOut: vi.fn(),
+          },
+        })),
+        getBetterAuthSync: vi.fn(() => undefined),
+      }));
+
+      const mockExecute = vi.fn(async (query: any) => {
+        const sql = typeof query === "string" ? query : query.sql;
+        if (/email NOT IN/i.test(sql)) return { rows: [] };
+        if (/email IN/i.test(sql)) return { rows: [] };
+        return { rows: [] };
+      });
+      vi.doMock("../db/client.js", () => ({
+        getDbExec: () => ({ execute: mockExecute }),
+        isPostgres: () => false,
+        isLocalDatabase: () => true,
+        intType: () => "INTEGER",
+        retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
+      }));
+
+      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+      const { autoMountAuth } = await import("./auth.js");
+
+      const app = createMockApp();
+      await autoMountAuth(app, {
+        loginHtml: "<!doctype html><title>QA login</title>",
+      });
+
+      const guard = app.use.mock.calls
+        .map((call: any[]) => call[0])
+        .find((arg: unknown) => typeof arg === "function");
+      expect(guard).toBeTypeOf("function");
+
+      const createLoopbackEvent = () => {
+        const event = createMockEvent({
+          path: "/dispatch/overview",
+          headers: { "sec-fetch-dest": "document" },
+        });
+        const socket = { remoteAddress: "127.0.0.1" };
+        event.req.context = { clientAddress: "127.0.0.1" };
+        event.req.ip = "127.0.0.1";
+        event.node.req.socket = socket;
+        event.node.req.connection = socket;
+        return event;
+      };
+
+      const first = guard(createLoopbackEvent());
+      const second = guard(createLoopbackEvent());
+
+      await signupStarted;
+      await Promise.resolve();
+      expect(signUpEmail).toHaveBeenCalledTimes(1);
+
+      resolveSignup();
+      const results = (await Promise.all([first, second])) as Response[];
+
+      expect(results.every((result) => result.status === 302)).toBe(true);
+      expect(results.map((result) => result.headers.get("location"))).toEqual([
+        "/dispatch/overview",
+        "/dispatch/overview",
+      ]);
+      expect(signUpEmail).toHaveBeenCalledTimes(1);
+      expect(signInEmail).toHaveBeenCalledTimes(2);
+      expect(logSpy).toHaveBeenCalledTimes(1);
+      expect(warnSpy).not.toHaveBeenCalled();
+
+      warnSpy.mockRestore();
+      logSpy.mockRestore();
+    });
+
     it("allows app-state request-source headers in CORS preflight responses", async () => {
       vi.stubEnv("NODE_ENV", "production");
       vi.stubEnv("ACCESS_TOKEN", "my-secret");

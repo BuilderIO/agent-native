@@ -81,6 +81,8 @@ type PlanContentRendererProps = {
   hideFloatingToc?: boolean;
   /** Render code annotation cards as static inline overlays for screenshots. */
   showCodeAnnotationOverlays?: boolean;
+  /** Force GitHub-matched screenshot colors for generated recap thumbnails. */
+  recapScreenshotTheme?: "light" | "dark" | null;
   /** URL of the source PR/issue this recap covers. When set, a "View PR" chip
    *  is shown in the recap header as a back-link. */
   sourceUrl?: string | null;
@@ -143,6 +145,7 @@ export function PlanContentRenderer({
   hideRecapChrome = false,
   hideFloatingToc = false,
   showCodeAnnotationOverlays = false,
+  recapScreenshotTheme = null,
   sourceUrl,
 }: PlanContentRendererProps) {
   const planLabel = isRecap
@@ -398,7 +401,6 @@ export function PlanContentRenderer({
         ? ({
             hoverSide: "left",
             hoverFallbackSide: "right",
-            showByDefaultWhenRoom: true,
             marginSide: "auto",
           } as const)
         : undefined,
@@ -582,6 +584,7 @@ export function PlanContentRenderer({
       <article
         className="plan-content-surface relative min-h-full bg-plan-document text-plan-text"
         data-plan-document
+        data-recap-screenshot-theme={recapScreenshotTheme ?? undefined}
       >
         {autosaveFailed && (
           <div className="pointer-events-none absolute bottom-4 left-1/2 z-50 -translate-x-1/2">

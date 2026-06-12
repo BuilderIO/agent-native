@@ -11,6 +11,7 @@ import type {
   PlanCommentResolutionTarget,
   PlanCommentStatus,
   PlanKind,
+  PlanReportReason,
   PlanSectionType,
   PlanSource,
   PlanStatus,
@@ -155,6 +156,20 @@ export type ConvertVisualPlanToPrototypeInput = {
   removeCanvas?: boolean;
 };
 
+export type ReportVisualPlanInput = {
+  planId: string;
+  reason: PlanReportReason;
+  details?: string;
+  pageUrl?: string;
+};
+
+export type ReportVisualPlanResult = {
+  ok: true;
+  reportId: string;
+  duplicate: boolean;
+  message: string;
+};
+
 function usePlanInvalidation() {
   const qc = useQueryClient();
   return () => {
@@ -197,9 +212,11 @@ export function usePlan(
       // Pause the 3-second poll while a comment mutation is in-flight so
       // an optimistic comment inserted into the cache isn't evicted before
       // the server write commits (Issue 4a).
-      refetchInterval: pausePollRef
-        ? () => (pausePollRef.current ? false : 3_000)
-        : 3_000,
+      refetchInterval: (query: { state: { status: string } }) => {
+        if (query.state.status === "error") return false;
+        if (pausePollRef?.current) return false;
+        return 3_000;
+      },
     },
   );
 }
@@ -394,6 +411,15 @@ export function usePublishVisualPlan() {
     {
       onSuccess: invalidate,
       onError: showActionError("Failed to publish plan"),
+    },
+  );
+}
+
+export function useReportVisualPlan() {
+  return useActionMutation<ReportVisualPlanResult, ReportVisualPlanInput>(
+    "report-visual-plan",
+    {
+      onError: showActionError("Failed to report plan"),
     },
   );
 }

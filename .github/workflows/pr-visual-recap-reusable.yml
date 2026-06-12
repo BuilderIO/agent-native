@@ -380,7 +380,7 @@ jobs:
             echo "$CLAUDE_STATUS" > claude-exit-code.txt
           }
           run_claude
-          if [ ! -s recap-url.txt ] && grep -Eiq 'schedule(d)? a wakeup|connector.*register|mcp.*register' claude-result.json claude-stderr.log 2>/dev/null; then
+          if [ ! -s recap-url.txt ] && grep -Eiq 'schedule(d)? (a )?(wakeup|retry)|will retry|backoff|connector.*register|mcp.*(register|unreachable|not usable|zero tools|not callable)' claude-result.json claude-stderr.log 2>/dev/null; then
             echo "Plan MCP registration appears delayed; retrying Claude once after 20s."
             sleep 20
             run_claude
@@ -395,7 +395,7 @@ jobs:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         run: |
           set -uo pipefail
-          $RECAP_CLI recap mcp-config --agent codex --app-url "$PLAN_RECAP_APP_URL"
+          $RECAP_CLI recap mcp-config --agent codex --app-url "$PLAN_RECAP_APP_URL" --force
           printenv OPENAI_API_KEY | npx -y @openai/codex@0 login --with-api-key || true
           CODEX_ARGS=(exec --dangerously-bypass-approvals-and-sandbox --skip-git-repo-check)
           if [ -n "${VISUAL_RECAP_MODEL:-}" ]; then CODEX_ARGS+=(--model "$VISUAL_RECAP_MODEL"); fi
@@ -414,7 +414,7 @@ jobs:
             echo "$CODEX_STATUS" > codex-exit-code.txt
           }
           run_codex
-          if [ ! -s recap-url.txt ] && grep -Eiq 'schedule(d)? a wakeup|connector.*register|mcp.*register' codex-events.jsonl codex-stderr.log 2>/dev/null; then
+          if [ ! -s recap-url.txt ] && grep -Eiq 'schedule(d)? (a )?(wakeup|retry)|will retry|backoff|connector.*register|mcp.*(register|unreachable|not usable|zero tools|not callable)' codex-events.jsonl codex-stderr.log 2>/dev/null; then
             echo "Plan MCP registration appears delayed; retrying Codex once after 20s."
             sleep 20
             run_codex
@@ -533,17 +533,23 @@ jobs:
         run: |
           set -uo pipefail
           npx -y playwright@1 install --with-deps chromium || true
-          SHOT_JSON="$($RECAP_CLI recap shot --url "$PLAN_URL" --token "$PLAN_RECAP_TOKEN" --app-url "$PLAN_RECAP_APP_URL" --out recap.png || echo '{}')"
-          IMAGE_URL=$(node -e 'try{process.stdout.write(JSON.parse(process.argv[1]).imageUrl||"")}catch{process.stdout.write("")}' "$SHOT_JSON")
+          LIGHT_SHOT_JSON="$($RECAP_CLI recap shot --url "$PLAN_URL" --token "$PLAN_RECAP_TOKEN" --app-url "$PLAN_RECAP_APP_URL" --out recap.png --theme light || echo '{}')"
+          DARK_SHOT_JSON="$($RECAP_CLI recap shot --url "$PLAN_URL" --token "$PLAN_RECAP_TOKEN" --app-url "$PLAN_RECAP_APP_URL" --out recap-dark.png --theme dark || echo '{}')"
+          IMAGE_URL=$(node -e 'try{process.stdout.write(JSON.parse(process.argv[1]).imageUrl||"")}catch{process.stdout.write("")}' "$LIGHT_SHOT_JSON")
+          DARK_IMAGE_URL=$(node -e 'try{process.stdout.write(JSON.parse(process.argv[1]).imageUrl||"")}catch{process.stdout.write("")}' "$DARK_SHOT_JSON")
           echo "image_url=$IMAGE_URL" >> "$GITHUB_OUTPUT"
-          if [ -f recap.png ]; then echo "captured=true" >> "$GITHUB_OUTPUT"; else echo "captured=false" >> "$GITHUB_OUTPUT"; fi
+          echo "light_image_url=$IMAGE_URL" >> "$GITHUB_OUTPUT"
+          echo "dark_image_url=$DARK_IMAGE_URL" >> "$GITHUB_OUTPUT"
+          if [ -f recap.png ] || [ -f recap-dark.png ]; then echo "captured=true" >> "$GITHUB_OUTPUT"; else echo "captured=false" >> "$GITHUB_OUTPUT"; fi
 
       - name: Upload recap screenshot artifact
         if: steps.shot.outputs.captured == 'true'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: pr-visual-recap-${{ github.event.pull_request.number }}
-          path: recap.png
+          path: |
+            recap.png
+            recap-dark.png
           if-no-files-found: ignore
           retention-days: 14
 
@@ -553,6 +559,8 @@ jobs:
         env:
           PLAN_URL: ${{ steps.url.outputs.plan_url }}
           RECAP_IMAGE_URL: ${{ steps.shot.outputs.image_url }}
+          RECAP_LIGHT_IMAGE_URL: ${{ steps.shot.outputs.light_image_url }}
+          RECAP_DARK_IMAGE_URL: ${{ steps.shot.outputs.dark_image_url }}
           SUPPRESSED: ${{ steps.scan.outputs.suppressed }}
           SUPPRESSED_JSON: ${{ steps.scan.outputs.json }}
           DIFF_HUGE: ${{ steps.diff.outputs.huge }}

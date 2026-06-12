@@ -1,4 +1,5 @@
 import { defineAction, embedApp } from "@agent-native/core";
+import setResourceVisibilityAction from "@agent-native/core/sharing/actions/set-resource-visibility";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 import importVisualPlanSourceAction from "./import-visual-plan-source.js";
@@ -84,23 +85,25 @@ export default defineAction({
       status: args.status ?? "review",
     });
     // Apply requested visibility server-side so the recap is never left private
-    // (the import action always creates with visibility='private'). Doing it here
-    // avoids requiring a separate set-resource-visibility agent call and
-    // guarantees the recap is accessible even if the agent skips the second step.
+    // (the import action always creates with visibility='private'). Route this
+    // through the shared visibility action instead of updating the row directly:
+    // when visibility is "org", that action also binds the current org onto
+    // older/unscoped plans so org-scoped recap links are actually readable.
     const planId = (result as { planId?: string } | null)?.planId;
     const visibility = args.visibility ?? "org";
     if (planId) {
-      const db = getDb();
-      const patch: Partial<typeof schema.plans.$inferInsert> = {};
-      if (visibility !== "private") patch.visibility = visibility;
-      if (args.sourceUrl !== undefined)
-        patch.sourceUrl = args.sourceUrl ?? null;
-      if (Object.keys(patch).length > 0) {
+      if (args.sourceUrl !== undefined) {
+        const db = getDb();
         await db
           .update(schema.plans)
-          .set(patch)
+          .set({ sourceUrl: args.sourceUrl ?? null })
           .where(eq(schema.plans.id, planId));
       }
+      await setResourceVisibilityAction.run({
+        resourceType: "plan",
+        resourceId: planId,
+        visibility,
+      });
     }
     return result;
   },

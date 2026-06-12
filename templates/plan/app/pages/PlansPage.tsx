@@ -26,6 +26,7 @@ import {
   IconDownload,
   IconExternalLink,
   IconFileZip,
+  IconFlag,
   IconFolder,
   IconDotsVertical,
   IconHistory,
@@ -69,11 +70,13 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Dialog,
   DialogContent,
   DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
@@ -117,6 +120,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Textarea } from "@/components/ui/textarea";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import {
   Tooltip,
@@ -145,6 +149,7 @@ import {
   usePlanVersion,
   usePlanVersions,
   usePublishVisualPlan,
+  useReportVisualPlan,
   useRestorePlanVersion,
   useUpdatePlan,
   useUpdatePlanComments,
@@ -162,6 +167,7 @@ import {
 import {
   type PlanBundle,
   type PlanKind,
+  type PlanReportReason,
   type PlanSource,
   type PlanStatus,
   type PlanSummary,
@@ -199,8 +205,26 @@ const SOURCE_OPTIONS: Array<{ value: PlanSource; label: string }> = [
   { value: "imported", label: "Imported" },
 ];
 
+const REPORT_REASON_OPTIONS: Array<{
+  value: PlanReportReason;
+  label: string;
+}> = [
+  { value: "spam", label: "Spam or deceptive" },
+  { value: "harassment", label: "Harassment" },
+  { value: "hate", label: "Hateful content" },
+  { value: "sexual", label: "Sexual content" },
+  { value: "violence", label: "Violence or threats" },
+  { value: "self-harm", label: "Self-harm" },
+  { value: "privacy", label: "Privacy concern" },
+  { value: "illegal", label: "Illegal activity" },
+  { value: "other", label: "Something else" },
+];
+
 const PLAN_READER_VIEW_EVENT = "plans-reader-view-change";
 const RECAP_SCREENSHOT_QUERY_PARAM = "recapScreenshot";
+const RECAP_SCREENSHOT_THEME_QUERY_PARAM = "recapScreenshotTheme";
+const GITHUB_LIGHT_CANVAS_BACKGROUND = "#ffffff";
+const GITHUB_DARK_CANVAS_BACKGROUND = "#0d1117";
 const LOCAL_PLAN_OWNER_EMAIL = "local@agent-native.local";
 const AUTO_DEV_COMMENT_EMAILS = new Set(["dev@local.test", "dev@local"]);
 const CURRENT_USER_FALLBACK_NAME = "You";
@@ -1861,6 +1885,7 @@ type PlanAccessRole = "owner" | "viewer" | "editor" | "admin";
 type PlanAccessResponse = {
   ownerEmail?: string | null;
   role?: PlanAccessRole | null;
+  visibility?: "private" | "org" | "public" | null;
 };
 
 /**
@@ -2020,6 +2045,7 @@ export function PlansPage() {
   const documentStateRef = useRef<PlanDocumentState | null>(null);
   const pendingDocumentRestoreRef = useRef<PlanDocumentState | null>(null);
   const pendingDocumentRestoreTimerRef = useRef<number | null>(null);
+  const nativeScrollFrameRef = useRef<number | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
   const [annotationsOpen, setAnnotationsOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
@@ -2138,11 +2164,32 @@ export function PlansPage() {
   const recapScreenshotMode = useMemo(() => {
     return routeSearchParams.get(RECAP_SCREENSHOT_QUERY_PARAM) === "1";
   }, [routeSearchParams]);
+  const recapScreenshotTheme = useMemo<"light" | "dark" | null>(() => {
+    if (!recapScreenshotMode) return null;
+    return routeSearchParams.get(RECAP_SCREENSHOT_THEME_QUERY_PARAM) === "dark"
+      ? "dark"
+      : "light";
+  }, [recapScreenshotMode, routeSearchParams]);
+  const recapScreenshotBackground =
+    recapScreenshotTheme === "dark"
+      ? GITHUB_DARK_CANVAS_BACKGROUND
+      : recapScreenshotTheme === "light"
+        ? GITHUB_LIGHT_CANVAS_BACKGROUND
+        : null;
+  const recapScreenshotBackgroundStyle = useMemo<CSSProperties | undefined>(
+    () =>
+      recapScreenshotBackground
+        ? { backgroundColor: recapScreenshotBackground }
+        : undefined,
+    [recapScreenshotBackground],
+  );
   const immersiveReader = Boolean(
     selectedId && (planFullscreen || prototypeOnly),
   );
   const planQuery = usePlan(selectedId, commentMutationPendingRef);
   const bundle = planQuery.data;
+  const showInitialPlanSkeleton =
+    !bundle && planQuery.isLoading && !planQuery.isFetched;
   const queryClient = useQueryClient();
   const selectedPlanQueryKey = useMemo(
     () => (selectedId ? planBundleQueryKey(selectedId) : null),
@@ -2189,6 +2236,11 @@ export function PlansPage() {
     planAccessQuery.data?.role ?? bundle?.access?.role ?? null;
   const canEditPlanContent =
     !isRecap && canEditPlanContentRole(effectivePlanAccessRole);
+  const canManagePlan = canEditPlanContentRole(effectivePlanAccessRole);
+  const effectivePlanVisibility =
+    planAccessQuery.data?.visibility ?? bundle?.access?.visibility ?? null;
+  const canReportPlan =
+    Boolean(bundle) && effectivePlanVisibility === "public" && !canManagePlan;
   const canResolveCommentThreads = Boolean(
     bundle && (session || canEditPlanContent),
   );
@@ -2387,7 +2439,9 @@ export function PlansPage() {
   const desktopAutoSyncedVersionRef = useRef<Record<string, string>>({});
   const desktopPlanFilesAvailable = Boolean(getDesktopPlanFiles());
   const { resolvedTheme, setTheme } = useTheme();
-  const isDarkTheme = resolvedTheme !== "light";
+  const isDarkTheme = recapScreenshotTheme
+    ? recapScreenshotTheme === "dark"
+    : resolvedTheme !== "light";
   const wireframeStyle = useWireframeStyle();
   const planTheme = isDarkTheme ? "dark" : "light";
   const iframeRuntimeDefaultsRef = useRef<{
@@ -2405,6 +2459,36 @@ export function PlansPage() {
       annotateMode ||
       Boolean(activeAnnotation) ||
       hasOpenThreads);
+
+  useEffect(() => {
+    if (!recapScreenshotTheme || !recapScreenshotBackground) return;
+    const root = document.documentElement;
+    const body = document.body;
+    const previousRootClass = root.className;
+    const previousDataTheme = root.getAttribute("data-theme");
+    const previousColorScheme = root.style.colorScheme;
+    const previousRootBackground = root.style.backgroundColor;
+    const previousBodyBackground = body.style.backgroundColor;
+
+    root.classList.remove("light", "dark");
+    root.classList.add(recapScreenshotTheme);
+    root.setAttribute("data-theme", recapScreenshotTheme);
+    root.style.colorScheme = recapScreenshotTheme;
+    root.style.backgroundColor = recapScreenshotBackground;
+    body.style.backgroundColor = recapScreenshotBackground;
+
+    return () => {
+      root.className = previousRootClass;
+      if (previousDataTheme === null) {
+        root.removeAttribute("data-theme");
+      } else {
+        root.setAttribute("data-theme", previousDataTheme);
+      }
+      root.style.colorScheme = previousColorScheme;
+      root.style.backgroundColor = previousRootBackground;
+      body.style.backgroundColor = previousBodyBackground;
+    };
+  }, [recapScreenshotBackground, recapScreenshotTheme]);
   const showingPrototypeSurface =
     prototypeOnly || visualSurfaceMode === "prototype";
 
@@ -2690,6 +2774,16 @@ export function PlansPage() {
     });
   }, []);
 
+  const closeInlineComment = useCallback(() => {
+    setAnnotateMode(false);
+    setCanvasMarkupMode("none");
+    setPendingAnnotation(null);
+    setInlineCommentPosition(null);
+    setNativeSelectionComment(null);
+    setFailedCommentDraft(null);
+    window.getSelection()?.removeAllRanges();
+  }, []);
+
   useEffect(() => {
     const onMessage = (event: MessageEvent) => {
       if (event.source !== iframeRef.current?.contentWindow) return;
@@ -2728,6 +2822,11 @@ export function PlansPage() {
       }
       if (data?.type === "agent-native-plan-close-comment-popover") {
         setActiveAnnotation(null);
+      }
+      if (data?.type === "agent-native-plan-exit-comment-mode") {
+        closeInlineComment();
+        setActiveAnnotation(null);
+        setAnnotationsOpen(false);
       }
       if (data?.type === "agent-native-plan-open-editor" && data.href) {
         if (
@@ -2784,20 +2883,11 @@ export function PlansPage() {
     return () => window.removeEventListener("message", onMessage);
   }, [
     bundle?.plan.id,
+    closeInlineComment,
     getPositionFromAnchor,
     persistQuestionFormAnswers,
     planAgentContext,
   ]);
-
-  const closeInlineComment = () => {
-    setAnnotateMode(false);
-    setCanvasMarkupMode("none");
-    setPendingAnnotation(null);
-    setInlineCommentPosition(null);
-    setNativeSelectionComment(null);
-    setFailedCommentDraft(null);
-    window.getSelection()?.removeAllRanges();
-  };
 
   const clearInlineCommentDraft = () => {
     setPendingAnnotation(null);
@@ -3050,15 +3140,46 @@ export function PlansPage() {
     });
   };
 
+  useEffect(() => {
+    if (reviewMode === "none") return;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || event.defaultPrevented) return;
+      event.preventDefault();
+      closeInlineComment();
+      setActiveAnnotation(null);
+      setAnnotationsOpen(false);
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [closeInlineComment, reviewMode]);
+
+  const scheduleNativeMarkerUpdate = useCallback(() => {
+    if (nativeScrollFrameRef.current !== null) return;
+    nativeScrollFrameRef.current = requestAnimationFrame(() => {
+      nativeScrollFrameRef.current = null;
+      setNativeMarkerVersion((version) => version + 1);
+      setActiveAnnotation((current) => {
+        if (!current) return current;
+        const position = getPositionFromAnchor(current.annotation.anchor);
+        return position ? { ...current, position } : current;
+      });
+    });
+  }, [getPositionFromAnchor]);
+
+  useEffect(
+    () => () => {
+      if (nativeScrollFrameRef.current !== null) {
+        cancelAnimationFrame(nativeScrollFrameRef.current);
+        nativeScrollFrameRef.current = null;
+      }
+    },
+    [],
+  );
+
   const handleNativeReaderScroll = () => {
     documentStateRef.current = readNativeDocumentState();
     setNativeSelectionComment(null);
-    setNativeMarkerVersion((version) => version + 1);
-    setActiveAnnotation((current) => {
-      if (!current) return current;
-      const position = getPositionFromAnchor(current.annotation.anchor);
-      return position ? { ...current, position } : current;
-    });
+    scheduleNativeMarkerUpdate();
   };
 
   const readNativeSelectionComment = (): NativeSelectionComment | null => {
@@ -3816,7 +3937,10 @@ export function PlansPage() {
   };
 
   return (
-    <div className="plans-workspace flex h-full min-h-0 flex-col overflow-hidden bg-background">
+    <div
+      className="plans-workspace flex h-full min-h-0 flex-col overflow-hidden bg-background"
+      style={recapScreenshotBackgroundStyle}
+    >
       <div
         className="plans-grid flex min-h-0 flex-1"
         data-view={immersiveReader ? "immersive" : "app"}
@@ -3840,7 +3964,7 @@ export function PlansPage() {
               canCreate={Boolean(session)}
               viewerEmail={session?.email ?? null}
             />
-          ) : !bundle && planQuery.isLoading ? (
+          ) : showInitialPlanSkeleton ? (
             <PlanSkeleton isRecap={location.pathname.startsWith("/recaps")} />
           ) : !bundle ? (
             <PlanLoadError
@@ -3851,32 +3975,37 @@ export function PlansPage() {
               viewerEmail={session?.email ?? null}
             />
           ) : (
-            <div className="relative min-h-0 flex-1 overflow-hidden bg-background">
-              {immersiveReader && !recapScreenshotMode && (
-                <div className="pointer-events-none absolute left-3 top-3 z-10">
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon"
-                        className="pointer-events-auto size-8 rounded-lg border border-border/70 bg-background/82 shadow-2xl backdrop-blur-xl"
-                        onClick={() => {
-                          if (session) {
-                            navigate("/plans");
-                          } else {
-                            window.location.href = appPath("/plans");
-                          }
-                        }}
-                        aria-label="Back to plans"
-                      >
-                        <IconArrowLeft className="size-4" />
-                      </Button>
-                    </TooltipTrigger>
-                    <TooltipContent>Back to plans</TooltipContent>
-                  </Tooltip>
-                </div>
-              )}
+            <div
+              className="relative min-h-0 flex-1 overflow-hidden bg-background"
+              style={recapScreenshotBackgroundStyle}
+            >
+              {immersiveReader &&
+                !recapScreenshotMode &&
+                !showingPrototypeSurface && (
+                  <div className="pointer-events-none absolute left-3 top-3 z-10">
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          className="pointer-events-auto size-8 rounded-lg border border-border/70 bg-background/82 shadow-2xl backdrop-blur-xl"
+                          onClick={() => {
+                            if (session) {
+                              navigate("/plans");
+                            } else {
+                              window.location.href = appPath("/plans");
+                            }
+                          }}
+                          aria-label="Back to plans"
+                        >
+                          <IconArrowLeft className="size-4" />
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent>Back to plans</TooltipContent>
+                    </Tooltip>
+                  </div>
+                )}
               <div
                 hidden={recapScreenshotMode}
                 className="pointer-events-none absolute right-3 top-3 z-10 flex items-center gap-1.5 rounded-lg border border-border/70 bg-background/82 p-1 shadow-2xl backdrop-blur-xl"
@@ -3898,6 +4027,16 @@ export function PlansPage() {
                     if (open) closeInlineComment();
                   }}
                 />
+                {canReportPlan && (
+                  <PlanReportControl
+                    planId={bundle.plan.id}
+                    planTitle={bundle.plan.title}
+                    isRecap={isRecap}
+                    onOpenChange={(open) => {
+                      if (open) closeInlineComment();
+                    }}
+                  />
+                )}
                 <ReviewMarkupToolbar
                   mode={reviewMode}
                   onModeChange={selectReviewMode}
@@ -4336,6 +4475,7 @@ export function PlansPage() {
                       reviewMode !== "none" &&
                         "ring-1 ring-inset ring-primary/35",
                     )}
+                    style={recapScreenshotBackgroundStyle}
                     onScroll={handleNativeReaderScroll}
                     onPointerDown={handleNativeReaderPointerDown}
                     onPointerUp={handleNativeReaderPointerUp}
@@ -4373,6 +4513,7 @@ export function PlansPage() {
                       hideRecapChrome={recapScreenshotMode}
                       hideFloatingToc={recapScreenshotMode}
                       showCodeAnnotationOverlays={recapScreenshotMode}
+                      recapScreenshotTheme={recapScreenshotTheme}
                       sourceUrl={bundle.plan.sourceUrl}
                       visualSurfaceMode={visualSurfaceMode}
                       onVisualSurfaceModeChange={setVisualSurfaceMode}
@@ -4578,6 +4719,156 @@ const buildShareVisibilityCopy = (noun: string) => ({
 
 const buildShareAccessNote = (noun: string) =>
   `Anyone with edit access can change the ${noun}. Viewing a public ${noun} needs no account, but commenting on it requires an agent-native account.`;
+
+function PlanReportControl({
+  planId,
+  planTitle,
+  isRecap = false,
+  onOpenChange,
+}: {
+  planId: string;
+  planTitle: string;
+  isRecap?: boolean;
+  onOpenChange?: (open: boolean) => void;
+}) {
+  const noun = isRecap ? "recap" : "plan";
+  const reportPlan = useReportVisualPlan();
+  const [open, setOpen] = useState(false);
+  const [reason, setReason] = useState<PlanReportReason>("spam");
+  const [details, setDetails] = useState("");
+
+  const setDialogOpen = useCallback(
+    (nextOpen: boolean) => {
+      setOpen(nextOpen);
+      onOpenChange?.(nextOpen);
+      if (!nextOpen && !reportPlan.isPending) {
+        setReason("spam");
+        setDetails("");
+      }
+    },
+    [onOpenChange, reportPlan.isPending],
+  );
+
+  const submitReport = useCallback(
+    (event: React.FormEvent<HTMLFormElement>) => {
+      event.preventDefault();
+      const trimmedDetails = details.trim();
+      reportPlan.mutate(
+        {
+          planId,
+          reason,
+          details: trimmedDetails || undefined,
+          pageUrl:
+            typeof window === "undefined" ? undefined : window.location.href,
+        },
+        {
+          onSuccess: (result) => {
+            toast.success(result.message);
+            setOpen(false);
+            onOpenChange?.(false);
+            setReason("spam");
+            setDetails("");
+          },
+        },
+      );
+    },
+    [details, onOpenChange, planId, reason, reportPlan],
+  );
+
+  return (
+    <Dialog open={open} onOpenChange={setDialogOpen}>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="pointer-events-auto size-8"
+            onClick={() => setDialogOpen(true)}
+            aria-label={`Report ${noun}`}
+          >
+            <IconFlag className="size-4" />
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent>Report {noun}</TooltipContent>
+      </Tooltip>
+      <DialogContent className="sm:max-w-[460px]">
+        <form onSubmit={submitReport} className="space-y-4">
+          <DialogHeader>
+            <DialogTitle>Report {noun}</DialogTitle>
+            <DialogDescription>
+              Tell us why this public {noun} should be reviewed.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="rounded-md border border-border bg-muted/35 px-3 py-2 text-xs leading-5 text-muted-foreground">
+            <span className="font-medium text-foreground">{planTitle}</span>
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="plan-report-reason">Reason</Label>
+            <Select
+              value={reason}
+              onValueChange={(value) => setReason(value as PlanReportReason)}
+            >
+              <SelectTrigger id="plan-report-reason">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {REPORT_REASON_OPTIONS.map((option) => (
+                  <SelectItem key={option.value} value={option.value}>
+                    {option.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="space-y-2">
+            <div className="flex items-center justify-between gap-3">
+              <Label htmlFor="plan-report-details">Details</Label>
+              <span className="text-xs text-muted-foreground">
+                {details.length}/1000
+              </span>
+            </div>
+            <Textarea
+              id="plan-report-details"
+              value={details}
+              onChange={(event) => setDetails(event.target.value)}
+              maxLength={1000}
+              placeholder="Add a short note for moderators"
+              className="min-h-28 resize-none"
+            />
+          </div>
+
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={() => setDialogOpen(false)}
+              disabled={reportPlan.isPending}
+            >
+              Cancel
+            </Button>
+            <Button type="submit" disabled={reportPlan.isPending}>
+              {reportPlan.isPending ? (
+                <>
+                  <IconLoader2 className="size-4 animate-spin" />
+                  Sending
+                </>
+              ) : (
+                <>
+                  <IconFlag className="size-4" />
+                  Submit report
+                </>
+              )}
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
 
 /**
  * Share affordance for a plan. People with a session (logged in, or local dev
@@ -6806,7 +7097,6 @@ function AnnotationPopover({
     if (!onClose) return;
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
-        event.stopPropagation();
         onClose();
       }
     };
@@ -7031,7 +7321,6 @@ function AnnotationsPanel({
       if (event.key !== "Escape") return;
       // Only handle Escape if focus is inside this panel.
       if (!panelRef.current?.contains(document.activeElement)) return;
-      event.stopPropagation();
       onClose();
       // Return focus to the toolbar dots-menu trigger if reachable.
       const trigger = document.querySelector<HTMLElement>(
@@ -8431,7 +8720,15 @@ function injectAnnotationRuntime(
       document.addEventListener("mouseup", () => setTimeout(updateSelectionToolbar, 0));
       document.addEventListener("keyup", updateSelectionToolbar);
       document.addEventListener("keydown", (event) => {
-        if (event.key === "Escape") closeEditorMenus();
+        if (event.key === "Escape") {
+          closeEditorMenus();
+          if (state.annotateMode) {
+            event.preventDefault();
+            event.stopPropagation();
+            setRuntimeAnnotateMode(false);
+            window.parent.postMessage({ type: "agent-native-plan-exit-comment-mode" }, "*");
+          }
+        }
       });
       document.addEventListener("change", (event) => {
         const editorSelect = event.target instanceof Element ? event.target.closest("[data-agent-native-editor-select]") : null;
