@@ -50,9 +50,19 @@ function setViewport(width: number, height = 700) {
 describe("AnnotatedCodeBlock annotations", () => {
   let container: HTMLDivElement;
   let root: Root;
+  let innerWidthDescriptor: PropertyDescriptor | undefined;
+  let innerHeightDescriptor: PropertyDescriptor | undefined;
 
   beforeEach(() => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    innerWidthDescriptor = Object.getOwnPropertyDescriptor(
+      window,
+      "innerWidth",
+    );
+    innerHeightDescriptor = Object.getOwnPropertyDescriptor(
+      window,
+      "innerHeight",
+    );
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -69,6 +79,12 @@ describe("AnnotatedCodeBlock annotations", () => {
       )
       .forEach((node) => node.remove());
     vi.useRealTimers();
+    if (innerWidthDescriptor) {
+      Object.defineProperty(window, "innerWidth", innerWidthDescriptor);
+    }
+    if (innerHeightDescriptor) {
+      Object.defineProperty(window, "innerHeight", innerHeightDescriptor);
+    }
     vi.unstubAllGlobals();
   });
 

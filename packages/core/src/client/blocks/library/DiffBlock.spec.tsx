@@ -3,6 +3,7 @@
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { BlockRenderContext } from "../types.js";
 import { DiffRead, diffLines } from "./DiffBlock.js";
 import { NarrowContainerProvider } from "./narrow-container.js";
 
@@ -36,6 +37,17 @@ function stubRect(element: Element, value: DOMRect) {
   Object.defineProperty(element, "getBoundingClientRect", {
     configurable: true,
     value: () => value,
+  });
+}
+
+function setViewport(width: number, height = 700) {
+  Object.defineProperty(window, "innerWidth", {
+    configurable: true,
+    value: width,
+  });
+  Object.defineProperty(window, "innerHeight", {
+    configurable: true,
+    value: height,
   });
 }
 
@@ -344,9 +356,19 @@ describe("DiffBlock", () => {
 describe("DiffBlock annotations", () => {
   let container: HTMLDivElement;
   let root: Root;
+  let innerWidthDescriptor: PropertyDescriptor | undefined;
+  let innerHeightDescriptor: PropertyDescriptor | undefined;
 
   beforeEach(() => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    innerWidthDescriptor = Object.getOwnPropertyDescriptor(
+      window,
+      "innerWidth",
+    );
+    innerHeightDescriptor = Object.getOwnPropertyDescriptor(
+      window,
+      "innerHeight",
+    );
     window.localStorage.clear();
     container = document.createElement("div");
     document.body.appendChild(container);
@@ -359,9 +381,17 @@ describe("DiffBlock annotations", () => {
     });
     container.remove();
     document
-      .querySelectorAll("[data-annotation-hover-card]")
+      .querySelectorAll(
+        "[data-annotation-hover-card],[data-annotation-inline-overlay]",
+      )
       .forEach((node) => node.remove());
     vi.useRealTimers();
+    if (innerWidthDescriptor) {
+      Object.defineProperty(window, "innerWidth", innerWidthDescriptor);
+    }
+    if (innerHeightDescriptor) {
+      Object.defineProperty(window, "innerHeight", innerHeightDescriptor);
+    }
     vi.unstubAllGlobals();
   });
 
@@ -377,7 +407,10 @@ describe("DiffBlock annotations", () => {
         note: string;
       }>;
     },
-    ctx: { showCodeAnnotationOverlays?: boolean } = {},
+    ctx: Pick<
+      BlockRenderContext,
+      "showCodeAnnotationOverlays" | "codeAnnotationLayout"
+    > = {},
   ) {
     act(() => {
       root.render(
@@ -459,6 +492,82 @@ describe("DiffBlock annotations", () => {
       container.querySelector("[data-annotation-inline-overlay-anchor]"),
     ).toBeTruthy();
     expect(overlay?.textContent).toContain("Visible without hover.");
+    expect(document.querySelector("[data-annotation-hover-card]")).toBeNull();
+  });
+
+  it("shows plan-mode diff annotation cards in the margin when there is room", () => {
+    setViewport(1200);
+    render(
+      {
+        before: "",
+        after: "const a = 1\nconst b = 2",
+        mode: "unified",
+        annotations: [
+          { lines: "2", label: "Changed", note: "Diff note in the margin." },
+        ],
+      },
+      {
+        codeAnnotationLayout: {
+          hoverSide: "left",
+          hoverFallbackSide: "right",
+          showByDefaultWhenRoom: true,
+          marginSide: "auto",
+        },
+      },
+    );
+
+    const codeSurface = container.querySelector("[data-code-surface]");
+    const codeBox = codeSurface?.parentElement;
+    expect(codeBox).toBeTruthy();
+    stubRect(codeBox!, rect({ left: 360, top: 80, width: 500, height: 100 }));
+
+    const rows = Array.from(
+      container.querySelectorAll<HTMLElement>(
+        "[data-code-surface] > div > div",
+      ),
+    );
+    expect(rows).toHaveLength(2);
+    rows.forEach((row, index) => {
+      stubRect(
+        row,
+        rect({ left: 360, top: 100 + index * 20, width: 500, height: 20 }),
+      );
+    });
+
+    act(() => {
+      window.dispatchEvent(new Event("resize"));
+    });
+
+    const anchor = container.querySelector(
+      "[data-annotation-inline-overlay-anchor]",
+    );
+    expect(anchor).toBeTruthy();
+    stubRect(anchor!, rect({ left: 850, top: 120, width: 0, height: 20 }));
+
+    act(() => {
+      window.dispatchEvent(new Event("resize"));
+    });
+
+    const overlay = document.querySelector<HTMLElement>(
+      "[data-annotation-inline-overlay]",
+    );
+    expect(overlay).toBeTruthy();
+    expect(overlay?.getAttribute("data-annotation-inline-overlay-mode")).toBe(
+      "margin",
+    );
+    expect(overlay?.getAttribute("data-annotation-inline-overlay-side")).toBe(
+      "left",
+    );
+    expect(overlay?.textContent).toContain("Diff note in the margin.");
+
+    act(() => {
+      rows[1].dispatchEvent(
+        new MouseEvent("mouseover", {
+          bubbles: true,
+          relatedTarget: document.body,
+        }),
+      );
+    });
     expect(document.querySelector("[data-annotation-hover-card]")).toBeNull();
   });
 
