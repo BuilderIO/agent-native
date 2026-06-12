@@ -1,5 +1,12 @@
 # @agent-native/skills
 
+## 0.2.2
+
+### Patch Changes
+
+- 18741fe: Use the Clack-style interactive picker for the standalone skills CLI while keeping the picker populated from the live BuilderIO skills repo, including managed instruction and visual-recap GitHub Action prompts.
+- 18741fe: Improve reconnect success output with a clear final status, avoid URL-only Codex config for hosted authenticated MCPs, and keep noninteractive skills installs from downgrading existing bearer-token MCP entries.
+
 ## 0.2.1
 
 ### Patch Changes
