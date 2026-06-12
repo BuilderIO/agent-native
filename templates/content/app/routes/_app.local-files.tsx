@@ -572,9 +572,9 @@ export default function LocalFilesRoute() {
               <h2 className="text-xl font-semibold tracking-tight">
                 Source folder
               </h2>
-              <div className="mt-2 inline-flex max-w-full items-center gap-2 rounded-md border border-border bg-muted/30 px-2.5 py-1 text-sm text-muted-foreground">
+              <div className="mt-2 inline-flex max-w-full min-w-0 items-center gap-2 rounded-md border border-border bg-muted/30 px-2.5 py-1 text-sm text-muted-foreground">
                 <IconFolderOpen className="size-4 shrink-0" />
-                <span className="truncate">
+                <span className="min-w-0 truncate">
                   {selectedDirectoryName(directory)}
                 </span>
               </div>
@@ -647,9 +647,8 @@ export default function LocalFilesRoute() {
           {status.kind === "success" && (
             <div className="flex items-center gap-2">
               <IconCircleCheck className="size-4 shrink-0 text-primary" />
-              <div className="min-w-0">
+              <div className="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-0.5">
                 <span className="font-medium">{status.title}</span>
-                <span className="mx-2 text-muted-foreground">|</span>
                 <span className="text-muted-foreground">{status.detail}</span>
               </div>
             </div>
@@ -657,11 +656,10 @@ export default function LocalFilesRoute() {
           {status.kind === "error" && (
             <div className="flex items-center gap-2">
               <IconAlertCircle className="size-4 shrink-0 text-destructive" />
-              <div className="min-w-0">
+              <div className="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-0.5">
                 <span className="font-medium text-destructive">
                   {status.title}
                 </span>
-                <span className="mx-2 text-muted-foreground">|</span>
                 <span className="text-muted-foreground">{status.detail}</span>
               </div>
             </div>
@@ -670,9 +668,8 @@ export default function LocalFilesRoute() {
             <div className="flex flex-col gap-3">
               <div className="flex items-center gap-2">
                 <IconFileText className="size-4 shrink-0 text-primary" />
-                <div className="min-w-0">
+                <div className="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-0.5">
                   <span className="font-medium">Preview ready</span>
-                  <span className="mx-2 text-muted-foreground">|</span>
                   <span className="text-muted-foreground">
                     {resultSummary(status.result)}
                   </span>

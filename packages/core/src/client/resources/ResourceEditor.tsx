@@ -35,8 +35,6 @@ export interface ResourceEditorProps {
   /** Controlled view mode — if provided, the editor won't manage its own view state */
   view?: "visual" | "code";
   onViewChange?: (v: "visual" | "code") => void;
-  /** Called whenever save status changes */
-  onSaveStatusChange?: (status: "idle" | "saving" | "saved") => void;
   /** When true, the editor's internal toolbar row is hidden */
   hideToolbar?: boolean;
   /** When true, content can be viewed and selected but not modified */
@@ -1142,7 +1140,6 @@ export function ResourceEditor({
   onSave,
   view: controlledView,
   onViewChange,
-  onSaveStatusChange,
   hideToolbar,
   readOnly,
 }: ResourceEditorProps) {
@@ -1151,9 +1148,6 @@ export function ResourceEditor({
     getViewPref,
   );
   const view = controlledView ?? internalView;
-  const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved">(
-    "idle",
-  );
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const prevIdRef = useRef(resource.id);
 
@@ -1161,30 +1155,20 @@ export function ResourceEditor({
   useEffect(() => {
     if (prevIdRef.current !== resource.id) {
       setContent(resource.content);
-      setSaveStatus("idle");
-      onSaveStatusChange?.("idle");
       prevIdRef.current = resource.id;
     }
-  }, [resource.id, resource.content, onSaveStatusChange]);
+  }, [resource.id, resource.content]);
 
   const handleChange = useCallback(
     (newContent: string) => {
       if (readOnly) return;
       setContent(newContent);
-      setSaveStatus("idle");
-      onSaveStatusChange?.("idle");
       if (debounceRef.current) clearTimeout(debounceRef.current);
       debounceRef.current = setTimeout(() => {
-        setSaveStatus("saving");
-        onSaveStatusChange?.("saving");
         onSave(newContent);
-        setTimeout(() => {
-          setSaveStatus("saved");
-          onSaveStatusChange?.("saved");
-        }, 300);
       }, 1000);
     },
-    [onSave, onSaveStatusChange, readOnly],
+    [onSave, readOnly],
   );
 
   const switchView = useCallback(
@@ -1269,13 +1253,6 @@ export function ResourceEditor({
                 Code
               </button>
             </div>
-            <span className="text-[11px] text-muted-foreground/60">
-              {saveStatus === "saving"
-                ? "Saving..."
-                : saveStatus === "saved"
-                  ? "Saved"
-                  : ""}
-            </span>
           </div>
         )}
         {view === "visual" ? (

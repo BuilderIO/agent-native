@@ -1270,9 +1270,6 @@ export function ResourcesPanel() {
   useEffect(() => {
     setToolbarDeleteConfirmId(null);
   }, [selectedResourceId]);
-  const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved">(
-    "idle",
-  );
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const sharedTreeQuery = useResourceTree("shared", {
@@ -1604,13 +1601,7 @@ export function ResourcesPanel() {
                 aria-live="polite"
                 className="mr-1 w-16 text-right text-[11px] text-muted-foreground/60"
               >
-                {selectedResourceReadOnly
-                  ? "Read only"
-                  : saveStatus === "saving"
-                    ? "Saving..."
-                    : saveStatus === "saved"
-                      ? "Saved"
-                      : ""}
+                {selectedResourceReadOnly ? "Read only" : ""}
               </span>
             )}
             {!selectedMcpServer &&
@@ -1801,7 +1792,6 @@ export function ResourcesPanel() {
                 onSave={handleSave}
                 view={editorView}
                 onViewChange={setEditorView}
-                onSaveStatusChange={setSaveStatus}
                 hideToolbar
                 readOnly={selectedResourceReadOnly}
               />
