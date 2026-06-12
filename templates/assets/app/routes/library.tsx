@@ -829,7 +829,6 @@ export default function AssetPicker() {
     [allAssets, assetTab],
   );
   const [previewAsset, setPreviewAsset] = useState<Asset | null>(null);
-  const [copiedAssetId, setCopiedAssetId] = useState<string | null>(null);
   const [standaloneSelection, setStandaloneSelection] = useState<ReturnType<
     typeof assetPayload
   > | null>(null);
@@ -864,26 +863,6 @@ export default function AssetPicker() {
       }
     },
     [],
-  );
-
-  const copyAsset = useCallback(
-    async (asset: Asset) => {
-      const payload = assetPayload(asset, mediaType);
-      const text = selectedAssetClipboardText(payload);
-      try {
-        await navigator.clipboard.writeText(text);
-        setCopiedAssetId(asset.id);
-        toast.success("Asset copied");
-        window.setTimeout(() => {
-          setCopiedAssetId((current) =>
-            current === asset.id ? null : current,
-          );
-        }, 2000);
-      } catch {
-        toast.error("Could not copy asset");
-      }
-    },
-    [mediaType],
   );
 
   const chooseAsset = (asset: Asset) => {
@@ -1419,15 +1398,11 @@ export default function AssetPicker() {
                   title="Copy asset"
                   onClick={(event) => {
                     event.stopPropagation();
-                    void copyAsset(asset);
+                    chooseAsset(asset);
                   }}
                   className="absolute right-2 top-2 z-10 inline-flex h-8 w-8 items-center justify-center rounded-full bg-background/80 text-foreground opacity-0 shadow-sm backdrop-blur transition hover:bg-background focus:outline-none focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-ring group-hover:opacity-100"
                 >
-                  {copiedAssetId === asset.id ? (
-                    <IconCheck className="h-4 w-4" />
-                  ) : (
-                    <IconClipboard className="h-4 w-4" />
-                  )}
+                  <IconClipboard className="h-4 w-4" />
                 </button>
               </div>
             ))}
