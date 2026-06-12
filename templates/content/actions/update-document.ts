@@ -12,6 +12,7 @@ import {
   isContentLocalFileMode,
   updateLocalFileDocument,
 } from "./_local-file-documents.js";
+import { serializeDocumentSource } from "./_document-source.js";
 
 function nanoid(size = 12): string {
   const chars =
@@ -169,6 +170,7 @@ export default defineAction({
       canManage: canManageRole(access.role),
       createdAt: doc.createdAt,
       updatedAt: doc.updatedAt,
+      source: serializeDocumentSource(doc),
     };
   },
 });
