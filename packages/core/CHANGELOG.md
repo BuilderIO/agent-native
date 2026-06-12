@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.49.7
+
+### Patch Changes
+
+- 80393d3: Improve visual plan code annotation placement with left-first plan hovers and persistent margin notes when space allows.
+
 ## 0.49.6
 
 ### Patch Changes
