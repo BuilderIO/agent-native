@@ -154,7 +154,6 @@ interface DocumentToolbarProps {
   activeUsers?: CollabUser[];
   agentPresent?: boolean;
   agentActive?: boolean;
-  isSaving?: boolean;
   currentUserEmail?: string;
   canEdit?: boolean;
   hideFromSearch?: boolean;
@@ -168,7 +167,6 @@ export function DocumentToolbar({
   activeUsers,
   agentPresent,
   agentActive,
-  isSaving,
   currentUserEmail,
   canEdit = true,
   hideFromSearch = false,
@@ -467,16 +465,6 @@ export function DocumentToolbar({
 
   return (
     <>
-      <div
-        aria-hidden={!isSaving}
-        className={cn(
-          "pointer-events-none absolute top-3 left-4 z-10 flex items-center gap-1 text-xs text-muted-foreground/70 transition-opacity duration-200 sm:top-4 sm:left-6",
-          isSaving ? "opacity-100" : "opacity-0",
-        )}
-      >
-        <IconLoader2 size={12} className="animate-spin" />
-        <span>Saving</span>
-      </div>
       <div className="absolute top-2 right-2 z-10 flex items-center gap-0.5 rounded-xl border border-border/70 bg-background/95 p-1 shadow-sm backdrop-blur supports-[backdrop-filter]:bg-background/85 sm:top-3 sm:right-4 sm:gap-1">
         {/* Presence — shared PresenceBar (agent + collaborator avatars) */}
         <PresenceBar

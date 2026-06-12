@@ -234,7 +234,6 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
   const [localContentUpdatedAt, setLocalContentUpdatedAt] = useState<
     string | null
   >(document.updatedAt ?? null);
-  const [isSaving, setIsSaving] = useState(false);
   const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Separate freshness watermarks for title and content so that a content save
   // never suppresses adopting a newer external title and vice versa.
@@ -489,9 +488,6 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
         updatedAt: document.updatedAt ?? lastSavedContentRef.current.updatedAt,
       };
     }
-    if (titleMatchesLocal && contentMatchesLocal) {
-      setIsSaving(false);
-    }
   }, [document, localTitle, localContent]);
 
   const persistDocumentUpdates = useCallback(
@@ -580,45 +576,40 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
           updates.content = content;
         if (Object.keys(updates).length === 0) return;
 
-        setIsSaving(true);
-        try {
-          const saved = await persistDocumentUpdates(updates);
-          // Adopt the server updatedAt per saved field.
-          const savedAt = saved?.updatedAt ?? new Date().toISOString();
-          if (updates.title !== undefined) {
-            lastSavedTitleRef.current = { title, updatedAt: savedAt };
-          }
-          if (updates.content !== undefined) {
-            lastSavedContentRef.current = { content, updatedAt: savedAt };
-          }
+        const saved = await persistDocumentUpdates(updates);
+        // Adopt the server updatedAt per saved field.
+        const savedAt = saved?.updatedAt ?? new Date().toISOString();
+        if (updates.title !== undefined) {
+          lastSavedTitleRef.current = { title, updatedAt: savedAt };
+        }
+        if (updates.content !== undefined) {
+          lastSavedContentRef.current = { content, updatedAt: savedAt };
+        }
 
-          // Push-on-save: when auto-sync is on, trigger a Notion push
-          // immediately after the save lands in SQL. This eliminates the
-          // off-by-one race where a fixed-interval poll could fire between
-          // the debounce and the next save, reading the previous content.
-          // Pulls remain driven by the polling refetch in useDocumentSyncStatus.
-          if (autoSync) {
-            const status = queryClient.getQueryData<DocumentSyncStatus>([
-              "document-sync",
-              documentId,
-            ]);
-            if (status?.pageId && !status.hasConflict) {
-              try {
-                const res = await fetch(
-                  appApiPath(`/api/documents/${documentId}/notion/push`),
-                  { method: "POST" },
-                );
-                if (res.ok) {
-                  const next = (await res.json()) as DocumentSyncStatus;
-                  queryClient.setQueryData(["document-sync", documentId], next);
-                }
-              } catch {
-                // Non-fatal — next polling refetch will surface any error.
+        // Push-on-save: when auto-sync is on, trigger a Notion push
+        // immediately after the save lands in SQL. This eliminates the
+        // off-by-one race where a fixed-interval poll could fire between
+        // the debounce and the next save, reading the previous content.
+        // Pulls remain driven by the polling refetch in useDocumentSyncStatus.
+        if (autoSync) {
+          const status = queryClient.getQueryData<DocumentSyncStatus>([
+            "document-sync",
+            documentId,
+          ]);
+          if (status?.pageId && !status.hasConflict) {
+            try {
+              const res = await fetch(
+                appApiPath(`/api/documents/${documentId}/notion/push`),
+                { method: "POST" },
+              );
+              if (res.ok) {
+                const next = (await res.json()) as DocumentSyncStatus;
+                queryClient.setQueryData(["document-sync", documentId], next);
               }
+            } catch {
+              // Non-fatal — next polling refetch will surface any error.
             }
           }
-        } finally {
-          setIsSaving(false);
         }
       }, 500);
     },
@@ -839,7 +830,6 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
             activeUsers={activeUsers}
             agentPresent={agentPresent}
             agentActive={agentActive}
-            isSaving={isSaving}
             currentUserEmail={session?.email}
             canEdit={canEdit}
             hideFromSearch={document.hideFromSearch}
@@ -877,12 +867,7 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
                       }
                       onSelect={(emoji) => {
                         void (async () => {
-                          setIsSaving(true);
-                          try {
-                            await persistDocumentUpdates({ icon: emoji });
-                          } finally {
-                            setIsSaving(false);
-                          }
+                          await persistDocumentUpdates({ icon: emoji });
                         })();
                       }}
                     />
