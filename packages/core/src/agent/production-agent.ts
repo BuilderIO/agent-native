@@ -36,7 +36,11 @@ import {
   registerBuiltinEngines,
   getStoredModelForEngine,
 } from "./engine/index.js";
-import { userFacingLlmCredentialError } from "./engine/credential-errors.js";
+import {
+  LLM_MISSING_CREDENTIALS_ERROR_CODE,
+  LLM_MISSING_CREDENTIALS_MESSAGE,
+  userFacingLlmCredentialError,
+} from "./engine/credential-errors.js";
 import { PROVIDER_TO_ENV } from "./engine/provider-env-vars.js";
 import { readAppState } from "../application-state/script-helpers.js";
 import { isDemoModeEnabled } from "../demo/config.js";
@@ -2866,7 +2870,11 @@ export function createProductionAgentHandler(
         start(controller) {
           controller.enqueue(
             encoder.encode(
-              `data: ${JSON.stringify({ type: "missing_api_key" })}\n\n`,
+              `data: ${JSON.stringify({
+                type: "error",
+                error: LLM_MISSING_CREDENTIALS_MESSAGE,
+                errorCode: LLM_MISSING_CREDENTIALS_ERROR_CODE,
+              })}\n\n`,
             ),
           );
           controller.close();

@@ -285,13 +285,7 @@ export function processEvent(
   toolCallCounter: { value: number },
   tabId: string | undefined,
 ): {
-  action:
-    | "continue"
-    | "done"
-    | "yield"
-    | "error"
-    | "missing_api_key"
-    | "auto_continue";
+  action: "continue" | "done" | "yield" | "error" | "auto_continue";
   result?: ChatModelRunResult;
   autoContinue?: {
     reason: AgentAutoContinueReason;
@@ -501,23 +495,6 @@ export function processEvent(
     return { action: "continue" };
   }
 
-  if (ev.type === "missing_api_key") {
-    if (typeof window !== "undefined") {
-      window.dispatchEvent(new Event("agent-chat:missing-api-key"));
-    }
-    content.push({
-      type: "text",
-      text: "No LLM provider is connected. Open Agent settings > LLM, then connect Builder.io or add a provider key.",
-    });
-    return {
-      action: "missing_api_key",
-      result: {
-        content: [...content],
-        status: { type: "incomplete" as const, reason: "error" as const },
-      } as ChatModelRunResult,
-    };
-  }
-
   if (ev.type === "loop_limit") {
     const maxIterations =
       typeof ev.maxIterations === "number" ? ev.maxIterations : undefined;
@@ -589,17 +566,6 @@ export function processEvent(
       if (typeof window !== "undefined") {
         window.dispatchEvent(new Event("agent-chat:missing-api-key"));
       }
-      content.push({
-        type: "text",
-        text: formatChatErrorText(errMsg, ev.upgradeUrl, ev.errorCode),
-      });
-      return {
-        action: "missing_api_key",
-        result: {
-          content: [...content],
-          status: { type: "incomplete" as const, reason: "error" as const },
-        } as ChatModelRunResult,
-      };
     }
     const runError = {
       message: normalized.message,
@@ -756,11 +722,7 @@ export async function* readSSEStream(
               : { reason: "stream_ended", activityTrail: [...activityTrail] },
           );
         }
-        if (
-          action === "done" ||
-          action === "error" ||
-          action === "missing_api_key"
-        ) {
+        if (action === "done" || action === "error") {
           return;
         }
       }
@@ -849,12 +811,7 @@ export async function readSSEStreamRaw(
           tabId,
         );
 
-        if (
-          action === "yield" ||
-          action === "done" ||
-          action === "error" ||
-          action === "missing_api_key"
-        ) {
+        if (action === "yield" || action === "done" || action === "error") {
           updated = true;
         }
         if (action === "auto_continue") {
@@ -863,11 +820,7 @@ export async function readSSEStreamRaw(
             autoContinue ?? { reason: "stream_ended" },
           );
         }
-        if (
-          action === "done" ||
-          action === "error" ||
-          action === "missing_api_key"
-        ) {
+        if (action === "done" || action === "error") {
           onUpdate([...content]);
           return;
         }

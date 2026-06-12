@@ -593,7 +593,7 @@ describe("createAgentChatAdapter", () => {
     );
   });
 
-  it("surfaces missing-credential HTTP responses instead of yielding a blank assistant message", async () => {
+  it("routes missing-credential HTTP responses through the run-error card", async () => {
     const dispatchEvent = vi.fn();
     vi.stubGlobal("window", { dispatchEvent });
 
@@ -628,9 +628,20 @@ describe("createAgentChatAdapter", () => {
     expect(dispatchEvent).toHaveBeenCalledWith(
       expect.objectContaining({ type: "agent-chat:missing-api-key" }),
     );
+    expect(dispatchEvent).toHaveBeenCalledWith(
+      expect.objectContaining({ type: "agent-chat:run-error" }),
+    );
     expect(results[0]).toEqual({
       content: [{ type: "text", text: "Error: No LLM provider is connected" }],
       status: { type: "incomplete", reason: "error" },
+      metadata: {
+        custom: {
+          runError: {
+            message: "No LLM provider is connected",
+            errorCode: "missing_credentials",
+          },
+        },
+      },
     });
   });
 

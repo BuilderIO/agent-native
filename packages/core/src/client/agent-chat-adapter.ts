@@ -1000,7 +1000,10 @@ function isMissingCredentialMessage(message: string): boolean {
   );
 }
 
-function missingCredentialErrorText(message: string): string {
+function missingCredentialFailure(message: string): {
+  text: string;
+  runError: { message: string; errorCode: string };
+} {
   try {
     const parsed = JSON.parse(message) as {
       error?: unknown;
@@ -1014,13 +1017,29 @@ function missingCredentialErrorText(message: string): string {
         : typeof parsed.message === "string"
           ? parsed.message
           : message;
-    return formatChatErrorText(
-      raw,
-      typeof parsed.upgradeUrl === "string" ? parsed.upgradeUrl : undefined,
-      typeof parsed.errorCode === "string" ? parsed.errorCode : undefined,
-    );
+    const errorCode =
+      typeof parsed.errorCode === "string"
+        ? parsed.errorCode
+        : "missing_credentials";
+    return {
+      text: formatChatErrorText(
+        raw,
+        typeof parsed.upgradeUrl === "string" ? parsed.upgradeUrl : undefined,
+        errorCode,
+      ),
+      runError: {
+        message: normalizeChatError(raw).message,
+        errorCode,
+      },
+    };
   } catch {
-    return formatChatErrorText(message);
+    return {
+      text: formatChatErrorText(message, undefined, "missing_credentials"),
+      runError: {
+        message: normalizeChatError(message).message,
+        errorCode: "missing_credentials",
+      },
+    };
   }
 }
 
@@ -1880,21 +1899,25 @@ export function createAgentChatAdapter(
                   return;
                 }
                 if (isMissingCredentialMessage(body)) {
+                  const failure = missingCredentialFailure(body);
                   if (typeof window !== "undefined") {
                     window.dispatchEvent(
                       new Event("agent-chat:missing-api-key"),
                     );
+                    window.dispatchEvent(
+                      new CustomEvent("agent-chat:run-error", {
+                        detail: { ...failure.runError, tabId },
+                      }),
+                    );
                   }
-                  content.push({
-                    type: "text",
-                    text: missingCredentialErrorText(body),
-                  });
+                  content.push({ type: "text", text: failure.text });
                   yield {
                     content: [...content],
                     status: {
                       type: "incomplete" as const,
                       reason: "error" as const,
                     },
+                    metadata: { custom: { runError: failure.runError } },
                   } as ChatModelRunResult;
                   return;
                 } else if (body.includes("Cannot find any path")) {
@@ -2039,19 +2062,23 @@ export function createAgentChatAdapter(
             }
 
             if (isMissingCredentialMessage(errMsg)) {
+              const failure = missingCredentialFailure(errMsg);
               if (typeof window !== "undefined") {
                 window.dispatchEvent(new Event("agent-chat:missing-api-key"));
+                window.dispatchEvent(
+                  new CustomEvent("agent-chat:run-error", {
+                    detail: { ...failure.runError, tabId },
+                  }),
+                );
               }
-              content.push({
-                type: "text",
-                text: missingCredentialErrorText(errMsg),
-              });
+              content.push({ type: "text", text: failure.text });
               yield {
                 content: [...content],
                 status: {
                   type: "incomplete" as const,
                   reason: "error" as const,
                 },
+                metadata: { custom: { runError: failure.runError } },
               };
               clearActiveRun();
               return;

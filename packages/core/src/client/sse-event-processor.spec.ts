@@ -386,7 +386,7 @@ describe("SSE event processor error classification", () => {
     );
   });
 
-  it("routes missing provider credentials to the setup gate", async () => {
+  it("routes missing provider credentials through the run-error card", async () => {
     const dispatchEvent = vi.fn();
     vi.stubGlobal("window", { dispatchEvent });
 
@@ -408,9 +408,20 @@ describe("SSE event processor error classification", () => {
     expect(dispatchEvent).toHaveBeenCalledWith(
       expect.objectContaining({ type: "agent-chat:missing-api-key" }),
     );
+    expect(dispatchEvent).toHaveBeenCalledWith(
+      expect.objectContaining({ type: "agent-chat:run-error" }),
+    );
     expect(results[0]).toEqual({
       content: [{ type: "text", text: "Error: No LLM provider is connected" }],
       status: { type: "incomplete", reason: "error" },
+      metadata: {
+        custom: {
+          runError: {
+            message: "No LLM provider is connected",
+            errorCode: "missing_credentials",
+          },
+        },
+      },
     });
   });
 
