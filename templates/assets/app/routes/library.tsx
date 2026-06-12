@@ -1457,28 +1457,6 @@ export default function AssetPicker() {
                   >
                     <IconX className="h-5 w-5" />
                   </DialogClose>
-                  {(hasPrev || hasNext) && (
-                    <div className="absolute bottom-2 left-1/2 z-10 flex -translate-x-1/2 gap-2">
-                      <button
-                        type="button"
-                        aria-label="Previous image"
-                        onClick={showPreviousAsset}
-                        disabled={!hasPrev}
-                        className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-black/60 text-white transition hover:bg-black/80 focus:outline-none focus-visible:ring-2 focus-visible:ring-white disabled:cursor-not-allowed disabled:opacity-40"
-                      >
-                        <IconChevronLeft className="h-5 w-5" />
-                      </button>
-                      <button
-                        type="button"
-                        aria-label="Next image"
-                        onClick={showNextAsset}
-                        disabled={!hasNext}
-                        className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-black/60 text-white transition hover:bg-black/80 focus:outline-none focus-visible:ring-2 focus-visible:ring-white disabled:cursor-not-allowed disabled:opacity-40"
-                      >
-                        <IconChevronRight className="h-5 w-5" />
-                      </button>
-                    </div>
-                  )}
                   {previewAsset.mediaType === "video" ||
                   previewAsset.mimeType?.startsWith("video/") ? (
                     <video
@@ -1497,6 +1475,28 @@ export default function AssetPicker() {
                     <AssetOverlayImage asset={previewAsset} />
                   )}
                 </div>
+                {(hasPrev || hasNext) && (
+                  <div className="mt-5 flex justify-center gap-2">
+                    <button
+                      type="button"
+                      aria-label="Previous image"
+                      onClick={showPreviousAsset}
+                      disabled={!hasPrev}
+                      className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-black/60 text-white transition hover:bg-black/80 focus:outline-none focus-visible:ring-2 focus-visible:ring-white disabled:cursor-not-allowed disabled:opacity-40"
+                    >
+                      <IconChevronLeft className="h-5 w-5" />
+                    </button>
+                    <button
+                      type="button"
+                      aria-label="Next image"
+                      onClick={showNextAsset}
+                      disabled={!hasNext}
+                      className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-black/60 text-white transition hover:bg-black/80 focus:outline-none focus-visible:ring-2 focus-visible:ring-white disabled:cursor-not-allowed disabled:opacity-40"
+                    >
+                      <IconChevronRight className="h-5 w-5" />
+                    </button>
+                  </div>
+                )}
               </DialogContent>
             );
           })()}
