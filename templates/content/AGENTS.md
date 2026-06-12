@@ -134,19 +134,23 @@ plain-text strip of the markdown.
 
 Content has two file workflows:
 
-- **Database mode source folder:** the `/local-files` view links a browser or
-  Agent Native Desktop folder to SQL-backed documents. Export uses
-  `export-content-source` and writes one file per document under `content/`.
-  Import uses `import-content-source`; files with known `id` values update
-  existing docs only when the caller has editor access, and files without ids
-  create new private docs for the current user. Imported rows keep
-  `source.mode: "local-files"` and `source.path`, so
-  `list-documents`/`get-document` can distinguish them from ordinary private
-  pages and the sidebar can show them under Local files. Once a source folder is
-  linked, the selected `.md`/`.mdx` file is authoritative: opening the page
-  reads the file, editor saves write the file first, and SQL is updated
-  afterward as cache/history/search glue. Use `--dryRun true` before a large
-  import when the source folder may contain unexpected files.
+- **Database mode local folders:** the `/local-files` view links one or more
+  browser or Agent Native Desktop folders to SQL-backed documents. The UI uses
+  folder rows: **Pull** reads local `.md`/`.mdx` files through
+  `import-content-source`, **Check** runs the same import as `--dryRun true`,
+  and **Push** uses `export-content-source` to write Content documents back to
+  the chosen folder. Files with known `id` values update existing docs only
+  when the caller has editor access, and files without ids create new private
+  docs for the current user. Imported rows keep `source.mode: "local-files"`
+  and `source.path`, so `list-documents`/`get-document` can distinguish them
+  from ordinary private pages and the sidebar can show them under Local files.
+  With one linked folder, imported paths stay flat (`content/page.mdx`); with
+  multiple linked folders, paths are prefixed by folder name so Local files can
+  group them by folder. Once a source folder is linked, the selected
+  `.md`/`.mdx` file is authoritative: opening the page reads the file, editor
+  saves write the file first, and SQL is updated afterward as
+  cache/history/search glue. Use `--dryRun true` before a large import when the
+  source folder may contain unexpected files.
 - **Local File Mode editing:** when the app runs with `AGENT_NATIVE_MODE=local-files`
   or an `agent-native.json` whose app config enables local files, the standard
   Content editor reads and writes configured repo files directly. The left

@@ -649,6 +649,7 @@ export default defineAction({
   http: false,
   run: async () => {
     const navigation = await readAppState("navigation");
+    const localFilesState = await readAppState("local-files");
 
     const screen: Record<string, unknown> = {};
     if (navigation) screen.navigation = navigation;
@@ -699,6 +700,10 @@ export default defineAction({
         actions: ["export-content-source", "import-content-source"],
         sourceRoot: "content/",
         fileTypes: [".md", ".mdx"],
+        selectedFolders:
+          localFilesState && typeof localFilesState === "object"
+            ? localFilesState
+            : undefined,
       };
     }
 

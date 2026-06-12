@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { callAction } from "@agent-native/core/client";
+import { callAction, setClientAppState } from "@agent-native/core/client";
 import {
   IconAlertCircle,
   IconCircleCheck,
@@ -210,6 +210,20 @@ function browserDirectoryToPersisted(
 function directoryUpdatedLabel(directory: SelectedDirectory) {
   if (!directory.updatedAt) return "Not synced yet";
   return new Date(directory.updatedAt).toLocaleString();
+}
+
+function directoriesAppState(directories: SelectedDirectory[]) {
+  return {
+    view: "local-files",
+    count: directories.length,
+    folders: directories.map((directory) => ({
+      id: directory.id,
+      name: directory.name,
+      sourcePrefix: directory.sourcePrefix,
+      runtime: directory.kind,
+      updatedAt: directory.updatedAt,
+    })),
+  };
 }
 
 async function isSameBrowserDirectory(
@@ -545,6 +559,14 @@ export default function LocalFilesRoute() {
   );
 
   useEffect(() => {
+    void setClientAppState("local-files", directoriesAppState(directories), {
+      requestSource: "content-local-files",
+    }).catch(() => {
+      // Application-state sync is best-effort; local sync still works without it.
+    });
+  }, [directories]);
+
+  useEffect(() => {
     if (!supported) return;
     let cancelled = false;
     setRestoringDirectory(true);
@@ -632,6 +654,20 @@ export default function LocalFilesRoute() {
     setDirectories(nextDirectories);
     if (refreshedDirectory.kind === "browser") {
       await persistSourceDirectories(nextDirectories);
+    }
+    if (Object.keys(files).length === 0) {
+      return {
+        directories: nextDirectories,
+        result: {
+          dryRun,
+          filesSeen: 0,
+          created: [],
+          updated: [],
+          unchanged: [],
+          skipped: [],
+          errors: [],
+        },
+      };
     }
     const result = await callAction<ImportContentSourceResult>(
       "import-content-source" as never,

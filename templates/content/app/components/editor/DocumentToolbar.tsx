@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useNavigate } from "react-router";
 import {
   IconArrowBarDown,
   IconArrowBarUp,
@@ -18,6 +19,7 @@ import {
   IconPlus,
   IconHistory,
   IconRefresh,
+  IconShare3,
 } from "@tabler/icons-react";
 import { VersionHistoryPanel } from "./VersionHistoryPanel";
 import {
@@ -172,6 +174,7 @@ export function DocumentToolbar({
   hideFromSearch = false,
   source,
 }: DocumentToolbarProps) {
+  const navigate = useNavigate();
   const queryClient = useQueryClient();
   const isLocalFileDocument = source?.mode === "local-files";
   const [autoSync, setAutoSync] = useLocalStorage(
@@ -195,6 +198,7 @@ export function DocumentToolbar({
   );
   const exportDocument = useActionMutation("export-document");
   const revealLocalSource = useActionMutation("reveal-local-source-file");
+  const shareLocalFile = useActionMutation("share-local-file-document");
 
   const createAndLink = useCreateAndLinkNotionPage(documentId);
 
@@ -331,6 +335,27 @@ export function DocumentToolbar({
       });
     }
   }, [documentId, revealLocalSource, source]);
+
+  const handleShareLocalFile = useCallback(async () => {
+    try {
+      const result = (await shareLocalFile.mutateAsync({
+        id: documentId,
+      })) as { id?: string; title?: string };
+      if (!result?.id) {
+        throw new Error("The shareable copy was not created.");
+      }
+      await queryClient.invalidateQueries({ queryKey: ["action"] });
+      toast.success("Shareable copy ready", {
+        description: "This copy is stored in the database for sharing.",
+      });
+      navigate(`/page/${result.id}`, { flushSync: true });
+    } catch (error) {
+      toast.error("Could not create shareable copy", {
+        description:
+          error instanceof Error ? error.message : "Something went wrong",
+      });
+    }
+  }, [documentId, navigate, queryClient, shareLocalFile]);
 
   // Debounce search
   useEffect(() => {
@@ -474,7 +499,22 @@ export function DocumentToolbar({
           currentUserEmail={currentUserEmail}
           className="mr-1"
         />
-        {!isLocalFileDocument ? (
+        {isLocalFileDocument ? (
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-9 gap-1.5 rounded-lg px-3"
+            disabled={shareLocalFile.isPending}
+            onClick={() => void handleShareLocalFile()}
+          >
+            {shareLocalFile.isPending ? (
+              <IconLoader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <IconShare3 className="h-4 w-4" />
+            )}
+            <span className="hidden sm:inline">Share</span>
+          </Button>
+        ) : (
           <>
             <ShareButton
               resourceType="document"
@@ -507,7 +547,7 @@ export function DocumentToolbar({
               activeUsers={activeUsers}
             />
           </>
-        ) : null}
+        )}
 
         <DropdownMenu modal={false}>
           <Tooltip>
