@@ -118,6 +118,25 @@ export interface BlockRenderContext {
    */
   showCodeAnnotationOverlays?: boolean;
   /**
+   * Optional placement policy for line-anchored code/diff annotations.
+   * Hosts can keep the default right-first hover behavior, or ask annotations to
+   * prefer a margin side and become persistent whenever that margin has room.
+   */
+  codeAnnotationLayout?: {
+    /** Preferred side for hover cards when that side has a clean gutter. */
+    hoverSide?: "left" | "right";
+    /**
+     * Final hover fallback when neither side has a clean gutter. `"below"` keeps
+     * the legacy line-below behavior; `"left"`/`"right"` clamp the card to that
+     * viewport side, even if it overlaps part of the code surface.
+     */
+    hoverFallbackSide?: "left" | "right" | "below";
+    /** Show all annotation cards by default when the requested margin fits. */
+    showByDefaultWhenRoom?: boolean;
+    /** Margin side for persistent cards; `"auto"` tries hoverSide, then the other side. */
+    marginSide?: "left" | "right" | "auto";
+  };
+  /**
    * Render an inline, editable rich-markdown field. The auto-editor calls this
    * for a `markdown()`-tagged field so the app owns the editor wiring (collab,
    * autosave debounce, dialect) rather than core hardcoding it.

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   resolveAnnotationInlineOverlayPosition,
+  resolveAnnotationMarginOverlayPosition,
   resolveAnnotationHoverCardPosition,
   type AnnotationAnchor,
 } from "./annotation-rail.js";
@@ -42,6 +43,28 @@ describe("annotation hover card placement", () => {
       ),
     ).toEqual({ left: 100, top: 223 });
   });
+
+  it("can prefer the left gutter for plan-mode hovers", () => {
+    expect(
+      resolveAnnotationHoverCardPosition(
+        anchor,
+        { width: 280, height: 120 },
+        { width: 1200, height: 600 },
+        { preferredSide: "left", hoverFallbackSide: "right" },
+      ),
+    ).toEqual({ left: 68, top: 140 });
+  });
+
+  it("can clamp to the right side in tight plan-mode windows", () => {
+    expect(
+      resolveAnnotationHoverCardPosition(
+        { ...anchor, codeLeft: 100, codeRight: 760 },
+        { width: 280, height: 120 },
+        { width: 900, height: 600 },
+        { preferredSide: "left", hoverFallbackSide: "right" },
+      ),
+    ).toEqual({ left: 612, top: 140 });
+  });
 });
 
 describe("annotation inline overlay placement", () => {
@@ -73,5 +96,40 @@ describe("annotation inline overlay placement", () => {
         { width: 950, height: 700 },
       ),
     ).toEqual({ right: 90, top: 8 });
+  });
+});
+
+describe("annotation margin overlay placement", () => {
+  it("uses the preferred left margin when it has room", () => {
+    expect(
+      resolveAnnotationMarginOverlayPosition(
+        { left: 360, right: 860, top: 120, height: 22 },
+        { width: 320, height: 120 },
+        { width: 1200, height: 700 },
+        { side: "auto", preferredSide: "left" },
+      ),
+    ).toEqual({ left: 28, top: 71, visible: true, side: "left" });
+  });
+
+  it("falls back to the right margin when left is tight", () => {
+    expect(
+      resolveAnnotationMarginOverlayPosition(
+        { left: 100, right: 500, top: 120, height: 22 },
+        { width: 320, height: 120 },
+        { width: 950, height: 700 },
+        { side: "auto", preferredSide: "left" },
+      ),
+    ).toEqual({ left: 512, top: 71, visible: true, side: "right" });
+  });
+
+  it("marks the card hidden when no side margin can hold it", () => {
+    expect(
+      resolveAnnotationMarginOverlayPosition(
+        { left: 100, right: 760, top: 120, height: 22 },
+        { width: 320, height: 120 },
+        { width: 900, height: 700 },
+        { side: "auto", preferredSide: "left" },
+      ),
+    ).toEqual({ left: 8, top: 71, visible: false, side: "left" });
   });
 });

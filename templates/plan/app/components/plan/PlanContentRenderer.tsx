@@ -392,6 +392,18 @@ export function PlanContentRenderer({
     onVisualQuestionsSubmit,
     editingDisabled,
   };
+  const codeAnnotationLayout = useMemo(
+    () =>
+      !isRecap && !showCodeAnnotationOverlays
+        ? ({
+            hoverSide: "left",
+            hoverFallbackSide: "right",
+            showByDefaultWhenRoom: true,
+            marginSide: "auto",
+          } as const)
+        : undefined,
+    [isRecap, showCodeAnnotationOverlays],
+  );
 
   const blockRenderContext = useMemo(
     () =>
@@ -442,6 +454,7 @@ export function PlanContentRenderer({
         ),
         editingDisabled,
         showCodeAnnotationOverlays,
+        codeAnnotationLayout,
       }),
     [
       contentUpdatedAt,
@@ -450,6 +463,7 @@ export function PlanContentRenderer({
       editingDisabled,
       notionCompatibleOnly,
       showCodeAnnotationOverlays,
+      codeAnnotationLayout,
     ],
   );
 

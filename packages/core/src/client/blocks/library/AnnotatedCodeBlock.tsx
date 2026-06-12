@@ -19,6 +19,7 @@ import {
   buildLineMarkerMap,
   hasRailAnnotations,
   resolveAnnotations,
+  useAnnotationMarginNotesAvailable,
   useAnnotationHover,
   type ResolvedAnnotation,
 } from "./annotation-rail.js";
@@ -195,6 +196,23 @@ function AnnotatedCodeRead({
 
   const hasAnnotations = hasRailAnnotations(resolved);
   const showAnnotationOverlays = Boolean(ctx.showCodeAnnotationOverlays);
+  const annotationLayout = ctx.codeAnnotationLayout;
+  const annotationHoverSide = annotationLayout?.hoverSide ?? "right";
+  const annotationHoverFallbackSide =
+    annotationLayout?.hoverFallbackSide ?? "below";
+  const annotationMarginSide = annotationLayout?.marginSide ?? "auto";
+  const showMarginAnnotations = useAnnotationMarginNotesAvailable({
+    containerRef: codeRef,
+    enabled: Boolean(
+      hasAnnotations &&
+      !showAnnotationOverlays &&
+      annotationLayout?.showByDefaultWhenRoom,
+    ),
+    side: annotationMarginSide,
+    preferredSide: annotationHoverSide,
+  });
+  const showPersistentAnnotations =
+    showAnnotationOverlays || showMarginAnnotations;
   const langChip = data.language?.trim();
   const hasFilename = Boolean(data.filename?.trim());
   const showLangChip = Boolean(langChip && !hasFilename);
@@ -226,7 +244,7 @@ function AnnotatedCodeRead({
     const isActive =
       activeIndex != null && !!markers?.some((m) => m.index === activeIndex);
     const overlayItems =
-      showAnnotationOverlays && markers
+      showPersistentAnnotations && markers
         ? markers.filter((item) => item.range?.start === lineNo)
         : [];
 
@@ -316,7 +334,14 @@ function AnnotatedCodeRead({
           {highlightedLines[lineNo - 1]}
         </span>
         {overlayItems.length > 0 && (
-          <AnnotationInlineOverlayStack items={overlayItems} ctx={ctx} />
+          <AnnotationInlineOverlayStack
+            items={overlayItems}
+            ctx={ctx}
+            containerRef={codeRef}
+            mode={showAnnotationOverlays ? "capture" : "margin"}
+            side={showAnnotationOverlays ? "right" : annotationMarginSide}
+            preferredSide={annotationHoverSide}
+          />
         )}
       </div>
     );
@@ -400,16 +425,21 @@ function AnnotatedCodeRead({
           time as an on-hover popover anchored to the right of the code. */}
       {codeSurface}
       {hasAnnotations && <AnnotationHiddenStack items={resolved} ctx={ctx} />}
-      {hasAnnotations && activeItem && hover.anchor && (
-        <AnnotationHoverCard
-          item={activeItem}
-          anchor={hover.anchor}
-          ctx={ctx}
-          onMouseEnter={hover.cancelClose}
-          onMouseLeave={hover.scheduleClose}
-          onClose={hover.closeForScroll}
-        />
-      )}
+      {hasAnnotations &&
+        !showPersistentAnnotations &&
+        activeItem &&
+        hover.anchor && (
+          <AnnotationHoverCard
+            item={activeItem}
+            anchor={hover.anchor}
+            ctx={ctx}
+            preferredSide={annotationHoverSide}
+            hoverFallbackSide={annotationHoverFallbackSide}
+            onMouseEnter={hover.cancelClose}
+            onMouseLeave={hover.scheduleClose}
+            onClose={hover.closeForScroll}
+          />
+        )}
       {summary && <p className="mt-5 text-plan-muted">{summary}</p>}
     </section>
   );
