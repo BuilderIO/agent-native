@@ -39,6 +39,7 @@ import {
   Dialog,
   DialogClose,
   DialogContent,
+  DialogDescription,
   DialogTitle,
 } from "@/components/ui/dialog";
 import { DEFAULT_LIBRARY_PRESETS } from "../../shared/library-presets";
@@ -828,6 +829,7 @@ export default function AssetPicker() {
     [allAssets, assetTab],
   );
   const [previewAsset, setPreviewAsset] = useState<Asset | null>(null);
+  const [copiedAssetId, setCopiedAssetId] = useState<string | null>(null);
   const [standaloneSelection, setStandaloneSelection] = useState<ReturnType<
     typeof assetPayload
   > | null>(null);
@@ -862,6 +864,26 @@ export default function AssetPicker() {
       }
     },
     [],
+  );
+
+  const copyAsset = useCallback(
+    async (asset: Asset) => {
+      const payload = assetPayload(asset, mediaType);
+      const text = selectedAssetClipboardText(payload);
+      try {
+        await navigator.clipboard.writeText(text);
+        setCopiedAssetId(asset.id);
+        toast.success("Asset copied");
+        window.setTimeout(() => {
+          setCopiedAssetId((current) =>
+            current === asset.id ? null : current,
+          );
+        }, 2000);
+      } catch {
+        toast.error("Could not copy asset");
+      }
+    },
+    [mediaType],
   );
 
   const chooseAsset = (asset: Asset) => {
@@ -1362,32 +1384,52 @@ export default function AssetPicker() {
         {assets.length > 0 && (
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
             {assets.map((asset) => (
-              <button
+              <div
                 key={asset.id}
-                type="button"
-                aria-label={`Select ${assetDisplayTitle(asset)}`}
-                onClick={() => {
-                  chooseAsset(asset);
-                  if (!embedded) setPreviewAsset(asset);
-                }}
-                title={assetDisplayTitle(asset)}
-                className="group overflow-hidden rounded-md border border-border bg-card text-left shadow-sm transition hover:border-primary/60 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                className="group relative overflow-hidden rounded-md border border-border bg-card shadow-sm transition hover:border-primary/60 hover:shadow-md focus-within:ring-2 focus-within:ring-ring"
               >
-                <div className="aspect-square bg-muted">
-                  {asset.mediaType === "video" ||
-                  asset.mimeType?.startsWith("video/") ? (
-                    <video
-                      src={asset.previewUrl ?? asset.downloadUrl ?? asset.url}
-                      poster={asset.thumbnailUrl}
-                      muted
-                      playsInline
-                      className="h-full w-full object-cover transition group-hover:scale-[1.02]"
-                    />
+                <button
+                  type="button"
+                  aria-label={`Open ${assetDisplayTitle(asset)}`}
+                  onClick={() => {
+                    chooseAsset(asset);
+                    if (!embedded) setPreviewAsset(asset);
+                  }}
+                  title={assetDisplayTitle(asset)}
+                  className="block w-full text-left focus-visible:outline-none"
+                >
+                  <div className="aspect-square bg-muted">
+                    {asset.mediaType === "video" ||
+                    asset.mimeType?.startsWith("video/") ? (
+                      <video
+                        src={asset.previewUrl ?? asset.downloadUrl ?? asset.url}
+                        poster={asset.thumbnailUrl}
+                        muted
+                        playsInline
+                        className="h-full w-full object-cover transition group-hover:scale-[1.02]"
+                      />
+                    ) : (
+                      <AssetThumbnail asset={asset} />
+                    )}
+                  </div>
+                </button>
+                <button
+                  type="button"
+                  aria-label={`Copy ${assetDisplayTitle(asset)}`}
+                  title="Copy asset"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    void copyAsset(asset);
+                  }}
+                  className="absolute right-2 top-2 z-10 inline-flex h-8 w-8 items-center justify-center rounded-full bg-background/80 text-foreground opacity-0 shadow-sm backdrop-blur transition hover:bg-background focus:outline-none focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-ring group-hover:opacity-100"
+                >
+                  {copiedAssetId === asset.id ? (
+                    <IconCheck className="h-4 w-4" />
                   ) : (
-                    <AssetThumbnail asset={asset} />
+                    <IconClipboard className="h-4 w-4" />
                   )}
-                </div>
-              </button>
+                </button>
+              </div>
             ))}
           </div>
         )}
@@ -1407,6 +1449,9 @@ export default function AssetPicker() {
             <DialogTitle className="sr-only">
               {assetDisplayTitle(previewAsset)}
             </DialogTitle>
+            <DialogDescription className="sr-only">
+              Full-size preview of {assetDisplayTitle(previewAsset)}
+            </DialogDescription>
             <div className="relative">
               <DialogClose
                 aria-label="Close preview"
