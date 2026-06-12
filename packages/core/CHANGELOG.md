@@ -1,5 +1,15 @@
 # @agent-native/core
 
+## 0.49.10
+
+### Patch Changes
+
+- ee66e0a: Serialize local auto dev account creation so concurrent first-page requests do not race into duplicate Better Auth user inserts.
+- ee66e0a: Declare the Floating UI DOM runtime dependency required by TipTap floating menu support.
+- ee66e0a: Capture PR Visual Recap screenshots in GitHub-matched light and dark modes and embed them with a theme-aware picture element.
+- ee66e0a: Ensure PR visual recap agents request the full Plan MCP catalog and refresh stale Codex MCP config before publishing recaps.
+- ee66e0a: Fix PR visual recap comments and hosted recap links so failed runs no longer advertise stale private recap URLs, and public `/recaps/:id` links resolve for signed-out viewers.
+
 ## 0.49.9
 
 ### Patch Changes
