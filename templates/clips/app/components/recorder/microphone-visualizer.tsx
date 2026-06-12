@@ -9,6 +9,8 @@ export interface MicrophoneVisualizerProps {
   deviceId: string | null;
   disabled?: boolean;
   selectedLabel?: string;
+  idleActionLabel?: string;
+  idleHelper?: string;
   className?: string;
   onStatusChange?: (
     status: MicrophoneTestStatus,
@@ -72,7 +74,7 @@ async function getMicrophonePermissionState(): Promise<MicrophonePermissionState
   }
 }
 
-async function friendlyMicError(err: unknown): Promise<string> {
+export async function friendlyMicError(err: unknown): Promise<string> {
   const name = (err as { name?: string } | null)?.name ?? "";
   const message = err instanceof Error ? err.message : String(err ?? "");
   const combined = `${name} ${message}`;
@@ -94,10 +96,10 @@ async function friendlyMicError(err: unknown): Promise<string> {
     return "Microphone prompts require HTTPS or localhost. Open this app on localhost or an HTTPS URL, then try again.";
   }
   if (permissionState === "denied") {
-    return "Brave already has Microphone set to Block for this site, so it will not show the popup. Click the lock/tune icon in the address bar → Site settings → Microphone → Allow, then reload.";
+    return "This site is blocked from using the microphone. Open the browser site settings, set Microphone to Allow, then reload.";
   }
   if (/NotAllowedError|Permission denied|denied|blocked/i.test(combined)) {
-    return "The browser or macOS denied microphone access. If no popup appeared, check Brave site settings and macOS System Settings → Privacy & Security → Microphone for Brave, then reload.";
+    return "The browser or operating system denied microphone access. Check this site's microphone setting and your system privacy settings for this browser, then reload.";
   }
   if (
     /NotFoundError|DevicesNotFoundError|no device|not found/i.test(combined)
@@ -114,6 +116,8 @@ export function MicrophoneVisualizer({
   deviceId,
   disabled,
   selectedLabel,
+  idleActionLabel = "Test mic",
+  idleHelper,
   className,
   onStatusChange,
   onSignalChange,
@@ -446,7 +450,8 @@ export function MicrophoneVisualizer({
           : "Speak now — the waveform should move with your voice."
         : starting
           ? "Opening microphone…"
-          : "Click Test mic, then speak to verify input before recording.";
+          : (idleHelper ??
+            "Click Test mic, then speak to verify input before recording.");
 
   return (
     <div
@@ -471,7 +476,7 @@ export function MicrophoneVisualizer({
           onClick={live ? stopTest : startTest}
           className="h-8 px-2.5 text-xs"
         >
-          {live ? "Stop" : starting ? "Listening…" : "Test mic"}
+          {live ? "Stop" : starting ? "Listening…" : idleActionLabel}
         </Button>
       </div>
       <div

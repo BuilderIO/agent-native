@@ -10,7 +10,7 @@ import {
   IconUpload,
   IconVideo,
 } from "@tabler/icons-react";
-import { agentNativePath } from "@agent-native/core/client";
+import { agentNativePath, appPath } from "@agent-native/core/client";
 import { Button } from "@/components/ui/button";
 import {
   Collapsible,
@@ -36,6 +36,7 @@ import type { CameraBubbleSize } from "./camera-bubble";
 import { CameraVisualizer, type CameraTestStatus } from "./camera-visualizer";
 import {
   MicrophoneVisualizer,
+  friendlyMicError,
   type MicrophoneTestStatus,
 } from "./microphone-visualizer";
 
@@ -67,6 +68,8 @@ type CameraTestState = {
   error: string | null;
   hasPreview: boolean;
 };
+
+type DeviceAccessStatus = "idle" | "requesting" | "granted" | "error";
 
 async function writeRecordingSetupState(value: unknown): Promise<void> {
   await fetch(
@@ -131,6 +134,28 @@ const SURFACE_OPTIONS: Array<{
   },
 ];
 
+const REQUEST_MIC_ACCESS_VALUE = "__clips_request_microphone_access__";
+
+function isPseudoMediaDeviceId(value: string | null | undefined): boolean {
+  const id = value?.trim().toLowerCase();
+  return !id || id === "default" || id === "communications";
+}
+
+function isSelectableMediaDevice(device: MediaDeviceInfo): boolean {
+  return !isPseudoMediaDeviceId(device.deviceId);
+}
+
+function stopStream(stream: MediaStream | null): void {
+  if (!stream) return;
+  for (const track of stream.getTracks()) {
+    try {
+      track.stop();
+    } catch {
+      // ignore
+    }
+  }
+}
+
 export function PreRecordPanel({
   onStart,
   initialMode,
@@ -155,6 +180,9 @@ export function PreRecordPanel({
   const [micId, setMicId] = useState<string>("default");
   const [cameraId, setCameraId] = useState<string>("default");
   const [enumError, setEnumError] = useState<string | null>(null);
+  const [micAccessStatus, setMicAccessStatus] =
+    useState<DeviceAccessStatus>("idle");
+  const [micAccessError, setMicAccessError] = useState<string | null>(null);
   const [micTest, setMicTest] = useState<MicTestState>({
     status: "idle",
     error: null,
@@ -176,18 +204,21 @@ export function PreRecordPanel({
 
   const enumerateDevices = useCallback(async () => {
     try {
+      if (!navigator.mediaDevices?.enumerateDevices) {
+        throw new Error(
+          "This browser does not support microphone device selection.",
+        );
+      }
       const devices = await navigator.mediaDevices.enumerateDevices();
       setEnumError(null);
       setMics(
         devices.filter(
-          (d) =>
-            d.kind === "audioinput" && d.deviceId && d.deviceId !== "default",
+          (d) => d.kind === "audioinput" && isSelectableMediaDevice(d),
         ),
       );
       setCameras(
         devices.filter(
-          (d) =>
-            d.kind === "videoinput" && d.deviceId && d.deviceId !== "default",
+          (d) => d.kind === "videoinput" && isSelectableMediaDevice(d),
         ),
       );
     } catch (err) {
@@ -216,6 +247,45 @@ export function PreRecordPanel({
         handleDeviceChange,
       );
     };
+  }, [enumerateDevices]);
+
+  const microphoneLabelsUnlocked = useMemo(
+    () => mics.some((mic) => mic.label.trim().length > 0),
+    [mics],
+  );
+
+  useEffect(() => {
+    if (micId === "default" || micId === NO_MIC_DEVICE_ID) return;
+    if (!mics.some((mic) => mic.deviceId === micId)) {
+      setMicId("default");
+    }
+  }, [micId, mics]);
+
+  const requestMicrophoneChoices = useCallback(async () => {
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setMicAccessStatus("error");
+      setMicAccessError(
+        "This browser does not support microphone device selection.",
+      );
+      return;
+    }
+    setMicAccessStatus("requesting");
+    setMicAccessError(null);
+    let stream: MediaStream | null = null;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({
+        audio: true,
+        video: false,
+      });
+      stopStream(stream);
+      stream = null;
+      await enumerateDevices();
+      setMicAccessStatus("granted");
+    } catch (err) {
+      stopStream(stream);
+      setMicAccessStatus("error");
+      setMicAccessError(await friendlyMicError(err));
+    }
   }, [enumerateDevices]);
 
   const supportsCameraToggle = mode === "screen+camera";
@@ -275,10 +345,23 @@ export function PreRecordPanel({
         hasSignal: false,
       });
       if (status === "live") {
+        setMicAccessStatus("granted");
+        setMicAccessError(null);
         enumerateDevices().catch(() => {});
       }
     },
     [enumerateDevices],
+  );
+
+  const handleMicIdChange = useCallback(
+    (value: string) => {
+      if (value === REQUEST_MIC_ACCESS_VALUE) {
+        void requestMicrophoneChoices();
+        return;
+      }
+      setMicId(value);
+    },
+    [requestMicrophoneChoices],
   );
 
   const handleMicSignalChange = useCallback((hasSignal: boolean) => {
@@ -321,6 +404,10 @@ export function PreRecordPanel({
               ? "default"
               : "specific",
         label: selectedMicLabel,
+        availableDeviceCount: mics.length,
+        deviceLabelsUnlocked: microphoneLabelsUnlocked,
+        accessStatus: micAccessStatus,
+        accessError: micAccessError,
         testStatus: micTest.status,
         testHasSignal: micTest.hasSignal,
         testError: micTest.error,
@@ -346,9 +433,13 @@ export function PreRecordPanel({
     cameraTest.status,
     audioEnabled,
     micId,
+    micAccessError,
+    micAccessStatus,
     micTest.error,
     micTest.hasSignal,
     micTest.status,
+    microphoneLabelsUnlocked,
+    mics.length,
     mode,
     needsCamera,
     selectedCameraLabel,
@@ -576,18 +667,26 @@ export function PreRecordPanel({
 
             <div className="flex items-center gap-3">
               <IconMicrophone className="h-4 w-4 text-muted-foreground" />
-              <Select value={micId} onValueChange={setMicId}>
+              <Select value={micId} onValueChange={handleMicIdChange}>
                 <SelectTrigger className="flex-1" disabled={!audioEnabled}>
                   <SelectValue placeholder="Default mic" />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="default">Default microphone</SelectItem>
-                  <SelectItem value={NO_MIC_DEVICE_ID}>No audio</SelectItem>
-                  {mics.map((m) => (
-                    <SelectItem key={m.deviceId} value={m.deviceId}>
-                      {m.label || `Mic ${m.deviceId.slice(0, 4)}`}
+                  {!microphoneLabelsUnlocked && audioEnabled && (
+                    <SelectItem value={REQUEST_MIC_ACCESS_VALUE}>
+                      {micAccessStatus === "requesting"
+                        ? "Opening microphone..."
+                        : "Choose microphone..."}
                     </SelectItem>
-                  ))}
+                  )}
+                  <SelectItem value={NO_MIC_DEVICE_ID}>No audio</SelectItem>
+                  {microphoneLabelsUnlocked &&
+                    mics.map((m) => (
+                      <SelectItem key={m.deviceId} value={m.deviceId}>
+                        {m.label || `Mic ${m.deviceId.slice(0, 4)}`}
+                      </SelectItem>
+                    ))}
                 </SelectContent>
               </Select>
             </div>
@@ -596,9 +695,29 @@ export function PreRecordPanel({
               deviceId={micId === "default" ? null : micId}
               disabled={busy || !audioEnabled}
               selectedLabel={selectedMicLabel}
+              idleActionLabel={
+                microphoneLabelsUnlocked ? "Test mic" : "Choose mic"
+              }
+              idleHelper={
+                microphoneLabelsUnlocked
+                  ? undefined
+                  : "Allow access to list your microphone hardware, then speak to check the input."
+              }
               onStatusChange={handleMicStatusChange}
               onSignalChange={handleMicSignalChange}
             />
+
+            {micAccessError && (
+              <div className="rounded-lg border border-border bg-muted/40 px-3 py-2 text-xs leading-relaxed text-muted-foreground">
+                <p>{micAccessError}</p>
+                <a
+                  href={appPath("/download")}
+                  className="mt-1 inline-flex text-foreground underline-offset-4 hover:underline"
+                >
+                  Try Clips Desktop if the browser still cannot see your input.
+                </a>
+              </div>
+            )}
 
             {supportsCameraToggle && (
               <div className="flex items-center justify-between gap-4 rounded-lg border border-border bg-background px-3 py-2.5">
