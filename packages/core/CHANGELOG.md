@@ -1,5 +1,13 @@
 # @agent-native/core
 
+## 0.49.9
+
+### Patch Changes
+
+- 18741fe: Improve reconnect success output with a clear final status, avoid URL-only Codex config for hosted authenticated MCPs, and keep noninteractive skills installs from downgrading existing bearer-token MCP entries.
+- 18741fe: Keep React Router in the dev SSR module graph so standalone starter dev smoke uses one router context.
+- 18741fe: Run PR visual recaps from trusted base or published CLI code while allowing normal core package changes to receive recap coverage.
+
 ## 0.49.8
 
 ### Patch Changes
