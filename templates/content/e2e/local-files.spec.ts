@@ -220,6 +220,20 @@ test("browser local folder edits write the selected MDX file", async ({
   );
 
   await page.reload();
+  await expect
+    .poll(
+      () =>
+        page.evaluate(async () => {
+          const root = (window as any).__contentLocalSourceDirectoryHandle;
+          if (!root) return "";
+          const dir = await root.getDirectoryHandle("content");
+          const fileHandle = await dir.getFileHandle("getting-started.mdx");
+          const file = await fileHandle.getFile();
+          return file.text();
+        }),
+      { timeout: 20_000 },
+    )
+    .toContain("Externally changed source of truth.");
   await expect(editor).toContainText("Externally changed source of truth.", {
     timeout: 20_000,
   });
