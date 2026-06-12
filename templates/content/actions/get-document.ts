@@ -19,6 +19,7 @@ import { serializeDocumentSource } from "./_document-source.js";
 import "../server/db/index.js";
 import {
   getLocalFileDocument,
+  isLocalDocumentId,
   isContentLocalFileMode,
 } from "./_local-file-documents.js";
 
@@ -41,7 +42,7 @@ export default defineAction({
   run: async (args) => {
     if (!args.id) throw new Error("--id is required");
 
-    if (await isContentLocalFileMode()) {
+    if ((await isContentLocalFileMode()) && isLocalDocumentId(args.id)) {
       return getLocalFileDocument(args.id);
     }
 

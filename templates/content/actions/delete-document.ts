@@ -7,6 +7,7 @@ import { z } from "zod";
 import { deleteDatabaseDataForDocument } from "./_database-utils.js";
 import {
   deleteLocalFileDocument,
+  isLocalDocumentId,
   isContentLocalFileMode,
 } from "./_local-file-documents.js";
 
@@ -66,7 +67,7 @@ export default defineAction({
     const id = args.id;
     if (!id) throw new Error("--id is required");
 
-    if (await isContentLocalFileMode()) {
+    if ((await isContentLocalFileMode()) && isLocalDocumentId(id)) {
       const result = await deleteLocalFileDocument(id);
       await writeAppState("refresh-signal", { ts: Date.now() });
       return result;

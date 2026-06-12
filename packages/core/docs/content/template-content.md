@@ -173,7 +173,24 @@ configured `components` folder. The Content dev server imports PascalCase
 exports from those files, renders matching MDX tags such as `<ImpactCounter />`
 inside the editor, and exposes them in the slash menu under Local components.
 This keeps custom MDX blocks local to the workspace without cloning the Content
-app.
+app. A minimal workspace component can be:
+
+```tsx
+// components/ImpactCounter.tsx
+import { useState } from "react";
+
+export function ImpactCounter() {
+  const [count, setCount] = useState(3);
+  return (
+    <button type="button" onClick={() => setCount(count + 1)}>
+      Impact: {count}
+    </button>
+  );
+}
+```
+
+Use it in local MDX as `<ImpactCounter />`, or insert it from the editor slash
+menu under Local components.
 
 ### Comments
 

@@ -149,6 +149,51 @@ Content can preview local components from the configured `components` folder.
 This is meant for docs-style MDX components such as tabs, callouts, package
 install snippets, or framework-specific code blocks.
 
+For example, add an interactive component next to your content:
+
+```tsx
+// components/ImpactCounter.tsx
+import { useState } from "react";
+
+export function ImpactCounter({ label = "points" }: { label?: string }) {
+  const [count, setCount] = useState(3);
+
+  return (
+    <div className="rounded-md border p-4">
+      <div className="text-sm text-muted-foreground">Launch impact</div>
+      <div className="mt-1 text-3xl font-semibold">
+        {count} {label}
+      </div>
+      <button
+        type="button"
+        className="mt-3 rounded border px-3 py-1 text-sm"
+        onClick={() => setCount((value) => value + 1)}
+      >
+        Add point
+      </button>
+    </div>
+  );
+}
+```
+
+Then use it from any local MDX file:
+
+```mdx
+---
+title: "Launch Notes"
+---
+
+# Launch Notes
+
+<ImpactCounter label="wins" />
+```
+
+The Content dev server discovers PascalCase named exports and PascalCase default
+exports from `.tsx`, `.jsx`, `.ts`, and `.js` files under `components/`. Those
+components render inside the editor and appear in the slash menu under
+**Local components**. Slash insertion creates a minimal tag such as
+`<ImpactCounter />`; add props in the MDX source when needed.
+
 Simple component tags with literal props can preview inline:
 
 ```mdx

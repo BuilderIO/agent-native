@@ -51,9 +51,8 @@ export default defineAction({
   schema: z.object({}),
   http: { method: "GET" },
   run: async () => {
-    if (await isContentLocalFileMode()) {
-      return { documents: await listLocalFileDocuments() };
-    }
+    const localFileMode = await isContentLocalFileMode();
+    const localDocuments = localFileMode ? await listLocalFileDocuments() : [];
 
     const db = getDb();
     const userEmail = getRequestUserEmail();
@@ -258,6 +257,6 @@ export default defineAction({
       };
     });
 
-    return { documents: mapped };
+    return { documents: [...localDocuments, ...mapped] };
   },
 });

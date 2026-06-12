@@ -120,7 +120,11 @@ function isImportedLocalSourceDocument(
   );
 }
 
-type SidebarSectionId = "local-files" | "private" | "organization";
+type SidebarSectionId =
+  | "local-files"
+  | "shared-copies"
+  | "private"
+  | "organization";
 
 export function DocumentSidebar({
   activeDocumentId,
@@ -149,6 +153,7 @@ export function DocumentSidebar({
     Record<SidebarSectionId, boolean>
   >({
     "local-files": false,
+    "shared-copies": false,
     private: false,
     organization: false,
   });
@@ -194,10 +199,10 @@ export function DocumentSidebar({
   const treeDocuments = filterDocumentTreeDocuments(documents);
   const localFileMode = documents.some(isDirectLocalDocument);
   const localSourceDocuments = localFileMode
-    ? treeDocuments
+    ? treeDocuments.filter(isDirectLocalDocument)
     : treeDocuments.filter(isImportedLocalSourceDocument);
   const databaseDocuments = localFileMode
-    ? []
+    ? treeDocuments.filter((document) => !isDirectLocalDocument(document))
     : treeDocuments.filter(
         (document) => !isImportedLocalSourceDocument(document),
       );
@@ -856,13 +861,24 @@ export function DocumentSidebar({
               )}
 
               {localFileMode ? (
-                renderTreeSection({
-                  id: "local-files",
-                  label: "Local files",
-                  nodes: localFileTree,
-                  emptyLabel: "No files yet",
-                  footer: renderNewPageButton(),
-                })
+                <>
+                  {renderTreeSection({
+                    id: "local-files",
+                    label: "Local files",
+                    nodes: localFileTree,
+                    emptyLabel: "No files yet",
+                    footer: renderNewPageButton(),
+                  })}
+                  {databaseTree.length > 0
+                    ? renderTreeSection({
+                        id: "shared-copies",
+                        label: "Shared copies",
+                        nodes: databaseTree,
+                        emptyLabel: "No shared copies yet",
+                        className: "mt-3",
+                      })
+                    : null}
+                </>
               ) : (
                 <>
                   {localFileTree.length > 0 &&

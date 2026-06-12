@@ -37,7 +37,7 @@ type LocalDirectoryHandle = {
   }): Promise<PermissionState>;
 };
 
-type PersistedSourceDirectory = {
+export type PersistedSourceDirectory = {
   id: string;
   name: string;
   sourcePrefix: string;
@@ -112,11 +112,6 @@ function openLocalFilesDb() {
     request.onerror = () => reject(request.error);
     request.onsuccess = () => resolve(request.result);
   });
-}
-
-async function readPersistedSourceDirectory() {
-  const directories = await readPersistedSourceDirectories();
-  return directories[0]?.handle ?? null;
 }
 
 async function readPersistedSourceDirectories(): Promise<

@@ -9,6 +9,7 @@ import { assertAccess } from "@agent-native/core/sharing";
 import { writeAppState } from "@agent-native/core/application-state";
 import { z } from "zod";
 import {
+  isLocalDocumentId,
   isContentLocalFileMode,
   updateLocalFileDocument,
 } from "./_local-file-documents.js";
@@ -46,7 +47,7 @@ export default defineAction({
     const id = args.id;
     if (!id) throw new Error("--id is required");
 
-    if (await isContentLocalFileMode()) {
+    if ((await isContentLocalFileMode()) && isLocalDocumentId(id)) {
       const doc = await updateLocalFileDocument(id, args);
       await writeAppState("refresh-signal", { ts: Date.now() });
       return {

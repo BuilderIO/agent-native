@@ -52,6 +52,9 @@ export interface ShareButtonProps {
    *  button next to an iframe use this to disable the iframe's pointer events
    *  while the popover is open, so popover hover/clicks aren't swallowed. */
   onOpenChange?: (open: boolean) => void;
+  /** Open the popover on first render. Useful after an upgrade/create flow that
+   *  lands the user directly in the shareable resource. */
+  defaultOpen?: boolean;
   /** Optional public/share URL shown as a copyable link in the popover.
    *  This is treated as the primary "Copy link" target — same convention
    *  as Google Docs' Share dialog, which copies the editor URL. */
@@ -206,7 +209,7 @@ const ROLE_OPTIONS: Array<{ value: Role; label: string; description: string }> =
  * dark mode in any shadcn template.
  */
 export function ShareButton(props: ShareButtonProps) {
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(() => props.defaultOpen ?? false);
   const [pendingVisibility, setPendingVisibility] = useState<Visibility | null>(
     null,
   );
