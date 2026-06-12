@@ -273,7 +273,7 @@ describe("Plans skills install — materialized output", () => {
     result: Awaited<ReturnType<typeof addAgentNativeSkill>>;
     captured: Record<string, string>;
     capturedReferences: Record<string, string>;
-    codexConfig: string;
+    codexConfigExists: boolean;
   }> {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), "an-plan-skill-"));
     const codexHome = path.join(root, "codex-home");
@@ -318,11 +318,10 @@ describe("Plans skills install — materialized output", () => {
           }
         }
       }
-      const codexConfig = fs.readFileSync(
+      const codexConfigExists = fs.existsSync(
         path.join(codexHome, "config.toml"),
-        "utf-8",
       );
-      return { result, captured, capturedReferences, codexConfig };
+      return { result, captured, capturedReferences, codexConfigExists };
     } finally {
       if (prevCodexHome === undefined) delete process.env.CODEX_HOME;
       else process.env.CODEX_HOME = prevCodexHome;
@@ -331,21 +330,17 @@ describe("Plans skills install — materialized output", () => {
   }
 
   it("materializes exactly the Plans SKILL.md files and points at the hosted MCP", async () => {
-    const { result, captured, capturedReferences, codexConfig } =
+    const { result, captured, capturedReferences, codexConfigExists } =
       await materializeViaAlias("visual-plans");
     expect(result.id).toBe("visual-plans");
     expect(result.skillNames).toEqual(PLANS_INSTALL_SKILL_NAMES);
     expect(result.mcpUrl).toBe(
       "https://plan.agent-native.com/_agent-native/mcp",
     );
-    expect(codexConfig).toContain('[mcp_servers."plan"]');
-    expect(codexConfig).toContain(
-      'url = "https://plan.agent-native.com/_agent-native/mcp"',
+    expect(codexConfigExists).toBe(false);
+    expect(result.commands).toContain(
+      "npx @agent-native/core@latest connect https://plan.agent-native.com --client codex --scope project",
     );
-    // "agent-native-plans" is the legacy alias name. Our change repurposes the
-    // alias list as a same-URL cleanup list rather than writing a duplicate
-    // entry, so only the canonical "plan" entry is written.
-    expect(codexConfig).not.toContain('[mcp_servers."agent-native-plans"]');
 
     for (const [name, constant] of PLANS_INSTALL_SKILLS) {
       // The materialized file the user receives must be byte-identical to the
@@ -396,8 +391,12 @@ describe("Plans skills install — materialized output", () => {
     expect(recap.result.skillNames).toEqual(["visual-recap"]);
     expect(Object.keys(recap.captured)).toEqual(["visual-recap"]);
 
-    // Both single-skill installs still register the shared hosted plan MCP.
-    expect(recap.codexConfig).toContain('[mcp_servers."plan"]');
+    // Both single-skill installs still return the shared hosted plan MCP
+    // connect command without writing URL-only Codex auth config.
+    expect(recap.codexConfigExists).toBe(false);
+    expect(recap.result.commands).toContain(
+      "npx @agent-native/core@latest connect https://plan.agent-native.com --client codex --scope project",
+    );
   });
 
   it("materialized visual-plan handles existing plan text and avoids legacy HTML", async () => {
