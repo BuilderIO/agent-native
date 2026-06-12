@@ -40,6 +40,7 @@ export default defineAction({
       .pipe(z.string().url().max(2048).optional())
       .describe("Optional URL where the reported plan was viewed."),
   }),
+  agentTool: false,
   publicAgent: {
     expose: true,
     readOnly: false,
@@ -63,6 +64,12 @@ export default defineAction({
       resolvePlanAccessContext(currentAccess()),
     );
     if (!access) throw new ForbiddenError(`Plan ${args.planId} not found`);
+    const plan = access.resource as typeof schema.plans.$inferSelect;
+    if (plan.visibility !== "public") {
+      throw new ForbiddenError(
+        "Only public plans can be reported from the public review surface.",
+      );
+    }
 
     const db = getDb();
     const now = nowIso();

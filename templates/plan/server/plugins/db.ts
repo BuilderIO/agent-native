@@ -254,6 +254,10 @@ CREATE INDEX IF NOT EXISTS plan_assets_plan_idx ON plan_assets(plan_id, created_
 CREATE INDEX IF NOT EXISTS plan_reports_plan_status_idx ON plan_reports(plan_id, status, updated_at);
 CREATE INDEX IF NOT EXISTS plan_reports_status_updated_idx ON plan_reports(status, updated_at)`,
     },
+    {
+      version: 25,
+      sql: `CREATE INDEX IF NOT EXISTS plan_reports_plan_reporter_status_idx ON plan_reports(plan_id, reporter_email, status)`,
+    },
   ],
   { table: "plans_migrations" },
 );

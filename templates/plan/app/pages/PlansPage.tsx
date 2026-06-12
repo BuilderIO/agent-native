@@ -26,6 +26,7 @@ import {
   IconDownload,
   IconExternalLink,
   IconFileZip,
+  IconFlag,
   IconFolder,
   IconDotsVertical,
   IconHistory,
@@ -69,11 +70,13 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Dialog,
   DialogContent,
   DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
@@ -117,6 +120,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Textarea } from "@/components/ui/textarea";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import {
   Tooltip,
@@ -145,6 +149,7 @@ import {
   usePlanVersion,
   usePlanVersions,
   usePublishVisualPlan,
+  useReportVisualPlan,
   useRestorePlanVersion,
   useUpdatePlan,
   useUpdatePlanComments,
@@ -162,6 +167,7 @@ import {
 import {
   type PlanBundle,
   type PlanKind,
+  type PlanReportReason,
   type PlanSource,
   type PlanStatus,
   type PlanSummary,
@@ -197,6 +203,21 @@ const SOURCE_OPTIONS: Array<{ value: PlanSource; label: string }> = [
   { value: "pi", label: "Pi" },
   { value: "manual", label: "Manual" },
   { value: "imported", label: "Imported" },
+];
+
+const REPORT_REASON_OPTIONS: Array<{
+  value: PlanReportReason;
+  label: string;
+}> = [
+  { value: "spam", label: "Spam or deceptive" },
+  { value: "harassment", label: "Harassment" },
+  { value: "hate", label: "Hateful content" },
+  { value: "sexual", label: "Sexual content" },
+  { value: "violence", label: "Violence or threats" },
+  { value: "self-harm", label: "Self-harm" },
+  { value: "privacy", label: "Privacy concern" },
+  { value: "illegal", label: "Illegal activity" },
+  { value: "other", label: "Something else" },
 ];
 
 const PLAN_READER_VIEW_EVENT = "plans-reader-view-change";
@@ -1864,6 +1885,7 @@ type PlanAccessRole = "owner" | "viewer" | "editor" | "admin";
 type PlanAccessResponse = {
   ownerEmail?: string | null;
   role?: PlanAccessRole | null;
+  visibility?: "private" | "org" | "public" | null;
 };
 
 /**
@@ -2214,6 +2236,11 @@ export function PlansPage() {
     planAccessQuery.data?.role ?? bundle?.access?.role ?? null;
   const canEditPlanContent =
     !isRecap && canEditPlanContentRole(effectivePlanAccessRole);
+  const canManagePlan = canEditPlanContentRole(effectivePlanAccessRole);
+  const effectivePlanVisibility =
+    planAccessQuery.data?.visibility ?? bundle?.access?.visibility ?? null;
+  const canReportPlan =
+    Boolean(bundle) && effectivePlanVisibility === "public" && !canManagePlan;
   const canResolveCommentThreads = Boolean(
     bundle && (session || canEditPlanContent),
   );
@@ -4000,6 +4027,16 @@ export function PlansPage() {
                     if (open) closeInlineComment();
                   }}
                 />
+                {canReportPlan && (
+                  <PlanReportControl
+                    planId={bundle.plan.id}
+                    planTitle={bundle.plan.title}
+                    isRecap={isRecap}
+                    onOpenChange={(open) => {
+                      if (open) closeInlineComment();
+                    }}
+                  />
+                )}
                 <ReviewMarkupToolbar
                   mode={reviewMode}
                   onModeChange={selectReviewMode}
@@ -4682,6 +4719,156 @@ const buildShareVisibilityCopy = (noun: string) => ({
 
 const buildShareAccessNote = (noun: string) =>
   `Anyone with edit access can change the ${noun}. Viewing a public ${noun} needs no account, but commenting on it requires an agent-native account.`;
+
+function PlanReportControl({
+  planId,
+  planTitle,
+  isRecap = false,
+  onOpenChange,
+}: {
+  planId: string;
+  planTitle: string;
+  isRecap?: boolean;
+  onOpenChange?: (open: boolean) => void;
+}) {
+  const noun = isRecap ? "recap" : "plan";
+  const reportPlan = useReportVisualPlan();
+  const [open, setOpen] = useState(false);
+  const [reason, setReason] = useState<PlanReportReason>("spam");
+  const [details, setDetails] = useState("");
+
+  const setDialogOpen = useCallback(
+    (nextOpen: boolean) => {
+      setOpen(nextOpen);
+      onOpenChange?.(nextOpen);
+      if (!nextOpen && !reportPlan.isPending) {
+        setReason("spam");
+        setDetails("");
+      }
+    },
+    [onOpenChange, reportPlan.isPending],
+  );
+
+  const submitReport = useCallback(
+    (event: React.FormEvent<HTMLFormElement>) => {
+      event.preventDefault();
+      const trimmedDetails = details.trim();
+      reportPlan.mutate(
+        {
+          planId,
+          reason,
+          details: trimmedDetails || undefined,
+          pageUrl:
+            typeof window === "undefined" ? undefined : window.location.href,
+        },
+        {
+          onSuccess: (result) => {
+            toast.success(result.message);
+            setOpen(false);
+            onOpenChange?.(false);
+            setReason("spam");
+            setDetails("");
+          },
+        },
+      );
+    },
+    [details, onOpenChange, planId, reason, reportPlan],
+  );
+
+  return (
+    <Dialog open={open} onOpenChange={setDialogOpen}>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="pointer-events-auto size-8"
+            onClick={() => setDialogOpen(true)}
+            aria-label={`Report ${noun}`}
+          >
+            <IconFlag className="size-4" />
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent>Report {noun}</TooltipContent>
+      </Tooltip>
+      <DialogContent className="sm:max-w-[460px]">
+        <form onSubmit={submitReport} className="space-y-4">
+          <DialogHeader>
+            <DialogTitle>Report {noun}</DialogTitle>
+            <DialogDescription>
+              Tell us why this public {noun} should be reviewed.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="rounded-md border border-border bg-muted/35 px-3 py-2 text-xs leading-5 text-muted-foreground">
+            <span className="font-medium text-foreground">{planTitle}</span>
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="plan-report-reason">Reason</Label>
+            <Select
+              value={reason}
+              onValueChange={(value) => setReason(value as PlanReportReason)}
+            >
+              <SelectTrigger id="plan-report-reason">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {REPORT_REASON_OPTIONS.map((option) => (
+                  <SelectItem key={option.value} value={option.value}>
+                    {option.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="space-y-2">
+            <div className="flex items-center justify-between gap-3">
+              <Label htmlFor="plan-report-details">Details</Label>
+              <span className="text-xs text-muted-foreground">
+                {details.length}/1000
+              </span>
+            </div>
+            <Textarea
+              id="plan-report-details"
+              value={details}
+              onChange={(event) => setDetails(event.target.value)}
+              maxLength={1000}
+              placeholder="Add a short note for moderators"
+              className="min-h-28 resize-none"
+            />
+          </div>
+
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={() => setDialogOpen(false)}
+              disabled={reportPlan.isPending}
+            >
+              Cancel
+            </Button>
+            <Button type="submit" disabled={reportPlan.isPending}>
+              {reportPlan.isPending ? (
+                <>
+                  <IconLoader2 className="size-4 animate-spin" />
+                  Sending
+                </>
+              ) : (
+                <>
+                  <IconFlag className="size-4" />
+                  Submit report
+                </>
+              )}
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
 
 /**
  * Share affordance for a plan. People with a session (logged in, or local dev
