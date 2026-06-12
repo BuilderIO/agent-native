@@ -346,27 +346,43 @@ export default function LocalFilesRoute() {
       if (desktopFiles) {
         const result = await desktopFiles.getFolder();
         if (cancelled || !result.ok) return;
-        setDirectory({ kind: "desktop", folder: result.folder });
+        const restoredDirectory: SelectedDirectory = {
+          kind: "desktop",
+          folder: result.folder,
+        };
+        setDirectory(restoredDirectory);
         setStatus({
           kind: "success",
           title: "Folder remembered",
           detail: result.folder.name,
         });
+        await importDirectoryFiles(restoredDirectory, { showToast: false });
         return;
       }
 
       const handle = await readPersistedSourceDirectory();
       if (cancelled || !handle) return;
-      setDirectory({ kind: "browser", handle });
+      const restoredDirectory: SelectedDirectory = { kind: "browser", handle };
+      setDirectory(restoredDirectory);
       setStatus({
         kind: "success",
         title: "Folder remembered",
         detail: handle.name,
       });
+      await importDirectoryFiles(restoredDirectory, { showToast: false });
     };
     restoreDirectory()
-      .catch(() => {
-        if (!cancelled) setStatus({ kind: "idle" });
+      .catch((err) => {
+        if (!cancelled) {
+          setStatus({
+            kind: "error",
+            title: "Folder import failed",
+            detail:
+              err instanceof Error
+                ? err.message
+                : "Choose another folder or try importing again.",
+          });
+        }
       })
       .finally(() => {
         if (!cancelled) setRestoringDirectory(false);
@@ -375,6 +391,27 @@ export default function LocalFilesRoute() {
       cancelled = true;
     };
   }, [supported]);
+
+  async function importDirectoryFiles(
+    selected: SelectedDirectory,
+    { showToast = true }: { showToast?: boolean } = {},
+  ) {
+    const { directory: refreshedDirectory, files } =
+      await readSourceFilesFromDirectory(selected);
+    setDirectory(refreshedDirectory);
+    const result = await callAction<ImportContentSourceResult>(
+      "import-content-source" as never,
+      { files, dryRun: false } as never,
+    );
+    setStatus({
+      kind: "success",
+      title: "Folder imported",
+      detail: resultSummary(result),
+    });
+    queryClient.invalidateQueries({ queryKey: ["action", "list-documents"] });
+    if (showToast) toast.success("Imported local files");
+    return result;
+  }
 
   async function handleChooseFolder() {
     setBusy("choose");
@@ -395,20 +432,7 @@ export default function LocalFilesRoute() {
       });
 
       setBusy("import");
-      const { directory: refreshedDirectory, files } =
-        await readSourceFilesFromDirectory(selected);
-      setDirectory(refreshedDirectory);
-      const result = await callAction<ImportContentSourceResult>(
-        "import-content-source" as never,
-        { files, dryRun: false } as never,
-      );
-      setStatus({
-        kind: "success",
-        title: "Folder imported",
-        detail: resultSummary(result),
-      });
-      queryClient.invalidateQueries({ queryKey: ["action", "list-documents"] });
-      toast.success("Imported local files");
+      await importDirectoryFiles(selected);
     } catch (err) {
       setStatus({
         kind: "error",
