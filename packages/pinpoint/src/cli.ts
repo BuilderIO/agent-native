@@ -2,7 +2,7 @@
 // @agent-native/pinpoint — CLI for project setup
 // MIT License
 //
-// Usage: npx @agent-native/pinpoint init
+// Usage: npx @agent-native/pinpoint@latest init
 
 import { existsSync, mkdirSync, cpSync, readdirSync } from "node:fs";
 import { resolve, dirname, join } from "node:path";
@@ -14,7 +14,7 @@ const command = process.argv[2];
 if (command === "init") {
   init();
 } else {
-  console.log("Usage: npx @agent-native/pinpoint init");
+  console.log("Usage: npx @agent-native/pinpoint@latest init");
   console.log("");
   console.log("Commands:");
   console.log("  init    Copy agent scripts and skill to your project");

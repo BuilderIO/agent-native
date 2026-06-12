@@ -21,7 +21,6 @@ import {
   type LoadedAppSkillManifest,
 } from "./app-skill.js";
 import {
-  readConnectClientPreferences,
   resolveClients,
   runConnect,
   writeConnectClientPreferences,
@@ -60,13 +59,15 @@ Examples:
 
 The add command installs the SKILL.md instructions, registers the app-backed
 MCP connector, and then authenticates it in one step so you do not hit an OAuth
-wall on the first tool call. Authentication reuses "npx @agent-native/core@latest connect":
+wall on the first tool call. By default, add targets every supported local
+client this CLI can configure (Claude Code, Claude Code CLI, Codex, and Cowork);
+pass --client to narrow it. Authentication reuses "npx @agent-native/core@latest connect":
 OAuth-capable clients (Claude Code) get a URL-only entry and a /mcp authenticate
 prompt, while Codex / Cowork run the browser device-code flow. In a
 non-interactive shell or CI the auth step is skipped and the exact
-"npx @agent-native/core@latest connect <url>" command is printed instead.
+"npx @agent-native/core@latest connect <url> --client all" command is printed instead.
 
-Running "npx @agent-native/skills add ..." directly installs instructions only;
+Running "npx @agent-native/skills@latest add ..." directly installs instructions only;
 use this Agent Native CLI path when you want MCP setup and auth too. Pass --no-connect to
 register the connector without authenticating (leave auth to the host or run
 "npx @agent-native/core@latest connect" later). Pass --mcp-url to register that connector against
@@ -253,9 +254,10 @@ const PLAN_SETUP_AUTH_MD = `## Setup & Authentication
 There are two ways into Plans.
 
 **Coding agent (CLI).** Install once with the Agent-Native CLI. The command
-installs the Plans skills, registers the hosted Plans MCP connector, and
-authenticates it in the same step (a one-time browser sign-in at setup — this is
-intended), so the first tool call does not hit an OAuth wall:
+installs the Plans skills, registers the hosted Plans MCP connector, and runs
+auth/setup for the selected local client(s) in the same step (a one-time browser
+sign-in at setup — this is intended), so the first tool call in that client does
+not hit an OAuth wall:
 
 \`\`\`bash
 npx @agent-native/core@latest skills add visual-plan
@@ -266,7 +268,9 @@ commands. The other planning modes (\`create-ui-plan\`, \`create-prototype-plan\
 \`create-plan-design\`, \`create-visual-questions\`) are MCP tools reachable from
 \`/visual-plan\`, not separate slash commands. Pass \`--no-connect\` to register
 the connector without authenticating, then run
-\`npx @agent-native/core@latest connect https://plan.agent-native.com\` whenever you are ready.
+\`npx @agent-native/core@latest connect https://plan.agent-native.com --client all\`
+whenever you are ready, or choose a narrower \`--client\`. Auth and MCP tool
+loading are per client config/session.
 
 **Browser (people you share with).** Open the Plans editor and create & edit
 with no sign-up — you work as a guest. Sign in only when you want to save or
@@ -280,13 +284,16 @@ your repo as MDX. This local mode is a separate advanced path, not the default
 hosted flow.
 
 If a Plans tool returns \`needs auth\`, \`Unauthorized\`, or \`Session terminated\`,
-do not keep retrying the tool. Stop and give the user the reconnect step: in
-Claude Code run \`/mcp\` and choose Authenticate/Reconnect for the plan
-connector; from any terminal run
-\`npx -y @agent-native/core@latest reconnect https://plan.agent-native.com\` — this
-re-authenticates WITHOUT reinstalling and finds the entry by URL regardless of
-connector name. Never reinstall from scratch just to fix auth. Continue once
-the connector is available.
+do not keep retrying the tool. Stop and give the user the reconnect step for the
+client they are using: Codex/Codex Desktop should run
+\`npx -y @agent-native/core@latest reconnect https://plan.agent-native.com --client codex\`
+and start a new Codex session; Claude Code should run \`/mcp\` and choose
+Authenticate/Reconnect for the plan connector, or run the reconnect command with
+\`--client claude-code\` and restart Claude. To refresh every local client config
+that already has the Plan entry, use \`--client all\`, then restart/reload each
+client. Reconnect re-authenticates WITHOUT reinstalling and finds the entry by
+URL regardless of connector name. Never reinstall from scratch just to fix auth.
+Continue once the connector is available.
 
 Hosted default: connect \`https://plan.agent-native.com/_agent-native/mcp\`. Do
 not put shared secrets in skill files.`;
@@ -962,12 +969,15 @@ plan over as inline chat content — no Markdown prose, ASCII sketch, table, or
 fenced wireframe. If the connector's tools are missing, do NOT fall back to
 inline output: the usual cause is a connector that did not finish connecting
 this session (it registers zero tools), not auth. Stop and give the user the
-exact restore step — in Claude Code run \`/mcp\` and choose
-Authenticate/Reconnect (or restart the session); if genuinely unauthenticated,
-run \`npx -y @agent-native/core@latest reconnect https://plan.agent-native.com\` — this
-re-authenticates WITHOUT reinstalling. Never reinstall from scratch just to fix
-auth. Publish once the tool is reachable. Local-files privacy mode (after Tool
-Guidance) is the only exception.
+exact restore step for their current client: in Codex/Codex Desktop run
+\`npx -y @agent-native/core@latest reconnect https://plan.agent-native.com --client codex\`
+and start a new Codex session; in Claude Code run \`/mcp\` and choose
+Authenticate/Reconnect (or run the same reconnect command with
+\`--client claude-code\` and restart Claude). Auth is stored per client
+config/session, so one client's reconnect does not make another running client
+load tools. Never reinstall from scratch just to fix auth. Publish once the tool
+is reachable. Local-files privacy mode (after Tool Guidance) is the only
+exception.
 
 ## Core Workflow
 
@@ -1271,14 +1281,17 @@ inline recap as a fallback. Do not report the connector as disconnected just
 because it is named \`agent-native-plans\` instead of \`plan\`. The usual cause is a
 connector that did not finish connecting this session (it registers zero tools),
 NOT necessarily an auth problem — so do not assume the user must authenticate.
-Stop and tell the user how to restore it: reconnect the Plan MCP connector (in
-Claude Code, run \`/mcp\` and choose Authenticate/Reconnect, or restart the
-session); if it is genuinely unauthenticated, run
-\`npx -y @agent-native/core@latest reconnect https://plan.agent-native.com\` — this
-re-authenticates WITHOUT reinstalling and finds the entry by URL regardless of
-connector name. Never reinstall from scratch just to fix auth. Then publish once
-the tool is reachable. Falling back to inline content is a defect, not a
-degraded mode.
+Stop and tell the user how to restore it for their current client: in
+Codex/Codex Desktop, run
+\`npx -y @agent-native/core@latest reconnect https://plan.agent-native.com --client codex\`
+and start a new Codex session; in Claude Code, run \`/mcp\` and choose
+Authenticate/Reconnect, or run the reconnect command with \`--client claude-code\`
+and restart Claude. Auth is stored per client config/session; \`--client all\`
+refreshes every local client config that already has the Plan entry, but each
+running client still has to reload its MCP tools. Reconnect re-authenticates
+WITHOUT reinstalling and finds the entry by URL regardless of connector name.
+Never reinstall from scratch just to fix auth. Then publish once the tool is
+reachable. Falling back to inline content is a defect, not a degraded mode.
 
 ## When To Use
 
@@ -2770,8 +2783,7 @@ async function resolveSkillsClients(
   if (parsed.clientExplicit || !shouldPrompt(parsed, options)) {
     return resolveClients(parsed.client);
   }
-  const initialClients =
-    readConnectClientPreferences() ?? resolveClients("codex");
+  const initialClients = resolveClients("all");
   const prompt = options.promptClients ?? promptForClients;
   const selected = normalizeClientIds(
     await prompt({
@@ -2842,7 +2854,7 @@ export function parseSkillsArgs(argv: string[]): ParsedSkillsArgs {
 
   const out: ParsedSkillsArgs = {
     command,
-    client: "codex",
+    client: "all",
     clientExplicit: false,
     scope: "user",
     scopeExplicit: false,
@@ -3224,7 +3236,9 @@ async function addPlainSkillRepo(
       stdio: parsed.yes ? "silent" : "inherit",
     });
     if (code !== 0)
-      throw new Error(`npx @agent-native/skills add exited with ${code}.`);
+      throw new Error(
+        `npx @agent-native/skills@latest add exited with ${code}.`,
+      );
   }
   options.telemetry?.track("skills_cli install completed", {
     skills: target,
@@ -3511,7 +3525,7 @@ export async function addAgentNativeSkill(
           });
           if (code !== 0)
             throw new Error(
-              `npx @agent-native/skills add exited with ${code}.`,
+              `npx @agent-native/skills@latest add exited with ${code}.`,
             );
         }
       }
@@ -3770,7 +3784,7 @@ export async function runSkills(
 
   // `@agent-native/skills` now delegates its interactive install to this
   // function. For plain skill repos we still shell out to
-  // `npx @agent-native/skills add …`; this env guard tells that child process
+  // `npx @agent-native/skills@latest add …`; this env guard tells that child process
   // to run its OWN headless installer instead of bouncing back into core,
   // which would otherwise be an infinite skills → core → skills loop.
   process.env.AGENT_NATIVE_SKILLS_DIRECT = "1";
@@ -4019,7 +4033,10 @@ export async function runSkills(
     }
 
     const slashCommands = completedSkills.map((name) => `/${name}`).join("  ");
-    const clientHint = parsed.clientExplicit
+    const configuredEveryClient = CLIENTS.every((client) =>
+      clients.includes(client),
+    );
+    const clientHint = configuredEveryClient
       ? ""
       : "\n   Add another client later with --client <client> (e.g. --client claude-code).";
     clack.outro(

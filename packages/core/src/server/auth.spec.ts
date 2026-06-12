@@ -2724,14 +2724,14 @@ describe("server/auth", () => {
           appName: "Agent-Native Mail",
           tagline: "Manage email with an agent.",
           runLocalCommand:
-            "npx @agent-native/core create my-mail-app --template mail",
+            "npx @agent-native/core@latest create my-mail-app --template mail",
         },
       });
 
       expect(html).toContain('id="run-local-button"');
       expect(html).toContain("Run Locally");
       expect(html).toContain(
-        "npx @agent-native/core create my-mail-app --template mail",
+        "npx @agent-native/core@latest create my-mail-app --template mail",
       );
       expect(html).toContain("function __anCopyRunLocalCommand()");
     });

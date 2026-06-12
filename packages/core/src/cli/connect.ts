@@ -470,6 +470,14 @@ function clientLabelList(clients: ClientId[]): string {
   return clients.map((client) => CLIENT_LABELS[client]).join(", ");
 }
 
+function clientsNotIn(
+  requestedClients: ClientId[],
+  effectiveClients: ClientId[],
+): ClientId[] {
+  const effective = new Set(effectiveClients);
+  return requestedClients.filter((client) => !effective.has(client));
+}
+
 function withFullCatalogHeader(
   headers: Record<string, string> | undefined,
 ): Record<string, string> {
@@ -1859,6 +1867,20 @@ async function reconnectOne(
     effectiveClients,
     deps,
   );
+  const skippedClients = clientsNotIn(clients, effectiveClients);
+  if (res.ok && skippedClients.length > 0) {
+    const baseUrl = stripMcpPath(normalizeUrl(target.rawUrl));
+    logOut("");
+    logOut(
+      `  Reconnected existing client configs for ${clientLabelList(effectiveClients)}.`,
+    );
+    logOut(
+      `  Did not touch ${clientLabelList(skippedClients)} because no matching MCP entry was found.`,
+    );
+    logOut(
+      `  To add another client, run: npx @agent-native/core@latest connect ${baseUrl} --client <client>`,
+    );
+  }
   return res.ok;
 }
 
@@ -2045,6 +2067,9 @@ async function connectOne(
   for (const w of allWritten) {
     logOut(`    ${w.client.padEnd(18)} ${w.file}`);
   }
+  logOut(
+    `  Auth/config is per client: this command updated ${clientLabelList(clients)} only.`,
+  );
   if (oauthClients.length > 0 && !parsed.token) {
     logOut("");
     if (oauthMigrations.length > 0) {
@@ -2062,7 +2087,14 @@ async function connectOne(
     logOut("  Next: restart Claude Code, run /mcp, and choose Authenticate.");
   }
   logOut("");
-  logOut("  Restart your coding agent to pick up the new MCP server.");
+  logOut(
+    `  Restart or reload ${clientLabelList(clients)} to pick up the new MCP server.`,
+  );
+  if (clients.includes("codex")) {
+    logOut(
+      "  Codex sessions load MCP tools at startup; start a new Codex session if the tools are still missing.",
+    );
+  }
   return { ok: true, serverName, files: allWritten.map((w) => w.file) };
 }
 
@@ -2290,6 +2322,8 @@ Usage:
       URL, polls until approved, then writes bearer headers. With no --client,
       opens a brief picker preselected from ~/.agent-native/connect.json, or
       all clients on first run. Idempotent — re-running replaces the same entry.
+      Auth is stored per client config/session; restart or reload each selected
+      client before expecting new tools to appear.
       Re-running over an older Claude bearer entry upgrades it to URL-only
       OAuth config and prompts you to authenticate with /mcp.
 
@@ -2313,9 +2347,9 @@ Usage:
       Re-authenticate an existing MCP entry without reinstalling apps/skills.
       With a URL, it reuses the existing server name for that MCP URL when
       possible, reconnecting only clients that already have that entry. Pass
-      --client to limit which configs it searches. Without a URL, it reconnects
-      the only matching Agent Native entry in local client configs. Use --name
-      for custom server names.
+      --client to limit which configs it searches; for Codex recovery, prefer
+      --client codex. Without a URL, it reconnects the only matching Agent
+      Native entry in local client configs. Use --name for custom server names.
 
   npx @agent-native/core@latest connect --all [--client <c>] [--scope user|project]
       Connect every first-party hosted app as separate MCP resources.

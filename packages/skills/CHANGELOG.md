@@ -4,9 +4,9 @@
 
 ### Minor Changes
 
-- d77a37f: Add best-effort install-funnel analytics to both skills CLIs (`npx @agent-native/skills` and `npx @agent-native/core skills`). Each run reports a step-by-step funnel — started, skills prompted, skills selected, clients selected, scope selected, install completed, MCP registered, connect, and completed/failed/cancelled — to the first-party Agent Native Analytics endpoint, so install volume, skill selection, and step-by-step dropoff can be measured. Events carry a stable per-machine install id (unique installs) and a per-run id (dropoff) and never include paths, repo names, or other identifying data. Telemetry is fire-and-forget, flushes before exit, and is opt-out via `DO_NOT_TRACK=1` or `AGENT_NATIVE_TELEMETRY_DISABLED=1`.
+- d77a37f: Add best-effort install-funnel analytics to both skills CLIs (`npx @agent-native/skills@latest` and `npx @agent-native/core@latest skills`). Each run reports a step-by-step funnel — started, skills prompted, skills selected, clients selected, scope selected, install completed, MCP registered, connect, and completed/failed/cancelled — to the first-party Agent Native Analytics endpoint, so install volume, skill selection, and step-by-step dropoff can be measured. Events carry a stable per-machine install id (unique installs) and a per-run id (dropoff) and never include paths, repo names, or other identifying data. Telemetry is fire-and-forget, flushes before exit, and is opt-out via `DO_NOT_TRACK=1` or `AGENT_NATIVE_TELEMETRY_DISABLED=1`.
 - d77a37f: Unify the two skills installers onto one codebase + UX.
-  - `npx @agent-native/skills add` / `list` now delegate to `@agent-native/core`'s
+  - `npx @agent-native/skills@latest add` / `list` now delegate to `@agent-native/core`'s
     clack-based installer (`runSkills`, newly exported at `@agent-native/core/cli/skills`),
     so the standalone CLI and `agent-native skills` share the exact same interactive
     experience, MCP-server registration, and authentication. A `AGENT_NATIVE_SKILLS_DIRECT`

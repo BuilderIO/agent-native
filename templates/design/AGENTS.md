@@ -62,7 +62,7 @@ patterns live in `.agents/skills/`.
   It installs the exported Design exploration instructions and registers the
   hosted Design MCP connector together.
 - The open Skills CLI path
-  `npx skills add BuilderIO/agent-native --skill design-exploration` installs
+  `npx skills@latest add BuilderIO/agent-native --skill design-exploration` installs
   the exported instructions only.
 - For human-in-the-loop UI exploration, create a design shell, call
   `present-design-variants` with 2-5 complete HTML directions (three by

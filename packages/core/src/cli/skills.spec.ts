@@ -43,7 +43,7 @@ describe("agent-native skills", () => {
     expect(parseSkillsArgs(["add", "assets"])).toMatchObject({
       command: "add",
       target: "assets",
-      client: "codex",
+      client: "all",
       clientExplicit: false,
       instructions: true,
       mcp: true,
@@ -184,7 +184,7 @@ describe("agent-native skills", () => {
     expect(result.id).toBe("assets");
     expect(result.skillNames).toEqual(["assets"]);
     // Built-in skill instructions are written straight into the client's skills
-    // directory (no npx @agent-native/skills shell-out).
+    // directory (no npx @agent-native/skills@latest shell-out).
     const skillDir = path.join(root, ".agents", "skills", "assets");
     expect(result.written).toContain(skillDir);
     expect(fs.existsSync(path.join(skillDir, "SKILL.md"))).toBe(true);
@@ -747,6 +747,12 @@ describe("agent-native skills", () => {
       });
 
       expect(promptClients).toHaveBeenCalledTimes(1);
+      expect(promptClients.mock.calls[0]?.[0].initialClients).toEqual([
+        "claude-code",
+        "claude-code-cli",
+        "codex",
+        "cowork",
+      ]);
       // Built-in instructions are written in-process for each selected client.
       expect(
         fs.existsSync(path.join(codexHome, "skills", "assets", "SKILL.md")),
@@ -1070,7 +1076,7 @@ describe("agent-native skills", () => {
     );
 
     expect(result.commands).toEqual([
-      "npx @agent-native/core@latest skills add assets --client codex --scope project --yes",
+      "npx @agent-native/core@latest skills add assets --client all --scope project --yes",
     ]);
     expect(result.commands.join("\n")).not.toContain(os.tmpdir());
     expect(fs.existsSync(path.join(root, ".mcp.json"))).toBe(false);
@@ -1092,7 +1098,7 @@ describe("agent-native skills", () => {
     );
 
     expect(result.commands).toEqual([
-      "npx @agent-native/core@latest skills add visual-recap --client codex --scope project --with-github-action --yes",
+      "npx @agent-native/core@latest skills add visual-recap --client all --scope project --with-github-action --yes",
     ]);
     expect(result.githubActionPath).toBe(
       path.join(".github", "workflows", "pr-visual-recap.yml"),

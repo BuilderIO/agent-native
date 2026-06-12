@@ -243,7 +243,7 @@ This outputs:
 To package into a distributable app, add `electron-builder` and run:
 
 ```bash
-npx electron-builder --config electron-builder.yml
+npx electron-builder@latest --config electron-builder.yml
 ```
 
 See [electron-builder docs](https://www.electron.build) for platform-specific packaging.

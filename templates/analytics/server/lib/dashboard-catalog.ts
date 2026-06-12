@@ -934,7 +934,7 @@ export const dashboardCatalogEntries: DashboardCatalogEntry[] = [
     id: "skills-cli-funnel",
     name: "Skills CLI Funnel",
     description:
-      "Install funnel for the `npx @agent-native/skills` and `npx @agent-native/core skills` CLIs: starts, step-by-step dropoff, skill/client popularity, scope, and platform splits.",
+      "Install funnel for the `npx @agent-native/skills@latest` and `npx @agent-native/core@latest skills` CLIs: starts, step-by-step dropoff, skill/client popularity, scope, and platform splits.",
     category: "Product",
     defaultDashboardId: "skills-cli-funnel",
     dataSources: ["first-party"],

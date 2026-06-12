@@ -60,7 +60,7 @@ Generate and pick brand media without leaving Codex, Claude Code, Claude, or Cha
    Skills CLI, use:
 
    ```bash
-   npx skills add BuilderIO/agent-native --skill assets
+   npx skills@latest add BuilderIO/agent-native --skill assets
    ```
 
    The Vercel/open Skills CLI installs the instruction file only; it does not
@@ -181,7 +181,7 @@ The Assets app skill has app id `assets` and hosted MCP URL
 npx @agent-native/core@latest skills add assets
 
 # Vercel/open Skills CLI install: exported instructions only, no MCP config.
-npx skills add BuilderIO/agent-native --skill assets
+npx skills@latest add BuilderIO/agent-native --skill assets
 
 # Hosted install: URL-only MCP connector, no shared secrets in skill files.
 npx @agent-native/core@latest app-skill ensure --manifest templates/assets/agent-native.app-skill.json
@@ -193,7 +193,7 @@ npx @agent-native/core@latest app-skill launch --manifest templates/assets/agent
 npx @agent-native/core@latest app-skill pack --manifest templates/assets/agent-native.app-skill.json --out ./dist/assets-skill
 
 # Install a local exported Assets bundle with the open skills CLI.
-npx skills add ./dist/assets-skill --skill assets -a codex -y
+npx skills@latest add ./dist/assets-skill --skill assets -a codex -y
 
 # Install from the generated Claude Code marketplace adapter.
 claude plugin marketplace add ./dist/assets-skill/adapters/claude-marketplace
@@ -211,7 +211,7 @@ as `/plugin marketplace add ./dist/assets-skill/adapters/claude-marketplace`,
 `/plugin install agent-native-assets@agent-native-apps`, `/reload-plugins`, and
 `/mcp` for MCP authentication.
 
-If you install from a raw marketplace bundle with `npx skills`, register the
+If you install from a raw marketplace bundle with `npx skills@latest`, register the
 hosted MCP connector so those instructions can call the live Assets app:
 
 ```bash

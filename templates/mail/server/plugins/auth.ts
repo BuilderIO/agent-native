@@ -33,7 +33,7 @@ export default createAuthPlugin({
       "Autonomous triage, archiving, and follow-ups",
     ],
     runLocalCommand:
-      "npx @agent-native/core create my-mail-app --template mail",
+      "npx @agent-native/core@latest create my-mail-app --template mail",
   },
   googleSignInNotice: {
     host: "mail.agent-native.com",

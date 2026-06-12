@@ -628,7 +628,7 @@ function runDoctor(args: Record<string, string | boolean>): void {
     ok = false;
     lines.push(`[missing] Workflow missing: ${plan.workflowPath}.`);
     lines.push(
-      "  Run npx @agent-native/skills add --skill visual-plan --with-github-action.",
+      "  Run npx @agent-native/skills@latest add --skill visual-plan --with-github-action.",
     );
   } else {
     const current = fs.readFileSync(workflowFile, "utf-8");
@@ -1464,7 +1464,7 @@ export function readRepoSkillMd(cwd: string = process.cwd()): {
     }
   }
   throw new Error(
-    "Could not find visual-recap/SKILL.md. Run `npx @agent-native/skills add --skill visual-plan` first.",
+    "Could not find visual-recap/SKILL.md. Run `npx @agent-native/skills@latest add --skill visual-plan` first.",
   );
 }
 

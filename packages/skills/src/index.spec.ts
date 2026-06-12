@@ -1,9 +1,15 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { installSkills, parseSkillsCliArgs } from "./index.js";
+import { runSkills as runCoreSkills } from "@agent-native/core/cli/skills";
+
+import { installSkills, parseSkillsCliArgs, runSkillsCli } from "./index.js";
+
+vi.mock("@agent-native/core/cli/skills", () => ({
+  runSkills: vi.fn(async () => {}),
+}));
 
 const tmpRoots: string[] = [];
 
@@ -11,6 +17,8 @@ afterEach(() => {
   for (const root of tmpRoots.splice(0)) {
     fs.rmSync(root, { recursive: true, force: true });
   }
+  vi.restoreAllMocks();
+  vi.clearAllMocks();
 });
 
 function tmpDir(): string {
@@ -114,6 +122,112 @@ describe("@agent-native/skills", () => {
         path.join(project, ".agents", "skills", "efficient-frontier"),
       ),
     ).toBe(false);
+  });
+
+  it("installs every plain source skill directly when no skill is explicit", async () => {
+    const repo = tmpDir();
+    const project = tmpDir();
+    writeSkill(repo, "quick-recap");
+    writeSkill(repo, "efficient-fable");
+    const stdout: string[] = [];
+    vi.spyOn(process.stdout, "write").mockImplementation((chunk) => {
+      stdout.push(String(chunk));
+      return true;
+    });
+    const previousDirect = process.env.AGENT_NATIVE_SKILLS_DIRECT;
+    delete process.env.AGENT_NATIVE_SKILLS_DIRECT;
+
+    try {
+      await runSkillsCli(
+        [
+          "add",
+          "--copy",
+          repo,
+          "--client",
+          "codex",
+          "--scope",
+          "project",
+          "--yes",
+          "--json",
+        ],
+        { baseDir: project, isInteractive: () => false },
+      );
+    } finally {
+      if (previousDirect === undefined)
+        delete process.env.AGENT_NATIVE_SKILLS_DIRECT;
+      else process.env.AGENT_NATIVE_SKILLS_DIRECT = previousDirect;
+    }
+
+    expect(runCoreSkills).not.toHaveBeenCalled();
+    const result = JSON.parse(stdout.join(""));
+    expect(result.skills).toEqual(["efficient-fable", "quick-recap"]);
+    expect(
+      fs.existsSync(
+        path.join(project, ".agents", "skills", "efficient-fable", "SKILL.md"),
+      ),
+    ).toBe(true);
+    expect(
+      fs.existsSync(
+        path.join(project, ".agents", "skills", "quick-recap", "SKILL.md"),
+      ),
+    ).toBe(true);
+  });
+
+  it("lists plain source skills directly instead of delegating to core", async () => {
+    const repo = tmpDir();
+    writeSkill(repo, "quick-recap");
+    writeSkill(repo, "efficient-fable");
+    const stdout: string[] = [];
+    vi.spyOn(process.stdout, "write").mockImplementation((chunk) => {
+      stdout.push(String(chunk));
+      return true;
+    });
+    const previousDirect = process.env.AGENT_NATIVE_SKILLS_DIRECT;
+    delete process.env.AGENT_NATIVE_SKILLS_DIRECT;
+
+    try {
+      await runSkillsCli(["list", "--copy", repo, "--json"], {
+        isInteractive: () => false,
+      });
+    } finally {
+      if (previousDirect === undefined)
+        delete process.env.AGENT_NATIVE_SKILLS_DIRECT;
+      else process.env.AGENT_NATIVE_SKILLS_DIRECT = previousDirect;
+    }
+
+    expect(runCoreSkills).not.toHaveBeenCalled();
+    const skills = JSON.parse(stdout.join(""));
+    expect(skills.map((skill: { name: string }) => skill.name)).toEqual([
+      "efficient-fable",
+      "quick-recap",
+    ]);
+  });
+
+  it("defaults to all supported clients when clients are omitted", async () => {
+    const repo = tmpDir();
+    const project = tmpDir();
+    writeSkill(repo, "quick-recap");
+
+    const result = await installSkills({
+      source: repo,
+      skillNames: ["quick-recap"],
+      scope: "project",
+      baseDir: project,
+      updateInstructions: false,
+      yes: true,
+    });
+
+    expect(result.clients).toEqual(["codex", "claude-code"]);
+    expect(
+      fs.existsSync(
+        path.join(project, ".agents", "skills", "quick-recap", "SKILL.md"),
+      ),
+    ).toBe(true);
+    expect(
+      fs.existsSync(
+        path.join(project, ".claude", "skills", "quick-recap", "SKILL.md"),
+      ),
+    ).toBe(true);
   });
 
   it("adds an idempotent managed instruction block for quick-recap", async () => {

@@ -86,12 +86,12 @@ interface ParsedArgs {
 const HELP = `@agent-native/skills
 
 Usage:
-  npx @agent-native/skills add [options]
-  npx @agent-native/skills list
+  npx @agent-native/skills@latest add [options]
+  npx @agent-native/skills@latest list
 
 Options:
   --skill <name>              Install only this skill (repeatable)
-  --client, -a <client>       codex, claude-code, or all (repeatable or comma-separated)
+  --client, -a <client>       codex, claude-code, or all (default: all; repeatable or comma-separated)
   --scope <user|project>      Install globally or into the current project (default: user)
   -g, --global                Alias for --scope user
   --project                   Alias for --scope project
@@ -110,9 +110,9 @@ register their hosted MCP server in your agent config by default so the agent
 can actually use them. Use --no-mcp to skip that and copy the files only.
 
 Examples:
-  npx @agent-native/skills add
-  npx @agent-native/skills add --skill quick-recap
-  npx @agent-native/skills add --skill visual-recap --with-github-action
+  npx @agent-native/skills@latest add
+  npx @agent-native/skills@latest add --skill quick-recap
+  npx @agent-native/skills@latest add --skill visual-recap --with-github-action
 `;
 
 const CLIENTS: SkillClient[] = ["codex", "claude-code"];
@@ -232,19 +232,17 @@ export async function runSkillsCli(
 ): Promise<void> {
   const parsed = parseSkillsCliArgs(argv);
 
-  // PIVOT: `@agent-native/skills` delegates its install/list flow to
-  // `@agent-native/core`'s clack-based installer so both CLIs share ONE codebase
-  // and UX. App-backed skills (visual-plan/visual-recap/assets/design-exploration/
-  // context-xray) and the interactive picker go through core. Plain BuilderIO
-  // skills (efficient-fable, quick-recap, …) aren't known to core, so an explicit
-  // plain `--skill` falls through to this package's own headless installer.
+  // PIVOT: `@agent-native/skills` delegates explicitly selected app-backed
+  // installs to `@agent-native/core` for MCP setup. The default add/list flow
+  // stays here so it can discover the full plain BuilderIO skills collection
+  // (efficient-fable, quick-recap, …), which core does not know about.
   // AGENT_NATIVE_SKILLS_DIRECT=1 (set when core delegates a plain repo back to us)
   // always forces the direct path and breaks the skills → core → skills loop.
   if (process.env.AGENT_NATIVE_SKILLS_DIRECT !== "1") {
     const appOnly =
-      parsed.skillNames.length === 0 ||
+      parsed.skillNames.length > 0 &&
       parsed.skillNames.every((name) => resolveAppForSkill(name) !== undefined);
-    if (parsed.command === "list" || (parsed.command === "add" && appOnly)) {
+    if (parsed.command === "add" && appOnly) {
       const { runSkills } = await import("@agent-native/core/cli/skills");
       await runSkills(toCoreSkillsArgv(parsed), {
         isInteractive: options.isInteractive,
@@ -682,13 +680,13 @@ async function resolveSelectedClients(
 ): Promise<SkillClient[]> {
   const requested = unique(options.clients ?? []);
   if (requested.length > 0) return requested;
-  if (!isInteractive(options) || options.yes) return ["codex"];
+  if (!isInteractive(options) || options.yes) return CLIENTS;
 
   const answer = await promptLine(
-    "Install for which clients? Enter codex, claude-code, or all [codex]: ",
+    "Install for which clients? Enter codex, claude-code, or all [all]: ",
   );
   const trimmed = answer.trim();
-  return trimmed ? unique(normalizeClients(trimmed)) : ["codex"];
+  return trimmed ? unique(normalizeClients(trimmed)) : CLIENTS;
 }
 
 function isInteractive(

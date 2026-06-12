@@ -31,7 +31,7 @@ but the local MCP config unwritten. Restart or reload the agent client after
 installing or connecting if the Design tools do not appear in the live session.
 
 If this skill was installed with the Vercel/open Skills CLI
-(`npx skills add ...`), only the instructions were installed. That CLI does
+(`npx skills@latest add ...`), only the instructions were installed. That CLI does
 not run postinstall scripts or register MCP connectors, so the hosted MCP
 connector must be added separately:
 

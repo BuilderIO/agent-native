@@ -219,7 +219,7 @@ process.on("unhandledRejection", (reason: any) => {
   Sentry.flush(2000).finally(() => process.exit(1));
 });
 
-// Surface a self-heal hint when an interrupted `npx @agent-native/core ...`
+// Surface a self-heal hint when an interrupted `npx @agent-native/core@latest ...`
 // leaves a half-extracted package in the npx cache and a follow-up run fails
 // to load one of our own sub-modules.
 function handleScaffoldImportError(err: any): never {

@@ -54,15 +54,17 @@ step does depends on your client:
 - In a **non-interactive shell or CI**, the auth step is skipped and the exact
   command to run later is printed for you.
 
-By default the CLI targets Codex. Add `--client claude-code` or `--client all`
-when you want to configure another host:
+By default the CLI targets every supported local client it can configure. Pass
+`--client codex`, `--client claude-code`, or another specific client when you
+want to narrow setup to one host:
 
 ```bash
-npx @agent-native/core@latest skills add visual-plan --client all
+npx @agent-native/core@latest skills add visual-plan
 ```
 
 Pass `--no-connect` to register the connector without authenticating, then run
-`npx @agent-native/core@latest connect https://plan.agent-native.com` whenever you are ready:
+`npx @agent-native/core@latest connect https://plan.agent-native.com --client all`
+whenever you are ready, or choose a narrower `--client`:
 
 ```bash
 npx @agent-native/core@latest skills add visual-plan --no-connect
@@ -84,7 +86,7 @@ to verify the repo is ready.
 If you only want the portable instruction file through the open Skills CLI, use:
 
 ```bash
-npx skills add BuilderIO/agent-native --skill visual-plan
+npx skills@latest add BuilderIO/agent-native --skill visual-plan
 ```
 
 That installs the skill instructions only. It does not register the hosted MCP
@@ -243,9 +245,10 @@ of the hosted database.
 
 If a Plans tool ever returns `needs auth`, `Unauthorized`, or `Session
 terminated`, do not keep retrying it. Authenticate the connector with
-`npx @agent-native/core@latest connect https://plan.agent-native.com` (or re-run `/mcp` →
-**Authenticate** in an OAuth-capable host), then continue once the connector is
-available.
+`npx -y @agent-native/core@latest reconnect https://plan.agent-native.com --client codex`
+for Codex, or re-run `/mcp` → **Authenticate** in an OAuth-capable host. Start a
+new Codex thread or restart/reload the relevant client before expecting the tool
+registry to update.
 
 ## For developers
 
