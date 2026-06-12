@@ -138,6 +138,16 @@
     --plan-code-text: hsl(40 9% 92%);
   }
 
+  .plan-content-surface[data-recap-screenshot-theme="light"] {
+    --plan-document: #ffffff;
+    --plan-canvas: #ffffff;
+  }
+
+  .plan-content-surface[data-recap-screenshot-theme="dark"] {
+    --plan-document: #0d1117;
+    --plan-canvas: #0d1117;
+  }
+
   .bg-plan-document {
     background-color: var(--plan-document);
   }

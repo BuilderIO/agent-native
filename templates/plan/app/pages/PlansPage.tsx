@@ -201,6 +201,9 @@ const SOURCE_OPTIONS: Array<{ value: PlanSource; label: string }> = [
 
 const PLAN_READER_VIEW_EVENT = "plans-reader-view-change";
 const RECAP_SCREENSHOT_QUERY_PARAM = "recapScreenshot";
+const RECAP_SCREENSHOT_THEME_QUERY_PARAM = "recapScreenshotTheme";
+const GITHUB_LIGHT_CANVAS_BACKGROUND = "#ffffff";
+const GITHUB_DARK_CANVAS_BACKGROUND = "#0d1117";
 const LOCAL_PLAN_OWNER_EMAIL = "local@agent-native.local";
 const AUTO_DEV_COMMENT_EMAILS = new Set(["dev@local.test", "dev@local"]);
 const CURRENT_USER_FALLBACK_NAME = "You";
@@ -2139,6 +2142,25 @@ export function PlansPage() {
   const recapScreenshotMode = useMemo(() => {
     return routeSearchParams.get(RECAP_SCREENSHOT_QUERY_PARAM) === "1";
   }, [routeSearchParams]);
+  const recapScreenshotTheme = useMemo<"light" | "dark" | null>(() => {
+    if (!recapScreenshotMode) return null;
+    return routeSearchParams.get(RECAP_SCREENSHOT_THEME_QUERY_PARAM) === "dark"
+      ? "dark"
+      : "light";
+  }, [recapScreenshotMode, routeSearchParams]);
+  const recapScreenshotBackground =
+    recapScreenshotTheme === "dark"
+      ? GITHUB_DARK_CANVAS_BACKGROUND
+      : recapScreenshotTheme === "light"
+        ? GITHUB_LIGHT_CANVAS_BACKGROUND
+        : null;
+  const recapScreenshotBackgroundStyle = useMemo<CSSProperties | undefined>(
+    () =>
+      recapScreenshotBackground
+        ? { backgroundColor: recapScreenshotBackground }
+        : undefined,
+    [recapScreenshotBackground],
+  );
   const immersiveReader = Boolean(
     selectedId && (planFullscreen || prototypeOnly),
   );
