@@ -146,8 +146,8 @@ Sync state is tracked in the `document_sync_links` table (last synced time, conf
 
 ### Local file sync
 
-The protected `/local-files` route uses the browser File System Access API (or
-the same Chromium capability inside Agent Native Desktop) to read and write
+The protected `/local-files` route uses the browser File System Access API, or a
+guarded native folder bridge inside Agent Native Desktop, to read and write
 Markdown/MDX files from a user-chosen folder. It calls:
 
 - `export-content-source` — reads the accessible document tree and returns a

@@ -173,7 +173,7 @@ async function ensureReadWritePermission(handle: LocalDirectoryHandle) {
   return (await handle.requestPermission?.(descriptor)) === "granted";
 }
 
-async function chooseDirectory() {
+async function chooseDirectory(): Promise<SelectedDirectory> {
   const desktopFiles = getDesktopContentFiles();
   if (desktopFiles) {
     const result = await desktopFiles.chooseFolder();
