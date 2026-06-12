@@ -45,9 +45,14 @@ describe("local content source files", () => {
   });
 
   it("writes an edited document through the desktop single-file bridge", async () => {
+    const folder = {
+      id: "folder-repo",
+      name: "repo",
+      path: "/Users/steve/repo",
+    };
     const writeFile = vi.fn().mockResolvedValue({
       ok: true,
-      folder: { name: "repo", path: "/Users/steve/repo" },
+      folder,
       files: ["content/getting-started.mdx"],
     });
     const writeFiles = vi.fn();
@@ -56,7 +61,7 @@ describe("local content source files", () => {
       value: {
         agentNativeDesktop: {
           contentFiles: {
-            getFolder: vi.fn(),
+            getFolder: vi.fn().mockResolvedValue({ ok: true, folder }),
             chooseFolder: vi.fn(),
             writeFiles,
             writeFile,
@@ -77,6 +82,7 @@ describe("local content source files", () => {
       runtime: "desktop",
     });
     expect(writeFile).toHaveBeenCalledWith({
+      folderId: "folder-repo",
       path: "content/getting-started.mdx",
       content: expect.stringContaining("Hello from the editor."),
     });
@@ -113,13 +119,15 @@ describe("local content source files", () => {
   });
 
   it("reads linked desktop source files as the document authority", async () => {
+    const folder = {
+      id: "folder-repo",
+      name: "repo",
+      path: "/Users/steve/repo",
+      updatedAt: "2026-06-12T02:00:00.000Z",
+    };
     const readFiles = vi.fn().mockResolvedValue({
       ok: true,
-      folder: {
-        name: "repo",
-        path: "/Users/steve/repo",
-        updatedAt: "2026-06-12T02:00:00.000Z",
-      },
+      folder,
       sources: {
         "content/getting-started.mdx": [
           "---",
@@ -137,7 +145,7 @@ describe("local content source files", () => {
       value: {
         agentNativeDesktop: {
           contentFiles: {
-            getFolder: vi.fn(),
+            getFolder: vi.fn().mockResolvedValue({ ok: true, folder }),
             chooseFolder: vi.fn(),
             writeFiles: vi.fn(),
             writeFile: vi.fn(),
@@ -164,12 +172,18 @@ describe("local content source files", () => {
       },
     });
     expect(readFiles).toHaveBeenCalledTimes(1);
+    expect(readFiles).toHaveBeenCalledWith({ folderId: "folder-repo" });
   });
 
   it("reveals a linked desktop source file through the desktop bridge", async () => {
+    const folder = {
+      id: "folder-repo",
+      name: "repo",
+      path: "/Users/steve/repo",
+    };
     const revealFile = vi.fn().mockResolvedValue({
       ok: true,
-      folder: { name: "repo", path: "/Users/steve/repo" },
+      folder,
       files: ["content/getting-started.mdx"],
     });
     Object.defineProperty(globalThis, "window", {
@@ -177,7 +191,7 @@ describe("local content source files", () => {
       value: {
         agentNativeDesktop: {
           contentFiles: {
-            getFolder: vi.fn(),
+            getFolder: vi.fn().mockResolvedValue({ ok: true, folder }),
             chooseFolder: vi.fn(),
             writeFiles: vi.fn(),
             writeFile: vi.fn(),
@@ -198,6 +212,7 @@ describe("local content source files", () => {
       runtime: "desktop",
     });
     expect(revealFile).toHaveBeenCalledWith({
+      folderId: "folder-repo",
       path: "content/getting-started.mdx",
     });
   });

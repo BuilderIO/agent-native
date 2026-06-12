@@ -94,6 +94,7 @@ cd templates/content && pnpm action <name> [args]
 | `edit-document`                | `--id <id> --find <text> --replace <text>`                                                                                   | Surgical text edit (preferred for modifications)                                      |
 | `edit-document`                | `--id <id> --edits <json>`                                                                                                   | Batch surgical text edits                                                             |
 | `update-document`              | `--id <id> [--title] [--content] [--icon]`                                                                                   | Full rewrite of document fields                                                       |
+| `share-local-file-document`    | `--id <local-file-document-id>`                                                                                              | Create or refresh a DB-backed shareable copy of a local file document                 |
 | `create-content-database`      | `[--documentId <id>] [--parentId <id>] [--title <text>]`                                                                     | Create a database page or convert an existing page into a database                    |
 | `get-content-database`         | `--databaseId <id>` or `--documentId <id>`                                                                                   | Get a database table with property schema and item pages                              |
 | `add-database-item`            | `--databaseId <id> [--title <text>] [--propertyValues <json>]`                                                               | Add a page row to a database, optionally seeding property values                      |
@@ -163,8 +164,11 @@ Content has two file workflows:
   from the configured `components` folder. Export PascalCase components such as
   `ImpactCounter` from `.tsx` files, then use `<ImpactCounter />` in MDX or pick
   it from the editor slash menu under Local components. Simple string props are
-  previewed; JSX expression props are preserved in source but shown as an
-  unsupported preview until richer prop editing exists.
+  previewed. Components can export editable input metadata such as
+  `ImpactCounterInputs` with `string`, `textarea`, `number`, `boolean`, and
+  `select` fields; selecting the component in the editor shows a corner edit
+  button that rewrites the MDX props. JSX expression props are preserved in
+  source but shown as an unsupported preview.
 
 Minimal `agent-native.json`:
 
@@ -191,8 +195,11 @@ Minimal `agent-native.json`:
 
 In Local File Mode, use the normal document actions (`list-documents`,
 `get-document`, `create-document`, `update-document`, `delete-document`) instead
-of raw filesystem writes when operating through the app. Provider sync such as
-Builder.io pull/push should remain a Content-specific explicit sync action.
+of raw filesystem writes when operating through the app. To share a local file,
+call `share-local-file-document --id <local-file-document-id>` first; it creates
+or refreshes a database-backed copy and returns the shareable document id.
+Provider sync such as Builder.io pull/push should remain a Content-specific
+explicit sync action.
 
 ### Notion Integration
 

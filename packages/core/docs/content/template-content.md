@@ -179,18 +179,31 @@ app. A minimal workspace component can be:
 // components/ImpactCounter.tsx
 import { useState } from "react";
 
-export function ImpactCounter() {
-  const [count, setCount] = useState(3);
+export function ImpactCounter({
+  label = "points",
+  start = 3,
+}: {
+  label?: string;
+  start?: number;
+}) {
+  const [count, setCount] = useState(start);
   return (
     <button type="button" onClick={() => setCount(count + 1)}>
-      Impact: {count}
+      Impact: {count} {label}
     </button>
   );
 }
+
+export const ImpactCounterInputs = {
+  label: { type: "string", label: "Label", default: "points" },
+  start: { type: "number", label: "Starting count", default: 3 },
+};
 ```
 
 Use it in local MDX as `<ImpactCounter />`, or insert it from the editor slash
-menu under Local components.
+menu under Local components. When input metadata is exported, selecting the
+component in the editor shows a corner edit button that rewrites the MDX props
+in the local file.
 
 ### Comments
 

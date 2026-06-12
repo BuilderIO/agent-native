@@ -987,17 +987,19 @@ export default function LocalFilesRoute() {
         )}
 
         <div className="overflow-hidden rounded-md border border-border">
-          <Table>
+          <Table className="min-w-[640px] sm:min-w-0">
             <TableHeader>
               <TableRow>
-                <TableHead>Folder</TableHead>
+                <TableHead className="whitespace-nowrap">Folder</TableHead>
                 <TableHead className="hidden w-36 md:table-cell">
                   Sidebar
                 </TableHead>
                 <TableHead className="hidden w-44 lg:table-cell">
                   Last sync
                 </TableHead>
-                <TableHead className="w-[1%] text-right">Actions</TableHead>
+                <TableHead className="w-72 whitespace-nowrap text-right sm:w-80">
+                  Actions
+                </TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>

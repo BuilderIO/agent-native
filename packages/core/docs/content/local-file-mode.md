@@ -155,15 +155,30 @@ For example, add an interactive component next to your content:
 // components/ImpactCounter.tsx
 import { useState } from "react";
 
-export function ImpactCounter({ label = "points" }: { label?: string }) {
+export function ImpactCounter({
+  label = "points",
+  accent = "blue",
+  featured = false,
+}: {
+  label?: string;
+  accent?: "blue" | "green" | "purple";
+  featured?: boolean;
+}) {
   const [count, setCount] = useState(3);
+  const accentClass =
+    accent === "green"
+      ? "border-green-300 bg-green-50"
+      : accent === "purple"
+        ? "border-purple-300 bg-purple-50"
+        : "border-blue-300 bg-blue-50";
 
   return (
-    <div className="rounded-md border p-4">
+    <div className={`rounded-md border p-4 ${accentClass}`}>
       <div className="text-sm text-muted-foreground">Launch impact</div>
       <div className="mt-1 text-3xl font-semibold">
         {count} {label}
       </div>
+      {featured ? <div className="mt-1 text-sm">Featured metric</div> : null}
       <button
         type="button"
         className="mt-3 rounded border px-3 py-1 text-sm"
@@ -174,6 +189,25 @@ export function ImpactCounter({ label = "points" }: { label?: string }) {
     </div>
   );
 }
+
+export const ImpactCounterInputs = {
+  label: {
+    type: "string",
+    label: "Metric label",
+    default: "points",
+  },
+  accent: {
+    type: "select",
+    label: "Accent",
+    options: ["blue", "green", "purple"],
+    default: "blue",
+  },
+  featured: {
+    type: "boolean",
+    label: "Featured",
+    default: false,
+  },
+};
 ```
 
 Then use it from any local MDX file:
@@ -194,6 +228,13 @@ components render inside the editor and appear in the slash menu under
 **Local components**. Slash insertion creates a minimal tag such as
 `<ImpactCounter />`; add props in the MDX source when needed.
 
+If a component exports input metadata, selecting the component in the editor
+shows an edit button in the component's top-right corner. Supported input types
+are `string`, `textarea`, `number`, `boolean`, and `select`. The form writes
+changes back to the MDX tag, so local files remain the source of truth. The
+metadata can be exported as `ComponentNameInputs`, `ComponentNameConfig.inputs`,
+`Component.inputs`, or `agentNative.inputs`.
+
 Simple component tags with literal props can preview inline:
 
 ```mdx
@@ -205,6 +246,15 @@ Simple component tags with literal props can preview inline:
 Complex JSX expressions are preserved in source. If the editor cannot safely
 preview a component prop yet, it shows a warning placeholder rather than
 silently dropping data.
+
+## Sharing Local Files
+
+Local files are not shared directly because other users cannot read a path on
+your machine. The Content toolbar's Share button creates or refreshes a
+database-backed copy of the selected file, navigates to that copy, and opens the
+normal share popover. The original local file remains under Local files; the
+database copy appears under Shared copies in Local File Mode and uses the
+standard document sharing model.
 
 ## Local Extensions
 
