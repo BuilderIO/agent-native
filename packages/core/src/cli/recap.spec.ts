@@ -36,6 +36,7 @@ import {
   summarizeAgentResult,
   truncateDiffAtLineBoundary,
   waitForPublicRecapImage,
+  withRecapScreenshotParams,
   writePrVisualRecapReusableCallerWorkflow,
   writePrVisualRecapWorkflow,
   buildGateSkipLine,
@@ -593,7 +594,30 @@ describe("recap comment body", () => {
     expect(body).toContain("Open the full interactive recap");
     expect(body).toContain("<!-- plan-id: plan-abc123 -->");
     expect(body).toContain("<!-- pr-visual-recap -->");
+    expect(body).not.toContain("<picture>");
     expect(body).not.toContain("_As of `");
+  });
+
+  it("embeds light and dark screenshots with a GitHub theme-aware picture", () => {
+    const lightToken = "a".repeat(64);
+    const darkToken = "b".repeat(64);
+    const body = buildCommentBody({
+      PLAN_URL: "https://plan.agent-native.com/recaps/plan-abc123",
+      PLAN_RECAP_APP_URL: "https://plan.agent-native.com",
+      RECAP_LIGHT_IMAGE_URL: `https://plan.agent-native.com/_agent-native/recap-image/${lightToken}.png`,
+      RECAP_DARK_IMAGE_URL: `https://plan.agent-native.com/_agent-native/recap-image/${darkToken}.png`,
+      HEAD_SHA: "abcdef1234567",
+    } as NodeJS.ProcessEnv);
+    expect(body).toContain(`<a href="https://plan.agent-native.com/recaps/plan-abc123">`);
+    expect(body).toContain("<picture>");
+    expect(body).toContain(
+      `<source media="(prefers-color-scheme: dark)" srcset="https://plan.agent-native.com/_agent-native/recap-image/${darkToken}.png">`,
+    );
+    expect(body).toContain(
+      `<img alt="Visual recap" src="https://plan.agent-native.com/_agent-native/recap-image/${lightToken}.png">`,
+    );
+    expect(body).toContain("</picture>");
+    expect(body).not.toContain("![Visual recap]");
   });
 
   it("rebuilds a canonical /recaps/ link from a legacy /plans/ URL, dropping any crafted path/query", () => {
@@ -621,6 +645,22 @@ describe("recap comment body", () => {
     expect(body).not.toContain("![Visual recap]");
     expect(body).not.toContain("javascript:");
     expect(body).toContain("Open the full interactive recap");
+  });
+
+  it("drops an invalid dark image URL and falls back to the light screenshot", () => {
+    const token = "a".repeat(64);
+    const body = buildCommentBody({
+      PLAN_URL: "https://plan.agent-native.com/recaps/plan-abc123",
+      PLAN_RECAP_APP_URL: "https://plan.agent-native.com",
+      RECAP_LIGHT_IMAGE_URL: `https://plan.agent-native.com/_agent-native/recap-image/${token}.png`,
+      RECAP_DARK_IMAGE_URL: "https://plan.agent-native.com/evil.png)](javascript:0)",
+      HEAD_SHA: "abcdef1",
+    } as NodeJS.ProcessEnv);
+    expect(body).not.toContain("<picture>");
+    expect(body).toContain(
+      `[![Visual recap](https://plan.agent-native.com/_agent-native/recap-image/${token}.png)](https://plan.agent-native.com/recaps/plan-abc123)`,
+    );
+    expect(body).not.toContain("javascript:");
   });
 
   it("drops a recap-image URL whose token is too short for the image route", () => {
@@ -766,6 +806,19 @@ describe("recap comment body", () => {
     } as NodeJS.ProcessEnv);
     expect(body).not.toContain("_As of `");
     expect(body).toContain("Open the full interactive recap");
+  });
+});
+
+describe("recap screenshot URL params", () => {
+  it("adds screenshot mode and an optional forced theme", () => {
+    expect(
+      withRecapScreenshotParams(
+        "https://plan.agent-native.com/recaps/plan-abc123?foo=bar",
+        { theme: "dark" },
+      ),
+    ).toBe(
+      "https://plan.agent-native.com/recaps/plan-abc123?foo=bar&recapScreenshot=1&recapScreenshotTheme=dark",
+    );
   });
 });
 
@@ -1359,6 +1412,11 @@ describe("bundled PR visual recap workflow", () => {
     expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain("--exit-code-file");
     expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain("RECAP_URL_REASON");
     expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain("--url-reason");
+    expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain("--out recap.png --theme light");
+    expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain(
+      "--out recap-dark.png --theme dark",
+    );
+    expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain("RECAP_DARK_IMAGE_URL");
     expect(PR_VISUAL_RECAP_WORKFLOW_YML).not.toContain("github.rest.checks");
     // The completed-check step is gated on a created check id and best-effort.
     expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain(
