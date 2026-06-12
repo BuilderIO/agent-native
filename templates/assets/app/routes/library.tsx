@@ -1464,13 +1464,13 @@ export default function AssetPicker() {
                 </DialogDescription>
                 <div className="relative">
                   <div className="absolute right-2 top-2 z-10 flex items-center gap-2">
-                    <Link
-                      to={`/asset/${encodeURIComponent(previewAsset.id)}`}
-                      className="inline-flex h-9 items-center gap-1.5 rounded-full bg-black/60 px-3 text-sm font-medium text-white transition hover:bg-black/80 focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
-                    >
-                      <IconArrowUpRight className="h-4 w-4" />
-                      View details
-                    </Link>
+                    <Button asChild variant="outline" size="sm">
+                      <Link
+                        to={`/asset/${encodeURIComponent(previewAsset.id)}`}
+                      >
+                        View details
+                      </Link>
+                    </Button>
                     <DialogClose
                       aria-label="Close preview"
                       className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-black/60 text-white transition hover:bg-black/80 focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
