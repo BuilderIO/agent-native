@@ -4511,7 +4511,6 @@ export function PlansPage() {
                       isRecap={isRecap}
                       hideChangedFiles={recapScreenshotMode}
                       hideRecapChrome={recapScreenshotMode}
-                      hideFloatingToc={recapScreenshotMode}
                       showCodeAnnotationOverlays={recapScreenshotMode}
                       recapScreenshotTheme={recapScreenshotTheme}
                       sourceUrl={bundle.plan.sourceUrl}
