@@ -41,6 +41,7 @@ const CONTENT_LOCAL_DEFAULTS: LocalArtifactOptions["defaults"] = {
       extensions: [".md", ".mdx"],
     },
   ],
+  components: "components",
   hide: ["**/_*.md", "**/_*.mdx"],
 };
 

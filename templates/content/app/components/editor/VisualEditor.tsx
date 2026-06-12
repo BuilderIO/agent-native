@@ -54,6 +54,7 @@ import {
   type UseCollabReconcileResult,
 } from "@agent-native/core/client";
 import { RegistryBlockNode } from "./extensions/registryBlocks";
+import { LocalMdxComponentNode } from "./extensions/LocalMdxComponentNode";
 import {
   CommentHighlight,
   setCommentHighlights,
@@ -1257,6 +1258,7 @@ export function createVisualEditorExtensions({
       // `VisualEditor` below. Mounted after the Notion nodes and before the
       // Markdown extension so the NFM <-> doc round-trip recognizes the node.
       RegistryBlockNode,
+      LocalMdxComponentNode,
       CommentHighlight,
       DragHandle,
       TypographyReplacements,
