@@ -5,7 +5,7 @@ import {
 } from "@agent-native/core/server/request-context";
 import { writeAppState } from "@agent-native/core/application-state";
 import { ROLE_RANK, resolveAccess } from "@agent-native/core/sharing";
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull } from "drizzle-orm";
 import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import {
@@ -177,6 +177,28 @@ export default defineAction({
     const parsed: ParsedContentSourceFile[] = entries.map(
       ([filePath, source]) => parseContentSourceFile(filePath, source),
     );
+    const importPaths = [...new Set(parsed.map((file) => file.path))];
+    const existingLocalDocs =
+      importPaths.length > 0
+        ? await db
+            .select()
+            .from(schema.documents)
+            .where(
+              and(
+                eq(schema.documents.ownerEmail, currentUserEmail),
+                currentOrgId
+                  ? eq(schema.documents.orgId, currentOrgId)
+                  : isNull(schema.documents.orgId),
+                eq(schema.documents.sourceMode, "local-files"),
+                inArray(schema.documents.sourcePath, importPaths),
+              ),
+            )
+        : [];
+    const existingLocalDocByPath = new Map(
+      existingLocalDocs
+        .filter((document) => document.sourcePath)
+        .map((document) => [document.sourcePath!, document]),
+    );
 
     const seenIds = new Set<string>();
     const duplicateIds = new Set<string>();
@@ -216,12 +238,18 @@ export default defineAction({
         continue;
       }
 
-      const id = file.id ?? nanoid();
+      const sourceMatchedDocument = file.id
+        ? null
+        : (existingLocalDocByPath.get(file.path) ?? null);
+      const id = file.id ?? sourceMatchedDocument?.id ?? nanoid();
       idByPath.set(file.path, id);
       pathById.set(id, file.path);
 
       const access = file.id ? await resolveAccess("document", file.id) : null;
-      if (access && !canEditRole(access.role)) {
+      const existing = access?.resource ?? sourceMatchedDocument;
+      const existingRole =
+        access?.role ?? (sourceMatchedDocument ? "owner" : null);
+      if (existing && existingRole && !canEditRole(existingRole)) {
         skipped.push({
           path: file.path,
           reason: `Requires editor access to update document "${file.id}".`,
@@ -229,8 +257,7 @@ export default defineAction({
         continue;
       }
 
-      if (access) {
-        const existing = access.resource;
+      if (existing) {
         ownerById.set(id, existing.ownerEmail as string);
         currentParentById.set(id, existing.parentId ?? null);
         currentPositionById.set(id, existing.position ?? 0);

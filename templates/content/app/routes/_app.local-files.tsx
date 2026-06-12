@@ -280,6 +280,33 @@ async function removeStaleMarkdownFiles(
   }
 }
 
+async function readSourceFilesFromDirectory(
+  directory: SelectedDirectory,
+): Promise<{ directory: SelectedDirectory; files: Record<string, string> }> {
+  if (directory.kind === "desktop") {
+    const desktopFiles = getDesktopContentFiles();
+    if (!desktopFiles) {
+      throw new Error("Desktop folder access is no longer available.");
+    }
+    const result = await desktopFiles.readFiles();
+    if (!result.ok) throw new Error(result.error);
+    return {
+      directory: { kind: "desktop", folder: result.folder },
+      files: result.sources ?? {},
+    };
+  }
+
+  const handle = directory.handle;
+  if (!(await ensureReadWritePermission(handle))) {
+    throw new Error("Folder permission was not granted.");
+  }
+  const root = await sourceReadRoot(handle);
+  return {
+    directory,
+    files: await collectMarkdownFiles(root.handle, root.prefix),
+  };
+}
+
 function resultSummary(result: ImportContentSourceResult) {
   return [
     `${result.created.length} created`,
@@ -352,25 +379,44 @@ export default function LocalFilesRoute() {
   async function handleChooseFolder() {
     setBusy("choose");
     try {
-      const handle = await chooseDirectory();
-      if (handle.kind === "browser") {
+      const selected = await chooseDirectory();
+      if (selected.kind === "browser") {
         try {
-          await persistSourceDirectory(handle.handle);
+          await persistSourceDirectory(selected.handle);
         } catch {
           // Folder handles are still usable for this session if persistence fails.
         }
       }
-      setDirectory(handle);
+      setDirectory(selected);
       setStatus({
         kind: "success",
         title: "Folder selected",
-        detail: selectedDirectoryName(handle),
+        detail: selectedDirectoryName(selected),
       });
+
+      setBusy("import");
+      const { directory: refreshedDirectory, files } =
+        await readSourceFilesFromDirectory(selected);
+      setDirectory(refreshedDirectory);
+      const result = await callAction<ImportContentSourceResult>(
+        "import-content-source" as never,
+        { files, dryRun: false } as never,
+      );
+      setStatus({
+        kind: "success",
+        title: "Folder imported",
+        detail: resultSummary(result),
+      });
+      queryClient.invalidateQueries({ queryKey: ["action", "list-documents"] });
+      toast.success("Imported local files");
     } catch (err) {
       setStatus({
         kind: "error",
-        title: "Folder selection failed",
-        detail: err instanceof Error ? err.message : "Choose another folder.",
+        title: "Folder import failed",
+        detail:
+          err instanceof Error
+            ? err.message
+            : "Choose another folder or try importing again.",
       });
     } finally {
       setBusy(null);
@@ -435,21 +481,9 @@ export default function LocalFilesRoute() {
 
   async function readSelectedSourceFiles() {
     if (!directory) throw new Error("Choose a folder first.");
-    if (directory.kind === "desktop") {
-      const desktopFiles = getDesktopContentFiles();
-      if (!desktopFiles) {
-        throw new Error("Desktop folder access is no longer available.");
-      }
-      const result = await desktopFiles.readFiles();
-      if (!result.ok) throw new Error(result.error);
-      setDirectory({ kind: "desktop", folder: result.folder });
-      return result.sources ?? {};
-    }
-    if (!(await ensureReadWritePermission(directory.handle))) {
-      throw new Error("Folder permission was not granted.");
-    }
-    const root = await sourceReadRoot(directory.handle);
-    return collectMarkdownFiles(root.handle, root.prefix);
+    const result = await readSourceFilesFromDirectory(directory);
+    setDirectory(result.directory);
+    return result.files;
   }
 
   async function handlePreviewImport() {

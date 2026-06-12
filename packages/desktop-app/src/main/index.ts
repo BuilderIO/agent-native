@@ -4859,7 +4859,10 @@ async function collectContentMarkdownFiles(
   for (const entry of entries) {
     if (entry.isSymbolicLink()) continue;
     const sourcePath = `${prefix}${entry.name}`;
-    const filePath = assertInsideContentFolder(folder, path.join(folder, entry.name));
+    const filePath = assertInsideContentFolder(
+      folder,
+      path.join(folder, entry.name),
+    );
     if (entry.isDirectory()) {
       if (CONTENT_IGNORED_DIRECTORIES.has(entry.name)) continue;
       Object.assign(
@@ -4925,7 +4928,10 @@ async function removeStaleContentMarkdownFiles(
   for (const entry of entries) {
     if (entry.isSymbolicLink()) continue;
     const sourcePath = `${prefix}${entry.name}`;
-    const filePath = assertInsideContentFolder(folder, path.join(folder, entry.name));
+    const filePath = assertInsideContentFolder(
+      folder,
+      path.join(folder, entry.name),
+    );
     if (entry.isDirectory()) {
       if (CONTENT_IGNORED_DIRECTORIES.has(entry.name)) continue;
       await removeStaleContentMarkdownFiles(
