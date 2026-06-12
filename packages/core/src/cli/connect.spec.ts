@@ -1039,7 +1039,7 @@ describe("runConnect", () => {
         "Did not touch Claude Cowork because no matching MCP entry was found.",
       );
       expect(combined).toContain(
-        "connect https://plan.agent-native.com --client CLIENT",
+        "connect https://plan.agent-native.com --client CLIENT --scope user",
       );
       expect(combined).not.toContain("<client>");
       expect(combined).toContain("Reconnected Plan MCP");

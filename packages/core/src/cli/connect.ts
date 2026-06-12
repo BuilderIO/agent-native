@@ -1932,7 +1932,7 @@ async function reconnectOne(
       `  Did not touch ${clientLabelList(skippedClients)} because no matching MCP entry was found.`,
     );
     logOut(
-      `  To add another client, run: npx @agent-native/core@latest connect ${baseUrl} --client CLIENT`,
+      `  To add another client, run: npx @agent-native/core@latest connect ${baseUrl} --client CLIENT --scope ${effectiveParsed.scope}`,
     );
   }
   if (res.ok) {

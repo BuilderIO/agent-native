@@ -18,8 +18,10 @@ name: PR Visual Recap (fork, label-gated)
 #   - The diff is attacker-controlled text fed as INPUT to the LLM; it is
 #     never executed. Mitigations: secret-scan (fail-closed), sensitive-path
 #     gate, and the prompt explicitly marks diff content as untrusted data.
-#   - To refresh after new fork commits, a maintainer can rerun the workflow or
-#     remove/reapply the `recap` label after reviewing the updated diff.
+#   - To refresh after new fork commits, a maintainer must review the updated
+#     diff, then remove/reapply the `recap` label. A rerun only reuses the
+#     original event payload/SHA and is appropriate for transient failures on
+#     the same reviewed commit.
 #   - Concurrency: per-PR, cancel-in-progress (mirror of main workflow).
 
 on:
