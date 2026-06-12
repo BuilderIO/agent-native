@@ -823,6 +823,7 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
                 awareness={canEdit && !isLocalFileDocument ? awareness : null}
                 user={currentUser}
                 editable={canEdit}
+                localFileMode={isLocalFileDocument}
                 onComment={
                   canEdit && !isLocalFileDocument ? handleComment : undefined
                 }

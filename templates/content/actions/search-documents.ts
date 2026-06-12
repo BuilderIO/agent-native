@@ -7,6 +7,10 @@ import {
   parseDocumentHideFromSearch,
 } from "../server/lib/documents.js";
 import { z } from "zod";
+import {
+  isContentLocalFileMode,
+  listLocalFileDocuments,
+} from "./_local-file-documents.js";
 
 function escapeLike(s: string): string {
   return s.replace(/([\\%_])/g, "\\$1");
@@ -38,6 +42,34 @@ export default defineAction({
   http: { method: "GET" },
   run: async (args) => {
     const query = args.query;
+
+    if (await isContentLocalFileMode()) {
+      const normalizedQuery = query.toLowerCase();
+      const docs = (await listLocalFileDocuments())
+        .filter((doc) => doc.source?.kind !== "folder")
+        .filter((doc) => !doc.hideFromSearch)
+        .filter(
+          (doc) =>
+            !normalizedQuery ||
+            doc.title.toLowerCase().includes(normalizedQuery) ||
+            doc.content.toLowerCase().includes(normalizedQuery),
+        )
+        .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+        .slice(0, args.limit);
+
+      return {
+        documents: docs.map((doc) => ({
+          id: doc.id,
+          parentId: doc.parentId,
+          title: doc.title,
+          icon: doc.icon,
+          snippet: makeSnippet(doc.content, query),
+          contentLength: doc.content.length,
+          hideFromSearch: doc.hideFromSearch,
+          updatedAt: doc.updatedAt,
+        })),
+      };
+    }
 
     const db = getDb();
     const pattern = `%${escapeLike(query)}%`;

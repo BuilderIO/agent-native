@@ -106,6 +106,7 @@ async function walkComponentFiles(directory: string): Promise<string[]> {
   const files: string[] = [];
   for (const entry of entries) {
     if (entry.name.startsWith(".")) continue;
+    if (entry.isSymbolicLink()) continue;
     const absolutePath = path.join(directory, entry.name);
     if (entry.isDirectory()) {
       if (

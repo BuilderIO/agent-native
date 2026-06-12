@@ -9,6 +9,10 @@ import {
 } from "@agent-native/core/application-state";
 import { z } from "zod";
 import "../server/db/index.js";
+import {
+  getLocalFileDocument,
+  isContentLocalFileMode,
+} from "./_local-file-documents.js";
 
 /**
  * Collab-aware "ingest the final" read for external agents.
@@ -45,6 +49,17 @@ import "../server/db/index.js";
 const FLUSH_POLL_INTERVAL_MS = 200;
 const FLUSH_TIMEOUT_MS = 4000;
 
+function formatDocumentContent(markdown: string, format: "markdown" | "text") {
+  return format === "text"
+    ? markdown
+        .replace(/^#{1,6}\s+/gm, "")
+        .replace(/[*_`~>]/g, "")
+        .replace(/!\[[^\]]*\]\([^)]*\)/g, "")
+        .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")
+        .trim()
+    : markdown;
+}
+
 export default defineAction({
   description:
     "Read a document's final content, flushing any open live collaborative editing session to SQL first so external agents ingest exactly what the user sees (prefer this over get-document for external ingest).",
@@ -59,6 +74,24 @@ export default defineAction({
   readOnly: true,
   publicAgent: { expose: true, readOnly: true, requiresAuth: true },
   run: async ({ id, format }) => {
+    if (await isContentLocalFileMode()) {
+      const doc = await getLocalFileDocument(id);
+      if (doc.source?.kind === "folder") {
+        throw new Error("Folders cannot be pulled as markdown documents");
+      }
+      return {
+        id: doc.id,
+        title: doc.title,
+        content: formatDocumentContent(doc.content ?? "", format),
+        format,
+        deepLink: buildDeepLink({
+          app: "content",
+          view: "editor",
+          params: { documentId: doc.id },
+        }),
+      };
+    }
+
     const access = await resolveAccess("document", id);
     if (!access) throw new Error(`Document "${id}" not found`);
 
@@ -117,15 +150,7 @@ export default defineAction({
     if (!fresh) throw new Error(`Document "${id}" not found`);
     const doc = fresh.resource;
     const markdown = (doc.content as string) ?? "";
-    const content =
-      format === "text"
-        ? markdown
-            .replace(/^#{1,6}\s+/gm, "")
-            .replace(/[*_`~>]/g, "")
-            .replace(/!\[[^\]]*\]\([^)]*\)/g, "")
-            .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")
-            .trim()
-        : markdown;
+    const content = formatDocumentContent(markdown, format);
 
     return {
       id: doc.id,

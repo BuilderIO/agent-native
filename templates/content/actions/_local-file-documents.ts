@@ -316,6 +316,17 @@ export async function updateLocalFileDocument(
     args.content === undefined
       ? current.content
       : stripDuplicateTitleHeading(args.content, nextTitle);
+  const titleChanged = args.title !== undefined && args.title !== current.title;
+  const contentChanged =
+    args.content !== undefined && nextContent !== current.content;
+  const iconChanged = args.icon !== undefined && args.icon !== current.icon;
+  const favoriteChanged =
+    args.isFavorite !== undefined && args.isFavorite !== current.isFavorite;
+
+  if (!titleChanged && !contentChanged && !iconChanged && !favoriteChanged) {
+    return current;
+  }
+
   const nextSource = upsertFrontmatter(
     file.content,
     {
@@ -400,7 +411,10 @@ export async function moveLocalFileDocument(
   id: string,
   _args: DocumentMoveRequest,
 ): Promise<Document> {
-  return getLocalFileDocument(id);
+  localDocumentPathFromId(id);
+  throw new Error(
+    "Moving local file documents from the Content app is not supported yet. Move or rename the file in the workspace.",
+  );
 }
 
 export async function localContentViewScreenSummary() {
