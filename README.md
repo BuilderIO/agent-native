@@ -28,7 +28,7 @@ Don't want to scaffold a whole app yet? Add agent-native superpowers to a coding
 npx @agent-native/core@latest skills add visual-plan
 ```
 
-It installs the skills, registers the hosted MCP connector, and signs you in in one step. You get two slash commands that upgrade how your agent plans and reports its work:
+It installs the skills, registers the hosted MCP connector, and signs you in one step. You get two slash commands that upgrade how your agent plans and reports its work:
 
 - **`/visual-plan`** — before the agent writes code, it opens a structured, reviewable plan document instead of a wall of text: inline diagrams, UI wireframes and prototypes, file-by-file implementation maps, and annotations you can comment on and approve.
 - **`/visual-recap`** — after changes land, it turns a PR or git diff into a high-altitude visual recap: schema, API, and file changes rendered as grounded before/after blocks with a shareable review link, instead of scrolling a raw diff.
