@@ -1658,6 +1658,9 @@ export function buildRecapPrompt(input: {
       `The \`plan\` MCP server is configured for you. Call its tools by name (your host may expose them as \`get-plan-blocks\` / \`create-visual-recap\` or \`mcp__plan__get-plan-blocks\` / \`mcp__plan__create-visual-recap\` — same tools).`,
     );
     lines.push(
+      "This is a one-shot GitHub Actions run. Do not schedule wakeups, reminders, follow-ups, or retries in another turn; either publish the recap and write `recap-url.txt` in this process, or report the MCP/tool failure plainly.",
+    );
+    lines.push(
       "First call `get-plan-blocks`, then call `create-visual-recap`. If `create-visual-recap` is available but `get-plan-blocks` is not, the Plan MCP is connected but the block-registry tool is not visible to this runner. Report that the runner must expose `get-plan-blocks` through the workflow/tool allowlist or compact MCP catalog; do not describe that case as a disconnected Plan MCP.",
     );
     lines.push(
@@ -2470,18 +2473,13 @@ export interface RecapGateInput {
 }
 
 /**
- * Files that, if a PR touches them, would let that PR rewrite what the trusted
- * recap job runs (the workflow itself, the skill, the local CLI, or any agent
- * config the runner loads) — so the whole job is skipped, not just the agent
- * step, to keep untrusted PR code away from the publish/API secrets.
- *
- * The `packages/core/**` rule is scoped to the BuilderIO/agent-native monorepo
- * (where packages/core IS the recap CLI source) so that consumer repos with an
- * unrelated `packages/core/` directory are not silently gated. Pass the
- * `repository` ("owner/name") to apply that scoping; omit it to match the old
- * unconditional behaviour (safe for the gate's self-test).
+ * Files that, if a PR touches them, would let that PR rewrite the workflow,
+ * skill, or agent config the trusted recap job loads. The workflow runs the
+ * recap CLI from trusted base-branch source (or an installed package), so normal
+ * package code such as `packages/core/**` can be recapped without executing
+ * PR-modified CLI code.
  */
-export function isRecapSensitivePath(p: string, repository?: string): boolean {
+export function isRecapSensitivePath(p: string): boolean {
   if (
     p === ".github/workflows/pr-visual-recap.yml" ||
     /(^|\/)skills\/visual-(recap|plan|plans)\//.test(p) ||
@@ -2490,13 +2488,6 @@ export function isRecapSensitivePath(p: string, repository?: string): boolean {
     /(^|\/)AGENTS\.md$/.test(p) ||
     /(^|\/)\.mcp\.json$/.test(p)
   ) {
-    return true;
-  }
-  // packages/core is the recap-CLI source only in the agent-native monorepo.
-  // In consumer repos an unrelated packages/core/ must not gate recaps.
-  const isAgentNativeMonorepo =
-    !repository || repository === "BuilderIO/agent-native";
-  if (isAgentNativeMonorepo && /(^|\/)packages\/core\//.test(p)) {
     return true;
   }
   return false;
@@ -2569,13 +2560,11 @@ export function evaluateRecapGate(input: RecapGateInput): {
   }
 
   // Self-modifying guard: if this PR changes the workflow, the
-  // visual-recap/visual-plan skill, the local CLI (packages/core), or any agent
-  // config the runner would load (.claude/**, CLAUDE.md, .mcp.json), skip the
-  // ENTIRE job — not just the agent — so a PR can never rewrite what runs
-  // (skill, hooks, settings, CLI) and exfiltrate the publish/API secrets.
-  const hits = input.changedFiles.filter((p) =>
-    isRecapSensitivePath(p, input.repository),
-  );
+  // visual-recap/visual-plan skill, or any agent config the runner would load
+  // (.claude/**, CLAUDE.md, .mcp.json), skip the ENTIRE job — not just the
+  // agent — so a PR can never rewrite what runs (skill, hooks, settings) and
+  // exfiltrate the publish/API secrets.
+  const hits = input.changedFiles.filter((p) => isRecapSensitivePath(p));
   if (hits.length) {
     reasons.push(
       `PR modifies recap-control files (${hits.slice(0, 3).join(", ")}${
@@ -3410,8 +3399,8 @@ Usage:
     files from the GitHub REST API (paged, with GH_TOKEN/GITHUB_TOKEN). Skips
     drafts, forks, bot authors, the missing-secret case, an invalid agent/model,
     and any PR that touches recap-control files (the workflow, the skill,
-    packages/core, .claude/**, CLAUDE.md, AGENTS.md, .mcp.json) — failing CLOSED
-    on any file-list error. Writes run=<true|false> and agent=<claude|codex> to
+    .claude/**, CLAUDE.md, AGENTS.md, .mcp.json) — failing CLOSED on any
+    file-list error. Writes run=<true|false> and agent=<claude|codex> to
     $GITHUB_OUTPUT.
   npx @agent-native/core@latest recap agent-summary
     Read the captured Claude/Codex result file and write a sanitized one-line

@@ -585,6 +585,46 @@ describe("local-core dev aliases and router dedupe", () => {
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 
+  it("keeps react-router inside the dev SSR graph so dedupe applies", () => {
+    const previousCwd = process.cwd();
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "an-vite-ssr-"));
+    fs.writeFileSync(
+      path.join(tmpDir, "package.json"),
+      JSON.stringify({
+        dependencies: {
+          "react-router": "^7.16.0",
+          "react-router-dom": "^7.16.0",
+        },
+      }),
+    );
+
+    try {
+      process.chdir(tmpDir);
+      const ssr = defineConfig().ssr as {
+        noExternal?: unknown[];
+        external?: string[];
+      };
+      const noExternal = ssr.noExternal ?? [];
+      const external = ssr.external ?? [];
+      const routerNoExternal = noExternal.find(
+        (entry) =>
+          entry instanceof RegExp &&
+          entry.test("react-router") &&
+          entry.test("react-router/dom") &&
+          !entry.test("react-router-dom"),
+      );
+
+      expect(routerNoExternal).toBeDefined();
+      expect(noExternal).toContain("react-router-dom");
+      expect(external).not.toContain("react-router");
+      expect(external).not.toContain("react-router/dom");
+      expect(external).not.toContain("react-router-dom");
+    } finally {
+      process.chdir(previousCwd);
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
   it("resolves file:@agent-native/core to a package root with src/index.ts", () => {
     const coreRoot = path.resolve(import.meta.dirname, "../..");
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "an-vite-core-root-"));

@@ -200,9 +200,20 @@ describe("registerMcpServer", () => {
     expect(result.authenticated).toBe(false);
   });
 
-  it("non-interactive device client writes URL-only + returns the fallback command", async () => {
+  it("non-interactive device client leaves config untouched + returns the connect command", async () => {
     const { codexHome } = isolateHome();
     const baseDir = tmpDir();
+    fs.mkdirSync(codexHome, { recursive: true });
+    fs.writeFileSync(
+      path.join(codexHome, "config.toml"),
+      [
+        '[mcp_servers."plan"]',
+        'url = "https://plan.agent-native.com/_agent-native/mcp"',
+        'http_headers = { "Authorization" = "Bearer existing-token" }',
+        "",
+      ].join("\n"),
+      "utf-8",
+    );
     const descriptor: McpDescriptor = {
       serverName: "plan",
       mcpUrl: "https://plan.agent-native.com/_agent-native/mcp",
@@ -225,12 +236,16 @@ describe("registerMcpServer", () => {
 
     const toml = fs.readFileSync(path.join(codexHome, "config.toml"), "utf-8");
     expect(toml).toContain('[mcp_servers."plan"]');
-    expect(toml).not.toContain("Bearer");
+    expect(toml).toContain("Bearer existing-token");
     expect(result.authenticated).toBe(false);
+    expect(result.written).toHaveLength(0);
 
     const guidance = result.guidance.join("\n");
     expect(guidance).toContain(
-      "npx @agent-native/core@latest connect https://plan.agent-native.com --client all --token <token>",
+      "codex: skipped MCP config because this client needs a bearer token.",
+    );
+    expect(guidance).toContain(
+      "npx @agent-native/core@latest connect https://plan.agent-native.com --client codex --scope user",
     );
   });
 

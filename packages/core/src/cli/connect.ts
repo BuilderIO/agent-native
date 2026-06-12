@@ -470,6 +470,13 @@ function clientLabelList(clients: ClientId[]): string {
   return clients.map((client) => CLIENT_LABELS[client]).join(", ");
 }
 
+function sentenceClientLabelList(clients: ClientId[]): string {
+  const labels = clients.map((client) => CLIENT_LABELS[client]);
+  if (labels.length <= 1) return labels[0] ?? "";
+  if (labels.length === 2) return `${labels[0]} and ${labels[1]}`;
+  return `${labels.slice(0, -1).join(", ")}, and ${labels[labels.length - 1]}`;
+}
+
 function clientsNotIn(
   requestedClients: ClientId[],
   effectiveClients: ClientId[],
@@ -482,6 +489,53 @@ function withFullCatalogHeader(
   headers: Record<string, string> | undefined,
 ): Record<string, string> {
   return { ...(headers ?? {}), [MCP_FULL_CATALOG_HEADER]: "1" };
+}
+
+function displayMcpServerName(serverName: string | undefined): string {
+  if (!serverName) return "Agent Native MCP";
+  if (serverName === "plan") return "Plan MCP";
+  return `"${serverName}" MCP`;
+}
+
+async function showReconnectSuccessOutro({
+  serverName,
+  clients,
+}: {
+  serverName: string | undefined;
+  clients: ClientId[];
+}): Promise<void> {
+  const lines = [`✅ Reconnected ${displayMcpServerName(serverName)}.`];
+  if (clients.includes("codex")) {
+    lines.push(
+      "Codex: start a new Codex session now; the MCP tools should be available there.",
+    );
+  }
+  const oauthClients = clients.filter((client) =>
+    supportsRemoteMcpOAuth(client),
+  );
+  if (oauthClients.length > 0) {
+    lines.push(
+      `${sentenceClientLabelList(
+        oauthClients,
+      )}: restart, run /mcp, then choose Authenticate/Reconnect.`,
+    );
+  }
+  if (!clients.includes("codex") && oauthClients.length === 0) {
+    lines.push(
+      `Restart or reload ${sentenceClientLabelList(
+        clients,
+      )} before using the MCP tools.`,
+    );
+  }
+
+  const message = lines.join("\n");
+  try {
+    const clack = await import("@clack/prompts");
+    clack.outro(message);
+  } catch {
+    logOut("");
+    for (const line of lines) logOut(`  ${line}`);
+  }
 }
 
 /** Derive an app slug from a deployed origin, e.g. mail.agent-native.com → mail. */
@@ -1878,8 +1932,14 @@ async function reconnectOne(
       `  Did not touch ${clientLabelList(skippedClients)} because no matching MCP entry was found.`,
     );
     logOut(
-      `  To add another client, run: npx @agent-native/core@latest connect ${baseUrl} --client <client>`,
+      `  To add another client, run: npx @agent-native/core@latest connect ${baseUrl} --client CLIENT --scope ${effectiveParsed.scope}`,
     );
+  }
+  if (res.ok) {
+    await showReconnectSuccessOutro({
+      serverName: res.serverName ?? effectiveParsed.name,
+      clients: effectiveClients,
+    });
   }
   return res.ok;
 }
@@ -2088,7 +2148,7 @@ async function connectOne(
   }
   logOut("");
   logOut(
-    `  Restart or reload ${clientLabelList(clients)} to pick up the new MCP server.`,
+    `  Restart or reload ${sentenceClientLabelList(clients)} to pick up the new MCP server.`,
   );
   if (clients.includes("codex")) {
     logOut(

@@ -230,8 +230,18 @@ async function postJson(
  * The exact no-browser fallback command core prints. Surfaced as guidance when
  * a device-code client is asked to register non-interactively.
  */
-function fallbackConnectCommand(baseUrl: string): string {
-  return `npx @agent-native/core@latest connect ${baseUrl} --client all --token <token>`;
+function clientArgForClients(clients: ClientId[]): string {
+  return clients.length === 1 ? clients[0] : clients.join(",");
+}
+
+function fallbackConnectCommand(
+  baseUrl: string,
+  clients: ClientId[],
+  scope: string,
+): string {
+  return `npx @agent-native/core@latest connect ${baseUrl} --client ${clientArgForClients(
+    clients,
+  )} --scope ${scope}`;
 }
 
 /** Write a URL-only entry (no bearer) for every config key, collecting files. */
@@ -264,6 +274,17 @@ function writeUrlOnlyEntries(
       }
     }
   }
+}
+
+function manualConnectGuidance(
+  baseUrl: string,
+  clients: ClientId[],
+  scope: string,
+): string {
+  return (
+    `To authenticate ${describeClients(clients)}, run: ` +
+    fallbackConnectCommand(baseUrl, clients, scope)
+  );
 }
 
 /** Write a token+headers entry for every config key, collecting files. */
@@ -498,27 +519,21 @@ export async function registerMcpServer(
 
     // We only reach here for authMode "oauth"/"device" (authMode "none" returned
     // earlier). Run the flow only when interactive AND we have a hosted URL to
-    // authenticate against; otherwise fall back to URL-only.
+    // authenticate against. Device-code clients such as Codex cannot use a
+    // URL-only hosted entry: writing one would overwrite a working bearer token
+    // and leave new sessions unauthenticated. If auth cannot complete, keep the
+    // existing config untouched and surface the explicit connect command.
     const canRunFlow = interactive && !!baseUrl;
 
     if (!canRunFlow) {
-      writeUrlOnlyEntries(
-        deviceClients,
-        keys,
-        mcpUrl,
-        scope,
-        baseDir,
-        written,
-        errors,
-      );
       if (baseUrl) {
         guidance.push(
-          `${describeClients(deviceClients)}: wrote URL-only MCP config (no token).`,
-          `To authenticate non-interactively, run: ${fallbackConnectCommand(baseUrl)}`,
+          `${describeClients(deviceClients)}: skipped MCP config because this client needs a bearer token.`,
+          manualConnectGuidance(baseUrl, deviceClients, scope),
         );
       } else {
         guidance.push(
-          `${describeClients(deviceClients)}: wrote URL-only MCP config (no hosted URL to authenticate against).`,
+          `${describeClients(deviceClients)}: skipped MCP config because no hosted URL was available for authentication.`,
         );
       }
     } else {
@@ -548,20 +563,11 @@ export async function registerMcpServer(
         );
         authenticated = true;
       } else {
-        // Flow failed (or approved with no token) — fall back to URL-only and
-        // surface the exact recovery command.
-        writeUrlOnlyEntries(
-          deviceClients,
-          keys,
-          mcpUrl,
-          scope,
-          baseDir,
-          written,
-          errors,
-        );
+        // Flow failed (or approved with no token). Do not downgrade device-code
+        // clients to a URL-only hosted entry; keep any existing bearer config.
         guidance.push(
-          `${describeClients(deviceClients)}: authentication did not complete; wrote URL-only MCP config.`,
-          `To finish, run: ${fallbackConnectCommand(baseUrl!)}`,
+          `${describeClients(deviceClients)}: authentication did not complete; existing MCP config was left unchanged.`,
+          manualConnectGuidance(baseUrl!, deviceClients, scope),
         );
       }
     }

@@ -143,14 +143,14 @@ describe("installSkills MCP registration", () => {
     expect(fs.existsSync(path.join(project, ".mcp.json"))).toBe(false);
   });
 
-  it("writes a URL-only codex config block non-interactively (no device flow)", async () => {
+  it("does not write URL-only codex config non-interactively", async () => {
     const repo = tmpDir();
     const project = tmpDir();
     const codexHome = tmpDir();
     process.env.CODEX_HOME = codexHome;
     writeSkill(repo, "visual-plan");
 
-    await installSkills({
+    const result = await installSkills({
       source: repo,
       skillNames: ["visual-plan"],
       clients: ["codex"],
@@ -160,12 +160,10 @@ describe("installSkills MCP registration", () => {
       isInteractive: () => false,
     });
 
-    const toml = fs.readFileSync(path.join(codexHome, "config.toml"), "utf-8");
-    expect(toml).toContain('[mcp_servers."plan"]');
-    expect(toml).toContain(
-      'url = "https://plan.agent-native.com/_agent-native/mcp"',
+    expect(fs.existsSync(path.join(codexHome, "config.toml"))).toBe(false);
+    expect(result.mcpServers[0]?.files).toEqual([]);
+    expect(result.mcpServers[0]?.guidance.join("\n")).toContain(
+      "npx @agent-native/core@latest connect https://plan.agent-native.com --client codex --scope project",
     );
-    // non-interactive: no bearer token minted
-    expect(toml).not.toContain("Authorization");
   });
 });

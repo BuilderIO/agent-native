@@ -436,6 +436,7 @@ describe("recap prompt builder", () => {
     expect(prompt).toContain("mcp__plan__create-visual-recap");
     expect(prompt).toContain("block-registry tool is not visible");
     expect(prompt).toContain("compact MCP catalog");
+    expect(prompt).toContain("Do not schedule wakeups");
     expect(prompt).toContain("set-resource-visibility");
     expect(prompt).toContain("recap-url.txt");
     expect(prompt).toContain(
@@ -1066,7 +1067,7 @@ describe("recap gate decision", () => {
     expect(result.run).toBe(true);
   });
 
-  it("skips when the PR modifies packages/core (self-modifying guard)", () => {
+  it("allows agent-native packages/core changes because the workflow runs a trusted CLI", () => {
     const result = evaluateRecapGate(
       ok({
         repository: "BuilderIO/agent-native",
@@ -1079,15 +1080,7 @@ describe("recap gate decision", () => {
         changedFiles: ["packages/core/src/cli/recap.ts"],
       }),
     );
-    expect(result.run).toBe(false);
-    expect(
-      result.reasons.some((r) =>
-        r.startsWith("PR modifies recap-control files"),
-      ),
-    ).toBe(true);
-    expect(result.reasons.join(" ")).toContain(
-      "packages/core/src/cli/recap.ts",
-    );
+    expect(result.run).toBe(true);
   });
 
   it("does not treat consumer packages/core paths as recap-control files", () => {
@@ -1155,18 +1148,7 @@ describe("recap sensitive-path guard", () => {
         "templates/plan/.agents/skills/visual-recap/SKILL.md",
       ),
     ).toBe(true);
-    expect(
-      isRecapSensitivePath(
-        "packages/core/src/cli/recap.ts",
-        "BuilderIO/agent-native",
-      ),
-    ).toBe(true);
-    expect(
-      isRecapSensitivePath(
-        "packages/core/src/cli/recap.ts",
-        "BuilderIO/ai-services",
-      ),
-    ).toBe(false);
+    expect(isRecapSensitivePath("packages/core/src/cli/recap.ts")).toBe(false);
     expect(isRecapSensitivePath(".claude/settings.json")).toBe(true);
     expect(isRecapSensitivePath("CLAUDE.md")).toBe(true);
     expect(isRecapSensitivePath("apps/foo/AGENTS.md")).toBe(true);
@@ -1459,10 +1441,13 @@ describe("bundled workflow — RECAP_CLI_VERSION pinning", () => {
   it("uses vars.RECAP_CLI_VERSION in the Resolve recap CLI step", () => {
     expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain("RECAP_CLI_VERSION");
     expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain(
-      "@agent-native/core@${RECAP_CLI_VERSION}",
+      "@agent-native/core@$VERSION",
     );
     expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain(
       "vars.RECAP_CLI_VERSION || 'latest'",
+    );
+    expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain(
+      "Install published recap CLI",
     );
   });
 });
@@ -1848,12 +1833,14 @@ describe("reusable workflow file structure", () => {
     expect(content).toMatch(/^\s+recap:/m);
   });
 
-  it("consumer repos never use local pnpm source (Resolve recap CLI step)", () => {
+  it("consumer repos install the published CLI once", () => {
     const content = fs.readFileSync(reusableFile, "utf8");
     // The canonical workflow has a local-source branch; the reusable one must
     // always use the published CLI — consumer repos don't have packages/core.
     expect(content).not.toContain("pnpm exec tsx");
-    expect(content).toContain("npx -y @agent-native/core@");
+    expect(content).toContain("Install published recap CLI");
+    expect(content).toContain("@agent-native/core@$VERSION");
+    expect(content).toContain("node_modules/.bin/agent-native");
   });
 
   it("has the auth probe step (parity with copy workflow)", () => {
@@ -2147,12 +2134,12 @@ describe("reusable vs copy workflow step-sequence parity", () => {
     expect(copySteps.length).toBeGreaterThan(5);
     expect(reusableSteps.length).toBeGreaterThan(5);
 
-    // Every named step in the copy must appear in the reusable (same order).
-    // We allow the reusable to omit "Install workspace (local source only)" and
-    // "Cache Playwright browsers" vs pnpm variant differences — use subsequence
-    // matching rather than strict equality.
+    // Every named recap step in the copy must appear in the reusable. CLI setup
+    // differs because the copy workflow can run trusted base-branch source while
+    // the reusable workflow always installs the published package.
     const knownDifferences = new Set([
       "Install workspace (local source only)",
+      "Install trusted workspace recap CLI",
       "Resolve recap CLI", // reusable is simpler (no local-branch)
     ]);
     const copyFiltered = copySteps.filter((s) => !knownDifferences.has(s));

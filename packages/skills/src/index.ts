@@ -3,7 +3,6 @@ import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import readline from "node:readline/promises";
 import { fileURLToPath } from "node:url";
 
 import { resolveAppForSkill } from "./built-in-apps.js";
@@ -35,6 +34,15 @@ export interface InstallSkillsOptions {
   log?: (message: string) => void;
   isInteractive?: () => boolean;
   telemetry?: CliTelemetry;
+  promptSkills?: (context: SkillsPromptContext) => Promise<string[] | null>;
+  promptClients?: (
+    context: ClientsPromptContext,
+  ) => Promise<SkillClient[] | null>;
+  promptScope?: (context: ScopePromptContext) => Promise<SkillScope | null>;
+  promptUpdateInstructions?: () => Promise<boolean | null>;
+  promptGithubAction?: (
+    context: GithubActionPromptContext,
+  ) => Promise<boolean | null>;
   /**
    * Register the hosted MCP server for app-backed skills (e.g. visual-plan /
    * visual-recap → the Agent-Native Plan MCP). Defaults to `true`; pass
@@ -81,6 +89,30 @@ interface ParsedArgs {
   force: boolean;
   baseDir?: string;
   mcp: boolean;
+}
+
+interface PromptOption<T extends string> {
+  value: T;
+  label: string;
+  hint: string;
+}
+
+export interface SkillsPromptContext {
+  initialSkills: string[];
+  options: Array<PromptOption<string>>;
+}
+
+export interface ClientsPromptContext {
+  initialClients: SkillClient[];
+  options: Array<PromptOption<SkillClient>>;
+}
+
+export interface ScopePromptContext {
+  initialScope: SkillScope;
+}
+
+export interface GithubActionPromptContext {
+  workflowPath: string;
 }
 
 const HELP = `@agent-native/skills
@@ -229,7 +261,17 @@ function toCoreSkillsArgv(parsed: ParsedArgs): string[] {
 
 export async function runSkillsCli(
   argv: string[],
-  options: Pick<InstallSkillsOptions, "log" | "isInteractive" | "baseDir"> = {},
+  options: Pick<
+    InstallSkillsOptions,
+    | "log"
+    | "isInteractive"
+    | "baseDir"
+    | "promptSkills"
+    | "promptClients"
+    | "promptScope"
+    | "promptUpdateInstructions"
+    | "promptGithubAction"
+  > = {},
 ): Promise<void> {
   const parsed = parseSkillsCliArgs(argv);
 
@@ -312,6 +354,11 @@ export async function runSkillsCli(
       force: parsed.force,
       log: parsed.printJson ? undefined : options.log,
       isInteractive: options.isInteractive,
+      promptSkills: options.promptSkills,
+      promptClients: options.promptClients,
+      promptScope: options.promptScope,
+      promptUpdateInstructions: options.promptUpdateInstructions,
+      promptGithubAction: options.promptGithubAction,
       telemetry,
       mcp: parsed.mcp,
     });
@@ -612,6 +659,43 @@ function unique<T>(values: T[]): T[] {
   return [...new Set(values)];
 }
 
+function compactPromptHint(value: string | undefined): string {
+  const hint = value?.replace(/\s+/g, " ").trim() ?? "";
+  if (!hint) return "Skill from BuilderIO/skills.";
+  if (hint.length <= 96) return hint;
+  return `${hint.slice(0, 93).trimEnd()}...`;
+}
+
+function skillPromptOptions(
+  entries: SkillEntry[],
+): SkillsPromptContext["options"] {
+  return entries.map((entry) => ({
+    value: entry.name,
+    label: entry.name,
+    hint: compactPromptHint(entry.description),
+  }));
+}
+
+async function promptForSkills(
+  context: SkillsPromptContext,
+): Promise<string[] | null> {
+  const clack = await import("@clack/prompts");
+  const result = await clack.multiselect({
+    message:
+      "Which skills do you want to install?\n" +
+      "  (space toggles, enter confirms)",
+    options: context.options,
+    initialValues: context.initialSkills,
+    required: true,
+  });
+  if (clack.isCancel(result)) {
+    clack.cancel("Cancelled.");
+    return null;
+  }
+  if (!Array.isArray(result)) return [];
+  return result.filter((value): value is string => typeof value === "string");
+}
+
 async function resolveSelectedSkills(
   entries: SkillEntry[],
   options: InstallSkillsOptions,
@@ -632,37 +716,45 @@ async function resolveSelectedSkills(
 
   if (!isInteractive(options) || options.yes) return entries;
 
-  const answer = await promptLine(
-    [
-      "Which skills do you want to install?",
-      ...entries.map(
-        (entry, index) =>
-          `  ${index + 1}. ${entry.name}${entry.description ? ` - ${entry.description}` : ""}`,
-      ),
-      "Enter numbers or names separated by commas, or press Enter for all: ",
-    ].join("\n"),
-  );
-  const trimmed = answer.trim();
-  if (!trimmed) return entries;
-  const selectedNames = trimmed
-    .split(",")
-    .map((part) => part.trim())
-    .filter(Boolean)
-    .map((part) => {
-      const asNumber = Number(part);
-      if (
-        Number.isInteger(asNumber) &&
-        asNumber >= 1 &&
-        asNumber <= entries.length
-      ) {
-        return entries[asNumber - 1].name;
-      }
-      return normalizeSkillName(part);
-    });
+  const prompt = options.promptSkills ?? promptForSkills;
+  const selectedNames = await prompt({
+    initialSkills: entries.map((entry) => entry.name),
+    options: skillPromptOptions(entries),
+  });
+  if (!selectedNames || selectedNames.length === 0) {
+    throw new Error("Cancelled.");
+  }
   return resolveSelectedSkills(entries, {
     ...options,
     skillNames: selectedNames,
   });
+}
+
+async function promptForScope(
+  context: ScopePromptContext,
+): Promise<SkillScope | null> {
+  const clack = await import("@clack/prompts");
+  const result = await clack.select({
+    message: "Where do you want to install these skills?",
+    options: [
+      {
+        value: "project",
+        label: "Project",
+        hint: "This repo only (.agents / .claude in the current directory)",
+      },
+      {
+        value: "user",
+        label: "User",
+        hint: "Your home directory (~/.codex, ~/.claude), across projects",
+      },
+    ],
+    initialValue: context.initialScope,
+  });
+  if (clack.isCancel(result)) {
+    clack.cancel("Cancelled.");
+    return null;
+  }
+  return result === "user" ? "user" : "project";
 }
 
 async function resolveSelectedScope(
@@ -671,17 +763,54 @@ async function resolveSelectedScope(
   if (options.scope) return options.scope;
   if (!isInteractive(options) || options.yes) return "user";
 
-  const answer = await promptLine(
-    [
-      "Where do you want to install these skills?",
-      "  1. project - this repo only (.agents / .claude in the current directory)",
-      "  2. user    - your home directory, available across all projects",
-      "Enter project or user [project]: ",
-    ].join("\n"),
+  const prompt = options.promptScope ?? promptForScope;
+  const selected = await prompt({ initialScope: "project" });
+  if (!selected) throw new Error("Cancelled.");
+  return selected;
+}
+
+function clientPromptOptions(): ClientsPromptContext["options"] {
+  return [
+    {
+      value: "codex",
+      label: "Codex",
+      hint: "Install into Codex skill directories",
+    },
+    {
+      value: "claude-code",
+      label: "Claude Code",
+      hint: "Install into Claude Code skill directories",
+    },
+  ];
+}
+
+function normalizePromptClients(values: unknown): SkillClient[] {
+  if (!Array.isArray(values)) return [];
+  return unique(
+    values.filter(
+      (value): value is SkillClient =>
+        value === "codex" || value === "claude-code",
+    ),
   );
-  const trimmed = answer.trim().toLowerCase();
-  if (trimmed === "2" || trimmed === "user" || trimmed === "u") return "user";
-  return "project";
+}
+
+async function promptForClients(
+  context: ClientsPromptContext,
+): Promise<SkillClient[] | null> {
+  const clack = await import("@clack/prompts");
+  const result = await clack.multiselect({
+    message:
+      "Install these skills for which local agents?\n" +
+      "  (space toggles, enter confirms)",
+    options: context.options,
+    initialValues: context.initialClients,
+    required: true,
+  });
+  if (clack.isCancel(result)) {
+    clack.cancel("Cancelled.");
+    return null;
+  }
+  return normalizePromptClients(result);
 }
 
 async function resolveSelectedClients(
@@ -691,11 +820,13 @@ async function resolveSelectedClients(
   if (requested.length > 0) return requested;
   if (!isInteractive(options) || options.yes) return CLIENTS;
 
-  const answer = await promptLine(
-    "Install for which clients? Enter codex, claude-code, or all [all]: ",
-  );
-  const trimmed = answer.trim();
-  return trimmed ? unique(normalizeClients(trimmed)) : CLIENTS;
+  const prompt = options.promptClients ?? promptForClients;
+  const selected = await prompt({
+    initialClients: CLIENTS,
+    options: clientPromptOptions(),
+  });
+  if (!selected || selected.length === 0) throw new Error("Cancelled.");
+  return selected;
 }
 
 function isInteractive(
@@ -704,18 +835,6 @@ function isInteractive(
   if (options.isInteractive) return options.isInteractive();
   if (process.env.CI === "true") return false;
   return Boolean(process.stdin.isTTY && process.stdout.isTTY);
-}
-
-async function promptLine(question: string): Promise<string> {
-  const rl = readline.createInterface({
-    input: process.stdin,
-    output: process.stdout,
-  });
-  try {
-    return await rl.question(question);
-  } finally {
-    rl.close();
-  }
 }
 
 function installRootForClient(
@@ -938,10 +1057,9 @@ async function maybeUpdateInstructions(
   if (shouldUpdate === undefined) {
     if (options.yes) shouldUpdate = true;
     else if (isInteractive(options)) {
-      const answer = await promptLine(
-        "Add managed AGENTS.md / CLAUDE.md instructions for always-on behavior? [Y/n] ",
-      );
-      shouldUpdate = !/^n/i.test(answer.trim());
+      const prompt =
+        options.promptUpdateInstructions ?? promptForUpdateInstructions;
+      shouldUpdate = (await prompt()) === true;
     } else {
       shouldUpdate = false;
     }
@@ -1002,10 +1120,44 @@ async function shouldPromptGithubAction(
   ) {
     return false;
   }
-  const answer = await promptLine(
-    "Add the optional PR Visual Recap GitHub Action? [y/N] ",
+  const prompt = options.promptGithubAction ?? promptForGithubAction;
+  return (
+    (await prompt({
+      workflowPath: path.join(".github", "workflows", "pr-visual-recap.yml"),
+    })) === true
   );
-  return /^y/i.test(answer.trim());
+}
+
+async function promptForUpdateInstructions(): Promise<boolean | null> {
+  const clack = await import("@clack/prompts");
+  const result = await clack.confirm({
+    message:
+      "Add managed AGENTS.md / CLAUDE.md instructions for always-on behavior?",
+    initialValue: true,
+  });
+  if (clack.isCancel(result)) {
+    clack.cancel("Skipped instruction update.");
+    return null;
+  }
+  return Boolean(result);
+}
+
+async function promptForGithubAction(
+  context: GithubActionPromptContext,
+): Promise<boolean | null> {
+  const clack = await import("@clack/prompts");
+  const result = await clack.confirm({
+    message:
+      "Optional: add automatic PR Visual Recaps? (GitHub Action)\n" +
+      "  Posts a human-friendly recap on every pull request.\n" +
+      `  Writes ${context.workflowPath}.`,
+    initialValue: false,
+  });
+  if (clack.isCancel(result)) {
+    clack.cancel("Skipped PR Visual Recap workflow.");
+    return null;
+  }
+  return Boolean(result);
 }
 
 const PR_VISUAL_RECAP_REUSABLE_WORKFLOW = `name: PR Visual Recap

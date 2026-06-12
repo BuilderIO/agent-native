@@ -1510,6 +1510,11 @@ export function defineConfig(options: ClientConfigOptions = {}): UserConfig {
           // and triggers a server restart when those files change.
           noExternal: [
             /^@agent-native\/core(\/.*)?$/,
+            // Keep React Router in Vite's SSR module graph so resolve.dedupe
+            // can force root.tsx and core's shared entry-server through the
+            // same FrameworkContext instance.
+            ...(hasDep("react-router", cwd) ? [/^react-router(\/.*)?$/] : []),
+            ...(hasDep("react-router-dom", cwd) ? ["react-router-dom"] : []),
             // Radix UI primitives are transitive deps of @agent-native/core
             // (used by FeedbackButton, AgentSidebar, ShareDialog, etc.). When
             // a consumer app SSRs a component that imports Radix, Node's
@@ -1529,14 +1534,7 @@ export function defineConfig(options: ClientConfigOptions = {}): UserConfig {
               : []),
             ...workspaceCoreNoExternal,
           ],
-          external: [
-            "react",
-            "react-dom",
-            "react-dom/server",
-            "react-router",
-            "react-router/dom",
-            "react-router-dom",
-          ],
+          external: ["react", "react-dom", "react-dom/server"],
         },
     plugins: [
       // Stub packages from `options.ssrStubs` in the SSR bundle so they

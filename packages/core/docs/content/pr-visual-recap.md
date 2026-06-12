@@ -182,23 +182,22 @@ These mitigations are already layered in the workflow (secret scan, sensitive-pa
 
 ### Relationship to the main workflow
 
-The two workflow files are independent. For non-fork PRs, only `pr-visual-recap.yml` fires (fork check in its gate excludes them). For fork PRs, only `pr-visual-recap-fork.yml` fires (non-fork check in its gate excludes them). They share the same sticky comment marker and plan-id threading, so both PRs and fork PRs produce a single upserted comment on the same PR.
+The two workflow files are independent. For non-fork PR updates, `pr-visual-recap.yml` is the only workflow that runs. For fork PRs, the normal workflow exits at its fork gate, and `pr-visual-recap-fork.yml` runs only when a maintainer applies the `recap` label. They share the same sticky comment marker and plan-id threading, so both PRs and fork PRs produce a single upserted comment on the same PR.
 
 ### Self-modifying guard {#self-modifying-guard}
 
-The `gate` step skips the recap entirely when a PR touches any of the following paths, so a PR can never rewrite what the trusted recap job runs and exfiltrate secrets:
+The `gate` step skips the recap entirely when a PR touches any of the following paths, so a PR can never rewrite the workflow, skill, or agent config that the trusted recap job loads and exfiltrate secrets:
 
-| Path pattern                               | Reason                                                    |
-| ------------------------------------------ | --------------------------------------------------------- |
-| `.github/workflows/pr-visual-recap.yml`    | The workflow itself                                       |
-| `**/skills/visual-(recap\|plan\|plans)/**` | The visual-recap skill the agent follows                  |
-| `**/.claude/**`                            | Agent settings the runner loads                           |
-| `**/CLAUDE.md`                             | Agent instructions the runner loads                       |
-| `**/AGENTS.md`                             | Agent instructions the runner loads                       |
-| `**/.mcp.json`                             | MCP server config the runner loads                        |
-| `packages/core/**`                         | Recap CLI source _(BuilderIO/agent-native monorepo only)_ |
+| Path pattern                               | Reason                                   |
+| ------------------------------------------ | ---------------------------------------- |
+| `.github/workflows/pr-visual-recap.yml`    | The workflow itself                      |
+| `**/skills/visual-(recap\|plan\|plans)/**` | The visual-recap skill the agent follows |
+| `**/.claude/**`                            | Agent settings the runner loads          |
+| `**/CLAUDE.md`                             | Agent instructions the runner loads      |
+| `**/AGENTS.md`                             | Agent instructions the runner loads      |
+| `**/.mcp.json`                             | MCP server config the runner loads       |
 
-The `packages/core/**` rule applies only in the `BuilderIO/agent-native` monorepo where `packages/core` is the recap CLI source. In consumer repos an unrelated `packages/core/` directory does not trigger the guard.
+In the `BuilderIO/agent-native` monorepo, the workflow runs the recap CLI from trusted base-branch source instead of PR-head source. That keeps normal package changes, including `packages/core/**`, eligible for recaps without executing PR-modified CLI code.
 
 ## Local-files privacy mode
 

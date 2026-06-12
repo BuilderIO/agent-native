@@ -261,12 +261,27 @@ jobs:
       - name: Resolve recap CLI
         id: cli
         run: |
-          echo "RECAP_CLI=npx -y @agent-native/core@${RECAP_CLI_VERSION}" >> "$GITHUB_ENV"
           echo "local=false" >> "$GITHUB_OUTPUT"
 
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version: "22"
+
+      - name: Install published recap CLI
+        run: |
+          set -euo pipefail
+          VERSION="$RECAP_CLI_VERSION"
+          if [ "$VERSION" = "latest" ]; then
+            VERSION="$(npm view @agent-native/core@latest version)"
+          fi
+          for attempt in 1 2 3; do
+            if npm install --prefix "$RUNNER_TEMP/recap-cli" --no-audit --no-fund "@agent-native/core@$VERSION"; then
+              break
+            fi
+            if [ "$attempt" = "3" ]; then exit 1; fi
+            sleep $((attempt * 10))
+          done
+          echo "RECAP_CLI=$RUNNER_TEMP/recap-cli/node_modules/.bin/agent-native" >> "$GITHUB_ENV"
 
       - name: Start visual recap check
         id: recap_check
@@ -356,11 +371,20 @@ jobs:
           $RECAP_CLI recap mcp-config --agent claude --app-url "$PLAN_RECAP_APP_URL" --out "$MCP_CONFIG"
           CLAUDE_ARGS=(-p "$(cat recap-prompt.md)" --mcp-config "$MCP_CONFIG" --allowedTools "Read,Write,Bash(git diff:*),mcp__plan__get-plan-blocks,mcp__plan__create-visual-recap,mcp__plan__set-resource-visibility" --permission-mode dontAsk --output-format json)
           if [ -n "${VISUAL_RECAP_MODEL:-}" ]; then CLAUDE_ARGS+=(--model "$VISUAL_RECAP_MODEL"); fi
-          set +e
-          npx -y @anthropic-ai/claude-code@2 "${CLAUDE_ARGS[@]}" > claude-result.json 2> claude-stderr.log
-          CLAUDE_STATUS="$?"
-          set -e
-          echo "$CLAUDE_STATUS" > claude-exit-code.txt
+          rm -f recap-url.txt claude-result.json claude-stderr.log
+          run_claude() {
+            set +e
+            npx -y @anthropic-ai/claude-code@2 "${CLAUDE_ARGS[@]}" > claude-result.json 2> claude-stderr.log
+            CLAUDE_STATUS="$?"
+            set -e
+            echo "$CLAUDE_STATUS" > claude-exit-code.txt
+          }
+          run_claude
+          if [ ! -s recap-url.txt ] && grep -Eiq 'schedule(d)? a wakeup|connector.*register|mcp.*register' claude-result.json claude-stderr.log 2>/dev/null; then
+            echo "Plan MCP registration appears delayed; retrying Claude once after 20s."
+            sleep 20
+            run_claude
+          fi
           rm -f "$MCP_CONFIG" || true
 
       - name: Run agent (Codex)
@@ -381,11 +405,20 @@ jobs:
             "") ;;
             *) echo "Ignoring invalid VISUAL_RECAP_REASONING: $VISUAL_RECAP_REASONING" ;;
           esac
-          set +e
-          npx -y @openai/codex@0 "${CODEX_ARGS[@]}" --json "$(cat recap-prompt.md)" 2> codex-stderr.log | tee codex-events.jsonl
-          CODEX_STATUS="${PIPESTATUS[0]}"
-          set -e
-          echo "$CODEX_STATUS" > codex-exit-code.txt
+          rm -f recap-url.txt codex-events.jsonl codex-stderr.log
+          run_codex() {
+            set +e
+            npx -y @openai/codex@0 "${CODEX_ARGS[@]}" --json "$(cat recap-prompt.md)" 2> codex-stderr.log | tee codex-events.jsonl
+            CODEX_STATUS="${PIPESTATUS[0]}"
+            set -e
+            echo "$CODEX_STATUS" > codex-exit-code.txt
+          }
+          run_codex
+          if [ ! -s recap-url.txt ] && grep -Eiq 'schedule(d)? a wakeup|connector.*register|mcp.*register' codex-events.jsonl codex-stderr.log 2>/dev/null; then
+            echo "Plan MCP registration appears delayed; retrying Codex once after 20s."
+            sleep 20
+            run_codex
+          fi
 
       - name: Read plan URL
         id: url

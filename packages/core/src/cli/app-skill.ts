@@ -18,7 +18,11 @@ import {
   buildHttpMcpEntry,
   removeSameUrlDuplicatesForClient,
 } from "./mcp-config-writers.js";
-import { resolveClients, writeConfigs } from "./connect.js";
+import {
+  resolveClients,
+  supportsRemoteMcpOAuth,
+  writeConfigs,
+} from "./connect.js";
 
 export type SkillVisibility = "internal" | "exported" | "both";
 export type AppSkillHostAdapter =
@@ -1219,14 +1223,39 @@ export async function ensureAppSkill(
   }
 
   const baseDir = options.baseDir ?? process.cwd();
-  result.written = writeConfigs(
-    clients,
-    serverName,
-    plan.mcpUrl,
-    undefined,
-    scope,
-    baseDir,
-  );
+  const authMode = manifest.auth?.mode ?? "oauth";
+  const shouldSkipDeviceHostedConfig = mode === "hosted" && authMode !== "none";
+  const writableClients = shouldSkipDeviceHostedConfig
+    ? clients.filter((client) => supportsRemoteMcpOAuth(client))
+    : clients;
+  const skippedClients = shouldSkipDeviceHostedConfig
+    ? clients.filter((client) => !supportsRemoteMcpOAuth(client))
+    : [];
+
+  result.written = writableClients.length
+    ? writeConfigs(
+        writableClients,
+        serverName,
+        plan.mcpUrl,
+        undefined,
+        scope,
+        baseDir,
+      )
+    : [];
+
+  if (skippedClients.length > 0) {
+    options.log?.(
+      `Skipped URL-only hosted MCP config for ${skippedClients.join(
+        ", ",
+      )}; run agent-native connect ${manifest.hosted.url} --client ${skippedClients.join(
+        ",",
+      )} --scope ${scope} to write bearer auth.`,
+    );
+  }
+
+  if (writableClients.length === 0) {
+    return result;
+  }
 
   // Aliases are intentionally NOT written as separate entries. Instead,
   // repurpose the alias list as a cleanup list: remove any other entries in
@@ -1234,7 +1263,7 @@ export async function ensureAppSkill(
   // names, old default names like 'agent-native-<slug>', and any stale
   // custom names left from previous installs).
   const allRemovedNames: string[] = [];
-  for (const client of clients) {
+  for (const client of writableClients) {
     const removed = removeSameUrlDuplicatesForClient(
       client,
       serverName,
@@ -1248,8 +1277,8 @@ export async function ensureAppSkill(
   const uniqueRemoved = [...new Set(allRemovedNames)];
   const logMsg =
     uniqueRemoved.length > 0
-      ? `Registered "${serverName}" for ${clients.join(", ")} at ${plan.mcpUrl}; removed duplicate entries: ${uniqueRemoved.join(", ")}`
-      : `Registered "${serverName}" for ${clients.join(", ")} at ${plan.mcpUrl}`;
+      ? `Registered "${serverName}" for ${writableClients.join(", ")} at ${plan.mcpUrl}; removed duplicate entries: ${uniqueRemoved.join(", ")}`
+      : `Registered "${serverName}" for ${writableClients.join(", ")} at ${plan.mcpUrl}`;
   options.log?.(logMsg);
   return result;
 }

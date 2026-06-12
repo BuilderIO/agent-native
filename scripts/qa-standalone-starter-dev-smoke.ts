@@ -33,7 +33,7 @@ import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import type { Browser, Page } from "playwright";
+import type { APIResponse, Browser, Page } from "playwright";
 
 const repoRoot = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -67,6 +67,21 @@ function log(step: string): void {
 
 const cliEntry = path.join(repoRoot, "packages/core/dist/cli/index.js");
 const nodeBin = process.execPath;
+
+type ApiResponseShape = {
+  ok: boolean | (() => boolean);
+  status: number | (() => number);
+};
+
+function apiResponseOk(response: APIResponse): boolean {
+  const ok = (response as unknown as ApiResponseShape).ok;
+  return typeof ok === "function" ? ok.call(response) : ok;
+}
+
+function apiResponseStatus(response: APIResponse): number {
+  const status = (response as unknown as ApiResponseShape).status;
+  return typeof status === "function" ? status.call(response) : status;
+}
 
 interface ViteReloadTracker {
   /** Wall-clock ms when the latest Vite full-page reload log chunk arrived. */
@@ -123,6 +138,10 @@ function scaffoldStandaloneStarter(): void {
     [cliEntry, "create", appName, "--standalone", "--template", "starter"],
     {
       cwd: scaffoldParent,
+      env: {
+        AGENT_NATIVE_CREATE_USE_LOCAL_CORE:
+          process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE ?? "1",
+      },
     },
   );
   assert.equal(fs.existsSync(path.join(appDir, "package.json")), true);
@@ -656,23 +675,31 @@ async function waitForHomeLink(
   );
 }
 
-async function readAuthenticatedSessionEmail(page: Page): Promise<string> {
-  return retryAfterNavigation(
-    "session read",
-    async () => {
-      const session = await page.evaluate(async () => {
-        const response = await fetch("/_agent-native/auth/session", {
+async function readAuthenticatedSessionEmail(
+  page: Page,
+  baseUrl: string,
+): Promise<string> {
+  const attempts = isCi ? 40 : 10;
+  const delayMs = 1_500;
+  let lastError: unknown;
+
+  for (let attempt = 0; attempt < attempts; attempt++) {
+    try {
+      const response = await page
+        .context()
+        .request.get(`${baseUrl}/_agent-native/auth/session`, {
           headers: { Accept: "application/json" },
-          credentials: "include",
+          timeout: 5_000,
         });
-        const text = await response.text();
-        if (!response.ok) {
-          throw new Error(
-            `session read failed with HTTP ${response.status}: ${text.slice(0, 200)}`,
-          );
-        }
-        return text ? JSON.parse(text) : null;
-      });
+      const text = await response.text();
+      const ok = apiResponseOk(response);
+      const status = apiResponseStatus(response);
+      if (!ok) {
+        throw new Error(
+          `session read failed with HTTP ${status}: ${text.slice(0, 200)}`,
+        );
+      }
+      const session = text ? JSON.parse(text) : null;
       const sessionEmail =
         typeof session?.email === "string"
           ? session.email
@@ -684,9 +711,21 @@ async function readAuthenticatedSessionEmail(page: Page): Promise<string> {
         `expected authenticated session, got ${JSON.stringify(session)}`,
       );
       return sessionEmail;
-    },
-    { attempts: 10, delayMs: 1_500 },
-  );
+    } catch (err) {
+      lastError = err;
+      const message = err instanceof Error ? err.message : String(err);
+      const retryable =
+        isTransientDevServerError(err) ||
+        message.includes("expected authenticated session");
+      if (!retryable || attempt === attempts - 1) throw err;
+      log(
+        `session read not ready (attempt ${attempt + 1}/${attempts}), retrying…`,
+      );
+      await sleep(delayMs);
+    }
+  }
+
+  throw lastError;
 }
 
 async function waitForAuthenticatedShell(
@@ -740,9 +779,12 @@ async function waitForAuthenticatedShell(
   }
 
   await waitForViteDepsQuiet(running.viteReload, serverLogs);
-  await waitForHomeLink(page, Math.max(15_000, shellDeadline - Date.now()));
+  await waitForHomeLink(page, Math.max(15_000, shellDeadline - Date.now()), {
+    baseUrl,
+    renavigateOnTimeout: true,
+  });
 
-  const sessionEmail = await readAuthenticatedSessionEmail(page);
+  const sessionEmail = await readAuthenticatedSessionEmail(page, baseUrl);
   log(`authenticated session: ${sessionEmail}`);
   return sessionEmail;
 }
