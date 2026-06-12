@@ -16,6 +16,8 @@
  *                 huge/tiny flags.
  *   mcp-config    Write the plan MCP client config for the chosen backend
  *                 (Claude Code JSON or Codex config.toml).
+ *   mcp-smoke     Verify the configured Plan MCP endpoint exposes the publish
+ *                 tools before spending runner time on Claude/Codex.
  *   scan          Refuse to hand a secret-leaking diff to the agent.
  *   build-prompt  Assemble the agent prompt = latest visual-recap skill bundle
  *                 + a task wrapper (or repo-pinned skill with --skill-source).
@@ -250,6 +252,11 @@ export type RecapAgent = "claude" | "codex";
 
 const DEFAULT_RECAP_APP_URL = "https://plan.agent-native.com";
 const RECAP_MCP_CLIENT_HEADER = "agent-native-pr-visual-recap";
+export const RECAP_MCP_REQUIRED_TOOLS = [
+  "get-plan-blocks",
+  "create-visual-recap",
+  "set-resource-visibility",
+] as const;
 
 export function normalizeRecapAgent(value: string | undefined): RecapAgent {
   const agent = (value || "claude").toLowerCase();
@@ -1349,6 +1356,301 @@ export function buildRecapCodexMcpConfig(appUrl: string): string {
     'bearer_token_env_var = "PLAN_RECAP_TOKEN"\n' +
     'http_headers = { "X-Agent-Native-MCP-Client" = "agent-native-pr-visual-recap", "X-Agent-Native-MCP-Full-Catalog" = "1" }\n'
   );
+}
+
+type RecapMcpSmokeOk = {
+  ok: true;
+  appUrl: string;
+  mcpUrl: string;
+  toolCount: number;
+  tools: string[];
+  requiredTools: string[];
+  summary: string;
+};
+
+type RecapMcpSmokeFailure = {
+  ok: false;
+  appUrl: string;
+  mcpUrl: string;
+  toolCount: number;
+  tools: string[];
+  requiredTools: string[];
+  reason: string;
+  summary: string;
+};
+
+export type RecapMcpSmokeResult = RecapMcpSmokeOk | RecapMcpSmokeFailure;
+
+function recapMcpUrl(appUrl: string): string {
+  return appUrl.replace(/\/$/, "") + "/_agent-native/mcp";
+}
+
+function recapMcpSmokeHeaders(token: string): Record<string, string> {
+  return {
+    authorization: `Bearer ${token}`,
+    accept: "application/json, text/event-stream",
+    "content-type": "application/json",
+    "mcp-protocol-version": "2025-06-18",
+    "x-agent-native-mcp-client": RECAP_MCP_CLIENT_HEADER,
+    "x-agent-native-mcp-full-catalog": "1",
+  };
+}
+
+function parseSseJsonPayload(raw: string): unknown | null {
+  const dataLines = raw
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line.startsWith("data:"))
+    .map((line) => line.slice("data:".length).trim())
+    .filter((line) => line && line !== "[DONE]");
+
+  for (let i = dataLines.length - 1; i >= 0; i -= 1) {
+    try {
+      return JSON.parse(dataLines[i]);
+    } catch {
+      // Keep looking for a parseable event payload.
+    }
+  }
+  return null;
+}
+
+function parseMcpJsonPayload(raw: string): unknown | null {
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+  try {
+    return JSON.parse(trimmed);
+  } catch {
+    return parseSseJsonPayload(trimmed);
+  }
+}
+
+function mcpRpcErrorMessage(payload: unknown): string | null {
+  if (!payload || typeof payload !== "object") return null;
+  const error = (payload as Record<string, unknown>).error;
+  if (!error || typeof error !== "object") return null;
+  const message = (error as Record<string, unknown>).message;
+  return typeof message === "string" && message.trim()
+    ? message.trim()
+    : JSON.stringify(error);
+}
+
+async function postRecapMcpRpc(input: {
+  fetchFn: typeof fetch;
+  mcpUrl: string;
+  token: string;
+  method: string;
+  id: number;
+  params?: Record<string, unknown>;
+}): Promise<
+  | { ok: true; payload: unknown }
+  | { ok: false; reason: string; raw: string; status?: number }
+> {
+  const response = await input.fetchFn(input.mcpUrl, {
+    method: "POST",
+    headers: recapMcpSmokeHeaders(input.token),
+    body: JSON.stringify({
+      jsonrpc: "2.0",
+      id: input.id,
+      method: input.method,
+      params: input.params ?? {},
+    }),
+  });
+
+  const raw = await response.text().catch((err) => String(err));
+  if (!response.ok) {
+    const detail = sanitizeAgentFailureSummary(raw, 300);
+    return {
+      ok: false,
+      status: response.status,
+      raw,
+      reason: `Plan MCP ${input.method} returned HTTP ${response.status}${
+        detail ? `: ${detail}` : ""
+      }`,
+    };
+  }
+
+  const payload = parseMcpJsonPayload(raw);
+  if (!payload) {
+    return {
+      ok: false,
+      raw,
+      reason: `Plan MCP ${input.method} returned an unreadable response`,
+    };
+  }
+
+  const rpcError = mcpRpcErrorMessage(payload);
+  if (rpcError) {
+    return {
+      ok: false,
+      raw,
+      reason: `Plan MCP ${input.method} failed: ${sanitizeAgentFailureSummary(
+        rpcError,
+        300,
+      )}`,
+    };
+  }
+
+  return { ok: true, payload };
+}
+
+function extractMcpToolNames(payload: unknown): string[] {
+  const result =
+    payload && typeof payload === "object"
+      ? (payload as Record<string, unknown>).result
+      : undefined;
+  const tools =
+    result && typeof result === "object"
+      ? (result as Record<string, unknown>).tools
+      : undefined;
+  if (!Array.isArray(tools)) return [];
+  return tools
+    .map((tool) =>
+      tool && typeof tool === "object"
+        ? (tool as Record<string, unknown>).name
+        : undefined,
+    )
+    .filter((name): name is string => typeof name === "string" && !!name)
+    .sort();
+}
+
+function recapMcpSmokeFailure(input: {
+  appUrl: string;
+  mcpUrl: string;
+  tools?: string[];
+  requiredTools: readonly string[];
+  reason: string;
+}): RecapMcpSmokeFailure {
+  const tools = input.tools ?? [];
+  const reason = sanitizeAgentFailureSummary(input.reason, 500);
+  return {
+    ok: false,
+    appUrl: input.appUrl,
+    mcpUrl: input.mcpUrl,
+    toolCount: tools.length,
+    tools,
+    requiredTools: [...input.requiredTools],
+    reason,
+    summary: `Plan MCP smoke check failed: ${reason}`,
+  };
+}
+
+/**
+ * Non-mutating live contract check for PR Visual Recap publishing.
+ *
+ * The previous workflow discovered a broken Plan MCP catalog only after the
+ * agent tried to publish and failed to create `recap-url.txt`. This probes the
+ * same authenticated MCP endpoint first and requires the three tools that the
+ * visual-recap skill needs to publish a hosted recap.
+ */
+export async function smokeRecapMcpTools(input: {
+  appUrl?: string;
+  token?: string;
+  requiredTools?: readonly string[];
+  fetchFn?: typeof fetch;
+}): Promise<RecapMcpSmokeResult> {
+  const appUrl = input.appUrl ?? DEFAULT_RECAP_APP_URL;
+  const mcpUrl = recapMcpUrl(appUrl);
+  const requiredTools = input.requiredTools ?? RECAP_MCP_REQUIRED_TOOLS;
+  const token = input.token?.trim();
+  if (!token) {
+    return recapMcpSmokeFailure({
+      appUrl,
+      mcpUrl,
+      requiredTools,
+      reason: "PLAN_RECAP_TOKEN is empty",
+    });
+  }
+
+  const fetchFn = input.fetchFn ?? fetch;
+  try {
+    const init = await postRecapMcpRpc({
+      fetchFn,
+      mcpUrl,
+      token,
+      method: "initialize",
+      id: 1,
+      params: {
+        protocolVersion: "2025-06-18",
+        capabilities: {},
+        clientInfo: {
+          name: RECAP_MCP_CLIENT_HEADER,
+          version: "1.0.0",
+        },
+      },
+    });
+    if (!init.ok) {
+      return recapMcpSmokeFailure({
+        appUrl,
+        mcpUrl,
+        requiredTools,
+        reason: init.reason,
+      });
+    }
+
+    const listed = await postRecapMcpRpc({
+      fetchFn,
+      mcpUrl,
+      token,
+      method: "tools/list",
+      id: 2,
+    });
+    if (!listed.ok) {
+      return recapMcpSmokeFailure({
+        appUrl,
+        mcpUrl,
+        requiredTools,
+        reason: listed.reason,
+      });
+    }
+
+    const tools = extractMcpToolNames(listed.payload);
+    const missing = requiredTools.filter((name) => !tools.includes(name));
+    if (missing.length > 0) {
+      return recapMcpSmokeFailure({
+        appUrl,
+        mcpUrl,
+        tools,
+        requiredTools,
+        reason: `Plan MCP tools/list returned ${tools.length} tools but is missing required publishing tools: ${missing.join(
+          ", ",
+        )}`,
+      });
+    }
+
+    return {
+      ok: true,
+      appUrl,
+      mcpUrl,
+      toolCount: tools.length,
+      tools,
+      requiredTools: [...requiredTools],
+      summary: `Plan MCP smoke check passed: tools/list exposes ${requiredTools.join(
+        ", ",
+      )}.`,
+    };
+  } catch (err) {
+    return recapMcpSmokeFailure({
+      appUrl,
+      mcpUrl,
+      requiredTools,
+      reason: `Plan MCP smoke check could not reach ${mcpUrl}: ${String(err)}`,
+    });
+  }
+}
+
+async function runMcpSmoke(
+  args: Record<string, string | boolean>,
+): Promise<void> {
+  const appUrl =
+    optionalArg(args, "app-url") ??
+    process.env.PLAN_RECAP_APP_URL ??
+    DEFAULT_RECAP_APP_URL;
+  const token = optionalArg(args, "token") ?? process.env.PLAN_RECAP_TOKEN;
+  const result = await smokeRecapMcpTools({ appUrl, token });
+  writeGitHubOutput("ok", result.ok ? "true" : "false");
+  writeGitHubOutput("summary", result.summary);
+  process.stdout.write(`${JSON.stringify(result)}\n`);
+  if (!result.ok) process.exitCode = 1;
 }
 
 /**
@@ -3461,6 +3763,7 @@ Usage:
   npx @agent-native/core@latest recap doctor [--repo owner/name] [--agent claude|codex] [--app-url <url>]
   npx @agent-native/core@latest recap collect-diff --base <baseSha> --head <headSha> [--out recap.diff] [--stat recap.stat]
   npx @agent-native/core@latest recap mcp-config --agent claude|codex --app-url <url> [--out <path>]
+  npx @agent-native/core@latest recap mcp-smoke [--app-url <url>] [--token <planToken>]
   npx @agent-native/core@latest recap scan --diff <path>
   npx @agent-native/core@latest recap build-prompt --pr <n> [--repo owner/name] [--head <sha>] [--app-url <url>] [--diff <path>] [--stat <path>] [--prev-plan-id <id>] [--huge] [--local-files] [--local-dir <folder>] [--skill-source auto|latest|repo] [--out <path>]
   npx @agent-native/core@latest recap shot --url <planUrl> [--token <planToken>] [--app-url <url>] [--out recap.png] [--theme light|dark]
@@ -3494,6 +3797,11 @@ Usage:
     Read the captured Claude/Codex result file and write a sanitized one-line
     summary to stdout and $GITHUB_OUTPUT (summary). Used only when no plan URL
     was produced, so PR comments/checks explain the actual failure.
+  npx @agent-native/core@latest recap mcp-smoke
+    Non-mutating Plan MCP JSON-RPC smoke test. Calls initialize + tools/list
+    against PLAN_RECAP_APP_URL / PLAN_RECAP_TOKEN and requires get-plan-blocks,
+    create-visual-recap, and set-resource-visibility to be exposed. Writes
+    ok=<true|false> and summary=<diagnostic> to $GITHUB_OUTPUT.
   npx @agent-native/core@latest recap setup
     Write/refresh .github/workflows/pr-visual-recap.yml, then configure GitHub
     Actions secrets and variables with gh when values are available from env or
@@ -3519,6 +3827,9 @@ export async function runRecap(argv: string[]): Promise<void> {
       return;
     case "mcp-config":
       runMcpConfig(args);
+      return;
+    case "mcp-smoke":
+      await runMcpSmoke(args);
       return;
     case "scan":
       runScan(args);

@@ -28,6 +28,7 @@ import {
   isAllowedExtensionPath,
   sanitizeExtensionRequestOptions,
   checkBridgePolicy,
+  type BridgePolicyContext,
   type ExtensionBridgeRole,
 } from "./iframe-bridge.js";
 import {
@@ -101,6 +102,12 @@ interface Extension {
   role?: ExtensionBridgeRole | null;
   canEdit?: boolean;
   canDelete?: boolean;
+  source?: {
+    mode?: "database" | "local-files";
+    entryPath?: string;
+    manifestPath?: string;
+    permissions?: BridgePolicyContext["permissions"];
+  };
 }
 
 export interface ExtensionViewerProps {
@@ -141,6 +148,8 @@ function buildExtensionViewerSrcDoc(
       viewerEmail: "",
       isAuthor: role === "owner",
       role,
+      source: extension.source?.mode,
+      permissions: extension.source?.permissions,
     },
   );
 }
@@ -645,10 +654,7 @@ export function ExtensionViewer({ extensionId }: ExtensionViewerProps) {
   // the iframe announces its role we deny non-trivial helper calls — that
   // way a malicious extension body that races the announcement can't briefly
   // operate at higher privilege than the viewer's actual role.
-  const bridgeContextRef = useRef<{
-    role: ExtensionBridgeRole;
-    isAuthor: boolean;
-  }>({
+  const bridgeContextRef = useRef<BridgePolicyContext>({
     role: "viewer",
     isAuthor: false,
   });
@@ -711,6 +717,11 @@ export function ExtensionViewer({ extensionId }: ExtensionViewerProps) {
         bridgeContextRef.current = {
           role,
           isAuthor: !!binding.isAuthor,
+          source: binding.source === "local-files" ? "local-files" : "database",
+          permissions:
+            binding && typeof binding.permissions === "object"
+              ? binding.permissions
+              : undefined,
         };
         return;
       }
@@ -1038,6 +1049,8 @@ export function ExtensionViewer({ extensionId }: ExtensionViewerProps) {
     );
   }
 
+  const isLocalExtension = extension.source?.mode === "local-files";
+
   return (
     <TooltipProvider delayDuration={200}>
       <div className="flex h-full w-full flex-col">
@@ -1084,18 +1097,20 @@ export function ExtensionViewer({ extensionId }: ExtensionViewerProps) {
                   <span className="truncate text-sm font-medium">
                     {extension.name}
                   </span>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <button
-                        type="button"
-                        onClick={startRename}
-                        className="shrink-0 cursor-pointer rounded p-0.5 text-muted-foreground/40 opacity-0 group-hover/name:opacity-100 hover:text-foreground"
-                      >
-                        <IconPencil className="h-3 w-3" />
-                      </button>
-                    </TooltipTrigger>
-                    <TooltipContent>Rename</TooltipContent>
-                  </Tooltip>
+                  {extension.canEdit && !isLocalExtension && (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <button
+                          type="button"
+                          onClick={startRename}
+                          className="shrink-0 cursor-pointer rounded p-0.5 text-muted-foreground/40 opacity-0 group-hover/name:opacity-100 hover:text-foreground"
+                        >
+                          <IconPencil className="h-3 w-3" />
+                        </button>
+                      </TooltipTrigger>
+                      <TooltipContent>Rename</TooltipContent>
+                    </Tooltip>
+                  )}
                 </>
               )}
             </nav>
@@ -1113,39 +1128,53 @@ export function ExtensionViewer({ extensionId }: ExtensionViewerProps) {
               </TooltipTrigger>
               <TooltipContent>Refresh</TooltipContent>
             </Tooltip>
-            <ExtensionHistoryPopover
-              extensionId={extensionId}
-              canEdit={extension.canEdit}
-              onRestored={() => setRefreshKey((k) => k + 1)}
-              onOpenChange={onPopoverOpenChange}
-            />
-            <EditToolPopover
-              extension={extension}
-              onOpenChange={onPopoverOpenChange}
-            />
-            <ShareButton
-              resourceType="extension"
-              resourceId={extensionId}
-              resourceTitle={extension.name}
-              onOpenChange={onPopoverOpenChange}
-              accessNote={
-                <>
-                  Extensions can be shared inside your organization only — they
-                  run with the viewer's credentials, so cross-org access isn't
-                  supported.
-                </>
-              }
-            />
+            {!isLocalExtension && (
+              <>
+                <ExtensionHistoryPopover
+                  extensionId={extensionId}
+                  canEdit={extension.canEdit}
+                  onRestored={() => setRefreshKey((k) => k + 1)}
+                  onOpenChange={onPopoverOpenChange}
+                />
+                <EditToolPopover
+                  extension={extension}
+                  onOpenChange={onPopoverOpenChange}
+                />
+                <ShareButton
+                  resourceType="extension"
+                  resourceId={extensionId}
+                  resourceTitle={extension.name}
+                  onOpenChange={onPopoverOpenChange}
+                  accessNote={
+                    <>
+                      Extensions can be shared inside your organization only —
+                      they run with the viewer's credentials, so cross-org
+                      access isn't supported.
+                    </>
+                  }
+                />
+              </>
+            )}
             <ToolMoreMenu
               extensionId={extensionId}
               toolName={extension.name}
               canDelete={extension.canDelete}
+              sourceMode={extension.source?.mode}
               onOpenChange={onPopoverOpenChange}
             />
             <NotificationsBell />
             <AgentToggleButton />
           </div>
         </div>
+        {isLocalExtension && (
+          <div className="shrink-0 border-b bg-muted/30 px-4 py-2 text-xs text-muted-foreground">
+            Repo-backed extension. Edit{" "}
+            <span className="font-mono text-foreground">
+              {extension.source?.entryPath ?? "extensions/*/index.html"}
+            </span>{" "}
+            in your workspace, then refresh this preview.
+          </div>
+        )}
         <div className="relative flex-1 min-h-0">
           {!iframeReady && (
             <div className="absolute inset-0 flex items-center justify-center bg-background z-10">
@@ -1188,11 +1217,13 @@ function ToolMoreMenu({
   extensionId,
   toolName,
   canDelete,
+  sourceMode,
   onOpenChange,
 }: {
   extensionId: string;
   toolName: string;
   canDelete?: boolean;
+  sourceMode?: "database" | "local-files";
   onOpenChange?: (open: boolean) => void;
 }) {
   const [open, setOpen] = useState(false);
@@ -1249,6 +1280,7 @@ function ToolMoreMenu({
       queryClient.invalidateQueries({ queryKey: ["extension", extensionId] });
     }
   };
+  const isLocalExtension = sourceMode === "local-files";
 
   return (
     <Popover
@@ -1299,39 +1331,48 @@ function ToolMoreMenu({
                     <span className="flex-1 truncate font-mono text-[11px] text-muted-foreground">
                       {s.slotId}
                     </span>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <button
-                          type="button"
-                          onClick={() => removeFromSlot(s.slotId)}
-                          className="rounded p-1 text-muted-foreground/60 hover:bg-accent hover:text-foreground cursor-pointer"
-                          aria-label="Remove from this widget area"
-                        >
-                          <IconX className="h-3.5 w-3.5" />
-                        </button>
-                      </TooltipTrigger>
-                      <TooltipContent>
-                        Remove from this widget area (for me)
-                      </TooltipContent>
-                    </Tooltip>
+                    {!isLocalExtension && (
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <button
+                            type="button"
+                            onClick={() => removeFromSlot(s.slotId)}
+                            className="rounded p-1 text-muted-foreground/60 hover:bg-accent hover:text-foreground cursor-pointer"
+                            aria-label="Remove from this widget area"
+                          >
+                            <IconX className="h-3.5 w-3.5" />
+                          </button>
+                        </TooltipTrigger>
+                        <TooltipContent>
+                          Remove from this widget area (for me)
+                        </TooltipContent>
+                      </Tooltip>
+                    )}
                   </div>
                 ))}
               </div>
             )}
-            <div className="border-t border-border/40 p-1">
-              <button
-                type="button"
-                onClick={() => setConfirmingDelete(true)}
-                className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-[12px] text-destructive hover:bg-destructive/10 cursor-pointer text-left"
-              >
-                <IconTrash className="h-3.5 w-3.5" />
-                <span>
-                  {canDelete === false
-                    ? "Remove from my list..."
-                    : "Delete extension..."}
-                </span>
-              </button>
-            </div>
+            {isLocalExtension ? (
+              <div className="border-t border-border/40 px-3 py-2 text-[11px] text-muted-foreground">
+                Slot targets and source edits are controlled by this extension's
+                files.
+              </div>
+            ) : (
+              <div className="border-t border-border/40 p-1">
+                <button
+                  type="button"
+                  onClick={() => setConfirmingDelete(true)}
+                  className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-[12px] text-destructive hover:bg-destructive/10 cursor-pointer text-left"
+                >
+                  <IconTrash className="h-3.5 w-3.5" />
+                  <span>
+                    {canDelete === false
+                      ? "Remove from my list..."
+                      : "Delete extension..."}
+                  </span>
+                </button>
+              </div>
+            )}
           </>
         ) : (
           <div className="flex flex-col gap-2 p-3">

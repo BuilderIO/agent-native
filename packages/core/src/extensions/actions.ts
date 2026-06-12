@@ -28,6 +28,12 @@ import {
   listExtensionsForSlot,
   listSlotsForExtension,
 } from "./slots/store.js";
+import {
+  getLocalExtension,
+  isLocalExtensionRow,
+  listLocalExtensions,
+  type LocalExtensionRow,
+} from "./local.js";
 import { extensionPath } from "./path.js";
 import type {
   ExtensionContentEdit,
@@ -82,17 +88,25 @@ export function createExtensionActionEntries(): Record<string, ActionEntry> {
         const limit = coerceLimit(args?.limit);
         const hiddenIds = await getHiddenExtensionIdsForCurrentUser();
 
-        let rows = await listExtensions({
-          includeHidden,
-          includeGloballyHidden,
-        });
+        let rows: Array<ExtensionRow | LocalExtensionRow> =
+          await listExtensions({
+            includeHidden,
+            includeGloballyHidden,
+          });
+        const localRows = await listLocalExtensions();
+        const allRows: Array<ExtensionRow | LocalExtensionRow> = [
+          ...rows,
+          ...localRows,
+        ];
         if (search) {
-          rows = rows.filter((row) =>
+          rows = allRows.filter((row) =>
             [row.id, row.name, row.description, row.ownerEmail]
               .join("\n")
               .toLowerCase()
               .includes(search),
           );
+        } else {
+          rows = allRows;
         }
 
         rows = rows.slice(0, limit);
@@ -136,6 +150,17 @@ export function createExtensionActionEntries(): Record<string, ActionEntry> {
           args?.includeContent === undefined
             ? true
             : coerceBoolean(args.includeContent);
+        const localExtension = await getLocalExtension(id);
+        if (localExtension) {
+          return {
+            ok: true,
+            extension: await summarizeExtension(
+              localExtension,
+              new Set(),
+              includeContent,
+            ),
+          };
+        }
         const extension = await getExtension(id);
         if (!extension) return `Error: extension not found: ${id}`;
         const hiddenIds = await getHiddenExtensionIdsForCurrentUser();
@@ -178,6 +203,8 @@ export function createExtensionActionEntries(): Record<string, ActionEntry> {
       run: async (args) => {
         const id = String(args?.id ?? "").trim();
         if (!id) return "Error: id is required.";
+        const localMessage = await localExtensionReadonlyHistoryMessage(id);
+        if (localMessage) return localMessage;
         const history = await listExtensionHistory(id, {
           limit:
             args?.limit === undefined ? undefined : coerceLimit(args.limit),
@@ -214,6 +241,8 @@ export function createExtensionActionEntries(): Record<string, ActionEntry> {
       run: async (args) => {
         const id = String(args?.id ?? "").trim();
         if (!id) return "Error: id is required.";
+        const localMessage = await localExtensionReadonlyHistoryMessage(id);
+        if (localMessage) return localMessage;
         const version = Number(args?.version);
         if (!Number.isInteger(version) || version < 1) {
           return "Error: version must be a positive integer.";
@@ -398,6 +427,8 @@ export function createExtensionActionEntries(): Record<string, ActionEntry> {
       run: async (args, ctx) => {
         const id = String(args?.id ?? "").trim();
         if (!id) return "Error: id is required.";
+        const localMessage = await localExtensionEditMessage(id);
+        if (localMessage) return localMessage;
 
         // Full-replacement content can come inline (`content`) or by reference
         // (`contentFromAttachment`) so the model never has to re-type a large
@@ -483,6 +514,8 @@ export function createExtensionActionEntries(): Record<string, ActionEntry> {
       run: async (args) => {
         const id = String(args?.id ?? "").trim();
         if (!id) return "Error: id is required.";
+        const localMessage = await localExtensionEditMessage(id);
+        if (localMessage) return localMessage;
         const extension = await getExtension(id);
         if (!extension) return `Error: extension not found: ${id}`;
 
@@ -523,6 +556,8 @@ export function createExtensionActionEntries(): Record<string, ActionEntry> {
       run: async (args) => {
         const id = String(args?.id ?? "").trim();
         if (!id) return "Error: id is required.";
+        const localMessage = await localExtensionReadonlyHistoryMessage(id);
+        if (localMessage) return localMessage;
         const version = Number(args?.version);
         if (!Number.isInteger(version) || version < 1) {
           return "Error: version must be a positive integer.";
@@ -559,6 +594,8 @@ export function createExtensionActionEntries(): Record<string, ActionEntry> {
       run: async (args) => {
         const id = String(args?.id ?? "").trim();
         if (!id) return "Error: id is required.";
+        const localMessage = await localExtensionEditMessage(id);
+        if (localMessage) return localMessage;
         const extension = await getExtension(id);
         if (!extension) return `Error: extension not found: ${id}`;
 
@@ -585,6 +622,8 @@ export function createExtensionActionEntries(): Record<string, ActionEntry> {
       run: async (args) => {
         const id = String(args?.id ?? "").trim();
         if (!id) return "Error: id is required.";
+        const localMessage = await localExtensionEditMessage(id);
+        if (localMessage) return localMessage;
         await unhideExtension(id);
         return { ok: true, id };
       },
@@ -609,6 +648,8 @@ export function createExtensionActionEntries(): Record<string, ActionEntry> {
       run: async (args) => {
         const id = String(args?.id ?? "").trim();
         if (!id) return "Error: id is required.";
+        const localMessage = await localExtensionEditMessage(id);
+        if (localMessage) return localMessage;
         const extension = await getExtension(id);
         if (!extension) return `Error: extension not found: ${id}`;
 
@@ -638,6 +679,8 @@ export function createExtensionActionEntries(): Record<string, ActionEntry> {
       run: async (args) => {
         const id = String(args?.id ?? "").trim();
         if (!id) return "Error: id is required.";
+        const localMessage = await localExtensionEditMessage(id);
+        if (localMessage) return localMessage;
         await globalUnhideExtension(id);
         return { ok: true, id };
       },
@@ -670,6 +713,8 @@ export function createExtensionActionEntries(): Record<string, ActionEntry> {
         const slotId = String(args?.slotId ?? "").trim();
         if (!extensionId) return "Error: extensionId is required.";
         if (!slotId) return "Error: slotId is required.";
+        const localMessage = await localExtensionEditMessage(extensionId);
+        if (localMessage) return localMessage;
         const row = await addExtensionSlotTarget(
           extensionId,
           slotId,
@@ -744,6 +789,8 @@ export function createExtensionActionEntries(): Record<string, ActionEntry> {
         const slotId = String(args?.slotId ?? "").trim();
         if (!extensionId) return "Error: extensionId is required.";
         if (!slotId) return "Error: slotId is required.";
+        const localMessage = await localExtensionEditMessage(extensionId);
+        if (localMessage) return localMessage;
         await uninstallExtensionSlot(extensionId, slotId);
         return { ok: true };
       },
@@ -792,11 +839,14 @@ export function createExtensionActionEntries(): Record<string, ActionEntry> {
 }
 
 async function summarizeExtension(
-  row: ExtensionRow,
+  row: ExtensionRow | LocalExtensionRow,
   hiddenIds: Set<string>,
   includeContent: boolean,
 ) {
-  const access = await resolveAccess("extension", row.id).catch(() => null);
+  const local = isLocalExtensionRow(row);
+  const access = local
+    ? ({ role: "viewer" } as const)
+    : await resolveAccess("extension", row.id).catch(() => null);
   return {
     id: row.id,
     name: row.name,
@@ -816,8 +866,23 @@ async function summarizeExtension(
     hiddenBy: row.hiddenBy,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
+    ...(local ? { source: row.source } : {}),
     ...(includeContent ? { content: row.content } : {}),
   };
+}
+
+async function localExtensionEditMessage(id: string): Promise<string | null> {
+  const localExtension = await getLocalExtension(id);
+  if (!localExtension) return null;
+  return `Error: extension "${id}" is backed by local files at ${localExtension.source.entryPath}. Edit that file or ${localExtension.source.manifestPath} in the workspace instead of using SQL-backed extension actions.`;
+}
+
+async function localExtensionReadonlyHistoryMessage(
+  id: string,
+): Promise<string | null> {
+  const localExtension = await getLocalExtension(id);
+  if (!localExtension) return null;
+  return `Error: extension "${id}" is backed by local files at ${localExtension.source.entryPath}. Use Git or your editor's file history for versions.`;
 }
 
 function summarizeDeletedExtension(row: ExtensionRow) {

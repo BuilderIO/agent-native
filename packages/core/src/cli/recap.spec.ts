@@ -7,9 +7,12 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   RECAP_DIFF_BYTE_CAP,
+  RECAP_MCP_REQUIRED_TOOLS,
+  appendGateSkipLine,
   buildRecapFailureDiagnostic,
   buildRecapSetupPlan,
   buildCommentBody,
+  buildGateSkipLine,
   buildRecapClaudeMcpConfig,
   buildRecapCodexMcpConfig,
   buildRecapPrompt,
@@ -31,6 +34,7 @@ import {
   readVisualRecapSkillBundle,
   sanitizeAgentFailureSummary,
   sortDiffSourceFirst,
+  smokeRecapMcpTools,
   summarizeAgentRun,
   summarizeLocalAgentFailure,
   summarizeAgentResult,
@@ -39,14 +43,42 @@ import {
   withRecapScreenshotParams,
   writePrVisualRecapReusableCallerWorkflow,
   writePrVisualRecapWorkflow,
-  buildGateSkipLine,
-  appendGateSkipLine,
 } from "./recap.js";
 import type { RecapGateInput } from "./recap.js";
 import { PR_VISUAL_RECAP_WORKFLOW_YML } from "./pr-visual-recap-workflow.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(here, "../../../..");
+
+function textResponse(text: string, status = 200): Response {
+  return {
+    ok: status >= 200 && status < 300,
+    status,
+    statusText: "",
+    headers: new Headers({ "content-type": "application/json" }),
+    text: () => Promise.resolve(text),
+    json: () => Promise.resolve(JSON.parse(text)),
+    body: null,
+    bodyUsed: true,
+    arrayBuffer: () =>
+      Promise.resolve(new TextEncoder().encode(text).buffer as ArrayBuffer),
+    blob: () => Promise.resolve(new Blob([text])),
+    clone() {
+      return textResponse(text, status);
+    },
+    formData: () => Promise.reject(new Error("not implemented")),
+    url: "",
+    redirected: false,
+    type: "default" as ResponseType,
+  } as unknown as Response;
+}
+
+function jsonRpcResponse(result: unknown, status = 200): Response {
+  return textResponse(
+    JSON.stringify({ jsonrpc: "2.0", id: 1, result }),
+    status,
+  );
+}
 
 describe("recap secret scan", () => {
   it("flags diffs that contain secret-looking lines", () => {
@@ -347,6 +379,104 @@ describe("recap mcp-config", () => {
     );
     // No injected table header on its own line.
     expect(toml).not.toMatch(/^\[hacked\]/m);
+  });
+});
+
+describe("recap mcp-smoke", () => {
+  it("probes the Plan MCP tool catalog with the recap client headers", async () => {
+    const calls: Array<{
+      url: string;
+      method: string;
+      headers: Record<string, string>;
+      body: any;
+    }> = [];
+    const fetchFn: typeof fetch = (async (input, init) => {
+      const body = JSON.parse(String(init?.body ?? "{}"));
+      calls.push({
+        url: String(input),
+        method: String(init?.method ?? "GET"),
+        headers: init?.headers as Record<string, string>,
+        body,
+      });
+      if (body.method === "initialize") {
+        return jsonRpcResponse({
+          protocolVersion: "2025-06-18",
+          serverInfo: { name: "plan", version: "test" },
+          capabilities: {},
+        });
+      }
+      return jsonRpcResponse({
+        tools: RECAP_MCP_REQUIRED_TOOLS.map((name) => ({ name })),
+      });
+    }) as typeof fetch;
+
+    const result = await smokeRecapMcpTools({
+      appUrl: "https://plan.agent-native.com/",
+      token: "tok-123456789",
+      fetchFn,
+    });
+
+    expect(result.ok).toBe(true);
+    expect(result.mcpUrl).toBe(
+      "https://plan.agent-native.com/_agent-native/mcp",
+    );
+    expect(result.toolCount).toBe(RECAP_MCP_REQUIRED_TOOLS.length);
+    expect(calls.map((call) => call.body.method)).toEqual([
+      "initialize",
+      "tools/list",
+    ]);
+    expect(calls[0].url).toBe(
+      "https://plan.agent-native.com/_agent-native/mcp",
+    );
+    expect(calls[0].method).toBe("POST");
+    expect(calls[0].headers.authorization).toBe("Bearer tok-123456789");
+    expect(calls[0].headers["x-agent-native-mcp-client"]).toBe(
+      "agent-native-pr-visual-recap",
+    );
+    expect(calls[0].headers["x-agent-native-mcp-full-catalog"]).toBe("1");
+    expect(calls[0].headers["mcp-protocol-version"]).toBe("2025-06-18");
+  });
+
+  it("fails loudly when tools/list omits recap publishing tools", async () => {
+    const fetchFn: typeof fetch = (async (_input, init) => {
+      const body = JSON.parse(String(init?.body ?? "{}"));
+      if (body.method === "initialize") {
+        return jsonRpcResponse({ protocolVersion: "2025-06-18" });
+      }
+      return jsonRpcResponse({ tools: [] });
+    }) as typeof fetch;
+
+    const result = await smokeRecapMcpTools({
+      appUrl: "https://plan.agent-native.com",
+      token: "tok-123456789",
+      fetchFn,
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.summary).toContain("Plan MCP smoke check failed");
+    expect(result.summary).toContain("tools/list returned 0 tools");
+    expect(result.summary).toContain("create-visual-recap");
+    expect(result.summary).toContain("get-plan-blocks");
+    expect(result.summary).toContain("set-resource-visibility");
+  });
+
+  it("redacts bearer tokens from HTTP failure diagnostics", async () => {
+    const fetchFn: typeof fetch = (async () =>
+      textResponse(
+        "Authorization: Bearer tok-secret-value",
+        401,
+      )) as typeof fetch;
+
+    const result = await smokeRecapMcpTools({
+      appUrl: "https://plan.agent-native.com",
+      token: "tok-secret-value",
+      fetchFn,
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.summary).toContain("HTTP 401");
+    expect(result.summary).toContain("Bearer [redacted]");
+    expect(result.summary).not.toContain("tok-secret-value");
   });
 });
 
@@ -1399,6 +1529,14 @@ describe("bundled PR visual recap workflow", () => {
     // an inline github-script step.
     expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain("recap check start");
     expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain("recap check complete");
+    expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain("Smoke-test Plan MCP tools");
+    expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain(
+      'recap mcp-smoke --app-url "$PLAN_RECAP_APP_URL"',
+    );
+    expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain(
+      "steps.mcp_smoke.outputs.ok == 'true'",
+    );
+    expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain("RECAP_MCP_SMOKE_SUMMARY");
     expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain("Summarize agent failure");
     expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain("recap agent-summary");
     expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain(
@@ -1933,6 +2071,12 @@ describe("reusable workflow file structure", () => {
 
   it("passes sanitized agent failure output to the comment and check", () => {
     const content = fs.readFileSync(reusableFile, "utf8");
+    expect(content).toContain("Smoke-test Plan MCP tools");
+    expect(content).toContain(
+      'recap mcp-smoke --app-url "$PLAN_RECAP_APP_URL"',
+    );
+    expect(content).toContain("steps.mcp_smoke.outputs.ok == 'true'");
+    expect(content).toContain("RECAP_MCP_SMOKE_SUMMARY:");
     expect(content).toContain("Summarize agent failure");
     expect(content).toContain("recap agent-summary");
     expect(content).toContain("RECAP_AGENT_SUMMARY:");

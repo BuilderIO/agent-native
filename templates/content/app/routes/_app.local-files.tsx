@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { callAction } from "@agent-native/core/client";
 import {
@@ -82,9 +82,67 @@ const IGNORED_DIRECTORIES = new Set([
   "dist",
   "node_modules",
 ]);
+const LOCAL_FILES_DB_NAME = "content-local-files";
+const LOCAL_FILES_DB_VERSION = 1;
+const LOCAL_FILES_STORE_NAME = "handles";
+const SOURCE_DIRECTORY_KEY = "source-directory";
 
 function supportsDirectoryPicker() {
   return typeof window !== "undefined" && "showDirectoryPicker" in window;
+}
+
+function supportsDirectoryPersistence() {
+  return typeof window !== "undefined" && "indexedDB" in window;
+}
+
+function openLocalFilesDb() {
+  return new Promise<IDBDatabase>((resolve, reject) => {
+    const request = indexedDB.open(LOCAL_FILES_DB_NAME, LOCAL_FILES_DB_VERSION);
+    request.onupgradeneeded = () => {
+      const db = request.result;
+      if (!db.objectStoreNames.contains(LOCAL_FILES_STORE_NAME)) {
+        db.createObjectStore(LOCAL_FILES_STORE_NAME);
+      }
+    };
+    request.onerror = () => reject(request.error);
+    request.onsuccess = () => resolve(request.result);
+  });
+}
+
+async function readPersistedSourceDirectory() {
+  if (!supportsDirectoryPersistence()) return null;
+  const db = await openLocalFilesDb();
+  try {
+    return await new Promise<LocalDirectoryHandle | null>((resolve, reject) => {
+      const transaction = db.transaction(LOCAL_FILES_STORE_NAME, "readonly");
+      const request = transaction
+        .objectStore(LOCAL_FILES_STORE_NAME)
+        .get(SOURCE_DIRECTORY_KEY);
+      request.onerror = () => reject(request.error);
+      request.onsuccess = () =>
+        resolve((request.result as LocalDirectoryHandle | undefined) ?? null);
+    });
+  } finally {
+    db.close();
+  }
+}
+
+async function persistSourceDirectory(handle: LocalDirectoryHandle) {
+  if (!supportsDirectoryPersistence()) return;
+  const db = await openLocalFilesDb();
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const transaction = db.transaction(LOCAL_FILES_STORE_NAME, "readwrite");
+      transaction
+        .objectStore(LOCAL_FILES_STORE_NAME)
+        .put(handle, SOURCE_DIRECTORY_KEY);
+      transaction.oncomplete = () => resolve();
+      transaction.onerror = () => reject(transaction.error);
+      transaction.onabort = () => reject(transaction.error);
+    });
+  } finally {
+    db.close();
+  }
 }
 
 function isMarkdownPath(path: string) {
@@ -215,6 +273,7 @@ export default function LocalFilesRoute() {
   const [busy, setBusy] = useState<
     "choose" | "export" | "preview" | "import" | null
   >(null);
+  const [restoringDirectory, setRestoringDirectory] = useState(false);
   const supported = useMemo(supportsDirectoryPicker, []);
 
   useSetPageTitle(
@@ -223,10 +282,40 @@ export default function LocalFilesRoute() {
     </h1>,
   );
 
+  useEffect(() => {
+    if (!supported) return;
+    let cancelled = false;
+    setRestoringDirectory(true);
+    readPersistedSourceDirectory()
+      .then((handle) => {
+        if (cancelled || !handle) return;
+        setDirectory(handle);
+        setStatus({
+          kind: "success",
+          title: "Folder remembered",
+          detail: handle.name,
+        });
+      })
+      .catch(() => {
+        if (!cancelled) setStatus({ kind: "idle" });
+      })
+      .finally(() => {
+        if (!cancelled) setRestoringDirectory(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [supported]);
+
   async function handleChooseFolder() {
     setBusy("choose");
     try {
       const handle = await chooseDirectory();
+      try {
+        await persistSourceDirectory(handle);
+      } catch {
+        // Folder handles are still usable for this session if persistence fails.
+      }
       setDirectory(handle);
       setStatus({
         kind: "success",
@@ -289,6 +378,9 @@ export default function LocalFilesRoute() {
 
   async function readSelectedSourceFiles() {
     if (!directory) throw new Error("Choose a folder first.");
+    if (!(await ensureReadWritePermission(directory))) {
+      throw new Error("Folder permission was not granted.");
+    }
     const root = await sourceReadRoot(directory);
     return collectMarkdownFiles(root.handle, root.prefix);
   }
@@ -339,7 +431,7 @@ export default function LocalFilesRoute() {
     }
   }
 
-  const disabled = !directory || busy !== null;
+  const disabled = !directory || busy !== null || restoringDirectory;
 
   return (
     <div className="flex-1 overflow-auto">
@@ -354,10 +446,14 @@ export default function LocalFilesRoute() {
           <Button
             variant="outline"
             onClick={handleChooseFolder}
-            disabled={!supported || busy !== null}
+            disabled={!supported || busy !== null || restoringDirectory}
           >
             <IconFolderOpen />
-            {busy === "choose" ? "Choosing..." : "Choose folder"}
+            {busy === "choose"
+              ? "Choosing..."
+              : restoringDirectory
+                ? "Restoring..."
+                : "Choose folder"}
           </Button>
         </div>
 

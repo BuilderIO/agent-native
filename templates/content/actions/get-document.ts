@@ -15,6 +15,7 @@ import {
   getDatabaseItemByDocumentId,
   serializeDatabaseMembership,
 } from "./_database-utils.js";
+import { serializeDocumentSource } from "./_document-source.js";
 import "../server/db/index.js";
 import {
   getLocalFileDocument,
@@ -65,6 +66,7 @@ export default defineAction({
       isFavorite: parseDocumentFavorite(doc.isFavorite),
       hideFromSearch: parseDocumentHideFromSearch(doc.hideFromSearch),
       visibility: doc.visibility,
+      source: serializeDocumentSource(doc),
       accessRole: access.role,
       canEdit: canEditRole(access.role),
       canManage: canManageRole(access.role),

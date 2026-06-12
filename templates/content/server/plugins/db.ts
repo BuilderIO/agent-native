@@ -1,6 +1,6 @@
 import { runMigrations } from "@agent-native/core/db";
 
-export default runMigrations(
+const runContentMigrations = runMigrations(
   [
     {
       version: 1,
@@ -13,6 +13,12 @@ export default runMigrations(
       icon TEXT,
       position INTEGER NOT NULL DEFAULT 0,
       is_favorite INTEGER NOT NULL DEFAULT 0,
+      hide_from_search INTEGER NOT NULL DEFAULT 0,
+      source_mode TEXT,
+      source_kind TEXT,
+      source_path TEXT,
+      source_root_path TEXT,
+      source_updated_at TEXT,
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     )`,
@@ -241,6 +247,60 @@ export default runMigrations(
       version: 31,
       sql: `ALTER TABLE document_comments ADD COLUMN IF NOT EXISTS mentions_json TEXT`,
     },
+    // v32-v36: source metadata for database-mode local Markdown imports.
+    {
+      version: 32,
+      sql: `ALTER TABLE documents ADD COLUMN IF NOT EXISTS source_mode TEXT`,
+    },
+    {
+      version: 33,
+      sql: `ALTER TABLE documents ADD COLUMN IF NOT EXISTS source_kind TEXT`,
+    },
+    {
+      version: 34,
+      sql: `ALTER TABLE documents ADD COLUMN IF NOT EXISTS source_path TEXT`,
+    },
+    {
+      version: 35,
+      sql: `ALTER TABLE documents ADD COLUMN IF NOT EXISTS source_root_path TEXT`,
+    },
+    {
+      version: 36,
+      sql: `ALTER TABLE documents ADD COLUMN IF NOT EXISTS source_updated_at TEXT`,
+    },
   ],
   { table: "content_migrations" },
 );
+
+const runContentSourceMigrations = runMigrations(
+  [
+    {
+      version: 1,
+      sql: `ALTER TABLE documents ADD COLUMN IF NOT EXISTS source_mode TEXT`,
+    },
+    {
+      version: 2,
+      sql: `ALTER TABLE documents ADD COLUMN IF NOT EXISTS source_kind TEXT`,
+    },
+    {
+      version: 3,
+      sql: `ALTER TABLE documents ADD COLUMN IF NOT EXISTS source_path TEXT`,
+    },
+    {
+      version: 4,
+      sql: `ALTER TABLE documents ADD COLUMN IF NOT EXISTS source_root_path TEXT`,
+    },
+    {
+      version: 5,
+      sql: `ALTER TABLE documents ADD COLUMN IF NOT EXISTS source_updated_at TEXT`,
+    },
+  ],
+  { table: "content_source_migrations" },
+);
+
+export default async function contentDatabasePlugin(
+  nitroApp: Parameters<typeof runContentMigrations>[0],
+) {
+  await runContentMigrations(nitroApp);
+  await runContentSourceMigrations(nitroApp);
+}

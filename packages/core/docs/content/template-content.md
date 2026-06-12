@@ -73,7 +73,8 @@ selected file through the normal document actions. Use this for repo-first docs,
 blogs, resource libraries, or Obsidian-style personal content; switch back to
 database mode when you want hosted collaboration and SQL-backed sharing. See
 [Local File Mode](/docs/local-file-mode) for the standalone repo layout,
-configuration, custom MDX component, and production safety guide.
+configuration, custom MDX components, local `extensions/` widgets, and
+production safety guide.
 
 ## Why it's interesting
 

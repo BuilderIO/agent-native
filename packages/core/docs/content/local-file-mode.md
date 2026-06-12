@@ -60,6 +60,10 @@ my-content-repo/
   components/
     FrameworkTabs.tsx
     Callout.tsx
+  extensions/
+    doc-status/
+      extension.json
+      index.html
 ```
 
 In Local File Mode, the Content sidebar shows the `docs/`, `blog/`, and
@@ -70,6 +74,10 @@ file in the standard Content editor; editing in the UI writes back to
 `components/` is not a content root. It is a preview component library that MDX
 files can import or reference. The editor can render simple local MDX components
 without requiring you to clone or fork the entire Content app.
+
+`extensions/` is also not a content root. It is a local extension library:
+small sandboxed widgets that can render in app slots while their source stays in
+the repo.
 
 ## Configuration
 
@@ -102,6 +110,7 @@ Add `agent-native.json` to the repo or workspace root:
         }
       ],
       "components": "components",
+      "extensions": "extensions",
       "hide": ["**/_*.md", "**/_*.mdx"]
     }
   }
@@ -151,6 +160,55 @@ Simple component tags with literal props can preview inline:
 Complex JSX expressions are preserved in source. If the editor cannot safely
 preview a component prop yet, it shows a warning placeholder rather than
 silently dropping data.
+
+## Local Extensions
+
+Local File Mode can also load repo-backed extensions from the configured
+`extensions` folder. Each extension is one directory with an `extension.json`
+manifest and an HTML entry file:
+
+```txt
+extensions/
+  doc-status/
+    extension.json
+    index.html
+```
+
+```json
+{
+  "id": "doc-status",
+  "name": "Doc Status",
+  "description": "Shows metadata for the selected Content file.",
+  "entry": "index.html",
+  "slots": ["content.sidebar.bottom"],
+  "permissions": {
+    "appActions": ["list-documents"],
+    "extensionData": true
+  }
+}
+```
+
+`index.html` is the same Alpine/Tailwind extension body format used by normal
+database-backed extensions. When the Content app sees a local extension that
+declares `content.sidebar.bottom`, it renders that extension at the bottom of
+the Content sidebar. The host passes `window.slotContext` with the selected
+document id, title, source metadata, and whether Content is in Local File Mode.
+
+Local extensions are previewed by the app but edited as files. The Extensions
+list shows them with a Local File badge, and the full-page viewer points back to
+the entry file. SQL-backed extension actions such as update, delete, share, and
+history do not apply; use your editor, Codex, Claude Code, or Git history for
+source changes.
+
+For v1, local extensions are intentionally conservative:
+
+- they can use `extensionData` for their own small runtime state
+- they can call only the `appAction`s listed in `extension.json`
+- raw SQL helpers and external `extensionFetch` are disabled
+- slot targets are declared in `extension.json`, not installed through SQL
+
+This gives local workspaces an Obsidian-like plugin surface without letting an
+arbitrary repo file inherit every capability of a database-backed extension.
 
 ## How Apps Use It
 

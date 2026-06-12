@@ -31,6 +31,12 @@ import {
   ensureExtensionsTables,
   type ExtensionRow,
 } from "./store.js";
+import {
+  getLocalExtension,
+  isLocalExtensionRow,
+  listLocalExtensions,
+  type LocalExtensionRow,
+} from "./local.js";
 import { buildExtensionHtml, EXTENSION_IFRAME_CSP } from "./html-shell.js";
 import { getThemeVars } from "./theme.js";
 import {
@@ -155,8 +161,11 @@ async function dispatch(
     const includeContent =
       event.url?.searchParams?.get("includeContent") === "true";
     const rows = await listExtensions({ includeGloballyHidden });
+    const localRows = includeGloballyHidden ? [] : await listLocalExtensions();
     return Promise.all(
-      rows.map((row) => extensionResponse(row, undefined, { includeContent })),
+      [...rows, ...localRows].map((row) =>
+        extensionResponse(row, undefined, { includeContent }),
+      ),
     );
   }
 
@@ -174,6 +183,32 @@ async function dispatch(
 
   // GET /:id/render
   if (method === "GET" && parts.length === 2 && parts[1] === "render") {
+    const localExtension = await getLocalExtension(parts[0]);
+    if (localExtension) {
+      const search = event.url?.search || "";
+      const isDark = search.includes("dark=1") || search.includes("dark=true");
+      const themeVars = getThemeVars(isDark);
+      const html = buildExtensionHtml(
+        localExtension.content,
+        themeVars,
+        isDark,
+        parts[0],
+        {
+          authorEmail: localExtension.ownerEmail,
+          viewerEmail: userEmail,
+          isAuthor: false,
+          role: "viewer",
+          source: "local-files",
+          permissions: localExtension.source.permissions,
+        },
+      );
+      setResponseHeader(event, "Content-Type", "text/html; charset=utf-8");
+      setResponseHeader(event, "Content-Security-Policy", EXTENSION_IFRAME_CSP);
+      setResponseHeader(event, "X-Content-Type-Options", "nosniff");
+      setResponseHeader(event, "Referrer-Policy", "no-referrer");
+      return html;
+    }
+
     const access = await resolveAccess("extension", parts[0]);
     const extension = access?.resource;
     if (!extension) {
@@ -211,6 +246,8 @@ async function dispatch(
 
   // GET /:id/history — list saved snapshots for an extension
   if (method === "GET" && parts.length === 2 && parts[1] === "history") {
+    const localResponse = await localExtensionSqlOnlyResponse(event, parts[0]);
+    if (localResponse) return localResponse;
     const limitParam = event.url?.searchParams?.get("limit");
     const limit =
       limitParam === null || limitParam === undefined
@@ -228,6 +265,8 @@ async function dispatch(
 
   // GET /:id/history/:version — fetch one snapshot plus its previous-version diff
   if (method === "GET" && parts.length === 3 && parts[1] === "history") {
+    const localResponse = await localExtensionSqlOnlyResponse(event, parts[0]);
+    if (localResponse) return localResponse;
     const detail = await getExtensionHistoryVersion(parts[0], parts[2]);
     if (!detail) {
       setResponseStatus(event, 404);
@@ -243,6 +282,8 @@ async function dispatch(
     parts[1] === "history" &&
     parts[3] === "restore"
   ) {
+    const localResponse = await localExtensionSqlOnlyResponse(event, parts[0]);
+    if (localResponse) return localResponse;
     const restored = await restoreExtensionHistoryVersion(parts[0], parts[2]);
     if (!restored) {
       setResponseStatus(event, 404);
@@ -253,6 +294,11 @@ async function dispatch(
 
   // GET /:id
   if (method === "GET" && parts.length === 1) {
+    const localExtension = await getLocalExtension(parts[0]);
+    if (localExtension) {
+      return extensionResponse(localExtension, "viewer");
+    }
+
     const access = await resolveAccess("extension", parts[0]);
     if (!access) {
       setResponseStatus(event, 404);
@@ -264,6 +310,8 @@ async function dispatch(
   // POST /:id/hide — remove from the current user's Extensions list/sidebar
   // without deleting the underlying extension for teammates or shared slots.
   if (method === "POST" && parts.length === 2 && parts[1] === "hide") {
+    const localResponse = await localExtensionSqlOnlyResponse(event, parts[0]);
+    if (localResponse) return localResponse;
     const ok = await hideExtension(parts[0]);
     if (!ok) {
       setResponseStatus(event, 404);
@@ -274,6 +322,8 @@ async function dispatch(
 
   // POST /:id/unhide — restore an extension hidden by the current user.
   if (method === "POST" && parts.length === 2 && parts[1] === "unhide") {
+    const localResponse = await localExtensionSqlOnlyResponse(event, parts[0]);
+    if (localResponse) return localResponse;
     const ok = await unhideExtension(parts[0]);
     if (!ok) {
       setResponseStatus(event, 404);
@@ -284,6 +334,8 @@ async function dispatch(
 
   // POST /:id/global-hide — admin/owner hides the extension from EVERYONE.
   if (method === "POST" && parts.length === 2 && parts[1] === "global-hide") {
+    const localResponse = await localExtensionSqlOnlyResponse(event, parts[0]);
+    if (localResponse) return localResponse;
     const ok = await globalHideExtension(parts[0]);
     if (!ok) {
       setResponseStatus(event, 404);
@@ -294,6 +346,8 @@ async function dispatch(
 
   // POST /:id/global-unhide — admin/owner reverses a global hide.
   if (method === "POST" && parts.length === 2 && parts[1] === "global-unhide") {
+    const localResponse = await localExtensionSqlOnlyResponse(event, parts[0]);
+    if (localResponse) return localResponse;
     const ok = await globalUnhideExtension(parts[0]);
     if (!ok) {
       setResponseStatus(event, 404);
@@ -304,6 +358,8 @@ async function dispatch(
 
   // PUT /:id
   if (method === "PUT" && parts.length === 1) {
+    const localResponse = await localExtensionSqlOnlyResponse(event, parts[0]);
+    if (localResponse) return localResponse;
     const body = await readBody(event);
     const hasContentUpdate =
       body.content !== undefined ||
@@ -340,6 +396,8 @@ async function dispatch(
 
   // DELETE /:id
   if (method === "DELETE" && parts.length === 1) {
+    const localResponse = await localExtensionSqlOnlyResponse(event, parts[0]);
+    if (localResponse) return localResponse;
     const ok = await deleteExtension(parts[0]);
     if (!ok) {
       setResponseStatus(event, 404);
@@ -353,15 +411,17 @@ async function dispatch(
 }
 
 async function extensionResponse(
-  row: ExtensionRow,
+  row: ExtensionRow | LocalExtensionRow,
   role?: "owner" | ShareRole | null,
   options: { includeContent?: boolean } = {},
 ) {
-  const resolvedRole =
-    role ??
-    (await resolveAccess("extension", row.id)
-      .then((access) => access?.role ?? null)
-      .catch(() => null));
+  const local = isLocalExtensionRow(row);
+  const resolvedRole = local
+    ? "viewer"
+    : (role ??
+      (await resolveAccess("extension", row.id)
+        .then((access) => access?.role ?? null)
+        .catch(() => null)));
   const responseRow =
     options.includeContent === false
       ? (({ content: _content, ...rest }) => rest)(row)
@@ -369,11 +429,31 @@ async function extensionResponse(
   return {
     ...responseRow,
     role: resolvedRole,
-    canEdit: resolvedRole
-      ? ["owner", "admin", "editor"].includes(resolvedRole)
-      : false,
-    canDelete: resolvedRole ? ["owner", "admin"].includes(resolvedRole) : false,
+    canEdit: local
+      ? false
+      : resolvedRole
+        ? ["owner", "admin", "editor"].includes(resolvedRole)
+        : false,
+    canDelete: local
+      ? false
+      : resolvedRole
+        ? ["owner", "admin"].includes(resolvedRole)
+        : false,
     globallyHidden: row.hiddenAt != null,
+  };
+}
+
+async function localExtensionSqlOnlyResponse(
+  event: H3Event,
+  extensionId: string,
+): Promise<unknown | null> {
+  const localExtension = await getLocalExtension(extensionId);
+  if (!localExtension) return null;
+  setResponseStatus(event, 400);
+  return {
+    error:
+      "This extension is backed by local files. Edit its extension.json or entry file in the workspace; SQL-backed extension history, sharing, hide, update, and delete operations do not apply.",
+    source: localExtension.source,
   };
 }
 
@@ -385,7 +465,10 @@ async function handleExtensionDataList(
 ): Promise<unknown> {
   await ensureExtensionsTables();
   const extension = await getExtension(extensionId);
-  if (!extension) {
+  const localExtension = extension
+    ? null
+    : await getLocalExtension(extensionId);
+  if (!extension && !localExtension) {
     setResponseStatus(event, 404);
     return { error: "Extension not found" };
   }
@@ -446,7 +529,10 @@ async function handleExtensionDataUpsert(
 ): Promise<unknown> {
   await ensureExtensionsTables();
   const extension = await getExtension(extensionId);
-  if (!extension) {
+  const localExtension = extension
+    ? null
+    : await getLocalExtension(extensionId);
+  if (!extension && !localExtension) {
     setResponseStatus(event, 404);
     return { error: "Extension not found" };
   }
@@ -516,7 +602,10 @@ async function handleExtensionDataDelete(
 ): Promise<unknown> {
   await ensureExtensionsTables();
   const extension = await getExtension(extensionId);
-  if (!extension) {
+  const localExtension = extension
+    ? null
+    : await getLocalExtension(extensionId);
+  if (!extension && !localExtension) {
     setResponseStatus(event, 404);
     return { error: "Extension not found" };
   }

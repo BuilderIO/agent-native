@@ -20,6 +20,7 @@ export interface AgentNativeManifestApp {
   mode?: AgentNativeDataMode;
   roots?: AgentNativeManifestRoot[];
   components?: string | string[];
+  extensions?: string | string[];
   hide?: string[];
 }
 
@@ -40,6 +41,7 @@ export interface LocalArtifactAppDefaults {
   roots: AgentNativeManifestRoot[];
   hide?: string[];
   components?: string | string[];
+  extensions?: string | string[];
 }
 
 export interface LoadAgentNativeManifestOptions {
@@ -75,6 +77,7 @@ export interface LoadedLocalArtifactApp {
   workspaceRoot: string;
   roots: LoadedLocalArtifactRoot[];
   components: string[];
+  extensions: string[];
   hide: string[];
 }
 
@@ -227,6 +230,10 @@ function normalizeManifestApp(value: unknown): AgentNativeManifestApp {
       typeof value.components === "string" || Array.isArray(value.components)
         ? asStringArray(value.components)
         : undefined,
+    extensions:
+      typeof value.extensions === "string" || Array.isArray(value.extensions)
+        ? asStringArray(value.extensions)
+        : undefined,
     hide: asStringArray(value.hide),
   };
 }
@@ -357,6 +364,7 @@ function mergeAppConfig(
         ? manifestApp.roots
         : (defaults?.roots ?? []),
     components: manifestApp?.components ?? defaults?.components,
+    extensions: manifestApp?.extensions ?? defaults?.extensions,
     hide: [...(defaults?.hide ?? []), ...(manifestApp?.hide ?? [])],
   };
 }
@@ -413,6 +421,7 @@ export async function getLocalArtifactApp(
     workspaceRoot,
     roots,
     components: asStringArray(app.components),
+    extensions: asStringArray(app.extensions),
     hide: [...DEFAULT_HIDE_PATTERNS, ...asStringArray(app.hide)],
   };
 }

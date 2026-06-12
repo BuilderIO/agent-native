@@ -40,6 +40,13 @@ export const IPC = {
   PLAN_FILES_READ: "plan-files:read",
   PLAN_FILES_CLEAR_FOLDER: "plan-files:clear-folder",
 
+  /** Hosted Content app local-file sync (Content webview ↔ main) */
+  CONTENT_FILES_GET_FOLDER: "content-files:get-folder",
+  CONTENT_FILES_CHOOSE_FOLDER: "content-files:choose-folder",
+  CONTENT_FILES_WRITE: "content-files:write",
+  CONTENT_FILES_READ: "content-files:read",
+  CONTENT_FILES_CLEAR_FOLDER: "content-files:clear-folder",
+
   /** Active webview tracking (renderer → main) */
   SET_ACTIVE_APP: "webview:set-active-app",
   SET_ACTIVE_WEBVIEW: "webview:set-active-webview",
@@ -189,6 +196,29 @@ export type DesktopPlanFilesResult =
       error: string;
       canceled?: boolean;
       folder?: DesktopPlanFilesFolder;
+    };
+
+export interface DesktopContentFilesFolder {
+  name: string;
+  updatedAt?: string;
+}
+
+export interface DesktopContentFilesWriteRequest {
+  files: Record<string, string>;
+}
+
+export type DesktopContentFilesResult =
+  | {
+      ok: true;
+      folder: DesktopContentFilesFolder;
+      files?: string[];
+      sources?: Record<string, string>;
+    }
+  | {
+      ok: false;
+      error: string;
+      canceled?: boolean;
+      folder?: DesktopContentFilesFolder;
     };
 
 export type CodeAgentRunStatus =

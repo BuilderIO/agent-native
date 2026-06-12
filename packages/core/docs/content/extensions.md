@@ -17,6 +17,13 @@ Three things make extensions work:
 - **Full access to the template's data.** Extensions can call the same actions the agent calls — `list-emails` in Mail, `list-decks` in Slides, `list-recordings` in Clips — so they have everything the host app has.
 - **Built-in storage.** Each extension has its own per-user / per-org key-value store, so it can save state without you adding a new SQL table.
 
+Extensions can also be **repo-backed in Local File Mode**. In that workflow,
+`agent-native.json` declares an `extensions` folder, each extension has an
+`extension.json` manifest plus an HTML entry file, and the app renders those
+files through the same sandbox. File-backed extensions are edited by changing
+the repo files; database-backed extensions keep the runtime create/edit/share
+experience described below.
+
 ## A quick gallery {#gallery}
 
 Real extensions people would actually build, grouped by the template they live in. Each one is one focused thing — not a Swiss-army knife.
@@ -216,6 +223,64 @@ In practice you don't run those three commands by hand. Just say "pin this widge
 > **Slots are an _added_ capability, not a prerequisite.** Plenty of useful extensions never get installed into a slot — they live happily on their own page. Reach for slots when the widget needs to be _next to_ what the user is looking at in the host template.
 
 For deeper detail on slots — how to declare them in your template, how the context contract works, how installs are scoped — see the `extension-points` skill. Skills ship inside every scaffolded template under `.agents/skills/`; see [Skills Guide](/docs/skills-guide) for how they work.
+
+## Local File Extensions {#local-file-extensions}
+
+Local File Mode lets a workspace keep extensions in the repo:
+
+```txt
+extensions/
+  doc-status/
+    extension.json
+    index.html
+```
+
+```json
+{
+  "id": "doc-status",
+  "name": "Doc Status",
+  "description": "Shows metadata for the selected Content file.",
+  "entry": "index.html",
+  "slots": ["content.sidebar.bottom"],
+  "permissions": {
+    "appActions": ["list-documents"],
+    "extensionData": true
+  }
+}
+```
+
+Add the folder to the relevant app in `agent-native.json`:
+
+```json
+{
+  "apps": {
+    "content": {
+      "mode": "local-files",
+      "roots": [{ "name": "Docs", "path": "docs", "extensions": [".mdx"] }],
+      "components": "components",
+      "extensions": "extensions"
+    }
+  }
+}
+```
+
+The app lists file-backed extensions alongside database-backed ones and renders
+them through the normal sandbox iframe. Slot declarations in `extension.json`
+auto-mount the extension into matching `ExtensionSlot`s; there is no per-user
+SQL install row for local extensions.
+
+Local extensions have a tighter v1 permission model:
+
+- `extensionData` is available for small runtime state unless disabled.
+- `appAction` calls must be explicitly listed in `permissions.appActions`.
+- `dbQuery`, `dbExec`, and `extensionFetch` are blocked for now.
+- SQL-backed update, delete, share, and history actions return a message that
+  points back to the local entry file.
+
+Use database-backed extensions when users should create/share/edit widgets at
+runtime. Use local file extensions when the extension is part of a repo-first
+workspace and should be reviewable, patchable, and versioned with the rest of
+the files.
 
 ## Sharing {#sharing}
 

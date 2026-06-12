@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   deleteLocalArtifactFile,
   findAgentNativeManifest,
+  getLocalArtifactApp,
   listLocalArtifactFiles,
   readLocalArtifactFile,
   resolveAgentNativeDataMode,
@@ -136,6 +137,29 @@ describe("local artifact helpers", () => {
       "blog/launch.md",
       "docs/intro.mdx",
     ]);
+  });
+
+  it("loads configured local component and extension roots", async () => {
+    const root = tmpDir();
+    const manifestPath = path.join(root, "agent-native.json");
+    writeJson(manifestPath, {
+      mode: "local-files",
+      apps: {
+        content: {
+          roots: [{ path: "docs", extensions: [".mdx"] }],
+          components: "components",
+          extensions: ["extensions", "widgets"],
+        },
+      },
+    });
+
+    const app = await getLocalArtifactApp({
+      appId: "content",
+      manifestPath,
+    });
+
+    expect(app.components).toEqual(["components"]);
+    expect(app.extensions).toEqual(["extensions", "widgets"]);
   });
 
   it("writes atomically and rejects stale expected hashes", async () => {

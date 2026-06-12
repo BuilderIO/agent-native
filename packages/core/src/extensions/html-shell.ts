@@ -67,6 +67,18 @@ export interface ExtensionRenderBinding {
    * extension, audit C1). For now this is metadata only.
    */
   role: "owner" | "admin" | "editor" | "viewer";
+  /** Where the extension definition came from. Database extensions are the default. */
+  source?: "database" | "local-files";
+  /**
+   * Fine-grained helper permissions for local file extensions. Database-backed
+   * extensions keep using the role table in the parent bridge.
+   */
+  permissions?: {
+    appActions?: string[];
+    extensionData?: boolean;
+    sql?: boolean;
+    externalFetch?: boolean;
+  };
 }
 
 export function buildExtensionHtml(

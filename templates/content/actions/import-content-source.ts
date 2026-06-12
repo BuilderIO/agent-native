@@ -31,6 +31,20 @@ function boolToInt(value: boolean | undefined) {
   return value ? 1 : 0;
 }
 
+function sourceRootPath(filePath: string) {
+  return filePath.split("/").filter(Boolean)[0] ?? null;
+}
+
+function localSourceFields(filePath: string, now: string) {
+  return {
+    sourceMode: "local-files",
+    sourceKind: "file",
+    sourcePath: filePath,
+    sourceRootPath: sourceRootPath(filePath),
+    sourceUpdatedAt: now,
+  };
+}
+
 function canEditRole(role: string) {
   return ROLE_RANK[role as keyof typeof ROLE_RANK] >= ROLE_RANK.editor;
 }
@@ -236,12 +250,19 @@ export default defineAction({
         const discoverabilityChanged =
           file.hideFromSearch !== undefined &&
           boolToInt(file.hideFromSearch) !== (existing.hideFromSearch ?? 0);
+        const sourceUpdates = localSourceFields(file.path, now);
+        const sourceChanged =
+          existing.sourceMode !== sourceUpdates.sourceMode ||
+          existing.sourceKind !== sourceUpdates.sourceKind ||
+          existing.sourcePath !== sourceUpdates.sourcePath ||
+          existing.sourceRootPath !== sourceUpdates.sourceRootPath;
         const anyChange =
           titleChanged ||
           contentChanged ||
           iconChanged ||
           favoriteChanged ||
-          discoverabilityChanged;
+          discoverabilityChanged ||
+          sourceChanged;
 
         if (!anyChange) {
           unchanged.push({ id, path: file.path, title: existing.title });
@@ -266,6 +287,7 @@ export default defineAction({
           if (discoverabilityChanged) {
             updates.hideFromSearch = boolToInt(file.hideFromSearch);
           }
+          Object.assign(updates, sourceUpdates);
 
           await db
             .update(schema.documents)
@@ -290,6 +312,7 @@ export default defineAction({
             position: file.position ?? index,
             isFavorite: boolToInt(file.isFavorite),
             hideFromSearch: boolToInt(file.hideFromSearch),
+            ...localSourceFields(file.path, now),
             visibility: "private",
             createdAt: now,
             updatedAt: now,

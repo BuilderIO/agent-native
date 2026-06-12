@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState, type ReactNode } from "react";
 import { useLocation, useNavigate } from "react-router";
 import { useQueryClient } from "@tanstack/react-query";
 import {
@@ -24,6 +24,7 @@ import {
   IconLayoutSidebarLeftCollapse,
   IconLayoutSidebarLeftExpand,
   IconFolderOpen,
+  IconChevronRight,
 } from "@tabler/icons-react";
 import { toast } from "sonner";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -34,7 +35,10 @@ import {
   FeedbackButton,
   appPath,
 } from "@agent-native/core/client";
-import { ExtensionsSidebarSection } from "@agent-native/core/client/extensions";
+import {
+  ExtensionSlot,
+  ExtensionsSidebarSection,
+} from "@agent-native/core/client/extensions";
 import { NotionButton } from "./NotionButton";
 import { DocumentSidebarIcon, DocumentTreeItem } from "./DocumentTreeItem";
 import {
@@ -105,6 +109,24 @@ function collectDocumentSubtreeIds(documents: Document[], rootId: string) {
   return deletedIds;
 }
 
+function isDirectLocalDocument(document: Pick<Document, "id" | "source">) {
+  return (
+    document.source?.mode === "local-files" &&
+    (document.id.startsWith("local-file:") ||
+      document.id.startsWith("local-folder:"))
+  );
+}
+
+function isImportedLocalSourceDocument(
+  document: Pick<Document, "id" | "source">,
+) {
+  return (
+    document.source?.mode === "local-files" && !isDirectLocalDocument(document)
+  );
+}
+
+type SidebarSectionId = "local-files" | "private" | "organization";
+
 export function DocumentSidebar({
   activeDocumentId,
   collapsed,
@@ -128,6 +150,13 @@ export function DocumentSidebar({
   const expandedIdsRef = useRef(new Set<string>());
   const [, forceUpdate] = useState(0);
   const [isResizing, setIsResizing] = useState(false);
+  const [collapsedSections, setCollapsedSections] = useState<
+    Record<SidebarSectionId, boolean>
+  >({
+    "local-files": false,
+    private: false,
+    organization: false,
+  });
   const localFilesActive = location.pathname.startsWith("/local-files");
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -168,13 +197,27 @@ export function DocumentSidebar({
   );
 
   const treeDocuments = filterDocumentTreeDocuments(documents);
-  const tree = buildDocumentTree(treeDocuments);
-  const privateTree = tree.filter((node) => node.visibility !== "org");
-  const organizationTree = tree.filter((node) => node.visibility === "org");
-  const favorites = documents.filter((d) => d.isFavorite);
-  const localFileMode = documents.some(
-    (document) => document.source?.mode === "local-files",
+  const localFileMode = documents.some(isDirectLocalDocument);
+  const localSourceDocuments = localFileMode
+    ? treeDocuments
+    : treeDocuments.filter(isImportedLocalSourceDocument);
+  const databaseDocuments = localFileMode
+    ? []
+    : treeDocuments.filter(
+        (document) => !isImportedLocalSourceDocument(document),
+      );
+  const localFileTree = buildDocumentTree(localSourceDocuments);
+  const databaseTree = buildDocumentTree(databaseDocuments);
+  const privateTree = databaseTree.filter((node) => node.visibility !== "org");
+  const organizationTree = databaseTree.filter(
+    (node) => node.visibility === "org",
   );
+  const favorites = documents.filter(
+    (d) => d.isFavorite && (localFileMode || !isImportedLocalSourceDocument(d)),
+  );
+  const activeDocument = activeDocumentId
+    ? documents.find((doc) => doc.id === activeDocumentId)
+    : null;
   const parentByDocumentId = useMemo(
     () => new Map(documents.map((doc) => [doc.id, doc.parentId])),
     [documents],
@@ -523,6 +566,91 @@ export function DocumentSidebar({
     </button>
   );
 
+  const toggleSection = (id: SidebarSectionId) => {
+    setCollapsedSections((current) => ({
+      ...current,
+      [id]: !current[id],
+    }));
+  };
+
+  const renderSectionHeader = (id: SidebarSectionId, label: string) => {
+    const collapsed = collapsedSections[id];
+    return (
+      <button
+        type="button"
+        aria-expanded={!collapsed}
+        className="flex w-full items-center gap-1 rounded-md px-3 py-1.5 text-left text-[10px] font-semibold uppercase tracking-wider text-muted-foreground hover:bg-accent/40 hover:text-foreground"
+        onClick={() => toggleSection(id)}
+      >
+        <IconChevronRight
+          size={12}
+          className={cn(
+            "shrink-0 transition-transform",
+            !collapsed && "rotate-90",
+          )}
+        />
+        <span className="min-w-0 flex-1 truncate">{label}</span>
+      </button>
+    );
+  };
+
+  const renderTreeSkeleton = () => (
+    <div className="space-y-1 px-3 py-1">
+      {[70, 55, 85, 60, 45].map((w, i) => (
+        <div key={i} className="flex items-center gap-2 px-1 py-1.5">
+          <div className="h-3.5 w-3.5 shrink-0 animate-pulse rounded bg-muted" />
+          <div
+            className="h-3.5 animate-pulse rounded bg-muted"
+            style={{ width: `${w}%` }}
+          />
+        </div>
+      ))}
+    </div>
+  );
+
+  const renderTreeSection = ({
+    id,
+    label,
+    nodes,
+    emptyLabel,
+    className,
+    footer,
+  }: {
+    id: SidebarSectionId;
+    label: string;
+    nodes: DocumentTreeNode[];
+    emptyLabel: string;
+    className?: string;
+    footer?: ReactNode;
+  }) => {
+    const collapsed = collapsedSections[id];
+    return (
+      <div className={className}>
+        {renderSectionHeader(id, label)}
+        {!collapsed && (
+          <>
+            <DndContext
+              sensors={sensors}
+              collisionDetection={closestCenter}
+              onDragEnd={handleDragEnd}
+            >
+              {isLoading ? (
+                renderTreeSkeleton()
+              ) : nodes.length === 0 ? (
+                <div className="px-3 py-4 text-center text-sm text-muted-foreground">
+                  {emptyLabel}
+                </div>
+              ) : (
+                renderDocumentTree(nodes)
+              )}
+            </DndContext>
+            {footer}
+          </>
+        )}
+      </div>
+    );
+  };
+
   if (collapsed) {
     return (
       <div className="flex flex-col h-full w-12 border-r border-border bg-muted/30 items-center py-3 gap-1">
@@ -718,97 +846,41 @@ export function DocumentSidebar({
               )}
 
               {localFileMode ? (
-                <div>
-                  <DndContext
-                    sensors={sensors}
-                    collisionDetection={closestCenter}
-                    onDragEnd={handleDragEnd}
-                  >
-                    {isLoading ? (
-                      <div className="space-y-1 px-3 py-1">
-                        {[70, 55, 85, 60, 45].map((w, i) => (
-                          <div
-                            key={i}
-                            className="flex items-center gap-2 px-1 py-1.5"
-                          >
-                            <div className="h-3.5 w-3.5 rounded bg-muted animate-pulse flex-shrink-0" />
-                            <div
-                              className="h-3.5 rounded bg-muted animate-pulse"
-                              style={{ width: `${w}%` }}
-                            />
-                          </div>
-                        ))}
-                      </div>
-                    ) : privateTree.length === 0 ? (
-                      <div className="px-3 py-4 text-sm text-muted-foreground text-center">
-                        No files yet
-                      </div>
-                    ) : (
-                      renderDocumentTree(privateTree)
-                    )}
-                  </DndContext>
-                </div>
+                renderTreeSection({
+                  id: "local-files",
+                  label: "Local files",
+                  nodes: localFileTree,
+                  emptyLabel: "No files yet",
+                  footer: renderNewPageButton(),
+                })
               ) : (
                 <>
-                  {/* Private page tree */}
-                  <div>
-                    <div className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                      Private
-                    </div>
-                    <DndContext
-                      sensors={sensors}
-                      collisionDetection={closestCenter}
-                      onDragEnd={handleDragEnd}
-                    >
-                      {isLoading ? (
-                        <div className="space-y-1 px-3 py-1">
-                          {[70, 55, 85, 60, 45].map((w, i) => (
-                            <div
-                              key={i}
-                              className="flex items-center gap-2 px-1 py-1.5"
-                            >
-                              <div className="h-3.5 w-3.5 rounded bg-muted animate-pulse flex-shrink-0" />
-                              <div
-                                className="h-3.5 rounded bg-muted animate-pulse"
-                                style={{ width: `${w}%` }}
-                              />
-                            </div>
-                          ))}
-                        </div>
-                      ) : privateTree.length === 0 ? (
-                        <div className="px-3 py-4 text-sm text-muted-foreground text-center">
-                          No private pages yet
-                        </div>
-                      ) : (
-                        renderDocumentTree(privateTree)
-                      )}
-                    </DndContext>
-                  </div>
+                  {localFileTree.length > 0 &&
+                    renderTreeSection({
+                      id: "local-files",
+                      label: "Local files",
+                      nodes: localFileTree,
+                      emptyLabel: "No local files yet",
+                      className: "mb-2",
+                    })}
+
+                  {renderTreeSection({
+                    id: "private",
+                    label: "Private",
+                    nodes: privateTree,
+                    emptyLabel: "No private pages yet",
+                    footer: renderNewPageButton(),
+                  })}
+
+                  {!isLoading &&
+                    renderTreeSection({
+                      id: "organization",
+                      label: "Organization",
+                      nodes: organizationTree,
+                      emptyLabel: "No organization pages yet",
+                      className: "mt-3",
+                    })}
                 </>
-              )}
-
-              {/* New page button — private pages are the default */}
-              {renderNewPageButton()}
-
-              {!localFileMode && !isLoading && (
-                <div className="mt-3">
-                  <div className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                    Organization
-                  </div>
-                  <DndContext
-                    sensors={sensors}
-                    collisionDetection={closestCenter}
-                    onDragEnd={handleDragEnd}
-                  >
-                    {organizationTree.length === 0 ? (
-                      <div className="px-3 py-4 text-sm text-muted-foreground text-center">
-                        No organization pages yet
-                      </div>
-                    ) : (
-                      renderDocumentTree(organizationTree)
-                    )}
-                  </DndContext>
-                </div>
               )}
             </>
           )}
@@ -816,6 +888,17 @@ export function DocumentSidebar({
       </ScrollArea>
 
       <div className="shrink-0 border-t border-border">
+        <ExtensionSlot
+          id="content.sidebar.bottom"
+          context={{
+            documentId: activeDocumentId,
+            documentTitle: activeDocument?.title ?? null,
+            documentSource: activeDocument?.source ?? null,
+            localFileMode,
+          }}
+          className="px-2 py-2"
+          toolClassName="overflow-hidden rounded-md"
+        />
         <ExtensionsSidebarSection />
       </div>
 

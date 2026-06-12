@@ -169,6 +169,14 @@ export interface BridgePolicyContext {
   /** True when viewer is the extension's owner_email — equivalent to role "owner"
    *  but cheaper to plumb through from the render binding. */
   isAuthor: boolean;
+  /** Database-backed extensions use role gates; local-file extensions use manifest gates. */
+  source?: "database" | "local-files";
+  permissions?: {
+    appActions?: string[];
+    extensionData?: boolean;
+    sql?: boolean;
+    externalFetch?: boolean;
+  };
 }
 
 export interface BridgePolicyResult {
@@ -190,6 +198,10 @@ export function checkBridgePolicy(
   method: string,
   ctx: BridgePolicyContext,
 ): BridgePolicyResult {
+  if (ctx.source === "local-files") {
+    return checkLocalFileBridgePolicy(path, method, ctx);
+  }
+
   // Authors and the highest non-owner roles get the unrestricted bridge.
   if (ctx.isAuthor || ctx.role === "owner" || ctx.role === "admin") {
     return { ok: true };
@@ -271,4 +283,65 @@ export function checkBridgePolicy(
 
 function deniedMessage(helper: string, role: ExtensionBridgeRole): string {
   return `Helper '${helper}' is not allowed for role '${role}' on this extension`;
+}
+
+function localDeniedMessage(helper: string): string {
+  return `Helper '${helper}' is not allowed by this local extension's extension.json permissions`;
+}
+
+function actionNameFromPath(path: string): string | null {
+  try {
+    const pathname = new URL(path, "http://agent-native.local").pathname;
+    const prefix = "/_agent-native/actions/";
+    if (!pathname.startsWith(prefix)) return null;
+    return decodeURIComponent(pathname.slice(prefix.length));
+  } catch {
+    return null;
+  }
+}
+
+function localAllowsAction(ctx: BridgePolicyContext, path: string): boolean {
+  const action = actionNameFromPath(path);
+  if (!action) return false;
+  const actions = ctx.permissions?.appActions ?? [];
+  return actions.includes("*") || actions.includes(action);
+}
+
+function checkLocalFileBridgePolicy(
+  path: string,
+  method: string,
+  ctx: BridgePolicyContext,
+): BridgePolicyResult {
+  const upperMethod = method.toUpperCase();
+
+  if (path.startsWith("/_agent-native/actions/")) {
+    if (localAllowsAction(ctx, path)) return { ok: true };
+    return { ok: false, error: localDeniedMessage("appAction") };
+  }
+
+  if (
+    path === "/_agent-native/extensions/sql/query" ||
+    path === "/_agent-native/extensions/sql/exec"
+  ) {
+    return { ok: false, error: localDeniedMessage("dbQuery/dbExec") };
+  }
+
+  if (path === "/_agent-native/extensions/proxy") {
+    return { ok: false, error: localDeniedMessage("extensionFetch") };
+  }
+
+  if (path.startsWith("/_agent-native/extensions/data/")) {
+    if (ctx.permissions?.extensionData === false) {
+      return { ok: false, error: localDeniedMessage("extensionData") };
+    }
+    return { ok: true };
+  }
+
+  if (path.startsWith("/_agent-native/application-state/")) {
+    if (READ_METHODS.has(upperMethod)) return { ok: true };
+    return { ok: false, error: localDeniedMessage("applicationState") };
+  }
+
+  if (READ_METHODS.has(upperMethod)) return { ok: true };
+  return { ok: false, error: localDeniedMessage("appFetch") };
 }

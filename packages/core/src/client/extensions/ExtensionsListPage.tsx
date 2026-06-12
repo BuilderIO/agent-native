@@ -39,6 +39,10 @@ interface Extension {
   icon?: string;
   canDelete?: boolean;
   globallyHidden?: boolean;
+  source?: {
+    mode?: "database" | "local-files";
+    entryPath?: string;
+  };
 }
 
 let lastCreateSubmission: { prompt: string; at: number } | null = null;
@@ -261,118 +265,141 @@ export function ExtensionsListPage() {
           </div>
         ) : (
           <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3">
-            {toolList.map((extension) => (
-              <div
-                key={extension.id}
-                className={cn(
-                  "group relative rounded-lg border border-border bg-card",
-                  "hover:border-primary/30 hover:shadow-sm",
-                  extension.globallyHidden && "opacity-60",
-                )}
-              >
-                <Link
-                  to={extensionPath(extension.id, extension.name)}
-                  className="block p-5 pr-12"
-                >
-                  <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-lg bg-muted text-muted-foreground group-hover:bg-primary/10 group-hover:text-primary">
-                    <IconTool className="h-5 w-5" />
-                  </div>
-                  <h3 className="mb-1 flex items-center gap-1.5 text-sm font-semibold text-foreground">
-                    {extension.globallyHidden && (
-                      <IconEyeOff
-                        className="h-3.5 w-3.5 shrink-0 text-muted-foreground"
-                        aria-label="Hidden from everyone"
-                      />
-                    )}
-                    <span className="truncate">{extension.name}</span>
-                  </h3>
-                  {extension.description && (
-                    <p className="line-clamp-2 text-xs text-muted-foreground">
-                      {extension.description}
-                    </p>
+            {toolList.map((extension) => {
+              const isLocalExtension = extension.source?.mode === "local-files";
+              return (
+                <div
+                  key={extension.id}
+                  className={cn(
+                    "group relative rounded-lg border border-border bg-card",
+                    "hover:border-primary/30 hover:shadow-sm",
+                    extension.globallyHidden && "opacity-60",
                   )}
-                </Link>
-                <Popover
-                  open={confirmDeleteId === extension.id}
-                  onOpenChange={(open) =>
-                    setConfirmDeleteId(open ? extension.id : null)
-                  }
                 >
-                  <PopoverTrigger asChild>
-                    <button
-                      type="button"
-                      className="absolute right-3 top-3 inline-flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground opacity-0 hover:bg-accent hover:text-foreground focus:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring group-hover:opacity-100"
-                      aria-label={`Options for ${extension.name}`}
-                    >
-                      <IconDotsVertical className="h-4 w-4" />
-                    </button>
-                  </PopoverTrigger>
-                  <PopoverContent
-                    align="end"
-                    sideOffset={4}
-                    className="w-64 p-0"
+                  <Link
+                    to={extensionPath(extension.id, extension.name)}
+                    className="block p-5 pr-12"
                   >
-                    {extension.canDelete !== false && (
-                      <div className="border-b p-1">
-                        <button
-                          type="button"
-                          onClick={() => handleGlobalHideToggle(extension)}
-                          className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[12px] hover:bg-accent"
-                        >
-                          {extension.globallyHidden ? (
-                            <>
-                              <IconEye className="h-3.5 w-3.5" />
-                              Unhide for everyone
-                            </>
-                          ) : (
-                            <>
-                              <IconEyeOff className="h-3.5 w-3.5" />
-                              Hide from everyone
-                            </>
-                          )}
-                        </button>
-                      </div>
-                    )}
-                    <div className="p-3">
-                      <p className="text-[12px]">
-                        {extension.canDelete === false ? "Remove " : "Delete "}
-                        <span className="font-medium">{extension.name}</span>?
-                        {extension.canDelete === false
-                          ? " This hides it from your Extensions list without deleting it for anyone else."
-                          : " This removes it everywhere it is shared."}
-                      </p>
-                      <div className="mt-3 flex justify-end gap-1">
-                        <button
-                          type="button"
-                          onClick={() => setConfirmDeleteId(null)}
-                          className="rounded-md px-2 py-1 text-[12px] hover:bg-accent"
-                        >
-                          Cancel
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => handleDelete(extension)}
-                          disabled={deletingId === extension.id}
-                          className={cn(
-                            "inline-flex items-center gap-1.5 rounded-md bg-destructive px-2 py-1 text-[12px] text-destructive-foreground hover:bg-destructive/90",
-                            deletingId === extension.id && "opacity-60",
-                          )}
-                        >
-                          <IconTrash className="h-3.5 w-3.5" />
-                          {deletingId === extension.id
-                            ? extension.canDelete === false
-                              ? "Removing..."
-                              : "Deleting..."
-                            : extension.canDelete === false
-                              ? "Remove"
-                              : "Delete"}
-                        </button>
-                      </div>
+                    <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-lg bg-muted text-muted-foreground group-hover:bg-primary/10 group-hover:text-primary">
+                      <IconTool className="h-5 w-5" />
                     </div>
-                  </PopoverContent>
-                </Popover>
-              </div>
-            ))}
+                    <h3 className="mb-1 flex items-center gap-1.5 text-sm font-semibold text-foreground">
+                      {extension.globallyHidden && (
+                        <IconEyeOff
+                          className="h-3.5 w-3.5 shrink-0 text-muted-foreground"
+                          aria-label="Hidden from everyone"
+                        />
+                      )}
+                      <span className="truncate">{extension.name}</span>
+                    </h3>
+                    {extension.description && (
+                      <p className="line-clamp-2 text-xs text-muted-foreground">
+                        {extension.description}
+                      </p>
+                    )}
+                    {isLocalExtension && (
+                      <p className="mt-3 inline-flex rounded-md border border-border px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+                        Local file
+                      </p>
+                    )}
+                  </Link>
+                  <Popover
+                    open={confirmDeleteId === extension.id}
+                    onOpenChange={(open) =>
+                      setConfirmDeleteId(open ? extension.id : null)
+                    }
+                  >
+                    <PopoverTrigger asChild>
+                      <button
+                        type="button"
+                        className="absolute right-3 top-3 inline-flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground opacity-0 hover:bg-accent hover:text-foreground focus:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring group-hover:opacity-100"
+                        aria-label={`Options for ${extension.name}`}
+                      >
+                        <IconDotsVertical className="h-4 w-4" />
+                      </button>
+                    </PopoverTrigger>
+                    <PopoverContent
+                      align="end"
+                      sideOffset={4}
+                      className="w-64 p-0"
+                    >
+                      {!isLocalExtension && extension.canDelete !== false && (
+                        <div className="border-b p-1">
+                          <button
+                            type="button"
+                            onClick={() => handleGlobalHideToggle(extension)}
+                            className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[12px] hover:bg-accent"
+                          >
+                            {extension.globallyHidden ? (
+                              <>
+                                <IconEye className="h-3.5 w-3.5" />
+                                Unhide for everyone
+                              </>
+                            ) : (
+                              <>
+                                <IconEyeOff className="h-3.5 w-3.5" />
+                                Hide from everyone
+                              </>
+                            )}
+                          </button>
+                        </div>
+                      )}
+                      {isLocalExtension ? (
+                        <div className="p-3 text-[12px] text-muted-foreground">
+                          This extension is backed by{" "}
+                          <span className="font-mono text-foreground">
+                            {extension.source?.entryPath ?? "local files"}
+                          </span>
+                          . Edit or remove it from the workspace.
+                        </div>
+                      ) : (
+                        <div className="p-3">
+                          <p className="text-[12px]">
+                            {extension.canDelete === false
+                              ? "Remove "
+                              : "Delete "}
+                            <span className="font-medium">
+                              {extension.name}
+                            </span>
+                            ?
+                            {extension.canDelete === false
+                              ? " This hides it from your Extensions list without deleting it for anyone else."
+                              : " This removes it everywhere it is shared."}
+                          </p>
+                          <div className="mt-3 flex justify-end gap-1">
+                            <button
+                              type="button"
+                              onClick={() => setConfirmDeleteId(null)}
+                              className="rounded-md px-2 py-1 text-[12px] hover:bg-accent"
+                            >
+                              Cancel
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleDelete(extension)}
+                              disabled={deletingId === extension.id}
+                              className={cn(
+                                "inline-flex items-center gap-1.5 rounded-md bg-destructive px-2 py-1 text-[12px] text-destructive-foreground hover:bg-destructive/90",
+                                deletingId === extension.id && "opacity-60",
+                              )}
+                            >
+                              <IconTrash className="h-3.5 w-3.5" />
+                              {deletingId === extension.id
+                                ? extension.canDelete === false
+                                  ? "Removing..."
+                                  : "Deleting..."
+                                : extension.canDelete === false
+                                  ? "Remove"
+                                  : "Delete"}
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </PopoverContent>
+                  </Popover>
+                </div>
+              );
+            })}
           </div>
         )}
       </div>

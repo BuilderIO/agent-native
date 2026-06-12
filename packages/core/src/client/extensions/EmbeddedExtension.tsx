@@ -17,6 +17,7 @@ import {
   isAllowedExtensionPath,
   sanitizeExtensionRequestOptions,
   checkBridgePolicy,
+  type BridgePolicyContext,
   type ExtensionBridgeRole,
 } from "./iframe-bridge.js";
 import {
@@ -42,6 +43,10 @@ interface Extension {
   content?: string;
   updatedAt?: string;
   canDelete?: boolean;
+  source?: {
+    mode?: "database" | "local-files";
+    permissions?: BridgePolicyContext["permissions"];
+  };
 }
 
 export interface EmbeddedExtensionProps {
@@ -75,10 +80,7 @@ export function EmbeddedExtension({
   const [isDark, setIsDark] = useState(false);
   // (audit H4) Mirror ExtensionViewer's role-aware gating; deny-by-default until
   // the iframe's render binding announcement arrives.
-  const bridgeContextRef = useRef<{
-    role: ExtensionBridgeRole;
-    isAuthor: boolean;
-  }>({
+  const bridgeContextRef = useRef<BridgePolicyContext>({
     role: "viewer",
     isAuthor: false,
   });
@@ -187,6 +189,11 @@ export function EmbeddedExtension({
         bridgeContextRef.current = {
           role,
           isAuthor: !!binding.isAuthor,
+          source: binding.source === "local-files" ? "local-files" : "database",
+          permissions:
+            binding && typeof binding.permissions === "object"
+              ? binding.permissions
+              : undefined,
         };
         return;
       }
