@@ -182,10 +182,8 @@ test("browser local folder edits write the selected MDX file", async ({
   await expect
     .poll(async () => findImportedDocId(), { timeout: 20_000 })
     .toBeTruthy();
-  const docId = await findImportedDocId();
-  expect(docId).toBeTruthy();
 
-  await page.goto(`/page/${docId as string}`);
+  await page.getByLabel("Getting Started").click();
   const editor = page.locator(".notion-editor.ProseMirror").first();
   await expect(editor).toBeVisible({ timeout: 30_000 });
   await expect(editor).toContainText("Original body from disk.", {
