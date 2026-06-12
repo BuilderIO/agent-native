@@ -425,6 +425,42 @@ describe("SSE event processor error classification", () => {
     });
   });
 
+  it("maps legacy missing_api_key SSE frames to credential run errors", async () => {
+    const dispatchEvent = vi.fn();
+    vi.stubGlobal("window", { dispatchEvent });
+
+    const results = await drain(
+      readSSEStream(
+        eventStream([{ type: "missing_api_key" }]),
+        [],
+        { value: 0 },
+        "tab-missing-legacy",
+      ),
+    );
+
+    expect(dispatchEvent).toHaveBeenCalledWith(
+      expect.objectContaining({ type: "agent-chat:missing-api-key" }),
+    );
+    expect(dispatchEvent).toHaveBeenCalledWith(
+      expect.objectContaining({ type: "agent-chat:run-error" }),
+    );
+    expect(results[0]?.content).toEqual([
+      {
+        type: "text",
+        text: expect.stringMatching(/^Error: No LLM provider is connected/),
+      },
+    ]);
+    expect(results[0]?.status).toEqual({
+      type: "incomplete",
+      reason: "error",
+    });
+    expect(results[0]?.metadata?.custom?.runError).toEqual(
+      expect.objectContaining({
+        errorCode: "missing_credentials",
+      }),
+    );
+  });
+
   it("renders tool-scoped activity as a pending tool call", async () => {
     const dispatchEvent = vi.fn();
     vi.stubGlobal("window", { dispatchEvent });

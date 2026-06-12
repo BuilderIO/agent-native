@@ -1,4 +1,8 @@
 import type { ChatModelRunResult } from "@assistant-ui/react";
+import {
+  LLM_MISSING_CREDENTIALS_ERROR_CODE,
+  LLM_MISSING_CREDENTIALS_MESSAGE,
+} from "../agent/engine/credential-errors.js";
 import type { AgentMcpAppPayload } from "../mcp-client/app-result.js";
 import { formatChatErrorText, normalizeChatError } from "./error-format.js";
 import { humanizeToolLabelText, runningToolLabel } from "./tool-display.js";
@@ -306,7 +310,13 @@ export function processEvent(
   toolCallCounter: { value: number },
   tabId: string | undefined,
 ): {
-  action: "continue" | "done" | "yield" | "error" | "auto_continue";
+  action:
+    | "continue"
+    | "done"
+    | "yield"
+    | "error"
+    | "missing_api_key"
+    | "auto_continue";
   result?: ChatModelRunResult;
   autoContinue?: {
     reason: AgentAutoContinueReason;
@@ -514,6 +524,36 @@ export function processEvent(
     }
     // Don't add to content — the agent-teams tool call handles rendering
     return { action: "continue" };
+  }
+
+  if (ev.type === "missing_api_key") {
+    const errMsg = LLM_MISSING_CREDENTIALS_MESSAGE;
+    const errorCode = LLM_MISSING_CREDENTIALS_ERROR_CODE;
+    const runError = {
+      message: normalizeChatError(errMsg).message,
+      errorCode,
+    };
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new Event("agent-chat:missing-api-key"));
+      window.dispatchEvent(
+        new CustomEvent("agent-chat:run-error", {
+          detail: { ...runError, tabId },
+        }),
+      );
+    }
+    settleInterruptedToolCalls(content);
+    content.push({
+      type: "text",
+      text: formatChatErrorText(errMsg, undefined, errorCode),
+    });
+    return {
+      action: "missing_api_key",
+      result: {
+        content: [...content],
+        status: { type: "incomplete" as const, reason: "error" as const },
+        metadata: { custom: { runError } },
+      } as ChatModelRunResult,
+    };
   }
 
   if (ev.type === "loop_limit") {
@@ -744,7 +784,11 @@ export async function* readSSEStream(
               : { reason: "stream_ended", activityTrail: [...activityTrail] },
           );
         }
-        if (action === "done" || action === "error") {
+        if (
+          action === "done" ||
+          action === "error" ||
+          action === "missing_api_key"
+        ) {
           return;
         }
       }
@@ -833,7 +877,12 @@ export async function readSSEStreamRaw(
           tabId,
         );
 
-        if (action === "yield" || action === "done" || action === "error") {
+        if (
+          action === "yield" ||
+          action === "done" ||
+          action === "error" ||
+          action === "missing_api_key"
+        ) {
           updated = true;
         }
         if (action === "auto_continue") {
@@ -842,7 +891,11 @@ export async function readSSEStreamRaw(
             autoContinue ?? { reason: "stream_ended" },
           );
         }
-        if (action === "done" || action === "error") {
+        if (
+          action === "done" ||
+          action === "error" ||
+          action === "missing_api_key"
+        ) {
           onUpdate([...content]);
           return;
         }

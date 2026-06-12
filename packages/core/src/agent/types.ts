@@ -191,6 +191,10 @@ export type AgentChatEvent =
       /** True when the user can reasonably continue/retry from partial work. */
       recoverable?: boolean;
     }
+  /**
+   * Legacy SSE terminal event. New streams emit
+   * `{ type: "error", errorCode: "missing_credentials" }` instead.
+   */
   | { type: "missing_api_key" }
   | { type: "loop_limit"; maxIterations?: number }
   | {
