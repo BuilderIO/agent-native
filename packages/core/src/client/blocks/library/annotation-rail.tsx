@@ -4,6 +4,8 @@ import {
   useMemo,
   useRef,
   useState,
+  type CSSProperties,
+  type RefObject,
   type ReactNode,
 } from "react";
 import { createPortal } from "react-dom";
@@ -256,18 +258,33 @@ export function AnnotationInlineOverlayStack<A extends RailAnnotation>({
   items,
   ctx,
   showMarker = false,
+  containerRef,
+  mode = "capture",
+  side = "right",
+  preferredSide = "right",
 }: {
   items: ResolvedAnnotation<A>[];
   ctx: BlockRenderContext;
   showMarker?: boolean;
+  containerRef?: RefObject<HTMLElement | null>;
+  mode?: "capture" | "margin";
+  side?: AnnotationMarginSide;
+  preferredSide?: AnnotationSide;
 }) {
   const resolved = items.filter((item) => item.range);
   const anchorRef = useRef<HTMLDivElement | null>(null);
   const portalRef = useRef<HTMLDivElement | null>(null);
-  const [position, setPosition] = useState<{
-    top: number;
-    right: number;
-  } | null>(null);
+  const [position, setPosition] = useState<
+    | { kind: "capture"; top: number; right: number; visible: boolean }
+    | {
+        kind: "margin";
+        top: number;
+        left: number;
+        visible: boolean;
+        side: AnnotationSide;
+      }
+    | null
+  >(null);
   const positionKey = resolved
     .map(
       (item) =>
@@ -298,8 +315,27 @@ export function AnnotationInlineOverlayStack<A extends RailAnnotation>({
           : Math.min(INLINE_OVERLAY_WIDTH, viewportWidth * 0.45);
       const height =
         portalRect && portalRect.height > 0 ? portalRect.height : 0;
-      setPosition(
-        resolveAnnotationInlineOverlayPosition(
+      if (mode === "margin") {
+        const containerRect =
+          containerRef?.current?.getBoundingClientRect() ?? anchorRect;
+        const next = resolveAnnotationMarginOverlayPosition(
+          {
+            left: containerRect.left,
+            right: containerRect.right,
+            top: anchorRect.top,
+            height: anchorRect.height,
+          },
+          { width, height },
+          { width: viewportWidth, height: viewportHeight },
+          { side, preferredSide },
+        );
+        setPosition({ kind: "margin", ...next });
+        return;
+      }
+      setPosition({
+        kind: "capture",
+        visible: true,
+        ...resolveAnnotationInlineOverlayPosition(
           {
             right: anchorRect.right,
             top: anchorRect.top,
@@ -308,7 +344,7 @@ export function AnnotationInlineOverlayStack<A extends RailAnnotation>({
           { width, height },
           { width: viewportWidth, height: viewportHeight },
         ),
-      );
+      });
     };
 
     updatePosition();
@@ -327,9 +363,31 @@ export function AnnotationInlineOverlayStack<A extends RailAnnotation>({
       window.removeEventListener("resize", updatePosition);
       window.removeEventListener("scroll", updatePosition, { capture: true });
     };
-  }, [positionKey]);
+  }, [containerRef, mode, positionKey, preferredSide, side]);
 
   if (resolved.length === 0) return null;
+
+  const portalStyle: CSSProperties =
+    position?.kind === "margin"
+      ? {
+          top: position.top,
+          left: position.left,
+          visibility:
+            position.visible && position
+              ? ("visible" as const)
+              : ("hidden" as const),
+        }
+      : {
+          top: position?.top ?? VIEWPORT_MARGIN,
+          right:
+            position && position.kind === "capture"
+              ? position.right
+              : VIEWPORT_MARGIN,
+          visibility:
+            position?.kind === "capture" && position.visible
+              ? ("visible" as const)
+              : ("hidden" as const),
+        };
 
   const portal =
     typeof document === "undefined"
@@ -339,12 +397,12 @@ export function AnnotationInlineOverlayStack<A extends RailAnnotation>({
             aria-hidden
             ref={portalRef}
             data-annotation-inline-overlay
+            data-annotation-inline-overlay-mode={mode}
+            data-annotation-inline-overlay-side={
+              position?.kind === "margin" ? position.side : "right"
+            }
             className="pointer-events-none fixed z-50 flex w-[min(20rem,45vw)] flex-col gap-2"
-            style={{
-              top: position?.top ?? VIEWPORT_MARGIN,
-              right: position?.right ?? VIEWPORT_MARGIN,
-              visibility: position ? "visible" : "hidden",
-            }}
+            style={portalStyle}
           >
             {resolved.map((item) => (
               <AnnotationCard
@@ -387,29 +445,82 @@ export interface AnnotationAnchor {
   lineBottom: number;
 }
 
+export type AnnotationSide = "left" | "right";
+export type AnnotationMarginSide = AnnotationSide | "auto";
+
 const HOVER_CARD_WIDTH = 280;
 const INLINE_OVERLAY_WIDTH = 320;
 const HOVER_CARD_GAP = 12;
 const VIEWPORT_MARGIN = 8;
 const SCROLL_HOVER_SUPPRESS_MS = 260;
 
+function oppositeSide(side: AnnotationSide): AnnotationSide {
+  return side === "left" ? "right" : "left";
+}
+
+function clampWithinViewport(
+  value: number,
+  size: number,
+  viewportSize: number,
+): number {
+  return Math.max(
+    VIEWPORT_MARGIN,
+    Math.min(value, viewportSize - size - VIEWPORT_MARGIN),
+  );
+}
+
+function centeredTop(
+  anchor: { top: number; height: number },
+  cardHeight: number,
+  viewportHeight: number,
+): number {
+  const maxTop = Math.max(
+    VIEWPORT_MARGIN,
+    viewportHeight - cardHeight - VIEWPORT_MARGIN,
+  );
+  const raw = anchor.top + anchor.height / 2 - cardHeight / 2;
+  return Math.max(VIEWPORT_MARGIN, Math.min(raw, maxTop));
+}
+
+function inlineOverlayWidthForViewport(viewportWidth: number): number {
+  return Math.min(INLINE_OVERLAY_WIDTH, Math.max(0, viewportWidth * 0.45));
+}
+
+function hoverCardLeftForSide(
+  side: AnnotationSide,
+  anchor: AnnotationAnchor,
+  cardWidth: number,
+): number {
+  return side === "right"
+    ? anchor.codeRight + HOVER_CARD_GAP
+    : anchor.codeLeft - HOVER_CARD_GAP - cardWidth;
+}
+
+function hoverCardFitsSide(
+  side: AnnotationSide,
+  anchor: AnnotationAnchor,
+  cardWidth: number,
+  viewportWidth: number,
+): boolean {
+  const left = hoverCardLeftForSide(side, anchor, cardWidth);
+  return (
+    left >= VIEWPORT_MARGIN &&
+    left + cardWidth + VIEWPORT_MARGIN <= viewportWidth
+  );
+}
+
 export function resolveAnnotationInlineOverlayPosition(
   anchor: { right: number; top: number; height: number },
   card: { width: number; height: number },
   viewport: { width: number; height: number },
 ): { top: number; right: number } {
-  const maxTop = Math.max(
-    VIEWPORT_MARGIN,
-    viewport.height - card.height - VIEWPORT_MARGIN,
-  );
-  const centeredTop = anchor.top + anchor.height / 2 - card.height / 2;
   const maxRight = Math.max(
     VIEWPORT_MARGIN,
     viewport.width - card.width - VIEWPORT_MARGIN,
   );
 
   return {
-    top: Math.max(VIEWPORT_MARGIN, Math.min(centeredTop, maxTop)),
+    top: centeredTop(anchor, card.height, viewport.height),
     right: Math.max(
       VIEWPORT_MARGIN,
       Math.min(viewport.width - anchor.right, maxRight),
@@ -417,25 +528,75 @@ export function resolveAnnotationInlineOverlayPosition(
   };
 }
 
+export function resolveAnnotationMarginOverlayPosition(
+  anchor: { left: number; right: number; top: number; height: number },
+  card: { width: number; height: number },
+  viewport: { width: number; height: number },
+  options: {
+    side?: AnnotationMarginSide;
+    preferredSide?: AnnotationSide;
+  } = {},
+): { top: number; left: number; visible: boolean; side: AnnotationSide } {
+  const preferredSide = options.preferredSide ?? "left";
+  const requestedSide = options.side ?? preferredSide;
+  const sides: AnnotationSide[] =
+    requestedSide === "auto"
+      ? [preferredSide, oppositeSide(preferredSide)]
+      : [requestedSide];
+  const top = centeredTop(anchor, card.height, viewport.height);
+
+  for (const candidate of sides) {
+    const left =
+      candidate === "left"
+        ? anchor.left - HOVER_CARD_GAP - card.width
+        : anchor.right + HOVER_CARD_GAP;
+    const fits =
+      left >= VIEWPORT_MARGIN &&
+      left + card.width + VIEWPORT_MARGIN <= viewport.width;
+    if (fits) return { top, left, visible: true, side: candidate };
+  }
+
+  const fallbackSide = requestedSide === "auto" ? preferredSide : requestedSide;
+  const fallbackLeft =
+    fallbackSide === "left"
+      ? anchor.left - HOVER_CARD_GAP - card.width
+      : anchor.right + HOVER_CARD_GAP;
+  return {
+    top,
+    left: clampWithinViewport(fallbackLeft, card.width, viewport.width),
+    visible: false,
+    side: fallbackSide,
+  };
+}
+
 export function resolveAnnotationHoverCardPosition(
   anchor: AnnotationAnchor,
   card: { width: number; height: number },
   viewport: { width: number; height: number },
+  options: {
+    preferredSide?: AnnotationSide;
+    hoverFallbackSide?: AnnotationSide | "below";
+    allowOppositeSideFallback?: boolean;
+  } = {},
 ): { top: number; left: number } {
-  const rightLeft = anchor.codeRight + HOVER_CARD_GAP;
-  const fitsRight = rightLeft + card.width + VIEWPORT_MARGIN <= viewport.width;
-  const leftLeft = anchor.codeLeft - HOVER_CARD_GAP - card.width;
-  const fitsLeft = leftLeft >= VIEWPORT_MARGIN;
+  const preferredSide = options.preferredSide ?? "right";
+  const hoverFallbackSide = options.hoverFallbackSide ?? "below";
+  const allowOppositeSideFallback = options.allowOppositeSideFallback ?? true;
+  const opposite = oppositeSide(preferredSide);
 
   let left: number;
   let top: number;
-  if (fitsRight) {
-    // Default: to the right of the code, centered on the hovered line.
-    left = rightLeft;
+  if (hoverCardFitsSide(preferredSide, anchor, card.width, viewport.width)) {
+    left = hoverCardLeftForSide(preferredSide, anchor, card.width);
     top = anchor.lineCenter - card.height / 2;
-  } else if (fitsLeft) {
-    // Prefer the left gutter over covering the code below the hovered line.
-    left = leftLeft;
+  } else if (
+    allowOppositeSideFallback &&
+    hoverCardFitsSide(opposite, anchor, card.width, viewport.width)
+  ) {
+    left = hoverCardLeftForSide(opposite, anchor, card.width);
+    top = anchor.lineCenter - card.height / 2;
+  } else if (hoverFallbackSide === "left" || hoverFallbackSide === "right") {
+    left = hoverCardLeftForSide(hoverFallbackSide, anchor, card.width);
     top = anchor.lineCenter - card.height / 2;
   } else {
     // No clean side gutter → drop below the line, aligned to the code's left.
@@ -444,16 +605,79 @@ export function resolveAnnotationHoverCardPosition(
   }
 
   // Clamp within the viewport so the card is never cut off.
-  left = Math.max(
-    VIEWPORT_MARGIN,
-    Math.min(left, viewport.width - card.width - VIEWPORT_MARGIN),
-  );
+  left = clampWithinViewport(left, card.width, viewport.width);
   top = Math.max(
     VIEWPORT_MARGIN,
     Math.min(top, viewport.height - card.height - VIEWPORT_MARGIN),
   );
 
   return { top, left };
+}
+
+export function useAnnotationMarginNotesAvailable({
+  containerRef,
+  enabled,
+  side = "auto",
+  preferredSide = "left",
+}: {
+  containerRef: RefObject<HTMLElement | null>;
+  enabled: boolean;
+  side?: AnnotationMarginSide;
+  preferredSide?: AnnotationSide;
+}) {
+  const [available, setAvailable] = useState(false);
+
+  useLayoutEffect(() => {
+    if (!enabled || typeof window === "undefined") {
+      setAvailable(false);
+      return;
+    }
+
+    const update = () => {
+      const element = containerRef.current;
+      if (!element) {
+        setAvailable(false);
+        return;
+      }
+      const rect = element.getBoundingClientRect();
+      const viewportWidth = Math.max(window.innerWidth || 0, 0);
+      const cardWidth = inlineOverlayWidthForViewport(viewportWidth);
+      const leftFits =
+        rect.left - HOVER_CARD_GAP - cardWidth >= VIEWPORT_MARGIN;
+      const rightFits =
+        rect.right + HOVER_CARD_GAP + cardWidth + VIEWPORT_MARGIN <=
+        viewportWidth;
+      const next =
+        side === "left"
+          ? leftFits
+          : side === "right"
+            ? rightFits
+            : preferredSide === "left"
+              ? leftFits || rightFits
+              : rightFits || leftFits;
+      setAvailable(next);
+    };
+
+    update();
+    const frame =
+      typeof window.requestAnimationFrame === "function"
+        ? window.requestAnimationFrame(update)
+        : null;
+    const observer =
+      typeof ResizeObserver !== "undefined" ? new ResizeObserver(update) : null;
+    if (containerRef.current && observer)
+      observer.observe(containerRef.current);
+    window.addEventListener("resize", update);
+    return () => {
+      if (frame != null && typeof window.cancelAnimationFrame === "function") {
+        window.cancelAnimationFrame(frame);
+      }
+      observer?.disconnect();
+      window.removeEventListener("resize", update);
+    };
+  }, [containerRef, enabled, preferredSide, side]);
+
+  return available;
 }
 
 /**
@@ -473,6 +697,8 @@ export function AnnotationHoverCard<A extends RailAnnotation>({
   anchor,
   ctx,
   showMarker = false,
+  preferredSide,
+  hoverFallbackSide,
   onMouseEnter,
   onMouseLeave,
   onClose,
@@ -481,6 +707,8 @@ export function AnnotationHoverCard<A extends RailAnnotation>({
   anchor: AnnotationAnchor;
   ctx: BlockRenderContext;
   showMarker?: boolean;
+  preferredSide?: AnnotationSide;
+  hoverFallbackSide?: AnnotationSide | "below";
   onMouseEnter?: () => void;
   onMouseLeave?: () => void;
   /** Called when the card should be dismissed (e.g. on scroll). */
@@ -505,6 +733,7 @@ export function AnnotationHoverCard<A extends RailAnnotation>({
         anchor,
         { width, height },
         { width: vw, height: vh },
+        { preferredSide, hoverFallbackSide },
       ),
     );
   }, [
@@ -512,7 +741,9 @@ export function AnnotationHoverCard<A extends RailAnnotation>({
     anchor.codeLeft,
     anchor.lineCenter,
     anchor.lineBottom,
+    hoverFallbackSide,
     item.index,
+    preferredSide,
   ]);
 
   // Close the card when the user scrolls so it doesn't float detached. Scrolls

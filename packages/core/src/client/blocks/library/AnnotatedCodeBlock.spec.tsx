@@ -36,12 +36,33 @@ function stubRect(element: Element, value: DOMRect) {
   });
 }
 
+function setViewport(width: number, height = 700) {
+  Object.defineProperty(window, "innerWidth", {
+    configurable: true,
+    value: width,
+  });
+  Object.defineProperty(window, "innerHeight", {
+    configurable: true,
+    value: height,
+  });
+}
+
 describe("AnnotatedCodeBlock annotations", () => {
   let container: HTMLDivElement;
   let root: Root;
+  let innerWidthDescriptor: PropertyDescriptor | undefined;
+  let innerHeightDescriptor: PropertyDescriptor | undefined;
 
   beforeEach(() => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    innerWidthDescriptor = Object.getOwnPropertyDescriptor(
+      window,
+      "innerWidth",
+    );
+    innerHeightDescriptor = Object.getOwnPropertyDescriptor(
+      window,
+      "innerHeight",
+    );
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -58,6 +79,12 @@ describe("AnnotatedCodeBlock annotations", () => {
       )
       .forEach((node) => node.remove());
     vi.useRealTimers();
+    if (innerWidthDescriptor) {
+      Object.defineProperty(window, "innerWidth", innerWidthDescriptor);
+    }
+    if (innerHeightDescriptor) {
+      Object.defineProperty(window, "innerHeight", innerHeightDescriptor);
+    }
     vi.unstubAllGlobals();
   });
 
@@ -165,6 +192,137 @@ describe("AnnotatedCodeBlock annotations", () => {
     // Line 2 starts at y=122 with a 22px height, so the first-line anchor center
     // is 133px. Hovering line 4 would have produced 177px before this fix.
     expect(card!.style.top).toBe("133px");
+  });
+
+  it("uses the left side for plan-mode annotation hovers when it fits", () => {
+    setViewport(1200);
+    act(() => {
+      root.render(
+        <AnnotatedCodeRead
+          blockId="code-annotations"
+          ctx={{
+            codeAnnotationLayout: {
+              hoverSide: "left",
+              hoverFallbackSide: "right",
+            },
+          }}
+          data={{
+            language: "ts",
+            code: ["const one = 1;", "const two = 2;"].join("\n"),
+            annotations: [
+              {
+                lines: "1",
+                label: "Entry",
+                note: "The first line is annotated.",
+              },
+            ],
+          }}
+        />,
+      );
+    });
+
+    const codeBox = container.querySelector("section > div");
+    expect(codeBox).toBeTruthy();
+    stubRect(codeBox!, rect({ left: 360, top: 80, width: 500, height: 80 }));
+
+    const firstLine = container.querySelector<HTMLElement>(
+      '[data-code-line="1"]',
+    );
+    expect(firstLine).toBeTruthy();
+    stubRect(firstLine!, rect({ left: 360, top: 100, width: 500, height: 22 }));
+
+    act(() => {
+      firstLine!.dispatchEvent(
+        new MouseEvent("mouseover", {
+          bubbles: true,
+          relatedTarget: document.body,
+        }),
+      );
+    });
+
+    const card = document.querySelector<HTMLElement>(
+      "[data-annotation-hover-card]",
+    );
+    expect(card).toBeTruthy();
+    expect(card!.style.left).toBe("68px");
+  });
+
+  it("shows plan-mode annotation cards in the margin when there is room", () => {
+    setViewport(1200);
+    act(() => {
+      root.render(
+        <AnnotatedCodeRead
+          blockId="code-annotations"
+          ctx={{
+            codeAnnotationLayout: {
+              hoverSide: "left",
+              hoverFallbackSide: "right",
+              showByDefaultWhenRoom: true,
+              marginSide: "auto",
+            },
+          }}
+          data={{
+            language: "ts",
+            code: ["const one = 1;", "const two = 2;"].join("\n"),
+            annotations: [
+              {
+                lines: "1",
+                label: "Entry",
+                note: "This note is visible in the margin.",
+              },
+            ],
+          }}
+        />,
+      );
+    });
+
+    const codeBox = container.querySelector("section > div");
+    expect(codeBox).toBeTruthy();
+    stubRect(codeBox!, rect({ left: 360, top: 80, width: 500, height: 80 }));
+
+    const firstLine = container.querySelector<HTMLElement>(
+      '[data-code-line="1"]',
+    );
+    expect(firstLine).toBeTruthy();
+    stubRect(firstLine!, rect({ left: 360, top: 100, width: 500, height: 22 }));
+
+    act(() => {
+      window.dispatchEvent(new Event("resize"));
+    });
+
+    const anchor = container.querySelector(
+      "[data-annotation-inline-overlay-anchor]",
+    );
+    expect(anchor).toBeTruthy();
+    stubRect(anchor!, rect({ left: 850, top: 100, width: 0, height: 22 }));
+
+    act(() => {
+      window.dispatchEvent(new Event("resize"));
+    });
+
+    const overlay = document.querySelector<HTMLElement>(
+      "[data-annotation-inline-overlay]",
+    );
+    expect(overlay).toBeTruthy();
+    expect(overlay?.getAttribute("data-annotation-inline-overlay-mode")).toBe(
+      "margin",
+    );
+    expect(overlay?.getAttribute("data-annotation-inline-overlay-side")).toBe(
+      "left",
+    );
+    expect(overlay?.textContent).toContain(
+      "This note is visible in the margin.",
+    );
+
+    act(() => {
+      firstLine!.dispatchEvent(
+        new MouseEvent("mouseover", {
+          bubbles: true,
+          relatedTarget: document.body,
+        }),
+      );
+    });
+    expect(document.querySelector("[data-annotation-hover-card]")).toBeNull();
   });
 
   it("renders static annotation overlays when screenshot mode requests them", () => {

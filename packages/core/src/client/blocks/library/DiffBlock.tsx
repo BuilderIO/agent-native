@@ -4,6 +4,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type RefObject,
   type ReactNode,
 } from "react";
 import {
@@ -32,7 +33,10 @@ import {
   buildLineMarkerMap,
   hasRailAnnotations,
   resolveAnnotations,
+  useAnnotationMarginNotesAvailable,
   useAnnotationHover,
+  type AnnotationMarginSide,
+  type AnnotationSide,
   type ResolvedAnnotation,
 } from "./annotation-rail.js";
 import { DevInput, DevLabel, DevTextarea, DevSelect } from "./dev-doc-ui.js";
@@ -686,6 +690,11 @@ function DiffRead({
   const beforeLineCount = useMemo(() => countLines(data.before), [data.before]);
   const afterLineCount = useMemo(() => countLines(data.after), [data.after]);
   const showAnnotationOverlays = Boolean(ctx.showCodeAnnotationOverlays);
+  const annotationLayout = ctx.codeAnnotationLayout;
+  const annotationHoverSide = annotationLayout?.hoverSide ?? "right";
+  const annotationHoverFallbackSide =
+    annotationLayout?.hoverFallbackSide ?? "below";
+  const annotationMarginSide = annotationLayout?.marginSide ?? "auto";
   const resolved = useMemo(
     () =>
       resolveAnnotations(data.annotations, (annotation) =>
@@ -696,6 +705,18 @@ function DiffRead({
     [data.annotations, beforeLineCount, afterLineCount],
   );
   const hasAnnotations = hasRailAnnotations(resolved);
+  const showMarginAnnotations = useAnnotationMarginNotesAvailable({
+    containerRef: codeRef,
+    enabled: Boolean(
+      hasAnnotations &&
+      !showAnnotationOverlays &&
+      annotationLayout?.showByDefaultWhenRoom,
+    ),
+    side: annotationMarginSide,
+    preferredSide: annotationHoverSide,
+  });
+  const showPersistentAnnotations =
+    showAnnotationOverlays || showMarginAnnotations;
   // Effective render mode. Annotations live in a SEPARATE right-hand rail (not
   // over the code), so they no longer force a mode. When no mode was authored, a
   // truly narrow container still falls back to unified so split's doubled
@@ -886,7 +907,13 @@ function DiffRead({
           onRowEnter={onRowEnter}
           onRowLeave={onRowLeave}
           onRowClick={onRowClick}
-          showAnnotationOverlays={showAnnotationOverlays}
+          showAnnotationOverlays={showPersistentAnnotations}
+          annotationOverlayMode={showAnnotationOverlays ? "capture" : "margin"}
+          annotationOverlaySide={
+            showAnnotationOverlays ? "right" : annotationMarginSide
+          }
+          annotationOverlayPreferredSide={annotationHoverSide}
+          annotationOverlayContainerRef={codeRef}
           ctx={ctx}
         />
       ) : (
@@ -901,7 +928,13 @@ function DiffRead({
           onRowEnter={onRowEnter}
           onRowLeave={onRowLeave}
           onRowClick={onRowClick}
-          showAnnotationOverlays={showAnnotationOverlays}
+          showAnnotationOverlays={showPersistentAnnotations}
+          annotationOverlayMode={showAnnotationOverlays ? "capture" : "margin"}
+          annotationOverlaySide={
+            showAnnotationOverlays ? "right" : annotationMarginSide
+          }
+          annotationOverlayPreferredSide={annotationHoverSide}
+          annotationOverlayContainerRef={codeRef}
           ctx={ctx}
         />
       )}
@@ -947,17 +980,22 @@ function DiffRead({
       {hasAnnotations && (
         <AnnotationHiddenStack items={resolved} ctx={ctx} showMarker />
       )}
-      {hasAnnotations && activeItem && hover.anchor && (
-        <AnnotationHoverCard
-          item={activeItem}
-          anchor={hover.anchor}
-          ctx={ctx}
-          showMarker
-          onMouseEnter={hover.cancelClose}
-          onMouseLeave={hover.scheduleClose}
-          onClose={hover.closeForScroll}
-        />
-      )}
+      {hasAnnotations &&
+        !showPersistentAnnotations &&
+        activeItem &&
+        hover.anchor && (
+          <AnnotationHoverCard
+            item={activeItem}
+            anchor={hover.anchor}
+            ctx={ctx}
+            showMarker
+            preferredSide={annotationHoverSide}
+            hoverFallbackSide={annotationHoverFallbackSide}
+            onMouseEnter={hover.cancelClose}
+            onMouseLeave={hover.scheduleClose}
+            onClose={hover.closeForScroll}
+          />
+        )}
     </section>
   );
 }
@@ -1007,6 +1045,10 @@ interface RowAnnotationProps {
   onRowLeave: () => void;
   /** Clicking/tapping an annotated row toggles its popover (for touch). */
   onRowClick: (index: number, rowEl: HTMLElement) => void;
+  annotationOverlayMode: "capture" | "margin";
+  annotationOverlaySide: AnnotationMarginSide;
+  annotationOverlayPreferredSide: AnnotationSide;
+  annotationOverlayContainerRef: RefObject<HTMLElement | null>;
 }
 
 /**
@@ -1062,6 +1104,10 @@ function UnifiedView({
   onRowLeave,
   onRowClick,
   showAnnotationOverlays,
+  annotationOverlayMode,
+  annotationOverlaySide,
+  annotationOverlayPreferredSide,
+  annotationOverlayContainerRef,
   ctx,
 }: {
   rows: DiffRow[];
@@ -1087,6 +1133,10 @@ function UnifiedView({
     onRowClick,
     showMarkerColumn,
     showAnnotationOverlays,
+    annotationOverlayMode,
+    annotationOverlaySide,
+    annotationOverlayPreferredSide,
+    annotationOverlayContainerRef,
     ctx,
   };
   let runIndex = 0;
@@ -1132,6 +1182,10 @@ function UnifiedRow({
   onRowClick,
   showMarkerColumn,
   showAnnotationOverlays,
+  annotationOverlayMode,
+  annotationOverlaySide,
+  annotationOverlayPreferredSide,
+  annotationOverlayContainerRef,
   ctx,
 }: {
   language: string;
@@ -1143,6 +1197,10 @@ function UnifiedRow({
   onRowClick: (index: number, rowEl: HTMLElement) => void;
   showMarkerColumn: boolean;
   showAnnotationOverlays: boolean;
+  annotationOverlayMode: "capture" | "margin";
+  annotationOverlaySide: AnnotationMarginSide;
+  annotationOverlayPreferredSide: AnnotationSide;
+  annotationOverlayContainerRef: RefObject<HTMLElement | null>;
   ctx: BlockRenderContext;
 }) {
   const markers = markersForRow(row);
@@ -1213,6 +1271,10 @@ function UnifiedRow({
           items={overlayItems}
           ctx={ctx}
           showMarker
+          containerRef={annotationOverlayContainerRef}
+          mode={annotationOverlayMode}
+          side={annotationOverlaySide}
+          preferredSide={annotationOverlayPreferredSide}
         />
       )}
     </div>
@@ -1313,6 +1375,10 @@ function SplitView({
   onRowLeave,
   onRowClick,
   showAnnotationOverlays,
+  annotationOverlayMode,
+  annotationOverlaySide,
+  annotationOverlayPreferredSide,
+  annotationOverlayContainerRef,
   ctx,
 }: {
   language: string;
@@ -1344,6 +1410,10 @@ function SplitView({
     onRowLeave,
     onRowClick,
     showAnnotationOverlays,
+    annotationOverlayMode,
+    annotationOverlaySide,
+    annotationOverlayPreferredSide,
+    annotationOverlayContainerRef,
     ctx,
   };
   return (
@@ -1392,6 +1462,10 @@ function SplitCell({
   onRowClick,
   showMarkerColumn,
   showAnnotationOverlays,
+  annotationOverlayMode,
+  annotationOverlaySide,
+  annotationOverlayPreferredSide,
+  annotationOverlayContainerRef,
   ctx,
 }: {
   language: string;
@@ -1404,6 +1478,10 @@ function SplitCell({
   onRowClick: (index: number, rowEl: HTMLElement) => void;
   showMarkerColumn: boolean;
   showAnnotationOverlays: boolean;
+  annotationOverlayMode: "capture" | "margin";
+  annotationOverlaySide: AnnotationMarginSide;
+  annotationOverlayPreferredSide: AnnotationSide;
+  annotationOverlayContainerRef: RefObject<HTMLElement | null>;
   ctx: BlockRenderContext;
 }) {
   if (!row) {
@@ -1487,6 +1565,10 @@ function SplitCell({
           items={overlayItems}
           ctx={ctx}
           showMarker
+          containerRef={annotationOverlayContainerRef}
+          mode={annotationOverlayMode}
+          side={annotationOverlaySide}
+          preferredSide={annotationOverlayPreferredSide}
         />
       )}
     </div>
