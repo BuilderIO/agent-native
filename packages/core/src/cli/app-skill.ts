@@ -1224,8 +1224,7 @@ export async function ensureAppSkill(
 
   const baseDir = options.baseDir ?? process.cwd();
   const authMode = manifest.auth?.mode ?? "oauth";
-  const shouldSkipDeviceHostedConfig =
-    mode === "hosted" && authMode !== "none";
+  const shouldSkipDeviceHostedConfig = mode === "hosted" && authMode !== "none";
   const writableClients = shouldSkipDeviceHostedConfig
     ? clients.filter((client) => supportsRemoteMcpOAuth(client))
     : clients;
