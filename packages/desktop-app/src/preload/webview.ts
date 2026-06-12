@@ -1,8 +1,10 @@
 import { contextBridge, ipcRenderer } from "electron";
 import {
   IPC,
+  type DesktopContentFilesClearFolderRequest,
   type DesktopContentFileRevealRequest,
   type DesktopContentFileWriteRequest,
+  type DesktopContentFilesFolderRequest,
   type DesktopContentFilesResult,
   type DesktopContentFilesWriteRequest,
   type DesktopPlanFilesChooseFolderRequest,
@@ -37,8 +39,10 @@ const agentNativeDesktop = {
       ipcRenderer.invoke(IPC.PLAN_FILES_CLEAR_FOLDER, request),
   },
   contentFiles: {
-    getFolder: (): Promise<DesktopContentFilesResult> =>
-      ipcRenderer.invoke(IPC.CONTENT_FILES_GET_FOLDER),
+    getFolder: (
+      request?: DesktopContentFilesFolderRequest,
+    ): Promise<DesktopContentFilesResult> =>
+      ipcRenderer.invoke(IPC.CONTENT_FILES_GET_FOLDER, request),
     chooseFolder: (): Promise<DesktopContentFilesResult> =>
       ipcRenderer.invoke(IPC.CONTENT_FILES_CHOOSE_FOLDER),
     writeFiles: (
@@ -49,14 +53,18 @@ const agentNativeDesktop = {
       request: DesktopContentFileWriteRequest,
     ): Promise<DesktopContentFilesResult> =>
       ipcRenderer.invoke(IPC.CONTENT_FILES_WRITE_FILE, request),
-    readFiles: (): Promise<DesktopContentFilesResult> =>
-      ipcRenderer.invoke(IPC.CONTENT_FILES_READ),
+    readFiles: (
+      request?: DesktopContentFilesFolderRequest,
+    ): Promise<DesktopContentFilesResult> =>
+      ipcRenderer.invoke(IPC.CONTENT_FILES_READ, request),
     revealFile: (
       request: DesktopContentFileRevealRequest,
     ): Promise<DesktopContentFilesResult> =>
       ipcRenderer.invoke(IPC.CONTENT_FILES_REVEAL_FILE, request),
-    clearFolder: (): Promise<DesktopContentFilesResult> =>
-      ipcRenderer.invoke(IPC.CONTENT_FILES_CLEAR_FOLDER),
+    clearFolder: (
+      request?: DesktopContentFilesClearFolderRequest,
+    ): Promise<DesktopContentFilesResult> =>
+      ipcRenderer.invoke(IPC.CONTENT_FILES_CLEAR_FOLDER, request),
   },
 };
 

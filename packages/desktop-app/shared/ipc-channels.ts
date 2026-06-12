@@ -201,28 +201,42 @@ export type DesktopPlanFilesResult =
     };
 
 export interface DesktopContentFilesFolder {
+  id?: string;
   name: string;
   path?: string;
+  sourcePrefix?: string;
   updatedAt?: string;
 }
 
 export interface DesktopContentFilesWriteRequest {
+  folderId?: string;
   files: Record<string, string>;
 }
 
 export interface DesktopContentFileWriteRequest {
+  folderId?: string;
   path: string;
   content: string;
 }
 
 export interface DesktopContentFileRevealRequest {
+  folderId?: string;
   path: string;
+}
+
+export interface DesktopContentFilesFolderRequest {
+  folderId?: string;
+}
+
+export interface DesktopContentFilesClearFolderRequest {
+  folderId?: string;
 }
 
 export type DesktopContentFilesResult =
   | {
       ok: true;
       folder: DesktopContentFilesFolder;
+      folders?: DesktopContentFilesFolder[];
       files?: string[];
       sources?: Record<string, string>;
     }
@@ -231,6 +245,7 @@ export type DesktopContentFilesResult =
       error: string;
       canceled?: boolean;
       folder?: DesktopContentFilesFolder;
+      folders?: DesktopContentFilesFolder[];
     };
 
 export type CodeAgentRunStatus =
