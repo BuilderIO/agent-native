@@ -117,6 +117,7 @@ Examples:
 
 const CLIENTS: SkillClient[] = ["codex", "claude-code"];
 const DEFAULT_SKILLS_SOURCE = "BuilderIO/skills";
+const PUBLIC_SKILLS_REPO_APP_SKILLS = new Set(["visual-plan", "visual-recap"]);
 const MANAGED_INSTRUCTIONS_START = "<!-- BEGIN @agent-native/skills -->";
 const MANAGED_INSTRUCTIONS_END = "<!-- END @agent-native/skills -->";
 
@@ -232,17 +233,21 @@ export async function runSkillsCli(
 ): Promise<void> {
   const parsed = parseSkillsCliArgs(argv);
 
-  // PIVOT: `@agent-native/skills` delegates explicitly selected app-backed
-  // installs to `@agent-native/core` for MCP setup. The default add/list flow
-  // stays here so it can discover the full plain BuilderIO skills collection
-  // (efficient-fable, quick-recap, …), which core does not know about.
+  // PIVOT: `@agent-native/skills` delegates explicitly selected core-only
+  // app-backed installs to `@agent-native/core` for app setup. The default
+  // add/list flow, plain skills, and public-repo-backed app skills stay here so
+  // they always come from the live BuilderIO skills collection (quick-recap,
+  // efficient-fable, visual-plan, visual-recap, …), which core does not own.
   // AGENT_NATIVE_SKILLS_DIRECT=1 (set when core delegates a plain repo back to us)
   // always forces the direct path and breaks the skills → core → skills loop.
   if (process.env.AGENT_NATIVE_SKILLS_DIRECT !== "1") {
-    const appOnly =
+    const coreOnlyAppSkills =
       parsed.skillNames.length > 0 &&
-      parsed.skillNames.every((name) => resolveAppForSkill(name) !== undefined);
-    if (parsed.command === "add" && appOnly) {
+      parsed.skillNames.every(
+        (name) => resolveAppForSkill(name) !== undefined,
+      ) &&
+      parsed.skillNames.every((name) => !skillComesFromPublicSkillsRepo(name));
+    if (parsed.command === "add" && coreOnlyAppSkills) {
       const { runSkills } = await import("@agent-native/core/cli/skills");
       await runSkills(toCoreSkillsArgv(parsed), {
         isInteractive: options.isInteractive,
@@ -362,6 +367,10 @@ export async function runSkillsCli(
   } finally {
     await telemetry.flush();
   }
+}
+
+function skillComesFromPublicSkillsRepo(name: string): boolean {
+  return PUBLIC_SKILLS_REPO_APP_SKILLS.has(normalizeSkillName(name));
 }
 
 function readCliVersion(): string {

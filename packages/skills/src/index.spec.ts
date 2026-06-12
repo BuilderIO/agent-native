@@ -203,6 +203,97 @@ describe("@agent-native/skills", () => {
     ]);
   });
 
+  it("installs public-repo-backed app skills directly when explicitly selected", async () => {
+    const repo = tmpDir();
+    const project = tmpDir();
+    writeSkill(repo, "visual-plan", "Live visual plan body");
+    const stdout: string[] = [];
+    vi.spyOn(process.stdout, "write").mockImplementation((chunk) => {
+      stdout.push(String(chunk));
+      return true;
+    });
+    const previousDirect = process.env.AGENT_NATIVE_SKILLS_DIRECT;
+    delete process.env.AGENT_NATIVE_SKILLS_DIRECT;
+
+    try {
+      await runSkillsCli(
+        [
+          "add",
+          "--copy",
+          repo,
+          "--skill",
+          "visual-plan",
+          "--client",
+          "codex",
+          "--scope",
+          "project",
+          "--yes",
+          "--json",
+          "--no-mcp",
+        ],
+        { baseDir: project, isInteractive: () => false },
+      );
+    } finally {
+      if (previousDirect === undefined)
+        delete process.env.AGENT_NATIVE_SKILLS_DIRECT;
+      else process.env.AGENT_NATIVE_SKILLS_DIRECT = previousDirect;
+    }
+
+    expect(runCoreSkills).not.toHaveBeenCalled();
+    const result = JSON.parse(stdout.join(""));
+    expect(result.skills).toEqual(["visual-plan"]);
+    expect(
+      fs.readFileSync(
+        path.join(project, ".agents", "skills", "visual-plan", "SKILL.md"),
+        "utf-8",
+      ),
+    ).toContain("Live visual plan body");
+  });
+
+  it("delegates core-only app skills to agent-native core", async () => {
+    const project = tmpDir();
+    const previousDirect = process.env.AGENT_NATIVE_SKILLS_DIRECT;
+    delete process.env.AGENT_NATIVE_SKILLS_DIRECT;
+
+    try {
+      await runSkillsCli(
+        [
+          "add",
+          "--skill",
+          "assets",
+          "--client",
+          "codex",
+          "--scope",
+          "project",
+          "--yes",
+          "--json",
+        ],
+        { baseDir: project, isInteractive: () => false },
+      );
+    } finally {
+      if (previousDirect === undefined)
+        delete process.env.AGENT_NATIVE_SKILLS_DIRECT;
+      else process.env.AGENT_NATIVE_SKILLS_DIRECT = previousDirect;
+    }
+
+    expect(runCoreSkills).toHaveBeenCalledWith(
+      [
+        "add",
+        "assets",
+        "--client",
+        "codex",
+        "--scope",
+        "project",
+        "--yes",
+        "--json",
+      ],
+      {
+        baseDir: project,
+        isInteractive: expect.any(Function),
+      },
+    );
+  });
+
   it("defaults to all supported clients when clients are omitted", async () => {
     const repo = tmpDir();
     const project = tmpDir();

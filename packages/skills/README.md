@@ -14,3 +14,10 @@ an interactive terminal to choose from a prompt. Use `--client codex`,
 `--client` defaults to all supported clients. Add `--update-instructions` to
 append an idempotent managed block to `AGENTS.md` and/or `CLAUDE.md` for
 instruction-style skills.
+
+Skill content comes from `BuilderIO/skills@main` at install/list time. That
+means adding or updating public skills such as `quick-recap` or
+`efficient-fable` in the skills repo is picked up by this CLI without publishing
+a new `@agent-native/skills` package. `visual-plan` and `visual-recap` are also
+installed from `BuilderIO/skills`; Agent Native syncs those two into the public
+repo from the framework source of truth.
