@@ -1,5 +1,13 @@
 # @agent-native/core
 
+## 0.49.6
+
+### Patch Changes
+
+- a784d3c: Default app-backed skill setup to all supported clients, clarify Plan MCP auth as per-client, and make reconnect output name which local agent configs were actually refreshed.
+- a784d3c: Keep React Router as a consumer peer instead of a core runtime dependency so scaffolded apps use a single router instance for SSR framework context.
+- a784d3c: Update user-facing `npx` guidance to recommend explicit `@latest` package invocations.
+
 ## 0.49.5
 
 ### Patch Changes
