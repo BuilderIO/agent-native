@@ -304,12 +304,195 @@ export interface ContentDatabaseItem {
   document: Document;
   position: number;
   properties: DocumentProperty[];
+  sourceRecord?: ContentDatabaseSourceRow;
+}
+
+export type ContentDatabaseSourceType = "mock-local" | "builder-cms";
+export type ContentDatabaseSourceSyncState =
+  | "idle"
+  | "linked"
+  | "refreshing"
+  | "error";
+export type ContentDatabaseSourceFreshness = "unknown" | "fresh" | "stale";
+export type ContentDatabaseSourceWriteOwner = "local" | "source" | "derived";
+export type ContentDatabaseSourcePushMode =
+  | "none"
+  | "autosave"
+  | "draft"
+  | "publish";
+export type ContentDatabaseSourceChangeDirection = "incoming" | "outbound";
+export type ContentDatabaseSourceChangeState =
+  | "proposed"
+  | "pending_push"
+  | "staged_revision"
+  | "approved"
+  | "applied"
+  | "rejected";
+export type ContentDatabaseSourceChangeKind =
+  | "field_update"
+  | "body_update"
+  | "metadata_update"
+  | "revision_save";
+export type ContentDatabaseSourceReviewDecision = "approved" | "rejected";
+export type ContentDatabaseSourceRiskLevel = "low" | "medium" | "high";
+export type ContentDatabaseSourceConflictState = "none" | "source_changed";
+export type ContentDatabaseSourceExecutionState =
+  | "ready"
+  | "write_disabled"
+  | "blocked"
+  | "running"
+  | "succeeded"
+  | "failed";
+
+export interface ContentDatabaseSourceCapabilities {
+  canRefresh: boolean;
+  canCreateChangeSets: boolean;
+  canWriteFields: boolean;
+  canWriteBody: boolean;
+  canPush: boolean;
+  canPull: boolean;
+  canPublish: boolean;
+  canDelete: boolean;
+  canStageLocalRevision: boolean;
+  liveWritesEnabled: boolean;
+  readOnlyRefresh: boolean;
+}
+
+export interface ContentDatabaseSourceFieldMapping {
+  id: string;
+  propertyId: string | null;
+  propertyName: string | null;
+  localFieldKey: string;
+  sourceFieldKey: string;
+  sourceFieldLabel: string;
+  sourceFieldType: string;
+  mappingType: "title" | "property" | "system";
+  writeOwner: ContentDatabaseSourceWriteOwner;
+  readOnly: boolean;
+  provenance: string;
+  freshness: ContentDatabaseSourceFreshness;
+  lastSyncedAt: string | null;
+}
+
+export interface ContentDatabaseSourceRow {
+  id: string;
+  databaseItemId: string;
+  documentId: string;
+  sourceRowId: string;
+  sourceQualifiedId: string;
+  sourceDisplayKey: string;
+  provenance: string;
+  syncState: ContentDatabaseSourceSyncState;
+  freshness: ContentDatabaseSourceFreshness;
+  lastSyncedAt: string | null;
+  lastSourceUpdatedAt: string | null;
+}
+
+export interface ContentDatabaseSourceFieldChange {
+  propertyId: string | null;
+  propertyName: string | null;
+  localFieldKey: string;
+  sourceFieldKey: string;
+  currentValue: DocumentPropertyValue;
+  proposedValue: DocumentPropertyValue;
+}
+
+export interface ContentDatabaseSourceBodyChange {
+  summary: string;
+  currentExcerpt: string | null;
+  proposedExcerpt: string | null;
+}
+
+export interface ContentDatabaseSourceReviewEvent {
+  id: string;
+  reviewerEmail: string;
+  decision: ContentDatabaseSourceReviewDecision;
+  stateFrom: ContentDatabaseSourceChangeState;
+  stateTo: ContentDatabaseSourceChangeState;
+  note: string | null;
+  createdAt: string;
+}
+
+export interface ContentDatabaseSourceExecution {
+  id: string;
+  changeSetId: string;
+  adapter: string;
+  pushMode: ContentDatabaseSourcePushMode;
+  state: ContentDatabaseSourceExecutionState;
+  idempotencyKey: string;
+  summary: string;
+  payload: Record<string, unknown>;
+  lastError: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ContentDatabaseSourceChangeSet {
+  id: string;
+  databaseItemId: string | null;
+  documentId: string | null;
+  kind: ContentDatabaseSourceChangeKind;
+  direction: ContentDatabaseSourceChangeDirection;
+  state: ContentDatabaseSourceChangeState;
+  pushMode: ContentDatabaseSourcePushMode | null;
+  localOnly: boolean;
+  summary: string;
+  fieldChanges: ContentDatabaseSourceFieldChange[];
+  bodyChange: ContentDatabaseSourceBodyChange | null;
+  riskLevel: ContentDatabaseSourceRiskLevel;
+  riskReasons: string[];
+  conflictState: ContentDatabaseSourceConflictState;
+  reviewEvents: ContentDatabaseSourceReviewEvent[];
+  executions: ContentDatabaseSourceExecution[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ContentDatabaseSource {
+  id: string;
+  databaseId: string;
+  sourceType: ContentDatabaseSourceType;
+  sourceName: string;
+  sourceTable: string;
+  syncState: ContentDatabaseSourceSyncState;
+  freshness: ContentDatabaseSourceFreshness;
+  lastRefreshedAt: string | null;
+  lastSourceUpdatedAt: string | null;
+  lastError: string | null;
+  capabilities: ContentDatabaseSourceCapabilities;
+  metadata: {
+    primaryKey: string;
+    titleField: string;
+    naturalKeyField?: string | null;
+    pushMode?: ContentDatabaseSourcePushMode;
+    pushModeLabel?: string | null;
+    pushModeDescription?: string | null;
+    notes?: string | null;
+    readMode?: "fixture" | "builder-api" | string | null;
+    liveReadConfigured?: boolean;
+    lastReadEntryCount?: number;
+    lastReadMatchedRowCount?: number;
+    allowDraftWrites?: boolean;
+    allowPublishWrites?: boolean;
+    allowedWriteModes?: ContentDatabaseSourcePushMode[];
+  };
+  fields: ContentDatabaseSourceFieldMapping[];
+  rows: ContentDatabaseSourceRow[];
+  changeSets: ContentDatabaseSourceChangeSet[];
+}
+
+export interface ContentDatabaseSourceStatusResponse {
+  database: ContentDatabase;
+  mode: "local" | "source-backed";
+  summary: string;
+  source: ContentDatabaseSource | null;
 }
 
 export interface ContentDatabaseResponse {
   database: ContentDatabase;
   properties: DocumentProperty[];
   items: ContentDatabaseItem[];
+  source: ContentDatabaseSource | null;
   createdItemId?: string;
   createdDocumentId?: string;
   duplicatedItemId?: string;
@@ -343,4 +526,101 @@ export interface MoveDatabaseItemRequest {
 export interface UpdateContentDatabaseViewRequest {
   databaseId: string;
   viewConfig: ContentDatabaseViewConfig;
+}
+
+export interface AttachContentDatabaseSourceRequest {
+  databaseId?: string;
+  documentId?: string;
+  sourceType?: ContentDatabaseSourceType;
+  sourceName?: string;
+  sourceTable?: string;
+}
+
+export interface RefreshContentDatabaseSourceRequest {
+  databaseId?: string;
+  documentId?: string;
+}
+
+export interface AddContentDatabaseSourceFieldPropertyRequest {
+  databaseId?: string;
+  documentId?: string;
+  sourceFieldId: string;
+}
+
+export interface ProposeContentDatabaseSourceChangeSetRequest {
+  databaseId?: string;
+  documentId?: string;
+  itemDocumentId?: string;
+  propertyId?: string;
+  includeBodyChange?: boolean;
+}
+
+export interface StageBuilderRevisionRequest {
+  databaseId?: string;
+  documentId?: string;
+}
+
+export interface ReviewContentDatabaseSourceChangeSetRequest {
+  databaseId?: string;
+  documentId?: string;
+  changeSetId: string;
+  decision: "approve" | "reject";
+  note?: string;
+}
+
+export interface PrepareBuilderSourceExecutionRequest {
+  databaseId?: string;
+  documentId?: string;
+  changeSetId: string;
+  pushModeConfirmation?: ContentDatabaseSourcePushMode;
+}
+
+export interface ValidateBuilderSourceExecutionRequest {
+  databaseId?: string;
+  documentId?: string;
+  changeSetId: string;
+  idempotencyKey?: string;
+}
+
+export interface PrepareBuilderSourceReviewRequest {
+  databaseId?: string;
+  documentId?: string;
+  pushModeConfirmation?: ContentDatabaseSourcePushMode;
+}
+
+export interface ContentDatabaseSourceReviewRowSummary {
+  changeSetId: string;
+  databaseItemId: string | null;
+  documentId: string | null;
+  title: string;
+  fieldChanges: ContentDatabaseSourceFieldChange[];
+  bodyChange: ContentDatabaseSourceBodyChange | null;
+  riskLevel: ContentDatabaseSourceRiskLevel;
+  riskReasons: string[];
+  conflictState: ContentDatabaseSourceConflictState;
+  execution: ContentDatabaseSourceExecution | null;
+}
+
+export interface ContentDatabaseSourceReviewPayload {
+  summary: string;
+  sourceName: string;
+  sourceTable: string;
+  pushMode: ContentDatabaseSourcePushMode;
+  dryRunOnly: boolean;
+  liveWritesEnabled: boolean;
+  riskLevel: ContentDatabaseSourceRiskLevel;
+  riskReasons: string[];
+  rows: ContentDatabaseSourceReviewRowSummary[];
+  result: {
+    status: "validated" | "blocked" | "stale" | "write_disabled";
+    message: string;
+  };
+}
+
+export interface PrepareBuilderSourceReviewResponse {
+  database: ContentDatabase;
+  properties: DocumentProperty[];
+  items: ContentDatabaseItem[];
+  source: ContentDatabaseSource | null;
+  review: ContentDatabaseSourceReviewPayload;
 }

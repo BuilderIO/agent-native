@@ -117,6 +117,121 @@ export const contentDatabaseItems = table("content_database_items", {
   updatedAt: text("updated_at").notNull().default(now()),
 });
 
+export const contentDatabaseSources = table("content_database_sources", {
+  id: text("id").primaryKey(),
+  ownerEmail: text("owner_email").notNull().default("local@localhost"),
+  orgId: text("org_id"),
+  databaseId: text("database_id").notNull(),
+  sourceType: text("source_type").notNull(),
+  sourceName: text("source_name").notNull(),
+  sourceTable: text("source_table").notNull(),
+  syncState: text("sync_state").notNull().default("linked"),
+  freshness: text("freshness").notNull().default("unknown"),
+  capabilitiesJson: text("capabilities_json").notNull().default("{}"),
+  metadataJson: text("metadata_json").notNull().default("{}"),
+  lastRefreshedAt: text("last_refreshed_at"),
+  lastSourceUpdatedAt: text("last_source_updated_at"),
+  lastError: text("last_error"),
+  createdAt: text("created_at").notNull().default(now()),
+  updatedAt: text("updated_at").notNull().default(now()),
+});
+
+export const contentDatabaseSourceFields = table(
+  "content_database_source_fields",
+  {
+    id: text("id").primaryKey(),
+    ownerEmail: text("owner_email").notNull().default("local@localhost"),
+    sourceId: text("source_id").notNull(),
+    propertyId: text("property_id"),
+    localFieldKey: text("local_field_key").notNull(),
+    sourceFieldKey: text("source_field_key").notNull(),
+    sourceFieldLabel: text("source_field_label").notNull(),
+    sourceFieldType: text("source_field_type").notNull(),
+    mappingType: text("mapping_type").notNull().default("property"),
+    writeOwner: text("write_owner").notNull().default("local"),
+    readOnly: integer("read_only").notNull().default(0),
+    provenance: text("provenance").notNull().default("local"),
+    freshness: text("freshness").notNull().default("unknown"),
+    lastSyncedAt: text("last_synced_at"),
+    createdAt: text("created_at").notNull().default(now()),
+    updatedAt: text("updated_at").notNull().default(now()),
+  },
+);
+
+export const contentDatabaseSourceRows = table("content_database_source_rows", {
+  id: text("id").primaryKey(),
+  ownerEmail: text("owner_email").notNull().default("local@localhost"),
+  sourceId: text("source_id").notNull(),
+  databaseItemId: text("database_item_id").notNull(),
+  documentId: text("document_id").notNull(),
+  sourceRowId: text("source_row_id").notNull(),
+  sourceQualifiedId: text("source_qualified_id").notNull(),
+  sourceDisplayKey: text("source_display_key").notNull(),
+  provenance: text("provenance").notNull().default("source"),
+  syncState: text("sync_state").notNull().default("linked"),
+  freshness: text("freshness").notNull().default("unknown"),
+  lastSyncedAt: text("last_synced_at"),
+  lastSourceUpdatedAt: text("last_source_updated_at"),
+  createdAt: text("created_at").notNull().default(now()),
+  updatedAt: text("updated_at").notNull().default(now()),
+});
+
+export const contentDatabaseSourceChangeSets = table(
+  "content_database_source_change_sets",
+  {
+    id: text("id").primaryKey(),
+    ownerEmail: text("owner_email").notNull().default("local@localhost"),
+    sourceId: text("source_id").notNull(),
+    databaseItemId: text("database_item_id"),
+    documentId: text("document_id"),
+    kind: text("kind").notNull().default("field_update"),
+    direction: text("direction").notNull().default("incoming"),
+    state: text("state").notNull().default("proposed"),
+    pushMode: text("push_mode"),
+    localOnly: integer("local_only").notNull().default(1),
+    summary: text("summary").notNull(),
+    fieldChangesJson: text("field_changes_json").notNull().default("[]"),
+    bodyChangeJson: text("body_change_json"),
+    createdAt: text("created_at").notNull().default(now()),
+    updatedAt: text("updated_at").notNull().default(now()),
+  },
+);
+
+export const contentDatabaseSourceChangeReviews = table(
+  "content_database_source_change_reviews",
+  {
+    id: text("id").primaryKey(),
+    ownerEmail: text("owner_email").notNull().default("local@localhost"),
+    sourceId: text("source_id").notNull(),
+    changeSetId: text("change_set_id").notNull(),
+    reviewerEmail: text("reviewer_email").notNull(),
+    decision: text("decision").notNull(),
+    stateFrom: text("state_from").notNull(),
+    stateTo: text("state_to").notNull(),
+    note: text("note"),
+    createdAt: text("created_at").notNull().default(now()),
+  },
+);
+
+export const contentDatabaseSourceExecutions = table(
+  "content_database_source_executions",
+  {
+    id: text("id").primaryKey(),
+    ownerEmail: text("owner_email").notNull().default("local@localhost"),
+    sourceId: text("source_id").notNull(),
+    changeSetId: text("change_set_id").notNull(),
+    adapter: text("adapter").notNull(),
+    pushMode: text("push_mode").notNull(),
+    state: text("state").notNull(),
+    idempotencyKey: text("idempotency_key").notNull(),
+    summary: text("summary").notNull(),
+    payloadJson: text("payload_json").notNull().default("{}"),
+    lastError: text("last_error"),
+    createdAt: text("created_at").notNull().default(now()),
+    updatedAt: text("updated_at").notNull().default(now()),
+  },
+);
+
 export const documentPropertyValues = table("document_property_values", {
   id: text("id").primaryKey(),
   ownerEmail: text("owner_email").notNull().default("local@localhost"),

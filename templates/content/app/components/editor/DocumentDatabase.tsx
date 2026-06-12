@@ -9,7 +9,7 @@ import {
 } from "react";
 import { useNavigate } from "react-router";
 import { useQueryClient } from "@tanstack/react-query";
-import { agentNativePath } from "@agent-native/core/client";
+import { agentNativePath, useCodeMode } from "@agent-native/core/client";
 import {
   IconArrowDown,
   IconArrowLeft,
@@ -37,8 +37,10 @@ import {
   IconList,
   IconMinus,
   IconPlus,
+  IconPlugConnected,
   IconPalette,
   IconPencil,
+  IconRefresh,
   IconSearch,
   IconTable,
   IconTimeline,
@@ -83,10 +85,18 @@ import {
 import { Spinner } from "@/components/ui/spinner";
 import {
   useAddDatabaseItem,
+  useAttachContentDatabaseSource,
   useContentDatabase,
   useDuplicateDatabaseItem,
   useMoveDatabaseItem,
+  usePrepareBuilderSourceExecution,
+  usePrepareBuilderSourceReview,
+  useProposeContentDatabaseSourceChangeSet,
+  useRefreshContentDatabaseSource,
+  useReviewContentDatabaseSourceChangeSet,
+  useStageBuilderRevision,
   useUpdateContentDatabaseView,
+  useValidateBuilderSourceExecution,
 } from "@/hooks/use-content-database";
 import {
   useConfigureDocumentProperty,
@@ -122,6 +132,9 @@ import { VisualEditor } from "./VisualEditor";
 import type {
   ContentDatabaseItem,
   ContentDatabaseResponse,
+  ContentDatabaseSource,
+  ContentDatabaseSourceChangeSet,
+  ContentDatabaseSourceReviewPayload,
   ContentDatabaseView,
   ContentDatabaseViewConfig,
   ContentDatabaseColumnCalculation,
@@ -363,12 +376,27 @@ function DatabaseTable({
   const navigate = useNavigate();
   const database = useContentDatabase(document.id);
   const addItem = useAddDatabaseItem(document.id);
+  const attachSource = useAttachContentDatabaseSource(document.id);
+  const refreshSource = useRefreshContentDatabaseSource(document.id);
+  const proposeSourceChangeSet = useProposeContentDatabaseSourceChangeSet(
+    document.id,
+  );
+  const stageBuilderRevision = useStageBuilderRevision(document.id);
+  const reviewSourceChangeSet = useReviewContentDatabaseSourceChangeSet(
+    document.id,
+  );
+  const prepareBuilderExecution = usePrepareBuilderSourceExecution(document.id);
+  const prepareBuilderReview = usePrepareBuilderSourceReview(document.id);
+  const validateBuilderExecution = useValidateBuilderSourceExecution(
+    document.id,
+  );
   const setProperty = useSetDocumentProperty(document.id);
   const updateView = useUpdateContentDatabaseView(document.id);
   const data = database.data;
   const properties = data?.properties ?? [];
   const items = data?.items ?? [];
   const databaseId = data?.database.id ?? null;
+  const source = data?.source ?? null;
   const [previewDocumentId, setPreviewDocumentId] = useState<string | null>(
     null,
   );
@@ -381,6 +409,12 @@ function DatabaseTable({
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [builderReviewOpen, setBuilderReviewOpen] = useState(false);
+  const [builderReviewResult, setBuilderReviewResult] =
+    useState<ContentDatabaseSourceReviewPayload | null>(null);
+  const [builderReviewCheckedAt, setBuilderReviewCheckedAt] = useState<
+    string | null
+  >(null);
   const [settingsPanel, setSettingsPanel] =
     useState<DatabaseSettingsPanel>("main");
   const [viewConfig, setViewConfig] = useState<ContentDatabaseViewConfig>(
@@ -498,6 +532,19 @@ function DatabaseTable({
     () => databaseSelectedItems(visibleItems, selectedItemIds),
     [visibleItems, selectedItemIds],
   );
+  const builderReviewChangeSets = useMemo(
+    () => builderReviewableChangeSets(source),
+    [source],
+  );
+  const builderReviewPreview = useMemo(
+    () =>
+      source?.sourceType === "builder-cms" &&
+      builderReviewChangeSets.length > 0
+        ? buildClientBuilderReviewPayload(source, builderReviewChangeSets)
+        : null,
+    [builderReviewChangeSets, source],
+  );
+  const activeBuilderReview = builderReviewResult ?? builderReviewPreview;
 
   useEffect(() => {
     previewStateRef.current = {
@@ -517,6 +564,7 @@ function DatabaseTable({
     const state = databaseNavigationState({
       document,
       databaseId,
+      source,
       views: viewConfig.views,
       activeView,
       searchQuery,
@@ -550,6 +598,7 @@ function DatabaseTable({
     previewItem,
     searchQuery,
     selectedItems,
+    source,
     sorts,
     screenVisibleItems,
     tableProperties,
@@ -960,13 +1009,25 @@ function DatabaseTable({
             type="button"
             variant="ghost"
             size="sm"
-            aria-label="View settings"
-            title="View settings"
-            className={databaseToolbarIconButtonClass(
-              settingsOpen ||
-                activeView.wrapCells === true ||
-                hiddenProperties.length > 0 ||
-                Boolean(activeView.groupByPropertyId),
+            aria-label={
+              builderReviewChangeSets.length > 0
+                ? `Database settings, ${builderReviewChangeSets.length} Builder update pending`
+                : "Database settings"
+            }
+            title={
+              builderReviewChangeSets.length > 0
+                ? `${builderReviewChangeSets.length} Builder update pending`
+                : "Database settings"
+            }
+            className={cn(
+              databaseToolbarIconButtonClass(
+                settingsOpen ||
+                  activeView.wrapCells === true ||
+                  hiddenProperties.length > 0 ||
+                  Boolean(activeView.groupByPropertyId) ||
+                  builderReviewChangeSets.length > 0,
+              ),
+              "relative",
             )}
             onClick={() => {
               setSettingsPanel("main");
@@ -974,6 +1035,11 @@ function DatabaseTable({
             }}
           >
             <IconAdjustmentsHorizontal className="size-3.5" />
+            {builderReviewChangeSets.length > 0 ? (
+              <span className="absolute -right-0.5 -top-0.5 flex size-3.5 items-center justify-center rounded-full bg-foreground text-[9px] leading-none text-background">
+                {builderReviewChangeSets.length}
+              </span>
+            ) : null}
           </Button>
           {canEdit ? (
             <Button
@@ -1156,6 +1222,7 @@ function DatabaseTable({
           properties={tableProperties}
           groupableProperties={orderedProperties}
           items={visibleItems}
+          source={source}
           databaseDocumentId={document.id}
           canEdit={canEdit}
           isLoading={database.isLoading}
@@ -1228,17 +1295,85 @@ function DatabaseTable({
         }}
       />
 
-      <DatabaseViewSettingsPanel
+      <DatabaseSettingsPanelSheet
         open={settingsOpen}
         panel={settingsPanel}
         documentId={document.id}
+        canEdit={canEdit}
         activeView={activeView}
         properties={orderedProperties}
         items={items}
+        source={source}
         hiddenCount={hiddenProperties.length}
         groupIds={toolbarGroups.map((group) => group.id)}
         onClose={() => setSettingsOpen(false)}
         onPanelChange={setSettingsPanel}
+        onAttachBuilderSource={() =>
+          attachSource.mutate({
+            documentId: document.id,
+            sourceType: "builder-cms",
+            sourceName: "Builder CMS test blog",
+            sourceTable: "agent-native-blog-article-test",
+          })
+        }
+        onRefreshSource={() =>
+          refreshSource.mutate({
+            documentId: document.id,
+          })
+        }
+        onProposeSourceChangeSet={() =>
+          proposeSourceChangeSet.mutate({
+            documentId: document.id,
+          })
+        }
+        onReviewBuilderUpdate={() => {
+          setBuilderReviewResult(null);
+          setBuilderReviewCheckedAt(null);
+          setBuilderReviewOpen(true);
+        }}
+        onStageBuilderRevision={() =>
+          stageBuilderRevision.mutate({
+            documentId: document.id,
+          })
+        }
+        onApproveSourceChangeSet={(changeSetId) =>
+          reviewSourceChangeSet.mutate({
+            documentId: document.id,
+            changeSetId,
+            decision: "approve",
+          })
+        }
+        onRejectSourceChangeSet={(changeSetId) =>
+          reviewSourceChangeSet.mutate({
+            documentId: document.id,
+            changeSetId,
+            decision: "reject",
+          })
+        }
+        onPrepareBuilderExecution={(changeSetId, pushModeConfirmation) =>
+          prepareBuilderExecution.mutate({
+            documentId: document.id,
+            changeSetId,
+            pushModeConfirmation,
+          })
+        }
+        onValidateBuilderExecution={(changeSetId, idempotencyKey) =>
+          validateBuilderExecution.mutate({
+            documentId: document.id,
+            changeSetId,
+            idempotencyKey,
+          })
+        }
+        sourceActionPending={
+          attachSource.isPending ||
+          refreshSource.isPending ||
+          proposeSourceChangeSet.isPending ||
+          stageBuilderRevision.isPending ||
+          reviewSourceChangeSet.isPending ||
+          prepareBuilderExecution.isPending ||
+          prepareBuilderReview.isPending ||
+          validateBuilderExecution.isPending
+        }
         onViewTypeChange={(type) =>
           setViewConfig(updateDatabaseViewType(viewConfig, activeView.id, type))
         }
@@ -1253,6 +1388,38 @@ function DatabaseTable({
         }
         onHideEmptyGroupsChange={setHideEmptyGroups}
         onGroupsCollapsedChange={setGroupsCollapsed}
+      />
+
+      <BuilderSourceReviewDialog
+        open={builderReviewOpen}
+        review={activeBuilderReview}
+        source={source}
+        canEdit={canEdit}
+        pending={prepareBuilderReview.isPending}
+        checkedAt={builderReviewCheckedAt}
+        onClose={() => setBuilderReviewOpen(false)}
+        onValidate={() => {
+          setBuilderReviewResult(null);
+          setBuilderReviewCheckedAt(null);
+          prepareBuilderReview.mutate(
+            { documentId: document.id, pushModeConfirmation: "autosave" },
+            {
+              onSuccess: (response) => {
+                setBuilderReviewResult(response.review);
+                setBuilderReviewCheckedAt(new Date().toISOString());
+                toast.success("Builder update checked", {
+                  description: response.review.result.message,
+                });
+              },
+              onError: (error) => {
+                toast.error("Builder update failed", {
+                  description:
+                    error instanceof Error ? error.message : "Try again.",
+                });
+              },
+            },
+          );
+        }}
       />
 
       {!database.isLoading ? (
@@ -1281,6 +1448,7 @@ export function databaseItemPreviewTitle(
 export function databaseNavigationState({
   document,
   databaseId,
+  source = null,
   views = [],
   activeView,
   searchQuery = "",
@@ -1298,6 +1466,7 @@ export function databaseNavigationState({
 }: {
   document: Pick<Document, "id" | "title">;
   databaseId: string;
+  source?: ContentDatabaseSource | null;
   views?: Array<Pick<ContentDatabaseView, "id" | "name" | "type">>;
   activeView: Pick<
     ContentDatabaseView,
@@ -1353,12 +1522,30 @@ export function databaseNavigationState({
         (property) => property.definition.id === activeView.endDatePropertyId,
       )
     : null;
+  const incomingSourceChangeCount =
+    source?.changeSets.filter((changeSet) => changeSet.direction === "incoming")
+      .length ?? 0;
+  const outboundSourceChangeCount =
+    source?.changeSets.filter((changeSet) => changeSet.direction === "outbound")
+      .length ?? 0;
 
   return {
     view: "editor",
     documentId: document.id,
     title: document.title,
     databaseId,
+    databaseSourceType: source?.sourceType,
+    databaseSourceName: source?.sourceName,
+    databaseSourceTable: source?.sourceTable,
+    databaseSourceSyncState: source?.syncState,
+    databaseSourceFreshness: source?.freshness,
+    databaseSourcePendingChangeCount: source?.changeSets.length,
+    databaseSourceIncomingProposalCount: source
+      ? incomingSourceChangeCount
+      : undefined,
+    databaseSourceLocalChangeCount: source
+      ? outboundSourceChangeCount
+      : undefined,
     databaseViews: databaseViewSummaries(
       views.length > 0 ? views : [activeView],
     ),
@@ -2075,6 +2262,7 @@ function DatabaseTableView({
   properties,
   groupableProperties,
   items,
+  source,
   databaseDocumentId,
   canEdit,
   isLoading,
@@ -2117,6 +2305,7 @@ function DatabaseTableView({
   properties: DocumentProperty[];
   groupableProperties: DocumentProperty[];
   items: ContentDatabaseItem[];
+  source: ContentDatabaseSource | null;
   databaseDocumentId: string;
   canEdit: boolean;
   isLoading: boolean;
@@ -2569,6 +2758,7 @@ function DatabaseTableView({
           <DatabaseNameHeader
             sorts={sorts}
             filters={filters}
+            source={source}
             selectedCount={selectedCount}
             selectableCount={selectableCount}
             onSortsChange={onSortsChange}
@@ -2584,6 +2774,7 @@ function DatabaseTableView({
                 key={property.definition.id}
                 property={property}
                 documentId={databaseDocumentId}
+                source={source}
                 canEdit={canEdit}
                 isDragging={draggedPropertyId === property.definition.id}
                 dropSide={
@@ -2621,6 +2812,7 @@ function DatabaseTableView({
                 documentId={databaseDocumentId}
                 variant={cleanDefaultTable ? "header" : "icon"}
                 label="Add property"
+                source={source}
               />
             </div>
           ) : null}
@@ -2850,21 +3042,34 @@ function databaseToolbarIconButtonClass(active = false) {
 
 type DatabaseSettingsPanel =
   | "main"
+  | "source"
   | "layout"
   | "property_visibility"
   | "group";
 
-function DatabaseViewSettingsPanel({
+function DatabaseSettingsPanelSheet({
   open,
   panel,
   documentId,
+  canEdit,
   activeView,
   properties,
   items,
+  source,
   hiddenCount,
   groupIds,
   onClose,
   onPanelChange,
+  onAttachBuilderSource,
+  onRefreshSource,
+  onProposeSourceChangeSet,
+  onReviewBuilderUpdate,
+  onStageBuilderRevision,
+  onApproveSourceChangeSet,
+  onRejectSourceChangeSet,
+  onPrepareBuilderExecution,
+  onValidateBuilderExecution,
+  sourceActionPending,
   onViewTypeChange,
   onWrapCellsChange,
   onOpenPagesInChange,
@@ -2877,13 +3082,31 @@ function DatabaseViewSettingsPanel({
   open: boolean;
   panel: DatabaseSettingsPanel;
   documentId: string;
+  canEdit: boolean;
   activeView: ContentDatabaseView;
   properties: DocumentProperty[];
   items: ContentDatabaseItem[];
+  source: ContentDatabaseSource | null;
   hiddenCount: number;
   groupIds: string[];
   onClose: () => void;
   onPanelChange: (panel: DatabaseSettingsPanel) => void;
+  onAttachBuilderSource: () => void;
+  onRefreshSource: () => void;
+  onProposeSourceChangeSet: () => void;
+  onReviewBuilderUpdate: () => void;
+  onStageBuilderRevision: () => void;
+  onApproveSourceChangeSet: (changeSetId: string) => void;
+  onRejectSourceChangeSet: (changeSetId: string) => void;
+  onPrepareBuilderExecution: (
+    changeSetId: string,
+    pushModeConfirmation: ContentDatabaseSource["metadata"]["pushMode"],
+  ) => void;
+  onValidateBuilderExecution: (
+    changeSetId: string,
+    idempotencyKey: string,
+  ) => void;
+  sourceActionPending: boolean;
   onViewTypeChange: (type: ContentDatabaseViewType) => void;
   onWrapCellsChange: (wrapCells: boolean) => void;
   onOpenPagesInChange: (openPagesIn: ContentDatabaseOpenPagesIn) => void;
@@ -2896,7 +3119,7 @@ function DatabaseViewSettingsPanel({
   if (!open) return null;
 
   const title =
-    panel === "main" ? "View settings" : databaseSettingsPanelTitle(panel);
+    panel === "main" ? "Database settings" : databaseSettingsPanelTitle(panel);
 
   return (
     <aside className="fixed bottom-0 right-0 top-12 z-40 flex w-[320px] max-w-[calc(100vw-1rem)] flex-col border-l border-border bg-background shadow-[-12px_0_32px_rgba(15,23,42,0.06)]">
@@ -2904,7 +3127,7 @@ function DatabaseViewSettingsPanel({
         {panel === "main" ? null : (
           <button
             type="button"
-            aria-label="Back to view settings"
+            aria-label="Back to database settings"
             className="flex size-7 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             onClick={() => onPanelChange("main")}
           >
@@ -2916,20 +3139,37 @@ function DatabaseViewSettingsPanel({
         </div>
         <button
           type="button"
-          aria-label="Close view settings"
+          aria-label="Close database settings"
           className="flex size-7 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           onClick={onClose}
         >
           <IconX className="size-4" />
         </button>
       </div>
-      <div className="min-h-0 flex-1 overflow-auto p-3">
+      <div className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto p-3">
         {panel === "main" ? (
           <DatabaseSettingsMainPanel
             activeView={activeView}
+            source={source}
             propertyCount={properties.length}
             hiddenCount={hiddenCount}
             onPanelChange={onPanelChange}
+          />
+        ) : panel === "source" ? (
+          <DatabaseSettingsSourcePanel
+            source={source}
+            itemCount={items.length}
+            canEdit={canEdit}
+            onAttachBuilderSource={onAttachBuilderSource}
+            onRefreshSource={onRefreshSource}
+            onProposeSourceChangeSet={onProposeSourceChangeSet}
+            onReviewBuilderUpdate={onReviewBuilderUpdate}
+            onStageBuilderRevision={onStageBuilderRevision}
+            onApproveSourceChangeSet={onApproveSourceChangeSet}
+            onRejectSourceChangeSet={onRejectSourceChangeSet}
+            onPrepareBuilderExecution={onPrepareBuilderExecution}
+            onValidateBuilderExecution={onValidateBuilderExecution}
+            sourceActionPending={sourceActionPending}
           />
         ) : panel === "layout" ? (
           <DatabaseSettingsLayoutPanel
@@ -2964,24 +3204,28 @@ function DatabaseViewSettingsPanel({
 }
 
 function databaseSettingsPanelTitle(panel: DatabaseSettingsPanel) {
+  if (panel === "source") return "Source";
   if (panel === "layout") return "Layout";
   if (panel === "property_visibility") return "Property visibility";
   if (panel === "group") return "Group";
-  return "View settings";
+  return "Database settings";
 }
 
 function DatabaseSettingsMainPanel({
   activeView,
+  source,
   propertyCount,
   hiddenCount,
   onPanelChange,
 }: {
   activeView: ContentDatabaseView;
+  source: ContentDatabaseSource | null;
   propertyCount: number;
   hiddenCount: number;
   onPanelChange: (panel: DatabaseSettingsPanel) => void;
 }) {
   const groupLabel = activeView.groupByPropertyId ? "On" : "";
+  const sourceBadgeCount = builderReviewableChangeSets(source).length;
   return (
     <div className="grid gap-3">
       <div className="flex h-9 items-center gap-2 rounded-md border border-border bg-background px-2">
@@ -2997,6 +3241,13 @@ function DatabaseSettingsMainPanel({
         />
       </div>
       <div className="grid gap-1">
+        <DatabaseSettingsRow
+          icon={<IconPlugConnected className="size-4" />}
+          label="Source"
+          value={source ? source.sourceName : "Local / no source"}
+          badgeCount={sourceBadgeCount}
+          onClick={() => onPanelChange("source")}
+        />
         <DatabaseSettingsRow
           icon={databaseViewIconElement(activeView.type)}
           label="Layout"
@@ -3020,6 +3271,1085 @@ function DatabaseSettingsMainPanel({
   );
 }
 
+function builderReviewableChangeSets(source: ContentDatabaseSource | null) {
+  if (source?.sourceType !== "builder-cms") return [];
+  return source.changeSets.filter(
+    (changeSet) =>
+      changeSet.direction === "outbound" &&
+      (changeSet.state === "pending_push" ||
+        changeSet.state === "staged_revision" ||
+        changeSet.state === "approved"),
+  );
+}
+
+function sourceReviewRiskRank(
+  risk: ContentDatabaseSourceReviewPayload["riskLevel"],
+) {
+  if (risk === "high") return 3;
+  if (risk === "medium") return 2;
+  return 1;
+}
+
+function maxSourceReviewRisk(
+  current: ContentDatabaseSourceReviewPayload["riskLevel"],
+  next: ContentDatabaseSourceReviewPayload["riskLevel"],
+) {
+  return sourceReviewRiskRank(next) > sourceReviewRiskRank(current)
+    ? next
+    : current;
+}
+
+function buildClientBuilderReviewPayload(
+  source: ContentDatabaseSource,
+  changeSets: ContentDatabaseSourceChangeSet[],
+): ContentDatabaseSourceReviewPayload {
+  let riskLevel: ContentDatabaseSourceReviewPayload["riskLevel"] = "low";
+  const riskReasons = new Set<string>();
+  const rows = changeSets.map((changeSet) => {
+    riskLevel = maxSourceReviewRisk(riskLevel, changeSet.riskLevel);
+    changeSet.riskReasons.forEach((reason) => riskReasons.add(reason));
+    if (changeSet.conflictState === "source_changed") {
+      riskLevel = maxSourceReviewRisk(riskLevel, "medium");
+      riskReasons.add("source changed");
+    }
+    const sourceRow =
+      source.rows.find(
+        (row) =>
+          row.documentId === changeSet.documentId ||
+          row.databaseItemId === changeSet.databaseItemId,
+      ) ?? null;
+    const latestExecution =
+      changeSet.executions[changeSet.executions.length - 1] ?? null;
+    const titleChange = changeSet.fieldChanges.find(
+      (field) => field.localFieldKey === "title",
+    );
+    const proposedTitle = titleChange?.proposedValue;
+
+    return {
+      changeSetId: changeSet.id,
+      databaseItemId: changeSet.databaseItemId,
+      documentId: changeSet.documentId,
+      title:
+        typeof proposedTitle === "string" && proposedTitle.trim()
+          ? proposedTitle
+          : sourceRow?.sourceDisplayKey || "Untitled",
+      fieldChanges: changeSet.fieldChanges,
+      bodyChange: changeSet.bodyChange,
+      riskLevel: changeSet.riskLevel,
+      riskReasons: changeSet.riskReasons,
+      conflictState: changeSet.conflictState,
+      execution: latestExecution,
+    };
+  });
+  const statuses = rows
+    .map((row) => builderExecutionDryRunStatus(row.execution?.payload ?? {}))
+    .filter(
+      (
+        status,
+      ): status is {
+        status: "validated" | "stale" | "blocked";
+        validatedAt: string | null;
+      } => !!status,
+    );
+  const resultStatus = statuses.some((status) => status.status === "stale")
+    ? "stale"
+    : statuses.some((status) => status.status === "blocked")
+      ? "blocked"
+      : statuses.some((status) => status.status === "validated")
+        ? "validated"
+        : "write_disabled";
+
+  return {
+    summary:
+      rows.length === 1
+        ? "1 Builder row has changes ready to review."
+        : `${rows.length} Builder rows have changes ready to review.`,
+    sourceName: source.sourceName,
+    sourceTable: source.sourceTable,
+    pushMode: source.metadata.pushMode ?? "autosave",
+    dryRunOnly: !source.capabilities.liveWritesEnabled,
+    liveWritesEnabled: source.capabilities.liveWritesEnabled,
+    riskLevel,
+    riskReasons: Array.from(riskReasons),
+    rows,
+    result: {
+      status: resultStatus,
+      message:
+        resultStatus === "validated"
+          ? "Push checked successfully. Nothing was sent to Builder."
+          : resultStatus === "blocked"
+            ? "Push needs attention before anything can be sent to Builder."
+            : resultStatus === "stale"
+              ? "Push needs a fresh review because the plan changed."
+              : "Builder writes are off in this local build. Push will check the update only.",
+    },
+  };
+}
+
+function BuilderSourceReviewDialog({
+  open,
+  review,
+  source,
+  canEdit,
+  pending,
+  checkedAt,
+  onClose,
+  onValidate,
+}: {
+  open: boolean;
+  review: ContentDatabaseSourceReviewPayload | null;
+  source: ContentDatabaseSource | null;
+  canEdit: boolean;
+  pending: boolean;
+  checkedAt: string | null;
+  onClose: () => void;
+  onValidate: () => void;
+}) {
+  if (!open) return null;
+
+  const checked = !!checkedAt;
+  const disabled =
+    !canEdit || pending || checked || !review || review.rows.length === 0;
+
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="builder-source-review-title"
+      className="fixed inset-0 z-50 flex items-start justify-center bg-background/70 px-3 py-12"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) onClose();
+      }}
+    >
+      <div className="flex max-h-[calc(100vh-6rem)] w-full max-w-3xl min-w-0 flex-col overflow-hidden rounded-lg border border-border bg-background shadow-2xl">
+        <div className="flex h-12 shrink-0 items-center gap-3 border-b border-border px-4">
+          <div className="min-w-0 flex-1">
+            <h2
+              id="builder-source-review-title"
+              className="truncate text-sm font-semibold"
+            >
+              Review Builder update
+            </h2>
+            <p className="truncate text-xs text-muted-foreground">
+              {review?.summary ?? "No pending Builder changes."}
+            </p>
+          </div>
+          <button
+            type="button"
+            aria-label="Close Builder update review"
+            className="flex size-7 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            onClick={onClose}
+          >
+            <IconX className="size-4" />
+          </button>
+        </div>
+
+        <div className="min-h-0 flex-1 overflow-y-auto p-4">
+          {review ? (
+            <div className="grid gap-4">
+              <section className="grid gap-2">
+                <div className="text-sm font-medium">What changed</div>
+                <div className="grid gap-2">
+                  {review.rows.map((row) => (
+                    <div
+                      key={row.changeSetId}
+                      className="rounded-md border border-border p-3"
+                    >
+                      <div className="flex min-w-0 items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <div className="truncate text-sm font-medium">
+                            {row.title}
+                          </div>
+                          <div className="mt-1 text-xs text-muted-foreground">
+                            {row.fieldChanges.length} field change
+                            {row.fieldChanges.length === 1 ? "" : "s"}
+                            {row.bodyChange ? " plus body diff" : ""}
+                          </div>
+                        </div>
+                        <span className={sourceRiskClass(row.riskLevel)}>
+                          {row.riskLevel} risk
+                        </span>
+                      </div>
+                      <div className="mt-3 grid gap-2">
+                        {row.fieldChanges.map((field) => (
+                          <div
+                            key={`${row.changeSetId}-${field.localFieldKey}`}
+                            className="grid gap-1 rounded border border-border/70 bg-muted/20 p-2 text-xs"
+                          >
+                            <div className="font-medium">
+                              {field.propertyName ?? field.sourceFieldKey}
+                            </div>
+                            <div className="grid gap-1 text-muted-foreground sm:grid-cols-2">
+                              <div className="min-w-0 break-words">
+                                From: {sourceValueText(field.currentValue)}
+                              </div>
+                              <div className="min-w-0 break-words">
+                                To: {sourceValueText(field.proposedValue)}
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                        {row.bodyChange ? (
+                          <div className="rounded border border-border/70 bg-muted/20 p-2 text-xs">
+                            <div className="font-medium">
+                              {row.bodyChange.summary}
+                            </div>
+                            <div className="mt-1 text-muted-foreground">
+                              Builder body edits need a safer push path before
+                              they can be sent.
+                            </div>
+                          </div>
+                        ) : null}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </section>
+
+              <section className="grid gap-2 rounded-md border border-border p-3">
+                <div className="text-sm font-medium">Where it will go</div>
+                <div className="grid gap-2 text-xs">
+                  <SourceMetadataRow
+                    label="Source"
+                    value={review.sourceName}
+                  />
+                  <SourceMetadataRow
+                    label="Builder model"
+                    value={review.sourceTable}
+                  />
+                  <SourceMetadataRow
+                    label="Push mode"
+                    value={sourcePushModeLabel(review.pushMode)}
+                  />
+                  <SourceMetadataRow
+                    label="Live writes"
+                    value={
+                      review.liveWritesEnabled ? "enabled" : "disabled"
+                    }
+                  />
+                  <SourceMetadataRow
+                    label="Read mode"
+                    value={
+                      source ? sourceBuilderReadModeSummary(source) : "unknown"
+                    }
+                  />
+                </div>
+              </section>
+
+              <section className="grid gap-2 rounded-md border border-border p-3">
+                <div className="text-sm font-medium">Risk check</div>
+                <div className="flex flex-wrap gap-1.5 text-xs">
+                  <span className={sourceRiskClass(review.riskLevel)}>
+                    {review.riskLevel} risk
+                  </span>
+                  {(review.riskReasons.length
+                    ? review.riskReasons
+                    : ["single field diff"]
+                  ).map((reason) => (
+                    <span
+                      key={reason}
+                      className="rounded border border-border px-1.5 py-0.5 text-muted-foreground"
+                    >
+                      {reason}
+                    </span>
+                  ))}
+                  <span className="rounded border border-border px-1.5 py-0.5 text-muted-foreground">
+                    {review.dryRunOnly
+                      ? "checks only"
+                      : "can send to Builder"}
+                  </span>
+                </div>
+              </section>
+
+              <section className="grid gap-2 rounded-md border border-border p-3">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <div className="text-sm font-medium">Result</div>
+                    <div className="mt-1 text-xs text-muted-foreground">
+                      {review.result.message}
+                    </div>
+                  </div>
+                  <span className="shrink-0 rounded border border-border px-2 py-0.5 text-[11px] uppercase tracking-wide text-muted-foreground">
+                    {review.result.status.replace(/_/g, " ")}
+                  </span>
+                </div>
+              </section>
+            </div>
+          ) : (
+            <div className="rounded-md border border-border p-4 text-sm text-muted-foreground">
+              No pending local Builder changes yet.
+            </div>
+          )}
+        </div>
+
+        <div className="flex shrink-0 items-center justify-between gap-3 border-t border-border p-3">
+          <div className="min-w-0 text-xs text-muted-foreground">
+            {checked
+              ? "Checked just now. Nothing was sent to Builder."
+              : "Builder writes are off in this local build."}
+          </div>
+          <div className="flex shrink-0 items-center gap-2">
+            <Button type="button" variant="ghost" size="sm" onClick={onClose}>
+              Close
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              disabled={disabled}
+              onClick={onValidate}
+            >
+              {pending ? (
+                <Spinner className="mr-1.5 size-3.5" />
+              ) : checked ? (
+                <IconCheck className="mr-1.5 size-3.5" />
+              ) : null}
+              {pending ? "Checking..." : checked ? "Checked" : "Push"}
+            </Button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function DatabaseSettingsSourcePanel({
+  source,
+  itemCount,
+  canEdit,
+  onAttachBuilderSource,
+  onRefreshSource,
+  onProposeSourceChangeSet,
+  onReviewBuilderUpdate,
+  onStageBuilderRevision,
+  onApproveSourceChangeSet,
+  onRejectSourceChangeSet,
+  onPrepareBuilderExecution,
+  onValidateBuilderExecution,
+  sourceActionPending,
+}: {
+  source: ContentDatabaseSource | null;
+  itemCount: number;
+  canEdit: boolean;
+  onAttachBuilderSource: () => void;
+  onRefreshSource: () => void;
+  onProposeSourceChangeSet: () => void;
+  onReviewBuilderUpdate: () => void;
+  onStageBuilderRevision: () => void;
+  onApproveSourceChangeSet: (changeSetId: string) => void;
+  onRejectSourceChangeSet: (changeSetId: string) => void;
+  onPrepareBuilderExecution: (
+    changeSetId: string,
+    pushModeConfirmation: ContentDatabaseSource["metadata"]["pushMode"],
+  ) => void;
+  onValidateBuilderExecution: (
+    changeSetId: string,
+    idempotencyKey: string,
+  ) => void;
+  sourceActionPending: boolean;
+}) {
+  const incomingChangeSets =
+    source?.changeSets.filter(
+      (changeSet) => changeSet.direction === "incoming",
+    ) ?? [];
+  const outboundChangeSets =
+    source?.changeSets.filter(
+      (changeSet) => changeSet.direction === "outbound",
+    ) ?? [];
+  const reviewableBuilderChangeSets = outboundChangeSets.filter(
+    (changeSet) =>
+      changeSet.state === "pending_push" ||
+      changeSet.state === "staged_revision" ||
+      changeSet.state === "approved",
+  );
+  const conflictChangeSets =
+    source?.changeSets.filter(
+      (changeSet) => changeSet.conflictState === "source_changed",
+    ) ?? [];
+  const { isCodeMode } = useCodeMode();
+  const isBuilderSource = source?.sourceType === "builder-cms";
+  const showMockSourceControls = isCodeMode;
+  const showAttentionCard =
+    !source ||
+    (isBuilderSource && reviewableBuilderChangeSets.length > 0) ||
+    conflictChangeSets.length > 0 ||
+    showMockSourceControls;
+
+  return (
+    <div className="grid min-w-0 gap-4">
+      {showAttentionCard ? (
+        <div className="min-w-0 rounded-lg border border-border bg-muted/30 p-3">
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0 flex-1">
+              <div className="truncate text-sm font-medium">
+                {source
+                  ? conflictChangeSets.length > 0
+                    ? "Source needs review"
+                    : isBuilderSource && reviewableBuilderChangeSets.length > 0
+                      ? "Builder update ready"
+                      : source.sourceName
+                  : "Local / no source"}
+              </div>
+              <div className="mt-1 break-words text-xs text-muted-foreground">
+                {source
+                  ? conflictChangeSets.length > 0
+                    ? `${conflictChangeSets.length} source change ${
+                        conflictChangeSets.length === 1 ? "needs" : "need"
+                      } review before syncing.`
+                    : isBuilderSource && reviewableBuilderChangeSets.length > 0
+                      ? `${reviewableBuilderChangeSets.length} local Builder ${
+                          reviewableBuilderChangeSets.length === 1
+                            ? "update is"
+                            : "updates are"
+                        } ready to review.`
+                      : isBuilderSource
+                        ? "Builder CMS is connected. Source refresh can run quietly in the background."
+                        : `${source.sourceType} table ${source.sourceTable}`
+                  : "This database is local. Attach Builder CMS to inspect row identity, field provenance, freshness, and source-aware changes."}
+              </div>
+            </div>
+            <span className="shrink-0 rounded-full border border-border px-2 py-0.5 text-[11px] uppercase tracking-wide text-muted-foreground">
+              {source ? source.syncState : "local"}
+            </span>
+          </div>
+
+          <div className="mt-3 flex flex-wrap gap-2">
+            {source ? (
+              <>
+                {showMockSourceControls && !isBuilderSource ? (
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    disabled={
+                      !canEdit || sourceActionPending || itemCount === 0
+                    }
+                    onClick={onProposeSourceChangeSet}
+                  >
+                    <IconPlus className="mr-1.5 size-3.5" />
+                    Create test diff
+                  </Button>
+                ) : null}
+                {isBuilderSource && reviewableBuilderChangeSets.length > 0 ? (
+                  <Button
+                    type="button"
+                    size="sm"
+                    disabled={!canEdit || sourceActionPending}
+                    onClick={onReviewBuilderUpdate}
+                  >
+                    <IconCheck className="mr-1.5 size-3.5" />
+                    Review Builder update
+                  </Button>
+                ) : null}
+              </>
+            ) : (
+              <Button
+                type="button"
+                size="sm"
+                disabled={!canEdit || sourceActionPending}
+                onClick={onAttachBuilderSource}
+              >
+                <IconPlugConnected className="mr-1.5 size-3.5" />
+                Attach Builder CMS
+              </Button>
+            )}
+          </div>
+        </div>
+      ) : null}
+
+      {source ? (
+        <>
+          <div className="grid min-w-0 gap-2 rounded-lg border border-border bg-background p-3 text-sm">
+            <div className="font-medium">Status</div>
+            <div className="text-xs text-muted-foreground">
+              {isBuilderSource
+                ? source.metadata.liveReadConfigured
+                  ? "Builder CMS is connected for read-only source checks. Staged revisions are still saved locally; live Builder writes are disabled."
+                  : "Builder CMS is connected as a local review target. Add Builder credentials to read live CMS entries; live Builder writes are disabled."
+                : "This source snapshot is rebuilt from the current local database when resynced. No provider writes run from this panel."}
+            </div>
+            <SourceMetadataRow
+              label="Freshness"
+              value={`${source.freshness}${
+                source.lastRefreshedAt
+                  ? ` • refreshed ${formatSourceTimestamp(source.lastRefreshedAt)}`
+                  : ""
+              }`}
+            />
+            {isCodeMode ? (
+              <SourceMetadataRow
+                label="Capabilities"
+                value={sourceCapabilitySummary(source)}
+              />
+            ) : null}
+            <SourceMetadataRow
+              label="Push mode"
+              value={sourcePushModeSummary(source)}
+            />
+            {isBuilderSource ? (
+              <>
+                <SourceMetadataRow
+                  label="Read mode"
+                  value={sourceBuilderReadModeSummary(source)}
+                />
+                <SourceMetadataRow
+                  label="Builder matches"
+                  value={`${source.metadata.lastReadMatchedRowCount ?? 0} of ${
+                    source.metadata.lastReadEntryCount ?? 0
+                  } entries matched`}
+                />
+              </>
+            ) : null}
+            <SourceMetadataRow
+              label="Rows tracked"
+              value={`${source.rows.length}`}
+            />
+            {isCodeMode ? (
+              <SourceMetadataRow
+                label="Incoming proposals"
+                value={`${incomingChangeSets.length}`}
+              />
+            ) : null}
+            <SourceMetadataRow
+              label="Local Builder changes"
+              value={`${outboundChangeSets.length}`}
+            />
+          </div>
+
+          {isCodeMode ? (
+            <>
+              <div className="grid min-w-0 gap-2 rounded-lg border border-border bg-background p-3 text-sm">
+                <div className="font-medium">Field mappings</div>
+                <div className="grid min-w-0 gap-2">
+                  {source.fields.slice(0, 8).map((field) => (
+                    <div
+                      key={field.id}
+                      className="min-w-0 rounded-md border border-border/70 px-2 py-1.5"
+                    >
+                      <div className="flex min-w-0 items-center justify-between gap-2">
+                        <span className="truncate font-medium">
+                          {field.propertyName ?? field.sourceFieldLabel}
+                        </span>
+                        <span className="shrink-0 text-[11px] uppercase tracking-wide text-muted-foreground">
+                          {field.mappingType}
+                        </span>
+                      </div>
+                      <div
+                        className="mt-1 break-all text-xs text-muted-foreground"
+                        title={`${field.localFieldKey} -> ${field.sourceFieldKey}`}
+                      >
+                        {field.localFieldKey}
+                        {" -> "}
+                        {field.sourceFieldKey}
+                      </div>
+                    </div>
+                  ))}
+                  {source.fields.length === 0 ? (
+                    <div className="text-xs text-muted-foreground">
+                      No source field mappings yet.
+                    </div>
+                  ) : null}
+                </div>
+              </div>
+
+              <div className="grid min-w-0 gap-2 rounded-lg border border-border bg-background p-3 text-sm">
+                <div className="font-medium">Row identity</div>
+                <div className="grid min-w-0 gap-2">
+                  {source.rows.slice(0, 6).map((row) => (
+                    <div
+                      key={row.id}
+                      className="min-w-0 rounded-md border border-border/70 px-2 py-1.5"
+                    >
+                      <div
+                        className="truncate font-medium"
+                        title={row.sourceDisplayKey}
+                      >
+                        {row.sourceDisplayKey}
+                      </div>
+                      <div
+                        className="mt-1 break-all text-xs text-muted-foreground"
+                        title={row.sourceQualifiedId}
+                      >
+                        {row.sourceQualifiedId}
+                      </div>
+                    </div>
+                  ))}
+                  {source.rows.length === 0 ? (
+                    <div className="text-xs text-muted-foreground">
+                      No rows are bound yet.
+                    </div>
+                  ) : null}
+                </div>
+              </div>
+
+              <div className="grid min-w-0 gap-2 rounded-lg border border-border bg-background p-3 text-sm">
+                <div className="font-medium">Incoming source proposals</div>
+                <div className="grid min-w-0 gap-2">
+                  {incomingChangeSets.slice(0, 6).map((changeSet) => (
+                    <SourceChangeSetReviewCard
+                      key={changeSet.id}
+                      changeSet={changeSet}
+                      source={source}
+                      canEdit={canEdit}
+                      sourceActionPending={sourceActionPending}
+                      onApprove={onApproveSourceChangeSet}
+                      onReject={onRejectSourceChangeSet}
+                      onPrepareExecution={onPrepareBuilderExecution}
+                      onValidateExecution={onValidateBuilderExecution}
+                    />
+                  ))}
+                  {incomingChangeSets.length === 0 ? (
+                    <div className="text-xs text-muted-foreground">
+                      {showMockSourceControls && !isBuilderSource
+                        ? "No proposed changes yet. Create a test diff to preview the incoming review surface."
+                        : "No incoming source proposals yet."}
+                    </div>
+                  ) : null}
+                </div>
+              </div>
+
+              <div className="grid min-w-0 gap-2 rounded-lg border border-border bg-background p-3 text-sm">
+                <div className="font-medium">
+                  {source.sourceType === "builder-cms"
+                    ? "Local Builder changes"
+                    : "Local outbound changes"}
+                </div>
+                <div className="text-xs text-muted-foreground">
+                  {source.sourceType === "builder-cms"
+                    ? "Local edits can be staged as a Builder save revision/autosave record. Live Builder writes are disabled."
+                    : "No local outbound push lane is active for this mock source."}
+                </div>
+                <div className="grid min-w-0 gap-2">
+                  {outboundChangeSets.slice(0, 6).map((changeSet) => (
+                    <SourceChangeSetReviewCard
+                      key={changeSet.id}
+                      changeSet={changeSet}
+                      source={source}
+                      canEdit={canEdit}
+                      sourceActionPending={sourceActionPending}
+                      onApprove={onApproveSourceChangeSet}
+                      onReject={onRejectSourceChangeSet}
+                      onPrepareExecution={onPrepareBuilderExecution}
+                      onValidateExecution={onValidateBuilderExecution}
+                    />
+                  ))}
+                  {outboundChangeSets.length === 0 ? (
+                    <div className="text-xs text-muted-foreground">
+                      {source.sourceType === "builder-cms"
+                        ? "No pending local Builder changes yet. Rename a source-backed row to see a local outbound diff."
+                        : "No local outbound changes yet."}
+                    </div>
+                  ) : null}
+                </div>
+              </div>
+            </>
+          ) : (
+            <div className="rounded-lg border border-border bg-background p-3 text-xs text-muted-foreground">
+              Source mappings now live in column menus. Use Code Mode for raw
+              rows, mappings, and execution gates.
+            </div>
+          )}
+        </>
+      ) : null}
+    </div>
+  );
+}
+
+function SourceChangeSetReviewCard({
+  changeSet,
+  source,
+  canEdit,
+  sourceActionPending,
+  onApprove,
+  onReject,
+  onPrepareExecution,
+  onValidateExecution,
+}: {
+  changeSet: ContentDatabaseSourceChangeSet;
+  source: ContentDatabaseSource;
+  canEdit: boolean;
+  sourceActionPending: boolean;
+  onApprove: (changeSetId: string) => void;
+  onReject: (changeSetId: string) => void;
+  onPrepareExecution: (
+    changeSetId: string,
+    pushModeConfirmation: ContentDatabaseSource["metadata"]["pushMode"],
+  ) => void;
+  onValidateExecution: (changeSetId: string, idempotencyKey: string) => void;
+}) {
+  const reviewable =
+    !changeSet.id.startsWith("local-pending-") &&
+    (changeSet.state === "proposed" ||
+      changeSet.state === "staged_revision" ||
+      changeSet.state === "approved");
+  const latestReview =
+    changeSet.reviewEvents[changeSet.reviewEvents.length - 1] ?? null;
+  const latestExecution =
+    changeSet.executions[changeSet.executions.length - 1] ?? null;
+  const pushMode = changeSet.pushMode ?? source.metadata.pushMode ?? "autosave";
+  const canPrepareExecution =
+    source.sourceType === "builder-cms" &&
+    changeSet.direction === "outbound" &&
+    changeSet.state === "approved" &&
+    pushMode !== "none";
+  const dryRunStatus = latestExecution
+    ? builderExecutionDryRunStatus(latestExecution.payload)
+    : null;
+
+  return (
+    <div className="min-w-0 rounded-md border border-border/70 px-2 py-1.5">
+      <div className="flex min-w-0 items-start justify-between gap-2">
+        <span
+          className="min-w-0 break-words font-medium leading-snug"
+          title={changeSet.summary}
+        >
+          {changeSet.summary}
+        </span>
+        <span className="shrink-0 rounded border border-border px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-muted-foreground">
+          {changeSet.state.replace(/_/g, " ")}
+        </span>
+      </div>
+
+      <div className="mt-2 flex flex-wrap gap-1.5 text-[11px]">
+        <span className={sourceRiskClass(changeSet.riskLevel)}>
+          {changeSet.riskLevel} risk
+        </span>
+        <span className="rounded border border-border px-1.5 py-0.5 text-muted-foreground">
+          {changeSet.conflictState === "source_changed"
+            ? "source changed"
+            : "no conflict"}
+        </span>
+        <span className="rounded border border-border px-1.5 py-0.5 text-muted-foreground">
+          {sourcePushModeLabel(changeSet.pushMode)}
+        </span>
+        <span className="rounded border border-border px-1.5 py-0.5 text-muted-foreground">
+          {changeSet.localOnly ? "local-only" : "external write"}
+        </span>
+      </div>
+
+      <div className="mt-2 grid min-w-0 gap-1.5">
+        {changeSet.fieldChanges.slice(0, 3).map((field) => (
+          <div
+            key={`${changeSet.id}-${field.localFieldKey}`}
+            className="min-w-0 rounded border border-border/60 bg-muted/20 p-1.5 text-xs"
+          >
+            <div className="font-medium">
+              {field.propertyName ?? field.sourceFieldKey}
+            </div>
+            <div className="mt-1 grid min-w-0 gap-1 text-muted-foreground">
+              <div className="min-w-0 break-words">
+                Current: {sourceValueText(field.currentValue)}
+              </div>
+              <div className="min-w-0 break-words">
+                Proposed: {sourceValueText(field.proposedValue)}
+              </div>
+            </div>
+          </div>
+        ))}
+        {changeSet.fieldChanges.length > 3 ? (
+          <div className="text-xs text-muted-foreground">
+            +{changeSet.fieldChanges.length - 3} more field changes
+          </div>
+        ) : null}
+        {changeSet.bodyChange ? (
+          <div className="rounded border border-border/60 bg-muted/20 p-1.5 text-xs">
+            <div className="font-medium">{changeSet.bodyChange.summary}</div>
+            <div className="mt-1 text-muted-foreground">Body diff</div>
+          </div>
+        ) : null}
+      </div>
+
+      <div className="mt-2 break-words text-xs text-muted-foreground">
+        {changeSet.riskReasons.join(", ")}
+        {" • "}
+        {source.capabilities.liveWritesEnabled
+          ? "live writes enabled"
+          : "live writes disabled"}
+        {" • "}
+        {formatSourceTimestamp(changeSet.updatedAt)}
+      </div>
+
+      {latestReview ? (
+        <div className="mt-2 rounded border border-border/60 bg-muted/20 p-1.5 text-xs text-muted-foreground">
+          {latestReview.decision} by {latestReview.reviewerEmail}
+          {" • "}
+          {formatSourceTimestamp(latestReview.createdAt)}
+        </div>
+      ) : null}
+
+      {latestExecution ? (
+        <div className="mt-2 rounded border border-border/60 bg-muted/20 p-1.5 text-xs">
+          <div className="flex min-w-0 items-center justify-between gap-2">
+            <span className="font-medium">Execution gate</span>
+            <span className="shrink-0 text-[11px] uppercase tracking-wide text-muted-foreground">
+              {latestExecution.state.replace(/_/g, " ")}
+            </span>
+          </div>
+          <div className="mt-1 break-words text-muted-foreground">
+            {latestExecution.summary}
+          </div>
+          {builderExecutionRequestLine(latestExecution.payload) ? (
+            <div className="mt-1 break-words text-muted-foreground">
+              Would call {builderExecutionRequestLine(latestExecution.payload)}
+            </div>
+          ) : null}
+          {builderExecutionBlockers(latestExecution.payload).length > 0 ? (
+            <div className="mt-1 grid gap-1 text-muted-foreground">
+              {builderExecutionBlockers(latestExecution.payload)
+                .slice(0, 2)
+                .map((blocker) => (
+                  <div key={blocker} className="break-words">
+                    Blocked: {blocker}
+                  </div>
+                ))}
+            </div>
+          ) : null}
+          {dryRunStatus ? (
+            <div className="mt-1 break-words text-muted-foreground">
+              Dry run {dryRunStatus.status}
+              {dryRunStatus.validatedAt
+                ? ` • ${formatSourceTimestamp(dryRunStatus.validatedAt)}`
+                : ""}
+            </div>
+          ) : null}
+          <div className="mt-1 break-all text-muted-foreground">
+            {latestExecution.idempotencyKey}
+          </div>
+        </div>
+      ) : null}
+
+      {false && reviewable ? (
+        <div className="mt-2 flex flex-wrap gap-2">
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            className="h-7 px-2 text-xs"
+            disabled={
+              !canEdit || sourceActionPending || changeSet.state === "approved"
+            }
+            onClick={() => onApprove(changeSet.id)}
+          >
+            <IconCheck className="mr-1 size-3.5" />
+            Approve
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            variant="ghost"
+            className="h-7 px-2 text-xs"
+            disabled={!canEdit || sourceActionPending}
+            onClick={() => onReject(changeSet.id)}
+          >
+            <IconX className="mr-1 size-3.5" />
+            Reject
+          </Button>
+        </div>
+      ) : null}
+
+      {false && canPrepareExecution ? (
+        <div className="mt-2 flex flex-wrap gap-2">
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            className="h-7 px-2 text-xs"
+            disabled={!canEdit || sourceActionPending}
+            onClick={() => onPrepareExecution(changeSet.id, pushMode)}
+          >
+            <IconPlugConnected className="mr-1 size-3.5" />
+            Prepare execution gate
+          </Button>
+          {latestExecution ? (
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              className="h-7 px-2 text-xs"
+              disabled={!canEdit || sourceActionPending}
+              onClick={() =>
+                onValidateExecution(
+                  changeSet.id,
+                  latestExecution.idempotencyKey,
+                )
+              }
+            >
+              <IconCheck className="mr-1 size-3.5" />
+              Validate dry run
+            </Button>
+          ) : null}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function SourceMetadataRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex min-w-0 items-start justify-between gap-3 text-xs">
+      <span className="shrink-0 text-muted-foreground">{label}</span>
+      <span
+        className="min-w-0 max-w-[65%] break-words text-right"
+        title={value}
+      >
+        {value}
+      </span>
+    </div>
+  );
+}
+
+function sourceRiskClass(risk: ContentDatabaseSourceChangeSet["riskLevel"]) {
+  return cn(
+    "rounded border px-1.5 py-0.5",
+    risk === "high"
+      ? "border-destructive/40 bg-destructive/10 text-destructive"
+      : risk === "medium"
+        ? "border-amber-300 bg-amber-50 text-amber-700 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-300"
+        : "border-emerald-300 bg-emerald-50 text-emerald-700 dark:border-emerald-800 dark:bg-emerald-950/30 dark:text-emerald-300",
+  );
+}
+
+function sourceValueText(value: DocumentPropertyValue) {
+  if (value === null || value === undefined || value === "") return "empty";
+  if (Array.isArray(value)) return value.join(", ") || "empty";
+  if (typeof value === "object") return JSON.stringify(value);
+  return String(value);
+}
+
+function builderExecutionRequestLine(payload: Record<string, unknown>) {
+  const request =
+    payload.request &&
+    typeof payload.request === "object" &&
+    !Array.isArray(payload.request)
+      ? (payload.request as Record<string, unknown>)
+      : null;
+  const method =
+    typeof request?.method === "string" ? request.method.toUpperCase() : null;
+  const path = typeof request?.path === "string" ? request.path : null;
+  if (!request || !method || !path) return null;
+
+  const query =
+    request.query && typeof request.query === "object"
+      ? (request.query as Record<string, unknown>)
+      : null;
+  const queryText = query
+    ? Object.entries(query)
+        .filter(
+          (entry): entry is [string, string] => typeof entry[1] === "string",
+        )
+        .map(([key, value]) => `${key}=${value}`)
+        .join("&")
+    : "";
+  return `${method} ${path}${queryText ? `?${queryText}` : ""}`;
+}
+
+function builderExecutionBlockers(payload: Record<string, unknown>) {
+  const safety =
+    payload.safety &&
+    typeof payload.safety === "object" &&
+    !Array.isArray(payload.safety)
+      ? (payload.safety as Record<string, unknown>)
+      : null;
+  const blockers = safety?.blockers;
+  return Array.isArray(blockers)
+    ? blockers.filter(
+        (blocker): blocker is string => typeof blocker === "string",
+      )
+    : [];
+}
+
+function builderExecutionDryRunStatus(payload: Record<string, unknown>) {
+  const dryRun =
+    payload.dryRun &&
+    typeof payload.dryRun === "object" &&
+    !Array.isArray(payload.dryRun)
+      ? (payload.dryRun as Record<string, unknown>)
+      : null;
+  const status =
+    dryRun?.status === "validated" ||
+    dryRun?.status === "stale" ||
+    dryRun?.status === "blocked"
+      ? dryRun.status
+      : null;
+  if (!status) return null;
+  return {
+    status,
+    validatedAt:
+      typeof dryRun?.validatedAt === "string" ? dryRun.validatedAt : null,
+  };
+}
+
+function formatSourceTimestamp(value: string) {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
+}
+
+function sourceCapabilitySummary(source: ContentDatabaseSource) {
+  const parts = [];
+  if (source.capabilities.canRefresh) parts.push("refresh");
+  if (source.capabilities.canCreateChangeSets) parts.push("diffs");
+  if (source.capabilities.canWriteFields) parts.push("field writes");
+  if (source.capabilities.canWriteBody) parts.push("body writes");
+  if (source.capabilities.readOnlyRefresh) parts.push("read-only");
+  if (source.capabilities.canStageLocalRevision) parts.push("stage revision");
+  if (source.capabilities.canPull) parts.push("pull");
+  if (source.capabilities.canPush) parts.push("push");
+  if (source.capabilities.canPublish) parts.push("publish");
+  if (source.capabilities.canDelete) parts.push("delete");
+  parts.push(
+    source.capabilities.liveWritesEnabled
+      ? "live writes enabled"
+      : "live writes disabled",
+  );
+  return parts.join(", ");
+}
+
+function sourcePushModeSummary(source: ContentDatabaseSource) {
+  const label =
+    source.metadata.pushModeLabel ??
+    sourcePushModeLabel(source.metadata.pushMode);
+  const mode = source.metadata.pushMode ?? "none";
+  const safety = source.capabilities.liveWritesEnabled
+    ? "live writes enabled"
+    : "local-only, live writes disabled";
+  return `${label} (${mode}); ${safety}`;
+}
+
+function sourceBuilderReadModeSummary(source: ContentDatabaseSource) {
+  if (source.metadata.liveReadConfigured) return "Builder API read-only";
+  if (source.metadata.readMode === "fixture") {
+    return "Local fixture; Builder credentials unavailable";
+  }
+  return "Local fixture";
+}
+
+function sourcePushModeLabel(
+  mode: ContentDatabaseSource["metadata"]["pushMode"] | null | undefined,
+) {
+  if (mode === "autosave") return "Save revision / autosave";
+  if (mode === "draft") return "Draft";
+  if (mode === "publish") return "Publish";
+  return "No push";
+}
+
+function sourceFieldMappingForColumn(
+  source: ContentDatabaseSource | null,
+  columnKey: ColumnKey,
+) {
+  if (!source) return null;
+  if (columnKey === "name") {
+    return (
+      source.fields.find((field) => field.mappingType === "title") ??
+      source.fields.find((field) => field.localFieldKey === "title") ??
+      null
+    );
+  }
+  return (
+    source.fields.find((field) => field.propertyId === columnKey) ??
+    source.fields.find((field) => field.localFieldKey === columnKey) ??
+    null
+  );
+}
+
 function databaseViewIconElement(
   type: ContentDatabaseViewType,
   className = "size-4",
@@ -3032,12 +4362,14 @@ function DatabaseSettingsRow({
   icon,
   label,
   value,
+  badgeCount = 0,
   disabled = false,
   onClick,
 }: {
   icon: ReactNode;
   label: string;
   value?: string;
+  badgeCount?: number;
   disabled?: boolean;
   onClick?: () => void;
 }) {
@@ -3060,6 +4392,11 @@ function DatabaseSettingsRow({
       {value ? (
         <span className="max-w-28 truncate text-xs text-muted-foreground">
           {value}
+        </span>
+      ) : null}
+      {badgeCount > 0 ? (
+        <span className="flex size-3.5 shrink-0 items-center justify-center rounded-full bg-foreground text-[9px] leading-none text-background">
+          {badgeCount}
         </span>
       ) : null}
       {onClick && !disabled ? (
@@ -8330,6 +9667,7 @@ function DatabaseViewTabs({
 function DatabaseNameHeader({
   sorts,
   filters,
+  source,
   selectedCount,
   selectableCount,
   onSortsChange,
@@ -8339,6 +9677,7 @@ function DatabaseNameHeader({
 }: {
   sorts: DatabaseSort[];
   filters: DatabaseFilter[];
+  source: ContentDatabaseSource | null;
   selectedCount: number;
   selectableCount: number;
   onSortsChange: (sorts: DatabaseSort[]) => void;
@@ -8388,6 +9727,8 @@ function DatabaseNameHeader({
           filters={filters}
           onSortsChange={onSortsChange}
           onFiltersChange={onFiltersChange}
+          source={source}
+          sourceField={sourceFieldMappingForColumn(source, "name")}
         />
       </DropdownMenu>
       <ColumnResizeHandle label="Resize Name column" onPointerDown={onResize} />
@@ -9021,6 +10362,7 @@ function DatabaseRowSelectionControl({
 function DatabasePropertyHeader({
   property,
   documentId,
+  source,
   canEdit,
   isDragging,
   dropSide,
@@ -9031,6 +10373,7 @@ function DatabasePropertyHeader({
 }: {
   property: DocumentProperty;
   documentId: string;
+  source: ContentDatabaseSource | null;
   canEdit: boolean;
   isDragging: boolean;
   dropSide: DatabaseDropSide | null;
@@ -9072,6 +10415,11 @@ function DatabasePropertyHeader({
           triggerTrailing={
             <DatabaseColumnStateIndicators state={columnState} />
           }
+          sourceField={sourceFieldMappingForColumn(
+            source,
+            property.definition.id,
+          )}
+          sourceAttached={!!source}
         />
       ) : (
         <div className="flex h-7 min-w-0 flex-1 items-center gap-2 px-1">
@@ -9141,6 +10489,8 @@ function ColumnHeaderMenuContent({
   columnKey,
   label,
   propertyType,
+  source,
+  sourceField,
   sorts,
   filters,
   onSortsChange,
@@ -9151,6 +10501,8 @@ function ColumnHeaderMenuContent({
   columnKey: ColumnKey;
   label: string;
   propertyType?: DocumentPropertyType;
+  source?: ContentDatabaseSource | null;
+  sourceField?: ContentDatabaseSource["fields"][number] | null;
   sorts: DatabaseSort[];
   filters: DatabaseFilter[];
   onSortsChange: (sorts: DatabaseSort[]) => void;
@@ -9248,6 +10600,35 @@ function ColumnHeaderMenuContent({
             <IconEyeOff className="mr-2 size-4 text-muted-foreground" />
             Hide in view
           </DropdownMenuItem>
+        </>
+      ) : null}
+      {source ? (
+        <>
+          <DropdownMenuSeparator />
+          <div className="grid gap-1 px-2 py-1.5 text-xs">
+            <div className="font-medium text-foreground">Source</div>
+            {sourceField ? (
+              <>
+                <div className="min-w-0 break-words text-muted-foreground">
+                  {sourceField.sourceFieldLabel} ({sourceField.sourceFieldKey})
+                </div>
+                <div className="text-muted-foreground">
+                  {sourceField.readOnly
+                    ? "Read-only"
+                    : sourceField.writeOwner === "source"
+                      ? "Source-owned"
+                      : "Local edits allowed"}
+                  {sourceField.lastSyncedAt
+                    ? ` • synced ${formatSourceTimestamp(sourceField.lastSyncedAt)}`
+                    : ""}
+                </div>
+              </>
+            ) : (
+              <div className="text-muted-foreground">
+                Not mapped to Builder.
+              </div>
+            )}
+          </div>
         </>
       ) : null}
     </DropdownMenuContent>

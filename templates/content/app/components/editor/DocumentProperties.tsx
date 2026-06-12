@@ -37,7 +37,12 @@ import {
   IconUserCircle,
   type Icon,
 } from "@tabler/icons-react";
-import { emailToName, useSession } from "@agent-native/core/client";
+import {
+  emailToName,
+  useActionMutation,
+  useSession,
+} from "@agent-native/core/client";
+import { useQueryClient } from "@tanstack/react-query";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -94,7 +99,12 @@ import {
   type DocumentPropertyType,
   type DocumentPropertyVisibility,
 } from "@shared/properties";
-import type { DocumentProperty } from "@shared/api";
+import type {
+  AddContentDatabaseSourceFieldPropertyRequest,
+  ContentDatabaseResponse,
+  ContentDatabaseSource,
+  DocumentProperty,
+} from "@shared/api";
 import { imageUploadErrorMessage, uploadImageFile } from "./image-upload";
 
 interface DocumentPropertiesProps {
@@ -797,6 +807,8 @@ export function PropertyManagementPopover({
   triggerClassName,
   onTriggerPointerDown,
   triggerTrailing,
+  sourceField,
+  sourceAttached = false,
 }: {
   property: DocumentProperty;
   documentId: string;
@@ -804,6 +816,8 @@ export function PropertyManagementPopover({
   triggerClassName?: string;
   onTriggerPointerDown?: (event: ReactPointerEvent<HTMLButtonElement>) => void;
   triggerTrailing?: ReactNode;
+  sourceField?: ContentDatabaseSource["fields"][number] | null;
+  sourceAttached?: boolean;
 }) {
   const configure = useConfigureDocumentProperty(documentId);
   const duplicate = useDuplicateDocumentProperty(documentId);
@@ -1092,6 +1106,34 @@ export function PropertyManagementPopover({
                 </Button>
               </form>
             </div>
+          ) : null}
+
+          {sourceAttached ? (
+            <>
+              <DropdownMenuSeparator />
+              <div className="grid gap-1 px-2 py-1.5 text-xs">
+                <div className="font-medium text-foreground">Source</div>
+                {sourceField ? (
+                  <>
+                    <div className="min-w-0 break-words text-muted-foreground">
+                      {sourceField.sourceFieldLabel} (
+                      {sourceField.sourceFieldKey})
+                    </div>
+                    <div className="text-muted-foreground">
+                      {sourceField.readOnly
+                        ? "Read-only"
+                        : sourceField.writeOwner === "source"
+                          ? "Source-owned"
+                          : "Local edits allowed"}
+                    </div>
+                  </>
+                ) : (
+                  <div className="text-muted-foreground">
+                    Not mapped to Builder.
+                  </div>
+                )}
+              </div>
+            </>
           ) : null}
 
           <DropdownMenuSeparator />
@@ -2254,18 +2296,45 @@ export function AddProperty({
   variant = "default",
   label = "Add property",
   popoversPortalled = true,
+  source,
 }: {
   documentId: string;
   variant?: "default" | "header" | "icon";
   label?: string;
   popoversPortalled?: boolean;
+  source?: ContentDatabaseSource | null;
 }) {
   const configure = useConfigureDocumentProperty(documentId);
+  const queryClient = useQueryClient();
+  const addSourceFieldProperty = useActionMutation<
+    ContentDatabaseResponse,
+    AddContentDatabaseSourceFieldPropertyRequest
+  >("add-content-database-source-field-property", {
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: ["action", "get-content-database", { documentId }],
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["action", "list-document-properties", { documentId }],
+      });
+    },
+  });
   const [open, setOpen] = useState(false);
   const [name, setName] = useState("");
   const [typeQuery, setTypeQuery] = useState("");
   const filteredPropertyTypes = filterDocumentPropertyTypes(typeQuery);
   const firstFilteredPropertyType = filteredPropertyTypes[0] ?? null;
+  const unmappedSourceFields =
+    source?.sourceType === "builder-cms"
+      ? source.fields.filter(
+          (field) =>
+            !field.propertyId &&
+            field.mappingType !== "title" &&
+            field.sourceFieldLabel
+              .toLowerCase()
+              .includes(typeQuery.trim().toLowerCase()),
+        )
+      : [];
   const addPropertyNameInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -2290,6 +2359,14 @@ export function AddProperty({
       name: name.trim() || label,
       type,
       options: defaultPropertyOptions(type),
+    });
+    closeAddPropertyPicker();
+  }
+
+  async function addFromSourceField(sourceFieldId: string) {
+    await addSourceFieldProperty.mutateAsync({
+      documentId,
+      sourceFieldId,
     });
     closeAddPropertyPicker();
   }
@@ -2361,6 +2438,31 @@ export function AddProperty({
             />
           </div>
           <div className="max-h-80 overflow-auto rounded border p-1">
+            {unmappedSourceFields.length > 0 ? (
+              <div className="mb-1 border-b border-border pb-1">
+                <div className="px-2 py-1 text-xs font-medium text-muted-foreground">
+                  From Builder source
+                </div>
+                {unmappedSourceFields.slice(0, 5).map((field) => (
+                  <button
+                    key={field.id}
+                    type="button"
+                    aria-label={`Source field ${field.sourceFieldLabel}`}
+                    disabled={addSourceFieldProperty.isPending}
+                    className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-accent disabled:opacity-50"
+                    onClick={() => void addFromSourceField(field.id)}
+                  >
+                    <IconLink className="size-4 text-muted-foreground" />
+                    <span className="min-w-0 flex-1 truncate">
+                      {field.sourceFieldLabel}
+                    </span>
+                    <span className="text-xs text-muted-foreground">
+                      Source
+                    </span>
+                  </button>
+                ))}
+              </div>
+            ) : null}
             {filteredPropertyTypes.length === 0 ? (
               <div className="px-2 py-3 text-sm text-muted-foreground">
                 No matching property types

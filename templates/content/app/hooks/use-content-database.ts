@@ -2,11 +2,21 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useActionMutation, useActionQuery } from "@agent-native/core/client";
 import type {
   AddDatabaseItemRequest,
+  AttachContentDatabaseSourceRequest,
   ContentDatabaseResponse,
+  ContentDatabaseSourceStatusResponse,
   CreateDatabaseRequest,
   DuplicateDatabaseItemRequest,
   MoveDatabaseItemRequest,
+  PrepareBuilderSourceExecutionRequest,
+  PrepareBuilderSourceReviewRequest,
+  PrepareBuilderSourceReviewResponse,
+  ProposeContentDatabaseSourceChangeSetRequest,
+  RefreshContentDatabaseSourceRequest,
+  ReviewContentDatabaseSourceChangeSetRequest,
+  StageBuilderRevisionRequest,
   UpdateContentDatabaseViewRequest,
+  ValidateBuilderSourceExecutionRequest,
 } from "@shared/api";
 
 export function useContentDatabase(documentId: string | null) {
@@ -16,7 +26,6 @@ export function useContentDatabase(documentId: string | null) {
     {
       enabled: !!documentId,
       retry: false,
-      placeholderData: (prev) => prev,
     },
   );
 }
@@ -110,6 +119,142 @@ export function useUpdateContentDatabaseView(documentId: string) {
     onSuccess: () => {
       queryClient.invalidateQueries({
         queryKey: ["action", "get-content-database", { documentId }],
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["action", "get-content-database-source", { documentId }],
+      });
+    },
+  });
+}
+
+export function useAttachContentDatabaseSource(documentId: string) {
+  const queryClient = useQueryClient();
+  return useActionMutation<
+    ContentDatabaseResponse,
+    AttachContentDatabaseSourceRequest
+  >("attach-content-database-source", {
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: ["action", "get-content-database", { documentId }],
+      });
+    },
+  });
+}
+
+export function useRefreshContentDatabaseSource(documentId: string) {
+  const queryClient = useQueryClient();
+  return useActionMutation<
+    ContentDatabaseSourceStatusResponse,
+    RefreshContentDatabaseSourceRequest
+  >("refresh-content-database-source", {
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: ["action", "get-content-database", { documentId }],
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["action", "get-content-database-source", { documentId }],
+      });
+    },
+  });
+}
+
+export function useProposeContentDatabaseSourceChangeSet(documentId: string) {
+  const queryClient = useQueryClient();
+  return useActionMutation<
+    ContentDatabaseResponse,
+    ProposeContentDatabaseSourceChangeSetRequest
+  >("propose-content-database-source-change-set", {
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: ["action", "get-content-database", { documentId }],
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["action", "get-content-database-source", { documentId }],
+      });
+    },
+  });
+}
+
+export function useStageBuilderRevision(documentId: string) {
+  const queryClient = useQueryClient();
+  return useActionMutation<
+    ContentDatabaseResponse,
+    StageBuilderRevisionRequest
+  >("stage-builder-revision", {
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: ["action", "get-content-database", { documentId }],
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["action", "get-content-database-source", { documentId }],
+      });
+    },
+  });
+}
+
+export function useReviewContentDatabaseSourceChangeSet(documentId: string) {
+  const queryClient = useQueryClient();
+  return useActionMutation<
+    ContentDatabaseResponse,
+    ReviewContentDatabaseSourceChangeSetRequest
+  >("review-content-database-source-change-set", {
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: ["action", "get-content-database", { documentId }],
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["action", "get-content-database-source", { documentId }],
+      });
+    },
+  });
+}
+
+export function usePrepareBuilderSourceExecution(documentId: string) {
+  const queryClient = useQueryClient();
+  return useActionMutation<
+    ContentDatabaseResponse,
+    PrepareBuilderSourceExecutionRequest
+  >("prepare-builder-source-execution", {
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: ["action", "get-content-database", { documentId }],
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["action", "get-content-database-source", { documentId }],
+      });
+    },
+  });
+}
+
+export function useValidateBuilderSourceExecution(documentId: string) {
+  const queryClient = useQueryClient();
+  return useActionMutation<
+    ContentDatabaseResponse,
+    ValidateBuilderSourceExecutionRequest
+  >("validate-builder-source-execution", {
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: ["action", "get-content-database", { documentId }],
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["action", "get-content-database-source", { documentId }],
+      });
+    },
+  });
+}
+
+export function usePrepareBuilderSourceReview(documentId: string) {
+  const queryClient = useQueryClient();
+  return useActionMutation<
+    PrepareBuilderSourceReviewResponse,
+    PrepareBuilderSourceReviewRequest
+  >("prepare-builder-source-review", {
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: ["action", "get-content-database", { documentId }],
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["action", "get-content-database-source", { documentId }],
       });
     },
   });

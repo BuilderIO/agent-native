@@ -9,6 +9,10 @@ import type {
   ContentDatabaseResponse,
 } from "../shared/api.js";
 import {
+  applySourceSnapshotToItems,
+  getContentDatabaseSourceSnapshot,
+} from "./_database-source-utils.js";
+import {
   listPropertiesForDatabase,
   serializeDatabase,
 } from "./_property-utils.js";
@@ -138,10 +142,13 @@ export async function getContentDatabaseResponse(
     });
   }
 
+  const source = await getContentDatabaseSourceSnapshot(database);
+
   return {
     database: serializeDatabase(database),
     properties: await listPropertiesForDatabase(databaseId),
-    items: serializedItems,
+    items: applySourceSnapshotToItems(serializedItems, source),
+    source,
   };
 }
 
@@ -187,6 +194,32 @@ export async function deleteDatabaseDataForDocument(
         .delete(schema.documentPropertyValues)
         .where(eq(schema.documentPropertyValues.propertyId, definition.id));
     }
+    const sources = await db
+      .select({ id: schema.contentDatabaseSources.id })
+      .from(schema.contentDatabaseSources)
+      .where(eq(schema.contentDatabaseSources.databaseId, database.id));
+    for (const source of sources) {
+      await db
+        .delete(schema.contentDatabaseSourceExecutions)
+        .where(eq(schema.contentDatabaseSourceExecutions.sourceId, source.id));
+      await db
+        .delete(schema.contentDatabaseSourceChangeReviews)
+        .where(
+          eq(schema.contentDatabaseSourceChangeReviews.sourceId, source.id),
+        );
+      await db
+        .delete(schema.contentDatabaseSourceChangeSets)
+        .where(eq(schema.contentDatabaseSourceChangeSets.sourceId, source.id));
+      await db
+        .delete(schema.contentDatabaseSourceRows)
+        .where(eq(schema.contentDatabaseSourceRows.sourceId, source.id));
+      await db
+        .delete(schema.contentDatabaseSourceFields)
+        .where(eq(schema.contentDatabaseSourceFields.sourceId, source.id));
+    }
+    await db
+      .delete(schema.contentDatabaseSources)
+      .where(eq(schema.contentDatabaseSources.databaseId, database.id));
     await db
       .delete(schema.documentPropertyDefinitions)
       .where(eq(schema.documentPropertyDefinitions.databaseId, database.id));
