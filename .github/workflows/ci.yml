@@ -167,6 +167,22 @@ jobs:
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
+      - name: Free disk for scaffold smoke
+        run: |
+          df -h
+          sudo rm -rf \
+            /opt/ghc \
+            /opt/hostedtoolcache/CodeQL \
+            /usr/local/.ghcup \
+            /usr/local/lib/android \
+            /usr/local/share/boost \
+            /usr/share/dotnet \
+            /usr/share/swift \
+            ~/.cache/ms-playwright
+          docker system prune -af || true
+          sudo apt-get clean
+          df -h
+
       - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
 
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
@@ -188,7 +204,7 @@ jobs:
       - run: pnpm install --frozen-lockfile
 
       - name: Install Playwright Chromium for dev smoke
-        run: pnpm exec playwright install chromium
+        run: pnpm exec playwright install --only-shell chromium
 
       - name: Standalone starter dev smoke (auto-login + SSR render)
         # Catches Vite dev SSR failures (e.g. Meta outside HydratedRouter) that

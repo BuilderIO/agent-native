@@ -941,6 +941,11 @@ describe("runConnect", () => {
     );
 
     const promptClients = vi.fn();
+    const outLines: string[] = [];
+    vi.spyOn(process.stdout, "write").mockImplementation((chunk) => {
+      outLines.push(String(chunk));
+      return true;
+    });
 
     try {
       await runConnect(["reconnect", "https://plan.agent-native.com"], {
@@ -969,6 +974,11 @@ describe("runConnect", () => {
       expect(toml).not.toContain("stale-2");
       expect(toml).not.toContain("stale-3");
       expect(fs.existsSync(path.join(root, ".mcp.json"))).toBe(false);
+      const combined = outLines.join("");
+      expect(combined).toContain("Reconnected Plan MCP");
+      expect(combined).toContain(
+        "Codex: start a new Codex session now; the MCP tools should be available there.",
+      );
     } finally {
       process.env.HOME = oldHome;
     }
@@ -1029,7 +1039,12 @@ describe("runConnect", () => {
         "Did not touch Claude Cowork because no matching MCP entry was found.",
       );
       expect(combined).toContain(
-        "connect https://plan.agent-native.com --client <client>",
+        "connect https://plan.agent-native.com --client CLIENT",
+      );
+      expect(combined).not.toContain("<client>");
+      expect(combined).toContain("Reconnected Plan MCP");
+      expect(combined).toContain(
+        "Codex: start a new Codex session now; the MCP tools should be available there.",
       );
       expect(fs.existsSync(path.join(home, ".cowork", "mcp.json"))).toBe(false);
     } finally {

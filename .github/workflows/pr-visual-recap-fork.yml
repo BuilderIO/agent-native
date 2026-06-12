@@ -18,13 +18,13 @@ name: PR Visual Recap (fork, label-gated)
 #   - The diff is attacker-controlled text fed as INPUT to the LLM; it is
 #     never executed. Mitigations: secret-scan (fail-closed), sensitive-path
 #     gate, and the prompt explicitly marks diff content as untrusted data.
-#   - On synchronize/reopened, the gate re-checks that the label is still
-#     present (label removal revokes consent).
+#   - To refresh after new fork commits, a maintainer can rerun the workflow or
+#     remove/reapply the `recap` label after reviewing the updated diff.
 #   - Concurrency: per-PR, cancel-in-progress (mirror of main workflow).
 
 on:
   pull_request_target:
-    types: [labeled, synchronize, reopened]
+    types: [labeled]
 
 permissions:
   contents: read
@@ -76,8 +76,6 @@ jobs:
             }
 
             // The `recap` label is the maintainer's explicit consent gate.
-            // On labeled events, confirm the label being added is `recap`.
-            // On synchronize/reopened, confirm the label is still present.
             const labels = (pr && pr.labels || []).map((l) => l.name);
             if (!labels.includes('recap')) {
               reasons.push('recap label not present — maintainer must apply it to opt in');
@@ -119,7 +117,6 @@ jobs:
                   pull_number: pr.number,
                   per_page: 100,
                 });
-                const isAgentNativeMonorepo = context.repo.owner === 'BuilderIO' && context.repo.repo === 'agent-native';
                 const isSensitive = (p) =>
                   p === '.github/workflows/pr-visual-recap.yml' ||
                   p === '.github/workflows/pr-visual-recap-fork.yml' ||
@@ -127,8 +124,7 @@ jobs:
                   /(^|\/)\.claude\//.test(p) ||
                   /(^|\/)CLAUDE\.md$/.test(p) ||
                   /(^|\/)AGENTS\.md$/.test(p) ||
-                  /(^|\/)\.mcp\.json$/.test(p) ||
-                  (isAgentNativeMonorepo && /(^|\/)packages\/core\//.test(p));
+                  /(^|\/)\.mcp\.json$/.test(p);
                 const hits = files.map((f) => f.filename).filter(isSensitive);
                 if (hits.length) {
                   reasons.push(`PR modifies recap-control files (${hits.slice(0, 3).join(', ')}${hits.length > 3 ? ', …' : ''}) — skipping so untrusted PR diff never runs with secrets`);
@@ -246,7 +242,6 @@ jobs:
             echo "RECAP_CLI=pnpm exec tsx packages/core/src/cli/index.ts" >> "$GITHUB_ENV"
             echo "local=true" >> "$GITHUB_OUTPUT"
           else
-            echo "RECAP_CLI=npx -y @agent-native/core@${RECAP_CLI_VERSION}" >> "$GITHUB_ENV"
             echo "local=false" >> "$GITHUB_OUTPUT"
           fi
 
@@ -261,6 +256,40 @@ jobs:
       - name: Install workspace (local source only)
         if: steps.cli.outputs.local == 'true'
         run: pnpm install --frozen-lockfile --ignore-scripts
+
+      - name: Install published recap CLI
+        if: steps.cli.outputs.local != 'true'
+        env:
+          RECAP_CLI_VERSION: ${{ vars.RECAP_CLI_VERSION || 'latest' }}
+        run: |
+          set -euo pipefail
+          VERSION="$RECAP_CLI_VERSION"
+          if [ "$VERSION" = "latest" ]; then
+            VERSION="$(node <<'NODE'
+          const { execFileSync } = require("child_process");
+          const raw = execFileSync("npm", ["view", "@agent-native/core", "versions", "--json"], { encoding: "utf8" });
+          const versions = JSON.parse(raw).filter((v) => /^\d+\.\d+\.\d+$/.test(v));
+          versions.sort((a, b) => {
+            const pa = a.split(".").map(Number);
+            const pb = b.split(".").map(Number);
+            for (let i = 0; i < 3; i++) {
+              if (pa[i] !== pb[i]) return pa[i] - pb[i];
+            }
+            return 0;
+          });
+          if (!versions.length) process.exit(1);
+          process.stdout.write(versions[versions.length - 1]);
+          NODE
+          )"
+          fi
+          for attempt in 1 2 3; do
+            if npm install --prefix "$RUNNER_TEMP/recap-cli" --no-audit --no-fund "@agent-native/core@$VERSION"; then
+              break
+            fi
+            if [ "$attempt" = "3" ]; then exit 1; fi
+            sleep $((attempt * 10))
+          done
+          echo "RECAP_CLI=$RUNNER_TEMP/recap-cli/node_modules/.bin/agent-native" >> "$GITHUB_ENV"
 
       - name: Start visual recap check
         id: recap_check
@@ -351,11 +380,20 @@ jobs:
           $RECAP_CLI recap mcp-config --agent claude --app-url "$PLAN_RECAP_APP_URL" --out "$MCP_CONFIG"
           CLAUDE_ARGS=(-p "$(cat recap-prompt.md)" --mcp-config "$MCP_CONFIG" --allowedTools "Read,Write,Bash(git diff:*),mcp__plan__get-plan-blocks,mcp__plan__create-visual-recap,mcp__plan__set-resource-visibility" --permission-mode dontAsk --output-format json)
           if [ -n "${VISUAL_RECAP_MODEL:-}" ]; then CLAUDE_ARGS+=(--model "$VISUAL_RECAP_MODEL"); fi
-          set +e
-          npx -y @anthropic-ai/claude-code@2 "${CLAUDE_ARGS[@]}" > claude-result.json 2> claude-stderr.log
-          CLAUDE_STATUS="$?"
-          set -e
-          echo "$CLAUDE_STATUS" > claude-exit-code.txt
+          run_claude() {
+            rm -f recap-url.txt claude-result.json claude-stderr.log
+            set +e
+            npx -y @anthropic-ai/claude-code@2 "${CLAUDE_ARGS[@]}" > claude-result.json 2> claude-stderr.log
+            CLAUDE_STATUS="$?"
+            set -e
+            echo "$CLAUDE_STATUS" > claude-exit-code.txt
+          }
+          run_claude
+          if [ ! -s recap-url.txt ] && grep -Eiq 'schedule(d)? a wakeup|connector.*register|mcp.*register' claude-result.json claude-stderr.log 2>/dev/null; then
+            echo "Plan MCP registration appears delayed; retrying Claude once after 20s."
+            sleep 20
+            run_claude
+          fi
           rm -f "$MCP_CONFIG" || true
 
       - name: Run agent (Codex)
@@ -376,11 +414,20 @@ jobs:
             "") ;;
             *) echo "Ignoring invalid VISUAL_RECAP_REASONING: $VISUAL_RECAP_REASONING" ;;
           esac
-          set +e
-          npx -y @openai/codex@0 "${CODEX_ARGS[@]}" --json "$(cat recap-prompt.md)" 2> codex-stderr.log | tee codex-events.jsonl
-          CODEX_STATUS="${PIPESTATUS[0]}"
-          set -e
-          echo "$CODEX_STATUS" > codex-exit-code.txt
+          run_codex() {
+            rm -f recap-url.txt codex-events.jsonl codex-stderr.log
+            set +e
+            npx -y @openai/codex@0 "${CODEX_ARGS[@]}" --json "$(cat recap-prompt.md)" 2> codex-stderr.log | tee codex-events.jsonl
+            CODEX_STATUS="${PIPESTATUS[0]}"
+            set -e
+            echo "$CODEX_STATUS" > codex-exit-code.txt
+          }
+          run_codex
+          if [ ! -s recap-url.txt ] && grep -Eiq 'schedule(d)? a wakeup|connector.*register|mcp.*register' codex-events.jsonl codex-stderr.log 2>/dev/null; then
+            echo "Plan MCP registration appears delayed; retrying Codex once after 20s."
+            sleep 20
+            run_codex
+          fi
 
       - name: Read plan URL
         id: url

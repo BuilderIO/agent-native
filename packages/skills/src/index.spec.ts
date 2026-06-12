@@ -5,7 +5,12 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { runSkills as runCoreSkills } from "@agent-native/core/cli/skills";
 
-import { installSkills, parseSkillsCliArgs, runSkillsCli } from "./index.js";
+import {
+  installSkills,
+  parseSkillsCliArgs,
+  runSkillsCli,
+  type SkillsPromptContext,
+} from "./index.js";
 
 vi.mock("@agent-native/core/cli/skills", () => ({
   runSkills: vi.fn(async () => {}),
@@ -201,6 +206,111 @@ describe("@agent-native/skills", () => {
       "efficient-fable",
       "quick-recap",
     ]);
+  });
+
+  it("prompts with the clack-style picker using every discovered repo skill", async () => {
+    const repo = tmpDir();
+    const project = tmpDir();
+    writeSkill(repo, "quick-recap");
+    writeSkill(repo, "efficient-fable");
+    let skillContext: SkillsPromptContext | undefined;
+    const promptSkills = vi.fn(async (context: SkillsPromptContext) => {
+      skillContext = context;
+      return ["quick-recap"];
+    });
+    const promptClients = vi.fn(async () => ["codex" as const]);
+    const promptScope = vi.fn(async () => "project" as const);
+    vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+
+    await runSkillsCli(["add", "--copy", repo], {
+      baseDir: project,
+      isInteractive: () => true,
+      promptSkills,
+      promptClients,
+      promptScope,
+      promptUpdateInstructions: async () => false,
+    });
+
+    expect(runCoreSkills).not.toHaveBeenCalled();
+    expect(promptSkills).toHaveBeenCalledTimes(1);
+    expect(skillContext?.options.map((option) => option.value)).toEqual([
+      "efficient-fable",
+      "quick-recap",
+    ]);
+    expect(skillContext?.options.map((option) => option.label)).toEqual([
+      "efficient-fable",
+      "quick-recap",
+    ]);
+    expect(skillContext?.initialSkills).toEqual([
+      "efficient-fable",
+      "quick-recap",
+    ]);
+    expect(promptClients).toHaveBeenCalledTimes(1);
+    expect(promptScope).toHaveBeenCalledTimes(1);
+    expect(
+      fs.existsSync(
+        path.join(project, ".agents", "skills", "quick-recap", "SKILL.md"),
+      ),
+    ).toBe(true);
+    expect(
+      fs.existsSync(path.join(project, ".agents", "skills", "efficient-fable")),
+    ).toBe(false);
+  });
+
+  it("offers managed instruction updates for instruction-style skills", async () => {
+    const repo = tmpDir();
+    const project = tmpDir();
+    writeSkill(repo, "efficient-fable");
+    writeSkill(repo, "efficient-frontier");
+    writeSkill(repo, "quick-recap");
+    fs.writeFileSync(path.join(project, "AGENTS.md"), "# Existing\n", "utf-8");
+    const promptUpdateInstructions = vi.fn(async () => true);
+    vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+
+    await runSkillsCli(["add", "--copy", repo], {
+      baseDir: project,
+      isInteractive: () => true,
+      promptSkills: async () => [
+        "efficient-fable",
+        "efficient-frontier",
+        "quick-recap",
+      ],
+      promptClients: async () => ["codex"],
+      promptScope: async () => "project",
+      promptUpdateInstructions,
+    });
+
+    expect(promptUpdateInstructions).toHaveBeenCalledTimes(1);
+    const agents = fs.readFileSync(path.join(project, "AGENTS.md"), "utf-8");
+    expect(agents).toContain("Efficient Fable");
+    expect(agents).toContain("Efficient Frontier");
+    expect(agents).toContain("Quick Recap Status Block");
+  });
+
+  it("offers the PR Visual Recap GitHub Action when visual-recap is selected", async () => {
+    const repo = tmpDir();
+    const project = tmpDir();
+    writeSkill(repo, "visual-recap");
+    const promptGithubAction = vi.fn(async () => true);
+    vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+
+    await runSkillsCli(["add", "--copy", repo, "--no-mcp"], {
+      baseDir: project,
+      isInteractive: () => true,
+      promptSkills: async () => ["visual-recap"],
+      promptClients: async () => ["codex"],
+      promptScope: async () => "project",
+      promptGithubAction,
+    });
+
+    expect(promptGithubAction).toHaveBeenCalledWith({
+      workflowPath: path.join(".github", "workflows", "pr-visual-recap.yml"),
+    });
+    expect(
+      fs.existsSync(
+        path.join(project, ".github", "workflows", "pr-visual-recap.yml"),
+      ),
+    ).toBe(true);
   });
 
   it("installs public-repo-backed app skills directly when explicitly selected", async () => {
