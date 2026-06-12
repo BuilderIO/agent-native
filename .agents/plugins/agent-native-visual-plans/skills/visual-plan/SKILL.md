@@ -87,12 +87,15 @@ plan over as inline chat content — no Markdown prose, ASCII sketch, table, or
 fenced wireframe. If the connector's tools are missing, do NOT fall back to
 inline output: the usual cause is a connector that did not finish connecting
 this session (it registers zero tools), not auth. Stop and give the user the
-exact restore step — in Claude Code run `/mcp` and choose
-Authenticate/Reconnect (or restart the session); if genuinely unauthenticated,
-run `npx -y @agent-native/core@latest reconnect https://plan.agent-native.com` — this
-re-authenticates WITHOUT reinstalling. Never reinstall from scratch just to fix
-auth. Publish once the tool is reachable. Local-files privacy mode (after Tool
-Guidance) is the only exception.
+exact restore step for their current client: in Codex/Codex Desktop run
+`npx -y @agent-native/core@latest reconnect https://plan.agent-native.com --client codex`
+and start a new Codex session; in Claude Code run `/mcp` and choose
+Authenticate/Reconnect (or run the same reconnect command with
+`--client claude-code` and restart Claude). Auth is stored per client
+config/session, so one client's reconnect does not make another running client
+load tools. Never reinstall from scratch just to fix auth. Publish once the tool
+is reachable. Local-files privacy mode (after Tool Guidance) is the only
+exception.
 
 ## Core Workflow
 
@@ -343,9 +346,10 @@ review need.
 There are two ways into Plans.
 
 **Coding agent (CLI).** Install once with the Agent-Native CLI. The command
-installs the Plans skills, registers the hosted Plans MCP connector, and
-authenticates it in the same step (a one-time browser sign-in at setup — this is
-intended), so the first tool call does not hit an OAuth wall:
+installs the Plans skills, registers the hosted Plans MCP connector, and runs
+auth/setup for the selected local client(s) in the same step (a one-time browser
+sign-in at setup — this is intended), so the first tool call in that client does
+not hit an OAuth wall:
 
 ```bash
 npx @agent-native/core@latest skills add visual-plan
@@ -356,7 +360,9 @@ commands. The other planning modes (`create-ui-plan`, `create-prototype-plan`,
 `create-plan-design`, `create-visual-questions`) are MCP tools reachable from
 `/visual-plan`, not separate slash commands. Pass `--no-connect` to register
 the connector without authenticating, then run
-`npx @agent-native/core@latest connect https://plan.agent-native.com` whenever you are ready.
+`npx @agent-native/core@latest connect https://plan.agent-native.com --client all`
+whenever you are ready, or choose a narrower `--client`. Auth and MCP tool
+loading are per client config/session.
 
 **Browser (people you share with).** Open the Plans editor and create & edit
 with no sign-up — you work as a guest. Sign in only when you want to save or
@@ -370,13 +376,16 @@ your repo as MDX. This local mode is a separate advanced path, not the default
 hosted flow.
 
 If a Plans tool returns `needs auth`, `Unauthorized`, or `Session terminated`,
-do not keep retrying the tool. Stop and give the user the reconnect step: in
-Claude Code run `/mcp` and choose Authenticate/Reconnect for the plan
-connector; from any terminal run
-`npx -y @agent-native/core@latest reconnect https://plan.agent-native.com` — this
-re-authenticates WITHOUT reinstalling and finds the entry by URL regardless of
-connector name. Never reinstall from scratch just to fix auth. Continue once
-the connector is available.
+do not keep retrying the tool. Stop and give the user the reconnect step for the
+client they are using: Codex/Codex Desktop should run
+`npx -y @agent-native/core@latest reconnect https://plan.agent-native.com --client codex`
+and start a new Codex session; Claude Code should run `/mcp` and choose
+Authenticate/Reconnect for the plan connector, or run the reconnect command with
+`--client claude-code` and restart Claude. To refresh every local client config
+that already has the Plan entry, use `--client all`, then restart/reload each
+client. Reconnect re-authenticates WITHOUT reinstalling and finds the entry by
+URL regardless of connector name. Never reinstall from scratch just to fix auth.
+Continue once the connector is available.
 
 Hosted default: connect `https://plan.agent-native.com/_agent-native/mcp`. Do
 not put shared secrets in skill files.

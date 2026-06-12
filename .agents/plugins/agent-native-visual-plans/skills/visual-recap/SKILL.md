@@ -72,14 +72,17 @@ inline recap as a fallback. Do not report the connector as disconnected just
 because it is named `agent-native-plans` instead of `plan`. The usual cause is a
 connector that did not finish connecting this session (it registers zero tools),
 NOT necessarily an auth problem — so do not assume the user must authenticate.
-Stop and tell the user how to restore it: reconnect the Plan MCP connector (in
-Claude Code, run `/mcp` and choose Authenticate/Reconnect, or restart the
-session); if it is genuinely unauthenticated, run
-`npx -y @agent-native/core@latest reconnect https://plan.agent-native.com` — this
-re-authenticates WITHOUT reinstalling and finds the entry by URL regardless of
-connector name. Never reinstall from scratch just to fix auth. Then publish once
-the tool is reachable. Falling back to inline content is a defect, not a
-degraded mode.
+Stop and tell the user how to restore it for their current client: in
+Codex/Codex Desktop, run
+`npx -y @agent-native/core@latest reconnect https://plan.agent-native.com --client codex`
+and start a new Codex session; in Claude Code, run `/mcp` and choose
+Authenticate/Reconnect, or run the reconnect command with `--client claude-code`
+and restart Claude. Auth is stored per client config/session; `--client all`
+refreshes every local client config that already has the Plan entry, but each
+running client still has to reload its MCP tools. Reconnect re-authenticates
+WITHOUT reinstalling and finds the entry by URL regardless of connector name.
+Never reinstall from scratch just to fix auth. Then publish once the tool is
+reachable. Falling back to inline content is a defect, not a degraded mode.
 
 ## When To Use
 
