@@ -17,6 +17,7 @@ import {
   getDesktopContentFiles,
   type DesktopContentFilesFolder,
 } from "@/lib/desktop-content-files";
+import { rememberLinkedLocalSourceDirectory } from "@/lib/local-content-source-files";
 import { CONTENT_SOURCE_ROOT } from "@shared/content-source";
 
 type PermissionState = "granted" | "denied" | "prompt";
@@ -362,6 +363,7 @@ export default function LocalFilesRoute() {
 
       const handle = await readPersistedSourceDirectory();
       if (cancelled || !handle) return;
+      rememberLinkedLocalSourceDirectory(handle);
       const restoredDirectory: SelectedDirectory = { kind: "browser", handle };
       setDirectory(restoredDirectory);
       setStatus({
@@ -418,6 +420,7 @@ export default function LocalFilesRoute() {
     try {
       const selected = await chooseDirectory();
       if (selected.kind === "browser") {
+        rememberLinkedLocalSourceDirectory(selected.handle);
         try {
           await persistSourceDirectory(selected.handle);
         } catch {

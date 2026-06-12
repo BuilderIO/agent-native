@@ -37,6 +37,10 @@ type LocalDirectoryHandle = {
   }): Promise<PermissionState>;
 };
 
+type WindowWithContentSourceHandle = Window & {
+  __contentLocalSourceDirectoryHandle?: LocalDirectoryHandle;
+};
+
 export type LocalSourceFileResult =
   | {
       ok: true;
@@ -66,6 +70,15 @@ function supportsDirectoryPersistence() {
   return typeof window !== "undefined" && "indexedDB" in window;
 }
 
+export function rememberLinkedLocalSourceDirectory(
+  handle: LocalDirectoryHandle,
+) {
+  if (typeof window === "undefined") return;
+  (
+    window as WindowWithContentSourceHandle
+  ).__contentLocalSourceDirectoryHandle = handle;
+}
+
 function openLocalFilesDb() {
   return new Promise<IDBDatabase>((resolve, reject) => {
     const request = indexedDB.open(LOCAL_FILES_DB_NAME, LOCAL_FILES_DB_VERSION);
@@ -81,6 +94,12 @@ function openLocalFilesDb() {
 }
 
 async function readPersistedSourceDirectory() {
+  const sessionHandle =
+    typeof window === "undefined"
+      ? null
+      : (window as WindowWithContentSourceHandle)
+          .__contentLocalSourceDirectoryHandle;
+  if (sessionHandle) return sessionHandle;
   if (!supportsDirectoryPersistence()) return null;
   const db = await openLocalFilesDb();
   try {
