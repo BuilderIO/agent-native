@@ -7,6 +7,7 @@ import {
   AGENT_NATIVE_SOCIAL_IMAGE_HEIGHT,
   AGENT_NATIVE_SOCIAL_IMAGE_TYPE,
   AGENT_NATIVE_SOCIAL_IMAGE_WIDTH,
+  withAgentNativeSocialImageCacheBuster,
 } from "@agent-native/core/shared";
 import { getDb, schema } from "../db/index.js";
 import {
@@ -598,9 +599,9 @@ function renderFormPage(
 function notFoundPage(origin?: string) {
   const appBasePath = getAppBasePath();
   const ogImagePath = `${appBasePath}/_agent-native/og-image.png`;
-  const ogImageUrl = origin
-    ? new URL(ogImagePath, origin).toString()
-    : ogImagePath;
+  const ogImageUrl = withAgentNativeSocialImageCacheBuster(
+    origin ? new URL(ogImagePath, origin).toString() : ogImagePath,
+  );
   return `<!DOCTYPE html>
 <html lang="en" class="dark">
 <head>

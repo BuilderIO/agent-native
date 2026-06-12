@@ -6,6 +6,7 @@ import {
   loader,
   meta as genericTemplateMeta,
 } from "../app/routes/templates.$slug";
+import { AGENT_NATIVE_SOCIAL_IMAGE_CACHE_BUSTER } from "@agent-native/core/shared";
 import { meta as designTemplateMeta } from "../app/routes/templates.design";
 import { meta as slidesTemplateMeta } from "../app/routes/templates.slides";
 import { featuredTemplates, templates } from "../app/components/TemplateCard";
@@ -23,7 +24,11 @@ function ogImageTitle(meta: Array<Record<string, unknown>>): string | null {
   expect(image?.content).toMatch(
     /^https:\/\/www\.agent-native\.com\/_agent-native\/og-image\.png\?/,
   );
-  return new URL(image!.content as string).searchParams.get("title");
+  const url = new URL(image!.content as string);
+  expect(url.searchParams.get("v")).toBe(
+    AGENT_NATIVE_SOCIAL_IMAGE_CACHE_BUSTER,
+  );
+  return url.searchParams.get("title");
 }
 
 describe("template routes", () => {

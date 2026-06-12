@@ -30,6 +30,7 @@ import {
   AGENT_NATIVE_SOCIAL_IMAGE_PATH,
   AGENT_NATIVE_SOCIAL_IMAGE_TYPE,
   AGENT_NATIVE_SOCIAL_IMAGE_WIDTH,
+  withAgentNativeSocialImageCacheBuster,
 } from "../shared/social-meta.js";
 import {
   DEFAULT_SSR_CACHE_HEADERS,
@@ -130,10 +131,12 @@ const TWITTER_IMAGE_META_RE =
   /<meta\b(?=[^>]*\bname=(["'])twitter:image\1)[^>]*>/i;
 
 function defaultSocialImageUrl(requestUrl: string, basePath: string): string {
-  return new URL(
-    prefixMountedPath(AGENT_NATIVE_SOCIAL_IMAGE_PATH, basePath),
-    requestUrl,
-  ).toString();
+  return withAgentNativeSocialImageCacheBuster(
+    new URL(
+      prefixMountedPath(AGENT_NATIVE_SOCIAL_IMAGE_PATH, basePath),
+      requestUrl,
+    ).toString(),
+  );
 }
 
 function injectDefaultSocialImageMeta(html: string, imageUrl: string): string {
