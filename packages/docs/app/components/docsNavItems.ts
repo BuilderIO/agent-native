@@ -24,6 +24,7 @@ export const NAV_SECTIONS: NavSection[] = [
       { label: "Actions", to: "/docs/actions" as const },
       { label: "Agent Web Surfaces", to: "/docs/agent-web-surfaces" as const },
       { label: "Database", to: "/docs/database" as const },
+      { label: "Local File Mode", to: "/docs/local-file-mode" as const },
       { label: "File Uploads", to: "/docs/file-uploads" as const },
       { label: "Deployment", to: "/docs/deployment" as const },
       { label: "Progress", to: "/docs/progress" as const },
