@@ -12,6 +12,7 @@ import {
   runPrometheusPanel,
   serializePanelDescriptorInput,
 } from "../lib/prometheus";
+import { runDemoPanel, serializeDemoDescriptorInput } from "../lib/demo-source";
 
 /**
  * ga4 panels carry a JSON blob in `sql` describing the GA4 Data API call.
@@ -258,25 +259,33 @@ export const handleSqlQuery = defineEventHandler(async (event) => {
 
     if (
       typeof source !== "string" ||
-      !["bigquery", "ga4", "amplitude", "first-party", "prometheus"].includes(
-        source,
-      )
+      ![
+        "bigquery",
+        "ga4",
+        "amplitude",
+        "first-party",
+        "demo",
+        "prometheus",
+      ].includes(source)
     ) {
       setResponseStatus(event, 400);
       return {
         error:
-          "Invalid source. Must be 'bigquery', 'ga4', 'amplitude', 'first-party', or 'prometheus'",
+          "Invalid source. Must be 'bigquery', 'ga4', 'amplitude', 'first-party', 'demo', or 'prometheus'",
       };
     }
 
     let query: string;
-    if (source === "prometheus") {
+    if (source === "prometheus" || source === "demo") {
       if (rawQuery === undefined || rawQuery === null || rawQuery === "") {
         setResponseStatus(event, 400);
         return { error: "Missing or invalid query" };
       }
       try {
-        query = serializePanelDescriptorInput(rawQuery);
+        query =
+          source === "demo"
+            ? serializeDemoDescriptorInput(rawQuery)
+            : serializePanelDescriptorInput(rawQuery);
       } catch (err: any) {
         setResponseStatus(event, 400);
         return { error: err?.message || "Missing or invalid query" };
@@ -338,6 +347,10 @@ export const handleSqlQuery = defineEventHandler(async (event) => {
           userEmail: ctx.userEmail,
           orgId: ctx.orgId ?? null,
         });
+      }
+
+      if (source === "demo") {
+        return await runDemoPanel(query);
       }
 
       if (source === "prometheus") {

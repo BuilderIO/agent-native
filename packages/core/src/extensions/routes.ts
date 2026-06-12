@@ -152,8 +152,12 @@ async function dispatch(
   if (method === "GET" && parts.length === 0) {
     const includeGloballyHidden =
       event.url?.searchParams?.get("includeGloballyHidden") === "true";
+    const includeContent =
+      event.url?.searchParams?.get("includeContent") === "true";
     const rows = await listExtensions({ includeGloballyHidden });
-    return Promise.all(rows.map((row) => extensionResponse(row)));
+    return Promise.all(
+      rows.map((row) => extensionResponse(row, undefined, { includeContent })),
+    );
   }
 
   // POST / — create
@@ -351,14 +355,19 @@ async function dispatch(
 async function extensionResponse(
   row: ExtensionRow,
   role?: "owner" | ShareRole | null,
+  options: { includeContent?: boolean } = {},
 ) {
   const resolvedRole =
     role ??
     (await resolveAccess("extension", row.id)
       .then((access) => access?.role ?? null)
       .catch(() => null));
+  const responseRow =
+    options.includeContent === false
+      ? (({ content: _content, ...rest }) => rest)(row)
+      : row;
   return {
-    ...row,
+    ...responseRow,
     role: resolvedRole,
     canEdit: resolvedRole
       ? ["owner", "admin", "editor"].includes(resolvedRole)

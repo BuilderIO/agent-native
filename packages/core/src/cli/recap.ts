@@ -88,7 +88,7 @@ function optionalArg(
 /** GitHub secrets the installed PR Visual Recap workflow needs. */
 export const PR_VISUAL_RECAP_SETUP: string[] = [
   "Required secrets:",
-  "  PLAN_RECAP_TOKEN   — bearer token from `agent-native connect`",
+  "  PLAN_RECAP_TOKEN   — bearer token from `npx @agent-native/core@latest connect`",
   "  ANTHROPIC_API_KEY  — the LLM key for the default Claude Code backend",
   "Optional (only if you change defaults):",
   "  OPENAI_API_KEY (secret) + VISUAL_RECAP_AGENT=codex (variable) — use Codex instead of Claude",
@@ -162,11 +162,9 @@ export function buildReusableCallerWorkflow(
   } = {},
 ): string {
   const ref = (options.ref ?? "main").replace(/^@/, "");
-  const agentLine =
-    options.agent && options.agent !== "claude"
-      ? `\n          agent: ${options.agent}`
-      : "";
-  const modelLine = options.model ? `\n          model: ${options.model}` : "";
+  const agentValue =
+    options.agent ?? "${{ vars.VISUAL_RECAP_AGENT || 'claude' }}";
+  const modelValue = options.model ?? "${{ vars.VISUAL_RECAP_MODEL || '' }}";
   return (
     `name: PR Visual Recap\n` +
     `\n` +
@@ -181,16 +179,25 @@ export function buildReusableCallerWorkflow(
     `\n` +
     `jobs:\n` +
     `  visual-recap:\n` +
+    `    permissions:\n` +
+    `      actions: write\n` +
+    `      contents: read\n` +
+    `      checks: write\n` +
+    `      issues: write\n` +
+    `      pull-requests: write\n` +
     `    uses: BuilderIO/agent-native/.github/workflows/pr-visual-recap-reusable.yml@${ref}\n` +
     `    secrets:\n` +
     `      PLAN_RECAP_TOKEN: \${{ secrets.PLAN_RECAP_TOKEN }}\n` +
     `      ANTHROPIC_API_KEY: \${{ secrets.ANTHROPIC_API_KEY }}\n` +
-    `      # OPENAI_API_KEY: \${{ secrets.OPENAI_API_KEY }}  # only when agent: codex\n` +
-    `      # PLAN_RECAP_APP_URL: \${{ secrets.PLAN_RECAP_APP_URL }}  # only when self-hosting\n` +
-    `    with:${agentLine}${modelLine}\n` +
+    `      OPENAI_API_KEY: \${{ secrets.OPENAI_API_KEY }}\n` +
+    `      PLAN_RECAP_APP_URL: \${{ secrets.PLAN_RECAP_APP_URL }}\n` +
+    `    with:\n` +
+    `      agent: ${agentValue}\n` +
+    `      model: ${modelValue}\n` +
+    `      reasoning: \${{ vars.VISUAL_RECAP_REASONING || '' }}\n` +
+    `      skill-source: \${{ vars.VISUAL_RECAP_SKILL_SOURCE || 'auto' }}\n` +
     `      # cli-version: "latest"  # pin to a specific @agent-native/core version\n` +
-    `      # reasoning: "high"      # codex only: none|minimal|low|medium|high|xhigh\n` +
-    `      # skill-source: "repo"   # pin to committed visual-recap skill\n`
+    ``
   );
 }
 
@@ -564,7 +571,7 @@ function runSetup(args: Record<string, string | boolean>): void {
         lines.push(`  ${name}: missing value.`);
         if (name === "PLAN_RECAP_TOKEN") {
           lines.push(
-            `    Run agent-native connect ${plan.appUrl} --client codex, then rerun this setup.`,
+            `    Run npx @agent-native/core@latest connect ${plan.appUrl} --client codex, then rerun this setup.`,
           );
         }
         lines.push(
@@ -593,7 +600,7 @@ function runSetup(args: Record<string, string | boolean>): void {
 
   lines.push("");
   lines.push(
-    `Next: commit ${plan.workflowPath}, then run agent-native recap doctor.`,
+    `Next: commit ${plan.workflowPath}, then run npx @agent-native/core@latest recap doctor.`,
   );
   process.stdout.write(`${lines.join("\n")}\n`);
 }
@@ -621,7 +628,7 @@ function runDoctor(args: Record<string, string | boolean>): void {
     ok = false;
     lines.push(`[missing] Workflow missing: ${plan.workflowPath}.`);
     lines.push(
-      "  Run agent-native skills add visual-plan --with-github-action.",
+      "  Run npx @agent-native/skills add --skill visual-plan --with-github-action.",
     );
   } else {
     const current = fs.readFileSync(workflowFile, "utf-8");
@@ -632,7 +639,9 @@ function runDoctor(args: Record<string, string | boolean>): void {
       lines.push(
         `[missing] Workflow differs from the bundled template: ${plan.workflowPath}.`,
       );
-      lines.push("  Run agent-native recap setup to refresh it.");
+      lines.push(
+        "  Run npx @agent-native/core@latest recap setup to refresh it.",
+      );
     }
   }
 
@@ -641,7 +650,7 @@ function runDoctor(args: Record<string, string | boolean>): void {
   } else {
     lines.push("[warn] Local Plans publish token not found.");
     lines.push(
-      `  Run agent-native connect ${plan.appUrl} --client codex to mint one.`,
+      `  Run npx @agent-native/core@latest connect ${plan.appUrl} --client codex to mint one.`,
     );
   }
 
@@ -787,6 +796,248 @@ export function diffContainsSecret(
     }
   }
   return false;
+}
+
+const AGENT_FAILURE_MAX_CHARS = 1200;
+const STALE_WORKFLOW_FAILURE_SUMMARY =
+  "No agent failure summary was captured. This repo may be using an older PR Visual Recap workflow; refresh `.github/workflows/pr-visual-recap.yml` with `npx -y @agent-native/core@latest recap setup --force`, then rerun the workflow. See the GitHub Actions log for the agent step.";
+
+function compactWhitespace(text: string): string {
+  return text.replace(/\s+/g, " ").trim();
+}
+
+export function sanitizeAgentFailureSummary(
+  value: string,
+  maxChars: number = AGENT_FAILURE_MAX_CHARS,
+): string {
+  const redactSecretValues = (line: string) =>
+    line
+      .replace(
+        /Authorization:\s*Bearer\s+[A-Za-z0-9._-]{8,}/gi,
+        "Authorization: Bearer [redacted]",
+      )
+      .replace(/Bearer\s+[A-Za-z0-9._-]{8,}/gi, "Bearer [redacted]")
+      .replace(
+        /Authorization:\s*(?!Bearer\s+\[redacted\])[^\s]+/gi,
+        "Authorization: [redacted]",
+      )
+      .replace(/PLAN_RECAP_TOKEN=([^\s]+)/g, "PLAN_RECAP_TOKEN=[redacted]")
+      .replace(/ANTHROPIC_API_KEY=([^\s]+)/g, "ANTHROPIC_API_KEY=[redacted]")
+      .replace(/OPENAI_API_KEY=([^\s]+)/g, "OPENAI_API_KEY=[redacted]");
+
+  const sanitizedLines = value
+    .replace(/\u001b\[[0-9;]*m/g, "")
+    .split("\n")
+    .map(redactSecretValues)
+    .map((line) => (lineLooksSecret(line) ? "[redacted sensitive line]" : line))
+    .join("\n");
+  const compacted = compactWhitespace(sanitizedLines);
+  if (compacted.length <= maxChars) return compacted;
+  return `${compacted.slice(0, Math.max(0, maxChars - 1)).trimEnd()}…`;
+}
+
+function collectStringFields(
+  value: unknown,
+  fields: string[],
+  seen = new Set<unknown>(),
+): string[] {
+  if (!value || typeof value !== "object" || seen.has(value)) return [];
+  seen.add(value);
+  const obj = value as Record<string, unknown>;
+  const out: string[] = [];
+  for (const field of fields) {
+    const candidate = obj[field];
+    if (typeof candidate === "string" && candidate.trim()) {
+      out.push(candidate.trim());
+    }
+  }
+  for (const nested of Object.values(obj)) {
+    if (nested && typeof nested === "object") {
+      out.push(...collectStringFields(nested, fields, seen));
+    }
+  }
+  return out;
+}
+
+function isUsefulAgentSummaryCandidate(candidate: string): boolean {
+  const value = candidate.trim();
+  if (!value) return false;
+  if (/^(turn|session|item|response|task)\.[a-z0-9_.-]+$/i.test(value)) {
+    return false;
+  }
+  if (/^(success|completed|result|message|error)$/i.test(value)) {
+    return false;
+  }
+  return value.length > 12;
+}
+
+function isErrorLikeAgentSummary(candidate: string): boolean {
+  return /error|failed|denied|not found|unavailable|unauthorized|forbidden|tool|exception|timeout|timed out|could not|cannot/i.test(
+    candidate,
+  );
+}
+
+export function summarizeAgentResult(
+  agent: string,
+  resultText: string,
+): string {
+  const normalizedAgent = agent.toLowerCase();
+  const text = resultText.trim();
+  if (!text) return "";
+
+  if (normalizedAgent === "claude") {
+    const obj = parseLastJsonObject(text);
+    if (obj) {
+      const candidates = [
+        ...collectStringFields(obj, [
+          "error",
+          "message",
+          "result",
+          "reason",
+          "subtype",
+          "type",
+        ]),
+      ].filter(Boolean);
+      const usefulCandidates = candidates.filter(isUsefulAgentSummaryCandidate);
+      const preferred =
+        usefulCandidates.find(isErrorLikeAgentSummary) ??
+        usefulCandidates[0] ??
+        candidates.find(isErrorLikeAgentSummary);
+      if (preferred) return sanitizeAgentFailureSummary(preferred);
+    }
+  }
+
+  if (normalizedAgent === "codex") {
+    const candidates: string[] = [];
+    for (const line of text.split("\n")) {
+      const trimmed = line.trim();
+      if (!trimmed.startsWith("{")) continue;
+      try {
+        const obj = JSON.parse(trimmed);
+        candidates.push(
+          ...collectStringFields(obj, [
+            "error",
+            "message",
+            "text",
+            "delta",
+            "reason",
+            "detail",
+            "details",
+            "stderr",
+            "stdout",
+            "summary",
+            "result",
+            "content",
+          ]),
+        );
+      } catch {
+        // Keep scanning.
+      }
+    }
+    const newestFirst = [...candidates].reverse();
+    const usefulCandidates = newestFirst.filter(isUsefulAgentSummaryCandidate);
+    const preferred =
+      usefulCandidates.find(isErrorLikeAgentSummary) ?? usefulCandidates[0];
+    if (preferred) return sanitizeAgentFailureSummary(preferred);
+  }
+
+  return sanitizeAgentFailureSummary(text);
+}
+
+function agentLabel(agent: string): string {
+  const normalized = agent.toLowerCase();
+  if (normalized === "codex") return "Codex";
+  if (normalized === "claude") return "Claude";
+  return agent || "Agent";
+}
+
+export function summarizeAgentRun(input: {
+  agent: string;
+  resultText?: string;
+  stderrText?: string;
+  exitCode?: string;
+}): string {
+  const parts: string[] = [];
+  const exitCode = (input.exitCode ?? "").trim();
+  if (exitCode && exitCode !== "0") {
+    parts.push(`${agentLabel(input.agent)} exited with code ${exitCode}.`);
+  }
+
+  const resultSummary = summarizeAgentResult(
+    input.agent,
+    input.resultText ?? "",
+  );
+  if (resultSummary) parts.push(resultSummary);
+
+  const stderrSummary = sanitizeAgentFailureSummary(
+    input.stderrText ?? "",
+    500,
+  );
+  if (stderrSummary) parts.push(`stderr: ${stderrSummary}`);
+
+  return sanitizeAgentFailureSummary(parts.join(" "));
+}
+
+function readTextIfExists(file: string): string | null {
+  try {
+    if (!fs.existsSync(file)) return null;
+    return fs.readFileSync(file, "utf8");
+  } catch {
+    return null;
+  }
+}
+
+function localAgentResultCandidates(agent: string): Array<{
+  agent: "claude" | "codex";
+  resultFile: string;
+  stderrFile: string;
+  exitCodeFile: string;
+}> {
+  const all = [
+    {
+      agent: "claude" as const,
+      resultFile: "claude-result.json",
+      stderrFile: "claude-stderr.log",
+      exitCodeFile: "claude-exit-code.txt",
+    },
+    {
+      agent: "codex" as const,
+      resultFile: "codex-events.jsonl",
+      stderrFile: "codex-stderr.log",
+      exitCodeFile: "codex-exit-code.txt",
+    },
+  ];
+  const normalized = agent.toLowerCase();
+  if (normalized === "codex") return [all[1], all[0]];
+  return all;
+}
+
+export function summarizeLocalAgentFailure(
+  input: {
+    cwd?: string;
+    agent?: string;
+  } = {},
+): string {
+  const cwd = input.cwd ?? process.cwd();
+  for (const candidate of localAgentResultCandidates(input.agent ?? "")) {
+    const resultPath = path.join(cwd, candidate.resultFile);
+    const stderrPath = path.join(cwd, candidate.stderrFile);
+    const exitCodePath = path.join(cwd, candidate.exitCodeFile);
+    const resultText = readTextIfExists(resultPath);
+    const stderrText = readTextIfExists(stderrPath);
+    const exitCode = readTextIfExists(exitCodePath);
+    if (resultText === null && stderrText === null && exitCode === null) {
+      continue;
+    }
+    const summary = summarizeAgentRun({
+      agent: candidate.agent,
+      resultText: resultText ?? "",
+      stderrText: stderrText ?? "",
+      exitCode: exitCode ?? "",
+    });
+    if (summary) return summary;
+  }
+  return "";
 }
 
 /* -------------------------------------------------------------------------- */
@@ -1213,7 +1464,7 @@ export function readRepoSkillMd(cwd: string = process.cwd()): {
     }
   }
   throw new Error(
-    "Could not find visual-recap/SKILL.md. Run `agent-native skills add visual-plan` first.",
+    "Could not find visual-recap/SKILL.md. Run `npx @agent-native/skills add --skill visual-plan` first.",
   );
 }
 
@@ -1392,7 +1643,7 @@ export function buildRecapPrompt(input: {
       `1. Create or replace the local MDX folder \`${localDir}\` with \`plan.mdx\` and optional \`canvas.mdx\`, \`prototype.mdx\`, and \`.plan-state.json\` derived ONLY from the real diff. Set \`kind: "recap"\` and \`localOnly: true\` in source metadata/state.`,
     );
     lines.push(
-      `2. Run \`agent-native plan local preview --dir ${JSON.stringify(
+      `2. Run \`npx @agent-native/core@latest plan local preview --dir ${JSON.stringify(
         localDir,
       )} --kind recap --out ${JSON.stringify(
         path.join(localDir, "preview.html"),
@@ -1456,6 +1707,7 @@ export function buildRecapPrompt(input: {
 const MARKER = "<!-- pr-visual-recap -->";
 const RECAP_IMAGE_URL_PATH_PATTERN =
   /\/_agent-native\/recap-image\/[0-9a-f]{32,128}\.png$/;
+const RECAP_SCREENSHOT_QUERY_PARAM = "recapScreenshot";
 
 type GitHubComment = {
   id: number;
@@ -1608,10 +1860,6 @@ function originOf(url: string): string {
 export function buildCommentBody(env: NodeJS.ProcessEnv = process.env): string {
   const lines: string[] = [MARKER];
 
-  // Short head SHA for the "as of" freshness line.
-  const headSha = (env.HEAD_SHA || "").trim();
-  const headShort = headSha ? headSha.slice(0, 7) : "";
-
   // Last-known plan id threaded from the previous run (supplied via PREV_PLAN_ID
   // when the comment is rebuilt from scratch, or parsed from the env on upsert).
   // We always emit the plan-id marker when any plan id is known so that a
@@ -1633,21 +1881,19 @@ export function buildCommentBody(env: NodeJS.ProcessEnv = process.env): string {
     );
     lines.push("");
     lines.push(`Reason: \`${reason}\`.`);
-    if (headShort) lines.push("", `_As of \`${headShort}\`_`);
     if (prevPlanId) lines.push("", `<!-- plan-id: ${prevPlanId} -->`);
     return lines.join("\n");
   }
 
   // Tiny diffs aren't worth a recap. Refresh an existing sticky comment to this
-  // state (the workflow only updates, never creates, on tiny) so it never lingers
-  // pointing at a stale head SHA.
+  // state (the workflow only updates, never creates, on tiny) so stale recap
+  // links do not linger on no-op changes.
   if (env.DIFF_TINY === "true") {
     lines.push("### Visual recap — skipped (diff too small)");
     lines.push("");
     lines.push(
       "The change in this pull request is too small to be worth a visual recap. This is informational only and does **not** block the PR.",
     );
-    if (headShort) lines.push("", `_As of \`${headShort}\`_`);
     if (prevPlanId) lines.push("", `<!-- plan-id: ${prevPlanId} -->`);
     return lines.join("\n");
   }
@@ -1675,18 +1921,27 @@ export function buildCommentBody(env: NodeJS.ProcessEnv = process.env): string {
 
   if (!safeUrl) {
     const authFailed = env.RECAP_AUTH_FAILED === "true";
+    const diagnostic = buildRecapFailureDiagnostic({
+      failureSummary: (env.RECAP_AGENT_SUMMARY || "").trim(),
+      urlReason: (env.RECAP_URL_REASON || "").trim(),
+    });
     lines.push("### Visual recap — generation failed");
     lines.push("");
     if (authFailed) {
       lines.push(
-        "Recap authentication failed — the `PLAN_RECAP_TOKEN` secret may be expired or revoked. Re-mint it with `agent-native connect` and update the repo secret.",
+        "Recap authentication failed — the `PLAN_RECAP_TOKEN` secret may be expired or revoked. Re-mint it with `npx -y @agent-native/core@latest reconnect <app-url>` (or `npx @agent-native/core@latest connect <app-url>` for first-time setup) and update the repo secret.",
       );
     } else {
       lines.push(
         "The visual recap could not be generated for this pull request. This is informational only and does **not** block the PR.",
       );
+      if (diagnostic) {
+        lines.push("");
+        lines.push("Diagnostic:");
+        lines.push("");
+        lines.push(diagnostic);
+      }
     }
-    if (headShort) lines.push("", `_As of \`${headShort}\`_`);
     // Keep a link to the last-good recap so reviewers are not left in the dark.
     if (prevPlanId && base) {
       const prevSafeUrl = `${base}/recaps/${prevPlanId}`;
@@ -1722,7 +1977,6 @@ export function buildCommentBody(env: NodeJS.ProcessEnv = process.env): string {
       "> Large diff — this recap is a **summarized** view (top files + schema/API deltas).",
     );
   }
-  if (headShort) lines.push("", `_As of \`${headShort}\`_`);
   lines.push("", `<!-- plan-id: ${planId} -->`);
   return lines.join("\n");
 }
@@ -1913,6 +2167,13 @@ export async function uploadRecapImage(input: {
 
 /** Mirrors RECAP_IMAGE_MAX_BYTES on the server — the route rejects larger PNGs. */
 const RECAP_SHOT_MAX_BYTES = 5 * 1024 * 1024;
+const RECAP_SHOT_WIDTH = 950;
+const RECAP_SHOT_MAX_HEIGHT = 2000;
+const RECAP_SHOT_VIEWPORT = {
+  width: RECAP_SHOT_WIDTH,
+  height: RECAP_SHOT_MAX_HEIGHT,
+};
+const RECAP_SHOT_DEVICE_SCALE_FACTOR = 2;
 
 type PlaywrightModule = { chromium: import("playwright").BrowserType };
 
@@ -1921,6 +2182,16 @@ async function defaultImportPlaywright(): Promise<PlaywrightModule> {
     return (await import("playwright")) as unknown as PlaywrightModule;
   } catch {
     return (await import("@playwright/test")) as unknown as PlaywrightModule;
+  }
+}
+
+export function withRecapScreenshotParams(url: string): string {
+  try {
+    const parsed = new URL(url);
+    parsed.searchParams.set(RECAP_SCREENSHOT_QUERY_PARAM, "1");
+    return parsed.toString();
+  } catch {
+    return url;
   }
 }
 
@@ -1959,6 +2230,7 @@ export async function runShot(
       return;
     }
   }
+  const captureUrl = withRecapScreenshotParams(url);
 
   let chromium: import("playwright").BrowserType | undefined;
   try {
@@ -1977,8 +2249,8 @@ export async function runShot(
   try {
     browser = await chromium!.launch({ args: ["--no-sandbox"] });
     const context = await browser.newContext({
-      viewport: { width: 1450, height: 1450 },
-      deviceScaleFactor: 2,
+      viewport: RECAP_SHOT_VIEWPORT,
+      deviceScaleFactor: RECAP_SHOT_DEVICE_SCALE_FACTOR,
     });
     if (attachToken) {
       // Attach the bearer ONLY to same-origin requests. Context-wide
@@ -1998,7 +2270,7 @@ export async function runShot(
       });
     }
     const page = await context.newPage();
-    await page.goto(url, { waitUntil: "networkidle", timeout: 45_000 });
+    await page.goto(captureUrl, { waitUntil: "networkidle", timeout: 45_000 });
     const selectors = [
       "[data-plan-document]",
       "[data-plan-block]",
@@ -2017,66 +2289,57 @@ export async function runShot(
       }
     }
     await page.waitForTimeout(matched ? 1_200 : 500);
-    // Zoom out slightly so more content fits. Keep the plan title (h1) in frame:
-    // the recap reads better led by its own title than cropped to the body.
     await page.evaluate(() => {
-      (document.documentElement as HTMLElement).style.zoom = "90%";
+      (document.documentElement as HTMLElement).style.zoom = "100%";
     });
+    const measuredHeight = await page.evaluate((maxHeight) => {
+      const readHeights = (selectors: string[]) => {
+        const result: number[] = [];
+        for (const selector of selectors) {
+          const el = document.querySelector<HTMLElement>(selector);
+          if (!el) continue;
+          const rect = el.getBoundingClientRect();
+          result.push(el.scrollHeight, rect.top + el.scrollHeight);
+        }
+        return result;
+      };
+      const documentHeights = readHeights([
+        ".plan-document-shell",
+        ".plan-document-flow",
+      ]);
+      const contentHeights = documentHeights.some((height) => height > 0)
+        ? documentHeights
+        : readHeights(["[data-plan-document]", ".plan-content-surface"]);
+      const fallbackHeights = [
+        document.querySelector<HTMLElement>("[data-plan-reader]")
+          ?.scrollHeight ?? 0,
+        document.scrollingElement?.scrollHeight ?? 0,
+        document.documentElement.scrollHeight,
+        document.body?.scrollHeight ?? 0,
+      ];
+      const heights = contentHeights.some((height) => height > 0)
+        ? contentHeights
+        : fallbackHeights;
+      const documentHeight = Math.ceil(
+        Math.max(...heights.filter((height) => Number.isFinite(height))),
+      );
+      return Math.max(1, Math.min(maxHeight, documentHeight || maxHeight));
+    }, RECAP_SHOT_MAX_HEIGHT);
+    await page.setViewportSize({
+      width: RECAP_SHOT_WIDTH,
+      height: measuredHeight,
+    });
+    await page.waitForTimeout(250);
     await page.screenshot({ path: out });
 
-    // If the captured PNG is over the upload cap, retry at half the pixel
-    // density (deviceScaleFactor 1) to produce a smaller file.
+    // If the captured PNG is over the upload cap, remove it so the upload step
+    // sees no file and the comment falls back to a link-only recap.
     const firstSize = fs.existsSync(out) ? fs.statSync(out).size : 0;
     if (firstSize > RECAP_SHOT_MAX_BYTES) {
       process.stderr.write(
-        `[recap shot] PNG is ${firstSize} bytes (cap ${RECAP_SHOT_MAX_BYTES}) — retrying at deviceScaleFactor 1\n`,
+        `[recap shot] PNG is ${firstSize} bytes (cap ${RECAP_SHOT_MAX_BYTES}) — skipping upload\n`,
       );
-      const ctx2 = await browser.newContext({
-        viewport: { width: 1450, height: 1450 },
-        deviceScaleFactor: 1,
-      });
-      if (attachToken) {
-        const appOrigin = new URL(appUrl as string).origin;
-        await ctx2.route("**/*", async (route) => {
-          const request = route.request();
-          if (new URL(request.url()).origin === appOrigin) {
-            await route.continue({
-              headers: {
-                ...request.headers(),
-                authorization: `Bearer ${token}`,
-              },
-            });
-          } else {
-            await route.continue();
-          }
-        });
-      }
-      const page2 = await ctx2.newPage();
-      await page2.goto(url, { waitUntil: "networkidle", timeout: 45_000 });
-      for (const sel of selectors) {
-        try {
-          await page2.waitForSelector(sel, {
-            timeout: 6_000,
-            state: "visible",
-          });
-          break;
-        } catch {
-          /* try the next selector */
-        }
-      }
-      await page2.waitForTimeout(matched ? 1_200 : 500);
-      await page2.evaluate(() => {
-        (document.documentElement as HTMLElement).style.zoom = "90%";
-      });
-      await page2.screenshot({ path: out });
-      const retrySize = fs.existsSync(out) ? fs.statSync(out).size : 0;
-      if (retrySize > RECAP_SHOT_MAX_BYTES) {
-        process.stderr.write(
-          `[recap shot] retry PNG is still ${retrySize} bytes — skipping upload\n`,
-        );
-        // Remove oversized file so the upload step sees no file.
-        fs.unlinkSync(out);
-      }
+      fs.unlinkSync(out);
     }
 
     captured = fs.existsSync(out);
@@ -2129,7 +2392,7 @@ async function runComment(
       owner,
       repo,
       issue,
-      body: buildCommentBody(),
+      body: buildCommentBody(recoverRecapFailureEnv()),
       updateOnly:
         args["update-only"] === true || args["update-only"] === "true",
     });
@@ -2138,8 +2401,37 @@ async function runComment(
   }
 
   throw new Error(
-    "Usage: agent-native recap comment <find-plan-id|upsert> --repo owner/name --issue n --token token",
+    "Usage: npx @agent-native/core@latest recap comment <find-plan-id|upsert> --repo owner/name --issue n --token token",
   );
+}
+
+function shouldRecoverRecapFailureDetails(env: NodeJS.ProcessEnv): boolean {
+  return (
+    !(env.PLAN_URL || "").trim() &&
+    env.DIFF_TINY !== "true" &&
+    env.SUPPRESSED !== "true"
+  );
+}
+
+function recoverRecapFailureEnv(
+  env: NodeJS.ProcessEnv = process.env,
+): NodeJS.ProcessEnv {
+  if (!shouldRecoverRecapFailureDetails(env)) return env;
+  const recovered = { ...env };
+  if (!recovered.RECAP_AGENT_SUMMARY) {
+    recovered.RECAP_AGENT_SUMMARY = summarizeLocalAgentFailure({
+      agent: recovered.RECAP_AGENT || recovered.VISUAL_RECAP_AGENT,
+    });
+  }
+  if (!recovered.RECAP_URL_REASON) {
+    recovered.RECAP_URL_REASON = inferLocalRecapUrlFailureReason({
+      appUrl: recovered.PLAN_RECAP_APP_URL,
+    });
+  }
+  if (!recovered.RECAP_AGENT_SUMMARY && !recovered.RECAP_URL_REASON) {
+    recovered.RECAP_AGENT_SUMMARY = STALE_WORKFLOW_FAILURE_SUMMARY;
+  }
+  return recovered;
 }
 
 /* -------------------------------------------------------------------------- */
@@ -2516,8 +2808,10 @@ export function appendGateSkipLine(
  */
 export function canonicalRecapUrl(rawUrl: string, appUrl: string): string {
   try {
-    const parsed = new URL(rawUrl);
     const trusted = new URL(appUrl || "https://plan.agent-native.com");
+    const parsed = /^https?:\/\//i.test(rawUrl)
+      ? new URL(rawUrl)
+      : new URL(rawUrl, trusted);
     if (parsed.origin !== trusted.origin) return "";
     // Honor a path-prefixed mount (e.g. https://host/agent-native): strip the
     // trusted base path before matching /plans|recaps/<id>.
@@ -2529,6 +2823,54 @@ export function canonicalRecapUrl(rawUrl: string, appUrl: string): string {
   } catch {
     return "";
   }
+}
+
+export function inferLocalRecapUrlFailureReason(
+  input: {
+    cwd?: string;
+    appUrl?: string;
+  } = {},
+): string {
+  const recapUrlPath = path.join(input.cwd ?? process.cwd(), "recap-url.txt");
+  const raw = readTextIfExists(recapUrlPath);
+  if (raw === null) return "recap-url.txt was not created by the agent.";
+
+  const value = raw.replace(/[\r\n\s]/g, "");
+  if (!value) return "recap-url.txt was empty.";
+
+  const appUrl =
+    input.appUrl ||
+    process.env.PLAN_RECAP_APP_URL ||
+    "https://plan.agent-native.com";
+  if (canonicalRecapUrl(value, appUrl)) return "";
+
+  try {
+    const trusted = new URL(appUrl || "https://plan.agent-native.com");
+    const parsed = /^https?:\/\//i.test(value)
+      ? new URL(value)
+      : new URL(value, trusted);
+    if (parsed.origin !== trusted.origin) {
+      return `recap-url.txt points at ${parsed.origin}, expected ${trusted.origin}.`;
+    }
+    return "recap-url.txt did not contain a valid /plans/<id> or /recaps/<id> URL for the configured plan app.";
+  } catch {
+    return "recap-url.txt was not a valid URL or recap path.";
+  }
+}
+
+export function buildRecapFailureDiagnostic(input: {
+  failureSummary?: string;
+  urlReason?: string;
+}): string {
+  const parts: string[] = [];
+  const urlReason = sanitizeAgentFailureSummary(input.urlReason ?? "", 400);
+  const failureSummary = sanitizeAgentFailureSummary(
+    input.failureSummary ?? "",
+    900,
+  );
+  if (urlReason) parts.push(`No plan URL: ${urlReason}`);
+  if (failureSummary) parts.push(`Agent output: ${failureSummary}`);
+  return parts.join("\n\n");
 }
 
 /** The signals that decide the completed "Visual Recap" check's conclusion. */
@@ -2547,6 +2889,10 @@ export interface RecapCheckOutcomeInput {
   suppressed: boolean;
   /** steps.scan.outputs.json — the raw scan JSON (carries the suppress reason). */
   suppressedJson: string;
+  /** Sanitized final agent output when no valid plan URL was produced. */
+  failureSummary?: string;
+  /** Explanation from the URL-reading step when recap-url.txt was absent/bad. */
+  urlReason?: string;
   /** The Actions run URL, used as the default details_url. */
   workflowUrl: string;
 }
@@ -2579,7 +2925,11 @@ export function recapCheckOutcome(
   let title = "Visual recap not generated";
   let summary =
     "The visual recap did not produce a plan URL. This is informational only and does not block the PR.";
-  let text = "";
+  const diagnostic = buildRecapFailureDiagnostic({
+    failureSummary: input.failureSummary,
+    urlReason: input.urlReason,
+  });
+  let text = diagnostic ? `### Diagnostic\n\n${diagnostic}` : "";
   let detailsUrl = input.workflowUrl;
 
   if (input.planOk) {
@@ -2604,6 +2954,7 @@ export function recapCheckOutcome(
     conclusion = "skipped";
     title = "Visual recap skipped";
     summary = "The diff is too small to need a visual recap.";
+    text = "";
   } else if (input.suppressed) {
     let reason = "potential secret in diff";
     try {
@@ -2615,6 +2966,10 @@ export function recapCheckOutcome(
     conclusion = "skipped";
     title = "Visual recap suppressed";
     summary = `No recap was published because ${reason}.`;
+    text = "";
+  } else if (diagnostic) {
+    summary =
+      "The visual recap agent ran but did not produce a plan URL. See diagnostics below.";
   }
 
   return { conclusion, title, summary, text, detailsUrl };
@@ -2701,16 +3056,43 @@ async function runCheckComplete(
     process.env.GITHUB_TOKEN ||
     "";
   const checkRunId = optionalArg(args, "check-run-id") ?? "";
+  const planOk = boolFlag(args, "plan-ok");
+  const huge = boolFlag(args, "huge");
+  const tiny = boolFlag(args, "tiny");
+  const suppressed = boolFlag(args, "suppressed");
+  const appUrl =
+    optionalArg(args, "app-url") ?? process.env.PLAN_RECAP_APP_URL ?? "";
+  let failureSummary = optionalArg(args, "failure-summary") ?? "";
+  let urlReason = optionalArg(args, "url-reason") ?? "";
+
+  if (!planOk && !tiny && !suppressed) {
+    if (!failureSummary) {
+      failureSummary = summarizeLocalAgentFailure({
+        agent:
+          optionalArg(args, "agent") ??
+          process.env.RECAP_AGENT ??
+          process.env.VISUAL_RECAP_AGENT ??
+          "",
+      });
+    }
+    if (!urlReason) {
+      urlReason = inferLocalRecapUrlFailureReason({ appUrl });
+    }
+    if (!failureSummary && !urlReason) {
+      failureSummary = STALE_WORKFLOW_FAILURE_SUMMARY;
+    }
+  }
 
   const outcome = recapCheckOutcome({
-    planOk: boolFlag(args, "plan-ok"),
+    planOk,
     planUrl: optionalArg(args, "plan-url") ?? "",
-    appUrl:
-      optionalArg(args, "app-url") ?? process.env.PLAN_RECAP_APP_URL ?? "",
-    huge: boolFlag(args, "huge"),
-    tiny: boolFlag(args, "tiny"),
-    suppressed: boolFlag(args, "suppressed"),
+    appUrl,
+    huge,
+    tiny,
+    suppressed,
     suppressedJson: optionalArg(args, "suppressed-json") ?? "",
+    failureSummary,
+    urlReason,
     workflowUrl: optionalArg(args, "workflow-url") ?? "",
   });
 
@@ -2759,7 +3141,7 @@ async function runCheck(
     return;
   }
   throw new Error(
-    "Usage: agent-native recap check <start|complete> [flags] (see `recap help`)",
+    "Usage: npx @agent-native/core@latest recap check <start|complete> [flags] (see `recap help`)",
   );
 }
 
@@ -2958,30 +3340,68 @@ async function runUsage(args: Record<string, string | boolean>): Promise<void> {
   }
 }
 
-const HELP = `agent-native recap — PR visual recap helpers (used by the GitHub Action)
+function writeGitHubOutput(name: string, value: string): void {
+  const out = process.env.GITHUB_OUTPUT;
+  if (!out) return;
+  const delimiter = `__RECAP_${name}_${process.pid}_${Date.now()}__`;
+  fs.appendFileSync(out, `${name}<<${delimiter}\n${value}\n${delimiter}\n`);
+}
+
+function runAgentSummary(args: Record<string, string | boolean>): void {
+  const agent = optionalArg(args, "agent") ?? "claude";
+  const resultFile = stringArg(args, "result-file");
+  const stderrFile = optionalArg(args, "stderr-file");
+  const exitCodeFile = optionalArg(args, "exit-code-file");
+  let raw = "";
+  try {
+    raw = fs.readFileSync(path.resolve(resultFile), "utf8");
+  } catch (err) {
+    raw = `could not read ${resultFile}: ${String(err)}`;
+  }
+  const stderrText = stderrFile
+    ? (readTextIfExists(path.resolve(stderrFile)) ?? "")
+    : "";
+  const exitCode = exitCodeFile
+    ? (readTextIfExists(path.resolve(exitCodeFile)) ?? "")
+    : "";
+
+  const summary = summarizeAgentRun({
+    agent,
+    resultText: raw,
+    stderrText,
+    exitCode,
+  });
+  writeGitHubOutput("summary", summary);
+  process.stdout.write(
+    `${JSON.stringify({ ok: Boolean(summary), summary })}\n`,
+  );
+}
+
+const HELP = `npx @agent-native/core@latest recap — PR visual recap helpers (used by the GitHub Action)
 
 Usage:
-  agent-native recap setup [--repo owner/name] [--agent claude|codex] [--app-url <url>] [--skip-secrets] [--dry-run] [--force]
-  agent-native recap doctor [--repo owner/name] [--agent claude|codex] [--app-url <url>]
-  agent-native recap collect-diff --base <baseSha> --head <headSha> [--out recap.diff] [--stat recap.stat]
-  agent-native recap mcp-config --agent claude|codex --app-url <url> [--out <path>]
-  agent-native recap scan --diff <path>
-  agent-native recap build-prompt --pr <n> [--repo owner/name] [--head <sha>] [--app-url <url>] [--diff <path>] [--stat <path>] [--prev-plan-id <id>] [--huge] [--local-files] [--local-dir <folder>] [--skill-source auto|latest|repo] [--out <path>]
-  agent-native recap shot --url <planUrl> [--token <planToken>] [--app-url <url>] [--out recap.png]
-  agent-native recap usage --plan-url <planUrl> --result-file <path> --app-url <url> --token <planToken> [--agent claude|codex] [--model <id>]
-  agent-native recap comment <find-plan-id|upsert> --repo owner/name --issue <n> --token <github-token>
-  agent-native recap check start [--repo owner/name] [--sha <headSha>] [--token <github-token>] [--workflow-url <url>]
+  npx @agent-native/core@latest recap setup [--repo owner/name] [--agent claude|codex] [--app-url <url>] [--skip-secrets] [--dry-run] [--force]
+  npx @agent-native/core@latest recap doctor [--repo owner/name] [--agent claude|codex] [--app-url <url>]
+  npx @agent-native/core@latest recap collect-diff --base <baseSha> --head <headSha> [--out recap.diff] [--stat recap.stat]
+  npx @agent-native/core@latest recap mcp-config --agent claude|codex --app-url <url> [--out <path>]
+  npx @agent-native/core@latest recap scan --diff <path>
+  npx @agent-native/core@latest recap build-prompt --pr <n> [--repo owner/name] [--head <sha>] [--app-url <url>] [--diff <path>] [--stat <path>] [--prev-plan-id <id>] [--huge] [--local-files] [--local-dir <folder>] [--skill-source auto|latest|repo] [--out <path>]
+  npx @agent-native/core@latest recap shot --url <planUrl> [--token <planToken>] [--app-url <url>] [--out recap.png]
+  npx @agent-native/core@latest recap usage --plan-url <planUrl> --result-file <path> --app-url <url> --token <planToken> [--agent claude|codex] [--model <id>]
+  npx @agent-native/core@latest recap agent-summary --result-file <path> [--stderr-file <path>] [--exit-code-file <path>] [--agent claude|codex]
+  npx @agent-native/core@latest recap comment <find-plan-id|upsert> --repo owner/name --issue <n> --token <github-token>
+  npx @agent-native/core@latest recap check start [--repo owner/name] [--sha <headSha>] [--token <github-token>] [--workflow-url <url>]
     Create the in-progress "Visual Recap" GitHub check run and write its id to
     $GITHUB_OUTPUT (check_run_id). repo/sha/token default to GITHUB_REPOSITORY /
     HEAD_SHA / GH_TOKEN (or GITHUB_TOKEN). Best-effort: warns and exits 0 on any
     API error without emitting an id.
-  agent-native recap check complete --check-run-id <id> [--repo owner/name] [--token <github-token>] [--plan-ok <bool>] [--plan-url <url>] [--app-url <url>] [--suppressed <bool>] [--suppressed-json <json>] [--huge <bool>] [--tiny <bool>] [--workflow-url <url>]
+  npx @agent-native/core@latest recap check complete --check-run-id <id> [--repo owner/name] [--token <github-token>] [--plan-ok <bool>] [--plan-url <url>] [--app-url <url>] [--suppressed <bool>] [--suppressed-json <json>] [--huge <bool>] [--tiny <bool>] [--failure-summary <text>] [--url-reason <text>] [--workflow-url <url>]
     Mark the "Visual Recap" check run completed with a computed
     conclusion/title/summary/text/details_url (success when the agent published a
     plan whose URL validates against --app-url; neutral/skipped otherwise).
     repo/token/app-url default to GITHUB_REPOSITORY / GH_TOKEN / PLAN_RECAP_APP_URL.
     Best-effort: warns and exits 0 on any API error.
-  agent-native recap gate
+  npx @agent-native/core@latest recap gate
     The PR Visual Recap security gate. Decides whether to run the recap at all
     and which (normalized) backend agent to use. Reads the pull_request payload
     from $GITHUB_EVENT_PATH, the secret-presence/agent/model signals from the
@@ -2993,12 +3413,16 @@ Usage:
     packages/core, .claude/**, CLAUDE.md, AGENTS.md, .mcp.json) — failing CLOSED
     on any file-list error. Writes run=<true|false> and agent=<claude|codex> to
     $GITHUB_OUTPUT.
-  agent-native recap setup
+  npx @agent-native/core@latest recap agent-summary
+    Read the captured Claude/Codex result file and write a sanitized one-line
+    summary to stdout and $GITHUB_OUTPUT (summary). Used only when no plan URL
+    was produced, so PR comments/checks explain the actual failure.
+  npx @agent-native/core@latest recap setup
     Write/refresh .github/workflows/pr-visual-recap.yml, then configure GitHub
     Actions secrets and variables with gh when values are available from env or
     the local Plans publish-token store. Missing values are printed as exact next
     commands; secret values are sent to gh through stdin, never argv.
-  agent-native recap doctor
+  npx @agent-native/core@latest recap doctor
     Check workflow presence/drift, local Plans publish-token availability, gh
     repo access, and required GitHub Actions secrets for the selected backend.
 `;
@@ -3030,6 +3454,9 @@ export async function runRecap(argv: string[]): Promise<void> {
       return;
     case "usage":
       await runUsage(args);
+      return;
+    case "agent-summary":
+      runAgentSummary(args);
       return;
     case "comment":
       await runComment(parseArgs(rest.slice(1)), rest[0] ?? "");

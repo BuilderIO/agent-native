@@ -75,6 +75,8 @@ export interface McpConnectRouteOptions {
   appId?: string;
   /** Human app name shown on the connect page. */
   appName?: string;
+  /** Explicit MCP server id to return in copyable config/device-flow grants. */
+  serverName?: string;
 }
 
 function json(body: unknown, status = 200): Response {
@@ -147,6 +149,8 @@ function appLabel(origin: string, options: McpConnectRouteOptions): string {
 }
 
 function serverName(origin: string, options: McpConnectRouteOptions): string {
+  const explicit = options.serverName?.trim();
+  if (explicit) return explicit;
   return `agent-native-${appLabel(origin, options)}`;
 }
 
@@ -370,7 +374,7 @@ function mcpResultPayload(
       url: mcpUrl,
       ...(Object.keys(headers).length ? { headers } : {}),
     },
-    cli: `agent-native connect ${appUrl}`,
+    cli: `npx @agent-native/core@latest connect ${appUrl}`,
   };
 }
 

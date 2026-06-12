@@ -39,6 +39,7 @@ import {
   CLIENTS,
   ClientId,
   configPathFor,
+  removeSameUrlDuplicatesForClient,
   writeCodexBlock,
   writeHttpEntryForClient,
   writeJsonMcpEntry,
@@ -54,6 +55,28 @@ const DEVICE_POLL_PATH = "/_agent-native/mcp/connect/device/poll";
 const MCP_PATH = "/_agent-native/mcp";
 const SERVER_NAME_PREFIX = "agent-native";
 const CONNECT_PREFERENCES_VERSION = 1;
+
+/**
+ * Maps a normalised hosted MCP URL to the canonical server name for that
+ * first-party app. Kept in sync with BUILT_IN_APP_SKILLS in skills.ts (we
+ * cannot import from there — it imports connect.ts, which would be circular).
+ */
+const CANONICAL_SERVER_NAME_BY_MCP_URL: Readonly<Record<string, string>> = {
+  "https://plan.agent-native.com/_agent-native/mcp": "plan",
+  "https://assets.agent-native.com/_agent-native/mcp": "agent-native-assets",
+  "https://design.agent-native.com/_agent-native/mcp": "agent-native-design",
+  "https://context-xray.agent-native.com/_agent-native/mcp":
+    "agent-native-context-xray",
+};
+const LEGACY_SERVER_NAMES_BY_MCP_URL: Readonly<
+  Record<string, readonly string[]>
+> = {
+  "https://plan.agent-native.com/_agent-native/mcp": [
+    "agent-native-plan",
+    "agent-native-plans",
+    "agent-native-visual-plans",
+  ],
+};
 const CONNECT_PROFILES_VERSION = 1;
 const DEFAULT_DEV_GATEWAY = "http://127.0.0.1:8080";
 const MCP_FULL_CATALOG_HEADER = "X-Agent-Native-MCP-Full-Catalog";
@@ -180,7 +203,9 @@ export function parseConnectArgs(argv: string[]): ParsedConnectArgs {
 export function normalizeUrl(raw: string): string {
   const trimmed = (raw ?? "").trim();
   if (!trimmed) {
-    throw new Error("Missing app URL. Usage: agent-native connect <url>");
+    throw new Error(
+      "Missing app URL. Usage: npx @agent-native/core@latest connect <url>",
+    );
   }
   let parsed: URL;
   try {
@@ -188,7 +213,7 @@ export function normalizeUrl(raw: string): string {
   } catch {
     throw new Error(
       `Not a valid URL: "${raw}". Pass a full origin, e.g. ` +
-        `agent-native connect https://mail.agent-native.com`,
+        `npx @agent-native/core@latest connect https://mail.agent-native.com`,
     );
   }
   if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
@@ -463,7 +488,28 @@ function appSlugFromUrl(url: string): string {
 }
 
 function defaultServerName(url: string): string {
+  const canonical = canonicalServerNameForMcpUrl(mcpUrlForBaseUrl(url));
+  if (canonical) return canonical;
   return `${SERVER_NAME_PREFIX}-${appSlugFromUrl(url)}`;
+}
+
+function canonicalServerNameForMcpUrl(
+  mcpUrl: string | undefined,
+): string | undefined {
+  const key = canonicalMcpUrl(mcpUrl);
+  return key ? CANONICAL_SERVER_NAME_BY_MCP_URL[key] : undefined;
+}
+
+function reconnectServerNameForMcpUrl(
+  mcpUrl: string | undefined,
+  serverName: string | undefined,
+): string | undefined {
+  const key = canonicalMcpUrl(mcpUrl);
+  if (!key || !serverName) return serverName;
+  const canonical = CANONICAL_SERVER_NAME_BY_MCP_URL[key];
+  if (!canonical || serverName === canonical) return serverName;
+  const legacyNames = LEGACY_SERVER_NAMES_BY_MCP_URL[key] ?? [];
+  return legacyNames.includes(serverName) ? canonical : serverName;
 }
 
 // ---------------------------------------------------------------------------
@@ -1551,7 +1597,7 @@ async function connectProdProfile(
       const app = apps.find((candidate) => candidate.name === row.app);
       logOut(
         `    ${row.app.padEnd(12)} ${row.client.padEnd(18)} ` +
-          `run: agent-native connect ${app?.url ?? "<url>"} --client ${row.client}`,
+          `run: npx @agent-native/core@latest connect ${app?.url ?? "<url>"} --client ${row.client}`,
       );
     }
   }
@@ -1567,6 +1613,7 @@ async function connectProdProfile(
 interface ReconnectTarget {
   rawUrl: string;
   serverName?: string;
+  clients?: ClientId[];
 }
 
 function distinctReconnectEntries(
@@ -1583,14 +1630,44 @@ function distinctReconnectEntries(
   return out;
 }
 
-function describeReconnectEntry(entry: ExistingMcpEntry): string {
-  return `${entry.serverName} (${entry.url}) in ${entry.client}`;
+function uniqueClients(entries: ExistingMcpEntry[]): ClientId[] {
+  return [...new Set(entries.map((entry) => entry.client))];
 }
 
-function resolveReconnectTarget(
+function preferredReconnectEntry(
+  url: string,
+  entries: ExistingMcpEntry[],
+): ExistingMcpEntry | undefined {
+  const canonicalName = CANONICAL_SERVER_NAME_BY_MCP_URL[url];
+  return (
+    (canonicalName
+      ? entries.find((entry) => entry.serverName === canonicalName)
+      : undefined) ??
+    entries.find((entry) => !entry.serverName.startsWith("agent-native-")) ??
+    entries[0]
+  );
+}
+
+/**
+ * Return true when `url` is an agent-native MCP endpoint.
+ * Matches any URL whose path ends with `/_agent-native/mcp` (after stripping
+ * trailing slashes), regardless of the MCP server's name in the config.
+ */
+function isAgentNativeMcpUrl(url: string | undefined): boolean {
+  if (!url) return false;
+  try {
+    const pathname = new URL(url).pathname.replace(/\/+$/, "");
+    return pathname === MCP_PATH || pathname.endsWith(MCP_PATH);
+  } catch {
+    return false;
+  }
+}
+
+async function resolveReconnectTarget(
   parsed: ParsedConnectArgs,
   clients: ClientId[],
-): ReconnectTarget | null {
+  deps: ConnectDeps,
+): Promise<ReconnectTarget | null> {
   const baseDir = projectBaseDir();
   const scope = parsed.scope === "user" ? "user" : "project";
   const entries = readExistingMcpEntries(clients, baseDir, scope);
@@ -1598,17 +1675,58 @@ function resolveReconnectTarget(
   if (parsed.url) {
     const normalizedUrl = normalizeUrl(parsed.url);
     const mcpUrl = mcpUrlForBaseUrl(normalizedUrl);
-    if (parsed.name) {
-      return { rawUrl: parsed.url, serverName: parsed.name };
-    }
-
     const matches = distinctReconnectEntries(
       entries.filter((entry) => sameMcpUrl(entry.url, mcpUrl)),
     );
-    const names = [...new Set(matches.map((entry) => entry.serverName))];
-    if (names.length === 1) {
-      return { rawUrl: parsed.url, serverName: names[0] };
+
+    if (matches.length === 0) {
+      logErr(`  No existing Agent Native MCP entry found for ${mcpUrl}.`);
+      logErr(
+        "  First-time setup still uses: npx @agent-native/core@latest connect <url> --client <client>",
+      );
+      return null;
     }
+
+    if (parsed.name) {
+      const namedMatches = matches.filter(
+        (entry) => entry.serverName === parsed.name,
+      );
+      if (namedMatches.length === 0) {
+        logErr(
+          `  No existing MCP entry named "${parsed.name}" found for ${mcpUrl}.`,
+        );
+        logErr("  Re-run without --name to use the existing entry name.");
+        return null;
+      }
+      return {
+        rawUrl: parsed.url,
+        serverName: parsed.name,
+        clients: uniqueClients(namedMatches),
+      };
+    }
+
+    const key = canonicalMcpUrl(mcpUrl) ?? mcpUrl;
+    const preferred = preferredReconnectEntry(key, matches);
+    if (preferred) {
+      const names = [...new Set(matches.map((entry) => entry.serverName))];
+      if (names.length > 1) {
+        logOut(
+          `  Found duplicate MCP entries for ${mcpUrl}: ${names.join(", ")}.`,
+        );
+        logOut(
+          `  Reconnecting "${preferred.serverName}" and removing the duplicate names.`,
+        );
+      }
+      return {
+        rawUrl: parsed.url,
+        serverName:
+          reconnectServerNameForMcpUrl(mcpUrl, preferred.serverName) ??
+          preferred.serverName,
+        clients: uniqueClients(matches),
+      };
+    }
+
+    const names = [...new Set(matches.map((entry) => entry.serverName))];
     if (names.length > 1) {
       logErr(
         `  Found multiple MCP entries for ${mcpUrl}: ${names.join(", ")}.`,
@@ -1616,39 +1734,106 @@ function resolveReconnectTarget(
       logErr("  Re-run with --name <serverName> to choose one.");
       return null;
     }
-    return { rawUrl: parsed.url };
+    return {
+      rawUrl: parsed.url,
+      serverName: names[0],
+      clients: uniqueClients(matches),
+    };
   }
 
-  const candidates = distinctReconnectEntries(
+  // No URL provided: scan all configs for agent-native MCP entries by URL
+  // pattern, not by server name prefix. This finds the canonical "plan" entry
+  // (and any other custom-named entries) that the old prefix scan missed.
+  const agentNativeEntries = distinctReconnectEntries(
     parsed.name
       ? entries.filter((entry) => entry.serverName === parsed.name)
-      : entries.filter((entry) =>
-          entry.serverName.startsWith(`${SERVER_NAME_PREFIX}-`),
-        ),
+      : entries.filter((entry) => isAgentNativeMcpUrl(entry.url)),
   );
 
-  if (candidates.length === 0) {
+  // Group by normalised URL so we can detect multi-app situations.
+  const byUrl = new Map<string, ExistingMcpEntry[]>();
+  for (const entry of agentNativeEntries) {
+    const key = canonicalMcpUrl(entry.url) ?? entry.url;
+    const bucket = byUrl.get(key) ?? [];
+    bucket.push(entry);
+    byUrl.set(key, bucket);
+  }
+
+  if (byUrl.size === 0) {
     logErr("  No existing Agent Native MCP entry found to reconnect.");
     logErr(
       "  Pass a URL, or use --name <serverName> if the entry has a custom name.",
     );
     logErr(
-      "  First-time setup still uses: agent-native connect <url> --client <client>",
+      "  First-time setup still uses: npx @agent-native/core@latest connect <url> --client <client>",
     );
     return null;
   }
 
-  if (candidates.length > 1) {
-    logErr("  Found multiple Agent Native MCP entries:");
-    for (const entry of candidates) {
-      logErr(`    ${describeReconnectEntry(entry)}`);
-    }
-    logErr("  Re-run with a URL or --name <serverName>.");
-    return null;
+  if (byUrl.size === 1) {
+    // Exactly one distinct URL: prefer the entry whose serverName matches the
+    // canonical name for this app (e.g. "plan" over "agent-native-plans").
+    // Fall back to any entry whose name doesn't start with "agent-native-"
+    // (short canonical names like "plan"), then bucket[0].
+    const [url, bucket] = [...byUrl.entries()][0];
+    const preferred = preferredReconnectEntry(url, bucket) ?? bucket[0];
+    return {
+      rawUrl: preferred.url,
+      serverName:
+        reconnectServerNameForMcpUrl(preferred.url, preferred.serverName) ??
+        preferred.serverName,
+      clients: uniqueClients(bucket),
+    };
   }
 
-  const [entry] = candidates;
-  return { rawUrl: entry.url, serverName: entry.serverName };
+  // Multiple distinct URLs: pick interactively when TTY, else list with hints.
+  const urlList = [...byUrl.keys()];
+  if (shouldPrompt(deps)) {
+    const clack = await import("@clack/prompts");
+    const result = await clack.select<
+      { value: string; label: string; hint: string }[],
+      string
+    >({
+      message:
+        "Multiple Agent Native apps found. Which one do you want to reconnect?",
+      options: urlList.map((u) => {
+        const representativeEntry = byUrl.get(u)![0];
+        return {
+          value: u,
+          label: representativeEntry.serverName,
+          hint: u,
+        };
+      }),
+    });
+    if (clack.isCancel(result)) {
+      clack.cancel("Cancelled.");
+      return null;
+    }
+    const bucket = byUrl.get(result as string);
+    const chosen = bucket
+      ? (preferredReconnectEntry(result as string, bucket) ?? bucket[0])
+      : undefined;
+    if (!chosen || !bucket) return null;
+    return {
+      rawUrl: chosen.url,
+      serverName:
+        reconnectServerNameForMcpUrl(chosen.url, chosen.serverName) ??
+        chosen.serverName,
+      clients: uniqueClients(bucket),
+    };
+  }
+
+  logErr("  Found multiple Agent Native MCP entries:");
+  for (const [u, bucket] of byUrl) {
+    logErr(`    ${bucket[0].serverName} → ${u}`);
+  }
+  logErr("  Re-run with a URL or --name <serverName>. For example:");
+  for (const u of urlList) {
+    // Strip the MCP path suffix for a cleaner reconnect URL suggestion.
+    const baseUrl = u.replace(/\/_agent-native\/mcp$/, "");
+    logErr(`    npx -y @agent-native/core@latest reconnect ${baseUrl}`);
+  }
+  return null;
 }
 
 async function reconnectOne(
@@ -1656,18 +1841,24 @@ async function reconnectOne(
   clients: ClientId[],
   deps: ConnectDeps,
 ): Promise<boolean> {
-  const target = resolveReconnectTarget(parsed, clients);
+  const target = await resolveReconnectTarget(parsed, clients, deps);
   if (!target) return false;
   const effectiveParsed: ParsedConnectArgs = {
     ...parsed,
     url: target.rawUrl,
     name: target.serverName ?? parsed.name,
   };
+  const effectiveClients = target.clients?.length ? target.clients : clients;
   logOut("");
   logOut(
     `  Reconnecting${effectiveParsed.name ? ` "${effectiveParsed.name}"` : ""}...`,
   );
-  const res = await connectOne(target.rawUrl, effectiveParsed, clients, deps);
+  const res = await connectOne(
+    target.rawUrl,
+    effectiveParsed,
+    effectiveClients,
+    deps,
+  );
   return res.ok;
 }
 
@@ -1719,7 +1910,11 @@ async function connectOne(
     if (!grant) return { ok: false };
     token = grant.token;
     mcpUrl = grant.mcpUrl;
-    serverName = parsed.name ?? grant.serverName ?? defaultServerName(baseUrl);
+    serverName =
+      parsed.name ??
+      reconnectServerNameForMcpUrl(grant.mcpUrl, grant.serverName) ??
+      grant.serverName ??
+      defaultServerName(baseUrl);
     headers = grant.headers;
   }
 
@@ -1761,6 +1956,26 @@ async function connectOne(
         baseDir,
         undefined,
       ),
+    );
+  }
+
+  // After writing the canonical entry, remove any same-URL duplicates (alias
+  // names, legacy default names, stale custom names) from the same config
+  // files so each app has exactly one MCP session.
+  const allRemovedNames: string[] = [];
+  for (const client of clients) {
+    const removed = removeSameUrlDuplicatesForClient(
+      client,
+      serverName,
+      mcpUrl,
+      baseDir,
+      scope,
+    );
+    allRemovedNames.push(...removed);
+  }
+  if (allRemovedNames.length > 0) {
+    logOut(
+      `  Removed duplicate MCP entries: ${[...new Set(allRemovedNames)].join(", ")}`,
     );
   }
 
@@ -1966,7 +2181,7 @@ export async function runServiceTokenMint(
   if (!parsed.url) {
     logErr("  --service-token requires the app URL.");
     logErr(
-      "  Usage: agent-native connect <url> --service-token <name> [--ttl-days <1-365>]",
+      "  Usage: npx @agent-native/core@latest connect <url> --service-token <name> [--ttl-days <1-365>]",
     );
     return false;
   }
@@ -2060,14 +2275,14 @@ export async function runServiceTokenMint(
 // Entry point
 // ---------------------------------------------------------------------------
 
-const HELP = `agent-native connect — wire your coding agent to a deployed app
+const HELP = `npx @agent-native/core@latest connect — wire your coding agent to a deployed app
 
 Usage:
-  agent-native connect [--client <c>] [--scope user|project]
+  npx @agent-native/core@latest connect [--client <c>] [--scope user|project]
       With no URL, opens a picker for the built-in hosted apps
       (mail.agent-native.com, calendar.agent-native.com, and friends).
 
-  agent-native connect <url> [--client <c>] [--scope user|project] [--name <n>]
+  npx @agent-native/core@latest connect <url> [--client <c>] [--scope user|project] [--name <n>]
       Writes the HTTP MCP entry into your selected client config(s). Claude
       Code / Claude Code CLI use standard remote MCP OAuth: restart Claude,
       run /mcp, and choose Authenticate. Codex / Cowork use the browser
@@ -2079,13 +2294,13 @@ Usage:
       OAuth config and prompts you to authenticate with /mcp.
 
       For cross-app access, prefer the unified Dispatch gateway:
-      agent-native connect https://dispatch.agent-native.com
+      npx @agent-native/core@latest connect https://dispatch.agent-native.com
 
-  agent-native connect <url> --token <token>
+  npx @agent-native/core@latest connect <url> --token <token>
       No-browser fallback. Skip the device flow and write the entry with
       the supplied token (get it from the app's Connect page).
 
-  agent-native connect <url> --service-token <name> [--ttl-days <1-365>]
+  npx @agent-native/core@latest connect <url> --service-token <name> [--ttl-days <1-365>]
       Mint an ORG service token for CI (e.g. the PLAN_RECAP_TOKEN secret for
       PR Visual Recap). Authenticates you via the browser device flow, then
       mints a token owned by your ORGANIZATION — it keeps working if you
@@ -2093,22 +2308,24 @@ Usage:
       org-visible. Org owner/admin only. Printed once; nothing is written
       to local MCP configs.
 
-  agent-native reconnect [<url>] [--client <c>] [--scope user|project]
-  agent-native connect reconnect [<url>] [--client <c>] [--scope user|project]
+  npx -y @agent-native/core@latest reconnect [<url>] [--client <c>] [--scope user|project]
+  npx -y @agent-native/core@latest connect reconnect [<url>] [--client <c>] [--scope user|project]
       Re-authenticate an existing MCP entry without reinstalling apps/skills.
       With a URL, it reuses the existing server name for that MCP URL when
-      possible. Without a URL, it reconnects the only matching Agent Native
-      entry in the selected client config. Use --name for custom server names.
+      possible, reconnecting only clients that already have that entry. Pass
+      --client to limit which configs it searches. Without a URL, it reconnects
+      the only matching Agent Native entry in local client configs. Use --name
+      for custom server names.
 
-  agent-native connect --all [--client <c>] [--scope user|project]
+  npx @agent-native/core@latest connect --all [--client <c>] [--scope user|project]
       Connect every first-party hosted app as separate MCP resources.
 
 Developer:
-  agent-native connect dev [--apps mail,calendar] [--client <c>]
+  npx @agent-native/core@latest connect dev [--apps mail,calendar] [--client <c>]
       Switch selected first-party MCP entries to a local dev-lazy gateway.
       Defaults to ${DEFAULT_DEV_GATEWAY}; override with --gateway or --port.
 
-  agent-native connect prod [--apps mail,calendar] [--client <c>]
+  npx @agent-native/core@latest connect prod [--apps mail,calendar] [--client <c>]
       Restore production MCP entries saved before the dev switch.
 
 Clients:  all (default), claude-code, claude-code-cli, codex, cowork
@@ -2135,14 +2352,18 @@ export async function runConnect(
 
   try {
     if (parsed.mode) {
-      const clients = await resolveConnectClients(parsed, deps);
-      if (!clients) return;
-      const ok =
-        parsed.mode === "dev"
-          ? await connectDevProfile(parsed, clients, deps)
-          : parsed.mode === "prod"
-            ? await connectProdProfile(parsed, clients, deps)
-            : await reconnectOne(parsed, clients, deps);
+      let ok: boolean;
+      if (parsed.mode === "reconnect" || parsed.mode === "reauth") {
+        const clients = resolveClients(parsed.client);
+        ok = await reconnectOne(parsed, clients, deps);
+      } else {
+        const clients = await resolveConnectClients(parsed, deps);
+        if (!clients) return;
+        ok =
+          parsed.mode === "dev"
+            ? await connectDevProfile(parsed, clients, deps)
+            : await connectProdProfile(parsed, clients, deps);
+      }
       if (!ok) process.exitCode = 1;
       return;
     }

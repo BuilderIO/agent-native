@@ -26,6 +26,7 @@ import {
   IconDownload,
   IconExternalLink,
   IconFileZip,
+  IconFolder,
   IconDotsVertical,
   IconHistory,
   IconLayoutSidebarRight,
@@ -78,6 +79,7 @@ import {
 } from "@/components/ui/dialog";
 import {
   DropdownMenu,
+  DropdownMenuCheckboxItem,
   DropdownMenuContent,
   DropdownMenuGroup,
   DropdownMenuItem,
@@ -148,10 +150,15 @@ import {
   useUpdatePlanComments,
   useUpdatePlanStatus,
   useExportPlan,
+  useImportPlanSource,
   type PlanCommentInput,
   type PublishVisualPlanResult,
 } from "@/hooks/use-plans";
 import { cn } from "@/lib/utils";
+import {
+  getDesktopPlanFiles,
+  type DesktopPlanFilesFolder,
+} from "@/lib/desktop-plan-files";
 import {
   type PlanBundle,
   type PlanKind,
@@ -193,6 +200,7 @@ const SOURCE_OPTIONS: Array<{ value: PlanSource; label: string }> = [
 ];
 
 const PLAN_READER_VIEW_EVENT = "plans-reader-view-change";
+const RECAP_SCREENSHOT_QUERY_PARAM = "recapScreenshot";
 const LOCAL_PLAN_OWNER_EMAIL = "local@agent-native.local";
 const AUTO_DEV_COMMENT_EMAILS = new Set(["dev@local.test", "dev@local"]);
 const CURRENT_USER_FALLBACK_NAME = "You";
@@ -208,6 +216,8 @@ type PreferredEditor =
   | "xcode";
 
 const PREFERRED_EDITOR_STORAGE_KEY = "agent-native-plans.preferredEditor";
+const DESKTOP_PLAN_SYNC_AUTO_KEY_PREFIX =
+  "agent-native-plans.desktopSync.auto.";
 const PREFERRED_EDITOR_VALUES: PreferredEditor[] = [
   "vscode",
   "cursor",
@@ -241,6 +251,15 @@ function readPreferredEditor(): PreferredEditor {
   return PREFERRED_EDITOR_VALUES.includes(stored as PreferredEditor)
     ? (stored as PreferredEditor)
     : "vscode";
+}
+
+function desktopPlanAutoSyncKey(planId: string): string {
+  return `${DESKTOP_PLAN_SYNC_AUTO_KEY_PREFIX}${planId}`;
+}
+
+function readDesktopPlanAutoSync(planId: string | undefined): boolean {
+  if (typeof window === "undefined" || !planId) return false;
+  return window.localStorage.getItem(desktopPlanAutoSyncKey(planId)) === "1";
 }
 
 type PlanAnnotationAnchor = PlanCommentAnchor & { x: number; y: number };
@@ -2109,10 +2128,16 @@ export function PlansPage() {
     sessionLoading,
   ]);
   const selectedId = params.id;
+  const routeSearchParams = useMemo(
+    () => new URLSearchParams(location.search),
+    [location.search],
+  );
   const prototypeOnly = useMemo(() => {
-    const search = new URLSearchParams(location.search);
-    return search.get("prototype") === "1";
-  }, [location.search]);
+    return routeSearchParams.get("prototype") === "1";
+  }, [routeSearchParams]);
+  const recapScreenshotMode = useMemo(() => {
+    return routeSearchParams.get(RECAP_SCREENSHOT_QUERY_PARAM) === "1";
+  }, [routeSearchParams]);
   const immersiveReader = Boolean(
     selectedId && (planFullscreen || prototypeOnly),
   );
@@ -2351,6 +2376,16 @@ export function PlansPage() {
   );
 
   const exportPlan = useExportPlan(selectedId);
+  const importPlanSource = useImportPlanSource();
+  const [desktopPlanFolder, setDesktopPlanFolder] =
+    useState<DesktopPlanFilesFolder | null>(null);
+  const [desktopPlanSyncing, setDesktopPlanSyncing] = useState(false);
+  const [desktopPlanImporting, setDesktopPlanImporting] = useState(false);
+  const [desktopPlanAutoSync, setDesktopPlanAutoSync] = useState(() =>
+    readDesktopPlanAutoSync(selectedId),
+  );
+  const desktopAutoSyncedVersionRef = useRef<Record<string, string>>({});
+  const desktopPlanFilesAvailable = Boolean(getDesktopPlanFiles());
   const { resolvedTheme, setTheme } = useTheme();
   const isDarkTheme = resolvedTheme !== "light";
   const wireframeStyle = useWireframeStyle();
@@ -2392,6 +2427,22 @@ export function PlansPage() {
       </Button>
     ) : null,
   );
+
+  useEffect(() => {
+    setDesktopPlanFolder(null);
+    setDesktopPlanAutoSync(readDesktopPlanAutoSync(selectedId));
+    const planFiles = getDesktopPlanFiles();
+    if (!planFiles || !selectedId) return;
+
+    let cancelled = false;
+    void planFiles.getFolder({ planId: selectedId }).then((result) => {
+      if (cancelled) return;
+      setDesktopPlanFolder(result.ok ? result.folder : null);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedId]);
 
   useEffect(() => {
     if (!selectedId) return;
@@ -2789,14 +2840,137 @@ export function PlansPage() {
     toast.success("Prototype plan ready");
   };
 
-  const readPlanExport = async () => {
+  const readPlanExport = useCallback(async () => {
     const result = await exportPlan.refetch();
     const data = result.data ?? exportPlan.data;
     if (!data) {
       throw new Error("Plan export was not available yet.");
     }
     return data;
-  };
+  }, [exportPlan]);
+
+  const syncPlanToDesktopFolder = useCallback(
+    async (options: { choose?: boolean; quiet?: boolean } = {}) => {
+      const plan = bundle?.plan;
+      const planFiles = getDesktopPlanFiles();
+      if (!plan || !planFiles) {
+        throw new Error("Desktop local file sync is not available.");
+      }
+
+      setDesktopPlanSyncing(true);
+      try {
+        let folder = desktopPlanFolder;
+        if (options.choose || !folder) {
+          const chosen = await planFiles.chooseFolder({
+            planId: plan.id,
+            title: plan.title,
+          });
+          if (chosen.ok === false) {
+            if (chosen.canceled) return null;
+            throw new Error(chosen.error);
+          }
+          folder = chosen.folder;
+          setDesktopPlanFolder(folder);
+        }
+
+        const data = await readPlanExport();
+        if (!data.mdx || !data.mdx["plan.mdx"]) {
+          throw new Error("Plan source files were not available yet.");
+        }
+        const written = await planFiles.writePlan({
+          planId: plan.id,
+          title: plan.title,
+          mdx: data.mdx,
+        });
+        if (written.ok === false) throw new Error(written.error);
+        setDesktopPlanFolder(written.folder);
+        desktopAutoSyncedVersionRef.current[plan.id] = plan.updatedAt;
+        if (!options.quiet) {
+          toast.success(`Synced ${written.files?.length ?? 0} local files`);
+        }
+        return written.folder;
+      } finally {
+        setDesktopPlanSyncing(false);
+      }
+    },
+    [bundle?.plan, desktopPlanFolder, readPlanExport],
+  );
+
+  const importPlanFromDesktopFolder = useCallback(async () => {
+    const plan = bundle?.plan;
+    const planFiles = getDesktopPlanFiles();
+    if (!plan || !planFiles) {
+      throw new Error("Desktop local file sync is not available.");
+    }
+
+    setDesktopPlanImporting(true);
+    try {
+      const result = await planFiles.readPlan({ planId: plan.id });
+      if (result.ok === false) throw new Error(result.error);
+      if (!result.mdx) throw new Error("No Plan source files were found.");
+      const imported = await importPlanSource.mutateAsync({
+        planId: plan.id,
+        expectedUpdatedAt: plan.updatedAt,
+        mdx: result.mdx,
+        currentFocus: "desktop local files sync",
+      });
+      setDesktopPlanFolder(result.folder);
+      toast.success("Imported local source files");
+      const updatedAt = imported.plan?.updatedAt;
+      if (updatedAt) {
+        desktopAutoSyncedVersionRef.current[plan.id] = updatedAt;
+      }
+    } finally {
+      setDesktopPlanImporting(false);
+    }
+  }, [bundle?.plan, importPlanSource]);
+
+  const setDesktopPlanAutoSyncEnabled = useCallback(
+    (enabled: boolean) => {
+      if (!selectedId) return;
+      setDesktopPlanAutoSync(enabled);
+      if (enabled) {
+        window.localStorage.setItem(desktopPlanAutoSyncKey(selectedId), "1");
+        void syncPlanToDesktopFolder({ choose: !desktopPlanFolder }).catch(
+          (error) => {
+            setDesktopPlanAutoSync(false);
+            window.localStorage.removeItem(desktopPlanAutoSyncKey(selectedId));
+            toast.error(
+              error instanceof Error
+                ? error.message
+                : "Could not enable local file sync.",
+            );
+          },
+        );
+      } else {
+        window.localStorage.removeItem(desktopPlanAutoSyncKey(selectedId));
+      }
+    },
+    [desktopPlanFolder, selectedId, syncPlanToDesktopFolder],
+  );
+
+  useEffect(() => {
+    const plan = bundle?.plan;
+    if (!plan || !desktopPlanAutoSync || !desktopPlanFolder) return;
+    if (desktopAutoSyncedVersionRef.current[plan.id] === plan.updatedAt) {
+      return;
+    }
+    desktopAutoSyncedVersionRef.current[plan.id] = plan.updatedAt;
+    void syncPlanToDesktopFolder({ quiet: true }).catch((error) => {
+      setDesktopPlanAutoSync(false);
+      window.localStorage.removeItem(desktopPlanAutoSyncKey(plan.id));
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Could not sync plan to local files.",
+      );
+    });
+  }, [
+    bundle?.plan,
+    desktopPlanAutoSync,
+    desktopPlanFolder,
+    syncPlanToDesktopFolder,
+  ]);
 
   const copyPlanHtml = async () => {
     const data = await readPlanExport();
@@ -2826,7 +3000,7 @@ export function PlansPage() {
 
   const downloadPlanSource = async () => {
     const data = await readPlanExport();
-    const files = (data as { mdx?: Record<string, unknown> }).mdx;
+    const files = data.mdx;
     if (!files || Object.keys(files).length === 0) {
       throw new Error("Plan source files were not available yet.");
     }
@@ -3678,7 +3852,7 @@ export function PlansPage() {
             />
           ) : (
             <div className="relative min-h-0 flex-1 overflow-hidden bg-background">
-              {immersiveReader && (
+              {immersiveReader && !recapScreenshotMode && (
                 <div className="pointer-events-none absolute left-3 top-3 z-10">
                   <Tooltip>
                     <TooltipTrigger asChild>
@@ -3704,6 +3878,7 @@ export function PlansPage() {
                 </div>
               )}
               <div
+                hidden={recapScreenshotMode}
                 className="pointer-events-none absolute right-3 top-3 z-10 flex items-center gap-1.5 rounded-lg border border-border/70 bg-background/82 p-1 shadow-2xl backdrop-blur-xl"
                 onPointerDownCapture={preservePlanReaderScrollAfterToolbarEvent}
                 onKeyDownCapture={(event) => {
@@ -3997,6 +4172,77 @@ export function PlansPage() {
                         <IconFileZip className="size-4" />
                         Download source (.zip)
                       </DropdownMenuItem>
+                      {desktopPlanFilesAvailable && (
+                        <>
+                          <DropdownMenuSeparator />
+                          <DropdownMenuLabel className="text-xs font-medium text-muted-foreground">
+                            Local files
+                          </DropdownMenuLabel>
+                          <DropdownMenuItem
+                            onClick={() =>
+                              runPlanExportAction(async () => {
+                                await syncPlanToDesktopFolder({
+                                  choose: true,
+                                });
+                              })
+                            }
+                            disabled={desktopPlanSyncing}
+                            className="gap-2"
+                          >
+                            {desktopPlanSyncing ? (
+                              <IconLoader2 className="size-4 animate-spin" />
+                            ) : (
+                              <IconFolder className="size-4" />
+                            )}
+                            {desktopPlanFolder
+                              ? "Change local folder"
+                              : "Link local folder"}
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            onClick={() =>
+                              runPlanExportAction(async () => {
+                                await syncPlanToDesktopFolder();
+                              })
+                            }
+                            disabled={!desktopPlanFolder || desktopPlanSyncing}
+                            className="gap-2"
+                          >
+                            {desktopPlanSyncing ? (
+                              <IconLoader2 className="size-4 animate-spin" />
+                            ) : (
+                              <IconRefresh className="size-4" />
+                            )}
+                            Sync to local folder
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            onClick={() =>
+                              runPlanExportAction(importPlanFromDesktopFolder)
+                            }
+                            disabled={
+                              !desktopPlanFolder ||
+                              desktopPlanImporting ||
+                              !canEditPlanContent
+                            }
+                            className="gap-2"
+                          >
+                            {desktopPlanImporting ? (
+                              <IconLoader2 className="size-4 animate-spin" />
+                            ) : (
+                              <IconDownload className="size-4" />
+                            )}
+                            Import local edits
+                          </DropdownMenuItem>
+                          <DropdownMenuCheckboxItem
+                            checked={desktopPlanAutoSync}
+                            disabled={desktopPlanSyncing}
+                            onCheckedChange={(checked) =>
+                              setDesktopPlanAutoSyncEnabled(checked === true)
+                            }
+                          >
+                            Auto-sync changes
+                          </DropdownMenuCheckboxItem>
+                        </>
+                      )}
                       <DropdownMenuSub>
                         <DropdownMenuSubTrigger className="gap-2">
                           <IconDownload className="size-4" />
@@ -4071,7 +4317,7 @@ export function PlansPage() {
                   <TooltipContent>Toggle side chat</TooltipContent>
                 </Tooltip>
               </div>
-              {reviewMode !== "none" && (
+              {reviewMode !== "none" && !recapScreenshotMode && (
                 <div className="pointer-events-none absolute left-1/2 top-3 z-10 -translate-x-1/2 rounded-full border border-border/70 bg-background/82 px-3 py-2 text-xs text-muted-foreground shadow-2xl backdrop-blur-xl">
                   {reviewMode === "comment"
                     ? `Click the ${isRecap ? "recap" : "plan"} or select text to comment`
@@ -4084,6 +4330,7 @@ export function PlansPage() {
                 <div className="relative h-full min-h-full w-full">
                   <div
                     ref={nativeReaderRef}
+                    data-plan-reader
                     className={cn(
                       "h-full min-h-full w-full overflow-auto bg-background",
                       reviewMode !== "none" &&
@@ -4122,6 +4369,10 @@ export function PlansPage() {
                       collabUser={collabUser}
                       prototypeOnly={prototypeOnly}
                       isRecap={isRecap}
+                      hideChangedFiles={recapScreenshotMode}
+                      hideRecapChrome={recapScreenshotMode}
+                      hideFloatingToc={recapScreenshotMode}
+                      showCodeAnnotationOverlays={recapScreenshotMode}
                       sourceUrl={bundle.plan.sourceUrl}
                       visualSurfaceMode={visualSurfaceMode}
                       onVisualSurfaceModeChange={setVisualSurfaceMode}

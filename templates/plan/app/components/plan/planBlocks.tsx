@@ -30,6 +30,7 @@ import { cn } from "@/lib/utils";
 
 type PlanBlockRenderContextExtras = {
   onQuestionFormSubmit?: (summary: string) => void;
+  showCodeAnnotationOverlays?: boolean;
 };
 
 /**
@@ -151,9 +152,11 @@ export function createPlanBlockRenderContext(options: {
   onVisualQuestionsSubmit?: (summary: string) => void;
   renderBlocksEditor?: BlockRenderContext["renderBlocksEditor"];
   editingDisabled?: boolean;
+  showCodeAnnotationOverlays?: boolean;
 }): BlockRenderContext {
   const ctx: BlockRenderContext & PlanBlockRenderContextExtras = {
     dialect: "gfm",
+    showCodeAnnotationOverlays: options.showCodeAnnotationOverlays,
     onQuestionFormSubmit: options.onVisualQuestionsSubmit,
     renderMarkdown: (markdown, options) => (
       <PlanMarkdownReader markdown={markdown} className={options?.className} />

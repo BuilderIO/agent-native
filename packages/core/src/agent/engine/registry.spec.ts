@@ -304,6 +304,47 @@ describe("AgentEngine registry", () => {
     });
   });
 
+  describe("normalizeModelForEngine", () => {
+    it("falls back unsupported Builder models to gateway auto", async () => {
+      const { normalizeModelForEngine } = await import("./registry.js");
+      const engine = {
+        name: "builder",
+        defaultModel: "claude-sonnet-4-6",
+        supportedModels: ["auto", "claude-sonnet-4-6"],
+      } as any;
+
+      expect(normalizeModelForEngine(engine, "claude-opus-4-8")).toBe("auto");
+    });
+
+    it("keeps supported Builder models and missing values deterministic", async () => {
+      const { normalizeModelForEngine } = await import("./registry.js");
+      const engine = {
+        name: "builder",
+        defaultModel: "claude-sonnet-4-6",
+        supportedModels: ["auto", "claude-sonnet-4-6"],
+      } as any;
+
+      expect(normalizeModelForEngine(engine, "claude-sonnet-4-6")).toBe(
+        "claude-sonnet-4-6",
+      );
+      expect(normalizeModelForEngine(engine, "auto")).toBe("auto");
+      expect(normalizeModelForEngine(engine, " ")).toBe("claude-sonnet-4-6");
+    });
+
+    it("keeps custom model strings for non-Builder engines", async () => {
+      const { normalizeModelForEngine } = await import("./registry.js");
+      const engine = {
+        name: "ai-sdk:openrouter",
+        defaultModel: "openai/gpt-5.5",
+        supportedModels: ["openai/gpt-5.5"],
+      } as any;
+
+      expect(normalizeModelForEngine(engine, "custom/provider-model")).toBe(
+        "custom/provider-model",
+      );
+    });
+  });
+
   it("resolveEngine uses env AGENT_ENGINE when set", async () => {
     const { registerAgentEngine, resolveEngine } =
       await import("./registry.js");

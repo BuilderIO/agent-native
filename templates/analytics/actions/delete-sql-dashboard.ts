@@ -5,6 +5,7 @@ import {
 } from "@agent-native/core/server";
 import { z } from "zod";
 import { removeDashboard } from "../server/lib/dashboards-store";
+import { markDemoDashboardDeleted } from "../server/lib/demo-dashboards";
 
 export default defineAction({
   description:
@@ -18,6 +19,7 @@ export default defineAction({
     const email = getRequestUserEmail();
     if (!email) throw new Error("no authenticated user");
     const orgId = getRequestOrgId() || null;
+    await markDemoDashboardDeleted(args.id, { email, orgId });
     await removeDashboard(args.id, { email, orgId });
     return { id: args.id, success: true };
   },

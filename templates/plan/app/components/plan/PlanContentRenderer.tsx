@@ -73,6 +73,14 @@ type PlanContentRendererProps = {
   prototypeOnly?: boolean;
   /** Render as a read-only visual recap ("Visual Recap" eyebrow, recap copy). */
   isRecap?: boolean;
+  /** Hide recap changed-file rails/blocks for compact generated screenshots. */
+  hideChangedFiles?: boolean;
+  /** Hide recap labels, source chips, stats, and contents rails for screenshots. */
+  hideRecapChrome?: boolean;
+  /** Hide the compact floating contents pill for generated screenshots. */
+  hideFloatingToc?: boolean;
+  /** Render code annotation cards as static inline overlays for screenshots. */
+  showCodeAnnotationOverlays?: boolean;
   /** URL of the source PR/issue this recap covers. When set, a "View PR" chip
    *  is shown in the recap header as a back-link. */
   sourceUrl?: string | null;
@@ -131,6 +139,10 @@ export function PlanContentRenderer({
   visualSurfaceMode,
   onVisualSurfaceModeChange,
   isRecap = false,
+  hideChangedFiles = false,
+  hideRecapChrome = false,
+  hideFloatingToc = false,
+  showCodeAnnotationOverlays = false,
   sourceUrl,
 }: PlanContentRendererProps) {
   const planLabel = isRecap
@@ -429,6 +441,7 @@ export function PlanContentRenderer({
           />
         ),
         editingDisabled,
+        showCodeAnnotationOverlays,
       }),
     [
       contentUpdatedAt,
@@ -436,6 +449,7 @@ export function PlanContentRenderer({
       collabUser,
       editingDisabled,
       notionCompatibleOnly,
+      showCodeAnnotationOverlays,
     ],
   );
 
@@ -447,13 +461,52 @@ export function PlanContentRenderer({
   // (see `filesSidebarHideCss`). Gated to recaps so ordinary plans are
   // unaffected, and to the first file-tree block (the conventional files-touched
   // summary).
-  const filesSidebarBlock = useMemo(
+  const filesSidebarBlockIndex = useMemo(
     () =>
       isRecap
-        ? content.blocks.find((block) => block.type === "file-tree")
-        : undefined,
+        ? content.blocks.findIndex((block) => block.type === "file-tree")
+        : -1,
     [isRecap, content.blocks],
   );
+  const filesSidebarBlock =
+    filesSidebarBlockIndex >= 0
+      ? content.blocks[filesSidebarBlockIndex]
+      : undefined;
+  const filesSidebarHeadingBlock =
+    filesSidebarBlockIndex > 0
+      ? content.blocks[filesSidebarBlockIndex - 1]
+      : undefined;
+  const changedFilesHeadingBlock = isChangedFilesHeadingBlock(
+    filesSidebarHeadingBlock,
+  )
+    ? filesSidebarHeadingBlock
+    : undefined;
+  const hiddenChangedFileBlockIds = useMemo(() => {
+    const ids = new Set<string>();
+    if (!hideChangedFiles) return ids;
+    if (filesSidebarBlock) ids.add(filesSidebarBlock.id);
+    if (changedFilesHeadingBlock) ids.add(changedFilesHeadingBlock.id);
+    return ids;
+  }, [changedFilesHeadingBlock, filesSidebarBlock, hideChangedFiles]);
+  const renderedBlocks = useMemo(() => {
+    const visible =
+      hiddenChangedFileBlockIds.size > 0
+        ? content.blocks.filter(
+            (block) => !hiddenChangedFileBlockIds.has(block.id),
+          )
+        : content.blocks;
+    if (!hideChangedFiles || !filesSidebarHeadingBlock) return visible;
+    return visible.map((block) =>
+      block.id === filesSidebarHeadingBlock.id
+        ? stripTrailingChangedFilesHeading(block)
+        : block,
+    );
+  }, [
+    content.blocks,
+    filesSidebarHeadingBlock,
+    hiddenChangedFileBlockIds,
+    hideChangedFiles,
+  ]);
 
   /**
    * Map from file path → first block id that references the file. Built from
@@ -512,7 +565,10 @@ export function PlanContentRenderer({
       registry={planBlockRegistry}
       ctx={blockRenderContext}
     >
-      <article className="plan-content-surface relative min-h-full bg-plan-document text-plan-text">
+      <article
+        className="plan-content-surface relative min-h-full bg-plan-document text-plan-text"
+        data-plan-document
+      >
         {autosaveFailed && (
           <div className="pointer-events-none absolute bottom-4 left-1/2 z-50 -translate-x-1/2">
             <div className="pointer-events-auto flex items-center gap-2 rounded-full border border-border/80 bg-background/95 px-3 py-1.5 text-sm shadow-lg backdrop-blur-sm">
@@ -551,9 +607,11 @@ export function PlanContentRenderer({
         {!prototypeOnly && (
           <div className="plan-document-shell relative mx-auto w-full max-w-[900px] px-6 py-12 sm:px-10 lg:py-14">
             <header className="border-b border-plan-line pb-8">
-              <p className="mb-4 text-xs font-bold uppercase tracking-[0.16em] text-plan-muted">
-                {planLabel}
-              </p>
+              {!hideRecapChrome && (
+                <p className="mb-4 text-xs font-bold uppercase tracking-[0.16em] text-plan-muted">
+                  {planLabel}
+                </p>
+              )}
               <EditableHeaderText
                 as="h1"
                 value={content.title || fallbackTitle}
@@ -578,16 +636,17 @@ export function PlanContentRenderer({
                   linkGithubPrReferences={isRecap}
                 />
               )}
-              {isRecap && sourceUrl && (
-                <PrBackLink url={sourceUrl} className="mt-4" />
-              )}
-              {isRecap && (
-                <RecapStatStrip
-                  fileTreeBlock={
-                    filesSidebarBlock as PlanFileTreeBlock | undefined
-                  }
-                  className="mt-3"
-                />
+              {isRecap && !hideRecapChrome && (
+                <div className="mt-4 flex flex-wrap items-center gap-2">
+                  {sourceUrl && <PrBackLink url={sourceUrl} />}
+                  <RecapStatStrip
+                    fileTreeBlock={
+                      hideChangedFiles
+                        ? undefined
+                        : (filesSidebarBlock as PlanFileTreeBlock | undefined)
+                    }
+                  />
+                </div>
               )}
             </header>
 
@@ -598,12 +657,14 @@ export function PlanContentRenderer({
                 wrapper bleeds back out to the shell's padding box (see
                 global.css) so the rails keep their original margin anchor. */}
             <div className="plan-document-body">
-              <PlanTableOfContents
-                content={content}
-                isRecap={isRecap}
-                omitBlockId={filesSidebarBlock?.id}
-              />
-              {filesSidebarBlock && (
+              {!hideRecapChrome && (
+                <PlanTableOfContents
+                  content={content}
+                  isRecap={isRecap}
+                  omitBlockId={filesSidebarBlock?.id}
+                />
+              )}
+              {filesSidebarBlock && !hideChangedFiles && (
                 <>
                   <style>{filesSidebarHideCss(filesSidebarBlock.id)}</style>
                   <aside
@@ -654,7 +715,7 @@ export function PlanContentRenderer({
                     onVisualQuestionsSubmit={onVisualQuestionsSubmit}
                   />
                 ) : (
-                  content.blocks.map((block) => (
+                  renderedBlocks.map((block) => (
                     <PlanBlockView
                       key={block.id}
                       block={block}
@@ -671,11 +732,13 @@ export function PlanContentRenderer({
               </div>
               {/* Compact floating TOC pill for narrower viewports — hidden by
                   global.css above 1400px where the full sidebar rail is shown. */}
-              <PlanTocFallback
-                content={content}
-                isRecap={isRecap}
-                omitBlockId={filesSidebarBlock?.id}
-              />
+              {!hideRecapChrome && !hideFloatingToc && (
+                <PlanTocFallback
+                  content={content}
+                  isRecap={isRecap}
+                  omitBlockId={filesSidebarBlock?.id}
+                />
+              )}
             </div>
           </div>
         )}
@@ -712,6 +775,23 @@ function stripFileTreeTitles(block: PlanBlock): PlanBlock {
     title: undefined,
     data: { ...block.data, title: undefined },
   };
+}
+
+function isChangedFilesHeadingBlock(block: PlanBlock | undefined): boolean {
+  if (!block || block.type !== "rich-text") return false;
+  return /^#{1,6}\s+(?:Changed files|Files changed)\s*$/i.test(
+    block.data.markdown.trim(),
+  );
+}
+
+function stripTrailingChangedFilesHeading(block: PlanBlock): PlanBlock {
+  if (block.type !== "rich-text") return block;
+  const markdown = block.data.markdown.replace(
+    /\n{0,2}#{1,6}\s+(?:Changed files|Files changed)\s*$/i,
+    "",
+  );
+  if (markdown === block.data.markdown) return block;
+  return { ...block, data: { ...block.data, markdown: markdown.trimEnd() } };
 }
 
 function filesSidebarHideCss(blockId: string): string {

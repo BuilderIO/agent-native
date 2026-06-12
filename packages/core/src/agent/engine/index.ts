@@ -23,6 +23,7 @@ export {
   listAgentEngines,
   resolveEngine,
   getStoredModelForEngine,
+  normalizeModelForEngine,
   detectEngineFromEnv,
   detectEngineFromUserSecrets,
   isAgentEngineSettingConfigured,

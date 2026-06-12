@@ -14,6 +14,7 @@ import {
 import {
   AnnotationHiddenStack,
   AnnotationHoverCard,
+  AnnotationInlineOverlayStack,
   anchorFromElements,
   buildLineMarkerMap,
   hasRailAnnotations,
@@ -193,6 +194,7 @@ function AnnotatedCodeRead({
   const lineMarkers = useMemo(() => buildLineMarkerMap(resolved), [resolved]);
 
   const hasAnnotations = hasRailAnnotations(resolved);
+  const showAnnotationOverlays = Boolean(ctx.showCodeAnnotationOverlays);
   const langChip = data.language?.trim();
   const hasFilename = Boolean(data.filename?.trim());
   const showLangChip = Boolean(langChip && !hasFilename);
@@ -223,6 +225,10 @@ function AnnotatedCodeRead({
     const isAnnotated = !!markers?.length;
     const isActive =
       activeIndex != null && !!markers?.some((m) => m.index === activeIndex);
+    const overlayItems =
+      showAnnotationOverlays && markers
+        ? markers.filter((item) => item.range?.start === lineNo)
+        : [];
 
     const buildAnchorForRow = (el: HTMLElement) => {
       if (!markers) return null;
@@ -243,13 +249,15 @@ function AnnotatedCodeRead({
         aria-expanded={isAnnotated ? isActive : undefined}
         aria-label={isAnnotated ? `Line ${lineNo} annotation` : undefined}
         className={cn(
-          "flex w-full",
+          "relative flex w-full",
           isAnnotated && "cursor-pointer",
           isActive
             ? "bg-amber-400/20 dark:bg-amber-300/15"
-            : isAnnotated
-              ? "bg-amber-400/[0.07] dark:bg-amber-300/[0.07]"
-              : null,
+            : isAnnotated && showAnnotationOverlays
+              ? "bg-amber-300/25 dark:bg-amber-300/15"
+              : isAnnotated
+                ? "bg-amber-400/[0.07] dark:bg-amber-300/[0.07]"
+                : null,
         )}
         onMouseEnter={
           isAnnotated && markers
@@ -295,7 +303,9 @@ function AnnotatedCodeRead({
             isAnnotated
               ? isActive
                 ? "bg-amber-500 dark:bg-amber-400"
-                : "bg-amber-400/45 dark:bg-amber-300/35"
+                : showAnnotationOverlays
+                  ? "bg-amber-500/90 dark:bg-amber-300/70"
+                  : "bg-amber-400/45 dark:bg-amber-300/35"
               : null,
           )}
         />
@@ -305,6 +315,9 @@ function AnnotatedCodeRead({
         <span className="flex-1 whitespace-pre pr-4 text-plan-code-text">
           {highlightedLines[lineNo - 1]}
         </span>
+        {overlayItems.length > 0 && (
+          <AnnotationInlineOverlayStack items={overlayItems} ctx={ctx} />
+        )}
       </div>
     );
   };

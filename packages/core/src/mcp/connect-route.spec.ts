@@ -250,7 +250,7 @@ describe("handleMcpConnect", () => {
         },
       });
       expect(data.cli).toBe(
-        "agent-native connect https://mail.agent-native.com",
+        "npx @agent-native/core@latest connect https://mail.agent-native.com",
       );
 
       const { payload } = await jose.jwtVerify(
@@ -446,7 +446,7 @@ describe("handleMcpConnect", () => {
           "https://mail.agent-native.com/mail/_agent-native/mcp",
         );
         expect(data.cli).toBe(
-          "agent-native connect https://mail.agent-native.com/mail",
+          "npx @agent-native/core@latest connect https://mail.agent-native.com/mail",
         );
       } finally {
         delete process.env.APP_BASE_PATH;

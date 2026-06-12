@@ -13,6 +13,7 @@ import {
 } from "../agent/production-agent.js";
 import {
   getStoredModelForEngine,
+  normalizeModelForEngine,
   resolveEngine,
 } from "../agent/engine/index.js";
 import type { AgentEngine } from "../agent/engine/types.js";
@@ -406,10 +407,11 @@ async function executeJob(
             apiKey: userApiKey ?? deps.apiKey,
             appId: deps.appId,
           }));
-        const model =
+        const modelCandidate =
           deps.model ??
           (await getStoredModelForEngine(engine, { appId: deps.appId })) ??
           engine.defaultModel;
+        const model = normalizeModelForEngine(engine, modelCandidate);
 
         // Create a chat thread for this run
         const threadTitle = `Job: ${jobName} — ${now.toLocaleDateString()}`;

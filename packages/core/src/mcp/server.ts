@@ -22,6 +22,7 @@ import {
 } from "./build-server.js";
 import {
   buildMcpOAuthChallenge,
+  getMcpOAuthAudiences,
   getMcpOAuthIssuer,
   getMcpOAuthProtectedResourceMetadataUrl,
   getMcpOAuthResource,
@@ -202,17 +203,19 @@ function buildUnauthorizedBody(event: H3Event): {
   const issuer = getMcpOAuthIssuer(event);
   const mcpUrl = getMcpOAuthResource(event);
   const resourceMetadataUrl = getMcpOAuthProtectedResourceMetadataUrl(event);
-  const command = issuer ? `agent-native reconnect ${issuer}` : undefined;
+  const command = issuer
+    ? `npx -y @agent-native/core@latest reconnect ${issuer}`
+    : undefined;
   const firstTimeCommand = issuer
-    ? `agent-native connect ${issuer}`
+    ? `npx @agent-native/core@latest connect ${issuer}`
     : undefined;
   const authorizeUrl = issuer
     ? `${issuer}/_agent-native/mcp/oauth/authorize`
     : undefined;
   const message = command
     ? `Authentication required. Run \`${command}\` to re-authenticate this ` +
-      `MCP connector without reinstalling it (or, in an OAuth-capable host, ` +
-      `re-run /mcp and choose Authenticate), then retry. For first-time ` +
+      `MCP connector without reinstalling it (or, in a Claude Code host, ` +
+      `run /mcp and choose Authenticate), then retry. For first-time ` +
       `setup, run \`${firstTimeCommand}\`.`
     : "Authentication required. Authenticate the MCP connector in your host, " +
       "then retry.";
@@ -295,7 +298,7 @@ export async function handleMcpRequest(
   const authResult = await verifyAuth(authHeader, ownerEmailHeader, {
     allowDevOpen:
       isLoopbackRequest(event) && isLoopbackOrigin(requestMeta.origin),
-    resourceUrl: getMcpOAuthResource(event),
+    resourceUrl: getMcpOAuthAudiences(event),
   });
   if (!authResult.authed) {
     setResponseStatus(event, 401);

@@ -233,6 +233,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
+      actions: write
       checks: write
       contents: read
       issues: write
@@ -355,7 +356,11 @@ jobs:
           $RECAP_CLI recap mcp-config --agent claude --app-url "$PLAN_RECAP_APP_URL" --out "$MCP_CONFIG"
           CLAUDE_ARGS=(-p "$(cat recap-prompt.md)" --mcp-config "$MCP_CONFIG" --allowedTools "Read,Write,Bash(git diff:*),mcp__plan__get-plan-blocks,mcp__plan__create-visual-recap,mcp__plan__set-resource-visibility" --permission-mode dontAsk --output-format json)
           if [ -n "${VISUAL_RECAP_MODEL:-}" ]; then CLAUDE_ARGS+=(--model "$VISUAL_RECAP_MODEL"); fi
-          npx -y @anthropic-ai/claude-code@2 "${CLAUDE_ARGS[@]}" > claude-result.json || true
+          set +e
+          npx -y @anthropic-ai/claude-code@2 "${CLAUDE_ARGS[@]}" > claude-result.json 2> claude-stderr.log
+          CLAUDE_STATUS="$?"
+          set -e
+          echo "$CLAUDE_STATUS" > claude-exit-code.txt
           rm -f "$MCP_CONFIG" || true
 
       - name: Run agent (Codex)
@@ -376,7 +381,11 @@ jobs:
             "") ;;
             *) echo "Ignoring invalid VISUAL_RECAP_REASONING: $VISUAL_RECAP_REASONING" ;;
           esac
-          npx -y @openai/codex@0 "${CODEX_ARGS[@]}" --json "$(cat recap-prompt.md)" | tee codex-events.jsonl || true
+          set +e
+          npx -y @openai/codex@0 "${CODEX_ARGS[@]}" --json "$(cat recap-prompt.md)" 2> codex-stderr.log | tee codex-events.jsonl
+          CODEX_STATUS="${PIPESTATUS[0]}"
+          set -e
+          echo "$CODEX_STATUS" > codex-exit-code.txt
 
       - name: Read plan URL
         id: url
@@ -384,17 +393,29 @@ jobs:
         run: |
           set -uo pipefail
           PLAN_URL=""
-          if [ -f recap-url.txt ]; then PLAN_URL="$(tr -d '\r\n' < recap-url.txt | tr -d ' ')"; fi
+          URL_REASON=""
+          if [ -f recap-url.txt ]; then
+            PLAN_URL="$(tr -d '\r\n' < recap-url.txt | tr -d ' ')"
+          else
+            URL_REASON="recap-url.txt was not created by the agent"
+          fi
           # recap-url.txt is agent-written -> untrusted. Rebuild a canonical
           # recap URL from the trusted app base and a strictly validated plan id.
-          CANONICAL_URL=$(PLAN_URL="$PLAN_URL" node <<'NODE'
+          if [ -z "$URL_REASON" ]; then
+            URL_RESULT=$(PLAN_URL="$PLAN_URL" node <<'NODE'
+          const emit = (value) => process.stdout.write(JSON.stringify(value));
           try {
             const raw = process.env.PLAN_URL || "";
+            if (!raw) {
+              emit({ url: "", reason: "recap-url.txt was empty" });
+              process.exit(0);
+            }
             const trusted = new URL(process.env.PLAN_RECAP_APP_URL || "https://plan.agent-native.com");
             const parsed = /^https?:\/\//i.test(raw)
               ? new URL(raw)
               : new URL(raw, trusted);
             if (parsed.origin !== trusted.origin) {
+              emit({ url: "", reason: `recap-url.txt points at ${parsed.origin}, expected ${trusted.origin}` });
               process.exit(0);
             }
 
@@ -407,20 +428,49 @@ jobs:
             for (const path of paths) {
               const match = path.match(/^\/(?:plans|recaps)\/([A-Za-z0-9_-]+)\/?$/);
               if (match) {
-                process.stdout.write(`${trusted.origin}${base}/recaps/${match[1]}`);
-                break;
+                emit({ url: `${trusted.origin}${base}/recaps/${match[1]}`, reason: "" });
+                process.exit(0);
               }
             }
+            emit({ url: "", reason: "recap-url.txt did not contain a valid /plans/<id> or /recaps/<id> URL for the configured plan app" });
           } catch {
-            process.exit(0);
+            emit({ url: "", reason: "recap-url.txt was not a valid URL or recap path" });
           }
           NODE
-          )
+            )
+            CANONICAL_URL=$(node -e 'try{process.stdout.write(JSON.parse(process.argv[1]).url||"")}catch{process.stdout.write("")}' "$URL_RESULT")
+            URL_REASON=$(node -e 'try{process.stdout.write(JSON.parse(process.argv[1]).reason||"")}catch{process.stdout.write("recap-url.txt URL validation failed")}' "$URL_RESULT")
+          else
+            CANONICAL_URL=""
+          fi
           if [ -n "$CANONICAL_URL" ]; then
             echo "plan_url=$CANONICAL_URL" >> "$GITHUB_OUTPUT"; echo "ok=true" >> "$GITHUB_OUTPUT"
           else
             echo "plan_url=" >> "$GITHUB_OUTPUT"; echo "ok=false" >> "$GITHUB_OUTPUT"
           fi
+          {
+            echo 'reason<<__RECAP_URL_REASON_EOF__'
+            echo "$URL_REASON"
+            echo '__RECAP_URL_REASON_EOF__'
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Summarize agent failure
+        id: agent_summary
+        if: steps.url.outputs.ok != 'true' && steps.diff.outputs.tiny != 'true' && steps.scan.outputs.suppressed != 'true'
+        continue-on-error: true
+        env:
+          RECAP_AGENT: ${{ needs.gate.outputs.agent }}
+        run: |
+          set -uo pipefail
+          RESULT=claude-result.json
+          STDERR=claude-stderr.log
+          EXIT_CODE=claude-exit-code.txt
+          if [ "$RECAP_AGENT" = "codex" ]; then
+            RESULT=codex-events.jsonl
+            STDERR=codex-stderr.log
+            EXIT_CODE=codex-exit-code.txt
+          fi
+          $RECAP_CLI recap agent-summary --agent "$RECAP_AGENT" --result-file "$RESULT" --stderr-file "$STDERR" --exit-code-file "$EXIT_CODE" || true
 
       - name: Attach usage
         if: steps.url.outputs.ok == 'true'
@@ -476,6 +526,8 @@ jobs:
           DIFF_TINY: ${{ steps.diff.outputs.tiny }}
           PREV_PLAN_ID: ${{ steps.prev.outputs.plan_id }}
           RECAP_AUTH_FAILED: ${{ steps.auth_probe.outputs.auth_failed }}
+          RECAP_AGENT_SUMMARY: ${{ steps.agent_summary.outputs.summary }}
+          RECAP_URL_REASON: ${{ steps.url.outputs.reason }}
         run: |
           set -euo pipefail
           ARGS=(recap comment upsert --repo "$GITHUB_REPOSITORY" --issue "$PR_NUMBER" --token "$GH_TOKEN")
@@ -493,6 +545,8 @@ jobs:
           SUPPRESSED_JSON: ${{ steps.scan.outputs.json }}
           DIFF_HUGE: ${{ steps.diff.outputs.huge }}
           DIFF_TINY: ${{ steps.diff.outputs.tiny }}
+          RECAP_AGENT_SUMMARY: ${{ steps.agent_summary.outputs.summary }}
+          RECAP_URL_REASON: ${{ steps.url.outputs.reason }}
         run: |
           set -uo pipefail
           $RECAP_CLI recap check complete \
@@ -503,4 +557,6 @@ jobs:
             --suppressed-json "$SUPPRESSED_JSON" \
             --huge "$DIFF_HUGE" \
             --tiny "$DIFF_TINY" \
+            --failure-summary "$RECAP_AGENT_SUMMARY" \
+            --url-reason "$RECAP_URL_REASON" \
             --workflow-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"

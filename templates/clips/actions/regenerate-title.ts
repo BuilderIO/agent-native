@@ -19,6 +19,10 @@ import { assertAccess } from "@agent-native/core/sharing";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import cleanupTranscript from "./cleanup-transcript.js";
 import { loadAgentsMdContext } from "./lib/agents-md-context.js";
+import {
+  cleanGeneratedTitle,
+  fallbackTitleFromTranscript,
+} from "./lib/title-fallback.js";
 import { isAutoTitleReplaceable, isDefaultTitle } from "./lib/title-source.js";
 
 function transcriptTextFromSegments(raw: string | null | undefined): string {
@@ -35,82 +39,6 @@ function transcriptTextFromSegments(raw: string | null | undefined): string {
   } catch {
     return "";
   }
-}
-
-function cleanGeneratedTitle(raw: string | null | undefined): string | null {
-  const title = (raw ?? "")
-    .replace(/^["'“”]+|["'“”]+$/g, "")
-    .replace(/\s+/g, " ")
-    .trim();
-  if (!title) return null;
-  return title.slice(0, 80);
-}
-
-const TITLE_STOPWORDS = new Set([
-  "a",
-  "an",
-  "and",
-  "are",
-  "as",
-  "at",
-  "be",
-  "but",
-  "by",
-  "for",
-  "from",
-  "i",
-  "in",
-  "is",
-  "it",
-  "of",
-  "on",
-  "or",
-  "so",
-  "that",
-  "the",
-  "this",
-  "to",
-  "we",
-  "with",
-  "you",
-]);
-
-function titleCaseWord(word: string): string {
-  const lower = word.toLowerCase();
-  if (TITLE_STOPWORDS.has(lower)) return lower;
-  return lower.charAt(0).toUpperCase() + lower.slice(1);
-}
-
-function fallbackTitleFromTranscript(text: string): string | null {
-  const normalized = text
-    .replace(/\[[^\]]+\]/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-  if (!normalized) return null;
-  const chunks = normalized
-    .split(/(?<=[.!?])\s+|(?:\s+-\s+)|(?:\s+—\s+)/)
-    .map((chunk) =>
-      chunk
-        .replace(/^(ok|okay|yeah|yep|so|um|uh|alright|all right)[,\s]+/i, "")
-        .trim(),
-    )
-    .filter(Boolean);
-  const candidates = chunks.slice(0, 4).map((chunk) => {
-    const words = chunk
-      .split(/\s+/)
-      .map((word) => word.replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}'-]+$/gu, ""))
-      .filter(Boolean)
-      .slice(0, 9);
-    const signal = words.filter(
-      (word) => !TITLE_STOPWORDS.has(word.toLowerCase()),
-    ).length;
-    return { words, score: signal * 10 + Math.min(words.length, 9) };
-  });
-  const best = candidates.sort((a, b) => b.score - a.score)[0];
-  const words = best?.words ?? [];
-  if (words.length < 2) return null;
-  const title = words.map(titleCaseWord).join(" ");
-  return cleanGeneratedTitle(title);
 }
 
 function buildTitleContext({

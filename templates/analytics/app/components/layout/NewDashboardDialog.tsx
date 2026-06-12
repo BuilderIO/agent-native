@@ -10,13 +10,16 @@ import { IconPlus } from "@tabler/icons-react";
 const DASHBOARD_CONTEXT =
   "The user wants to create a new analytics dashboard. " +
   "REAL_DATA_REQUIRED: before saving or answering, run at least one real data-source query action; `data-source-status`, `list-data-dictionary`, `update-dashboard`, and dry-run validation do not count as data queries. " +
+  "The `demo` source is reserved for the built-in Node Exporter demo and does not satisfy REAL_DATA_REQUIRED unless the user explicitly asks to work on that demo dashboard. " +
   "If no source can answer, report the exact unavailable/error result instead of saving a dashboard with guessed schema or metrics. " +
   "Create a SQL-driven dashboard by calling the `update-dashboard` action with `dashboardId` and `config`. " +
-  "The config shape is: { name: string, panels: [{ id, title, sql, source, chartType, width, config? }] }. " +
-  "Each panel needs: id (unique string), title, sql (the query), source ('bigquery' | 'ga4' | 'amplitude' | 'first-party' | 'prometheus'), " +
+  "The config shape is: { name: string, panels: [{ id, title, sql, source, chartType, width, tab?, config? }] }. " +
+  "Each panel needs: id (unique string), title, sql (the query), source ('bigquery' | 'ga4' | 'amplitude' | 'first-party' | 'demo' | 'prometheus'), " +
   "chartType ('line' | 'area' | 'bar' | 'metric' | 'table' | 'pie'), width (1 or 2). " +
-  "Optional config: { xKey, yKey, yKeys, color, colors, yFormatter ('number'|'currency'|'percent'), description }. " +
+  "Optional tab labels can use 'Group / Tab' for primary and secondary dashboard tabs. " +
+  "Optional config: { xKey, yKey, yKeys, color, colors, yFormatter ('number'|'currency'|'percent'), description, valueLabels }. " +
   "For first-party analytics, source is 'first-party' and sql may read analytics_events only; do not use db-query for datasource panels. " +
+  "For the built-in demo dashboard, source is 'demo' and sql uses the same Prometheus JSON descriptor shape as source 'prometheus': { promql, mode, range, step }. " +
   "Call `data-source-status` if you need to see which data sources are connected. " +
   "Refer to AGENTS.md, .agents/skills, the data dictionary, and connected data-source instructions for SQL patterns and table names. " +
   "NO code files need to be created — only the dashboard config JSON via `update-dashboard`. " +

@@ -31,6 +31,7 @@ const SOURCE_LABELS: Record<DataSourceType, string> = {
   ga4: "Google Analytics",
   amplitude: "Amplitude",
   "first-party": "First-party",
+  demo: "Demo Prometheus",
   prometheus: "Prometheus",
 };
 

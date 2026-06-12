@@ -80,9 +80,12 @@ pasted handoff summary or from a plain-language pick like "use direction B".
 ## Guardrails
 
 - If a Design tool call returns `Session terminated`, `needs auth`, or another
-  connector/session error, do not keep retrying the tool. Tell the user to
-  reconnect or authenticate the Design MCP connector, then continue after it is
-  available.
+  connector/session error, do not keep retrying the tool. Stop and give the user
+  the reconnect step: in Claude Code run `/mcp` and choose
+  Authenticate/Reconnect for the Design connector; from any terminal run
+  `npx -y @agent-native/core@latest reconnect https://design.agent-native.com` — this
+  re-authenticates WITHOUT reinstalling. Never reinstall from scratch just to
+  fix auth. Continue once the connector is available.
 - Do not hand-roll MCP HTTP requests with curl from the agent session. Use the
   host-exposed Design tools after restart/reload, or use the returned
   browser/deep-link fallback.

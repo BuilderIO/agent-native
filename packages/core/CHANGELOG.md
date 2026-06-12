@@ -1,5 +1,80 @@
 # @agent-native/core
 
+## 0.49.5
+
+### Patch Changes
+
+- 809e96b: Fix Vite dev SSR for standalone apps using `file:@agent-native/core` by aliasing monorepo core source and deduping `react-router`. Add a Playwright dev smoke test that catches HydratedRouter/Meta render failures after auto-login.
+
+## 0.49.4
+
+### Patch Changes
+
+- 25454af: Improve extension direct-link loading by retrying transient detail misses, avoiding false not-found flashes, and slimming extension list responses.
+- 25454af: Clarify file upload provider guidance so connected Builder.io is presented as
+  the primary upload setup path.
+
+## 0.49.3
+
+### Patch Changes
+
+- b7b105a: Canonicalize hosted Plans MCP connections to the `plan` server name and let the Plan template advertise that name from the connect flow.
+- b7b105a: Make `reconnect <url>` reauthenticate existing MCP entries instead of acting like first-time setup when duplicate server names point at the same URL.
+- b7b105a: Guard Builder gateway runs from stale or unsupported model IDs by normalizing
+  server-side model selection and tightening Builder model saves.
+- b7b105a: Render visual recap screenshot annotation overlays through a portal and capture
+  recap screenshots at 2x device scale.
+- b7b105a: Surface PR visual recap failure diagnostics from missing recap URLs, agent stderr,
+  exit codes, stale workflow result files, and reusable caller permission issues.
+
+## 0.49.2
+
+### Patch Changes
+
+- b57b183: Prevent stale interrupted agent tool calls from appearing as live running tools after chat stream recovery.
+
+## 0.49.1
+
+### Patch Changes
+
+- dfa79d9: Document deployment code-execution settings and local file sync surfaces.
+
+## 0.49.0
+
+### Minor Changes
+
+- d77a37f: Long-lived MCP OAuth tokens and lightweight reconnect command.
+  - Access tokens are now long-lived (30-day default, env-overridable) with a
+    sliding 365-day refresh window, so random 401s after one hour are eliminated.
+  - Audience and signing-secret verification tolerances have been tightened to
+    prevent spurious auth failures on host-drift or MCP URL variations.
+  - `reconnect` command now detects any agent-native MCP config entry whose URL
+    ends in `/_agent-native/mcp` for the given host, matching by URL regardless
+    of connector name — no more breakage when the entry is named `plan` vs
+    `agent-native-plans`.
+  - Installs no longer write duplicate alias entries and clean up existing
+    duplicates on the next connect or skills-add run.
+  - All CLI, server, skill, and docs guidance now uses `npx @agent-native/core@latest reconnect <app-url>`
+    as the documented one-line reauth path and consistently teaches that
+    reinstalling from scratch is never needed to fix auth.
+
+- d77a37f: Add best-effort install-funnel analytics to both skills CLIs (`npx @agent-native/skills` and `npx @agent-native/core skills`). Each run reports a step-by-step funnel — started, skills prompted, skills selected, clients selected, scope selected, install completed, MCP registered, connect, and completed/failed/cancelled — to the first-party Agent Native Analytics endpoint, so install volume, skill selection, and step-by-step dropoff can be measured. Events carry a stable per-machine install id (unique installs) and a per-run id (dropoff) and never include paths, repo names, or other identifying data. Telemetry is fire-and-forget, flushes before exit, and is opt-out via `DO_NOT_TRACK=1` or `AGENT_NATIVE_TELEMETRY_DISABLED=1`.
+- d77a37f: Unify the two skills installers onto one codebase + UX.
+  - `npx @agent-native/skills add` / `list` now delegate to `@agent-native/core`'s
+    clack-based installer (`runSkills`, newly exported at `@agent-native/core/cli/skills`),
+    so the standalone CLI and `agent-native skills` share the exact same interactive
+    experience, MCP-server registration, and authentication. A `AGENT_NATIVE_SKILLS_DIRECT`
+    env guard keeps core's plain-repo delegation from looping back.
+  - `agent-native skills add`: the optional PR Visual Recap GitHub Action is now offered
+    **before** any install/registration, with copy that explains it's a GitHub Action and
+    what it does. The final summary is rendered with clack (a boxed note + a "✅ All set!"
+    outro that points you at the new slash command and a reload).
+
+### Patch Changes
+
+- d77a37f: Surface sanitized agent output when PR visual recap generation does not produce a plan URL.
+- d77a37f: Clean up PR visual recap screenshots and comments by removing the GitHub `As of` line, capturing recap screenshots at 950px/100% zoom, and hiding viewer chrome plus changed-file sections in screenshot mode.
+
 ## 0.48.4
 
 ### Patch Changes

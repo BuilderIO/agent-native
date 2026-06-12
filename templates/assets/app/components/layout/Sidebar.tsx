@@ -116,7 +116,12 @@ export function Sidebar() {
       </div>
 
       <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
-        <nav className={cn("space-y-1 py-2", collapsed ? "px-1.5" : "px-2")}>
+        <nav
+          className={cn(
+            "space-y-1 py-2",
+            collapsed ? "flex flex-col items-center px-1.5" : "px-2",
+          )}
+        >
           {navItems.map((item) => {
             const Icon = item.icon;
             const isActive =

@@ -138,8 +138,8 @@ export const AGENT_MODEL_CONFIG = {
   builder: {
     defaultModel: FRAMEWORK_DEFAULT_BUILDER_MODEL,
     supportedModels: [
-      "claude-fable-5",
-      "claude-opus-4-8",
+      "auto",
+      "claude-opus-4-7",
       FRAMEWORK_DEFAULT_BUILDER_MODEL,
       "claude-haiku-4-5",
       FRAMEWORK_DEFAULT_BUILDER_OPENAI_MODEL,
@@ -151,10 +151,6 @@ export const AGENT_MODEL_CONFIG = {
       "gemini-3-1-flash-lite",
       "grok-code-fast",
       "qwen3-coder",
-      "kimi-k2-5",
-      "deepseek-v3-1",
-      "z-ai-glm-4-5",
-      "z-ai-glm-5-1",
     ],
   },
   anthropic: {

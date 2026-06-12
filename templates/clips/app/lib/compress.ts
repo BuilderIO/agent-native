@@ -19,11 +19,13 @@
  * builder-internal direct-to-GCS flow — tracked as separate work.)
  *
  * Strategy: ride the existing ffmpeg.wasm install (we already lazy-load it
- * for export / GIF / stitch in `ffmpeg-export.ts`). Re-encode video at a
- * 720p-ish maximum resolution plus a duration-aware target bitrate, copy audio
- * (Opus stays Opus inside WebM, AAC stays AAC inside MP4), bind the whole thing
- * to an AbortController so it can't hang a tab forever, and return a smaller
- * blob.
+ * for export / GIF / stitch in `ffmpeg-export.ts`). Re-encode oversized clips
+ * to HandBrake-style H.264/AAC MP4: x264 preset `fast`, CRF/RF-first quality,
+ * 1080p/30 max, yuv420p, and faststart. A duration-aware VBV ceiling keeps
+ * pathological high-motion clips under the upload cap, but CRF remains the
+ * primary rate control so low-motion screen recordings can land far below the
+ * old target-bitrate output. If the HandBrake-like profile is still too large,
+ * we retry progressively smaller compact profiles.
  *
  * Out-of-scope here:
  *  - Raising Builder.io's per-file limit (server-side, separate work).
@@ -56,14 +58,67 @@ export const COMPRESS_THRESHOLD_BYTES = 24 * 1024 * 1024;
 export const MAX_UPLOAD_BYTES = 30 * 1024 * 1024;
 
 /** Preferred compressed output size. The hard cap above leaves room for
- * encoder variance and audio tracks that were copied rather than re-encoded. */
+ * encoder variance and container overhead. */
 const TARGET_COMPRESSED_BYTES = 18 * 1024 * 1024;
 
-const ASSUMED_AUDIO_BITRATE_BPS = 96_000;
-const MIN_VIDEO_BITRATE_BPS = 350_000;
-const MAX_COMPRESSED_LONG_SIDE = 1280;
-const MAX_COMPRESSED_SHORT_SIDE = 720;
-const COMPRESSED_FRAME_RATE = 24;
+const MIN_VIDEO_RATE_LIMIT_KBPS = 350;
+const RATE_LIMIT_OVERHEAD_KBPS = 64;
+
+export interface CompressionProfile {
+  label: string;
+  maxLongSide: number;
+  maxShortSide: number;
+  frameRate: number;
+  crf: number;
+  x264Preset: "fast";
+  audioBitrateKbps: number;
+  maxVideoRateKbps: number;
+}
+
+const HANDBRAKE_FAST_1080P30_PROFILE: CompressionProfile = {
+  label: "HandBrake Fast 1080p30",
+  maxLongSide: 1920,
+  maxShortSide: 1080,
+  frameRate: 30,
+  crf: 22,
+  x264Preset: "fast",
+  audioBitrateKbps: 160,
+  maxVideoRateKbps: 6000,
+};
+
+const COMPRESSION_PROFILES: CompressionProfile[] = [
+  HANDBRAKE_FAST_1080P30_PROFILE,
+  {
+    label: "1080p compact",
+    maxLongSide: 1920,
+    maxShortSide: 1080,
+    frameRate: 30,
+    crf: 24,
+    x264Preset: "fast",
+    audioBitrateKbps: 128,
+    maxVideoRateKbps: 4000,
+  },
+  {
+    label: "720p compact",
+    maxLongSide: 1280,
+    maxShortSide: 720,
+    frameRate: 30,
+    crf: 26,
+    x264Preset: "fast",
+    audioBitrateKbps: 96,
+    maxVideoRateKbps: 2200,
+  },
+  {
+    label: "540p small",
+    maxLongSide: 960,
+    maxShortSide: 540,
+    frameRate: 30,
+    crf: 28,
+    x264Preset: "fast",
+    audioBitrateKbps: 80,
+    maxVideoRateKbps: 1200,
+  },
+];
 
 /** Hard cap on total compression time. ffmpeg.wasm is single-threaded WASM
  * and can wedge on certain inputs; we'd rather give the user a clear error
@@ -101,7 +156,7 @@ export interface CompressOptions {
   thresholdBytes?: number;
   /** Optional progress callback for UI plumbing. */
   onProgress?: (p: CompressionProgress) => void;
-  /** Detected source dimensions, if known — picks the bitrate ladder. */
+  /** Detected source dimensions, if known — picks the scale profile. */
   width?: number;
   height?: number;
   /** Recording duration, used to keep multi-minute clips under the upload cap. */
@@ -111,25 +166,18 @@ export interface CompressOptions {
   signal?: AbortSignal;
 }
 
-/**
- * Pick a target video bitrate based on the source's larger dimension.
- *
- * The numbers start with a resolution cap for screen-capture style footage
- * (high-detail UI, low motion), then tighten by duration so multi-minute clips
- * land near TARGET_COMPRESSED_BYTES instead of blasting past the server staging
- * cap.
- */
 function evenDimension(value: number): number {
   return Math.max(2, Math.round(value / 2) * 2);
 }
 
 /**
- * Downscale compressed output to roughly 720p. We preserve aspect ratio and
+ * Downscale compressed output for the active profile. We preserve aspect ratio and
  * handle portrait/ultrawide captures by bounding both the long and short side.
  */
 export function pickCompressedDimensions(
   width?: number,
   height?: number,
+  profile: CompressionProfile = HANDBRAKE_FAST_1080P30_PROFILE,
 ): { width: number; height: number } | null {
   if (
     typeof width !== "number" ||
@@ -146,8 +194,8 @@ export function pickCompressedDimensions(
   const shortSide = Math.min(width, height);
   const scale = Math.min(
     1,
-    MAX_COMPRESSED_LONG_SIDE / longSide,
-    MAX_COMPRESSED_SHORT_SIDE / shortSide,
+    profile.maxLongSide / longSide,
+    profile.maxShortSide / shortSide,
   );
   if (scale >= 1) return { width, height };
   return {
@@ -156,66 +204,57 @@ export function pickCompressedDimensions(
   };
 }
 
-function pickScaleArgs(width?: number, height?: number): string[] {
-  const filters = pickVideoFilters(width, height);
+function pickScaleArgs(
+  width: number | undefined,
+  height: number | undefined,
+  profile: CompressionProfile,
+): string[] {
+  const filters = pickVideoFilters(width, height, profile);
   return filters.length > 0 ? ["-vf", filters.join(",")] : [];
 }
 
-export function pickVideoBitrate(
-  width?: number,
-  height?: number,
+export function pickVideoRateLimit(
   durationMs?: number,
+  profile: CompressionProfile = HANDBRAKE_FAST_1080P30_PROFILE,
 ): {
-  bitrate: string;
   maxrate: string;
   bufsize: string;
 } {
-  function formatBitrate(bps: number): string {
-    const mbps = Math.max(0.1, Math.round(bps / 100_000) / 10);
-    return `${mbps.toFixed(1).replace(/\.0$/, "")}M`;
+  function formatKbps(kbps: number): string {
+    if (kbps >= 1000) {
+      const mbps = Math.round(kbps / 100) / 10;
+      return `${mbps.toFixed(1).replace(/\.0$/, "")}M`;
+    }
+    return `${Math.round(kbps)}k`;
   }
 
-  const dimensions = pickCompressedDimensions(width, height);
-  const targetWidth = dimensions?.width ?? width ?? 0;
-  const targetHeight = dimensions?.height ?? height ?? 0;
-  const longSide = Math.max(targetWidth, targetHeight);
-  const shortSide = Math.min(targetWidth, targetHeight);
-  let resolutionCapBps: number;
-  if (longSide >= 1280 || shortSide >= 720) {
-    resolutionCapBps = 1_600_000;
-  } else if (longSide >= 960 || shortSide >= 540) {
-    resolutionCapBps = 1_100_000;
-  } else if (longSide > 0) {
-    resolutionCapBps = 800_000;
-  } else {
-    // Unknown dimensions — keep enough detail for UI text without assuming a
-    // giant 4K recording.
-    resolutionCapBps = 1_600_000;
-  }
-
-  let targetBps = resolutionCapBps;
+  let targetKbps = profile.maxVideoRateKbps;
   if (typeof durationMs === "number" && durationMs > 1000) {
     const seconds = durationMs / 1000;
-    const totalBudgetBps = (TARGET_COMPRESSED_BYTES * 8) / seconds;
-    const videoBudgetBps = totalBudgetBps - ASSUMED_AUDIO_BITRATE_BPS;
-    if (Number.isFinite(videoBudgetBps)) {
-      targetBps = Math.min(
-        resolutionCapBps,
-        Math.max(MIN_VIDEO_BITRATE_BPS, videoBudgetBps),
+    const totalBudgetKbps = (TARGET_COMPRESSED_BYTES * 8) / seconds / 1000;
+    const videoBudgetKbps =
+      totalBudgetKbps - profile.audioBitrateKbps - RATE_LIMIT_OVERHEAD_KBPS;
+    if (Number.isFinite(videoBudgetKbps)) {
+      targetKbps = Math.min(
+        profile.maxVideoRateKbps,
+        Math.max(MIN_VIDEO_RATE_LIMIT_KBPS, videoBudgetKbps),
       );
     }
   }
 
   return {
-    bitrate: formatBitrate(targetBps),
-    maxrate: formatBitrate(targetBps * 1.25),
-    bufsize: formatBitrate(targetBps * 2),
+    maxrate: formatKbps(targetKbps),
+    bufsize: formatKbps(targetKbps * 2),
   };
 }
 
-export function pickVideoFilters(width?: number, height?: number): string[] {
-  const filters = [`fps=${COMPRESSED_FRAME_RATE}`];
-  const dimensions = pickCompressedDimensions(width, height);
+export function pickVideoFilters(
+  width?: number,
+  height?: number,
+  profile: CompressionProfile = HANDBRAKE_FAST_1080P30_PROFILE,
+): string[] {
+  const filters: string[] = [];
+  const dimensions = pickCompressedDimensions(width, height, profile);
   if (
     dimensions &&
     (dimensions.width !== Math.round(width ?? 0) ||
@@ -228,76 +267,55 @@ export function pickVideoFilters(width?: number, height?: number): string[] {
   return filters;
 }
 
-/** Pick container + codecs to match the source. WebM keeps VP8/9 + Opus,
- * MP4 keeps H.264 + AAC. Audio is always copy — re-encoding adds latency
- * and compresses very little compared to video. */
+/** Build a HandBrake-style MP4 transcode command. */
 function pickEncodeArgs(
-  inputMimeType: string,
   width: number | undefined,
   height: number | undefined,
   durationMs: number | undefined,
+  profile: CompressionProfile,
 ): { args: string[]; outputName: string; outputMimeType: string } {
-  const isMp4 = /mp4|quicktime/i.test(inputMimeType);
-  const { bitrate, maxrate, bufsize } = pickVideoBitrate(
-    width,
-    height,
-    durationMs,
-  );
-  const scaleArgs = pickScaleArgs(width, height);
+  const { maxrate, bufsize } = pickVideoRateLimit(durationMs, profile);
+  const scaleArgs = pickScaleArgs(width, height, profile);
 
-  if (isMp4) {
-    return {
-      outputName: "compressed.mp4",
-      outputMimeType: "video/mp4",
-      args: [
-        ...scaleArgs,
-        "-c:v",
-        "libx264",
-        "-preset",
-        "fast",
-        "-b:v",
-        bitrate,
-        "-maxrate",
-        maxrate,
-        "-bufsize",
-        bufsize,
-        "-pix_fmt",
-        "yuv420p",
-        "-c:a",
-        "copy",
-        // moov before mdat so the result streams cleanly via HTTP range
-        // requests (mirrors the existing pure-TS faststart pass on the
-        // server, but cheaper to do here while we already have the
-        // transcoded mp4 in hand).
-        "-movflags",
-        "+faststart",
-      ],
-    };
-  }
-
-  // WebM / VP8 — fastest VP8 encode available; VP9 is too slow for the
-  // 5-minute wall-clock budget on a typical laptop. Audio (Opus) is left
-  // alone via copy. WebM has no faststart equivalent — the cluster index
-  // is already at the start by spec.
   return {
-    outputName: "compressed.webm",
-    outputMimeType: "video/webm",
+    outputName: "compressed.mp4",
+    outputMimeType: "video/mp4",
     args: [
+      "-map",
+      "0:v:0",
+      "-map",
+      "0:a?",
       ...scaleArgs,
+      "-fpsmax",
+      String(profile.frameRate),
       "-c:v",
-      "libvpx",
-      "-deadline",
-      "realtime",
-      "-cpu-used",
-      "5",
-      "-b:v",
-      bitrate,
+      "libx264",
+      "-preset",
+      profile.x264Preset,
+      "-profile:v",
+      "main",
+      "-level:v",
+      "4.0",
+      "-crf",
+      String(profile.crf),
       "-maxrate",
       maxrate,
       "-bufsize",
       bufsize,
+      "-pix_fmt",
+      "yuv420p",
       "-c:a",
-      "copy",
+      "aac",
+      "-b:a",
+      `${profile.audioBitrateKbps}k`,
+      "-ac",
+      "2",
+      // moov before mdat so the result streams cleanly via HTTP range
+      // requests (mirrors the existing pure-TS faststart pass on the
+      // server, but cheaper to do here while we already have the
+      // transcoded mp4 in hand).
+      "-movflags",
+      "+faststart",
     ],
   };
 }
@@ -376,13 +394,6 @@ export async function compressBlobIfTooLarge(
     };
   }
 
-  const { args, outputName, outputMimeType } = pickEncodeArgs(
-    inputMimeType,
-    opts.width,
-    opts.height,
-    opts.durationMs,
-  );
-
   // Pick a container-appropriate input filename — ffmpeg.wasm uses the
   // extension to detect the demuxer. Webm vs. mp4 matters for short-circuit
   // probe behaviour inside libavformat.
@@ -393,9 +404,10 @@ export async function compressBlobIfTooLarge(
   // Plumb encoder progress events back to the UI. ffmpeg.wasm reports the
   // progress as 0..1 over the duration of the input.
   const handleProgress = ({ progress }: { progress: number }) => {
+    const safeProgress = Math.max(0, Math.min(1, progress));
     opts.onProgress?.({
       stage: "encoding",
-      progress: Math.max(0, Math.min(1, progress)),
+      progress: safeProgress,
     });
   };
   ffmpeg.on("progress", handleProgress);
@@ -431,47 +443,101 @@ export async function compressBlobIfTooLarge(
       signal: internalAbort.signal,
     });
 
-    opts.onProgress?.({ stage: "encoding", progress: 0 });
+    let best: {
+      blob: Blob;
+      compressedBytes: number;
+      outputMimeType: string;
+    } | null = null;
+    const encodeFailures: string[] = [];
 
-    const ffArgs = ["-i", inputName, ...args, outputName];
-    const exitCode = await ffmpeg.exec(ffArgs, undefined, {
-      signal: internalAbort.signal,
-    });
-
-    if (exitCode !== 0) {
-      throw new Error(
-        `ffmpeg exited with code ${exitCode} (likely encoder error or timeout)`,
+    for (let index = 0; index < COMPRESSION_PROFILES.length; index += 1) {
+      const profile = COMPRESSION_PROFILES[index];
+      const { args, outputName, outputMimeType } = pickEncodeArgs(
+        opts.width,
+        opts.height,
+        opts.durationMs,
+        profile,
       );
+
+      opts.onProgress?.({
+        stage: "encoding",
+        progress: 0,
+        message: profile.label,
+      });
+
+      const ffArgs = ["-i", inputName, ...args, outputName];
+      const exitCode = await ffmpeg.exec(ffArgs, undefined, {
+        signal: internalAbort.signal,
+      });
+
+      if (exitCode !== 0) {
+        encodeFailures.push(
+          `${profile.label}: ffmpeg exited with code ${exitCode}`,
+        );
+        try {
+          await ffmpeg.deleteFile(outputName);
+        } catch {
+          // ignore
+        }
+        continue;
+      }
+
+      const data = (await ffmpeg.readFile(outputName)) as Uint8Array;
+      const blob = new Blob([data as BlobPart], { type: outputMimeType });
+      const compressedBytes = blob.size;
+
+      try {
+        await ffmpeg.deleteFile(outputName);
+      } catch {
+        // ignore
+      }
+
+      if (compressedBytes < originalBytes) {
+        if (!best || compressedBytes < best.compressedBytes) {
+          best = { blob, compressedBytes, outputMimeType };
+        }
+        if (compressedBytes <= TARGET_COMPRESSED_BYTES) {
+          break;
+        }
+      }
     }
 
-    opts.onProgress?.({ stage: "finalizing", progress: 1 });
-
-    const data = (await ffmpeg.readFile(outputName)) as Uint8Array;
-    const blob = new Blob([data as BlobPart], { type: outputMimeType });
-    const compressedBytes = blob.size;
-
-    // Best-effort cleanup so we don't pile up files in WASM's virtual FS
-    // across multiple recordings in the same tab.
     try {
       await ffmpeg.deleteFile(inputName);
     } catch {
       // ignore
     }
-    try {
-      await ffmpeg.deleteFile(outputName);
-    } catch {
-      // ignore
-    }
 
     const elapsedMs = Math.round(performance.now() - startedAt);
-    return {
-      blob,
-      compressed: true,
-      originalBytes,
-      compressedBytes,
-      ratio: originalBytes > 0 ? compressedBytes / originalBytes : 1,
+    if (best) {
+      opts.onProgress?.({ stage: "finalizing", progress: 1 });
+      return {
+        blob: best.blob,
+        compressed: true,
+        originalBytes,
+        compressedBytes: best.compressedBytes,
+        ratio: originalBytes > 0 ? best.compressedBytes / originalBytes : 1,
+        elapsedMs,
+        outputMimeType: best.outputMimeType,
+      };
+    }
+
+    opts.onError?.({
+      message:
+        encodeFailures.length > 0
+          ? `ffmpeg compression did not produce a smaller file; profile failures: ${encodeFailures.join("; ")}`
+          : "ffmpeg compression did not produce a smaller file",
+      stderrTail,
       elapsedMs,
-      outputMimeType,
+    });
+    return {
+      blob: input,
+      compressed: false,
+      originalBytes,
+      compressedBytes: originalBytes,
+      ratio: 1,
+      elapsedMs,
+      outputMimeType: inputMimeType,
     };
   } catch (err) {
     const elapsedMs = Math.round(performance.now() - startedAt);
@@ -481,6 +547,11 @@ export async function compressBlobIfTooLarge(
     // the wasm FS for the lifetime of the tab.
     try {
       await ffmpeg.deleteFile(inputName);
+    } catch {
+      // ignore
+    }
+    try {
+      await ffmpeg.deleteFile("compressed.mp4");
     } catch {
       // ignore
     }

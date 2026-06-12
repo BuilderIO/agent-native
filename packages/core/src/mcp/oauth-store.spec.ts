@@ -339,6 +339,27 @@ describe("refresh tokens", () => {
     });
   });
 
+  it("touchOAuthRefreshToken slides the expiry window (active users never expire)", async () => {
+    const s = await freshStore();
+    // Create at t=1000 — initial expiry is 1000 + TTL.
+    vi.spyOn(Date, "now").mockReturnValue(1000);
+    await s.createOAuthRefreshToken(refreshParams);
+    const original = await s.getOAuthRefreshToken("raw-refresh-token");
+    expect(original?.expiresAt).toBe(1000 + s.MCP_OAUTH_REFRESH_TOKEN_TTL_MS);
+
+    // Touch at t=2000 — expiry must extend to 2000 + TTL.
+    vi.spyOn(Date, "now").mockReturnValue(2000);
+    await s.touchOAuthRefreshToken("raw-refresh-token");
+    const touched = await s.getOAuthRefreshToken("raw-refresh-token");
+    expect(touched?.expiresAt).toBe(2000 + s.MCP_OAUTH_REFRESH_TOKEN_TTL_MS);
+    expect(touched?.lastUsedAt).toBe(2000);
+  });
+
+  it("refresh token TTL is 365d by default", async () => {
+    const s = await freshStore();
+    expect(s.MCP_OAUTH_REFRESH_TOKEN_TTL_MS).toBe(365 * 24 * 60 * 60_000);
+  });
+
   it("getOAuthRefreshToken returns null once expired", async () => {
     const s = await freshStore();
     vi.spyOn(Date, "now").mockReturnValue(1000);

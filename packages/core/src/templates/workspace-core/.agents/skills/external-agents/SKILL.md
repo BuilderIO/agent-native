@@ -106,7 +106,7 @@ no-CLI equivalent is `https://<app>/_agent-native/mcp/connect`, which shows
 the copyable MCP URL, Claude / ChatGPT / Cursor / Claude Code / Codex / Other
 steps, and static-token fallback for clients that need it.
 
-Re-running `agent-native connect <url> --client claude-code` over an older
+Re-running `npx @agent-native/core@latest connect <url> --client claude-code` over an older
 Claude bearer-token entry is the migration path: the CLI replaces
 `Authorization` headers with URL-only OAuth config and tells the user to
 authenticate from `/mcp`.
@@ -115,14 +115,15 @@ To re-authenticate an already-installed local/fallback client without
 reinstalling skills or connectors, use:
 
 ```bash
-npx @agent-native/core@latest reconnect https://dispatch.agent-native.com --client codex
+npx -y @agent-native/core@latest reconnect https://dispatch.agent-native.com --client codex
 # or:
-npx @agent-native/core@latest connect reconnect https://dispatch.agent-native.com --client codex
+npx -y @agent-native/core@latest connect reconnect https://dispatch.agent-native.com --client codex
 ```
 
-With no URL, `reconnect` searches the selected client config for the existing
-Agent Native MCP entry. Pass `--name <serverName>` when the config has multiple
-entries or a custom server name.
+With no URL, `reconnect` searches local client configs for the existing Agent
+Native MCP entry. With a URL, it reconnects only the clients that already have
+that MCP URL; pass `--client` to limit which configs it searches. Pass
+`--name <serverName>` only when you need to force a custom server name.
 
 Under the hood: a logged-in browser session mints an `A2A_SECRET`-signed JWT
 carrying the caller's `sub` + `org_domain` and a unique `jti`, so tool runs
@@ -325,10 +326,10 @@ agent sees what the user actually has on screen.
 ### 5. Advanced: local development & manual setup
 
 The hosted `connect` flow above is the recommended path. For local dev, run
-the app (`pnpm dev` / `agent-native dev`) then point a local agent at it:
+the app (`pnpm dev` / `pnpm exec agent-native dev`) then point a local agent at it:
 
 ```bash
-agent-native mcp install --client claude-code|claude-code-cli|codex|cowork \
+pnpm exec agent-native mcp install --client claude-code|claude-code-cli|codex|cowork \
   [--app <id>] [--scope user|project]
 ```
 
@@ -336,7 +337,7 @@ It provisions a token (random `ACCESS_TOKEN` into the workspace `.env` for
 local dev, or a `signA2AToken` JWT for a detected hosted origin) and writes an
 idempotent stdio server entry — `.mcp.json` / `~/.claude.json` for Claude Code,
 the `[mcp_servers.*]` block in `~/.codex/config.toml` for Codex, the
-Claude-Code JSON shape for Cowork. The entry runs `agent-native mcp serve
+Claude-Code JSON shape for Cowork. The entry runs `pnpm exec agent-native mcp serve
 --app <id>`, by default a **thin stdio proxy** to the running local app's
 `/_agent-native/mcp` (live registry + HMR + correct deep links stay the single
 source of truth; `--standalone` builds the registry in-process). Companion
@@ -351,7 +352,7 @@ deliberately exposes only the generic builtins plus actions with
 and mutating actions are filtered out (`filterPublicAgentActions`). The full
 surface appears when authenticated as a real caller: a deployed /
 `AGENT_MODE=production` app, or a local app reached through `connect` /
-`agent-native mcp install` (which provisions an identity-bearing token). A
+`pnpm exec agent-native mcp install` (which provisions an identity-bearing token). A
 sparse or empty `tools/list` is diagnostic, not proof of auth failure: check
 OAuth scopes, compact-catalog filtering, and the client/server auth status
 before telling the user they are unauthenticated.
@@ -360,7 +361,7 @@ before telling the user they are unauthenticated.
 
 - Do connect local/fallback clients to Dispatch with
   `npx @agent-native/core@latest connect https://dispatch.agent-native.com`;
-  use `npx @agent-native/core@latest reconnect ...` for reauth without
+  use `npx -y @agent-native/core@latest reconnect ...` for reauth without
   reinstalling; use a direct app URL only when the host should be isolated to
   one app.
 - Do add a `link` builder to any action that produces or lists a navigable
@@ -395,7 +396,7 @@ before telling the user they are unauthenticated.
 - Don't hand-write product UI in `mcpApp.resource.html`; use a real React
   route/component and embed it with `embedApp()`.
 - Don't test Claude full-app embeds against raw Vite dev modules and conclude
-  production is broken; use `agent-native start`, a preview deploy, or prod.
+  production is broken; use `pnpm exec agent-native start`, a preview deploy, or prod.
 - Don't scope the `navigate` write to the agent token, or pass privileged
   state through the deep link — it's a pure pointer.
 - Don't invent a new navigation mechanism; bridge to the existing

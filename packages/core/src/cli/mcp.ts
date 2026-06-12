@@ -518,7 +518,7 @@ async function cmdInstall(p: ParsedArgs): Promise<void> {
   const client = (p.client ?? "").toLowerCase() as ClientId;
   if (!CLIENTS.includes(client)) {
     logErr(
-      `Usage: agent-native mcp install --client ${CLIENTS.join("|")} ` +
+      `Usage: npx @agent-native/core@latest mcp install --client ${CLIENTS.join("|")} ` +
         `[--app <id>] [--scope user|project]`,
     );
     process.exit(1);
@@ -568,7 +568,7 @@ async function cmdInstall(p: ParsedArgs): Promise<void> {
   logOut(
     hostedUrl
       ? `  Mode: http (${hostedUrl})`
-      : `  Mode: stdio (agent-native mcp serve --app ${appId}${
+      : `  Mode: stdio (npx @agent-native/core@latest mcp serve --app ${appId}${
           p.standalone ? " --standalone" : ""
         })`,
   );
@@ -579,7 +579,7 @@ function cmdUninstall(p: ParsedArgs): void {
   const client = (p.client ?? "").toLowerCase() as ClientId;
   if (!CLIENTS.includes(client)) {
     logErr(
-      `Usage: agent-native mcp uninstall --client ${CLIENTS.join("|")} ` +
+      `Usage: npx @agent-native/core@latest mcp uninstall --client ${CLIENTS.join("|")} ` +
         `[--app <id>]`,
     );
     process.exit(1);
@@ -650,30 +650,30 @@ function cmdToken(p: ParsedArgs): void {
   logOut(t.token);
   if (p.rotate) {
     logOut(
-      `  Re-run \`agent-native mcp install --client <c>\` so client configs ` +
+      `  Re-run \`npx @agent-native/core@latest mcp install --client <c>\` so client configs ` +
         `pick up the new token.`,
     );
   }
 }
 
-const HELP = `agent-native mcp — connect external coding agents over MCP
+const HELP = `npx @agent-native/core@latest mcp — connect external coding agents over MCP
 
 Usage:
-  agent-native mcp serve [--app <id>] [--port <n>] [--standalone]
+  npx @agent-native/core@latest mcp serve [--app <id>] [--port <n>] [--standalone]
       Run the MCP stdio transport (what client configs spawn).
       Default: proxy to the running local app; --standalone builds from disk.
 
-  agent-native mcp install --client <c> [--app <id>] [--scope user|project]
+  npx @agent-native/core@latest mcp install --client <c> [--app <id>] [--scope user|project]
       Provision a token and write the client's MCP config (idempotent).
       Clients: claude-code, claude-code-cli, codex, cowork
 
-  agent-native mcp uninstall --client <c> [--app <id>]
+  npx @agent-native/core@latest mcp uninstall --client <c> [--app <id>]
       Remove the named MCP entry from a client's config (idempotent).
 
-  agent-native mcp status
+  npx @agent-native/core@latest mcp status
       Show resolved MCP URL/port, token state, and per-client entries.
 
-  agent-native mcp token [--rotate]
+  npx @agent-native/core@latest mcp token [--rotate]
       Print (or rotate) the local ACCESS_TOKEN in the workspace .env.`;
 
 export async function runMcp(args: string[]): Promise<void> {

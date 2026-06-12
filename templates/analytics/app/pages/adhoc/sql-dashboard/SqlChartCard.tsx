@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   IconGripVertical,
@@ -77,10 +77,51 @@ export function SqlChartCard({
 
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [exportCsv, setExportCsv] = useState<(() => void) | null>(null);
+  const [shouldLoadData, setShouldLoadData] = useState(
+    panel.chartType === "section",
+  );
+  const cardRef = useRef<HTMLDivElement | null>(null);
+
+  const setCardNodeRef = useCallback(
+    (node: HTMLDivElement | null) => {
+      setNodeRef(node);
+      cardRef.current = node;
+    },
+    [setNodeRef],
+  );
 
   const handleExportCsvChange = useCallback((handler: (() => void) | null) => {
     setExportCsv(handler ? () => handler : null);
   }, []);
+
+  useEffect(() => {
+    if (panel.chartType === "section") {
+      setShouldLoadData(true);
+      return;
+    }
+
+    setShouldLoadData(false);
+    const node = cardRef.current;
+    if (!node || typeof IntersectionObserver === "undefined") {
+      setShouldLoadData(true);
+      return;
+    }
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) {
+          setShouldLoadData(true);
+          observer.disconnect();
+        }
+      },
+      {
+        rootMargin: "800px 0px",
+        threshold: 0.01,
+      },
+    );
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [panel.chartType, panel.id]);
 
   useEffect(() => {
     setExportCsv(null);
@@ -99,7 +140,7 @@ export function SqlChartCard({
   if (panel.chartType === "section") {
     return (
       <div
-        ref={setNodeRef}
+        ref={setCardNodeRef}
         style={style}
         className="group relative mt-2 first:mt-0"
       >
@@ -192,7 +233,7 @@ export function SqlChartCard({
 
   return (
     <div
-      ref={setNodeRef}
+      ref={setCardNodeRef}
       style={style}
       className="group relative h-full hover:z-20 focus-within:z-20"
     >
@@ -299,6 +340,7 @@ export function SqlChartCard({
           <SqlChart
             panel={panel}
             resolvedSql={resolvedSql}
+            loadData={shouldLoadData}
             onExportCsvChange={handleExportCsvChange}
           />
         </CardContent>

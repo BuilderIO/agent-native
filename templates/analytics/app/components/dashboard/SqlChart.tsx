@@ -157,6 +157,10 @@ function formatSeriesLabel(value: string): string {
     "state",
     "collector",
     "name",
+    "route",
+    "status",
+    "phase",
+    "dependency",
     "type",
     "quantile",
     "le",
@@ -181,7 +185,7 @@ function csvEscape(value: string): string {
 }
 
 function usesPrometheusPresentation(panel: SqlPanel): boolean {
-  return panel.source === "prometheus";
+  return panel.source === "prometheus" || panel.source === "demo";
 }
 
 function formatSeriesLabelForPanel(panel: SqlPanel, value: string): string {
@@ -429,23 +433,26 @@ interface SqlChartProps {
   /** SQL with dashboard variables already interpolated. Falls back to panel.sql. */
   resolvedSql?: string;
   className?: string;
+  loadData?: boolean;
   onExportCsvChange?: (handler: (() => void) | null) => void;
 }
 
 export function SqlChart({
   panel,
   resolvedSql,
+  loadData = true,
   onExportCsvChange,
 }: SqlChartProps) {
   // Hooks must be called unconditionally before any early return.
   const isSection = panel.chartType === "section";
+  const shouldQuery = !isSection && loadData;
   const sql = serializePanelSql(resolvedSql ?? panel.sql);
   const { data: result, isLoading } = useSqlQuery(
     ["sql-chart", panel.id, sql, panel.source],
     sql,
     panel.source,
     // Skip the query for section panels — they are pure layout with no data.
-    { enabled: !isSection },
+    { enabled: shouldQuery },
   );
 
   const rawRows = result?.rows ?? [];
@@ -484,7 +491,7 @@ export function SqlChart({
   const placeholderMinH = isMetric ? "min-h-12" : "min-h-[250px]";
   const placeholderPadY = isMetric ? "py-2" : "py-8";
 
-  if (isLoading) {
+  if (!loadData || isLoading) {
     return <Skeleton className={`w-full flex-1 ${placeholderMinH}`} />;
   }
 
@@ -613,10 +620,12 @@ function MetricRenderer({
   } else {
     raw = row[valueCol];
   }
+  const valueLabel = panel.config?.valueLabels?.[String(raw)];
   const value =
-    typeof raw === "number"
+    valueLabel ??
+    (typeof raw === "number"
       ? formatYValue(raw, panel.config?.yFormatter)
-      : String(raw ?? "-");
+      : String(raw ?? "-"));
 
   return (
     <div className="flex flex-1 flex-col items-center justify-center py-2 text-center">

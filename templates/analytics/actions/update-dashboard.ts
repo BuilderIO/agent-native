@@ -7,6 +7,7 @@ import {
 import { z } from "zod";
 import { getDashboard, upsertDashboard } from "../server/lib/dashboards-store";
 import { dryRunQuery } from "../server/lib/bigquery";
+import { parseDemoDescriptor } from "../server/lib/demo-source";
 import { interpolate } from "../app/pages/adhoc/sql-dashboard/interpolate";
 import { validateFirstPartyAnalyticsSql } from "../server/lib/first-party-analytics.js";
 import {
@@ -250,6 +251,7 @@ function validateDashboardConfig(
     "ga4",
     "amplitude",
     "first-party",
+    "demo",
     "prometheus",
   ]);
   const isValidColumnCount = (v: unknown): v is number =>
@@ -283,7 +285,7 @@ function validateDashboardConfig(
       }
     }
     if (!isSection && !validSources.has(p.source as string)) {
-      return `panel[${i}].source must be 'bigquery', 'ga4', 'amplitude', 'first-party', or 'prometheus' (got '${p.source}'). source selects the backend — put the PromQL/SQL/table name in sql, not here.`;
+      return `panel[${i}].source must be 'bigquery', 'ga4', 'amplitude', 'first-party', 'demo', or 'prometheus' (got '${p.source}'). source selects the backend — put the PromQL/SQL/table name in sql, not here.`;
     }
     if (
       isSection &&
@@ -336,6 +338,17 @@ async function validatePanelSql(
           validateFirstPartyAnalyticsSql(interpolate(raw, vars));
         } catch (e: any) {
           return `panel[${i}] "${p.title || p.id}" first-party analytics SQL is invalid: ${e?.message ?? e}`;
+        }
+      }
+      continue;
+    }
+    if (p.source === "demo") {
+      const raw = typeof p.sql === "string" ? p.sql : "";
+      if (raw.trim()) {
+        try {
+          parseDemoDescriptor(interpolate(raw, vars));
+        } catch (e: any) {
+          return `panel[${i}] "${p.title || p.id}" demo descriptor is invalid: ${e?.message ?? e}`;
         }
       }
       continue;

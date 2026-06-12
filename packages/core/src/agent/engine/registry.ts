@@ -115,6 +115,22 @@ export function isAgentEnginePackageInstalled(
   return packageNames.every(canResolvePackage);
 }
 
+export function normalizeModelForEngine(
+  engine: Pick<AgentEngine, "name" | "defaultModel" | "supportedModels">,
+  model: string | null | undefined,
+): string {
+  const candidate = typeof model === "string" ? model.trim() : "";
+  if (!candidate) return engine.defaultModel;
+
+  if (engine.name !== "builder") return candidate;
+
+  if (candidate === "auto" || engine.supportedModels.includes(candidate)) {
+    return candidate;
+  }
+
+  return engine.supportedModels.includes("auto") ? "auto" : engine.defaultModel;
+}
+
 function assertAgentEnginePackageInstalled(entry: AgentEngineEntry): void {
   if (isAgentEnginePackageInstalled(entry)) return;
   const installHint = entry.installPackage

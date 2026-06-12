@@ -14,6 +14,7 @@ vi.mock("../server/better-auth-instance.js", () => ({
 }));
 
 import {
+  MCP_OAUTH_ACCESS_TOKEN_TTL_SECONDS,
   MCP_OAUTH_DEFAULT_SCOPE,
   MCP_OAUTH_SCOPES,
   hasMcpOAuthScope,
@@ -187,6 +188,112 @@ describe("signMcpOAuthAccessToken + verifyMcpOAuthAccessToken round-trip", () =>
         audience: RESOURCE,
       }),
     ).resolves.toBeTruthy();
+  });
+});
+
+describe("verifyMcpOAuthAccessToken — audience array (host-drift tolerance)", () => {
+  it("verifies when the token audience is the second entry in the array", async () => {
+    const ALT_RESOURCE = "https://plan.agent-native.com/_agent-native/mcp";
+    const token = await signMcpOAuthAccessToken({
+      ...baseSign,
+      resource: ALT_RESOURCE,
+      issuer: "https://plan.agent-native.com",
+    });
+    // Token was minted for ALT_RESOURCE; request now arrives via RESOURCE.
+    // Passing both as an array must accept the token.
+    const result = await verifyMcpOAuthAccessToken(token, [
+      RESOURCE,
+      ALT_RESOURCE,
+    ]);
+    expect(result).not.toBeNull();
+    expect(result?.userEmail).toBe("owner@example.com");
+  });
+
+  it("verifies when the request-derived resource is the minted audience", async () => {
+    const token = await signMcpOAuthAccessToken(baseSign);
+    // Primary resource is RESOURCE; alt is something else entirely.
+    const result = await verifyMcpOAuthAccessToken(token, [
+      RESOURCE,
+      "https://other.agent-native.com/_agent-native/mcp",
+    ]);
+    expect(result).not.toBeNull();
+  });
+
+  it("normalises trailing slashes when comparing resource claims", async () => {
+    const token = await signMcpOAuthAccessToken(baseSign);
+    // Add a trailing slash — must still match.
+    const result = await verifyMcpOAuthAccessToken(token, [`${RESOURCE}/`]);
+    expect(result).not.toBeNull();
+  });
+
+  it("returns null when audience array has no matching entry", async () => {
+    const token = await signMcpOAuthAccessToken(baseSign);
+    const result = await verifyMcpOAuthAccessToken(token, [
+      "https://wrong.example.com/_agent-native/mcp",
+      "https://also-wrong.example.com/_agent-native/mcp",
+    ]);
+    expect(result).toBeNull();
+  });
+});
+
+describe("verifyMcpOAuthAccessToken — secret rotation tolerance", () => {
+  it("verifies a token signed with A2A_SECRET when A2A_SECRET is later removed (fallback to auth secret would fail, but secret-with-A2A was primary)", async () => {
+    // This assertion remains: removing A2A_SECRET means only fallback is tried.
+    // A token signed under a *different* A2A_SECRET is rejected.
+    process.env.A2A_SECRET = "unique-a2a-secret";
+    const token = await signMcpOAuthAccessToken(baseSign);
+    delete process.env.A2A_SECRET;
+    // "fallback-auth-secret" != "unique-a2a-secret" → still rejected.
+    expect(await verifyMcpOAuthAccessToken(token, RESOURCE)).toBeNull();
+  });
+
+  it("verifies a token signed with fallback-auth-secret after A2A_SECRET is later added", async () => {
+    // Token minted without A2A_SECRET (uses fallback-auth-secret).
+    delete process.env.A2A_SECRET;
+    const token = await signMcpOAuthAccessToken(baseSign);
+    // Now A2A_SECRET is added to the deploy — the old token (signed with
+    // fallback) must still be accepted because we try both secrets.
+    process.env.A2A_SECRET = "newly-added-a2a-secret";
+    const result = await verifyMcpOAuthAccessToken(token, RESOURCE);
+    expect(result).not.toBeNull();
+    expect(result?.userEmail).toBe("owner@example.com");
+  });
+
+  it("does NOT fall through to next secret for expired tokens (expiry is definitive)", async () => {
+    delete process.env.A2A_SECRET;
+    const token = await new jose.SignJWT({
+      typ: "agent-native-mcp-oauth",
+      sub: "owner@example.com",
+      scope: "mcp:read",
+      client_id: "client-abc",
+      resource: RESOURCE,
+    })
+      .setProtectedHeader({ alg: "HS256" })
+      .setAudience(RESOURCE)
+      .setIssuedAt(Math.floor(Date.now() / 1000) - 7200)
+      .setExpirationTime(Math.floor(Date.now() / 1000) - 3600)
+      .sign(new TextEncoder().encode("fallback-auth-secret"));
+    // Expired under the correct secret — must still be rejected.
+    expect(await verifyMcpOAuthAccessToken(token, RESOURCE)).toBeNull();
+  });
+});
+
+describe("MCP_OAUTH_ACCESS_TOKEN_TTL default and env override", () => {
+  const ORIGINAL_ENV = { ...process.env };
+  afterEach(() => {
+    process.env = ORIGINAL_ENV;
+  });
+
+  it("default TTL is 30d (2592000 seconds)", () => {
+    expect(MCP_OAUTH_ACCESS_TOKEN_TTL_SECONDS).toBe(30 * 86400);
+  });
+
+  it("minted token with default TTL has ~30d lifetime", async () => {
+    vi.spyOn(Date, "now").mockReturnValue(1_700_000_000_000);
+    const token = await signMcpOAuthAccessToken(baseSign);
+    const decoded = jose.decodeJwt(token) as any;
+    const lifetimeDays = (decoded.exp - decoded.iat) / 86400;
+    expect(Math.round(lifetimeDays)).toBe(30);
   });
 });
 

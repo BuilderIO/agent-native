@@ -19,6 +19,7 @@ import {
 import {
   getAgentEngineEntry,
   isAgentEnginePackageInstalled,
+  normalizeModelForEngine,
   registerBuiltinEngines,
 } from "../../agent/engine/index.js";
 import {
@@ -106,6 +107,12 @@ async function runSetAppDefault(args: Record<string, string>): Promise<string> {
   if (!entry) return `Error: Unknown engine "${engine}"`;
   if (!isAgentEnginePackageInstalled(entry)) {
     return `Error: Engine "${engine}" requires optional packages that are not installed in this app. Run: pnpm add ${entry.installPackage}`;
+  }
+  if (
+    entry.name === "builder" &&
+    normalizeModelForEngine(entry, model) !== model
+  ) {
+    return `Error: Model "${model}" is not supported by Builder. Choose one of: ${entry.supportedModels.join(", ")}`;
   }
 
   const ctx = currentContext();

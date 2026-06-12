@@ -231,7 +231,10 @@ pub async fn set_feature_config(app: AppHandle, config: FeatureConfig) -> Result
     // round trip. Cheap — it just inspects current state.
     crate::clips::reconcile_region_guides(&app);
     if previous.whisper_model_enabled != config.whisper_model_enabled {
-        let _ = app.emit("whisper:model-enabled-changed", serde_json::json!({ "enabled": config.whisper_model_enabled }));
+        let _ = app.emit(
+            "whisper:model-enabled-changed",
+            serde_json::json!({ "enabled": config.whisper_model_enabled }),
+        );
     }
     let _ = app.emit("app:feature-config-changed", config);
     Ok(())

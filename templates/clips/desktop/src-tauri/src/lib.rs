@@ -206,9 +206,7 @@ pub fn run() {
             #[cfg(target_os = "macos")]
             {
                 let cfg = config::feature_config(app.handle());
-                if cfg.whisper_model_enabled
-                    && !whisper_model::custom_model_override()
-                {
+                if cfg.whisper_model_enabled && !whisper_model::custom_model_override() {
                     let app_handle = app.handle().clone();
                     tauri::async_runtime::spawn(async move {
                         match whisper_model::ensure_model(&app_handle).await {
@@ -217,10 +215,8 @@ pub fn run() {
                             }
                             Err(e) => {
                                 eprintln!("[clips-tray] startup model download failed: {e}");
-                                let _ = app_handle.emit(
-                                    "whisper:model-error",
-                                    serde_json::json!({ "error": e }),
-                                );
+                                let _ = app_handle
+                                    .emit("whisper:model-error", serde_json::json!({ "error": e }));
                             }
                         }
                     });

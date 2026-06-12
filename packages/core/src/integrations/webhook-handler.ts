@@ -15,6 +15,7 @@ import { isLocalDatabase } from "../db/client.js";
 import { readDeployCredentialEnv } from "../server/credential-provider.js";
 import {
   getStoredModelForEngine,
+  normalizeModelForEngine,
   resolveEngine,
 } from "../agent/engine/index.js";
 import {
@@ -567,12 +568,16 @@ async function processIncomingMessage(
               model,
               appId: options.appId,
             });
-            const resolvedModel =
+            const modelCandidate =
               (await getStoredModelForEngine(engine, {
                 appId: options.appId,
               })) ??
               model ??
               engine.defaultModel;
+            const resolvedModel = normalizeModelForEngine(
+              engine,
+              modelCandidate,
+            );
 
             return runAgentLoop({
               engine,

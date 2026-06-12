@@ -137,7 +137,16 @@ function hasDep(pkg: string, cwd: string): boolean {
  */
 function getClientDedupe(cwd: string): string[] {
   // Always dedupe React internals (sub-path exports aren't in peerDeps)
-  const always = new Set(["react", "react-dom", "react-dom/client"]);
+  const always = new Set([
+    "react",
+    "react-dom",
+    "react-dom/client",
+    // Framework routers must share one react-router instance so
+    // FrameworkContext (Meta/Links/Scripts) matches ServerRouter/HydratedRouter.
+    ...(hasDep("react-router", cwd)
+      ? ["react-router", "react-router/dom"]
+      : []),
+  ]);
 
   // Server-only packages that never run in the browser — no point deduping.
   const serverOnly = new Set([
@@ -199,17 +208,45 @@ function getClientDedupe(cwd: string): string[] {
  * the alias is active — otherwise the prebundle is built from a snapshot
  * of dist/ at startup and never picks up new exports).
  */
-function findCoreSrcDir(cwd: string): string | null {
+function findCorePackageRoot(cwd: string): string | null {
+  try {
+    const pkg = JSON.parse(
+      fs.readFileSync(path.join(cwd, "package.json"), "utf-8"),
+    ) as {
+      dependencies?: Record<string, string>;
+      devDependencies?: Record<string, string>;
+    };
+    const spec =
+      pkg.dependencies?.["@agent-native/core"] ??
+      pkg.devDependencies?.["@agent-native/core"];
+    if (typeof spec === "string" && spec.startsWith("file:")) {
+      const rooted = fileURLToPath(spec);
+      if (fs.existsSync(path.join(rooted, "src/index.ts"))) return rooted;
+    }
+  } catch {
+    // package.json missing or unreadable — fall through to path heuristics.
+  }
+
   const candidates = [
     path.resolve(cwd, "../../packages/core"), // templates/<name>/
     path.resolve(cwd, "../core"), // packages/<name>/
+    path.resolve(cwd, "node_modules/@agent-native/core"),
   ];
   for (const candidate of candidates) {
-    if (fs.existsSync(path.join(candidate, "src/index.ts"))) {
-      return path.join(candidate, "src");
+    try {
+      if (!fs.existsSync(candidate)) continue;
+      const root = fs.realpathSync(candidate);
+      if (fs.existsSync(path.join(root, "src/index.ts"))) return root;
+    } catch {
+      continue;
     }
   }
   return null;
+}
+
+function findCoreSrcDir(cwd: string): string | null {
+  const root = findCorePackageRoot(cwd);
+  return root ? path.join(root, "src") : null;
 }
 
 /**
@@ -337,6 +374,12 @@ function getDefaultOptimizeDeps(cwd: string): string[] {
     { specifier: "h3" },
     { specifier: "next-themes" },
     { specifier: "react-hook-form" },
+    ...(hasDep("react-router", cwd)
+      ? [
+          { specifier: "react-router" },
+          { specifier: "react-router/dom", packageName: "react-router" },
+        ]
+      : []),
     { specifier: "sonner" },
     { specifier: "tailwind-merge" },
     { specifier: "zod" },
@@ -1585,3 +1628,8 @@ export function defineConfig(options: ClientConfigOptions = {}): UserConfig {
     },
   };
 }
+
+export {
+  getClientDedupe as _getClientDedupe,
+  findCorePackageRoot as _findCorePackageRoot,
+};

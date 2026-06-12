@@ -13,10 +13,12 @@ export interface SqlQueryResult {
 export async function executeSqlQuery(
   sql: string,
   source: DataSourceType,
+  signal?: AbortSignal,
 ): Promise<SqlQueryResult> {
   const token = await getIdToken();
   const res = await fetch(appApiPath("/api/sql-query"), {
     method: "POST",
+    signal,
     headers: {
       "Content-Type": "application/json",
       ...(token && { Authorization: `Bearer ${token}` }),
@@ -65,7 +67,7 @@ export function useSqlQuery(
 ) {
   return useQuery<SqlQueryResult>({
     queryKey,
-    queryFn: () => executeSqlQuery(sql, source),
+    queryFn: ({ signal }) => executeSqlQuery(sql, source, signal),
     enabled: options?.enabled ?? true,
     refetchInterval: options?.refetchInterval,
     staleTime: 5 * 60 * 1000,

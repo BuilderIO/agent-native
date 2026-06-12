@@ -3,10 +3,6 @@
     "plan": {
       "type": "http",
       "url": "https://plan.agent-native.com/_agent-native/mcp"
-    },
-    "agent-native-plans": {
-      "type": "http",
-      "url": "https://plan.agent-native.com/_agent-native/mcp"
     }
   }
 }

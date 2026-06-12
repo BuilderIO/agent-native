@@ -1,4 +1,5 @@
 import { contextBridge, ipcRenderer } from "electron";
+import path from "node:path";
 import {
   IPC,
   type ActiveWebviewTarget,
@@ -58,6 +59,9 @@ type CodeAgentTranscriptSubscriptionBatch = CodeAgentTranscriptResult & {
 const electronAPI = {
   /** Current OS platform — used by renderer to adapt UI (e.g. traffic lights vs custom controls) */
   platform: process.platform as string,
+
+  /** Dedicated preload for hosted app webviews. Exposes only app-safe bridges. */
+  webviewPreloadPath: path.join(__dirname, "webview.js"),
 
   /** Window chrome controls */
   windowControls: {

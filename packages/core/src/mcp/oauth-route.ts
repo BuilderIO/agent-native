@@ -27,6 +27,7 @@ import {
   touchOAuthRefreshToken,
 } from "./oauth-store.js";
 import {
+  MCP_OAUTH_ACCESS_TOKEN_TTL_SECONDS,
   MCP_OAUTH_DEFAULT_SCOPE,
   MCP_OAUTH_SCOPES,
   normalizeOAuthScope,
@@ -170,6 +171,37 @@ export function getMcpOAuthResource(event: H3Event): string | undefined {
   const issuer = getMcpOAuthIssuer(event);
   if (!issuer) return undefined;
   return `${issuer}/_agent-native/mcp`;
+}
+
+/**
+ * All plausible MCP OAuth resource audiences for the given request, deduped.
+ *
+ * When a configured public base URL differs from the request-derived origin
+ * (e.g. during Netlify deploy-preview or behind a reverse proxy), a token
+ * minted against the configured URL must still verify against the request-
+ * derived URL and vice-versa.  Returns both so `verifyMcpOAuthAccessToken`
+ * accepts either without issuing a 401.
+ */
+export function getMcpOAuthAudiences(event: H3Event): string[] {
+  const derived = getMcpOAuthResource(event);
+  const configured = (() => {
+    const base = configuredPublicBaseUrl();
+    if (!base) return undefined;
+    // Re-apply base path if present so the configured resource is also
+    // base-path-aware, consistent with how getMcpOAuthResource computes it.
+    const withPath = appendConfiguredBasePath(base);
+    return `${withPath}/_agent-native/mcp`;
+  })();
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const r of [derived, configured]) {
+    const n = r?.replace(/\/+$/, "");
+    if (n && !seen.has(n)) {
+      seen.add(n);
+      out.push(n);
+    }
+  }
+  return out;
 }
 
 export function getMcpOAuthProtectedResourceMetadataUrl(
@@ -712,7 +744,7 @@ async function issueTokenSet(params: {
   return {
     access_token: accessToken,
     token_type: "Bearer",
-    expires_in: 3600,
+    expires_in: MCP_OAUTH_ACCESS_TOKEN_TTL_SECONDS,
     refresh_token: refreshToken,
     scope: params.scope,
   };
@@ -792,7 +824,7 @@ async function handleRefreshTokenGrant(
   return json({
     access_token: accessToken,
     token_type: "Bearer",
-    expires_in: 3600,
+    expires_in: MCP_OAUTH_ACCESS_TOKEN_TTL_SECONDS,
     refresh_token: refreshToken,
     scope: existing.scope,
   });

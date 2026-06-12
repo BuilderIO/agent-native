@@ -224,11 +224,6 @@ export function useChatModels({
                 ]
               : []),
           ];
-
-          if (currentModel && !builderModels.includes(currentModel)) {
-            const firstGroup = groups[0];
-            if (firstGroup) firstGroup.models.unshift(currentModel);
-          }
         } else {
           const allowedEngines = new Set([
             "anthropic",
