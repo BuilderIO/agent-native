@@ -118,9 +118,10 @@ exception.
    intake questionnaire. When a source plan already exists,
    pass it as `planText` and preserve the original plan's useful intent while
    producing a standalone plan document, not a revision memo.
-3. Compose or enrich any top UI/product visual surface and write the document
-   with native blocks (see `references/canvas.md` and
-   `references/document-quality.md`). Keep the document close to the standalone
+3. For UI/product plans, compose the top canvas first with the primary
+   wireframes and annotated states, then write the document with native blocks
+   (see `references/canvas.md` and `references/document-quality.md`). Keep the
+   document close to the standalone
    Markdown plan the agent would normally output. If an existing plan was
    provided, carry forward the right facts and decisions without referring to
    the previous draft or explaining how this version differs. For non-visual
@@ -184,6 +185,14 @@ outweighs the value. Keep the pass cheap and non-blocking:
 
 Choose the surface before creating the plan or after reading the source plan. Do
 not add visual chrome by default:
+
+For UI/product plans, the top canvas is usually the primary review surface. Put
+the first meaningful wireframes there, not buried as document-body blocks. Use
+multiple canvas artboards when states matter, such as the default view, an
+overflow menu or popover, a side panel, loading, or error. Put short annotations
+beside frames with `targetId` plus `placement`; keep implementation details,
+tradeoffs, file maps, data contracts, risks, and verification in the document
+body below the canvas.
 
 - **No visual surface** for architecture-only, backend-only, data migration,
   copy-only, or otherwise non-visual plans. Do not use the top canvas for
