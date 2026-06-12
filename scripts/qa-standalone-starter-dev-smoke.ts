@@ -465,6 +465,17 @@ function isNavigationContextError(err: unknown): boolean {
   );
 }
 
+function isTransientDevServerError(err: unknown): boolean {
+  const message = err instanceof Error ? err.message : String(err);
+  return (
+    isNavigationContextError(err) ||
+    message.includes("Failed to fetch") ||
+    message.includes("Vite environment") ||
+    message.includes("HTTP 503") ||
+    message.includes("HTTP 504")
+  );
+}
+
 function isRetryableGotoError(message: string): boolean {
   return (
     message.includes("net::ERR_ABORTED") ||
@@ -487,9 +498,10 @@ async function retryAfterNavigation<T>(
       return await fn();
     } catch (err) {
       lastError = err;
-      if (!isNavigationContextError(err) || attempt === attempts - 1) throw err;
+      if (!isTransientDevServerError(err) || attempt === attempts - 1)
+        throw err;
       log(
-        `${label} interrupted by navigation (attempt ${attempt + 1}/${attempts}), retrying…`,
+        `${label} hit transient dev-server reload (attempt ${attempt + 1}/${attempts}), retrying…`,
       );
       await sleep(delayMs);
     }
@@ -654,6 +666,11 @@ async function readAuthenticatedSessionEmail(page: Page): Promise<string> {
           credentials: "include",
         });
         const text = await response.text();
+        if (!response.ok) {
+          throw new Error(
+            `session read failed with HTTP ${response.status}: ${text.slice(0, 200)}`,
+          );
+        }
         return text ? JSON.parse(text) : null;
       });
       const sessionEmail =
