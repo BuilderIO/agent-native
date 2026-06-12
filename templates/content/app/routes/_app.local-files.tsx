@@ -3,6 +3,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { callAction } from "@agent-native/core/client";
 import {
   IconAlertCircle,
+  IconCircleCheck,
   IconDownload,
   IconFileText,
   IconFolderOpen,
@@ -12,6 +13,7 @@ import {
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
+import { cn } from "@/lib/utils";
 import { useSetPageTitle } from "@/components/layout/HeaderActions";
 import {
   getDesktopContentFiles,
@@ -562,117 +564,141 @@ export default function LocalFilesRoute() {
   const disabled = !directory || busy !== null || restoringDirectory;
 
   return (
-    <div className="flex-1 overflow-auto">
-      <div className="mx-auto flex w-full max-w-4xl flex-col gap-6 px-4 py-6 sm:px-8">
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-          <div className="min-w-0">
-            <h2 className="text-2xl font-bold tracking-tight">Source folder</h2>
-            <p className="mt-1 truncate text-sm text-muted-foreground">
-              {selectedDirectoryName(directory)}
-            </p>
+    <div className="flex-1 overflow-auto bg-background">
+      <div className="mx-auto flex w-full max-w-5xl flex-col gap-5 px-4 py-6 sm:px-8">
+        <div className="flex flex-col gap-4 border-b border-border pb-5">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div className="min-w-0">
+              <h2 className="text-xl font-semibold tracking-tight">
+                Source folder
+              </h2>
+              <div className="mt-2 inline-flex max-w-full items-center gap-2 rounded-md border border-border bg-muted/30 px-2.5 py-1 text-sm text-muted-foreground">
+                <IconFolderOpen className="size-4 shrink-0" />
+                <span className="truncate">
+                  {selectedDirectoryName(directory)}
+                </span>
+              </div>
+            </div>
+            <Button
+              size="sm"
+              variant="outline"
+              className="w-fit"
+              onClick={handleChooseFolder}
+              disabled={!supported || busy !== null || restoringDirectory}
+            >
+              <IconFolderOpen />
+              {busy === "choose"
+                ? "Choosing..."
+                : restoringDirectory
+                  ? "Restoring..."
+                  : "Choose folder"}
+            </Button>
           </div>
-          <Button
-            variant="outline"
-            onClick={handleChooseFolder}
-            disabled={!supported || busy !== null || restoringDirectory}
-          >
-            <IconFolderOpen />
-            {busy === "choose"
-              ? "Choosing..."
-              : restoringDirectory
-                ? "Restoring..."
-                : "Choose folder"}
-          </Button>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <Button size="sm" onClick={handleExport} disabled={disabled}>
+              <IconDownload />
+              {busy === "export" ? "Exporting..." : "Export"}
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={handlePreviewImport}
+              disabled={disabled}
+            >
+              <IconRefresh />
+              {busy === "preview" ? "Previewing..." : "Preview"}
+            </Button>
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={handleImport}
+              disabled={disabled}
+            >
+              <IconUpload />
+              {busy === "import" ? "Importing..." : "Import"}
+            </Button>
+          </div>
         </div>
 
         {!supported && (
-          <div className="rounded-md border border-destructive/30 bg-destructive/5 p-4 text-sm text-destructive">
+          <div className="rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
             Folder access is unavailable in this browser.
           </div>
         )}
 
-        <div className="grid gap-3 sm:grid-cols-3">
-          <Button onClick={handleExport} disabled={disabled}>
-            <IconDownload />
-            {busy === "export" ? "Exporting..." : "Export"}
-          </Button>
-          <Button
-            variant="outline"
-            onClick={handlePreviewImport}
-            disabled={disabled}
-          >
-            <IconRefresh />
-            {busy === "preview" ? "Previewing..." : "Preview"}
-          </Button>
-          <Button
-            variant="secondary"
-            onClick={handleImport}
-            disabled={disabled}
-          >
-            <IconUpload />
-            {busy === "import" ? "Importing..." : "Import"}
-          </Button>
-        </div>
-
-        <Separator />
-
-        <div className="rounded-md border border-border bg-background p-4">
+        <div
+          aria-live="polite"
+          className={cn(
+            "rounded-md border px-3 py-2.5 text-sm",
+            status.kind === "error"
+              ? "border-destructive/30 bg-destructive/5"
+              : status.kind === "idle"
+                ? "border-dashed border-border bg-muted/20"
+                : "border-border bg-muted/20",
+          )}
+        >
           {status.kind === "idle" && (
-            <div className="flex items-start gap-3 text-sm text-muted-foreground">
-              <IconFileText className="mt-0.5 size-4" />
+            <div className="flex items-center gap-2 text-muted-foreground">
+              <IconFileText className="size-4 shrink-0" />
               <span>Pick a folder to sync Markdown source files.</span>
             </div>
           )}
           {status.kind === "success" && (
-            <div className="flex items-start gap-3 text-sm">
-              <IconFileText className="mt-0.5 size-4 text-primary" />
-              <div>
-                <div className="font-medium">{status.title}</div>
-                <div className="mt-1 text-muted-foreground">
-                  {status.detail}
-                </div>
+            <div className="flex items-center gap-2">
+              <IconCircleCheck className="size-4 shrink-0 text-primary" />
+              <div className="min-w-0">
+                <span className="font-medium">{status.title}</span>
+                <span className="mx-2 text-muted-foreground">|</span>
+                <span className="text-muted-foreground">{status.detail}</span>
               </div>
             </div>
           )}
           {status.kind === "error" && (
-            <div className="flex items-start gap-3 text-sm">
-              <IconAlertCircle className="mt-0.5 size-4 text-destructive" />
-              <div>
-                <div className="font-medium text-destructive">
+            <div className="flex items-center gap-2">
+              <IconAlertCircle className="size-4 shrink-0 text-destructive" />
+              <div className="min-w-0">
+                <span className="font-medium text-destructive">
                   {status.title}
-                </div>
-                <div className="mt-1 text-muted-foreground">
-                  {status.detail}
-                </div>
+                </span>
+                <span className="mx-2 text-muted-foreground">|</span>
+                <span className="text-muted-foreground">{status.detail}</span>
               </div>
             </div>
           )}
           {status.kind === "preview" && (
-            <div className="space-y-4 text-sm">
-              <div className="flex items-start gap-3">
-                <IconFileText className="mt-0.5 size-4 text-primary" />
-                <div>
-                  <div className="font-medium">Preview ready</div>
-                  <div className="mt-1 text-muted-foreground">
+            <div className="flex flex-col gap-3">
+              <div className="flex items-center gap-2">
+                <IconFileText className="size-4 shrink-0 text-primary" />
+                <div className="min-w-0">
+                  <span className="font-medium">Preview ready</span>
+                  <span className="mx-2 text-muted-foreground">|</span>
+                  <span className="text-muted-foreground">
                     {resultSummary(status.result)}
-                  </div>
+                  </span>
                 </div>
               </div>
               {(status.result.skipped.length > 0 ||
                 status.result.errors.length > 0) && (
-                <div className="space-y-2 rounded-md bg-muted/40 p-3">
-                  {[...status.result.errors, ...status.result.skipped]
-                    .slice(0, 6)
-                    .map((item) => (
-                      <div key={`${item.path}:${item.reason}`}>
-                        <span className="font-medium">{item.path}</span>
-                        <span className="text-muted-foreground">
-                          {" "}
-                          - {item.reason}
-                        </span>
-                      </div>
-                    ))}
-                </div>
+                <>
+                  <Separator />
+                  <div className="grid gap-1 text-xs">
+                    {[...status.result.errors, ...status.result.skipped]
+                      .slice(0, 6)
+                      .map((item) => (
+                        <div
+                          key={`${item.path}:${item.reason}`}
+                          className="min-w-0"
+                        >
+                          <span className="font-medium">{item.path}</span>
+                          <span className="text-muted-foreground">
+                            {" "}
+                            - {item.reason}
+                          </span>
+                        </div>
+                      ))}
+                  </div>
+                </>
               )}
             </div>
           )}
