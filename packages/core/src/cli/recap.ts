@@ -1717,6 +1717,11 @@ const MARKER = "<!-- pr-visual-recap -->";
 const RECAP_IMAGE_URL_PATH_PATTERN =
   /\/_agent-native\/recap-image\/[0-9a-f]{32,128}\.png$/;
 const RECAP_SCREENSHOT_QUERY_PARAM = "recapScreenshot";
+const RECAP_SCREENSHOT_THEME_QUERY_PARAM = "recapScreenshotTheme";
+const GITHUB_LIGHT_CANVAS_BACKGROUND = "#ffffff";
+const GITHUB_DARK_CANVAS_BACKGROUND = "#0d1117";
+
+type RecapScreenshotTheme = "light" | "dark";
 
 type GitHubComment = {
   id: number;
@@ -1865,6 +1870,18 @@ function originOf(url: string): string {
   }
 }
 
+function trustedRecapImageUrl(
+  raw: string | undefined,
+  base: string,
+): string {
+  const value = (raw || "").trim();
+  return value &&
+    sameOrigin(value, base) &&
+    RECAP_IMAGE_URL_PATH_PATTERN.test(value)
+    ? value
+    : "";
+}
+
 /** Build the sticky comment body from the workflow's environment. */
 export function buildCommentBody(env: NodeJS.ProcessEnv = process.env): string {
   const lines: string[] = [MARKER];
@@ -1955,20 +1972,29 @@ export function buildCommentBody(env: NodeJS.ProcessEnv = process.env): string {
     return lines.join("\n");
   }
 
-  // The image URL is produced by our own recap-image route, but validate it is
+  // Image URLs are produced by our own recap-image route, but validate each is
   // same-origin and matches the canonical hex-token path before embedding it, so
-  // it likewise cannot inject markdown.
-  const imageUrlRaw = (env.RECAP_IMAGE_URL || "").trim();
-  const imageUrl =
-    imageUrlRaw &&
-    sameOrigin(imageUrlRaw, base) &&
-    RECAP_IMAGE_URL_PATH_PATTERN.test(imageUrlRaw)
-      ? imageUrlRaw
-      : "";
+  // they likewise cannot inject markdown or HTML.
+  const lightImageUrl = trustedRecapImageUrl(
+    env.RECAP_LIGHT_IMAGE_URL || env.RECAP_IMAGE_URL,
+    base,
+  );
+  const darkImageUrl = trustedRecapImageUrl(env.RECAP_DARK_IMAGE_URL, base);
+  const fallbackImageUrl = lightImageUrl || darkImageUrl;
   lines.push(`### Here's a [visual recap](${safeUrl}) of what changed:`);
   lines.push("");
-  if (imageUrl) {
-    lines.push(`[![Visual recap](${imageUrl})](${safeUrl})`);
+  if (lightImageUrl && darkImageUrl) {
+    lines.push(`<a href="${safeUrl}">`);
+    lines.push(`<picture>`);
+    lines.push(
+      `  <source media="(prefers-color-scheme: dark)" srcset="${darkImageUrl}">`,
+    );
+    lines.push(`  <img alt="Visual recap" src="${lightImageUrl}">`);
+    lines.push(`</picture>`);
+    lines.push(`</a>`);
+    lines.push("");
+  } else if (fallbackImageUrl) {
+    lines.push(`[![Visual recap](${fallbackImageUrl})](${safeUrl})`);
     lines.push("");
   }
   lines.push(`**[Open the full interactive recap](${safeUrl})**`);
@@ -2186,10 +2212,30 @@ async function defaultImportPlaywright(): Promise<PlaywrightModule> {
   }
 }
 
-export function withRecapScreenshotParams(url: string): string {
+function parseRecapScreenshotTheme(
+  value: string | undefined,
+): RecapScreenshotTheme | undefined {
+  if (value === undefined) return undefined;
+  if (value === "light" || value === "dark") return value;
+  throw new Error("--theme must be light or dark.");
+}
+
+function recapScreenshotBackground(theme: RecapScreenshotTheme): string {
+  return theme === "dark"
+    ? GITHUB_DARK_CANVAS_BACKGROUND
+    : GITHUB_LIGHT_CANVAS_BACKGROUND;
+}
+
+export function withRecapScreenshotParams(
+  url: string,
+  options: { theme?: RecapScreenshotTheme } = {},
+): string {
   try {
     const parsed = new URL(url);
     parsed.searchParams.set(RECAP_SCREENSHOT_QUERY_PARAM, "1");
+    if (options.theme) {
+      parsed.searchParams.set(RECAP_SCREENSHOT_THEME_QUERY_PARAM, options.theme);
+    }
     return parsed.toString();
   } catch {
     return url;
@@ -2205,6 +2251,7 @@ export async function runShot(
   const out = optionalArg(args, "out") ?? "recap.png";
   const token = optionalArg(args, "token");
   const appUrl = optionalArg(args, "app-url");
+  const theme = parseRecapScreenshotTheme(optionalArg(args, "theme"));
 
   const done = (obj: Record<string, unknown>) => {
     process.stdout.write(`${JSON.stringify(obj)}\n`);
@@ -2231,7 +2278,7 @@ export async function runShot(
       return;
     }
   }
-  const captureUrl = withRecapScreenshotParams(url);
+  const captureUrl = withRecapScreenshotParams(url, { theme });
 
   let chromium: import("playwright").BrowserType | undefined;
   try {
@@ -2252,7 +2299,35 @@ export async function runShot(
     const context = await browser.newContext({
       viewport: RECAP_SHOT_VIEWPORT,
       deviceScaleFactor: RECAP_SHOT_DEVICE_SCALE_FACTOR,
+      ...(theme ? { colorScheme: theme } : {}),
     });
+    if (theme) {
+      await context.addInitScript(
+        ({ background, nextTheme }) => {
+          const applyTheme = () => {
+            try {
+              window.localStorage.setItem("theme", nextTheme);
+            } catch {
+              /* ignore */
+            }
+            const root = document.documentElement;
+            root.classList.remove("light", "dark");
+            root.classList.add(nextTheme);
+            root.setAttribute("data-theme", nextTheme);
+            root.style.colorScheme = nextTheme;
+            root.style.backgroundColor = background;
+            if (document.body) {
+              document.body.style.backgroundColor = background;
+            }
+          };
+          applyTheme();
+          document.addEventListener("DOMContentLoaded", applyTheme, {
+            once: true,
+          });
+        },
+        { background: recapScreenshotBackground(theme), nextTheme: theme },
+      );
+    }
     if (attachToken) {
       // Attach the bearer ONLY to same-origin requests. Context-wide
       // extraHTTPHeaders would also send it to every cross-origin subresource
@@ -2290,9 +2365,21 @@ export async function runShot(
       }
     }
     await page.waitForTimeout(matched ? 1_200 : 500);
-    await page.evaluate(() => {
+    await page.evaluate((background) => {
       (document.documentElement as HTMLElement).style.zoom = "100%";
-    });
+      if (!background) return;
+      const root = document.documentElement as HTMLElement;
+      root.style.backgroundColor = background;
+      document.body.style.backgroundColor = background;
+      for (const selector of [
+        ".plans-workspace",
+        "[data-plan-reader]",
+        "[data-plan-document]",
+      ]) {
+        const el = document.querySelector<HTMLElement>(selector);
+        if (el) el.style.backgroundColor = background;
+      }
+    }, theme ? recapScreenshotBackground(theme) : "");
     const measuredHeight = await page.evaluate((maxHeight) => {
       const readHeights = (selectors: string[]) => {
         const result: number[] = [];
@@ -3373,7 +3460,7 @@ Usage:
   npx @agent-native/core@latest recap mcp-config --agent claude|codex --app-url <url> [--out <path>]
   npx @agent-native/core@latest recap scan --diff <path>
   npx @agent-native/core@latest recap build-prompt --pr <n> [--repo owner/name] [--head <sha>] [--app-url <url>] [--diff <path>] [--stat <path>] [--prev-plan-id <id>] [--huge] [--local-files] [--local-dir <folder>] [--skill-source auto|latest|repo] [--out <path>]
-  npx @agent-native/core@latest recap shot --url <planUrl> [--token <planToken>] [--app-url <url>] [--out recap.png]
+  npx @agent-native/core@latest recap shot --url <planUrl> [--token <planToken>] [--app-url <url>] [--out recap.png] [--theme light|dark]
   npx @agent-native/core@latest recap usage --plan-url <planUrl> --result-file <path> --app-url <url> --token <planToken> [--agent claude|codex] [--model <id>]
   npx @agent-native/core@latest recap agent-summary --result-file <path> [--stderr-file <path>] [--exit-code-file <path>] [--agent claude|codex]
   npx @agent-native/core@latest recap comment <find-plan-id|upsert> --repo owner/name --issue <n> --token <github-token>
