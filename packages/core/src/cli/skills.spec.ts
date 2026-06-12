@@ -166,6 +166,30 @@ describe("agent-native skills", () => {
     );
   });
 
+  it("authenticates every supported client by default when no client is specified", async () => {
+    const root = tmpDir();
+    const runConnect = vi.fn(async () => {});
+
+    const result = await addAgentNativeSkill(
+      parseSkillsArgs(["add", "assets", "--scope", "project"]),
+      {
+        baseDir: root,
+        isInteractive: () => true,
+        runConnect,
+        runCommand: async () => 0,
+      },
+    );
+
+    expect(result.connected).toBe(true);
+    expect(runConnect).toHaveBeenCalledWith([
+      "https://assets.agent-native.com",
+      "--client",
+      "all",
+      "--scope",
+      "project",
+    ]);
+  });
+
   it("accepts image-generation aliases for the built-in Assets skill", async () => {
     const root = tmpDir();
 

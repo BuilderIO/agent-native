@@ -187,7 +187,7 @@ jobs:
 
       # Dogfood local source inside this monorepo, else the published package.
       # The pnpm steps run ONLY on the local path so npm/yarn consumer repos
-      # (no pnpm-lock.yaml) fall back to `npx @agent-native/core`.
+      # (no pnpm-lock.yaml) fall back to `npx @agent-native/core@latest`.
       - name: Resolve recap CLI
         id: cli
         env:
