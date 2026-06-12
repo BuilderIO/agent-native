@@ -340,7 +340,7 @@ jobs:
             echo "$CLAUDE_STATUS" > claude-exit-code.txt
           }
           run_claude
-          if [ ! -s recap-url.txt ] && grep -Eiq 'schedule(d)? a wakeup|connector.*register|mcp.*register' claude-result.json claude-stderr.log 2>/dev/null; then
+          if [ ! -s recap-url.txt ] && grep -Eiq 'schedule(d)? (a )?(wakeup|retry)|will retry|backoff|connector.*register|mcp.*(register|unreachable|not usable|zero tools|not callable)' claude-result.json claude-stderr.log 2>/dev/null; then
             echo "Plan MCP registration appears delayed; retrying Claude once after 20s."
             sleep 20
             run_claude
@@ -355,7 +355,7 @@ jobs:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         run: |
           set -uo pipefail
-          $RECAP_CLI recap mcp-config --agent codex --app-url "$PLAN_RECAP_APP_URL"
+          $RECAP_CLI recap mcp-config --agent codex --app-url "$PLAN_RECAP_APP_URL" --force
           # `codex login` writes ~/.codex/auth.json (the bare env var is dropped on
           # the gpt-5.5 wss transport); stdin keeps the key out of process args.
           printenv OPENAI_API_KEY | npx -y @openai/codex@0 login --with-api-key || true
@@ -379,7 +379,7 @@ jobs:
             echo "$CODEX_STATUS" > codex-exit-code.txt
           }
           run_codex
-          if [ ! -s recap-url.txt ] && grep -Eiq 'schedule(d)? a wakeup|connector.*register|mcp.*register' codex-events.jsonl codex-stderr.log 2>/dev/null; then
+          if [ ! -s recap-url.txt ] && grep -Eiq 'schedule(d)? (a )?(wakeup|retry)|will retry|backoff|connector.*register|mcp.*(register|unreachable|not usable|zero tools|not callable)' codex-events.jsonl codex-stderr.log 2>/dev/null; then
             echo "Plan MCP registration appears delayed; retrying Codex once after 20s."
             sleep 20
             run_codex

@@ -185,6 +185,27 @@ assert.match(
 );
 
 const desktopShell = read("packages/desktop-app/src/renderer/shell.css");
+const macTrafficLightSafeAreaMatch = desktopShell.match(
+  /--macos-traffic-light-safe-area:\s*(\d+)px/,
+);
+assert.ok(
+  macTrafficLightSafeAreaMatch,
+  "desktop shell must define a macOS traffic-light safe area for the first tab",
+);
+assert.ok(
+  Number(macTrafficLightSafeAreaMatch[1]) >= 140,
+  "desktop shell must reserve enough tab-bar space for macOS traffic lights after fullscreen restore",
+);
+assert.match(
+  desktopShell,
+  /\.platform-darwin\s+\.tabbar\s*\{[^}]*border-left:\s*var\(--macos-traffic-light-safe-area\)\s+solid\s+var\(--tabbar-bg\)/s,
+  "desktop shell must keep the macOS traffic-light safe area outside the scrollable tab row",
+);
+assert.doesNotMatch(
+  desktopShell,
+  /\.platform-darwin\s+\.tabbar\s*\{[^}]*padding-left:/s,
+  "desktop shell must not reserve the macOS traffic-light safe area with scrollable padding",
+);
 assert.doesNotMatch(
   desktopShell,
   /\.webview-slot--hidden\s*\{[^}]*visibility:\s*hidden/s,

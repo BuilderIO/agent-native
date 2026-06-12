@@ -299,6 +299,7 @@ export function AnnotationInlineOverlayStack<A extends RailAnnotation>({
 
     let frame: number | null = null;
     const updatePosition = () => {
+      frame = null;
       const anchorRect = anchor.getBoundingClientRect();
       const portalRect = portalRef.current?.getBoundingClientRect();
       const viewportWidth = Math.max(
@@ -346,13 +347,19 @@ export function AnnotationInlineOverlayStack<A extends RailAnnotation>({
         ),
       });
     };
+    const scheduleUpdatePosition = () => {
+      if (frame != null) return;
+      if (typeof window.requestAnimationFrame === "function") {
+        frame = window.requestAnimationFrame(updatePosition);
+        return;
+      }
+      updatePosition();
+    };
 
     updatePosition();
-    if (typeof window.requestAnimationFrame === "function") {
-      frame = window.requestAnimationFrame(updatePosition);
-    }
+    scheduleUpdatePosition();
     window.addEventListener("resize", updatePosition);
-    window.addEventListener("scroll", updatePosition, {
+    window.addEventListener("scroll", scheduleUpdatePosition, {
       capture: true,
       passive: true,
     });
@@ -361,7 +368,9 @@ export function AnnotationInlineOverlayStack<A extends RailAnnotation>({
         window.cancelAnimationFrame(frame);
       }
       window.removeEventListener("resize", updatePosition);
-      window.removeEventListener("scroll", updatePosition, { capture: true });
+      window.removeEventListener("scroll", scheduleUpdatePosition, {
+        capture: true,
+      });
     };
   }, [containerRef, mode, positionKey, preferredSide, side]);
 
@@ -424,7 +433,7 @@ export function AnnotationInlineOverlayStack<A extends RailAnnotation>({
         aria-hidden
         ref={anchorRef}
         data-annotation-inline-overlay-anchor
-        className="pointer-events-none sticky right-3 z-20 ml-auto h-0 w-0 shrink-0 overflow-visible"
+        className="pointer-events-none absolute right-3 top-0 z-20 h-0 w-0 overflow-visible"
       />
       {portal}
     </>

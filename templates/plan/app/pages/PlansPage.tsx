@@ -2020,6 +2020,7 @@ export function PlansPage() {
   const documentStateRef = useRef<PlanDocumentState | null>(null);
   const pendingDocumentRestoreRef = useRef<PlanDocumentState | null>(null);
   const pendingDocumentRestoreTimerRef = useRef<number | null>(null);
+  const nativeScrollFrameRef = useRef<number | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
   const [annotationsOpen, setAnnotationsOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
@@ -2143,6 +2144,8 @@ export function PlansPage() {
   );
   const planQuery = usePlan(selectedId, commentMutationPendingRef);
   const bundle = planQuery.data;
+  const showInitialPlanSkeleton =
+    !bundle && planQuery.isLoading && !planQuery.isFetched;
   const queryClient = useQueryClient();
   const selectedPlanQueryKey = useMemo(
     () => (selectedId ? planBundleQueryKey(selectedId) : null),
@@ -2690,6 +2693,16 @@ export function PlansPage() {
     });
   }, []);
 
+  const closeInlineComment = useCallback(() => {
+    setAnnotateMode(false);
+    setCanvasMarkupMode("none");
+    setPendingAnnotation(null);
+    setInlineCommentPosition(null);
+    setNativeSelectionComment(null);
+    setFailedCommentDraft(null);
+    window.getSelection()?.removeAllRanges();
+  }, []);
+
   useEffect(() => {
     const onMessage = (event: MessageEvent) => {
       if (event.source !== iframeRef.current?.contentWindow) return;
@@ -2728,6 +2741,11 @@ export function PlansPage() {
       }
       if (data?.type === "agent-native-plan-close-comment-popover") {
         setActiveAnnotation(null);
+      }
+      if (data?.type === "agent-native-plan-exit-comment-mode") {
+        closeInlineComment();
+        setActiveAnnotation(null);
+        setAnnotationsOpen(false);
       }
       if (data?.type === "agent-native-plan-open-editor" && data.href) {
         if (
@@ -2784,20 +2802,11 @@ export function PlansPage() {
     return () => window.removeEventListener("message", onMessage);
   }, [
     bundle?.plan.id,
+    closeInlineComment,
     getPositionFromAnchor,
     persistQuestionFormAnswers,
     planAgentContext,
   ]);
-
-  const closeInlineComment = () => {
-    setAnnotateMode(false);
-    setCanvasMarkupMode("none");
-    setPendingAnnotation(null);
-    setInlineCommentPosition(null);
-    setNativeSelectionComment(null);
-    setFailedCommentDraft(null);
-    window.getSelection()?.removeAllRanges();
-  };
 
   const clearInlineCommentDraft = () => {
     setPendingAnnotation(null);
@@ -3050,15 +3059,46 @@ export function PlansPage() {
     });
   };
 
+  useEffect(() => {
+    if (reviewMode === "none") return;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || event.defaultPrevented) return;
+      event.preventDefault();
+      closeInlineComment();
+      setActiveAnnotation(null);
+      setAnnotationsOpen(false);
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [closeInlineComment, reviewMode]);
+
+  const scheduleNativeMarkerUpdate = useCallback(() => {
+    if (nativeScrollFrameRef.current !== null) return;
+    nativeScrollFrameRef.current = requestAnimationFrame(() => {
+      nativeScrollFrameRef.current = null;
+      setNativeMarkerVersion((version) => version + 1);
+      setActiveAnnotation((current) => {
+        if (!current) return current;
+        const position = getPositionFromAnchor(current.annotation.anchor);
+        return position ? { ...current, position } : current;
+      });
+    });
+  }, [getPositionFromAnchor]);
+
+  useEffect(
+    () => () => {
+      if (nativeScrollFrameRef.current !== null) {
+        cancelAnimationFrame(nativeScrollFrameRef.current);
+        nativeScrollFrameRef.current = null;
+      }
+    },
+    [],
+  );
+
   const handleNativeReaderScroll = () => {
     documentStateRef.current = readNativeDocumentState();
     setNativeSelectionComment(null);
-    setNativeMarkerVersion((version) => version + 1);
-    setActiveAnnotation((current) => {
-      if (!current) return current;
-      const position = getPositionFromAnchor(current.annotation.anchor);
-      return position ? { ...current, position } : current;
-    });
+    scheduleNativeMarkerUpdate();
   };
 
   const readNativeSelectionComment = (): NativeSelectionComment | null => {
@@ -3840,7 +3880,7 @@ export function PlansPage() {
               canCreate={Boolean(session)}
               viewerEmail={session?.email ?? null}
             />
-          ) : !bundle && planQuery.isLoading ? (
+          ) : showInitialPlanSkeleton ? (
             <PlanSkeleton isRecap={location.pathname.startsWith("/recaps")} />
           ) : !bundle ? (
             <PlanLoadError
@@ -3852,31 +3892,33 @@ export function PlansPage() {
             />
           ) : (
             <div className="relative min-h-0 flex-1 overflow-hidden bg-background">
-              {immersiveReader && !recapScreenshotMode && (
-                <div className="pointer-events-none absolute left-3 top-3 z-10">
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon"
-                        className="pointer-events-auto size-8 rounded-lg border border-border/70 bg-background/82 shadow-2xl backdrop-blur-xl"
-                        onClick={() => {
-                          if (session) {
-                            navigate("/plans");
-                          } else {
-                            window.location.href = appPath("/plans");
-                          }
-                        }}
-                        aria-label="Back to plans"
-                      >
-                        <IconArrowLeft className="size-4" />
-                      </Button>
-                    </TooltipTrigger>
-                    <TooltipContent>Back to plans</TooltipContent>
-                  </Tooltip>
-                </div>
-              )}
+              {immersiveReader &&
+                !recapScreenshotMode &&
+                !showingPrototypeSurface && (
+                  <div className="pointer-events-none absolute left-3 top-3 z-10">
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          className="pointer-events-auto size-8 rounded-lg border border-border/70 bg-background/82 shadow-2xl backdrop-blur-xl"
+                          onClick={() => {
+                            if (session) {
+                              navigate("/plans");
+                            } else {
+                              window.location.href = appPath("/plans");
+                            }
+                          }}
+                          aria-label="Back to plans"
+                        >
+                          <IconArrowLeft className="size-4" />
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent>Back to plans</TooltipContent>
+                    </Tooltip>
+                  </div>
+                )}
               <div
                 hidden={recapScreenshotMode}
                 className="pointer-events-none absolute right-3 top-3 z-10 flex items-center gap-1.5 rounded-lg border border-border/70 bg-background/82 p-1 shadow-2xl backdrop-blur-xl"
@@ -6806,7 +6848,6 @@ function AnnotationPopover({
     if (!onClose) return;
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
-        event.stopPropagation();
         onClose();
       }
     };
@@ -7031,7 +7072,6 @@ function AnnotationsPanel({
       if (event.key !== "Escape") return;
       // Only handle Escape if focus is inside this panel.
       if (!panelRef.current?.contains(document.activeElement)) return;
-      event.stopPropagation();
       onClose();
       // Return focus to the toolbar dots-menu trigger if reachable.
       const trigger = document.querySelector<HTMLElement>(
@@ -8431,7 +8471,15 @@ function injectAnnotationRuntime(
       document.addEventListener("mouseup", () => setTimeout(updateSelectionToolbar, 0));
       document.addEventListener("keyup", updateSelectionToolbar);
       document.addEventListener("keydown", (event) => {
-        if (event.key === "Escape") closeEditorMenus();
+        if (event.key === "Escape") {
+          closeEditorMenus();
+          if (state.annotateMode) {
+            event.preventDefault();
+            event.stopPropagation();
+            setRuntimeAnnotateMode(false);
+            window.parent.postMessage({ type: "agent-native-plan-exit-comment-mode" }, "*");
+          }
+        }
       });
       document.addEventListener("change", (event) => {
         const editorSelect = event.target instanceof Element ? event.target.closest("[data-agent-native-editor-select]") : null;

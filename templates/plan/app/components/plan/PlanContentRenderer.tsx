@@ -398,7 +398,6 @@ export function PlanContentRenderer({
         ? ({
             hoverSide: "left",
             hoverFallbackSide: "right",
-            showByDefaultWhenRoom: true,
             marginSide: "auto",
           } as const)
         : undefined,

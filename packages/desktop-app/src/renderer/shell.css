@@ -8,6 +8,7 @@
 :root {
   --sidebar-width: 56px;
   --tabbar-height: 38px;
+  --macos-traffic-light-safe-area: 150px;
   --sidebar-bg: #0a0a0a;
   --sidebar-border: rgba(255, 255, 255, 0.06);
   --item-hover-bg: rgba(255, 255, 255, 0.05);
@@ -140,9 +141,10 @@ body {
   display: none;
 }
 
-/* macOS: pad for traffic lights in the far top-left */
+/* macOS: keep the first tab clear of the native traffic lights.
+   Use a border so the reserved space stays outside the scrollable tab row. */
 .platform-darwin .tabbar {
-  padding-left: 78px;
+  border-left: var(--macos-traffic-light-safe-area) solid var(--tabbar-bg);
 }
 
 .tab {

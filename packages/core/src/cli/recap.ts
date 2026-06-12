@@ -249,6 +249,7 @@ type RecapAgentValue = "claude" | "codex";
 export type RecapAgent = "claude" | "codex";
 
 const DEFAULT_RECAP_APP_URL = "https://plan.agent-native.com";
+const RECAP_MCP_CLIENT_HEADER = "agent-native-pr-visual-recap";
 
 export function normalizeRecapAgent(value: string | undefined): RecapAgent {
   const agent = (value || "claude").toLowerCase();
@@ -1322,7 +1323,11 @@ export function buildRecapClaudeMcpConfig(
       plan: {
         type: "http",
         url,
-        headers: { Authorization: "Bearer " + token },
+        headers: {
+          Authorization: "Bearer " + token,
+          "X-Agent-Native-MCP-Client": RECAP_MCP_CLIENT_HEADER,
+          "X-Agent-Native-MCP-Full-Catalog": "1",
+        },
       },
     },
   });
@@ -1341,7 +1346,8 @@ export function buildRecapCodexMcpConfig(appUrl: string): string {
     "url = " +
     JSON.stringify(url) +
     "\n" +
-    'bearer_token_env_var = "PLAN_RECAP_TOKEN"\n'
+    'bearer_token_env_var = "PLAN_RECAP_TOKEN"\n' +
+    'http_headers = { "X-Agent-Native-MCP-Client" = "agent-native-pr-visual-recap", "X-Agent-Native-MCP-Full-Catalog" = "1" }\n'
   );
 }
 
@@ -1658,7 +1664,7 @@ export function buildRecapPrompt(input: {
       `The \`plan\` MCP server is configured for you. Call its tools by name (your host may expose them as \`get-plan-blocks\` / \`create-visual-recap\` or \`mcp__plan__get-plan-blocks\` / \`mcp__plan__create-visual-recap\` — same tools).`,
     );
     lines.push(
-      "This is a one-shot GitHub Actions run. Do not schedule wakeups, reminders, follow-ups, or retries in another turn; either publish the recap and write `recap-url.txt` in this process, or report the MCP/tool failure plainly.",
+      "This is a one-shot GitHub Actions run. Do not wait, sleep, back off, schedule wakeups, reminders, follow-ups, or retries in another turn. Either publish the recap and write `recap-url.txt` in this process, or report the MCP/tool failure plainly.",
     );
     lines.push(
       "First call `get-plan-blocks`, then call `create-visual-recap`. If `create-visual-recap` is available but `get-plan-blocks` is not, the Plan MCP is connected but the block-registry tool is not visible to this runner. Report that the runner must expose `get-plan-blocks` through the workflow/tool allowlist or compact MCP catalog; do not describe that case as a disconnected Plan MCP.",
@@ -1944,14 +1950,6 @@ export function buildCommentBody(env: NodeJS.ProcessEnv = process.env): string {
         lines.push("");
         lines.push(diagnostic);
       }
-    }
-    // Keep a link to the last-good recap so reviewers are not left in the dark.
-    if (prevPlanId && base) {
-      const prevSafeUrl = `${base}/recaps/${prevPlanId}`;
-      lines.push(
-        "",
-        `Previous recap (from an earlier push): [Open recap](${prevSafeUrl})`,
-      );
     }
     if (markerPlanId) lines.push("", `<!-- plan-id: ${markerPlanId} -->`);
     return lines.join("\n");

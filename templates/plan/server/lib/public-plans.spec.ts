@@ -159,6 +159,15 @@ describe("resolvePublicPlanViewerOwner", () => {
     expect(dbState.lastQueriedId).toBe("plan_priv");
   });
 
+  it("mints a public-viewer identity for a public recap route", async () => {
+    dbState.byId.set("recap_pub", "public");
+    requestUrl = "/recaps/recap_pub";
+
+    const owner = await resolvePublicPlanViewerOwner(makeEvent());
+    expect(owner).toMatch(PUBLIC_RE);
+    expect(dbState.lastQueriedId).toBe("recap_pub");
+  });
+
   it("REFUSES for an unknown / nonexistent plan id", async () => {
     requestUrl = "/plans/plan_does_not_exist";
     const owner = await resolvePublicPlanViewerOwner(makeEvent());

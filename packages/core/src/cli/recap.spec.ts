@@ -315,17 +315,22 @@ describe("recap mcp-config", () => {
       type: "http",
       // Trailing slash trimmed before appending the mcp path.
       url: "https://plan.agent-native.com/_agent-native/mcp",
-      headers: { Authorization: "Bearer tok-123" },
+      headers: {
+        Authorization: "Bearer tok-123",
+        "X-Agent-Native-MCP-Client": "agent-native-pr-visual-recap",
+        "X-Agent-Native-MCP-Full-Catalog": "1",
+      },
     });
   });
 
-  it("writes Codex TOML with a JSON-stringified url and env-var bearer", () => {
+  it("writes Codex TOML with a JSON-stringified url, env-var bearer, and full-catalog headers", () => {
     const toml = buildRecapCodexMcpConfig("https://plan.agent-native.com");
     expect(toml).toBe(
       [
         "[mcp_servers.plan]",
         'url = "https://plan.agent-native.com/_agent-native/mcp"',
         'bearer_token_env_var = "PLAN_RECAP_TOKEN"',
+        'http_headers = { "X-Agent-Native-MCP-Client" = "agent-native-pr-visual-recap", "X-Agent-Native-MCP-Full-Catalog" = "1" }',
         "",
       ].join("\n"),
     );
@@ -436,7 +441,8 @@ describe("recap prompt builder", () => {
     expect(prompt).toContain("mcp__plan__create-visual-recap");
     expect(prompt).toContain("block-registry tool is not visible");
     expect(prompt).toContain("compact MCP catalog");
-    expect(prompt).toContain("Do not schedule wakeups");
+    expect(prompt).toContain("Do not wait, sleep, back off");
+    expect(prompt).toContain("schedule wakeups");
     expect(prompt).toContain("set-resource-visibility");
     expect(prompt).toContain("recap-url.txt");
     expect(prompt).toContain(
@@ -674,7 +680,7 @@ describe("recap comment body", () => {
     expect(body).not.toContain("evil.example.com");
   });
 
-  it("failure branch keeps the last-good plan link labeled as stale when PREV_PLAN_ID is set", () => {
+  it("failure branch preserves the previous plan marker without linking stale recaps", () => {
     const body = buildCommentBody({
       PLAN_URL: "",
       PLAN_RECAP_APP_URL: "https://plan.agent-native.com",
@@ -682,10 +688,8 @@ describe("recap comment body", () => {
       HEAD_SHA: "abcdef1",
     } as NodeJS.ProcessEnv);
     expect(body).toContain("generation failed");
-    // Stale link to the previous recap should be present.
-    expect(body).toContain(
-      "[Open recap](https://plan.agent-native.com/recaps/plan-deadbeef)",
-    );
+    expect(body).not.toContain("Previous recap");
+    expect(body).not.toContain("[Open recap]");
     // Plan-id marker preserved so next success replaces in-place.
     expect(body).toContain("<!-- plan-id: plan-deadbeef -->");
   });
@@ -700,8 +704,8 @@ describe("recap comment body", () => {
     } as NodeJS.ProcessEnv);
     expect(body).toContain("generation failed");
     expect(body).not.toContain("evil.example.com");
-    // Stale link uses the previous plan, not the rejected fresh URL.
-    expect(body).toContain("plan-deadbeef");
+    expect(body).not.toContain("Previous recap");
+    expect(body).not.toContain("[Open recap]");
     expect(body).toContain("<!-- plan-id: plan-deadbeef -->");
   });
 
@@ -1341,6 +1345,15 @@ describe("bundled PR visual recap workflow", () => {
     expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain("recap check complete");
     expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain("Summarize agent failure");
     expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain("recap agent-summary");
+    expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain(
+      "backoff|connector.*register",
+    );
+    expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain(
+      "mcp.*(register|unreachable|not usable|zero tools|not callable)",
+    );
+    expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain(
+      'recap mcp-config --agent codex --app-url "$PLAN_RECAP_APP_URL" --force',
+    );
     expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain("--failure-summary");
     expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain("--stderr-file");
     expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain("--exit-code-file");

@@ -51,7 +51,7 @@ function getAppOrigin(event: H3Event): string | null {
 }
 
 function planIdFromPath(pathname: string): string | null {
-  const match = pathname.match(/(?:^|\/)plans\/([^/?#]+)/);
+  const match = pathname.match(/(?:^|\/)(?:plans|recaps)\/([^/?#]+)/);
   return match?.[1] ? decodeURIComponent(match[1]) : null;
 }
 

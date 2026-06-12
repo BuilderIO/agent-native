@@ -257,6 +257,17 @@ test.describe("nav / routing / error+loading", () => {
     page,
   }) => {
     const bogus = "plan_doesnotexist_zzz";
+    const reloads = trackReloads(page);
+    const planReadStatuses: number[] = [];
+    page.on("response", (resp) => {
+      const url = resp.url();
+      if (
+        url.includes("/_agent-native/actions/get-visual-plan") &&
+        url.includes(bogus)
+      ) {
+        planReadStatuses.push(resp.status());
+      }
+    });
     await page.goto(`/plans/${bogus}`, { waitUntil: "domcontentloaded" });
 
     // It must resolve to a graceful error card within a bounded time — not crash
@@ -283,6 +294,30 @@ test.describe("nav / routing / error+loading", () => {
       ),
       "non-existent plan should communicate a not-found state to the user",
     ).toBeTruthy();
+
+    const reloadsAtNotFound = reloads.count();
+    const readsAtNotFound = planReadStatuses.length;
+    let skeletonAfterNotFound = false;
+    for (let i = 0; i < 7; i++) {
+      const loadingPlanCount = await page
+        .locator("[aria-label='Loading plan']")
+        .count();
+      if (loadingPlanCount > 0 && reloads.count() === reloadsAtNotFound) {
+        skeletonAfterNotFound = true;
+      }
+      await page.waitForTimeout(700);
+    }
+
+    expect(
+      skeletonAfterNotFound,
+      "a settled not-found plan must not flash back to the skeleton during background refreshes",
+    ).toBeFalsy();
+    if (reloads.count() === reloadsAtNotFound) {
+      expect(
+        planReadStatuses.length,
+        "a settled not-found plan should stop the 3s get-visual-plan poll; Retry remains manual",
+      ).toBe(readsAtNotFound);
+    }
   });
 
   test("plan-detail skeleton resolves and does not flip-flop to skeleton without a reload", async ({
