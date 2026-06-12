@@ -24,7 +24,25 @@ conversation. Do not write phrases like "preserve the previous plan", "do not
 drop the old idea", "as discussed above", "this revision", "unlike the prior
 version", or "correction from the earlier plan". Fold the right decisions into
 the plan as normal objective, architecture, scope, and roadmap prose. A reviewer
-who opens the plan from a link with no chat history should understand it.
+who opens the plan from a link with no chat history should understand it. Avoid
+negative framing that only makes sense against absent context ("not the old
+mode", "not just X") unless the contrast is defined in the plan and genuinely
+helps; state the positive model directly.
+
+**Make abstract plans instantly legible.** If the idea is broad, strategic, or
+intended for a third-party reviewer, put one concrete product snapshot near the
+top before dense architecture, mode tables, manifests, or roadmaps. For
+UI-capable concepts, that snapshot is usually a top-canvas app state plus a
+short paragraph that says what the user sees and what changes under the hood.
+Then put mechanics, data flow, sync boundaries, and implementation detail in
+separate diagrams or document sections.
+
+**Preserve the user's level of abstraction.** A motivating use case is not
+automatically the architecture. When the prompt describes a broader framework,
+product mode, or reusable primitive, separate the reusable core from specific
+apps, providers, customers, scripts, or launch examples. Use the concrete
+example to make the plan understandable, then make clear which parts are core,
+which are app-specific adapters, and which are future examples.
 
 **When top visuals exist, they and the document never duplicate each other.**
 For UI work, the UI story lives in the top visual surface: canvas artboards for
@@ -119,6 +137,20 @@ yourself; set `allowOther: false` only when a free-text answer makes no sense.
 Keep non-answerable assumptions or risks as concise `callout` blocks in
 the relevant section. Never bury a questions/decisions wall inside the plan
 narrative, and never ask the same question twice.
+
+For complex plans, do not end without an open-question audit. If architecture,
+scope, UX, data shape, rollout, provider mapping, or ownership still depends on
+a choice, either commit to a recommendation with rationale or add it to the
+bottom form with a recommended default. A complex plan with no open questions is
+fine only when every meaningful decision has been explicitly made.
+
+**Verification must exercise the real workflow.** The final verification section
+should go beyond typecheck/unit tests when the plan changes UI, local files,
+sync, providers, browser behavior, or multi-app flows. Include at least one
+end-to-end smoke that matches the user journey, such as a fresh repo/folder,
+real manifest or data fixture, browser interaction, save/sync action, and an
+on-disk or database assertion. Name the command or manual browser path when it
+is known.
 
 **`custom-html` is a bounded escape hatch only** — a single complete fragment
 inside a block, never `html`/`head`/`body`/`script` tags, never a generic
