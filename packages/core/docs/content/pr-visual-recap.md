@@ -19,9 +19,9 @@ On each PR push, the workflow:
 2. Creates an informational `Visual Recap` GitHub check with `Visual recap in progress`.
 3. Runs the configured coding agent against that diff. The agent reads the bundled `visual-recap` skill guidance (or your repo-pinned copy) and authors a recap, publishing it with `create-visual-recap`.
 4. Reads the published plan URL the agent wrote to `recap-url.txt`.
-5. Opens that URL in headless Chrome and screenshots the rendered plan.
-6. Uploads the PNG to a signed public image route on the Plans app.
-7. Upserts a single sticky PR comment that embeds the screenshot **inline** (served through GitHub's camo image proxy) next to the link to the interactive recap.
+5. Opens that URL in headless Chrome and screenshots the rendered plan in light and dark modes.
+6. Uploads the PNGs to a signed public image route on the Plans app.
+7. Upserts a single sticky PR comment that embeds the screenshots **inline** with a `<picture>` element (served through GitHub's camo image proxy) next to the link to the interactive recap.
 8. Completes the `Visual Recap` check as success, skipped, or neutral.
 
 A re-push updates the same plan and the same sticky comment in place — no orphaned plans, no comment spam.
@@ -134,7 +134,7 @@ The workflow auto-detects how to invoke its helper CLI (local source inside this
 
 ## Inline screenshot in the comment
 
-After the agent publishes the recap, the workflow screenshots the rendered plan in headless Chrome and uploads the PNG to a signed public image route on the Plans app. The sticky PR comment then embeds that screenshot **inline** — GitHub re-serves it through its camo proxy, so reviewers see a preview of the recap directly in the comment without opening anything. The link to the full interactive plan sits right next to it for when they want to explore, comment, or annotate.
+After the agent publishes the recap, the workflow screenshots the rendered plan in headless Chrome in both light and dark modes and uploads the PNGs to a signed public image route on the Plans app. The sticky PR comment then embeds those screenshots **inline** with a `<picture>` element — GitHub re-serves them through its camo proxy, so reviewers see a preview that matches their GitHub theme directly in the comment without opening anything. The link to the full interactive plan sits right next to it for when they want to explore, comment, or annotate.
 
 ## Fork PRs
 
