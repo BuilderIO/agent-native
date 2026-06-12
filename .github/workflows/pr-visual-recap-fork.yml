@@ -267,22 +267,7 @@ jobs:
           set -euo pipefail
           VERSION="$RECAP_CLI_VERSION"
           if [ "$VERSION" = "latest" ]; then
-            VERSION="$(node <<'NODE'
-          const { execFileSync } = require("child_process");
-          const raw = execFileSync("npm", ["view", "@agent-native/core", "versions", "--json"], { encoding: "utf8" });
-          const versions = JSON.parse(raw).filter((v) => /^\d+\.\d+\.\d+$/.test(v));
-          versions.sort((a, b) => {
-            const pa = a.split(".").map(Number);
-            const pb = b.split(".").map(Number);
-            for (let i = 0; i < 3; i++) {
-              if (pa[i] !== pb[i]) return pa[i] - pb[i];
-            }
-            return 0;
-          });
-          if (!versions.length) process.exit(1);
-          process.stdout.write(versions[versions.length - 1]);
-          NODE
-          )"
+            VERSION="$(npm view @agent-native/core@latest version)"
           fi
           for attempt in 1 2 3; do
             if npm install --prefix "$RUNNER_TEMP/recap-cli" --no-audit --no-fund "@agent-native/core@$VERSION"; then
