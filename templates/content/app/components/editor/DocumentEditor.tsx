@@ -48,11 +48,16 @@ import {
 } from "@/blocks/contentBlockRegistry";
 import type { Document, DocumentSyncStatus } from "@shared/api";
 import type { NotionPageLink } from "./VisualEditor";
+import { toast } from "sonner";
 import {
   normalizeTitleText,
   stripMarkdownHeadingPrefixFromTitlePaste,
 } from "./title-text";
 import { cn } from "@/lib/utils";
+import {
+  canWriteLinkedLocalSource,
+  writeDocumentToLinkedLocalSource,
+} from "@/lib/local-content-source-files";
 
 const TAB_ID = generateTabId();
 
@@ -242,6 +247,7 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
   localTitleRef.current = localTitle;
   const localContentRef = useRef(localContent);
   localContentRef.current = localContent;
+  const localSourceWriteErrorShownRef = useRef(false);
   const documentUpdatedAtRef = useRef<string | null>(
     document.updatedAt ?? null,
   );
@@ -420,6 +426,30 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
     }
   }, [document, localTitle, localContent]);
 
+  const writeSavedDocumentToLocalSource = useCallback(
+    async (savedDocument: Document) => {
+      const source = savedDocument.source ?? document.source;
+      if (!canWriteLinkedLocalSource(savedDocument.id, source)) return;
+
+      const result = await writeDocumentToLinkedLocalSource(
+        { ...savedDocument, source },
+        source,
+      );
+      if (result.ok) {
+        localSourceWriteErrorShownRef.current = false;
+        return;
+      }
+
+      if (!localSourceWriteErrorShownRef.current) {
+        toast.error("Saved in Content, but not the local file", {
+          description: result.error,
+        });
+        localSourceWriteErrorShownRef.current = true;
+      }
+    },
+    [document.source],
+  );
+
   const debouncedSave = useCallback(
     (title: string, content: string) => {
       if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
@@ -449,6 +479,7 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
             id: documentId,
             ...updates,
           });
+          await writeSavedDocumentToLocalSource(saved);
           // Adopt the server updatedAt per saved field.
           const savedAt = saved?.updatedAt ?? new Date().toISOString();
           if (updates.title !== undefined) {
@@ -488,7 +519,13 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
         }
       }, 500);
     },
-    [documentId, updateDocument, autoSync, queryClient],
+    [
+      documentId,
+      updateDocument,
+      autoSync,
+      queryClient,
+      writeSavedDocumentToLocalSource,
+    ],
   );
 
   // Collab-aware ingest flush: the `pull-document` action writes a one-shot
@@ -526,6 +563,7 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
                   id: documentId,
                   ...updates,
                 });
+                await writeSavedDocumentToLocalSource(saved);
                 const savedAt = saved?.updatedAt ?? new Date().toISOString();
                 if (updates.title !== undefined) {
                   lastSavedTitleRef.current = { title, updatedAt: savedAt };
@@ -558,7 +596,13 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
       active = false;
       clearTimeout(timer);
     };
-  }, [canEdit, documentId, isLocalFileDocument, updateDocument]);
+  }, [
+    canEdit,
+    documentId,
+    isLocalFileDocument,
+    updateDocument,
+    writeSavedDocumentToLocalSource,
+  ]);
 
   const handleTitleChange = useCallback(
     (newTitle: string) => {
@@ -745,7 +789,18 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
                         defaultIconKind === "database" ? "database" : "page"
                       }
                       onSelect={(emoji) => {
-                        updateDocument.mutate({ id: documentId, icon: emoji });
+                        void (async () => {
+                          setIsSaving(true);
+                          try {
+                            const saved = await updateDocument.mutateAsync({
+                              id: documentId,
+                              icon: emoji,
+                            });
+                            await writeSavedDocumentToLocalSource(saved);
+                          } finally {
+                            setIsSaving(false);
+                          }
+                        })();
                       }}
                     />
                   ) : document.icon ? (

@@ -261,6 +261,52 @@ describe("ShareButton", () => {
     );
   });
 
+  it("buries organization search visibility under Advanced", async () => {
+    const onCheckedChange = vi.fn();
+    sharesData.current = {
+      ownerEmail: "owner@example.com",
+      orgId: "org-1",
+      visibility: "org",
+      role: "owner",
+      shares: [],
+    };
+
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <ShareButton
+            resourceType="document"
+            resourceId="doc-1"
+            hideInSearchControl={{
+              checked: false,
+              label: "Hide in search",
+              description:
+                "Hide from Organization and search. People with the link can still view.",
+              onCheckedChange,
+            }}
+          />
+        </QueryClientProvider>,
+      );
+    });
+
+    const text = container.textContent ?? "";
+    expect(text).toContain("Advanced");
+    expect(text.indexOf("Advanced")).toBeLessThan(
+      text.indexOf("Hide in search"),
+    );
+
+    const switchButton = container.querySelector(
+      'button[role="switch"]',
+    ) as HTMLButtonElement | null;
+    expect(switchButton).toBeTruthy();
+
+    act(() => {
+      switchButton?.click();
+    });
+
+    expect(onCheckedChange).toHaveBeenCalledWith(true);
+  });
+
   it("searches org members on the server and selects a suggestion with the keyboard", async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);

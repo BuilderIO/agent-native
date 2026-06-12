@@ -14,6 +14,7 @@ import {
   IconMarkdown,
   IconSearch,
   IconFileText,
+  IconFolderOpen,
   IconPlus,
   IconHistory,
   IconRefresh,
@@ -67,6 +68,10 @@ import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { useLocalStorage } from "@/hooks/use-local-storage";
 import type { DocumentSourceInfo } from "@shared/api";
+import {
+  localSourceAbsolutePath,
+  revealLinkedLocalSourceFile,
+} from "@/lib/local-content-source-files";
 
 type ExportFormat = "pdf" | "markdown" | "html";
 
@@ -191,6 +196,7 @@ export function DocumentToolbar({
     "set-document-discoverability",
   );
   const exportDocument = useActionMutation("export-document");
+  const revealLocalSource = useActionMutation("reveal-local-source-file");
 
   const createAndLink = useCreateAndLinkNotionPage(documentId);
 
@@ -285,12 +291,48 @@ export function DocumentToolbar({
     [documentId, hideFromSearch, queryClient, setDocumentDiscoverability],
   );
 
-  const handleCopyLocalPath = useCallback(() => {
+  const handleCopyLocalRelativePath = useCallback(() => {
     const filePath = source?.path;
     if (!filePath) return;
     void navigator.clipboard?.writeText(filePath);
-    toast.success("Copied file path");
+    toast.success("Copied relative path");
   }, [source?.path]);
+
+  const handleCopyLocalAbsolutePath = useCallback(async () => {
+    const filePath = await localSourceAbsolutePath(source);
+    if (!filePath) {
+      toast.error("Absolute path is not available in this browser", {
+        description:
+          "Chrome does not expose absolute paths for browser-picked folders.",
+      });
+      return;
+    }
+    void navigator.clipboard?.writeText(filePath);
+    toast.success("Copied absolute path");
+  }, [source]);
+
+  const handleRevealLocalPath = useCallback(async () => {
+    try {
+      const result = await revealLinkedLocalSourceFile(source);
+      if (result.ok) {
+        toast.success("Revealed local file");
+        return;
+      }
+      if (source?.absolutePath) {
+        await revealLocalSource.mutateAsync({ id: documentId });
+        toast.success("Revealed local file");
+        return;
+      }
+      toast.error("Could not reveal local file", {
+        description: result.error,
+      });
+    } catch (error) {
+      toast.error("Could not reveal local file", {
+        description:
+          error instanceof Error ? error.message : "Something went wrong",
+      });
+    }
+  }, [documentId, revealLocalSource, source]);
 
   // Debounce search
   useEffect(() => {
@@ -503,9 +545,22 @@ export function DocumentToolbar({
                   <IconFileText className="mr-2 h-4 w-4 shrink-0" />
                   <span className="truncate">{source?.path}</span>
                 </DropdownMenuItem>
-                <DropdownMenuItem onSelect={handleCopyLocalPath}>
+                <DropdownMenuItem
+                  disabled={revealLocalSource.isPending}
+                  onSelect={() => void handleRevealLocalPath()}
+                >
+                  <IconFolderOpen className="mr-2 h-4 w-4" />
+                  Reveal in Finder
+                </DropdownMenuItem>
+                <DropdownMenuItem onSelect={handleCopyLocalRelativePath}>
                   <IconCopy className="mr-2 h-4 w-4" />
-                  Copy path
+                  Copy relative path
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onSelect={() => void handleCopyLocalAbsolutePath()}
+                >
+                  <IconCopy className="mr-2 h-4 w-4" />
+                  Copy absolute path
                 </DropdownMenuItem>
               </DropdownMenuGroup>
             ) : (
