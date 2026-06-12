@@ -593,6 +593,9 @@ describe("app skill launch and ensure", () => {
       expect(logged.join("\n")).toContain(
         "Skipped URL-only hosted MCP config for codex",
       );
+      expect(logged.join("\n")).toContain(
+        "agent-native connect https://assets.agent-native.com --client codex --scope project",
+      );
     } finally {
       if (previousCodexHome === undefined) delete process.env.CODEX_HOME;
       else process.env.CODEX_HOME = previousCodexHome;

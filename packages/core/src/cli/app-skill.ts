@@ -1249,7 +1249,7 @@ export async function ensureAppSkill(
         ", ",
       )}; run agent-native connect ${manifest.hosted.url} --client ${skippedClients.join(
         ",",
-      )} to write bearer auth.`,
+      )} --scope ${scope} to write bearer auth.`,
     );
   }
 

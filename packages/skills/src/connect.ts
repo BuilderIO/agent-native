@@ -234,10 +234,14 @@ function clientArgForClients(clients: ClientId[]): string {
   return clients.length === 1 ? clients[0] : clients.join(",");
 }
 
-function fallbackConnectCommand(baseUrl: string, clients: ClientId[]): string {
+function fallbackConnectCommand(
+  baseUrl: string,
+  clients: ClientId[],
+  scope: string,
+): string {
   return `npx @agent-native/core@latest connect ${baseUrl} --client ${clientArgForClients(
     clients,
-  )}`;
+  )} --scope ${scope}`;
 }
 
 /** Write a URL-only entry (no bearer) for every config key, collecting files. */
@@ -272,10 +276,14 @@ function writeUrlOnlyEntries(
   }
 }
 
-function manualConnectGuidance(baseUrl: string, clients: ClientId[]): string {
+function manualConnectGuidance(
+  baseUrl: string,
+  clients: ClientId[],
+  scope: string,
+): string {
   return (
     `To authenticate ${describeClients(clients)}, run: ` +
-    fallbackConnectCommand(baseUrl, clients)
+    fallbackConnectCommand(baseUrl, clients, scope)
   );
 }
 
@@ -521,7 +529,7 @@ export async function registerMcpServer(
       if (baseUrl) {
         guidance.push(
           `${describeClients(deviceClients)}: skipped MCP config because this client needs a bearer token.`,
-          manualConnectGuidance(baseUrl, deviceClients),
+          manualConnectGuidance(baseUrl, deviceClients, scope),
         );
       } else {
         guidance.push(
@@ -559,7 +567,7 @@ export async function registerMcpServer(
         // clients to a URL-only hosted entry; keep any existing bearer config.
         guidance.push(
           `${describeClients(deviceClients)}: authentication did not complete; existing MCP config was left unchanged.`,
-          manualConnectGuidance(baseUrl!, deviceClients),
+          manualConnectGuidance(baseUrl!, deviceClients, scope),
         );
       }
     }
