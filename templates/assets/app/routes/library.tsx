@@ -35,6 +35,12 @@ import {
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { DEFAULT_LIBRARY_PRESETS } from "../../shared/library-presets";
 
 type AssetTab = "all" | "generated" | "references";
@@ -257,6 +263,17 @@ function assetThumbnailSources(asset: Asset) {
   return uniqueSources(
     [asset.thumbnailUrl, asset.previewUrl, asset.downloadUrl].map((source) =>
       absoluteAssetUrl(source),
+    ),
+  );
+}
+
+function assetOverlaySources(asset: Asset) {
+  if (shouldUseContentProxyForPreview(asset)) {
+    return uniqueSources([assetContentUrl(asset)]);
+  }
+  return uniqueSources(
+    [asset.previewUrl, asset.downloadUrl, asset.url, asset.thumbnailUrl].map(
+      (source) => absoluteAssetUrl(source),
     ),
   );
 }
@@ -555,6 +572,39 @@ function AssetThumbnail({ asset }: { asset: Asset }) {
   );
 }
 
+function AssetOverlayImage({ asset }: { asset: Asset }) {
+  const sources = assetOverlaySources(asset);
+  const sourcesKey = sources.join("\n");
+  const [sourceIndex, setSourceIndex] = useState(0);
+  const source = sources[sourceIndex];
+
+  useEffect(() => {
+    setSourceIndex(0);
+  }, [sourcesKey]);
+
+  if (!source) {
+    return (
+      <div className="flex aspect-square w-full items-center justify-center rounded-lg bg-muted text-sm text-muted-foreground">
+        Preview unavailable
+      </div>
+    );
+  }
+
+  return (
+    <img
+      src={source}
+      crossOrigin={isCrossOriginPreview(source) ? "anonymous" : undefined}
+      alt={asset.altText ?? asset.title ?? ""}
+      className="max-h-[85vh] w-full rounded-lg object-contain"
+      onError={() =>
+        setSourceIndex((index) =>
+          index + 1 < sources.length ? index + 1 : index,
+        )
+      }
+    />
+  );
+}
+
 export default function AssetPicker() {
   const [searchParams] = useSearchParams();
   const searchParamsKey = searchParams.toString();
@@ -777,6 +827,7 @@ export default function AssetPicker() {
     () => allAssets.filter((asset) => assetMatchesTab(asset, assetTab)),
     [allAssets, assetTab],
   );
+  const [previewAsset, setPreviewAsset] = useState<Asset | null>(null);
   const [standaloneSelection, setStandaloneSelection] = useState<ReturnType<
     typeof assetPayload
   > | null>(null);
@@ -1315,7 +1366,10 @@ export default function AssetPicker() {
                 key={asset.id}
                 type="button"
                 aria-label={`Select ${assetDisplayTitle(asset)}`}
-                onClick={() => chooseAsset(asset)}
+                onClick={() => {
+                  chooseAsset(asset);
+                  if (!embedded) setPreviewAsset(asset);
+                }}
                 title={assetDisplayTitle(asset)}
                 className="group overflow-hidden rounded-md border border-border bg-card text-left shadow-sm transition hover:border-primary/60 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               >
@@ -1338,6 +1392,49 @@ export default function AssetPicker() {
           </div>
         )}
       </main>
+
+      <Dialog
+        open={Boolean(previewAsset)}
+        onOpenChange={(open) => {
+          if (!open) setPreviewAsset(null);
+        }}
+      >
+        {previewAsset && (
+          <DialogContent
+            hideClose
+            className="max-w-4xl border-0 bg-transparent p-0 shadow-none"
+          >
+            <DialogTitle className="sr-only">
+              {assetDisplayTitle(previewAsset)}
+            </DialogTitle>
+            <div className="relative">
+              <DialogClose
+                aria-label="Close preview"
+                className="absolute right-2 top-2 z-10 inline-flex h-9 w-9 items-center justify-center rounded-full bg-black/60 text-white transition hover:bg-black/80 focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
+              >
+                <IconX className="h-5 w-5" />
+              </DialogClose>
+              {previewAsset.mediaType === "video" ||
+              previewAsset.mimeType?.startsWith("video/") ? (
+                <video
+                  src={
+                    previewAsset.previewUrl ??
+                    previewAsset.downloadUrl ??
+                    previewAsset.url
+                  }
+                  poster={previewAsset.thumbnailUrl}
+                  controls
+                  autoPlay
+                  playsInline
+                  className="max-h-[85vh] w-full rounded-lg bg-black object-contain"
+                />
+              ) : (
+                <AssetOverlayImage asset={previewAsset} />
+              )}
+            </div>
+          </DialogContent>
+        )}
+      </Dialog>
     </div>
   );
 }
