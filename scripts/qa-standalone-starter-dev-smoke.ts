@@ -33,7 +33,7 @@ import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import type { Browser, Page } from "playwright";
+import type { APIResponse, Browser, Page } from "playwright";
 
 const repoRoot = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -67,6 +67,21 @@ function log(step: string): void {
 
 const cliEntry = path.join(repoRoot, "packages/core/dist/cli/index.js");
 const nodeBin = process.execPath;
+
+type ApiResponseShape = {
+  ok: boolean | (() => boolean);
+  status: number | (() => number);
+};
+
+function apiResponseOk(response: APIResponse): boolean {
+  const ok = (response as unknown as ApiResponseShape).ok;
+  return typeof ok === "function" ? ok.call(response) : ok;
+}
+
+function apiResponseStatus(response: APIResponse): number {
+  const status = (response as unknown as ApiResponseShape).status;
+  return typeof status === "function" ? status.call(response) : status;
+}
 
 interface ViteReloadTracker {
   /** Wall-clock ms when the latest Vite full-page reload log chunk arrived. */
@@ -677,9 +692,11 @@ async function readAuthenticatedSessionEmail(
           timeout: 5_000,
         });
       const text = await response.text();
-      if (!response.ok()) {
+      const ok = apiResponseOk(response);
+      const status = apiResponseStatus(response);
+      if (!ok) {
         throw new Error(
-          `session read failed with HTTP ${response.status()}: ${text.slice(0, 200)}`,
+          `session read failed with HTTP ${status}: ${text.slice(0, 200)}`,
         );
       }
       const session = text ? JSON.parse(text) : null;
