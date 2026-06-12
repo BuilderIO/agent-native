@@ -372,12 +372,15 @@ async function uniqueFilePath(directory: string, title: string) {
   return candidate;
 }
 
+function isAlreadyExistsError(error: unknown) {
+  return error instanceof Error && error.message.includes("already exists");
+}
+
 export async function createLocalFileDocument(
   args: DocumentCreateRequest,
 ): Promise<Document> {
   const title = args.title || "Untitled";
   const directory = await chooseCreateDirectory(args.parentId ?? null);
-  const path = await uniqueFilePath(directory, title);
   const content = stripDuplicateTitleHeading(args.content ?? "", title);
   const source = upsertFrontmatter(
     "",
@@ -390,12 +393,23 @@ export async function createLocalFileDocument(
     content,
   );
 
-  await writeLocalArtifactFile({
-    ...localOptions(),
-    path,
-    content: source,
-  });
-  return getLocalFileDocument(localFileDocumentId(path));
+  for (let attempt = 0; attempt < 25; attempt += 1) {
+    const path = await uniqueFilePath(directory, title);
+    try {
+      await writeLocalArtifactFile({
+        ...localOptions(),
+        path,
+        content: source,
+        ifNotExists: true,
+      });
+      return getLocalFileDocument(localFileDocumentId(path));
+    } catch (error) {
+      if (isAlreadyExistsError(error)) continue;
+      throw error;
+    }
+  }
+
+  throw new Error(`Could not create a unique local file for "${title}"`);
 }
 
 export async function deleteLocalFileDocument(id: string) {

@@ -99,6 +99,7 @@ export interface LocalArtifactFile extends LocalArtifactFileMeta {
 export interface WriteLocalArtifactFileOptions extends LocalArtifactOptions {
   content: string;
   expectedHash?: string | null;
+  ifNotExists?: boolean;
 }
 
 const MANIFEST_FILE = "agent-native.json";
@@ -414,6 +415,30 @@ function hashContent(content: string): string {
   return crypto.createHash("sha256").update(content).digest("hex");
 }
 
+const writeLocks = new Map<string, Promise<void>>();
+
+async function withWriteLock<T>(
+  absolutePath: string,
+  fn: () => Promise<T>,
+): Promise<T> {
+  const previous = writeLocks.get(absolutePath) ?? Promise.resolve();
+  let release!: () => void;
+  const next = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const current = previous.catch(() => {}).then(() => next);
+  writeLocks.set(absolutePath, current);
+  await previous.catch(() => {});
+  try {
+    return await fn();
+  } finally {
+    release();
+    if (writeLocks.get(absolutePath) === current) {
+      writeLocks.delete(absolutePath);
+    }
+  }
+}
+
 async function fileMetaForPath(
   root: LoadedLocalArtifactRoot,
   artifactPath: string,
@@ -605,25 +630,33 @@ export async function writeLocalArtifactFile(
     app,
     options.path,
   );
-  const existing = await readLocalArtifactFile({ ...options, path: safePath });
-  if (
-    options.expectedHash &&
-    (!existing || existing.hash !== options.expectedHash)
-  ) {
-    throw new Error(
-      `File "${safePath}" changed on disk. Reload before saving again.`,
-    );
-  }
+  return withWriteLock(absolutePath, async () => {
+    const existing = await readLocalArtifactFile({
+      ...options,
+      path: safePath,
+    });
+    if (options.ifNotExists && existing) {
+      throw new Error(`File "${safePath}" already exists`);
+    }
+    if (
+      options.expectedHash &&
+      (!existing || existing.hash !== options.expectedHash)
+    ) {
+      throw new Error(
+        `File "${safePath}" changed on disk. Reload before saving again.`,
+      );
+    }
 
-  await assertNoSymlinkPath(root, absolutePath, { allowMissingLeaf: true });
-  await fs.mkdir(path.dirname(absolutePath), { recursive: true });
-  const tempPath = path.join(
-    path.dirname(absolutePath),
-    `.${path.basename(absolutePath)}.${process.pid}.${crypto.randomUUID()}.tmp`,
-  );
-  await fs.writeFile(tempPath, options.content, "utf8");
-  await fs.rename(tempPath, absolutePath);
-  return fileMetaForPath(root, safePath, absolutePath, options.content);
+    await assertNoSymlinkPath(root, absolutePath, { allowMissingLeaf: true });
+    await fs.mkdir(path.dirname(absolutePath), { recursive: true });
+    const tempPath = path.join(
+      path.dirname(absolutePath),
+      `.${path.basename(absolutePath)}.${process.pid}.${crypto.randomUUID()}.tmp`,
+    );
+    await fs.writeFile(tempPath, options.content, "utf8");
+    await fs.rename(tempPath, absolutePath);
+    return fileMetaForPath(root, safePath, absolutePath, options.content);
+  });
 }
 
 export async function deleteLocalArtifactFile(

@@ -6,6 +6,7 @@ import editDocument from "./edit-document";
 import pullDocument from "./pull-document";
 import searchDocuments from "./search-documents";
 import {
+  createLocalFileDocument,
   localFileDocumentId,
   moveLocalFileDocument,
   updateLocalFileDocument,
@@ -148,6 +149,25 @@ describe("content local file documents", () => {
       title: "Guide",
       content: expect.stringContaining("Alpha gamma needle."),
     });
+  });
+
+  it("does not overwrite files during concurrent same-title creates", async () => {
+    const root = setupLocalContentRepo();
+
+    const [first, second] = await Promise.all([
+      createLocalFileDocument({ title: "Launch Post", content: "First" }),
+      createLocalFileDocument({ title: "Launch Post", content: "Second" }),
+    ]);
+
+    expect(first.source?.path).not.toBe(second.source?.path);
+    expect([
+      readFile(root, first.source?.path ?? ""),
+      readFile(root, second.source?.path ?? ""),
+    ]).toEqual(expect.arrayContaining([expect.stringContaining("First")]));
+    expect([
+      readFile(root, first.source?.path ?? ""),
+      readFile(root, second.source?.path ?? ""),
+    ]).toEqual(expect.arrayContaining([expect.stringContaining("Second")]));
   });
 
   it("fails loudly instead of pretending local file moves succeeded", async () => {

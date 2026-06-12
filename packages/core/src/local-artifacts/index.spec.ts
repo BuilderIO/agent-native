@@ -160,6 +160,56 @@ describe("local artifact helpers", () => {
     );
   });
 
+  it("rejects concurrent writes that race with the same expected hash", async () => {
+    const root = tmpDir();
+    const manifestPath = path.join(root, "agent-native.json");
+    writeJson(manifestPath, {
+      mode: "local-files",
+      apps: {
+        content: {
+          roots: [{ path: "docs", extensions: [".mdx"] }],
+        },
+      },
+    });
+
+    const first = await writeLocalArtifactFile({
+      appId: "content",
+      manifestPath,
+      path: "docs/intro.mdx",
+      content: "# Intro",
+    });
+
+    const results = await Promise.allSettled([
+      writeLocalArtifactFile({
+        appId: "content",
+        manifestPath,
+        path: "docs/intro.mdx",
+        content: "# One",
+        expectedHash: first.hash,
+      }),
+      writeLocalArtifactFile({
+        appId: "content",
+        manifestPath,
+        path: "docs/intro.mdx",
+        content: "# Two",
+        expectedHash: first.hash,
+      }),
+    ]);
+
+    expect(
+      results.filter((result) => result.status === "fulfilled"),
+    ).toHaveLength(1);
+    expect(
+      results.filter((result) => result.status === "rejected"),
+    ).toHaveLength(1);
+    const read = await readLocalArtifactFile({
+      appId: "content",
+      manifestPath,
+      path: "docs/intro.mdx",
+    });
+    expect(["# One", "# Two"]).toContain(read?.content);
+  });
+
   it("blocks traversal outside configured roots", async () => {
     const root = tmpDir();
     const manifestPath = path.join(root, "agent-native.json");
