@@ -108,6 +108,8 @@ const ENV_MANIFEST_NAMES = [
   "AGENT_NATIVE_MANIFEST",
   "AGENT_NATIVE_MANIFEST_PATH",
 ];
+const ALLOW_PRODUCTION_LOCAL_FILES_ENV =
+  "AGENT_NATIVE_ALLOW_LOCAL_FILES_IN_PRODUCTION";
 const DEFAULT_HIDE_PATTERNS = [
   "**/.git/**",
   "**/.agent-native/**",
@@ -258,6 +260,20 @@ function envMode(): AgentNativeDataMode | undefined {
   return normalizeMode(firstEnvValue(ENV_MODE_NAMES));
 }
 
+function envFlag(name: string): boolean {
+  const value = process.env[name]?.trim().toLowerCase();
+  return value === "1" || value === "true" || value === "yes" || value === "on";
+}
+
+function assertLocalFilesRuntimeAllowed(mode: AgentNativeDataMode) {
+  if (mode !== "local-files") return;
+  if (process.env.NODE_ENV !== "production") return;
+  if (envFlag(ALLOW_PRODUCTION_LOCAL_FILES_ENV)) return;
+  throw new Error(
+    `Local file mode is only enabled for local development runtimes. Set ${ALLOW_PRODUCTION_LOCAL_FILES_ENV}=true only for a trusted single-tenant local file bridge.`,
+  );
+}
+
 function envManifestPath(): string | undefined {
   return firstEnvValue(ENV_MANIFEST_NAMES);
 }
@@ -309,15 +325,19 @@ export async function resolveAgentNativeDataMode(
   options: ResolveAgentNativeModeOptions = {},
 ): Promise<AgentNativeDataMode> {
   const explicitMode = envMode();
-  if (explicitMode) return explicitMode;
+  if (explicitMode) {
+    assertLocalFilesRuntimeAllowed(explicitMode);
+    return explicitMode;
+  }
 
   const loaded = await loadAgentNativeManifest({ ...options, optional: true });
   const appMode = options.appId
     ? loaded?.manifest.apps?.[options.appId]?.mode
     : undefined;
-  return (
-    appMode ?? loaded?.manifest.mode ?? options.defaults?.mode ?? "database"
-  );
+  const mode =
+    appMode ?? loaded?.manifest.mode ?? options.defaults?.mode ?? "database";
+  assertLocalFilesRuntimeAllowed(mode);
+  return mode;
 }
 
 export async function isAgentNativeLocalFileMode(

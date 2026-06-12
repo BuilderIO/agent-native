@@ -19,6 +19,9 @@ const OLD_ENV = {
   AGENT_NATIVE_DATA_MODE: process.env.AGENT_NATIVE_DATA_MODE,
   AGENT_NATIVE_MANIFEST: process.env.AGENT_NATIVE_MANIFEST,
   AGENT_NATIVE_MANIFEST_PATH: process.env.AGENT_NATIVE_MANIFEST_PATH,
+  AGENT_NATIVE_ALLOW_LOCAL_FILES_IN_PRODUCTION:
+    process.env.AGENT_NATIVE_ALLOW_LOCAL_FILES_IN_PRODUCTION,
+  NODE_ENV: process.env.NODE_ENV,
 };
 
 afterEach(() => {
@@ -73,6 +76,29 @@ describe("local artifact helpers", () => {
     await expect(
       resolveAgentNativeDataMode({ cwd: root, appId: "content" }),
     ).resolves.toBe("database");
+  });
+
+  it("requires an explicit production override for local file mode", async () => {
+    const root = tmpDir();
+    const manifestPath = path.join(root, "agent-native.json");
+    writeJson(manifestPath, {
+      mode: "local-files",
+      apps: {
+        content: {
+          roots: [{ path: "docs", extensions: [".mdx"] }],
+        },
+      },
+    });
+    process.env.NODE_ENV = "production";
+
+    await expect(
+      resolveAgentNativeDataMode({ cwd: root, appId: "content" }),
+    ).rejects.toThrow("trusted single-tenant local file bridge");
+
+    process.env.AGENT_NATIVE_ALLOW_LOCAL_FILES_IN_PRODUCTION = "true";
+    await expect(
+      resolveAgentNativeDataMode({ cwd: root, appId: "content", manifestPath }),
+    ).resolves.toBe("local-files");
   });
 
   it("lists only configured files inside local roots", async () => {
