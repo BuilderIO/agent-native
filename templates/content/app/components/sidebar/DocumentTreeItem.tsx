@@ -136,8 +136,8 @@ export function DocumentTreeItem({
       }}
     >
       <div
-        {...attributes}
-        {...listeners}
+        {...(isLocalFileNode ? {} : attributes)}
+        {...(isLocalFileNode ? {} : listeners)}
         aria-label={node.title || "Untitled"}
         className={cn(
           "group relative flex min-w-56 items-center gap-1.5 rounded-md py-[5px] pr-2 text-sm cursor-pointer select-none",

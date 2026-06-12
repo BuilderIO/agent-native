@@ -41,8 +41,12 @@ export default function IndexRoute() {
   // Auto-select the first favorite, or the first document if no favorites
   useEffect(() => {
     if (documents && documents.length > 0) {
-      const firstFavorite = documents.find((d) => d.isFavorite);
-      const target = firstFavorite ?? documents[0];
+      const openableDocuments = documents.filter(
+        (document) => document.source?.kind !== "folder",
+      );
+      const firstFavorite = openableDocuments.find((d) => d.isFavorite);
+      const target = firstFavorite ?? openableDocuments[0];
+      if (!target) return;
       navigate(`/page/${target.id}`, { replace: true });
     }
   }, [documents, navigate]);

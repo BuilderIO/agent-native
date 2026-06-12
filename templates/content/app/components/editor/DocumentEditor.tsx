@@ -400,17 +400,23 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
   // stale "unsaved" local text.
   useEffect(() => {
     if (!document || !isInitializedRef.current) return;
-    if (document.title === localTitle) {
+    const titleMatchesLocal = document.title === localTitle;
+    const contentMatchesLocal = document.content === localContent;
+
+    if (titleMatchesLocal) {
       lastSavedTitleRef.current = {
         title: document.title,
         updatedAt: document.updatedAt ?? lastSavedTitleRef.current.updatedAt,
       };
     }
-    if (document.content === localContent) {
+    if (contentMatchesLocal) {
       lastSavedContentRef.current = {
         content: document.content,
         updatedAt: document.updatedAt ?? lastSavedContentRef.current.updatedAt,
       };
+    }
+    if (titleMatchesLocal && contentMatchesLocal) {
+      setIsSaving(false);
     }
   }, [document, localTitle, localContent]);
 
