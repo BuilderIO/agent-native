@@ -1,5 +1,11 @@
 # @agent-native/dispatch
 
+## 0.10.3
+
+### Patch Changes
+
+- c5abc5c: Fix extension secret setup guidance and hosted Dispatch template scaffolding.
+
 ## 0.10.2
 
 ### Patch Changes
