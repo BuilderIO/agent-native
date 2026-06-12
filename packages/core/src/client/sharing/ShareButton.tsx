@@ -32,6 +32,7 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "../components/ui/popover.js";
+import { writeClipboardText } from "../clipboard.js";
 import { useActionQuery, useActionMutation } from "../use-action.js";
 import { cn } from "../utils.js";
 import { agentNativePath } from "../api-path.js";
@@ -1324,12 +1325,11 @@ function CopyLinkField({
   }, []);
 
   const handleCopy = async () => {
-    try {
-      await navigator.clipboard.writeText(value);
+    if (await writeClipboardText(value)) {
       setCopied(true);
       if (resetRef.current) clearTimeout(resetRef.current);
       resetRef.current = setTimeout(() => setCopied(false), 1400);
-    } catch {
+    } else {
       setCopied(false);
     }
   };

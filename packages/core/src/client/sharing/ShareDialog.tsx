@@ -14,6 +14,7 @@ import {
   IconChevronDown,
 } from "@tabler/icons-react";
 import * as Select from "@radix-ui/react-select";
+import { writeClipboardText } from "../clipboard.js";
 import { useActionQuery, useActionMutation } from "../use-action.js";
 import { cn } from "../utils.js";
 import { agentNativePath } from "../api-path.js";
@@ -605,8 +606,11 @@ function CopyField({
   multiline?: boolean;
 }) {
   const [copied, setCopied] = useState(false);
-  const copy = () => {
-    navigator.clipboard.writeText(value).catch(() => {});
+  const copy = async () => {
+    if (!(await writeClipboardText(value))) {
+      setCopied(false);
+      return;
+    }
     setCopied(true);
     setTimeout(() => setCopied(false), 1400);
   };

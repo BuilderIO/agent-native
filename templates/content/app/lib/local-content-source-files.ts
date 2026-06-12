@@ -131,7 +131,8 @@ async function writeBrowserFile(
 function joinDesktopAbsolutePath(folderPath: string, filePath: string) {
   const folder = folderPath.replace(/[\\/]+$/, "");
   const separator = folder.includes("\\") ? "\\" : "/";
-  const folderName = folder.split(/[\\/]/).filter(Boolean).at(-1);
+  const folderParts = folder.split(/[\\/]/).filter(Boolean);
+  const folderName = folderParts[folderParts.length - 1];
   let relativePath = filePath;
   if (
     folderName === CONTENT_SOURCE_ROOT &&

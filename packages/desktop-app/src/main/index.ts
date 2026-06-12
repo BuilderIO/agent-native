@@ -4989,7 +4989,9 @@ function normalizeContentFileWriteRequest(
   request: DesktopContentFileWriteRequest,
 ): { path: string; content: string } | null {
   if (!isObject(request) || typeof request.content !== "string") return null;
-  const filePath = normalizeContentSourcePath(firstStringValue(request.path));
+  const filePath = normalizeContentSourcePath(
+    firstStringValue(request.path) ?? "",
+  );
   if (!filePath || !isContentSourceMarkdownPath(filePath)) return null;
   assertContentSourceTextSize(filePath, request.content);
   return { path: filePath, content: request.content };
@@ -4999,7 +5001,9 @@ function normalizeContentFileRevealRequest(
   request: DesktopContentFileRevealRequest,
 ): { path: string } | null {
   if (!isObject(request)) return null;
-  const filePath = normalizeContentSourcePath(firstStringValue(request.path));
+  const filePath = normalizeContentSourcePath(
+    firstStringValue(request.path) ?? "",
+  );
   if (!filePath || !isContentSourceMarkdownPath(filePath)) return null;
   return { path: filePath };
 }
