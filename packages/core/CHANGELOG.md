@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.49.8
+
+### Patch Changes
+
+- 0cd1a64: Route missing LLM credentials through the agent chat run-error card while preserving the legacy `missing_api_key` SSE stream type.
+
 ## 0.49.7
 
 ### Patch Changes
