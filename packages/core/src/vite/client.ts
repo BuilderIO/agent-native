@@ -250,6 +250,30 @@ function findCoreSrcDir(cwd: string): string | null {
 }
 
 /**
+ * Pin react-router imports to the consuming app's install. pnpm keeps a peer
+ * copy under `@agent-native/core/node_modules/react-router`; `resolve.dedupe`
+ * alone can still leave SSR `Meta`/`Links` on a different FrameworkContext
+ * than React Router's dev server router.
+ */
+function getReactRouterAliases(
+  cwd: string,
+): Array<{ find: RegExp; replacement: string }> {
+  if (!hasDep("react-router", cwd)) return [];
+  try {
+    const req = createRequire(path.join(cwd, "package.json"));
+    return [
+      {
+        find: /^react-router\/dom$/,
+        replacement: req.resolve("react-router/dom"),
+      },
+      { find: /^react-router$/, replacement: req.resolve("react-router") },
+    ];
+  } catch {
+    return [];
+  }
+}
+
+/**
  * Every `@agent-native/core` subpath that gets a source alias. Must stay in
  * sync with `getCoreSourceAliases`. Used by `getDefaultOptimizeDeps` to skip
  * prebundling in monorepo mode, and by the consumer config to add them to
@@ -1611,6 +1635,8 @@ export function defineConfig(options: ClientConfigOptions = {}): UserConfig {
       // Radix, etc. — causing "No provider" crashes at runtime.
       dedupe: getClientDedupe(cwd),
       alias: [
+        // Published npm installs: one react-router instance for app + core.
+        ...getReactRouterAliases(cwd),
         // In monorepo dev: resolve @agent-native/core to source for HMR.
         // Uses regex with $ anchor for exact matching to prevent
         // @agent-native/core from prefix-matching @agent-native/core/client.
@@ -1630,4 +1656,5 @@ export function defineConfig(options: ClientConfigOptions = {}): UserConfig {
 export {
   getClientDedupe as _getClientDedupe,
   findCorePackageRoot as _findCorePackageRoot,
+  getReactRouterAliases as _getReactRouterAliases,
 };

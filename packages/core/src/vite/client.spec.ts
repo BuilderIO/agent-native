@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   _findCorePackageRoot,
   _getClientDedupe,
+  _getReactRouterAliases,
   defineConfig,
   isFrameworkDevPath,
   stripMountedDevApiPath,
@@ -640,5 +641,15 @@ describe("local-core dev aliases and router dedupe", () => {
     expect(_findCorePackageRoot(tmpDir)).toBe(coreRoot);
 
     fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it("aliases react-router to the consuming app install", () => {
+    const coreRoot = path.resolve(import.meta.dirname, "../..");
+    const aliases = _getReactRouterAliases(coreRoot);
+    expect(aliases).toHaveLength(2);
+    expect(aliases[0]?.find.test("react-router/dom")).toBe(true);
+    expect(fs.existsSync(aliases[0]!.replacement)).toBe(true);
+    expect(aliases[1]?.find.test("react-router")).toBe(true);
+    expect(fs.existsSync(aliases[1]!.replacement)).toBe(true);
   });
 });

@@ -6785,6 +6785,56 @@ ipcMain.handle(
   },
 );
 
+ipcMain.handle(
+  IPC.CONTENT_FILES_GET_FOLDER,
+  (event: IpcMainInvokeEvent): DesktopContentFilesResult => {
+    const denied = requireContentFilesWebviewAccess(event);
+    if (denied) return denied;
+    const grant = getContentFilesGrant();
+    if (!grant) return { ok: false, error: "No local folder is linked." };
+    return { ok: true, folder: contentFilesFolderInfo(grant) };
+  },
+);
+
+ipcMain.handle(
+  IPC.CONTENT_FILES_CHOOSE_FOLDER,
+  (event: IpcMainInvokeEvent): Promise<DesktopContentFilesResult> => {
+    const denied = requireContentFilesWebviewAccess(event);
+    if (denied) return Promise.resolve(denied);
+    return chooseContentFilesFolder();
+  },
+);
+
+ipcMain.handle(
+  IPC.CONTENT_FILES_WRITE,
+  (
+    event: IpcMainInvokeEvent,
+    request: DesktopContentFilesWriteRequest,
+  ): Promise<DesktopContentFilesResult> => {
+    const denied = requireContentFilesWebviewAccess(event);
+    if (denied) return Promise.resolve(denied);
+    return writeContentFilesForRequest(request);
+  },
+);
+
+ipcMain.handle(
+  IPC.CONTENT_FILES_READ,
+  (event: IpcMainInvokeEvent): Promise<DesktopContentFilesResult> => {
+    const denied = requireContentFilesWebviewAccess(event);
+    if (denied) return Promise.resolve(denied);
+    return readContentFilesForRequest();
+  },
+);
+
+ipcMain.handle(
+  IPC.CONTENT_FILES_CLEAR_FOLDER,
+  (event: IpcMainInvokeEvent): DesktopContentFilesResult => {
+    const denied = requireContentFilesWebviewAccess(event);
+    if (denied) return denied;
+    return clearContentFilesGrant();
+  },
+);
+
 // ---------- IPC: Frame settings ----------
 
 ipcMain.handle(IPC.FRAME_LOAD, () => {
