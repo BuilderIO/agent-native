@@ -192,7 +192,7 @@ jobs:
           # "latest" when unset. Set via repository variable RECAP_CLI_VERSION.
           RECAP_CLI_VERSION: ${{ vars.RECAP_CLI_VERSION || 'latest' }}
         run: |
-          if [ -f packages/core/src/cli/index.ts ]; then
+          if [ "$GITHUB_REPOSITORY" = "BuilderIO/agent-native" ] && [ -f packages/core/src/cli/index.ts ]; then
             echo "local=true" >> "$GITHUB_OUTPUT"
           else
             echo "local=false" >> "$GITHUB_OUTPUT"
