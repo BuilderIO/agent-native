@@ -54,6 +54,11 @@ the canonical runtime shape; MDX is the repo-friendly authoring/export surface.
 In the browser, humans edit `rich-text` prose inline; agents should still use
 `update-rich-text` content patches or source patches for prose, and use
 comments/structured patches for canvas, artboard, wireframe, and diagram edits.
+Never send a partial top-level `content` object as a shortcut to add a canvas,
+frame, or block: `content` is a full structured replacement, so omitted blocks
+or surfaces can disappear. If a full replacement is truly unavoidable, read the
+complete source/JSON first, include every existing block and surface in the new
+payload, and verify the source/export immediately after the update.
 
 **Never emit a titled artboard with no interior wireframe content.** Every artboard
 you place on the canvas must carry an `html` wireframe or reference a wireframe
@@ -80,6 +85,12 @@ are easier to produce. If the canvas/prototype surface cannot represent the
 requested UI fidelity, still keep the closest top-surface representation and
 call out or extend the needed renderer capability. A skeleton/loading mockup
 also lives in a canvas artboard — never move a mockup out of the canvas.
+
+For abstract product concepts, use the canvas to create the first "I get it"
+moment: one real app state near the top showing how the concept appears to a
+user, followed by separate annotations or diagrams for mechanics. Do not make
+the first artboard a hybrid of app UI and architecture notes; the app screen
+should be inspectable as product UI on its own.
 
 **Legacy kit tree.** Older plans set a `screen` array of `{ el, ...props }` kit
 nodes instead of `html`; the renderer still accepts and displays it, but new
