@@ -53,15 +53,16 @@ function readFile(dir: string, filename: string): string {
 /**
  * Shell files that must be byte-identical between scaffold and starter.
  * Each entry is [filename, reason]:
- *   entry.server.tsx — both now re-export the shared core handler; any
- *     future change to the pattern must land in both places at once.
+ *   entry.server.tsx — both import the app-local React Router ServerRouter
+ *     and pass it into the shared core handler; any future change to the
+ *     pattern must land in both places at once.
  *   entry.client.tsx — lightweight hydration entry that sets basename from
  *     APP_BASE_PATH; must stay in sync for workspace-mount correctness.
  */
 const SHELL_FILES: Array<[string, string]> = [
   [
     "entry.server.tsx",
-    "re-exports @agent-native/core/server/entry-server; must be identical",
+    "uses app-local ServerRouter with core entry-server; must be identical",
   ],
   [
     "entry.client.tsx",

@@ -1,13 +1,18 @@
 import { existsSync } from "node:fs";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   agentNativeOgImageResponseHeaders,
   isResvgRuntimeUnavailableError,
   renderAgentNativeOgImageSvg,
+  resolveAgentNativeOgImageAppName,
 } from "./social-og-image.js";
 import { OG_FONT_FAMILY, resolveOgFontFiles } from "./og-fonts.js";
 
 describe("social OG image", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
   it("bundles real font files so text renders without system fonts", () => {
     // Regression guard: Linux serverless runtimes ship neither Arial nor Inter,
     // so the OG text was rendering blank. resvg must get explicit font files.
@@ -31,6 +36,22 @@ describe("social OG image", () => {
     // resvg's fontdb maps font-weight 850 to Regular, not Bold — the title must
     // not use it or the display title renders thin.
     expect(svg).not.toContain('font-weight="850"');
+  });
+
+  it("expands built-in app names before rendering the default title", () => {
+    vi.stubEnv("APP_NAME", "Design");
+    expect(resolveAgentNativeOgImageAppName()).toBe("Agent-Native Design");
+    expect(renderAgentNativeOgImageSvg()).toContain("Agent-Native Design");
+
+    vi.stubEnv("APP_NAME", "slides");
+    expect(resolveAgentNativeOgImageAppName()).toBe("Agent-Native Slides");
+    expect(renderAgentNativeOgImageSvg()).toContain("Agent-Native Slides");
+  });
+
+  it("preserves explicit custom app names in the default title", () => {
+    vi.stubEnv("APP_NAME", "Acme Workspace");
+    expect(resolveAgentNativeOgImageAppName()).toBe("Acme Workspace");
+    expect(renderAgentNativeOgImageSvg()).toContain("Acme Workspace");
   });
 
   it("can return SVG fallback headers", () => {

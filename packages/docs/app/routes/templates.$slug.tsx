@@ -18,7 +18,7 @@ import {
   type Template,
 } from "../components/TemplateCard";
 import { TemplateDocsLink } from "../components/template-docs";
-import { withDefaultSocialImage } from "../seo";
+import { withDefaultSocialImage, withTemplateSocialImage } from "../seo";
 
 function findTemplate(slug: string | undefined) {
   if (slug === "videos") slug = "video";
@@ -42,10 +42,13 @@ export const meta = ({ params }: { params: { slug?: string } }) => {
       { title: "Template Not Found — Agent-Native" },
     ]);
   }
-  return withDefaultSocialImage([
-    { title: `Agent-Native ${template.name} Template` },
-    { name: "description", content: template.description },
-  ]);
+  return withTemplateSocialImage(
+    [
+      { title: `Agent-Native ${template.name} Template` },
+      { name: "description", content: template.description },
+    ],
+    template.name,
+  );
 };
 
 function TemplateFallbackArt({ template }: { template: Template }) {

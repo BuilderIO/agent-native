@@ -2,35 +2,38 @@ import { Link } from "react-router";
 import { useState } from "react";
 import { templates, trackEvent } from "../components/TemplateCard";
 import { TemplateDocsLink } from "../components/template-docs";
-import { withDefaultSocialImage } from "../seo";
+import { withTemplateSocialImage } from "../seo";
 
 export const meta = () =>
-  withDefaultSocialImage([
-    {
-      title:
-        "Agent-Native Content — Open Source Alternative to Notion & Google Docs",
-    },
-    {
-      name: "description",
-      content:
-        "Write and organize content with an AI agent that knows your brand. Open source alternative to Notion and Google Docs. AI-powered writing, editing, and publishing workflows you own.",
-    },
-    {
-      property: "og:title",
-      content:
-        "Agent-Native Content — Open Source Alternative to Notion & Google Docs",
-    },
-    {
-      property: "og:description",
-      content:
-        "Write and organize content with an AI agent that knows your brand.",
-    },
-    {
-      name: "keywords",
-      content:
-        "AI content editor, open source Notion alternative, Google Docs alternative, AI writing tool, AI content management, agent-native content, AI-powered CMS, AI document editor, AI content creation, open source writing app",
-    },
-  ]);
+  withTemplateSocialImage(
+    [
+      {
+        title:
+          "Agent-Native Content — Open Source Alternative to Notion & Google Docs",
+      },
+      {
+        name: "description",
+        content:
+          "Write and organize content with an AI agent that knows your brand. Open source alternative to Notion and Google Docs. AI-powered writing, editing, and publishing workflows you own.",
+      },
+      {
+        property: "og:title",
+        content:
+          "Agent-Native Content — Open Source Alternative to Notion & Google Docs",
+      },
+      {
+        property: "og:description",
+        content:
+          "Write and organize content with an AI agent that knows your brand.",
+      },
+      {
+        name: "keywords",
+        content:
+          "AI content editor, open source Notion alternative, Google Docs alternative, AI writing tool, AI content management, agent-native content, AI-powered CMS, AI document editor, AI content creation, open source writing app",
+      },
+    ],
+    "Content",
+  );
 
 const template = templates.find((t) => t.slug === "content")!;
 

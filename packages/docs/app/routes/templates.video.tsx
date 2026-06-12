@@ -2,35 +2,38 @@ import { Link } from "react-router";
 import { useState } from "react";
 import { templates, trackEvent } from "../components/TemplateCard";
 import { TemplateDocsLink } from "../components/template-docs";
-import { withDefaultSocialImage } from "../seo";
+import { withTemplateSocialImage } from "../seo";
 
 export const meta = () =>
-  withDefaultSocialImage([
-    {
-      title:
-        "Agent-Native Video — Open Source AI Video Editor & Remotion Studio",
-    },
-    {
-      name: "description",
-      content:
-        "Create and edit video compositions with AI. Open source video studio built on Remotion. Track-based animation system, 30+ easing curves, interactive cursor system, 6D camera controls, keyframe editing, and 12 example compositions.",
-    },
-    {
-      property: "og:title",
-      content:
-        "Agent-Native Video — Open Source AI Video Editor & Remotion Studio",
-    },
-    {
-      property: "og:description",
-      content:
-        "Create and edit video compositions with AI. Full animation studio built on Remotion.",
-    },
-    {
-      name: "keywords",
-      content:
-        "AI video editor, AI video generator, open source video editor, Remotion video, AI video creation, agent-native video, programmatic video, AI motion graphics, AI animation tool, open source animation studio, React video editor",
-    },
-  ]);
+  withTemplateSocialImage(
+    [
+      {
+        title:
+          "Agent-Native Video — Open Source AI Video Editor & Remotion Studio",
+      },
+      {
+        name: "description",
+        content:
+          "Create and edit video compositions with AI. Open source video studio built on Remotion. Track-based animation system, 30+ easing curves, interactive cursor system, 6D camera controls, keyframe editing, and 12 example compositions.",
+      },
+      {
+        property: "og:title",
+        content:
+          "Agent-Native Video — Open Source AI Video Editor & Remotion Studio",
+      },
+      {
+        property: "og:description",
+        content:
+          "Create and edit video compositions with AI. Full animation studio built on Remotion.",
+      },
+      {
+        name: "keywords",
+        content:
+          "AI video editor, AI video generator, open source video editor, Remotion video, AI video creation, agent-native video, programmatic video, AI motion graphics, AI animation tool, open source animation studio, React video editor",
+      },
+    ],
+    "Video",
+  );
 
 const template = templates.find((t) => t.slug === "video")!;
 
