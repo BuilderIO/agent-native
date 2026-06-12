@@ -282,9 +282,10 @@ describe("agent-native skills", () => {
       expect(result.mcpUrl).toBe(
         "https://plan.agent-native.com/_agent-native/mcp",
       );
-      expect(
-        fs.readFileSync(path.join(codexHome, "config.toml"), "utf-8"),
-      ).toContain('url = "https://plan.agent-native.com/_agent-native/mcp"');
+      expect(fs.existsSync(path.join(codexHome, "config.toml"))).toBe(false);
+      expect(result.commands).toContain(
+        "npx @agent-native/core@latest connect https://plan.agent-native.com --client codex --scope project",
+      );
       expect(materializedVisualPlan).toContain("pass it as `planText`");
       expect(materializedVisualPlan).toContain("contentPatches");
       expect(materializedVisualPlan).not.toContain("data-plan-tabs");
@@ -786,9 +787,7 @@ describe("agent-native skills", () => {
           path.join(home, ".claude", "skills", "assets", "SKILL.md"),
         ),
       ).toBe(true);
-      expect(
-        fs.readFileSync(path.join(codexHome, "config.toml"), "utf-8"),
-      ).toContain("agent-native-assets");
+      expect(fs.existsSync(path.join(codexHome, "config.toml"))).toBe(false);
       expect(
         JSON.parse(fs.readFileSync(path.join(home, ".claude.json"), "utf-8"))
           .mcpServers["agent-native-assets"].url,
@@ -796,7 +795,11 @@ describe("agent-native skills", () => {
       // Install also authenticates the hosted connector in one step.
       expect(runConnect).toHaveBeenCalledTimes(1);
       expect(runConnect.mock.calls[0][0]).toEqual(
-        expect.arrayContaining(["https://assets.agent-native.com"]),
+        expect.arrayContaining([
+          "https://assets.agent-native.com",
+          "--client",
+          "codex,claude-code",
+        ]),
       );
       expect(stdout.join("")).toContain("MCP config");
       expect(stdout.join("")).toContain("codex, claude-code");
@@ -1294,7 +1297,7 @@ describe("agent-native skills", () => {
     ).rejects.toThrow(/must be a valid URL/);
   });
 
-  it("writes Codex MCP config under CODEX_HOME when set", async () => {
+  it("does not write hosted Codex MCP config without connect auth", async () => {
     const root = tmpDir();
     const home = path.join(root, "home");
     const codexHome = path.join(root, "codex-home");
@@ -1305,7 +1308,7 @@ describe("agent-native skills", () => {
     process.env.HOME = home;
     process.env.CODEX_HOME = codexHome;
     try {
-      await addAgentNativeSkill(
+      const result = await addAgentNativeSkill(
         parseSkillsArgs([
           "add",
           "assets",
@@ -1320,8 +1323,9 @@ describe("agent-native skills", () => {
       );
 
       const codexConfig = path.join(codexHome, "config.toml");
-      expect(fs.readFileSync(codexConfig, "utf-8")).toContain(
-        'url = "https://assets.agent-native.com/_agent-native/mcp"',
+      expect(fs.existsSync(codexConfig)).toBe(false);
+      expect(result.commands).toContain(
+        "npx @agent-native/core@latest connect https://assets.agent-native.com --client codex --scope user",
       );
       expect(fs.existsSync(path.join(home, ".codex", "config.toml"))).toBe(
         false,

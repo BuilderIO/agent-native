@@ -1278,8 +1278,8 @@ export async function ensureAppSkill(
   const uniqueRemoved = [...new Set(allRemovedNames)];
   const logMsg =
     uniqueRemoved.length > 0
-      ? `Registered "${serverName}" for ${clients.join(", ")} at ${plan.mcpUrl}; removed duplicate entries: ${uniqueRemoved.join(", ")}`
-      : `Registered "${serverName}" for ${clients.join(", ")} at ${plan.mcpUrl}`;
+      ? `Registered "${serverName}" for ${writableClients.join(", ")} at ${plan.mcpUrl}; removed duplicate entries: ${uniqueRemoved.join(", ")}`
+      : `Registered "${serverName}" for ${writableClients.join(", ")} at ${plan.mcpUrl}`;
   options.log?.(logMsg);
   return result;
 }

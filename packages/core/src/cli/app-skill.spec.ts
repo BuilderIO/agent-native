@@ -560,4 +560,42 @@ describe("app skill launch and ensure", () => {
       url: "https://assets.agent-native.com/_agent-native/mcp",
     });
   });
+
+  it("does not write URL-only hosted auth config for Codex through ensure", async () => {
+    const root = tmpDir();
+    const codexHome = path.join(root, "codex-home");
+    fs.mkdirSync(codexHome, { recursive: true });
+    const previousCodexHome = process.env.CODEX_HOME;
+    process.env.CODEX_HOME = codexHome;
+    const logged: string[] = [];
+    const loaded = loadAppSkillManifest(writeFixture(root));
+
+    try {
+      const result = await ensureAppSkill(loaded, {
+        clients: ["codex", "claude-code"],
+        scope: "project",
+        baseDir: root,
+        log: (message) => logged.push(message),
+      });
+
+      expect(result.written.map((entry) => entry.client)).toEqual([
+        "claude-code",
+      ]);
+      expect(fs.existsSync(path.join(codexHome, "config.toml"))).toBe(false);
+
+      const config = JSON.parse(
+        fs.readFileSync(path.join(root, ".mcp.json"), "utf-8"),
+      );
+      expect(config.mcpServers["agent-native-assets"]).toEqual({
+        type: "http",
+        url: "https://assets.agent-native.com/_agent-native/mcp",
+      });
+      expect(logged.join("\n")).toContain(
+        "Skipped URL-only hosted MCP config for codex",
+      );
+    } finally {
+      if (previousCodexHome === undefined) delete process.env.CODEX_HOME;
+      else process.env.CODEX_HOME = previousCodexHome;
+    }
+  });
 });
