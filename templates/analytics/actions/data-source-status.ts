@@ -18,6 +18,7 @@ import {
 } from "../server/lib/credential-keys";
 import { tryRequestCredentialContext } from "../server/lib/credentials-context";
 import { getGitHubAccessToken } from "../server/lib/github-oauth";
+import { resolveAnalyticsProviderCredential } from "../server/lib/provider-credentials";
 
 const APP_ID = "analytics";
 
@@ -126,7 +127,16 @@ export default defineAction({
         const configured =
           cfg.key === "GITHUB_TOKEN"
             ? !!(await getGitHubAccessToken(ctx)).token
-            : await hasCredential(cfg.key, ctx);
+            : (cfg.key === "GONG_ACCESS_KEY" ||
+                  cfg.key === "GONG_ACCESS_SECRET") &&
+                (await resolveAnalyticsProviderCredential({
+                  provider: "gong",
+                  keys: [cfg.key],
+                  ctx,
+                  workspaceConnection: false,
+                }))
+              ? true
+              : await hasCredential(cfg.key, ctx);
         return {
           key: cfg.key,
           label: cfg.label,

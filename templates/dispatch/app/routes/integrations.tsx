@@ -1991,13 +1991,6 @@ export default function WorkspaceIntegrationsRoute() {
 
   const grantApps = useMemo<GrantApp[]>(() => {
     const map = new Map<string, GrantApp>();
-    for (const app of data.suggestedApps) {
-      map.set(app.id, {
-        id: app.id,
-        label: app.label,
-        icon: iconForApp(app.id),
-      });
-    }
     for (const app of apps) {
       if (app.archived || app.status === "pending") continue;
       map.set(app.id, {
@@ -2007,7 +2000,7 @@ export default function WorkspaceIntegrationsRoute() {
       });
     }
     return Array.from(map.values());
-  }, [apps, data.suggestedApps]);
+  }, [apps]);
 
   const providerConnections = useMemo(() => {
     const map = new Map<string, WorkspaceConnection[]>();

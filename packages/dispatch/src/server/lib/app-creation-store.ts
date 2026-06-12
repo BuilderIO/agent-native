@@ -1364,6 +1364,8 @@ const ADDABLE_TEMPLATES: AvailableWorkspaceTemplate[] = [
 export async function listAvailableWorkspaceTemplates(): Promise<
   AvailableWorkspaceTemplate[]
 > {
+  if (!isLocalAppCreationRuntime()) return [];
+
   const installed = new Set(
     (await listWorkspaceApps({ includeArchived: true })).map((app) => app.id),
   );

@@ -363,8 +363,9 @@ end up rendering nonsense like the literal text `true`.
 2. **Call an LLM directly via `extensionFetch`.** Requires a real key the
    user has set up. Reference it via `${keys.OPENAI_API_KEY}` /
    `${keys.ANTHROPIC_API_KEY}` and surface a clear error if the proxy
-   reports the key isn't configured. Tell the user where to add the key
-   (Settings → Secrets) before the extension can work.
+   reports the key isn't configured. Tell the user where to add the key:
+   Dispatch Vault for workspace apps, or app Settings → API Keys & Connections
+   for standalone apps.
 
 If you're not sure a key is configured, ask the user before generating an
 extension whose primary value is the AI step.

@@ -14,6 +14,7 @@ import {
   listWorkspaceConnections,
   summarizeWorkspaceConnectionProviderReadiness,
 } from "@agent-native/core/workspace-connections";
+import { dispatchActions } from "@agent-native/dispatch/actions";
 import { z } from "zod";
 
 const httpBoolean = z.preprocess((value) => {
@@ -24,13 +25,17 @@ const httpBoolean = z.preprocess((value) => {
   return value;
 }, z.boolean());
 
-const SUGGESTED_GRANT_APPS = [
-  { id: "dispatch", label: "Dispatch" },
-  { id: "brain", label: "Brain" },
-  { id: "assets", label: "Assets" },
-  { id: "analytics", label: "Analytics" },
-  { id: "mail", label: "Mail" },
-] as const;
+type GrantApp = {
+  id: string;
+  label: string;
+};
+
+type WorkspaceApp = {
+  id: string;
+  name?: string;
+  status?: "ready" | "pending";
+  archived?: boolean;
+};
 
 type GrantSummary = {
   id: string;
@@ -53,6 +58,37 @@ function optionalTimestamp(source: object, key: string) {
   if (value == null) return null;
   if (value instanceof Date) return value.toISOString();
   return String(value);
+}
+
+function humanizeAppId(appId: string): string {
+  return appId
+    .split(/[-_]/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
+async function listGrantApps(): Promise<GrantApp[]> {
+  const listWorkspaceApps = dispatchActions["list-workspace-apps"];
+  if (!listWorkspaceApps) return [{ id: "dispatch", label: "Dispatch" }];
+
+  try {
+    const apps = (await listWorkspaceApps.run({
+      includeAgentCards: false,
+      audience: "all",
+    } as any)) as WorkspaceApp[];
+    const grantApps = apps
+      .filter((app) => !app.archived && app.status !== "pending")
+      .map((app) => ({
+        id: app.id,
+        label: app.name || humanizeAppId(app.id),
+      }));
+    return grantApps.length > 0
+      ? grantApps
+      : [{ id: "dispatch", label: "Dispatch" }];
+  } catch {
+    return [{ id: "dispatch", label: "Dispatch" }];
+  }
 }
 
 export default defineAction({
@@ -96,6 +132,7 @@ export default defineAction({
       provider: args.provider,
       appId: args.appId,
     });
+    const grantApps = await listGrantApps();
     const legacyGrants = connections.flatMap<GrantSummary>((connection) => {
       if (connection.allowedApps.length === 0) {
         return [
@@ -154,7 +191,7 @@ export default defineAction({
         selectedAppIds,
         explicitGrantAppIds,
         effectiveAppIds,
-        trackedApps: SUGGESTED_GRANT_APPS.map((app) => {
+        trackedApps: grantApps.map((app) => {
           const access = getWorkspaceConnectionAppAccess(
             connection,
             app.id,
@@ -213,7 +250,7 @@ export default defineAction({
       connections,
       grants,
       grantSummaries,
-      suggestedApps: SUGGESTED_GRANT_APPS,
+      suggestedApps: grantApps,
       counts: {
         providers: providersWithReadiness.length,
         connections: connections.length,

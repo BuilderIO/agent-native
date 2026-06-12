@@ -362,4 +362,17 @@ describe("listWorkspaceApps", () => {
       expect.arrayContaining(["brain", "assets"]),
     );
   });
+
+  it("hides local scaffold templates in hosted runtimes", async () => {
+    stubNoPendingContext();
+    vi.stubEnv("NETLIFY", "1");
+    stubManifest([{ id: "dispatch", name: "Dispatch", path: "/dispatch" }]);
+
+    const templates = await runWithRequestContext(
+      { userEmail: "dev@example.test" },
+      () => listAvailableWorkspaceTemplates(),
+    );
+
+    expect(templates).toEqual([]);
+  });
 });
