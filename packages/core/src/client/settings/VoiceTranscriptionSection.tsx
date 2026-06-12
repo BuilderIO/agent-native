@@ -714,7 +714,6 @@ export function VoiceTranscriptionSection() {
         </div>
       )}
 
-      {saving && <p className="text-[10px] text-muted-foreground">Saving…</p>}
       {saveError && !saving && (
         <p className="text-[10px] text-red-500" role="alert">
           {saveError}

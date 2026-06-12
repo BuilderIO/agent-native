@@ -1596,14 +1596,16 @@ export function ResourcesPanel() {
             ) : null}
           </div>
           <div className="flex items-center gap-1 shrink-0">
-            {!selectedMcpServer && resourceQuery.data && (
-              <span
-                aria-live="polite"
-                className="mr-1 w-16 text-right text-[11px] text-muted-foreground/60"
-              >
-                {selectedResourceReadOnly ? "Read only" : ""}
-              </span>
-            )}
+            {!selectedMcpServer &&
+              resourceQuery.data &&
+              selectedResourceReadOnly && (
+                <span
+                  aria-live="polite"
+                  className="mr-1 w-16 text-right text-[11px] text-muted-foreground/60"
+                >
+                  Read only
+                </span>
+              )}
             {!selectedMcpServer &&
               resourceQuery.data &&
               (resourceQuery.data.mimeType === "text/markdown" ||
