@@ -224,6 +224,10 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
   const [autoSync] = useLocalStorage(`notion-auto-sync:${documentId}`, false);
   const canEdit = document.canEdit ?? true;
   const isLocalFileDocument = document.source?.mode === "local-files";
+  const isLinkedLocalSourceDocument = canWriteLinkedLocalSource(
+    documentId,
+    document.source,
+  );
   // Polls Notion sync status to drive the conflict banner / sync bar and the
   // push-on-save path below (read via the query cache, not this return value).
   useDocumentSyncStatus(canEdit && !isLocalFileDocument ? documentId : null, {
@@ -357,10 +361,7 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
   }, [document, documentId]);
 
   useEffect(() => {
-    if (
-      !isInitializedRef.current ||
-      !canWriteLinkedLocalSource(documentId, document.source)
-    ) {
+    if (!isInitializedRef.current || !isLinkedLocalSourceDocument) {
       return;
     }
 
@@ -417,7 +418,12 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
     return () => {
       cancelled = true;
     };
-  }, [documentId, document.source?.path, queryClient]);
+  }, [
+    documentId,
+    document.source?.path,
+    isLinkedLocalSourceDocument,
+    queryClient,
+  ]);
 
   // NOTE: External body changes (agent edit, Notion pull, update-document) are
   // reconciled into the editor by VisualEditor via its content prop + the
@@ -430,6 +436,7 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
   // actively editing.
   useEffect(() => {
     if (!document || !isInitializedRef.current) return;
+    if (isLinkedLocalSourceDocument) return;
     const serverTitle = document.title;
     const lastSaved = lastSavedTitleRef.current;
     if (serverTitle === lastSaved.title) return;
@@ -443,13 +450,14 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
         updatedAt: document.updatedAt ?? lastSaved.updatedAt,
       };
     }
-  }, [document, titleExternalIsNewer, localTitle]);
+  }, [document, isLinkedLocalSourceDocument, titleExternalIsNewer, localTitle]);
 
   // Pick up external body changes for the export/toolbar mirror. Adopt when
   // there's no unsaved local divergence, or when the server is genuinely newer;
   // clear any pending save so a stale autosave can't overwrite the fresh body.
   useEffect(() => {
     if (!document || !isInitializedRef.current) return;
+    if (isLinkedLocalSourceDocument) return;
     const serverContent = document.content;
     const lastSaved = lastSavedContentRef.current;
     if (serverContent === lastSaved.content) return;
@@ -465,7 +473,12 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
         updatedAt: document.updatedAt ?? lastSaved.updatedAt,
       };
     }
-  }, [document, contentExternalIsNewer, localContent]);
+  }, [
+    document,
+    isLinkedLocalSourceDocument,
+    contentExternalIsNewer,
+    localContent,
+  ]);
 
   // When polling/SSE refetches confirm the server now matches local editor
   // state, acknowledge it as saved (and adopt its updatedAt watermark). This
@@ -473,6 +486,7 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
   // stale "unsaved" local text.
   useEffect(() => {
     if (!document || !isInitializedRef.current) return;
+    if (isLinkedLocalSourceDocument) return;
     const titleMatchesLocal = document.title === localTitle;
     const contentMatchesLocal = document.content === localContent;
 
@@ -488,7 +502,7 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
         updatedAt: document.updatedAt ?? lastSavedContentRef.current.updatedAt,
       };
     }
-  }, [document, localTitle, localContent]);
+  }, [document, isLinkedLocalSourceDocument, localTitle, localContent]);
 
   const persistDocumentUpdates = useCallback(
     async (updates: {
@@ -561,10 +575,12 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
         // reconciled into the editor yet) with the editor's current — possibly
         // stale — content. Guard per-field using the field's own watermark.
         const titleIsStale =
+          !isLinkedLocalSourceDocument &&
           documentUpdatedAtRef.current &&
           lastSavedTitleRef.current.updatedAt &&
           documentUpdatedAtRef.current > lastSavedTitleRef.current.updatedAt;
         const contentIsStale =
+          !isLinkedLocalSourceDocument &&
           documentUpdatedAtRef.current &&
           lastSavedContentRef.current.updatedAt &&
           documentUpdatedAtRef.current > lastSavedContentRef.current.updatedAt;
@@ -613,7 +629,13 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
         }
       }, 500);
     },
-    [documentId, autoSync, persistDocumentUpdates, queryClient],
+    [
+      documentId,
+      autoSync,
+      isLinkedLocalSourceDocument,
+      persistDocumentUpdates,
+      queryClient,
+    ],
   );
 
   // Collab-aware ingest flush: the `pull-document` action writes a one-shot
