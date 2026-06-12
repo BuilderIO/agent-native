@@ -30,7 +30,6 @@ interface PlatformVariant {
     | "mac-arm64"
     | "mac-x64"
     | "windows-msi"
-    | "windows-exe"
   )[];
   icon: typeof IconBrandApple;
 }
@@ -51,8 +50,8 @@ const VARIANTS: PlatformVariant[] = [
   {
     id: "windows",
     label: "Windows",
-    sublabel: "64-bit installer",
-    assetKinds: ["windows-msi", "windows-exe"],
+    sublabel: "64-bit MSI installer",
+    assetKinds: ["windows-msi"],
     icon: IconBrandWindows,
   },
 ];

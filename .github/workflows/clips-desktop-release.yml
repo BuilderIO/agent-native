@@ -151,7 +151,6 @@ jobs:
           releaseDraft: true
           prerelease: false
           args: ${{ matrix.target != '' && format('--target {0}', matrix.target) || '' }}
-          updaterJsonPreferNsis: false
 
       - name: Verify macOS permission metadata
         if: runner.os == 'macOS'

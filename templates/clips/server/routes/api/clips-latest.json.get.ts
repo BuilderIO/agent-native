@@ -9,7 +9,7 @@ import { defineEventHandler, setResponseHeaders, createError } from "h3";
  * on the `clips-latest` release)? The updater manifest lists *updater*
  * artifacts — `.app.tar.gz`, `.msi.zip`, `.AppImage.tar.gz` — which are
  * patch bundles for the already-installed app. End users arriving at
- * /download want the raw installers (.dmg / .msi / .exe / .AppImage).
+ * /download want the raw installers (.dmg / .msi / .AppImage).
  *
  * This route therefore hits GitHub's REST API, paginates through
  * releases until it finds the most recent published `clips-v*` release,
@@ -86,7 +86,6 @@ export interface DownloadManifest {
       | "mac-arm64"
       | "mac-x64"
       | "windows-msi"
-      | "windows-exe"
       | "linux-appimage"
       | "linux-deb"
       | "linux-rpm"
@@ -115,7 +114,6 @@ export function classifyClipsAsset(
     return "mac-universal";
   }
   if (n.endsWith(".msi")) return "windows-msi";
-  if (n.endsWith(".exe")) return "windows-exe";
   if (n.endsWith(".appimage")) return "linux-appimage";
   if (n.endsWith(".deb")) return "linux-deb";
   if (n.endsWith(".rpm")) return "linux-rpm";

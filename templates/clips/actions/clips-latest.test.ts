@@ -14,9 +14,6 @@ describe("classifyClipsAsset", () => {
     expect(classifyClipsAsset("Clips_0.1.56_x64_en-US.msi")).toBe(
       "windows-msi",
     );
-    expect(classifyClipsAsset("Clips_0.1.56_x64-setup.exe")).toBe(
-      "windows-exe",
-    );
   });
 
   it("ignores updater bundles and signatures", () => {
@@ -24,6 +21,7 @@ describe("classifyClipsAsset", () => {
     expect(classifyClipsAsset("Clips_0.1.56_x64_en-US.msi.sig")).toBe(
       "unknown",
     );
+    expect(classifyClipsAsset("Clips_0.1.56_x64-setup.exe")).toBe("unknown");
     expect(classifyClipsAsset("latest.json")).toBe("unknown");
   });
 });

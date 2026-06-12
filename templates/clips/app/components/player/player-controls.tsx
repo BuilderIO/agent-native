@@ -7,7 +7,6 @@ import {
   IconMaximize,
   IconPictureInPicture,
   IconSubtitles,
-  IconSettings,
   IconRectangle,
 } from "@tabler/icons-react";
 import { cn } from "@/lib/utils";
@@ -190,26 +189,6 @@ export function PlayerControls(props: PlayerControlsProps) {
                 {rate}x
               </DropdownMenuItem>
             ))}
-          </DropdownMenuContent>
-        </DropdownMenu>
-
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <button className="h-8 w-8 rounded-md hover:bg-white/10 flex items-center justify-center">
-              <IconSettings className="h-5 w-5" />
-            </button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent
-            align="end"
-            side="top"
-            container={menuPortalContainer}
-          >
-            <DropdownMenuLabel>Quality</DropdownMenuLabel>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem disabled>Auto</DropdownMenuItem>
-            <DropdownMenuItem disabled>1080p</DropdownMenuItem>
-            <DropdownMenuItem disabled>720p</DropdownMenuItem>
-            <DropdownMenuItem disabled>480p</DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
 
