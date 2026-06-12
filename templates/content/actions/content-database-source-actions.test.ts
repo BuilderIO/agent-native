@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import attachSource from "./attach-content-database-source";
 import addSourceFieldProperty from "./add-content-database-source-field-property";
 import getSource from "./get-content-database-source";
+import listBuilderModels from "./list-builder-cms-models";
 import prepareExecution from "./prepare-builder-source-execution";
 import prepareReview, {
   buildBuilderSourceReviewPayload,
@@ -63,6 +64,10 @@ describe("content database source actions", () => {
       documentId: "database-page",
       sourceFieldId: "source-field",
     });
+  });
+
+  it("accepts no-argument Builder model discovery requests", () => {
+    expect(listBuilderModels.schema.parse({})).toEqual({});
   });
 
   it("keeps proposed change-set inputs scoped to local review metadata", () => {

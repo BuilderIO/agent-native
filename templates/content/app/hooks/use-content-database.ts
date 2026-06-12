@@ -3,6 +3,7 @@ import { useActionMutation, useActionQuery } from "@agent-native/core/client";
 import type {
   AddDatabaseItemRequest,
   AttachContentDatabaseSourceRequest,
+  BuilderCmsModelsResponse,
   ContentDatabaseResponse,
   ContentDatabaseSourceStatusResponse,
   CreateDatabaseRequest,
@@ -139,6 +140,17 @@ export function useAttachContentDatabaseSource(documentId: string) {
       });
     },
   });
+}
+
+export function useBuilderCmsModels(enabled: boolean) {
+  return useActionQuery<BuilderCmsModelsResponse>(
+    "list-builder-cms-models",
+    enabled ? {} : undefined,
+    {
+      enabled,
+      retry: false,
+    },
+  );
 }
 
 export function useRefreshContentDatabaseSource(documentId: string) {

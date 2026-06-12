@@ -488,6 +488,27 @@ export interface ContentDatabaseSourceStatusResponse {
   source: ContentDatabaseSource | null;
 }
 
+export interface BuilderCmsModelFieldSummary {
+  name: string;
+  type: string;
+  required: boolean;
+}
+
+export interface BuilderCmsModelSummary {
+  id: string;
+  name: string;
+  displayName: string;
+  kind: string;
+  fields: BuilderCmsModelFieldSummary[];
+}
+
+export interface BuilderCmsModelsResponse {
+  state: "live" | "unconfigured" | "error";
+  models: BuilderCmsModelSummary[];
+  fetchedAt: string;
+  message: string | null;
+}
+
 export interface ContentDatabaseResponse {
   database: ContentDatabase;
   properties: DocumentProperty[];

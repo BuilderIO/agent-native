@@ -1,6 +1,9 @@
 import { resolveBuilderCredential } from "@agent-native/core/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { readBuilderCmsContentEntries } from "./_builder-cms-read-client";
+import {
+  listBuilderCmsModels,
+  readBuilderCmsContentEntries,
+} from "./_builder-cms-read-client";
 
 vi.mock("@agent-native/core/server", () => ({
   resolveBuilderCredential: vi.fn(),
@@ -32,6 +35,108 @@ describe("Builder CMS read client", () => {
       entries: [],
     });
     expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it("does not call Builder when model discovery credentials are not configured", async () => {
+    resolveBuilderCredentialMock.mockResolvedValue(null);
+    const fetchImpl = vi.fn();
+
+    await expect(
+      listBuilderCmsModels({
+        fetchImpl: fetchImpl as unknown as typeof fetch,
+      }),
+    ).resolves.toMatchObject({
+      state: "unconfigured",
+      models: [],
+    });
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it("lists Builder models through the MCP read endpoint", async () => {
+    resolveBuilderCredentialMock.mockImplementation(async (key) =>
+      key === "BUILDER_PRIVATE_KEY" ? "private-key" : null,
+    );
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ jsonrpc: "2.0", result: {} }), {
+          status: 200,
+          headers: { "mcp-session-id": "session-1" },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ jsonrpc: "2.0", result: {} }), {
+          status: 200,
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            jsonrpc: "2.0",
+            result: {
+              content: [
+                {
+                  type: "text",
+                  text: JSON.stringify({
+                    models: [
+                      {
+                        id: "model-blog",
+                        name: "blog-article",
+                        displayName: "Blog Article",
+                        kind: "component",
+                        fields: [{ name: "title", type: "text", required: true }],
+                      },
+                      {
+                        id: "model-test",
+                        name: "agent-native-blog-article-test",
+                        displayName: "Agent Native Blog Article Test",
+                        kind: "component",
+                        fields: [
+                          { name: "title", type: "text", required: false },
+                        ],
+                      },
+                    ],
+                  }),
+                },
+              ],
+            },
+          }),
+          { status: 200 },
+        ),
+      );
+
+    await expect(
+      listBuilderCmsModels({
+        fetchImpl: fetchImpl as unknown as typeof fetch,
+      }),
+    ).resolves.toMatchObject({
+      state: "live",
+      models: [
+        {
+          id: "model-test",
+          name: "agent-native-blog-article-test",
+          displayName: "Agent Native Blog Article Test",
+          kind: "component",
+          fields: [{ name: "title", type: "text", required: false }],
+        },
+        {
+          id: "model-blog",
+          name: "blog-article",
+          displayName: "Blog Article",
+          kind: "component",
+          fields: [{ name: "title", type: "text", required: true }],
+        },
+      ],
+    });
+    expect(fetchImpl).toHaveBeenCalledTimes(3);
+    const [, listInit] = fetchImpl.mock.calls[2] as [string, RequestInit];
+    expect(JSON.parse(String(listInit.body))).toMatchObject({
+      method: "tools/call",
+      params: {
+        name: "list_builder_models",
+        arguments: {},
+      },
+    });
   });
 
   it("reads Builder content through the Content API when credentials exist", async () => {

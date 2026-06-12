@@ -86,6 +86,7 @@ import { Spinner } from "@/components/ui/spinner";
 import {
   useAddDatabaseItem,
   useAttachContentDatabaseSource,
+  useBuilderCmsModels,
   useContentDatabase,
   useDuplicateDatabaseItem,
   useMoveDatabaseItem,
@@ -130,6 +131,7 @@ import {
 import { EmojiPicker } from "./EmojiPicker";
 import { VisualEditor } from "./VisualEditor";
 import type {
+  BuilderCmsModelSummary,
   ContentDatabaseItem,
   ContentDatabaseResponse,
   ContentDatabaseSource,
@@ -1308,12 +1310,12 @@ function DatabaseTable({
         groupIds={toolbarGroups.map((group) => group.id)}
         onClose={() => setSettingsOpen(false)}
         onPanelChange={setSettingsPanel}
-        onAttachBuilderSource={() =>
+        onAttachBuilderSource={(model) =>
           attachSource.mutate({
             documentId: document.id,
             sourceType: "builder-cms",
-            sourceName: "Builder CMS test blog",
-            sourceTable: "agent-native-blog-article-test",
+            sourceName: model.displayName,
+            sourceTable: model.name,
           })
         }
         onRefreshSource={() =>
@@ -3091,7 +3093,7 @@ function DatabaseSettingsPanelSheet({
   groupIds: string[];
   onClose: () => void;
   onPanelChange: (panel: DatabaseSettingsPanel) => void;
-  onAttachBuilderSource: () => void;
+  onAttachBuilderSource: (model: BuilderCmsModelSummary) => void;
   onRefreshSource: () => void;
   onProposeSourceChangeSet: () => void;
   onReviewBuilderUpdate: () => void;
@@ -3630,7 +3632,7 @@ function DatabaseSettingsSourcePanel({
   source: ContentDatabaseSource | null;
   itemCount: number;
   canEdit: boolean;
-  onAttachBuilderSource: () => void;
+  onAttachBuilderSource: (model: BuilderCmsModelSummary) => void;
   onRefreshSource: () => void;
   onProposeSourceChangeSet: () => void;
   onReviewBuilderUpdate: () => void;
@@ -3742,15 +3744,11 @@ function DatabaseSettingsSourcePanel({
                 ) : null}
               </>
             ) : (
-              <Button
-                type="button"
-                size="sm"
-                disabled={!canEdit || sourceActionPending}
-                onClick={onAttachBuilderSource}
-              >
-                <IconPlugConnected className="mr-1.5 size-3.5" />
-                Attach Builder CMS
-              </Button>
+              <BuilderCmsModelAttachControl
+                canEdit={canEdit}
+                sourceActionPending={sourceActionPending}
+                onAttachBuilderSource={onAttachBuilderSource}
+              />
             )}
           </div>
         </div>
@@ -3950,6 +3948,151 @@ function DatabaseSettingsSourcePanel({
           )}
         </>
       ) : null}
+    </div>
+  );
+}
+
+function BuilderCmsModelAttachControl({
+  canEdit,
+  sourceActionPending,
+  onAttachBuilderSource,
+}: {
+  canEdit: boolean;
+  sourceActionPending: boolean;
+  onAttachBuilderSource: (model: BuilderCmsModelSummary) => void;
+}) {
+  const modelsQuery = useBuilderCmsModels(true);
+  const models = modelsQuery.data?.models ?? [];
+  const [selectedModelName, setSelectedModelName] = useState("");
+  const selectedModel =
+    models.find((model) => model.name === selectedModelName) ?? models[0] ?? null;
+
+  useEffect(() => {
+    if (selectedModelName || models.length === 0) return;
+    const testModel = models.find(
+      (model) => model.name === "agent-native-blog-article-test",
+    );
+    setSelectedModelName((testModel ?? models[0]).name);
+  }, [models, selectedModelName]);
+
+  if (modelsQuery.isLoading) {
+    return (
+      <div className="flex min-w-0 items-center gap-2 text-xs text-muted-foreground">
+        <Spinner className="size-3.5" />
+        Loading Builder models
+      </div>
+    );
+  }
+
+  if (modelsQuery.data?.state === "unconfigured") {
+    return (
+      <div className="grid min-w-0 gap-2">
+        <div className="text-xs text-muted-foreground">
+          Builder credentials are not configured for this local build.
+        </div>
+      </div>
+    );
+  }
+
+  if (modelsQuery.data?.state === "error") {
+    return (
+      <div className="grid min-w-0 gap-2">
+        <div className="text-xs text-destructive">
+          {modelsQuery.data.message ?? "Builder models could not be loaded."}
+        </div>
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          onClick={() => modelsQuery.refetch()}
+        >
+          <IconRefresh className="mr-1.5 size-3.5" />
+          Retry
+        </Button>
+      </div>
+    );
+  }
+
+  if (models.length === 0) {
+    return (
+      <div className="grid min-w-0 gap-2">
+        <div className="text-xs text-muted-foreground">
+          No Builder models were found.
+        </div>
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          onClick={() => modelsQuery.refetch()}
+        >
+          <IconRefresh className="mr-1.5 size-3.5" />
+          Refresh
+        </Button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="grid min-w-0 gap-2">
+      <label className="grid min-w-0 gap-1 text-xs">
+        <span className="font-medium text-foreground">Builder model</span>
+        <select
+          className="h-9 min-w-0 rounded-md border border-input bg-background px-2 text-sm text-foreground shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          value={selectedModel?.name ?? ""}
+          onChange={(event) => setSelectedModelName(event.target.value)}
+          disabled={!canEdit || sourceActionPending}
+        >
+          {models.map((model) => (
+            <option key={model.id} value={model.name}>
+              {model.displayName} ({model.kind})
+            </option>
+          ))}
+        </select>
+      </label>
+      {selectedModel ? (
+        <div className="flex min-w-0 flex-wrap items-center gap-1.5 text-[11px] text-muted-foreground">
+          <span className="rounded border border-border px-1.5 py-0.5">
+            {selectedModel.name}
+          </span>
+          <span className="rounded border border-border px-1.5 py-0.5">
+            {selectedModel.fields.length} fields
+          </span>
+          <span className="rounded border border-border px-1.5 py-0.5">
+            read-only
+          </span>
+        </div>
+      ) : null}
+      <div className="flex min-w-0 items-center gap-2">
+        <Button
+          type="button"
+          size="sm"
+          disabled={!canEdit || sourceActionPending || !selectedModel}
+          onClick={() => {
+            if (selectedModel) onAttachBuilderSource(selectedModel);
+          }}
+        >
+          {sourceActionPending ? (
+            <Spinner className="mr-1.5 size-3.5" />
+          ) : (
+            <IconPlugConnected className="mr-1.5 size-3.5" />
+          )}
+          Attach
+        </Button>
+        <Button
+          type="button"
+          size="sm"
+          variant="ghost"
+          disabled={sourceActionPending || modelsQuery.isFetching}
+          onClick={() => modelsQuery.refetch()}
+        >
+          {modelsQuery.isFetching ? (
+            <Spinner className="mr-1.5 size-3.5" />
+          ) : (
+            <IconRefresh className="mr-1.5 size-3.5" />
+          )}
+          Refresh
+        </Button>
+      </div>
     </div>
   );
 }

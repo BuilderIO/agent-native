@@ -1,4 +1,8 @@
 import { resolveBuilderCredential } from "@agent-native/core/server";
+import type {
+  BuilderCmsModelSummary,
+  BuilderCmsModelsResponse,
+} from "../shared/api.js";
 import {
   normalizeBuilderCmsApiEntry,
   type BuilderCmsSourceEntry,
@@ -122,16 +126,72 @@ function builderMcpEntriesFromToolResponse(
     .filter((entry): entry is BuilderCmsSourceEntry => Boolean(entry));
 }
 
-async function readBuilderCmsContentEntriesViaMcp(args: {
-  model: string;
-  limit?: number;
-  fetchImpl: FetchLike;
+function normalizeBuilderCmsModel(value: unknown): BuilderCmsModelSummary | null {
+  if (!value || typeof value !== "object") return null;
+  const record = value as Record<string, unknown>;
+  const name = typeof record.name === "string" ? record.name.trim() : "";
+  if (!name) return null;
+  const id =
+    typeof record.id === "string" && record.id.trim() ? record.id : name;
+  const displayName =
+    typeof record.displayName === "string" && record.displayName.trim()
+      ? record.displayName.trim()
+      : name;
+  const kind =
+    typeof record.kind === "string" && record.kind.trim()
+      ? record.kind.trim()
+      : "unknown";
+  const fields = Array.isArray(record.fields)
+    ? record.fields
+        .map((field) => {
+          if (!field || typeof field !== "object") return null;
+          const fieldRecord = field as Record<string, unknown>;
+          const fieldName =
+            typeof fieldRecord.name === "string"
+              ? fieldRecord.name.trim()
+              : "";
+          if (!fieldName) return null;
+          return {
+            name: fieldName,
+            type:
+              typeof fieldRecord.type === "string" && fieldRecord.type.trim()
+                ? fieldRecord.type.trim()
+                : "unknown",
+            required: fieldRecord.required === true,
+          };
+        })
+        .filter(
+          (field): field is BuilderCmsModelSummary["fields"][number] =>
+            Boolean(field),
+        )
+    : [];
+
+  return { id, name, displayName, kind, fields };
+}
+
+function builderMcpModelsFromToolResponse(
+  response: unknown,
+): BuilderCmsModelSummary[] {
+  if (!response || typeof response !== "object") return [];
+  const record = response as Record<string, unknown>;
+  const models = Array.isArray(record.models) ? record.models : [];
+  return models
+    .map((model) => normalizeBuilderCmsModel(model))
+    .filter((model): model is BuilderCmsModelSummary => Boolean(model))
+    .sort((a, b) => {
+      if (a.name === "agent-native-blog-article-test") return -1;
+      if (b.name === "agent-native-blog-article-test") return 1;
+      return a.displayName.localeCompare(b.displayName);
+    });
+}
+
+async function initializeBuilderMcp(args: {
+  endpoint: string;
   privateKey: string;
-}): Promise<BuilderCmsReadResult> {
-  const fetchedAt = new Date().toISOString();
-  const endpoint = builderMcpEndpoint();
+  fetchImpl: FetchLike;
+}) {
   const initialized = await postBuilderMcp({
-    endpoint,
+    endpoint: args.endpoint,
     privateKey: args.privateKey,
     fetchImpl: args.fetchImpl,
     payload: {
@@ -151,7 +211,7 @@ async function readBuilderCmsContentEntriesViaMcp(args: {
   const sessionId = initialized.sessionId;
   if (sessionId) {
     await postBuilderMcp({
-      endpoint,
+      endpoint: args.endpoint,
       privateKey: args.privateKey,
       fetchImpl: args.fetchImpl,
       sessionId,
@@ -162,6 +222,22 @@ async function readBuilderCmsContentEntriesViaMcp(args: {
       },
     }).catch(() => null);
   }
+  return sessionId;
+}
+
+async function readBuilderCmsContentEntriesViaMcp(args: {
+  model: string;
+  limit?: number;
+  fetchImpl: FetchLike;
+  privateKey: string;
+}): Promise<BuilderCmsReadResult> {
+  const fetchedAt = new Date().toISOString();
+  const endpoint = builderMcpEndpoint();
+  const sessionId = await initializeBuilderMcp({
+    endpoint,
+    privateKey: args.privateKey,
+    fetchImpl: args.fetchImpl,
+  });
 
   const limit = readLimit(args.limit);
   const contentResult = await postBuilderMcp({
@@ -276,6 +352,64 @@ async function readBuilderCmsContentEntriesViaMcp(args: {
     fetchedAt,
     message: null,
   };
+}
+
+export async function listBuilderCmsModels(args: {
+  fetchImpl?: FetchLike;
+} = {}): Promise<BuilderCmsModelsResponse> {
+  const fetchedAt = new Date().toISOString();
+  const privateKey = await readBuilderPrivateKey();
+  const fetchImpl = args.fetchImpl ?? fetch;
+  if (!privateKey) {
+    return {
+      state: "unconfigured",
+      models: [],
+      fetchedAt,
+      message:
+        "Builder CMS model discovery skipped because BUILDER_PRIVATE_KEY is not configured.",
+    };
+  }
+
+  try {
+    const endpoint = builderMcpEndpoint();
+    const sessionId = await initializeBuilderMcp({
+      endpoint,
+      privateKey,
+      fetchImpl,
+    });
+    const modelsResult = await postBuilderMcp({
+      endpoint,
+      privateKey,
+      fetchImpl,
+      sessionId,
+      payload: {
+        jsonrpc: "2.0",
+        id: 2,
+        method: "tools/call",
+        params: {
+          name: "list_builder_models",
+          arguments: {},
+        },
+      },
+    });
+    const modelsJson = parseBuilderMcpToolJson(modelsResult.json.result);
+    return {
+      state: "live",
+      models: builderMcpModelsFromToolResponse(modelsJson),
+      fetchedAt,
+      message: null,
+    };
+  } catch (error) {
+    return {
+      state: "error",
+      models: [],
+      fetchedAt,
+      message:
+        error instanceof Error
+          ? error.message
+          : "Builder CMS model discovery failed.",
+    };
+  }
 }
 
 export async function readBuilderCmsContentEntries(args: {
