@@ -30,8 +30,7 @@ import {
   IconLoader2,
 } from "@tabler/icons-react";
 import type { Deck, Slide, SlideLayout } from "@/context/DeckContext";
-import { useSaveState, defaultSlideContent } from "@/context/DeckContext";
-import { SaveStatusIndicator } from "@/components/visual-editor";
+import { defaultSlideContent } from "@/context/DeckContext";
 import {
   ASPECT_RATIO_VALUES,
   type AspectRatio,
@@ -269,7 +268,6 @@ export default function EditorToolbar({
       : `${window.location.origin}${appPath(`/p/${deckId}`)}`;
 
   const activeAspectRatio: AspectRatio = aspectRatio ?? DEFAULT_ASPECT_RATIO;
-  const saveState = useSaveState();
   const [layoutOpen, setLayoutOpen] = useState(false);
   const layoutRef = useRef<HTMLButtonElement>(null);
 
@@ -424,15 +422,6 @@ export default function EditorToolbar({
           </TooltipContent>
         </Tooltip>
       )}
-
-      {/* Save-state indicator — placed on the left side, just before the
-          flex-1 spacer, so any width changes between "Saving…" / "Saved" /
-          "Offline" are absorbed by the spacer and don't shift the toolbar's
-          right-side controls. */}
-      <SaveStatusIndicator
-        saving={saveState.saving}
-        className="flex-shrink-0"
-      />
 
       {/* Spacer */}
       <div className="flex-1 min-w-2" />
