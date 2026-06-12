@@ -11,6 +11,7 @@ import type {
   PlanCommentResolutionTarget,
   PlanCommentStatus,
   PlanKind,
+  PlanReportReason,
   PlanSectionType,
   PlanSource,
   PlanStatus,
@@ -153,6 +154,20 @@ export type ConvertVisualPlanToPrototypeInput = {
   title?: string;
   brief?: string;
   removeCanvas?: boolean;
+};
+
+export type ReportVisualPlanInput = {
+  planId: string;
+  reason: PlanReportReason;
+  details?: string;
+  pageUrl?: string;
+};
+
+export type ReportVisualPlanResult = {
+  ok: true;
+  reportId: string;
+  duplicate: boolean;
+  message: string;
 };
 
 function usePlanInvalidation() {
@@ -396,6 +411,15 @@ export function usePublishVisualPlan() {
     {
       onSuccess: invalidate,
       onError: showActionError("Failed to publish plan"),
+    },
+  );
+}
+
+export function useReportVisualPlan() {
+  return useActionMutation<ReportVisualPlanResult, ReportVisualPlanInput>(
+    "report-visual-plan",
+    {
+      onError: showActionError("Failed to report plan"),
     },
   );
 }
