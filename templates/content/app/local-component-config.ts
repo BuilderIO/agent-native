@@ -147,8 +147,7 @@ export function serializeLocalMdxComponentSource({
         /^[A-Za-z_][\w-]*$/.test(key) &&
         value !== undefined &&
         value !== null &&
-        value !== "" &&
-        value !== false
+        value !== ""
       );
     })
     .map(([key, value]) => `${key}="${escapeAttribute(String(value))}"`)
