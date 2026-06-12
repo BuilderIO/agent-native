@@ -14,7 +14,7 @@ import { defineConfig, devices } from "@playwright/test";
  */
 export default defineConfig({
   testDir: ".",
-  testMatch: /registry-blocks\.spec\.ts/,
+  testMatch: /(registry-blocks|local-files)\.spec\.ts/,
   fullyParallel: true,
   workers: process.env.CI ? 2 : 3,
   retries: 2,
