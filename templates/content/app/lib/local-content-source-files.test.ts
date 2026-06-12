@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Document } from "@shared/api";
 import {
   localSourceAbsolutePath,
+  readDocumentFromLinkedLocalSource,
   revealLinkedLocalSourceFile,
   writeDocumentToLinkedLocalSource,
 } from "./local-content-source-files";
@@ -109,6 +110,60 @@ describe("local content source files", () => {
     await expect(localSourceAbsolutePath(document.source)).resolves.toBe(
       "/Users/steve/repo/content/getting-started.mdx",
     );
+  });
+
+  it("reads linked desktop source files as the document authority", async () => {
+    const readFiles = vi.fn().mockResolvedValue({
+      ok: true,
+      folder: {
+        name: "repo",
+        path: "/Users/steve/repo",
+        updatedAt: "2026-06-12T02:00:00.000Z",
+      },
+      sources: {
+        "content/getting-started.mdx": [
+          "---",
+          'id: "doc_1234"',
+          'title: "File Title"',
+          "isFavorite: true",
+          "---",
+          "",
+          "File body from disk.",
+        ].join("\n"),
+      },
+    });
+    Object.defineProperty(globalThis, "window", {
+      configurable: true,
+      value: {
+        agentNativeDesktop: {
+          contentFiles: {
+            getFolder: vi.fn(),
+            chooseFolder: vi.fn(),
+            writeFiles: vi.fn(),
+            writeFile: vi.fn(),
+            readFiles,
+            revealFile: vi.fn(),
+            clearFolder: vi.fn(),
+          },
+        },
+      },
+    });
+
+    const result = await readDocumentFromLinkedLocalSource(document);
+
+    expect(result).toMatchObject({
+      ok: true,
+      path: "content/getting-started.mdx",
+      updatedAt: "2026-06-12T02:00:00.000Z",
+      runtime: "desktop",
+      document: {
+        id: "doc_1234",
+        title: "File Title",
+        content: "File body from disk.",
+        isFavorite: true,
+      },
+    });
+    expect(readFiles).toHaveBeenCalledTimes(1);
   });
 
   it("reveals a linked desktop source file through the desktop bridge", async () => {
