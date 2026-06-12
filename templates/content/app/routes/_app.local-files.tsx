@@ -13,6 +13,10 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { useSetPageTitle } from "@/components/layout/HeaderActions";
+import {
+  getDesktopContentFiles,
+  type DesktopContentFilesFolder,
+} from "@/lib/desktop-content-files";
 import { CONTENT_SOURCE_ROOT } from "@shared/content-source";
 
 type PermissionState = "granted" | "denied" | "prompt";
@@ -51,6 +55,9 @@ type WindowWithDirectoryPicker = Window & {
     mode?: "read" | "readwrite";
   }) => Promise<LocalDirectoryHandle>;
 };
+type SelectedDirectory =
+  | { kind: "browser"; handle: LocalDirectoryHandle }
+  | { kind: "desktop"; folder: DesktopContentFilesFolder };
 
 interface ExportContentSourceResult {
   count: number;
@@ -89,6 +96,17 @@ const SOURCE_DIRECTORY_KEY = "source-directory";
 
 function supportsDirectoryPicker() {
   return typeof window !== "undefined" && "showDirectoryPicker" in window;
+}
+
+function supportsLocalFolderSync() {
+  return Boolean(getDesktopContentFiles()) || supportsDirectoryPicker();
+}
+
+function selectedDirectoryName(directory: SelectedDirectory | null) {
+  if (!directory) return "No folder selected";
+  return directory.kind === "desktop"
+    ? directory.folder.name
+    : directory.handle.name;
 }
 
 function supportsDirectoryPersistence() {
@@ -156,9 +174,19 @@ async function ensureReadWritePermission(handle: LocalDirectoryHandle) {
 }
 
 async function chooseDirectory() {
+  const desktopFiles = getDesktopContentFiles();
+  if (desktopFiles) {
+    const result = await desktopFiles.chooseFolder();
+    if (!result.ok) throw new Error(result.error);
+    return { kind: "desktop" as const, folder: result.folder };
+  }
+
   const picker = (window as WindowWithDirectoryPicker).showDirectoryPicker;
   if (!picker) throw new Error("Folder access is not available here.");
-  return picker({ mode: "readwrite" });
+  return {
+    kind: "browser" as const,
+    handle: await picker({ mode: "readwrite" }),
+  };
 }
 
 async function sourceReadRoot(handle: LocalDirectoryHandle): Promise<{
@@ -268,13 +296,13 @@ export function meta() {
 
 export default function LocalFilesRoute() {
   const queryClient = useQueryClient();
-  const [directory, setDirectory] = useState<LocalDirectoryHandle | null>(null);
+  const [directory, setDirectory] = useState<SelectedDirectory | null>(null);
   const [status, setStatus] = useState<SyncStatus>({ kind: "idle" });
   const [busy, setBusy] = useState<
     "choose" | "export" | "preview" | "import" | null
   >(null);
   const [restoringDirectory, setRestoringDirectory] = useState(false);
-  const supported = useMemo(supportsDirectoryPicker, []);
+  const supported = useMemo(supportsLocalFolderSync, []);
 
   useSetPageTitle(
     <h1 className="text-lg font-semibold tracking-tight truncate">
@@ -286,16 +314,30 @@ export default function LocalFilesRoute() {
     if (!supported) return;
     let cancelled = false;
     setRestoringDirectory(true);
-    readPersistedSourceDirectory()
-      .then((handle) => {
-        if (cancelled || !handle) return;
-        setDirectory(handle);
+    const desktopFiles = getDesktopContentFiles();
+    const restoreDirectory = async () => {
+      if (desktopFiles) {
+        const result = await desktopFiles.getFolder();
+        if (cancelled || !result.ok) return;
+        setDirectory({ kind: "desktop", folder: result.folder });
         setStatus({
           kind: "success",
           title: "Folder remembered",
-          detail: handle.name,
+          detail: result.folder.name,
         });
-      })
+        return;
+      }
+
+      const handle = await readPersistedSourceDirectory();
+      if (cancelled || !handle) return;
+      setDirectory({ kind: "browser", handle });
+      setStatus({
+        kind: "success",
+        title: "Folder remembered",
+        detail: handle.name,
+      });
+    };
+    restoreDirectory()
       .catch(() => {
         if (!cancelled) setStatus({ kind: "idle" });
       })
@@ -311,16 +353,18 @@ export default function LocalFilesRoute() {
     setBusy("choose");
     try {
       const handle = await chooseDirectory();
-      try {
-        await persistSourceDirectory(handle);
-      } catch {
-        // Folder handles are still usable for this session if persistence fails.
+      if (handle.kind === "browser") {
+        try {
+          await persistSourceDirectory(handle.handle);
+        } catch {
+          // Folder handles are still usable for this session if persistence fails.
+        }
       }
       setDirectory(handle);
       setStatus({
         kind: "success",
         title: "Folder selected",
-        detail: handle.name,
+        detail: selectedDirectoryName(handle),
       });
     } catch (err) {
       setStatus({
@@ -337,7 +381,10 @@ export default function LocalFilesRoute() {
     if (!directory) return;
     setBusy("export");
     try {
-      if (!(await ensureReadWritePermission(directory))) {
+      if (
+        directory.kind === "browser" &&
+        !(await ensureReadWritePermission(directory.handle))
+      ) {
         throw new Error("Write permission was not granted.");
       }
       const bundle = await callAction<ExportContentSourceResult>(
@@ -345,18 +392,28 @@ export default function LocalFilesRoute() {
         {} as never,
         { method: "GET" },
       );
-      const expectedPaths = new Set(Object.keys(bundle.files));
-      await Promise.all(
-        Object.entries(bundle.files).map(([path, content]) =>
-          writeFile(directory, path, content),
-        ),
-      );
-      const writeRoot = await sourceWriteRoot(directory);
-      await removeStaleMarkdownFiles(
-        writeRoot.handle,
-        writeRoot.prefix,
-        expectedPaths,
-      );
+      if (directory.kind === "desktop") {
+        const desktopFiles = getDesktopContentFiles();
+        if (!desktopFiles) {
+          throw new Error("Desktop folder access is no longer available.");
+        }
+        const result = await desktopFiles.writeFiles({ files: bundle.files });
+        if (!result.ok) throw new Error(result.error);
+        setDirectory({ kind: "desktop", folder: result.folder });
+      } else {
+        const expectedPaths = new Set(Object.keys(bundle.files));
+        await Promise.all(
+          Object.entries(bundle.files).map(([path, content]) =>
+            writeFile(directory.handle, path, content),
+          ),
+        );
+        const writeRoot = await sourceWriteRoot(directory.handle);
+        await removeStaleMarkdownFiles(
+          writeRoot.handle,
+          writeRoot.prefix,
+          expectedPaths,
+        );
+      }
       setStatus({
         kind: "success",
         title: "Export complete",
@@ -378,10 +435,20 @@ export default function LocalFilesRoute() {
 
   async function readSelectedSourceFiles() {
     if (!directory) throw new Error("Choose a folder first.");
-    if (!(await ensureReadWritePermission(directory))) {
+    if (directory.kind === "desktop") {
+      const desktopFiles = getDesktopContentFiles();
+      if (!desktopFiles) {
+        throw new Error("Desktop folder access is no longer available.");
+      }
+      const result = await desktopFiles.readFiles();
+      if (!result.ok) throw new Error(result.error);
+      setDirectory({ kind: "desktop", folder: result.folder });
+      return result.sources ?? {};
+    }
+    if (!(await ensureReadWritePermission(directory.handle))) {
       throw new Error("Folder permission was not granted.");
     }
-    const root = await sourceReadRoot(directory);
+    const root = await sourceReadRoot(directory.handle);
     return collectMarkdownFiles(root.handle, root.prefix);
   }
 
@@ -440,7 +507,7 @@ export default function LocalFilesRoute() {
           <div className="min-w-0">
             <h2 className="text-2xl font-bold tracking-tight">Source folder</h2>
             <p className="mt-1 truncate text-sm text-muted-foreground">
-              {directory ? directory.name : "No folder selected"}
+              {selectedDirectoryName(directory)}
             </p>
           </div>
           <Button

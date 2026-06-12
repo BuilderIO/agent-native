@@ -30,11 +30,7 @@ import { toast } from "sonner";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { OrgSwitcher } from "@agent-native/core/client/org";
-import {
-  DevDatabaseLink,
-  FeedbackButton,
-  appPath,
-} from "@agent-native/core/client";
+import { FeedbackButton, appPath } from "@agent-native/core/client";
 import {
   ExtensionSlot,
   ExtensionsSidebarSection,
@@ -566,6 +562,21 @@ export function DocumentSidebar({
     </button>
   );
 
+  const renderLocalFilesNavButton = () => (
+    <button
+      className={cn(
+        "flex h-8 w-full items-center gap-2 rounded-md px-2 text-sm",
+        localFilesActive
+          ? "bg-accent text-accent-foreground"
+          : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
+      )}
+      onClick={() => navigate("/local-files")}
+    >
+      <IconFolderOpen size={15} className="shrink-0" />
+      <span className="min-w-0 flex-1 truncate text-left">Local files</span>
+    </button>
+  );
+
   const toggleSection = (id: SidebarSectionId) => {
     setCollapsedSections((current) => ({
       ...current,
@@ -887,6 +898,10 @@ export function DocumentSidebar({
         </div>
       </ScrollArea>
 
+      <div className="shrink-0 border-t border-border px-3 py-2">
+        {renderLocalFilesNavButton()}
+      </div>
+
       <div className="shrink-0 border-t border-border">
         <ExtensionSlot
           id="content.sidebar.bottom"
@@ -905,19 +920,6 @@ export function DocumentSidebar({
       {/* Footer */}
       <div className="shrink-0 space-y-2 border-t border-border px-3 py-2">
         <OrgSwitcher />
-        <button
-          className={cn(
-            "flex h-8 w-full items-center gap-2 rounded-md px-2 text-sm",
-            localFilesActive
-              ? "bg-accent text-accent-foreground"
-              : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
-          )}
-          onClick={() => navigate("/local-files")}
-        >
-          <IconFolderOpen size={15} className="shrink-0" />
-          <span className="min-w-0 flex-1 truncate text-left">Local files</span>
-        </button>
-        <DevDatabaseLink />
         <div className="flex items-center gap-1">
           <FeedbackButton className="h-8 min-w-0 flex-1 gap-2 rounded-md px-2 py-0" />
           <div className="flex shrink-0 items-center gap-0.5">
