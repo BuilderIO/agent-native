@@ -130,9 +130,9 @@ updatedAt: "2026-06-12T20:00:00.000Z"
 Use <FrameworkTabs value="react" /> to show framework-specific code.
 ```
 
-The title can come from frontmatter, the first heading, or the filename. The
-editor preserves MDX source that it cannot visually edit yet, so coding agents
-and normal text editors remain safe escape hatches.
+The title comes from `title` frontmatter when present, otherwise from the
+filename. The editor preserves MDX source that it cannot visually edit yet, so
+coding agents and normal text editors remain safe escape hatches.
 
 ## Custom MDX Components
 
@@ -166,6 +166,10 @@ For Content, that means:
 - `create-document` creates a new local `.mdx` file in the selected folder.
 - `delete-document` deletes the local file.
 - search runs across the configured local files.
+
+Moving, renaming, and reordering local-file pages from the Content UI is not
+supported yet. Do those operations in the workspace or with a coding agent; the
+Content sidebar will reflect the resulting file tree.
 
 This keeps the agent contract simple: the agent can keep using Content actions,
 and those actions decide whether the target is SQL-backed or file-backed.
