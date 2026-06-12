@@ -11,6 +11,7 @@ import refreshSource from "./refresh-content-database-source";
 import reviewChangeSet from "./review-content-database-source-change-set";
 import stageBuilderRevision from "./stage-builder-revision";
 import validateExecution from "./validate-builder-source-execution";
+import { serializeBuilderCmsSourceReadMetadataRecord } from "./_database-source-utils";
 import type { ContentDatabaseSource } from "../shared/api";
 
 describe("content database source actions", () => {
@@ -139,6 +140,24 @@ describe("content database source actions", () => {
       documentId: "database-page",
       changeSetId: "change-set",
       idempotencyKey: "builder-cms:source:change:autosave",
+    });
+  });
+
+  it("marks successful Builder reads as live source metadata", () => {
+    expect(
+      JSON.parse(
+        serializeBuilderCmsSourceReadMetadataRecord({
+          sourceTable: "agent-native-blog-article-test",
+          readState: "live",
+          entryCount: 20,
+          matchedRowCount: 20,
+        }),
+      ),
+    ).toMatchObject({
+      readMode: "builder-api",
+      liveReadConfigured: true,
+      lastReadEntryCount: 20,
+      lastReadMatchedRowCount: 20,
     });
   });
 

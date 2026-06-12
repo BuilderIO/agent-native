@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { ContentDatabaseItem, DocumentProperty } from "../shared/api";
 import {
   buildBuilderLocalOutboundChangeSets,
+  builderCmsEntryAlreadyRepresented,
   buildMockBodyChange,
   buildMockFieldChange,
   mapBuilderCmsEntriesToLocalItems,
@@ -178,6 +179,27 @@ describe("database source helpers", () => {
         },
       ],
     });
+  });
+
+  it("recognizes already imported Builder rows by source-qualified identity", () => {
+    expect(
+      builderCmsEntryAlreadyRepresented({
+        sourceTable: "agent-native-blog-article-test",
+        entry: {
+          id: "builder-entry-1",
+          model: "agent-native-blog-article-test",
+          title: "A renamed local title",
+          urlPath: "/blog/a-renamed-local-title",
+          updatedAt: "2026-06-08T00:00:00.000Z",
+        },
+        existingSourceRows: [
+          {
+            sourceQualifiedId:
+              "builder-cms://agent-native-blog-article-test/builder-entry-1",
+          },
+        ],
+      }),
+    ).toBe(true);
   });
 
   it("does not duplicate a Builder title edit that already has a staged outbound record", () => {

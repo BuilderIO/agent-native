@@ -7,12 +7,14 @@ import type {
 } from "../shared/api.js";
 import {
   getExistingSource,
+  getSourceRows,
   importBuilderCmsEntriesAsDatabaseItems,
   replaceSourceMetadata,
   resolveDatabaseForSourceMutation,
   seedMockSourceFields,
   seedMockSourceRows,
   sourceSetupPayload,
+  updateBuilderCmsSourceReadMetadata,
 } from "./_database-source-utils.js";
 import { readBuilderCmsContentEntries } from "./_builder-cms-read-client.js";
 import { getContentDatabaseResponse } from "./_database-utils.js";
@@ -55,6 +57,9 @@ export default defineAction({
       (sourceType === "builder-cms" ? "blog_article" : "content_items");
 
     const existingSource = await getExistingSource(database.id);
+    const existingSourceRows = existingSource
+      ? await getSourceRows(existingSource.id)
+      : [];
     const sourceId = await replaceSourceMetadata({
       database,
       source: existingSource,
@@ -75,6 +80,8 @@ export default defineAction({
         database,
         entries: builderRead.entries,
         now,
+        sourceTable,
+        existingSourceRows,
       });
     }
 
@@ -119,6 +126,19 @@ export default defineAction({
       now,
       builderEntriesByDocumentId,
     });
+    if (sourceType === "builder-cms" && builderRead) {
+      await updateBuilderCmsSourceReadMetadata({
+        sourceId,
+        sourceTable,
+        readState: builderRead.state,
+        entryCount: builderRead.entries.length,
+        matchedRowCount: builderEntriesByDocumentId?.size ?? 0,
+        fetchedAt: builderRead.fetchedAt,
+        now,
+        message: builderRead.message,
+        syncState: "linked",
+      });
+    }
 
     return getContentDatabaseResponse(database.id);
   },

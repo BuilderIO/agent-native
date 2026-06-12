@@ -37,7 +37,10 @@ import {
   type BuilderCmsSourceEntry,
   type ExistingBuilderSourceRowIdentity,
 } from "./_builder-cms-source-adapter.js";
-import { readBuilderCmsContentEntries } from "./_builder-cms-read-client.js";
+import {
+  readBuilderCmsContentEntries,
+  type BuilderCmsReadState,
+} from "./_builder-cms-read-client.js";
 import { listPropertiesForDatabase, nanoid } from "./_property-utils.js";
 
 type ContentDatabaseRow = typeof schema.contentDatabases.$inferSelect;
@@ -686,6 +689,21 @@ export function serializeSourceMetadataRecord(args: {
   });
 }
 
+export function serializeBuilderCmsSourceReadMetadataRecord(args: {
+  sourceTable: string;
+  readState: BuilderCmsReadState;
+  entryCount: number;
+  matchedRowCount: number;
+}) {
+  return JSON.stringify({
+    ...builderCmsSourceMetadata(args.sourceTable),
+    readMode: args.readState === "live" ? "builder-api" : "fixture",
+    liveReadConfigured: args.readState === "live",
+    lastReadEntryCount: args.entryCount,
+    lastReadMatchedRowCount: args.matchedRowCount,
+  });
+}
+
 export function serializeSourceCapabilitiesRecord(
   overrides: Partial<ContentDatabaseSourceCapabilities> = {},
 ) {
@@ -1203,10 +1221,29 @@ export function mapBuilderCmsEntriesToLocalItems(args: {
   return entriesByDocumentId;
 }
 
+export function builderCmsEntryAlreadyRepresented(args: {
+  entry: BuilderCmsSourceEntry;
+  sourceTable: string;
+  existingSourceRows: Pick<
+    ContentDatabaseSourceRecordRowDb,
+    "sourceQualifiedId"
+  >[];
+}) {
+  const sourceQualifiedId = builderCmsQualifiedId({
+    sourceTable: args.sourceTable,
+    entryId: args.entry.id,
+  });
+  return args.existingSourceRows.some(
+    (row) => row.sourceQualifiedId === sourceQualifiedId,
+  );
+}
+
 export async function importBuilderCmsEntriesAsDatabaseItems(args: {
   database: ContentDatabaseRow;
   entries: BuilderCmsSourceEntry[];
   now: string;
+  sourceTable: string;
+  existingSourceRows?: ContentDatabaseSourceRecordRowDb[];
 }) {
   if (args.entries.length === 0) return 0;
   const db = getDb();
@@ -1247,6 +1284,16 @@ export async function importBuilderCmsEntriesAsDatabaseItems(args: {
   let imported = 0;
 
   for (const entry of args.entries) {
+    if (
+      builderCmsEntryAlreadyRepresented({
+        entry,
+        sourceTable: args.sourceTable,
+        existingSourceRows: args.existingSourceRows ?? [],
+      })
+    ) {
+      continue;
+    }
+
     const title = entry.title.trim() || entry.id;
     const titleKey = title.toLowerCase();
     if (existingTitles.has(titleKey)) continue;
@@ -1365,25 +1412,17 @@ export async function resyncBuilderCmsSourceSnapshot(args: {
   }
   await pruneDuplicateOpenSourceChangeSets(args.source.id);
 
-  await db
-    .update(schema.contentDatabaseSources)
-    .set({
-      syncState: "idle",
-      freshness: builderRead.state === "error" ? "stale" : "fresh",
-      capabilitiesJson: sourceCapabilitiesForType("builder-cms"),
-      metadataJson: JSON.stringify({
-        ...builderCmsSourceMetadata(args.source.sourceTable),
-        readMode: builderRead.state === "live" ? "builder-api" : "fixture",
-        liveReadConfigured: builderRead.state === "live",
-        lastReadEntryCount: builderRead.entries.length,
-        lastReadMatchedRowCount: builderEntriesByDocumentId.size,
-      }),
-      lastRefreshedAt: args.now,
-      lastSourceUpdatedAt: builderRead.fetchedAt,
-      lastError: builderRead.state === "error" ? builderRead.message : null,
-      updatedAt: args.now,
-    })
-    .where(eq(schema.contentDatabaseSources.id, args.source.id));
+  await updateBuilderCmsSourceReadMetadata({
+    sourceId: args.source.id,
+    sourceTable: args.source.sourceTable,
+    readState: builderRead.state,
+    entryCount: builderRead.entries.length,
+    matchedRowCount: builderEntriesByDocumentId.size,
+    fetchedAt: builderRead.fetchedAt,
+    now: args.now,
+    message: builderRead.message,
+    syncState: "idle",
+  });
 }
 
 function valueText(value: DocumentPropertyValue) {
@@ -1509,6 +1548,38 @@ export async function replaceSourceMetadata(args: {
   return sourceId;
 }
 
+export async function updateBuilderCmsSourceReadMetadata(args: {
+  sourceId: string;
+  sourceTable: string;
+  readState: BuilderCmsReadState;
+  entryCount: number;
+  matchedRowCount: number;
+  fetchedAt: string;
+  now: string;
+  message: string | null;
+  syncState?: ContentDatabaseSourceSyncState;
+}) {
+  const db = getDb();
+  await db
+    .update(schema.contentDatabaseSources)
+    .set({
+      syncState: args.syncState ?? "linked",
+      freshness: args.readState === "error" ? "stale" : "fresh",
+      capabilitiesJson: sourceCapabilitiesForType("builder-cms"),
+      metadataJson: serializeBuilderCmsSourceReadMetadataRecord({
+        sourceTable: args.sourceTable,
+        readState: args.readState,
+        entryCount: args.entryCount,
+        matchedRowCount: args.matchedRowCount,
+      }),
+      lastRefreshedAt: args.now,
+      lastSourceUpdatedAt: args.fetchedAt,
+      lastError: args.readState === "error" ? args.message : null,
+      updatedAt: args.now,
+    })
+    .where(eq(schema.contentDatabaseSources.id, args.sourceId));
+}
+
 export async function getExistingSource(databaseId: string) {
   const db = getDb();
   const [source] = await db
@@ -1516,6 +1587,14 @@ export async function getExistingSource(databaseId: string) {
     .from(schema.contentDatabaseSources)
     .where(eq(schema.contentDatabaseSources.databaseId, databaseId));
   return source ?? null;
+}
+
+export async function getSourceRows(sourceId: string) {
+  const db = getDb();
+  return db
+    .select()
+    .from(schema.contentDatabaseSourceRows)
+    .where(eq(schema.contentDatabaseSourceRows.sourceId, sourceId));
 }
 
 export async function listDatabasePropertiesAndItems(databaseId: string) {
