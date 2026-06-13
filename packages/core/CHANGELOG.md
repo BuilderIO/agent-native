@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.49.18
+
+### Patch Changes
+
+- 4d0fb20: Add allowlisted wireframe icon markers for visual plans/recaps and trim private plan sign-in copy.
+
 ## 0.49.17
 
 ### Patch Changes
