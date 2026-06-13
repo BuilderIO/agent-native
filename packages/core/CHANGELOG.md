@@ -1,5 +1,12 @@
 # @agent-native/core
 
+## 0.49.16
+
+### Patch Changes
+
+- f101c6f: Avoid Sentry HTTP instrumentation in the CLI so visual recap MCP smoke checks
+  reach hosted Plan MCP routes reliably.
+
 ## 0.49.15
 
 ### Patch Changes
