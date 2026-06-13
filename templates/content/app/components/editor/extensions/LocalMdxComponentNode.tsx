@@ -128,7 +128,7 @@ function LocalComponentInputEditor({
           type="button"
           size="icon"
           variant="outline"
-          className="absolute right-2 top-2 z-10 h-7 w-7 rounded-md bg-background/95 shadow-sm"
+          className="pointer-events-none absolute right-2 top-2 z-10 h-7 w-7 rounded-md bg-background/95 opacity-0 shadow-sm transition-opacity group-hover:pointer-events-auto group-hover:opacity-100 focus:pointer-events-auto focus:opacity-100 data-[state=open]:pointer-events-auto data-[state=open]:opacity-100"
           aria-label={`Edit ${componentName} inputs`}
         >
           <IconPencil className="h-3.5 w-3.5" />
@@ -224,6 +224,7 @@ function LocalComponentInputEditor({
 
 function LocalMdxComponentView({
   editor,
+  getPos,
   node,
   selected,
   updateAttributes,
@@ -273,11 +274,11 @@ function LocalMdxComponentView({
 
   return (
     <NodeViewWrapper
-      className={`relative my-4 ${selected ? "ring-2 ring-ring ring-offset-2" : ""}`}
+      className={`group relative my-4 ${selected ? "ring-2 ring-ring ring-offset-2" : ""}`}
       contentEditable={false}
       data-local-mdx-component={name}
     >
-      {selected && editor.isEditable && inputs ? (
+      {editor.isEditable && inputs ? (
         <LocalComponentInputEditor
           componentName={name}
           inputs={inputs}
