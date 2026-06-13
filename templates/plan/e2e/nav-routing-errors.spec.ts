@@ -8,7 +8,7 @@ function makeE2ePassword(label: string): string {
  * NAVIGATION / ROUTING / ERROR + LOADING STATES (authed).
  *
  * Adversarial coverage of the Plan app shell routing:
- *  - home lists plans in the LEFT sidebar and in the grid
+ *  - home lists plans in the overview grid
  *  - clicking a sidebar item and a grid card navigates to /plans/<id> as an SPA
  *    nav (the app shell must NOT do a full document reload)
  *  - deep-linking directly to /plans/<id> works
@@ -133,7 +133,7 @@ async function waitForOverview(page: Page) {
 }
 
 test.describe("nav / routing / error+loading", () => {
-  test("home lists plans in the left sidebar and grid", async ({ page }) => {
+  test("home lists plans in the overview grid", async ({ page }) => {
     const fixture = await createPlan(
       page,
       `Sidebar+Grid ${Date.now()}-${Math.random().toString(16).slice(2, 6)}`,
@@ -146,13 +146,6 @@ test.describe("nav / routing / error+loading", () => {
     await expect(
       main.getByRole("link", { name: titleRegExp(fixture.title) }).first(),
       "the new plan should appear as a grid card on the home overview",
-    ).toBeVisible({ timeout: 20_000 });
-
-    // Left sidebar plan list (rendered when /plans is active, >= md viewport).
-    const sidebar = page.locator("aside").first();
-    await expect(
-      sidebar.getByRole("link", { name: titleRegExp(fixture.title) }),
-      "the new plan should appear in the left sidebar plan list",
     ).toBeVisible({ timeout: 20_000 });
   });
 
@@ -194,15 +187,13 @@ test.describe("nav / routing / error+loading", () => {
     }
   });
 
-  test("clicking a sidebar item is an SPA nav (app shell persists)", async ({
-    page,
-  }) => {
+  test("clicking the global Plan nav item is an SPA nav", async ({ page }) => {
     const a = await createPlan(
       page,
       `SideA ${Date.now()}-${Math.random().toString(16).slice(2, 5)}`,
     );
-    await page.goto("/plans", { waitUntil: "domcontentloaded" });
-    await waitForOverview(page);
+    await page.goto("/team", { waitUntil: "domcontentloaded" });
+    await waitForNavSidebar(page);
 
     const reloads = trackReloads(page);
     const reloadsBefore = reloads.count();
@@ -210,15 +201,22 @@ test.describe("nav / routing / error+loading", () => {
     await stampShell(page, token);
 
     const sidebar = page.locator("aside").first();
-    const sideLink = sidebar.getByRole("link", { name: titleRegExp(a.title) });
-    await expect(sideLink).toBeVisible({ timeout: 20_000 });
-    await sideLink.click();
-    await expect(page).toHaveURL(new RegExp(`/plans/${a.id}$`));
+    const planLink = sidebar.getByRole("link", { name: /^Plan$/ });
+    await expect(planLink).toBeVisible({ timeout: 20_000 });
+    await planLink.click();
+    await expect(page).toHaveURL(/\/plans\/?$/);
+    await waitForOverview(page);
+    await expect(
+      page
+        .locator("main")
+        .getByRole("link", { name: titleRegExp(a.title) })
+        .first(),
+    ).toBeVisible({ timeout: 20_000 });
 
     if (reloads.count() === reloadsBefore) {
       expect(
         await shellSurvived(page, token),
-        "sidebar nav must be SPA (no full reload — window marker should survive)",
+        "global Plan nav must be SPA (no full reload — window marker should survive)",
       ).toBeTruthy();
     } else {
       test.info().annotations.push({
@@ -289,10 +287,8 @@ test.describe("nav / routing / error+loading", () => {
       'non-existent plan should NOT surface a raw "Internal server error" message — it is a not-found, not a 500',
     ).toBeFalsy();
     expect(
-      /private plan access needed|Builder\.io organization|sign in or switch account|404/i.test(
-        body,
-      ),
-      "non-existent plan should explain private access and sign-in recovery to the user",
+      /plan not found|does not exist/i.test(body),
+      "non-existent plan should explain that the URL does not exist",
     ).toBeTruthy();
 
     const reloadsAtNotFound = reloads.count();
@@ -350,7 +346,8 @@ test.describe("nav / routing / error+loading", () => {
       const state = await page.evaluate(() => {
         const errorShown =
           document.body.innerText.includes("Plan did not load") ||
-          document.body.innerText.includes("Private plan access needed");
+          document.body.innerText.includes("Sign in to view this plan") ||
+          document.body.innerText.includes("Request access to this plan");
         const skeleton = document.querySelectorAll(
           "[aria-label='Loading plan']",
         ).length;
@@ -630,8 +627,8 @@ test.describe("nav / routing — plan you don't own", () => {
     }).toPass({ timeout: 20_000 });
 
     await expect(
-      page.getByText(/Private plan access needed/i),
-      "an inaccessible foreign plan must resolve to the graceful private-access card",
+      page.getByText(/Request access to this plan|Sign in to view this plan/i),
+      "an inaccessible foreign plan must resolve to the graceful access-request card",
     ).toBeVisible({ timeout: 20_000 });
 
     // And it should not crash the shell.

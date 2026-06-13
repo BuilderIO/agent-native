@@ -1,9 +1,9 @@
 ---
 name: visual-recap
 description: >-
-  Use Agent-Native Plans to turn a code change, PR diff, or git diff into a
-  visual recap plan for high-altitude review — schema, API, file, and
-  before/after changes as grounded structured blocks instead of a wall of diff.
+  Turn a PR, branch, commit, or git diff into an interactive visual recap with
+  diagrams, file maps, API/schema summaries, annotated diffs, and focused review
+  notes.
 metadata:
   visibility: exported
 ---

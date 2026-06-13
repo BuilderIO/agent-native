@@ -314,6 +314,33 @@ describe("resolvePlanAnonymousOwner (composition: public-viewer THEN local)", ()
     expect(owner).toBeNull();
   });
 
+  it("allows anonymous metadata checks for private plan URLs without reading plan visibility", async () => {
+    requestUrl =
+      "/_agent-native/actions/get-plan-access-status?planId=plan_priv";
+    process.env.NODE_ENV = "production";
+
+    const owner = await resolvePlanAnonymousOwner(makeEvent());
+    expect(owner).toMatch(PUBLIC_RE);
+    expect(dbState.queryCount).toBe(0);
+  });
+
+  it("allows anonymous metadata checks even when the framework event URL omits query params", async () => {
+    requestUrl = "/_agent-native/actions/get-plan-access-status";
+    process.env.NODE_ENV = "production";
+
+    const owner = await resolvePlanAnonymousOwner(makeEvent());
+    expect(owner).toMatch(PUBLIC_RE);
+    expect(dbState.queryCount).toBe(0);
+  });
+
+  it("does not allow anonymous private plan content reads", async () => {
+    requestUrl = "/_agent-native/actions/get-visual-plan?id=plan_priv";
+    process.env.NODE_ENV = "production";
+
+    const owner = await resolvePlanAnonymousOwner(makeEvent());
+    expect(owner).toBeNull();
+  });
+
   it("in PRODUCTION, never falls back to the LOCAL single-user identity even with no plan in context", async () => {
     requestUrl = "/plans";
     process.env.NODE_ENV = "production";

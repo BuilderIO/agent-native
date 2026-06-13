@@ -292,6 +292,10 @@ export interface ActionEntry {
   ) => Promise<any> | any;
   /** HTTP exposure config. `false` = agent-only. Omitted = auto-inferred from name. */
   http?: import("../action.js").ActionHttpConfig | false;
+  /** Whether HTTP/frontend action calls must have an authenticated owner.
+   *  Defaults to true; false lets safe metadata/read actions run with
+   *  `ctx.userEmail` undefined when auth resolution returns 401/403. */
+  requiresAuth?: boolean;
   /** Whether the action is exposed to the agent as a callable tool. Only an
    *  explicit `false` hides it from every agent tool surface (in-app assistant,
    *  MCP, A2A, job/trigger runners) while leaving it frontend/HTTP-callable.

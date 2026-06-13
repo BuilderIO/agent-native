@@ -156,6 +156,66 @@ describe("registerMcpServer", () => {
     expect(result.authenticated).toBe(true);
   });
 
+  it("stops device polling at the configured timeout without oversleeping", async () => {
+    isolateHome();
+    const baseDir = tmpDir();
+    const descriptor: McpDescriptor = {
+      serverName: "plan",
+      mcpUrl: "https://plan.agent-native.com/_agent-native/mcp",
+      authMode: "device",
+      hostedUrl: "https://plan.agent-native.com",
+    };
+    let nowMs = 0;
+    const sleeps: number[] = [];
+    const logs: string[] = [];
+    const fetchImpl = mockFetch([
+      {
+        match: "/device/start",
+        json: {
+          device_code: "dev-123",
+          user_code: "ABCD-EFGH",
+          verification_uri: "https://plan.agent-native.com/connect",
+          verification_uri_complete:
+            "https://plan.agent-native.com/connect?code=ABCD-EFGH",
+          interval: 5,
+          expires_in: 600,
+        },
+      },
+      {
+        match: "/device/poll",
+        json: { status: "pending" },
+      },
+    ]);
+
+    const result = await registerMcpServer({
+      descriptor,
+      clients: ["codex"],
+      scope: "user",
+      baseDir,
+      interactive: true,
+      log: (message) => logs.push(message),
+      deviceFlowTimeoutMs: 1_000,
+      deps: {
+        fetchImpl,
+        now: () => nowMs,
+        sleep: async (ms) => {
+          sleeps.push(ms);
+          nowMs += ms;
+        },
+      },
+    });
+
+    expect(sleeps).toEqual([1_000]);
+    expect(result.written).toHaveLength(0);
+    expect(result.authenticated).toBe(false);
+    expect(logs.join("\n")).toContain(
+      "Stopped waiting after 1s so installation can finish.",
+    );
+    expect(result.guidance.join("\n")).toContain(
+      "authentication did not complete; existing MCP config was left unchanged",
+    );
+  });
+
   it("writes URL-only entries for authMode 'none' with no auth", async () => {
     const { home } = isolateHome();
     const baseDir = tmpDir();

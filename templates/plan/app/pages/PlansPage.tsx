@@ -5,6 +5,7 @@ import {
   useRef,
   useState,
   type CSSProperties,
+  type FormEvent,
   type PointerEvent,
   type ReactNode,
 } from "react";
@@ -17,6 +18,7 @@ import {
   IconArrowsMaximize,
   IconArrowsMinimize,
   IconAlertTriangle,
+  IconBrandGoogle,
   IconChevronDown,
   IconClipboardText,
   IconCopy,
@@ -31,6 +33,9 @@ import {
   IconDotsVertical,
   IconHistory,
   IconLayoutSidebarRight,
+  IconLock,
+  IconLogin2,
+  IconMail,
   IconLoader2,
   IconPencil,
   IconCircleCheck,
@@ -46,6 +51,8 @@ import {
   IconSearch,
   IconRefresh,
   IconRestore,
+  IconShieldLock,
+  IconUserPlus,
 } from "@tabler/icons-react";
 import { useTheme } from "next-themes";
 import { toast } from "sonner";
@@ -144,6 +151,7 @@ import type {
 } from "@/components/plan/CanvasArea";
 import {
   usePlan,
+  usePlanAccessStatus,
   usePlans,
   useConvertVisualPlanToPrototype,
   usePlanVersion,
@@ -156,7 +164,9 @@ import {
   useUpdatePlanStatus,
   useExportPlan,
   useImportPlanSource,
+  useRequestPlanAccess,
   type PlanCommentInput,
+  type PlanAccessStatusResponse,
   type PublishVisualPlanResult,
 } from "@/hooks/use-plans";
 import { cn } from "@/lib/utils";
@@ -2188,8 +2198,66 @@ export function PlansPage() {
   );
   const planQuery = usePlan(selectedId, commentMutationPendingRef);
   const bundle = planQuery.data;
-  const showInitialPlanSkeleton =
-    !bundle && planQuery.isLoading && !planQuery.isFetched;
+  const planAccessStatusQuery = usePlanAccessStatus(
+    selectedId,
+    Boolean(selectedId && !bundle),
+  );
+  const planAccessStatus = planAccessStatusQuery.data ?? null;
+  const showPlanLoadError = Boolean(
+    selectedId &&
+    !bundle &&
+    (planQuery.isError || (planAccessStatus && !planAccessStatus.hasAccess)),
+  );
+  const showInitialPlanSkeleton = Boolean(
+    selectedId && !bundle && !showPlanLoadError,
+  );
+  const requestPlanAccessMutation = useRequestPlanAccess();
+  const [accessRequestSentPlanId, setAccessRequestSentPlanId] = useState<
+    string | null
+  >(null);
+  useEffect(() => {
+    if (accessRequestSentPlanId && accessRequestSentPlanId !== selectedId) {
+      setAccessRequestSentPlanId(null);
+    }
+  }, [accessRequestSentPlanId, selectedId]);
+  const startGoogleSignIn = useCallback(async () => {
+    const returnPath =
+      window.location.pathname + window.location.search + window.location.hash;
+    try {
+      const res = await fetch(
+        `${agentNativePath("/_agent-native/google/auth-url")}?return=${encodeURIComponent(returnPath)}`,
+        { cache: "no-store" },
+      );
+      const data = (await res.json().catch(() => null)) as {
+        url?: string;
+        error?: string;
+        message?: string;
+      } | null;
+      if (res.ok && data?.url) {
+        window.location.href = data.url;
+        return;
+      }
+      if (data?.error || data?.message) {
+        toast.error(data.error ?? data.message);
+      }
+    } catch {
+      // Fall through to the full sign-in page, which has the same auth options.
+    }
+    openSignIn(returnPath);
+  }, [openSignIn]);
+  const requestPlanAccess = useCallback(() => {
+    if (!selectedId) return;
+    requestPlanAccessMutation.mutate(
+      { planId: selectedId },
+      {
+        onSuccess: (result) => {
+          setAccessRequestSentPlanId(selectedId);
+          toast.success(result.message);
+          if (result.alreadyHasAccess) void planQuery.refetch();
+        },
+      },
+    );
+  }, [planQuery, requestPlanAccessMutation, selectedId]);
   const queryClient = useQueryClient();
   const selectedPlanQueryKey = useMemo(
     () => (selectedId ? planBundleQueryKey(selectedId) : null),
@@ -3955,27 +4023,23 @@ export function PlansPage() {
               onArchive={handleArchivePlan}
               onSignIn={() => openSignIn()}
             />
-          ) : !bundle && planQuery.isError ? (
+          ) : showPlanLoadError ? (
             <PlanLoadError
               planId={params.id}
               error={planQuery.error}
+              accessStatus={planAccessStatus}
               onRetry={() => void planQuery.refetch()}
               onCreate={requestCreatePlan}
               onSignIn={() => openSignIn()}
+              onGoogleSignIn={startGoogleSignIn}
+              onRequestAccess={requestPlanAccess}
+              requestAccessPending={requestPlanAccessMutation.isPending}
+              accessRequestSent={accessRequestSentPlanId === params.id}
               canCreate={Boolean(session)}
               viewerEmail={session?.email ?? null}
             />
           ) : showInitialPlanSkeleton ? (
-            <PlanSkeleton isRecap={location.pathname.startsWith("/recaps")} />
-          ) : !bundle ? (
-            <PlanLoadError
-              planId={params.id}
-              onRetry={() => void planQuery.refetch()}
-              onCreate={requestCreatePlan}
-              onSignIn={() => openSignIn()}
-              canCreate={Boolean(session)}
-              viewerEmail={session?.email ?? null}
-            />
+            <PlanSkeleton isRecap={location.pathname.includes("/recaps/")} />
           ) : (
             <div
               className="relative min-h-0 flex-1 overflow-hidden bg-background"
@@ -5404,103 +5468,359 @@ function ReviewMarkupToolbar({
 function PlanLoadError({
   planId,
   error,
+  accessStatus,
   onRetry,
   onCreate,
   onSignIn,
+  onGoogleSignIn,
+  onRequestAccess,
+  requestAccessPending,
+  accessRequestSent,
   canCreate,
   viewerEmail,
 }: {
   planId?: string;
   error?: unknown;
+  accessStatus?: PlanAccessStatusResponse | null;
   onRetry: () => void;
   onCreate: () => void;
   onSignIn: () => void;
+  onGoogleSignIn: () => Promise<void> | void;
+  onRequestAccess: () => void;
+  requestAccessPending?: boolean;
+  accessRequestSent?: boolean;
   canCreate: boolean;
   /** The signed-in identity for THIS origin, or null when anonymous. */
   viewerEmail?: string | null;
 }) {
+  const [emailOpen, setEmailOpen] = useState(false);
+  const [emailMode, setEmailMode] = useState<"sign-in" | "create">("sign-in");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [emailAuthError, setEmailAuthError] = useState<string | null>(null);
+  const [emailAuthNotice, setEmailAuthNotice] = useState<string | null>(null);
+  const [emailAuthPending, setEmailAuthPending] = useState(false);
+  const [googlePending, setGooglePending] = useState(false);
+
   const message =
     error instanceof Error && error.message
       ? error.message.replace(/^Action [\w-]+ failed:\s*/, "")
       : "This plan could not be loaded from the current session.";
+  const status =
+    error && typeof error === "object" && "status" in error
+      ? (error as { status?: number }).status
+      : undefined;
+  const signedInEmail = viewerEmail ?? accessStatus?.viewerEmail ?? null;
+  const signedIn = Boolean(signedInEmail);
+  const planExists = accessStatus?.exists === true;
+  const planMissing = accessStatus?.exists === false;
+  const hasNoAccess = planExists && accessStatus?.hasAccess === false;
+  const likelyPrivatePlan =
+    !planMissing &&
+    status === 403 &&
+    /not found|no access|forbidden/i.test(message);
+  const showAccessHelp = hasNoAccess || likelyPrivatePlan;
 
-  // "Not found" here often means an identity/org/origin mismatch, not a
-  // genuinely missing plan. The access resolver deliberately conflates the two
-  // so private plans don't leak existence. Lead with the practical recovery path
-  // instead of making reviewers infer that a PR recap link is login-gated.
-  const notFound = /not found/i.test(message);
-  const signedIn = Boolean(viewerEmail);
+  const returnPath = () =>
+    window.location.pathname + window.location.search + window.location.hash;
+
+  const readAuthError = async (res: Response, fallback: string) => {
+    const data = (await res.json().catch(() => null)) as {
+      error?: string;
+      message?: string;
+    } | null;
+    return data?.error ?? data?.message ?? fallback;
+  };
+
+  const submitEmailAuth = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setEmailAuthError(null);
+    setEmailAuthNotice(null);
+    setEmailAuthPending(true);
+    const body = {
+      email,
+      password,
+      callbackURL: returnPath(),
+    };
+    try {
+      if (emailMode === "create") {
+        const registerRes = await fetch(
+          agentNativePath("/_agent-native/auth/register"),
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(body),
+          },
+        );
+        if (!registerRes.ok) {
+          throw new Error(
+            await readAuthError(registerRes, "Could not create account."),
+          );
+        }
+      }
+      const loginRes = await fetch(
+        agentNativePath("/_agent-native/auth/login"),
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        },
+      );
+      if (!loginRes.ok) {
+        throw new Error(
+          await readAuthError(loginRes, "Could not sign in with email."),
+        );
+      }
+      window.location.assign(returnPath());
+    } catch (authError) {
+      const next =
+        authError instanceof Error
+          ? authError.message
+          : "Could not sign in with email.";
+      if (/not verified|verification/i.test(next)) {
+        setEmailAuthNotice(
+          "Check your email to verify the account, then reopen this link.",
+        );
+      } else {
+        setEmailAuthError(next);
+      }
+    } finally {
+      setEmailAuthPending(false);
+    }
+  };
+
+  const startGoogle = async () => {
+    setGooglePending(true);
+    try {
+      await onGoogleSignIn();
+    } finally {
+      setGooglePending(false);
+    }
+  };
+
+  const title = planMissing
+    ? "Plan not found"
+    : showAccessHelp
+      ? signedIn
+        ? "Request access to this plan"
+        : "Sign in to view this plan"
+      : "Plan did not load";
+  const body = planMissing
+    ? "This link points to a plan that does not exist on this Plan app."
+    : showAccessHelp
+      ? signedIn
+        ? planExists
+          ? "This plan exists, but this account is not on the access list."
+          : "This looks like a private plan link, and this account may not have access."
+        : planExists
+          ? "This plan exists, but it is private. Sign in with an account that belongs to the right organization or has been shared on the plan."
+          : "This looks like a private plan link. Sign in with an account that belongs to the right organization or has been shared on the plan."
+      : message;
+  const icon = planMissing ? (
+    <IconSearch className="size-5" />
+  ) : showAccessHelp ? (
+    <IconShieldLock className="size-5" />
+  ) : (
+    <IconAlertTriangle className="size-5" />
+  );
 
   return (
     <div className="flex h-full items-center justify-center bg-background p-8">
-      <div className="w-full max-w-lg rounded-xl border border-border bg-card p-5 text-left shadow-sm">
+      <div className="w-full max-w-md rounded-lg border border-border bg-background p-5 text-left shadow-sm">
         <div className="flex items-start gap-3">
-          {notFound ? (
-            <div className="flex size-10 shrink-0 items-center justify-center rounded-lg border border-border bg-muted/40 text-muted-foreground">
-              <IconSearch className="size-5" />
-            </div>
-          ) : (
-            <div className="flex size-10 shrink-0 items-center justify-center rounded-lg border border-amber-500/25 bg-amber-500/10 text-amber-600 dark:text-amber-300">
-              <IconAlertTriangle className="size-5" />
-            </div>
-          )}
-          <div className="min-w-0">
-            <h2 className="text-base font-semibold tracking-tight">
-              {notFound ? "Private plan access needed" : "Plan did not load"}
-            </h2>
-            {notFound ? (
-              <div className="mt-1 space-y-2 text-sm leading-6 text-muted-foreground">
-                {signedIn ? (
-                  <p>
-                    This plan is private to the owning organization. For
-                    Builder.io PR recaps, sign in with an Agent-Native Plans
-                    account that belongs to the Builder.io organization, then
-                    retry this link. You are currently signed in as{" "}
-                    <span className="font-medium text-foreground">
-                      {viewerEmail}
-                    </span>
-                    .
-                  </p>
-                ) : (
-                  <p>
-                    This plan is private to the owning organization. For
-                    Builder.io PR recaps, create or sign in to an Agent-Native
-                    Plans account that belongs to the Builder.io organization,
-                    then retry this link.
-                  </p>
-                )}
-                <p>
-                  The link may show up like a 404 when you are anonymous, signed
-                  into the wrong account, or opening it on a different Plan app
-                  origin than the one that published it.
-                </p>
-              </div>
-            ) : (
-              <p className="mt-1 text-sm leading-6 text-muted-foreground">
-                {message}
-              </p>
+          <div
+            className={cn(
+              "flex size-10 shrink-0 items-center justify-center rounded-lg border",
+              showAccessHelp
+                ? "border-border bg-muted/40 text-foreground"
+                : planMissing
+                  ? "border-border bg-muted/40 text-muted-foreground"
+                  : "border-amber-500/25 bg-amber-500/10 text-amber-600 dark:text-amber-300",
             )}
+          >
+            {icon}
+          </div>
+          <div className="min-w-0">
+            <h2 className="text-base font-semibold tracking-tight">{title}</h2>
+            <p className="mt-1 text-sm leading-6 text-muted-foreground">
+              {body}
+            </p>
+            {showAccessHelp && signedInEmail ? (
+              <div className="mt-3 flex items-center gap-2 rounded-md border border-border bg-muted/35 px-3 py-2 text-sm">
+                <IconAt className="size-4 shrink-0 text-muted-foreground" />
+                <span className="min-w-0 truncate text-muted-foreground">
+                  Signed in as{" "}
+                  <span className="font-medium text-foreground">
+                    {signedInEmail}
+                  </span>
+                </span>
+              </div>
+            ) : null}
+            {accessRequestSent ? (
+              <div className="mt-3 rounded-md border border-emerald-500/25 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-700 dark:text-emerald-300">
+                Access request sent. You will be able to open this link once an
+                owner grants access.
+              </div>
+            ) : null}
+            {showAccessHelp && !signedIn ? (
+              <p className="mt-3 text-xs leading-5 text-muted-foreground">
+                For Builder.io PR recaps, use an account in the Builder.io
+                organization or one explicitly shared on the plan.
+              </p>
+            ) : null}
+            {!showAccessHelp && !planMissing ? (
+              <p className="mt-2 text-xs leading-5 text-muted-foreground">
+                Retry the load, or sign in with another account if this is a
+                private plan link.
+              </p>
+            ) : null}
             {planId && (
-              <p className="mt-2 break-all font-mono text-xs text-muted-foreground">
+              <p className="mt-3 break-all font-mono text-xs text-muted-foreground">
                 {planId}
               </p>
             )}
           </div>
         </div>
-        <div className="mt-5 flex flex-wrap gap-2">
-          {notFound ? (
+
+        <div className="mt-5 flex flex-col gap-2">
+          {showAccessHelp ? (
             <>
-              <Button type="button" onClick={onSignIn}>
-                <IconExternalLink className="size-4" />
-                Sign in or switch account
-              </Button>
-              <Button type="button" variant="outline" onClick={onRetry}>
-                <IconRefresh className="size-4" />
-                Retry
-              </Button>
+              {signedIn ? (
+                <Button
+                  type="button"
+                  onClick={onRequestAccess}
+                  disabled={requestAccessPending || accessRequestSent}
+                >
+                  {requestAccessPending ? (
+                    <IconLoader2 className="size-4 animate-spin" />
+                  ) : (
+                    <IconUserPlus className="size-4" />
+                  )}
+                  {accessRequestSent ? "Request sent" : "Request access"}
+                </Button>
+              ) : (
+                <Button
+                  type="button"
+                  onClick={() => void startGoogle()}
+                  disabled={googlePending}
+                >
+                  {googlePending ? (
+                    <IconLoader2 className="size-4 animate-spin" />
+                  ) : (
+                    <IconBrandGoogle className="size-4" />
+                  )}
+                  Continue with Google
+                </Button>
+              )}
+              <div className="flex flex-wrap gap-2">
+                {signedIn ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => void startGoogle()}
+                    disabled={googlePending}
+                  >
+                    <IconLogin2 className="size-4" />
+                    Switch account
+                  </Button>
+                ) : null}
+                <Button type="button" variant="outline" onClick={onRetry}>
+                  <IconRefresh className="size-4" />
+                  Retry
+                </Button>
+              </div>
+              <Collapsible open={emailOpen} onOpenChange={setEmailOpen}>
+                <CollapsibleTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    className="w-full justify-between px-2 text-muted-foreground"
+                  >
+                    <span className="inline-flex items-center gap-2">
+                      <IconMail className="size-4" />
+                      Sign in with email
+                    </span>
+                    <IconChevronDown
+                      className={cn(
+                        "size-4 transition-transform",
+                        emailOpen ? "rotate-180" : "",
+                      )}
+                    />
+                  </Button>
+                </CollapsibleTrigger>
+                <CollapsibleContent className="pt-2">
+                  <form
+                    className="space-y-3 rounded-md border border-border bg-muted/20 p-3"
+                    onSubmit={submitEmailAuth}
+                  >
+                    <div className="space-y-1.5">
+                      <Label htmlFor="plan-access-email">Email</Label>
+                      <Input
+                        id="plan-access-email"
+                        type="email"
+                        autoComplete="email"
+                        value={email}
+                        onChange={(event) => setEmail(event.target.value)}
+                        required
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label htmlFor="plan-access-password">Password</Label>
+                      <Input
+                        id="plan-access-password"
+                        type="password"
+                        autoComplete={
+                          emailMode === "create"
+                            ? "new-password"
+                            : "current-password"
+                        }
+                        minLength={emailMode === "create" ? 8 : undefined}
+                        value={password}
+                        onChange={(event) => setPassword(event.target.value)}
+                        required
+                      />
+                    </div>
+                    {emailAuthError ? (
+                      <p className="text-sm text-destructive">
+                        {emailAuthError}
+                      </p>
+                    ) : null}
+                    {emailAuthNotice ? (
+                      <p className="text-sm text-muted-foreground">
+                        {emailAuthNotice}
+                      </p>
+                    ) : null}
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Button type="submit" disabled={emailAuthPending}>
+                        {emailAuthPending ? (
+                          <IconLoader2 className="size-4 animate-spin" />
+                        ) : (
+                          <IconLock className="size-4" />
+                        )}
+                        {emailMode === "create" ? "Create account" : "Sign in"}
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        onClick={() => {
+                          setEmailMode(
+                            emailMode === "create" ? "sign-in" : "create",
+                          );
+                          setEmailAuthError(null);
+                          setEmailAuthNotice(null);
+                        }}
+                      >
+                        {emailMode === "create"
+                          ? "I have an account"
+                          : "Create account"}
+                      </Button>
+                    </div>
+                  </form>
+                </CollapsibleContent>
+              </Collapsible>
             </>
-          ) : (
-            <>
+          ) : planMissing ? (
+            <div className="flex flex-wrap gap-2">
               <Button type="button" onClick={onRetry}>
                 <IconRefresh className="size-4" />
                 Retry
@@ -5509,7 +5829,18 @@ function PlanLoadError({
                 <IconPlus className="size-4" />
                 {canCreate ? "New Plan" : "Sign in"}
               </Button>
-            </>
+            </div>
+          ) : (
+            <div className="flex flex-wrap gap-2">
+              <Button type="button" onClick={onRetry}>
+                <IconRefresh className="size-4" />
+                Retry
+              </Button>
+              <Button type="button" variant="outline" onClick={onSignIn}>
+                <IconExternalLink className="size-4" />
+                Sign in
+              </Button>
+            </div>
           )}
         </div>
       </div>

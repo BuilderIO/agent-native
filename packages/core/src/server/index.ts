@@ -350,6 +350,7 @@ export {
   isBuilderEnvManaged,
   getBuilderProxyOrigin,
   getBuilderImageGenerationBaseUrl,
+  getBuilderWebSearchBaseUrl,
   getBuilderAuthHeader,
   resolveBuilderPrivateKey,
   resolveBuilderAuthHeader,

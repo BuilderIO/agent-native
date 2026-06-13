@@ -708,7 +708,9 @@ export async function loadPlanBundle(planId: string): Promise<PlanBundle> {
   // avoid leaking existence). Throw ForbiddenError (statusCode 403) so the action
   // surface returns a clean 4xx instead of a 500 stack — a missing/private plan
   // must never surface as an Internal Server Error.
-  if (!access) throw new ForbiddenError(`Plan ${planId} not found`);
+  if (!access || !access.resource) {
+    throw new ForbiddenError(`Plan ${planId} not found`);
+  }
   const plan = access.resource as typeof schema.plans.$inferSelect;
   const db = getDb();
   const [sectionRows, commentRows, eventRows] = await Promise.all([

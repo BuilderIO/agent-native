@@ -221,6 +221,44 @@ export function usePlan(
   );
 }
 
+export type PlanAccessStatusResponse = {
+  exists: boolean;
+  hasAccess: boolean;
+  signedIn: boolean;
+  viewerEmail: string | null;
+  viewerName: string | null;
+  role: "owner" | "viewer" | "editor" | "admin" | null;
+  visibility: "private" | "org" | "public" | null;
+};
+
+export function usePlanAccessStatus(planId?: string, enabled = true) {
+  return useActionQuery<PlanAccessStatusResponse>(
+    "get-plan-access-status",
+    { planId: planId ?? "" },
+    {
+      enabled: Boolean(planId && enabled),
+      retry: false,
+    },
+  );
+}
+
+export type RequestPlanAccessResult = {
+  ok: true;
+  alreadyHasAccess: boolean;
+  notifiedOwner: boolean;
+  requestId?: string;
+  message: string;
+};
+
+export function useRequestPlanAccess() {
+  return useActionMutation<RequestPlanAccessResult, { planId: string }>(
+    "request-plan-access",
+    {
+      onError: showActionError("Failed to request access"),
+    },
+  );
+}
+
 export function useCreatePlan() {
   const invalidate = usePlanInvalidation();
   return useActionMutation<

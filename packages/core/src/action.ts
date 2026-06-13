@@ -276,6 +276,10 @@ interface DefineActionWithSchema<
     ctx?: ActionRunContext,
   ) => Promise<TReturn> | TReturn;
   http?: ActionHttpConfig | false;
+  /** Whether the HTTP/frontend action route must have an authenticated owner.
+   *  Defaults to true. Set to false only for metadata/read actions that safely
+   *  handle `ctx.userEmail` / `getRequestUserEmail()` being undefined. */
+  requiresAuth?: boolean;
   /** Whether this action is exposed to the agent — the in-app assistant and the
    *  app's MCP/A2A tool surfaces — as a callable tool. **Default-allow opt-out**:
    *  `undefined` / `true` expose it; only an explicit `false` hides it from every
@@ -344,6 +348,9 @@ interface DefineActionWithParams<
     ctx?: ActionRunContext,
   ) => Promise<TReturn> | TReturn;
   http?: ActionHttpConfig | false;
+  /** Whether the HTTP/frontend action route must have an authenticated owner.
+   *  Defaults to true. See the schema overload above. */
+  requiresAuth?: boolean;
   /** Whether this action is exposed to the agent as a callable tool. Only an
    *  explicit `false` hides it from every agent tool list while keeping it
    *  frontend/HTTP-callable. See the schema overload above and actions.md. */
@@ -395,6 +402,7 @@ export interface ActionDefinition<TInput, TReturn> {
   /** @internal Framework use only — do not call directly. */
   readonly tool: import("./agent/types.js").ActionTool;
   readonly http?: ActionHttpConfig | false;
+  readonly requiresAuth?: boolean;
   readonly agentTool?: boolean;
   readonly readOnly?: boolean;
   readonly parallelSafe?: boolean;
@@ -556,6 +564,9 @@ export function defineAction(options: any) {
     run,
     ...(hasSchema ? { schema: options.schema } : {}),
     ...(options.http !== undefined ? { http: options.http } : {}),
+    ...(typeof options.requiresAuth === "boolean"
+      ? { requiresAuth: options.requiresAuth }
+      : {}),
     ...(typeof agentTool === "boolean" ? { agentTool } : {}),
     ...(typeof readOnly === "boolean" ? { readOnly } : {}),
     ...(typeof parallelSafe === "boolean" ? { parallelSafe } : {}),

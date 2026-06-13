@@ -126,6 +126,49 @@ describe("mountActionRoutes", () => {
     expect(process.env.AGENT_USER_TIMEZONE).toBe("UTC");
   });
 
+  it("runs optional-auth actions with an anonymous request context when auth resolution returns 401", async () => {
+    const { mountActionRoutes } = await import("./action-routes.js");
+    const { getRequestUserEmail } = await import("./request-context.js");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const nitroApp = {
+      use: vi.fn((path: string, handler: any) =>
+        mounted.push({ path, handler }),
+      ),
+    };
+    const actions: Record<string, ActionEntry> = {
+      "public-metadata": {
+        http: { method: "GET" },
+        readOnly: true,
+        requiresAuth: false,
+        run: vi.fn(async (_args, ctx) => ({
+          ctxUserEmail: ctx?.userEmail,
+          requestUserEmail: getRequestUserEmail(),
+        })),
+      } as any,
+    };
+    const unauthenticated = Object.assign(new Error("Unauthenticated"), {
+      statusCode: 401,
+    });
+
+    mountActionRoutes(nitroApp, actions, {
+      getOwnerFromEvent: async () => {
+        throw unauthenticated;
+      },
+    });
+
+    const result = await mounted[0].handler({
+      _method: "GET",
+      req: {
+        url: "http://app.test/_agent-native/actions/public-metadata?id=plan_1",
+      },
+    });
+
+    expect(result).toEqual({
+      ctxUserEmail: undefined,
+      requestUserEmail: undefined,
+    });
+  });
+
   it("allows HEAD for GET actions", async () => {
     const { mountActionRoutes } = await import("./action-routes.js");
     const mounted: Array<{ path: string; handler: any }> = [];

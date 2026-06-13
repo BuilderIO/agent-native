@@ -3631,12 +3631,18 @@ export function createAgentChatPlugin(
       try {
         const { createWebSearchToolEntry } =
           await import("../extensions/web-search-tool.js");
-        const { resolveCredential } = await import("../credentials/index.js");
-        const { getCredentialContext: getCredCtx } =
-          await import("./request-context.js");
+        const {
+          getBuilderWebSearchBaseUrl,
+          resolveBuilderCredentials,
+          resolveSecret,
+        } = await import("./credential-provider.js");
+        const { getBuilderGatewayRequestHeaders } =
+          await import("../agent/engine/builder-gateway-headers.js");
         webSearchTool = createWebSearchToolEntry({
-          resolveCredential,
-          getCredentialContext: () => getCredCtx(),
+          resolveSecret,
+          resolveBuilderCredentials,
+          getBuilderWebSearchBaseUrl,
+          getBuilderRequestHeaders: getBuilderGatewayRequestHeaders,
         });
       } catch {}
       let workspaceFilesTool: Record<string, ActionEntry> = {};

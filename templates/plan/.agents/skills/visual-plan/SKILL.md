@@ -1,10 +1,9 @@
 ---
 name: visual-plan
 description: >-
-  Use Agent-Native Plans when coding-agent work needs a reviewable plan
-  published as an interactive document — inline diagrams, annotated code
-  walkthroughs, file trees, optional UI wireframes or prototypes, open-question
-  forms, and comments — before implementation starts.
+  Turn ordinary text plans into rich interactive visual plans with diagrams,
+  file maps, annotated code, open questions, and UI/prototype review when
+  useful.
 metadata:
   visibility: exported
 ---
