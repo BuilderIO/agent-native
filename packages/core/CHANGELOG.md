@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.49.14
+
+### Patch Changes
+
+- ecbdbf8: Document local component workspace support for Content local file mode.
+
 ## 0.49.13
 
 ### Patch Changes
