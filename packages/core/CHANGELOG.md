@@ -1,5 +1,12 @@
 # @agent-native/core
 
+## 0.49.19
+
+### Patch Changes
+
+- 743589e: Allow PR visual recaps to run on visual-plan and visual-recap skill file changes
+  when CI uses the default bundled recap instructions.
+
 ## 0.49.18
 
 ### Patch Changes
