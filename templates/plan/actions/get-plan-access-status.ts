@@ -27,6 +27,7 @@ export default defineAction({
   }),
   http: { method: "GET" },
   readOnly: true,
+  requiresAuth: false,
   agentTool: false,
   run: async ({ planId }) => {
     const rawViewerEmail = getRequestUserEmail() ?? null;
