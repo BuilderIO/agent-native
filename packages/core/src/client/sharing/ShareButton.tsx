@@ -209,10 +209,11 @@ const ROLE_OPTIONS: Array<{ value: Role; label: string; description: string }> =
  * dark mode in any shadcn template.
  */
 export function ShareButton(props: ShareButtonProps) {
-  const [open, setOpen] = useState(() => props.defaultOpen ?? false);
+  const [open, setOpen] = useState(false);
   const [pendingVisibility, setPendingVisibility] = useState<Visibility | null>(
     null,
   );
+  const appliedDefaultOpenRef = useRef(false);
   const visibilityRequestId = useRef(0);
   const queryClient = useQueryClient();
   const shareQueryParams = useMemo(
@@ -236,6 +237,12 @@ export function ShareButton(props: ShareButtonProps) {
     props.onOpenChange?.(v);
     if (v && pendingVisibility === null) sharesQuery.refetch();
   };
+
+  useEffect(() => {
+    if (!props.defaultOpen || appliedDefaultOpenRef.current) return;
+    appliedDefaultOpenRef.current = true;
+    handleOpenChange(true);
+  });
 
   const updateCachedVisibility = (visibility: Visibility) => {
     queryClient.setQueryData<SharesResponse>(shareQueryKey, (prev) =>

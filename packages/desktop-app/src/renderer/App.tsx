@@ -20,6 +20,9 @@ import {
   getCodeAgentGoal,
 } from "@shared/code-agents";
 
+const reserveMacOSWindowControlsSpace =
+  window.electronAPI?.platform === "darwin";
+
 export interface Tab {
   id: string;
   appId: string;
@@ -801,8 +804,13 @@ export default function App() {
       )}
       {isCodeAgentsActive ? (
         <div className="tabbar tabbar--shell">
-          <div className="tab tab--active tab--locked">
-            <span className="tab-label">Code</span>
+          {reserveMacOSWindowControlsSpace && (
+            <div className="tabbar-window-spacer" aria-hidden="true" />
+          )}
+          <div className="tabbar-strip">
+            <div className="tab tab--active tab--locked">
+              <span className="tab-label">Code</span>
+            </div>
           </div>
         </div>
       ) : (

@@ -8,7 +8,7 @@
 :root {
   --sidebar-width: 56px;
   --tabbar-height: 38px;
-  --macos-traffic-light-safe-area: 150px;
+  --macos-traffic-light-safe-area: 140px;
   --sidebar-bg: #0a0a0a;
   --sidebar-border: rgba(255, 255, 255, 0.06);
   --item-hover-bg: rgba(255, 255, 255, 0.05);
@@ -131,26 +131,31 @@ body {
   border-bottom: 1px solid var(--separator);
   display: flex;
   align-items: stretch;
+  overflow: hidden;
+  -webkit-app-region: drag;
+}
+
+.tabbar-window-spacer {
+  flex: 0 0 var(--macos-traffic-light-safe-area);
+  align-self: stretch;
+  background: var(--tabbar-bg);
+  -webkit-app-region: drag;
+}
+
+.tabbar-strip {
+  display: flex;
+  align-items: stretch;
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 100%;
   overflow-x: auto;
   overflow-y: hidden;
   scrollbar-width: none;
   -webkit-app-region: drag;
 }
 
-.tabbar::-webkit-scrollbar {
+.tabbar-strip::-webkit-scrollbar {
   display: none;
-}
-
-/* macOS: keep the first tab clear of the native traffic lights. */
-.platform-darwin .tabbar::before {
-  content: "";
-  position: sticky;
-  left: 0;
-  z-index: 2;
-  flex: 0 0 var(--macos-traffic-light-safe-area);
-  align-self: stretch;
-  background: var(--tabbar-bg);
-  -webkit-app-region: drag;
 }
 
 .tab {
