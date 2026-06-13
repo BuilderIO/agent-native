@@ -355,6 +355,12 @@ async function ensureSafeDirectoryPath(root: string, directory: string) {
       }
     }
   }
+  const realRoot = await fsp.realpath(resolvedRoot);
+  const realDirectory = await fsp.realpath(resolvedDirectory);
+  const realRelativePath = path.relative(realRoot, realDirectory);
+  if (realRelativePath.startsWith("..") || path.isAbsolute(realRelativePath)) {
+    throw new Error("Component path escaped the registered workspace.");
+  }
 }
 
 export function registeredLocalComponentDirsSync(cwd = process.cwd()) {
