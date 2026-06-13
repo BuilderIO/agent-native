@@ -81,6 +81,22 @@ describe("wireframe auto-height frame", () => {
     expect(style).toMatch(/width\s*:\s*900px/);
   });
 
+  it("renders allowlisted icon markers as inline Tabler-style SVG icons", () => {
+    const html = render({
+      surface: "popover",
+      html: '<button aria-label="Email"><span data-icon="email" aria-label="Email"></span></button><button><i data-icon="lock"></i></button><span data-icon="chevron"></span>',
+    });
+
+    expect(html).toContain('class="wf-icon"');
+    expect(html).toContain('data-icon="mail"');
+    expect(html).toContain('data-icon="lock"');
+    expect(html).toContain('data-icon="chevronDown"');
+    expect(html).toContain('aria-label="Email"');
+    expect(html).toContain("<svg");
+    expect(html).not.toContain(">email<");
+    expect(html).not.toContain(">lock<");
+  });
+
   it("applies a taller floor to a phone surface than a popover", () => {
     const mobileStyle = artboardStyle(
       render({ surface: "mobile", html: "<div>x</div>" }),

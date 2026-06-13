@@ -215,6 +215,7 @@ export {
   useIsDark,
   type WireframeStyle,
 } from "./library/wireframe-kit.js";
+export { renderWireframeIconHtml } from "./library/wireframe-icons.js";
 
 // Dev-doc block library (React `Read`/`Edit` renderers + their React-free
 // schema/MDX config). Apps register these alongside their own blocks, supplying

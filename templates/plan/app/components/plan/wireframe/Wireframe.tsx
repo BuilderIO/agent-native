@@ -35,6 +35,7 @@ import {
   RUNTIME_SENTINEL_ATTR,
   mountPrototypeRuntime,
 } from "./prototype-runtime";
+import { renderWireframeIconHtml } from "./wireframe-icons";
 import "./html-artboard.css";
 
 /**
@@ -318,7 +319,10 @@ function HtmlArtboard({
   // Sanitize model-authored HTML at the render point (defense-in-depth against
   // stored XSS) — see sanitize-html.ts. Memoized so it only re-runs when the
   // html changes, not on every theme/zoom re-render.
-  const safeHtml = useMemo(() => sanitizeWireframeHtml(data.html), [data.html]);
+  const safeHtml = useMemo(
+    () => renderWireframeIconHtml(sanitizeWireframeHtml(data.html)),
+    [data.html],
+  );
   const renderMode = data.renderMode ?? "wireframe";
   const designMode = renderMode === "design";
   const scopeId = useId().replace(/[^a-zA-Z0-9_-]/g, "");
