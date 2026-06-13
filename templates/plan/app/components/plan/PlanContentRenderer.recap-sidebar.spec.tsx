@@ -5,6 +5,10 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { PlanContent } from "@shared/plan-content";
 import { PlanContentRenderer } from "./PlanContentRenderer";
+import {
+  setWireframeStyle,
+  toggleWireframeStyle,
+} from "./wireframe/use-wireframe-style";
 
 /**
  * Recap "Files touched" sidebar wiring. On wide recap screens the first
@@ -58,12 +62,39 @@ function recapContent(): PlanContent {
   } as unknown as PlanContent;
 }
 
+function recapWireframeContent(): PlanContent {
+  return {
+    version: 2,
+    title: "Visual recap",
+    brief: "brief",
+    blocks: [
+      {
+        id: "wf-1",
+        type: "wireframe",
+        title: "Private plan",
+        data: {
+          surface: "popover",
+          html: "<h2>Private plan</h2><p>This plan is private.</p>",
+        },
+      },
+    ],
+  } as unknown as PlanContent;
+}
+
+class MockResizeObserver {
+  observe() {}
+  unobserve() {}
+  disconnect() {}
+}
+
 describe("PlanContentRenderer recap files sidebar", () => {
   let container: HTMLDivElement;
   let root: Root;
 
   beforeEach(() => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    vi.stubGlobal("ResizeObserver", MockResizeObserver);
+    setWireframeStyle("sketchy");
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -136,6 +167,30 @@ describe("PlanContentRenderer recap files sidebar", () => {
     expect(toc?.textContent).toContain("Section A");
     expect(toc?.textContent).toContain("Section B");
     expect(toc?.textContent).not.toContain("Files changed");
+  });
+
+  it("syncs the clean/sketchy preference into core-rendered recap wireframes", () => {
+    act(() => {
+      root.render(
+        <PlanContentRenderer
+          content={recapWireframeContent()}
+          isRecap
+          editingDisabled
+          fallbackTitle="Untitled plan"
+          fallbackBrief=""
+        />,
+      );
+    });
+
+    const frame = container.querySelector<HTMLElement>(".plan-html-frame");
+    expect(frame).not.toBeNull();
+    expect(frame?.getAttribute("data-style")).toBe("sketchy");
+
+    act(() => {
+      toggleWireframeStyle();
+    });
+
+    expect(frame?.getAttribute("data-style")).toBe("clean");
   });
 
   it("links GitHub PR references in the read-only recap brief", () => {

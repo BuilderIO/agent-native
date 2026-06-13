@@ -41,6 +41,7 @@ jobs:
           HAS_OPENAI: ${{ secrets.OPENAI_API_KEY != '' }}
           AGENT: ${{ env.VISUAL_RECAP_AGENT }}
           VISUAL_RECAP_MODEL: ${{ vars.VISUAL_RECAP_MODEL }}
+          VISUAL_RECAP_SKILL_SOURCE: ${{ env.VISUAL_RECAP_SKILL_SOURCE }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         with:
           script: |
@@ -80,10 +81,19 @@ jobs:
               reasons.push(`invalid VISUAL_RECAP_MODEL value (must match [a-zA-Z0-9._-]{1,80})`);
             }
 
+            const skillSource = (process.env.VISUAL_RECAP_SKILL_SOURCE || 'auto').toLowerCase();
+            if (!['auto', 'latest', 'repo'].includes(skillSource)) {
+              reasons.push('invalid VISUAL_RECAP_SKILL_SOURCE value (expected "auto", "latest", or "repo")');
+            }
+            const usesRepoSkill = skillSource === 'repo';
+
             // Self-modifying guard, evaluated in the trusted gate (runs NO
             // PR-checked-out code): skip the ENTIRE job if the PR touches the
-            // workflow, skill, or any agent config the runner loads, so a PR
-            // can't rewrite what runs and exfiltrate secrets.
+            // repo-pinned skill instructions or any agent config the runner
+            // loads, so a PR can't rewrite what the agent loads and exfiltrate
+            // secrets. With the default bundled skill source, visual skill and
+            // recap workflow files are reviewed content, not instructions loaded
+            // by the runner.
             if (pr) {
               try {
                 const files = await github.paginate(github.rest.pulls.listFiles, {
@@ -93,8 +103,7 @@ jobs:
                   per_page: 100,
                 });
                 const isSensitive = (p) =>
-                  p === '.github/workflows/pr-visual-recap.yml' ||
-                  /(^|\/)skills\/visual-(recap|plan|plans)\//.test(p) ||
+                  (usesRepoSkill && /(^|\/)skills\/visual-(recap|plan|plans)\//.test(p)) ||
                   /(^|\/)\.claude\//.test(p) ||
                   /(^|\/)CLAUDE\.md$/.test(p) ||
                   /(^|\/)AGENTS\.md$/.test(p) ||

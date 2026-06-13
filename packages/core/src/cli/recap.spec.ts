@@ -1140,6 +1140,7 @@ describe("recap gate decision", () => {
     hasOpenai: true,
     agentRaw: "claude",
     model: undefined,
+    skillSource: "auto",
     changedFiles: ["app/page.tsx"],
     ...over,
   });
@@ -1265,6 +1266,14 @@ describe("recap gate decision", () => {
     expect(result.run).toBe(true);
   });
 
+  it("skips an invalid VISUAL_RECAP_SKILL_SOURCE value", () => {
+    const result = evaluateRecapGate(ok({ skillSource: "workspace" }));
+    expect(result.run).toBe(false);
+    expect(result.reasons).toContain(
+      'invalid VISUAL_RECAP_SKILL_SOURCE value (expected "auto", "latest", or "repo")',
+    );
+  });
+
   it("allows agent-native packages/core changes because the workflow runs a trusted CLI", () => {
     const result = evaluateRecapGate(
       ok({
@@ -1279,6 +1288,33 @@ describe("recap gate decision", () => {
       }),
     );
     expect(result.run).toBe(true);
+  });
+
+  it("allows recap workflow and visual skill changes when CI uses bundled recap instructions", () => {
+    const result = evaluateRecapGate(
+      ok({
+        skillSource: "auto",
+        changedFiles: [
+          ".github/workflows/pr-visual-recap.yml",
+          ".agents/plugins/agent-native-visual-plans/skills/visual-recap/references/wireframe.md",
+          "skills/visual-plans/references/wireframe.md",
+        ],
+      }),
+    );
+    expect(result.run).toBe(true);
+  });
+
+  it("skips visual skill changes when CI is pinned to repo-local instructions", () => {
+    const result = evaluateRecapGate(
+      ok({
+        skillSource: "repo",
+        changedFiles: ["templates/plan/.agents/skills/visual-recap/SKILL.md"],
+      }),
+    );
+    expect(result.run).toBe(false);
+    expect(result.reasons.join(" ")).toContain(
+      "templates/plan/.agents/skills/visual-recap/SKILL.md",
+    );
   });
 
   it("does not treat consumer packages/core paths as recap-control files", () => {
@@ -1304,6 +1340,7 @@ describe("recap gate decision", () => {
           "CLAUDE.md",
           "AGENTS.md",
           ".mcp.json",
+          ".claude/settings.json",
         ],
       }),
     );
@@ -1339,11 +1376,17 @@ describe("recap gate decision", () => {
 describe("recap sensitive-path guard", () => {
   it("matches the recap-control files and nothing innocuous", () => {
     expect(isRecapSensitivePath(".github/workflows/pr-visual-recap.yml")).toBe(
-      true,
+      false,
     );
     expect(
       isRecapSensitivePath(
         "templates/plan/.agents/skills/visual-recap/SKILL.md",
+      ),
+    ).toBe(false);
+    expect(
+      isRecapSensitivePath(
+        "templates/plan/.agents/skills/visual-recap/SKILL.md",
+        { skillSource: "repo" },
       ),
     ).toBe(true);
     expect(isRecapSensitivePath("packages/core/src/cli/recap.ts")).toBe(false);
