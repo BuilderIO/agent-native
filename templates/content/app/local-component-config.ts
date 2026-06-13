@@ -112,6 +112,10 @@ export function coerceLocalContentComponentProps(
     const value = rawProps[name] ?? input.default;
     if (value === undefined) continue;
     if (input.type === "number") {
+      if (value === "") {
+        delete props[name];
+        continue;
+      }
       const numberValue =
         typeof value === "number" ? value : Number(String(value));
       props[name] = Number.isFinite(numberValue) ? numberValue : value;

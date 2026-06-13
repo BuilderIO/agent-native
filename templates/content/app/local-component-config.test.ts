@@ -50,6 +50,23 @@ describe("local component config", () => {
     });
   });
 
+  it("treats cleared number inputs as unset", () => {
+    expect(
+      coerceLocalContentComponentProps(
+        {
+          label: "wins",
+          count: "",
+        },
+        {
+          label: { type: "string" },
+          count: { type: "number", default: 3 },
+        },
+      ),
+    ).toEqual({
+      label: "wins",
+    });
+  });
+
   it("serializes edited inputs back to an MDX component tag", () => {
     expect(
       serializeLocalMdxComponentSource({

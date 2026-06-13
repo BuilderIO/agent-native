@@ -2039,6 +2039,11 @@ audio.media-block__content {
   border-radius: 4px;
 }
 
+.notion-editor [data-local-mdx-component].ProseMirror-selectednode {
+  outline: none;
+  outline-offset: 0;
+}
+
 /* ===== Drag-and-drop overlay ===== */
 .visual-editor-wrapper--dragging {
   position: relative;

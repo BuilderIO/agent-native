@@ -4897,6 +4897,44 @@ async function assertNoContentSymlink(filePath: string): Promise<void> {
   }
 }
 
+function noFollowOpenFlags(): number {
+  return fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW ?? 0);
+}
+
+function readContentMarkdownFileWithoutSymlink(
+  filePath: string,
+): string | null {
+  let fd: number | null = null;
+  try {
+    const stat = fs.lstatSync(filePath);
+    if (
+      stat.isSymbolicLink() ||
+      !stat.isFile() ||
+      stat.size > CONTENT_SOURCE_FILE_MAX_BYTES
+    ) {
+      return null;
+    }
+
+    fd = fs.openSync(filePath, noFollowOpenFlags());
+    const openedStat = fs.fstatSync(fd);
+    if (
+      !openedStat.isFile() ||
+      openedStat.size > CONTENT_SOURCE_FILE_MAX_BYTES
+    ) {
+      return null;
+    }
+    return fs.readFileSync(fd, "utf-8");
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code;
+    if (code === "ENOENT" || code === "ENOTDIR" || code === "ELOOP") {
+      return null;
+    }
+    throw err;
+  } finally {
+    if (fd !== null) fs.closeSync(fd);
+  }
+}
+
 async function chooseContentFilesFolder(): Promise<DesktopContentFilesResult> {
   const result = await dialog.showOpenDialog({
     title: "Choose Content source folder",
@@ -4990,6 +5028,14 @@ async function collectContentMarkdownFiles(
     );
     if (entry.isDirectory()) {
       if (CONTENT_IGNORED_DIRECTORIES.has(entry.name)) continue;
+      try {
+        const stat = fs.lstatSync(filePath);
+        if (stat.isSymbolicLink() || !stat.isDirectory()) continue;
+      } catch (err) {
+        const code = (err as NodeJS.ErrnoException).code;
+        if (code === "ENOENT" || code === "ENOTDIR") continue;
+        throw err;
+      }
       Object.assign(
         files,
         await collectContentMarkdownFiles(filePath, `${sourcePath}/`),
@@ -4998,9 +5044,8 @@ async function collectContentMarkdownFiles(
     }
 
     if (!entry.isFile() || !isContentSourceMarkdownPath(sourcePath)) continue;
-    const stat = await fs.promises.stat(filePath);
-    if (stat.size > CONTENT_SOURCE_FILE_MAX_BYTES) continue;
-    files[sourcePath] = await fs.promises.readFile(filePath, "utf-8");
+    const content = readContentMarkdownFileWithoutSymlink(filePath);
+    if (content !== null) files[sourcePath] = content;
   }
 
   return files;

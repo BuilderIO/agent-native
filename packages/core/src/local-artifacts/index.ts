@@ -447,6 +447,10 @@ function hashContent(content: string): string {
 
 const writeLocks = new Map<string, Promise<void>>();
 
+function noFollowOpenFlags(): number {
+  return fsSync.constants.O_RDONLY | (fsSync.constants.O_NOFOLLOW ?? 0);
+}
+
 async function withWriteLock<T>(
   absolutePath: string,
   fn: () => Promise<T>,
@@ -469,17 +473,68 @@ async function withWriteLock<T>(
   }
 }
 
+function assertNoSymlinkPathSync(
+  root: LoadedLocalArtifactRoot,
+  absolutePath: string,
+  options: { allowMissingLeaf?: boolean } = {},
+) {
+  const relative = path.relative(root.absolutePath, absolutePath);
+  const segments = relative.split(path.sep).filter(Boolean);
+  let current = root.absolutePath;
+  const pathsToCheck = [
+    current,
+    ...segments.map((segment) => {
+      current = path.join(current, segment);
+      return current;
+    }),
+  ];
+
+  for (let index = 0; index < pathsToCheck.length; index += 1) {
+    const candidate = pathsToCheck[index]!;
+    try {
+      const stat = fsSync.lstatSync(candidate);
+      if (stat.isSymbolicLink()) {
+        throw new Error(`Path "${candidate}" must not traverse a symlink`);
+      }
+      if (index < pathsToCheck.length - 1 && !stat.isDirectory()) {
+        throw new Error(`Path "${candidate}" is not a directory`);
+      }
+    } catch (error) {
+      if (errorCode(error) === "ENOENT" && options.allowMissingLeaf) return;
+      throw error;
+    }
+  }
+}
+
+function readTextFileWithoutSymlink(
+  root: LoadedLocalArtifactRoot,
+  absolutePath: string,
+): { content: string; stat: fsSync.Stats } {
+  assertNoSymlinkPathSync(root, absolutePath);
+  const fd = fsSync.openSync(absolutePath, noFollowOpenFlags());
+  try {
+    return {
+      content: fsSync.readFileSync(fd, "utf8"),
+      stat: fsSync.fstatSync(fd),
+    };
+  } finally {
+    fsSync.closeSync(fd);
+  }
+}
+
 async function fileMetaForPath(
   root: LoadedLocalArtifactRoot,
   artifactPath: string,
   absolutePath: string,
   contentOverride?: string,
+  statOverride?: fsSync.Stats,
 ): Promise<LocalArtifactFileMeta> {
-  const content =
+  const read =
     contentOverride === undefined
-      ? await fs.readFile(absolutePath, "utf8")
-      : contentOverride;
-  const stat = await fs.stat(absolutePath);
+      ? readTextFileWithoutSymlink(root, absolutePath)
+      : undefined;
+  const content = contentOverride ?? read!.content;
+  const stat = statOverride ?? read?.stat ?? (await fs.stat(absolutePath));
   const extension = extensionOf(artifactPath);
   return {
     path: artifactPath,
@@ -600,32 +655,7 @@ async function assertNoSymlinkPath(
   absolutePath: string,
   options: { allowMissingLeaf?: boolean } = {},
 ) {
-  const relative = path.relative(root.absolutePath, absolutePath);
-  const segments = relative.split(path.sep).filter(Boolean);
-  let current = root.absolutePath;
-  const pathsToCheck = [
-    current,
-    ...segments.map((segment) => {
-      current = path.join(current, segment);
-      return current;
-    }),
-  ];
-
-  for (let index = 0; index < pathsToCheck.length; index += 1) {
-    const candidate = pathsToCheck[index]!;
-    try {
-      const stat = await fs.lstat(candidate);
-      if (stat.isSymbolicLink()) {
-        throw new Error(`Path "${candidate}" must not traverse a symlink`);
-      }
-      if (index < pathsToCheck.length - 1 && !stat.isDirectory()) {
-        throw new Error(`Path "${candidate}" is not a directory`);
-      }
-    } catch (error) {
-      if (errorCode(error) === "ENOENT" && options.allowMissingLeaf) return;
-      throw error;
-    }
-  }
+  assertNoSymlinkPathSync(root, absolutePath, options);
 }
 
 export async function readLocalArtifactFile(
@@ -638,9 +668,14 @@ export async function readLocalArtifactFile(
     options.path,
   );
   try {
-    await assertNoSymlinkPath(root, absolutePath);
-    const content = await fs.readFile(absolutePath, "utf8");
-    const meta = await fileMetaForPath(root, safePath, absolutePath, content);
+    const { content, stat } = readTextFileWithoutSymlink(root, absolutePath);
+    const meta = await fileMetaForPath(
+      root,
+      safePath,
+      absolutePath,
+      content,
+      stat,
+    );
     return { ...meta, content };
   } catch (error) {
     if (errorCode(error) === "ENOENT") {

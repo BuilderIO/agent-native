@@ -759,6 +759,8 @@ export function createExtensionActionEntries(): Record<string, ActionEntry> {
         const slotId = String(args?.slotId ?? "").trim();
         if (!extensionId) return "Error: extensionId is required.";
         if (!slotId) return "Error: slotId is required.";
+        const localMessage = await localExtensionEditMessage(extensionId);
+        if (localMessage) return localMessage;
         const position =
           args?.position !== undefined && args.position !== null
             ? Number(args.position)

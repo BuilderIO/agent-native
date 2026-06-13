@@ -1,4 +1,5 @@
 import fs from "node:fs/promises";
+import fsSync from "node:fs";
 import path from "node:path";
 import {
   loadAgentNativeManifest,
@@ -103,10 +104,11 @@ function resolveInside(basePath: string, relativePath: string, label: string) {
   return { safePath, absolutePath };
 }
 
-async function assertNoSymlinkPath(
-  rootPath: string,
-  absolutePath: string,
-): Promise<void> {
+function noFollowOpenFlags(): number {
+  return fsSync.constants.O_RDONLY | (fsSync.constants.O_NOFOLLOW ?? 0);
+}
+
+function assertNoSymlinkPathSync(rootPath: string, absolutePath: string): void {
   const relative = path.relative(rootPath, absolutePath);
   const segments = relative.split(path.sep).filter(Boolean);
   let current = rootPath;
@@ -119,10 +121,23 @@ async function assertNoSymlinkPath(
   ];
 
   for (const candidate of pathsToCheck) {
-    const stat = await fs.lstat(candidate);
+    const stat = fsSync.lstatSync(candidate);
     if (stat.isSymbolicLink()) {
       throw new Error(`Path "${candidate}" must not traverse a symlink`);
     }
+  }
+}
+
+function readTextFileWithoutSymlink(rootPath: string, filePath: string) {
+  assertNoSymlinkPathSync(rootPath, filePath);
+  const fd = fsSync.openSync(filePath, noFollowOpenFlags());
+  try {
+    return {
+      content: fsSync.readFileSync(fd, "utf8"),
+      stat: fsSync.fstatSync(fd),
+    };
+  } finally {
+    fsSync.closeSync(fd);
   }
 }
 
@@ -215,9 +230,13 @@ function manifestAppExtensions(app: AgentNativeManifestApp): string[] {
   return asStringArray(app.extensions);
 }
 
-async function readJsonFile(filePath: string): Promise<unknown | null> {
+function readJsonFile(
+  rootPath: string,
+  filePath: string,
+): { value: unknown; stat: fsSync.Stats } | null {
   try {
-    return JSON.parse(await fs.readFile(filePath, "utf8")) as unknown;
+    const { content, stat } = readTextFileWithoutSymlink(rootPath, filePath);
+    return { value: JSON.parse(content) as unknown, stat };
   } catch (error) {
     if (errorCode(error) === "ENOENT") return null;
     throw error;
@@ -242,8 +261,12 @@ async function readLocalExtensionFolder(options: {
     extensionAbsolutePath,
     "extension.json",
   );
-  const rawManifest = await readJsonFile(manifestAbsolutePath);
-  if (!rawManifest) return null;
+  const manifestRead = readJsonFile(
+    extensionAbsolutePath,
+    manifestAbsolutePath,
+  );
+  if (!manifestRead) return null;
+  const rawManifest = manifestRead.value;
   if (!isRecord(rawManifest)) {
     throw new Error(
       `Local extension manifest must be an object: ${manifestAbsolutePath}`,
@@ -266,12 +289,11 @@ async function readLocalExtensionFolder(options: {
   );
   const { safePath: entrySafePath, absolutePath: entryAbsolutePath } =
     resolveInside(extensionAbsolutePath, entry, "entry");
-  await assertNoSymlinkPath(extensionAbsolutePath, entryAbsolutePath);
-  const content = await fs.readFile(entryAbsolutePath, "utf8");
-  const [manifestStat, entryStat] = await Promise.all([
-    fs.stat(manifestAbsolutePath),
-    fs.stat(entryAbsolutePath),
-  ]);
+  const { content, stat: entryStat } = readTextFileWithoutSymlink(
+    extensionAbsolutePath,
+    entryAbsolutePath,
+  );
+  const manifestStat = manifestRead.stat;
   const updatedAt = new Date(
     Math.max(manifestStat.mtimeMs, entryStat.mtimeMs),
   ).toISOString();

@@ -226,7 +226,6 @@ function LocalMdxComponentView({
   editor,
   getPos,
   node,
-  selected,
   updateAttributes,
 }: NodeViewProps) {
   const name = typeof node.attrs.name === "string" ? node.attrs.name : "";
@@ -245,9 +244,7 @@ function LocalMdxComponentView({
   if (unsupportedProps) {
     return (
       <NodeViewWrapper
-        className={`my-4 rounded-md border border-dashed border-muted-foreground/30 bg-muted/30 px-4 py-3 text-sm text-muted-foreground ${
-          selected ? "ring-2 ring-ring" : ""
-        }`}
+        className="my-4 rounded-md border border-dashed border-muted-foreground/30 bg-muted/30 px-4 py-3 text-sm text-muted-foreground"
         contentEditable={false}
         data-local-mdx-component={name}
       >
@@ -260,9 +257,7 @@ function LocalMdxComponentView({
   if (!Component) {
     return (
       <NodeViewWrapper
-        className={`my-4 rounded-md border border-dashed border-muted-foreground/30 bg-muted/30 px-4 py-3 text-sm text-muted-foreground ${
-          selected ? "ring-2 ring-ring" : ""
-        }`}
+        className="my-4 rounded-md border border-dashed border-muted-foreground/30 bg-muted/30 px-4 py-3 text-sm text-muted-foreground"
         contentEditable={false}
         data-local-mdx-component={name}
       >
@@ -274,7 +269,7 @@ function LocalMdxComponentView({
 
   return (
     <NodeViewWrapper
-      className={`group relative my-4 ${selected ? "ring-2 ring-ring ring-offset-2" : ""}`}
+      className="group relative my-4"
       contentEditable={false}
       data-local-mdx-component={name}
     >
