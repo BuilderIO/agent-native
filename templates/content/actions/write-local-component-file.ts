@@ -65,10 +65,10 @@ export default defineAction({
       .describe("Relative path under the workspace components folder"),
     content: z.string().describe("Full .tsx/.jsx/.ts/.js source to write"),
   }),
-  run: async ({ workspaceId, path, content }) => {
+  run: async ({ workspaceId, path: filePath, content }) => {
     const file = await writeLocalComponentFile({
       workspaceId,
-      filePath: path,
+      filePath,
       content,
       workspaces: await componentWorkspaces(),
     });

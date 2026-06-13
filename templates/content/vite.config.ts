@@ -255,7 +255,9 @@ function contentLocalComponentsPlugin(): Plugin {
     async configureServer(server) {
       const registryPath = localComponentWorkspaceStorePath();
       let dirs = new Set<string>();
-      const refreshDirs = async () => {
+      let refreshPromise: Promise<void> | null = null;
+      let refreshAgain = false;
+      const runRefreshDirs = async () => {
         const nextDirs = new Set(await localComponentDirs());
         const newDirs = [...nextDirs].filter((dir) => !dirs.has(dir));
         if (newDirs.length > 0) {
@@ -266,6 +268,21 @@ function contentLocalComponentsPlugin(): Plugin {
           }
         }
         dirs = nextDirs;
+      };
+      const refreshDirs = async () => {
+        if (refreshPromise) {
+          refreshAgain = true;
+          return refreshPromise;
+        }
+        refreshPromise = (async () => {
+          do {
+            refreshAgain = false;
+            await runRefreshDirs();
+          } while (refreshAgain);
+        })().finally(() => {
+          refreshPromise = null;
+        });
+        return refreshPromise;
       };
       const invalidateComponents = (fullReload = false) => {
         const mod = server.moduleGraph.getModuleById(

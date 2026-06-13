@@ -2,6 +2,7 @@ import { defineAction } from "@agent-native/core";
 import { getLocalArtifactApp } from "@agent-native/core/local-artifacts";
 import { z } from "zod";
 import {
+  isLocalComponentAccessError,
   listLocalComponentFiles,
   localComponentWorkspaceId,
   type LocalComponentWorkspace,
@@ -50,20 +51,32 @@ export default defineAction({
   http: { method: "GET" },
   schema: z.object({}),
   run: async () => {
-    const workspaces = readLocalComponentWorkspacesSync();
-    const localFileModeWorkspace = await localFileModeComponentWorkspace();
-    const allWorkspaces = localFileModeWorkspace
-      ? [
-          localFileModeWorkspace,
-          ...workspaces.filter(
-            (workspace) => workspace.id !== localFileModeWorkspace.id,
-          ),
-        ]
-      : workspaces;
-    const files = await listLocalComponentFiles({ workspaces: allWorkspaces });
-    return {
-      workspaces: allWorkspaces,
-      files,
-    };
+    try {
+      const workspaces = readLocalComponentWorkspacesSync();
+      const localFileModeWorkspace = await localFileModeComponentWorkspace();
+      const allWorkspaces = localFileModeWorkspace
+        ? [
+            localFileModeWorkspace,
+            ...workspaces.filter(
+              (workspace) => workspace.id !== localFileModeWorkspace.id,
+            ),
+          ]
+        : workspaces;
+      const files = await listLocalComponentFiles({
+        workspaces: allWorkspaces,
+      });
+      return {
+        workspaces: allWorkspaces,
+        files,
+      };
+    } catch (error) {
+      if (isLocalComponentAccessError(error)) {
+        return {
+          workspaces: [],
+          files: [],
+        };
+      }
+      throw error;
+    }
   },
 });

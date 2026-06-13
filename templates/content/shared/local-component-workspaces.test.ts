@@ -22,6 +22,16 @@ function writeFile(root: string, filePath: string, content: string) {
   fs.writeFileSync(absolutePath, content, "utf8");
 }
 
+function symlinkDirectory(target: string, linkPath: string) {
+  try {
+    fs.symlinkSync(target, linkPath, "dir");
+    return true;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "EPERM") return false;
+    throw error;
+  }
+}
+
 afterEach(() => {
   for (const root of tmpRoots.splice(0)) {
     fs.rmSync(root, { recursive: true, force: true });
@@ -42,16 +52,17 @@ describe("local component workspaces", () => {
       cwd,
       workspacePath: workspace,
     });
+    const realWorkspace = fs.realpathSync(workspace);
 
     expect(registered.componentDirs).toEqual([
-      path.join(workspace, "components"),
+      path.join(realWorkspace, "components"),
     ]);
 
     await expect(listLocalComponentFiles({ cwd })).resolves.toMatchObject([
       {
         workspaceId: registered.workspace.id,
         path: "ImpactCounter.tsx",
-        absolutePath: path.join(workspace, "components/ImpactCounter.tsx"),
+        absolutePath: path.join(realWorkspace, "components/ImpactCounter.tsx"),
       },
     ]);
 
@@ -90,11 +101,12 @@ describe("local component workspaces", () => {
       cwd,
       workspacePath: workspace,
     });
+    const realWorkspace = fs.realpathSync(workspace);
 
     expect(registered.workspace.componentPaths).toEqual(["mdx-blocks"]);
     await expect(listLocalComponentFiles({ cwd })).resolves.toMatchObject([
       {
-        componentRoot: path.join(workspace, "mdx-blocks"),
+        componentRoot: path.join(realWorkspace, "mdx-blocks"),
         path: "Hero.tsx",
       },
     ]);
@@ -121,6 +133,60 @@ describe("local component workspaces", () => {
         "utf8",
       ),
     ).toContain("FirstBlock");
+  });
+
+  it("rejects writes through symlinked parent directories", async () => {
+    const cwd = mkdtemp("an-content-components-cwd-");
+    const workspace = mkdtemp("an-content-components-workspace-");
+    const outside = mkdtemp("an-content-components-outside-");
+    fs.mkdirSync(path.join(workspace, "components"), { recursive: true });
+    if (
+      !symlinkDirectory(outside, path.join(workspace, "components/Redirected"))
+    ) {
+      return;
+    }
+    const registered = await registerLocalComponentWorkspace({
+      cwd,
+      workspacePath: workspace,
+    });
+
+    await expect(
+      writeLocalComponentFile({
+        cwd,
+        workspaceId: registered.workspace.id,
+        filePath: "Redirected/Escape.tsx",
+        content: "export function Escape() { return null; }\n",
+      }),
+    ).rejects.toThrow(/symlinks/);
+    expect(fs.existsSync(path.join(outside, "Escape.tsx"))).toBe(false);
+  });
+
+  it("does not expose symlinked configured component roots", async () => {
+    const cwd = mkdtemp("an-content-components-cwd-");
+    const workspace = mkdtemp("an-content-components-workspace-");
+    const outside = mkdtemp("an-content-components-outside-");
+    writeFile(
+      workspace,
+      "agent-native.json",
+      JSON.stringify({
+        apps: { content: { components: ["linked-components"] } },
+      }),
+    );
+    writeFile(
+      outside,
+      "OutsideBlock.tsx",
+      "export function OutsideBlock() { return null; }\n",
+    );
+    if (!symlinkDirectory(outside, path.join(workspace, "linked-components"))) {
+      return;
+    }
+    const registered = await registerLocalComponentWorkspace({
+      cwd,
+      workspacePath: workspace,
+    });
+
+    expect(registered.componentDirs).toEqual([]);
+    await expect(listLocalComponentFiles({ cwd })).resolves.toEqual([]);
   });
 
   it("rejects writes that escape or use non-component extensions", async () => {

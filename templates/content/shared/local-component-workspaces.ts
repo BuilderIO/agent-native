@@ -29,6 +29,8 @@ const COMPONENT_EXTENSIONS = new Set([".tsx", ".jsx", ".ts", ".js"]);
 const COMPONENT_FILE_MAX_BYTES = 512 * 1024;
 const ALLOW_PRODUCTION_LOCAL_FILES_ENV =
   "AGENT_NATIVE_ALLOW_LOCAL_FILES_IN_PRODUCTION";
+const LOCAL_COMPONENT_ACCESS_ERROR =
+  "Local component workspaces are only available in local development or a trusted local file bridge.";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
@@ -50,10 +52,14 @@ function ensureLocalFileAccessAllowed() {
     process.env.NODE_ENV === "production" &&
     process.env[ALLOW_PRODUCTION_LOCAL_FILES_ENV] !== "true"
   ) {
-    throw new Error(
-      "Local component workspaces are only available in local development or a trusted local file bridge.",
-    );
+    throw new Error(LOCAL_COMPONENT_ACCESS_ERROR);
   }
+}
+
+export function isLocalComponentAccessError(error: unknown) {
+  return (
+    error instanceof Error && error.message === LOCAL_COMPONENT_ACCESS_ERROR
+  );
 }
 
 export function localComponentWorkspaceStorePath(cwd = process.cwd()) {
@@ -104,7 +110,7 @@ function resolveUsableDirectory(value: string, label: string) {
   if (stat.isSymbolicLink() || !stat.isDirectory()) {
     throw new Error(`${label} must be an existing non-symlink directory.`);
   }
-  return resolved;
+  return fs.realpathSync(resolved);
 }
 
 function componentPathsFromManifest(workspacePath: string) {
@@ -238,7 +244,10 @@ export function componentRootsForWorkspace(workspace: LocalComponentWorkspace) {
     .map((componentPath) =>
       resolveInside(workspace.workspacePath, componentPath),
     )
-    .map((componentRoot) => path.resolve(componentRoot));
+    .map((componentRoot) =>
+      safeComponentRootForWorkspace(workspace.workspacePath, componentRoot),
+    )
+    .filter((componentRoot): componentRoot is string => Boolean(componentRoot));
 }
 
 export function componentDirsForWorkspace(workspace: LocalComponentWorkspace) {
@@ -258,6 +267,94 @@ function firstComponentRootForWorkspace(workspace: LocalComponentWorkspace) {
     throw new Error("Registered workspace does not have a component root.");
   }
   return componentRoot;
+}
+
+function safeComponentRootForWorkspace(
+  workspacePath: string,
+  componentRoot: string,
+) {
+  const resolvedRoot = resolveInside(workspacePath, ".");
+  const resolvedComponentRoot = resolveInside(resolvedRoot, componentRoot);
+  try {
+    return validateSafeDirectoryPathSync(resolvedRoot, resolvedComponentRoot, {
+      allowMissing: true,
+    });
+  } catch {
+    return null;
+  }
+}
+
+function validateSafeDirectoryPathSync(
+  root: string,
+  directory: string,
+  { allowMissing = false }: { allowMissing?: boolean } = {},
+) {
+  const resolvedRoot = path.resolve(root);
+  const resolvedDirectory = resolveInside(resolvedRoot, directory);
+  const rootStat = fs.lstatSync(resolvedRoot);
+  if (rootStat.isSymbolicLink() || !rootStat.isDirectory()) {
+    throw new Error(
+      "Component workspace root must be a non-symlink directory.",
+    );
+  }
+  const realRoot = fs.realpathSync(resolvedRoot);
+  const relativePath = path.relative(resolvedRoot, resolvedDirectory);
+  const segments = relativePath
+    ? relativePath.split(path.sep).filter(Boolean)
+    : [];
+  let current = resolvedRoot;
+  for (const segment of segments) {
+    current = path.join(current, segment);
+    let stat: fs.Stats;
+    try {
+      stat = fs.lstatSync(current);
+    } catch (error) {
+      if (allowMissing && (error as NodeJS.ErrnoException).code === "ENOENT") {
+        return resolvedDirectory;
+      }
+      throw error;
+    }
+    if (stat.isSymbolicLink() || !stat.isDirectory()) {
+      throw new Error("Component paths must not contain symlinks.");
+    }
+  }
+  const realDirectory = fs.realpathSync(resolvedDirectory);
+  const realRelativePath = path.relative(realRoot, realDirectory);
+  if (realRelativePath.startsWith("..") || path.isAbsolute(realRelativePath)) {
+    throw new Error("Component path escaped the registered workspace.");
+  }
+  return realDirectory;
+}
+
+async function ensureSafeDirectoryPath(root: string, directory: string) {
+  const resolvedRoot = path.resolve(root);
+  const resolvedDirectory = resolveInside(resolvedRoot, directory);
+  const rootStat = await fsp.lstat(resolvedRoot);
+  if (rootStat.isSymbolicLink() || !rootStat.isDirectory()) {
+    throw new Error("Component root must be a non-symlink directory.");
+  }
+
+  const relativePath = path.relative(resolvedRoot, resolvedDirectory);
+  const segments = relativePath
+    ? relativePath.split(path.sep).filter(Boolean)
+    : [];
+  let current = resolvedRoot;
+  for (const segment of segments) {
+    current = path.join(current, segment);
+    try {
+      const stat = await fsp.lstat(current);
+      if (stat.isSymbolicLink() || !stat.isDirectory()) {
+        throw new Error("Component paths must not contain symlinks.");
+      }
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+      await fsp.mkdir(current);
+      const stat = await fsp.lstat(current);
+      if (stat.isSymbolicLink() || !stat.isDirectory()) {
+        throw new Error("Component paths must not contain symlinks.");
+      }
+    }
+  }
 }
 
 export function registeredLocalComponentDirsSync(cwd = process.cwd()) {
@@ -362,14 +459,10 @@ export async function writeLocalComponentFile(options: {
   const componentRoot =
     componentDirsForWorkspace(workspace)[0] ??
     firstComponentRootForWorkspace(workspace);
-  await fsp.mkdir(componentRoot, { recursive: true });
-  const rootStat = await fsp.lstat(componentRoot);
-  if (rootStat.isSymbolicLink() || !rootStat.isDirectory()) {
-    throw new Error("Component root must be a non-symlink directory.");
-  }
   const filePath = safeComponentFilePath(options.filePath);
   const absolutePath = resolveInside(componentRoot, filePath);
-  await fsp.mkdir(path.dirname(absolutePath), { recursive: true });
+  await ensureSafeDirectoryPath(workspace.workspacePath, componentRoot);
+  await ensureSafeDirectoryPath(componentRoot, path.dirname(absolutePath));
   try {
     const stat = await fsp.lstat(absolutePath);
     if (stat.isSymbolicLink()) {
