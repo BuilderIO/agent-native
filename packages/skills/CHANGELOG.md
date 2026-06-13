@@ -1,5 +1,14 @@
 # @agent-native/skills
 
+## 0.2.3
+
+### Patch Changes
+
+- 271e70c: Improve the skills installer UI and managed instruction handling: show Clack
+  progress/receipt output, keep user-scoped managed instructions in user config
+  files, shorten managed instruction blocks to skill pointers, and forward
+  `--no-connect` through delegated installs.
+
 ## 0.2.2
 
 ### Patch Changes
