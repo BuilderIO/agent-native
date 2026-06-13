@@ -1,5 +1,15 @@
 # @agent-native/core
 
+## 0.49.13
+
+### Patch Changes
+
+- 13be342: Bury the share menu's organization search visibility toggle under Advanced.
+- 13be342: Add a PR Visual Recap Plan MCP smoke test so CI catches missing publishing tools before running the recap agent.
+- 13be342: Add repo-backed local file extensions for Local File Mode workspaces.
+- 13be342: Give the sticky question-form submit footer an opaque background so plan content does not show through while scrolling.
+- 13be342: Make share link copy buttons use the shared clipboard fallback path.
+
 ## 0.49.12
 
 ### Patch Changes
