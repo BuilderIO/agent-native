@@ -1,5 +1,24 @@
 # @agent-native/core
 
+## 0.49.17
+
+### Patch Changes
+
+- 271e70c: Improve the skills installer UI and managed instruction handling: show Clack
+  progress/receipt output, keep user-scoped managed instructions in user config
+  files, shorten managed instruction blocks to skill pointers, and forward
+  `--no-connect` through delegated installs.
+- 271e70c: Add Builder-managed web search as a fallback for the agent web-search tool.
+- 271e70c: Allow HTTP action routes to opt out of required auth for safe metadata reads.
+- 271e70c: Render the visual recap PR comment intro as standard text and clarify that
+  private-repo recap links may require signing in with org access.
+
+  Register the Plan MCP under both `plan` and `agent-native-plans` in recap CI so
+  Claude can publish through either exposed tool namespace.
+
+- 271e70c: Avoid Sentry HTTP instrumentation in the CLI so visual recap MCP smoke checks
+  reach hosted Plan MCP routes reliably.
+
 ## 0.49.16
 
 ### Patch Changes
