@@ -60,6 +60,10 @@ my-content-repo/
   components/
     FrameworkTabs.tsx
     Callout.tsx
+  extensions/
+    doc-status/
+      extension.json
+      index.html
 ```
 
 In Local File Mode, the Content sidebar shows the `docs/`, `blog/`, and
@@ -70,6 +74,10 @@ file in the standard Content editor; editing in the UI writes back to
 `components/` is not a content root. It is a preview component library that MDX
 files can import or reference. The editor can render simple local MDX components
 without requiring you to clone or fork the entire Content app.
+
+`extensions/` is also not a content root. It is a local extension library:
+small sandboxed widgets that can render in app slots while their source stays in
+the repo.
 
 ## Configuration
 
@@ -102,6 +110,7 @@ Add `agent-native.json` to the repo or workspace root:
         }
       ],
       "components": "components",
+      "extensions": "extensions",
       "hide": ["**/_*.md", "**/_*.mdx"]
     }
   }
@@ -140,6 +149,92 @@ Content can preview local components from the configured `components` folder.
 This is meant for docs-style MDX components such as tabs, callouts, package
 install snippets, or framework-specific code blocks.
 
+For example, add an interactive component next to your content:
+
+```tsx
+// components/ImpactCounter.tsx
+import { useState } from "react";
+
+export function ImpactCounter({
+  label = "points",
+  accent = "blue",
+  featured = false,
+}: {
+  label?: string;
+  accent?: "blue" | "green" | "purple";
+  featured?: boolean;
+}) {
+  const [count, setCount] = useState(3);
+  const accentClass =
+    accent === "green"
+      ? "border-green-300 bg-green-50"
+      : accent === "purple"
+        ? "border-purple-300 bg-purple-50"
+        : "border-blue-300 bg-blue-50";
+
+  return (
+    <div className={`rounded-md border p-4 ${accentClass}`}>
+      <div className="text-sm text-muted-foreground">Launch impact</div>
+      <div className="mt-1 text-3xl font-semibold">
+        {count} {label}
+      </div>
+      {featured ? <div className="mt-1 text-sm">Featured metric</div> : null}
+      <button
+        type="button"
+        className="mt-3 rounded border px-3 py-1 text-sm"
+        onClick={() => setCount((value) => value + 1)}
+      >
+        Add point
+      </button>
+    </div>
+  );
+}
+
+export const ImpactCounterInputs = {
+  label: {
+    type: "string",
+    label: "Metric label",
+    default: "points",
+  },
+  accent: {
+    type: "select",
+    label: "Accent",
+    options: ["blue", "green", "purple"],
+    default: "blue",
+  },
+  featured: {
+    type: "boolean",
+    label: "Featured",
+    default: false,
+  },
+};
+```
+
+Then use it from any local MDX file:
+
+```mdx
+---
+title: "Launch Notes"
+---
+
+# Launch Notes
+
+<ImpactCounter label="wins" />
+```
+
+The Content dev server discovers PascalCase named exports and PascalCase default
+exports from `.tsx`, `.jsx`, `.ts`, and `.js` files under `components/`. Those
+components render inside the editor and appear in the slash menu under
+**Local components**. Slash insertion creates a minimal tag such as
+`<ImpactCounter />`; add props in the MDX source when needed.
+
+If a component exports input metadata, selecting the component in the editor
+shows an edit button in the component's top-right corner. Supported input types
+are `string`, `textarea`, `number`, `boolean`, and `select`. The form writes
+changes back to the MDX tag, so local files remain the source of truth. The
+metadata can be exported as `ComponentNameInputs`, `ComponentNameConfig.inputs`,
+`Component.inputs`, or `agentNative.inputs`.
+
 Simple component tags with literal props can preview inline:
 
 ```mdx
@@ -151,6 +246,64 @@ Simple component tags with literal props can preview inline:
 Complex JSX expressions are preserved in source. If the editor cannot safely
 preview a component prop yet, it shows a warning placeholder rather than
 silently dropping data.
+
+## Sharing Local Files
+
+Local files are not shared directly because other users cannot read a path on
+your machine. The Content toolbar's Share button creates or refreshes a
+database-backed copy of the selected file, navigates to that copy, and opens the
+normal share popover. The original local file remains under Local files; the
+database copy appears under Shared copies in Local File Mode and uses the
+standard document sharing model.
+
+## Local Extensions
+
+Local File Mode can also load repo-backed extensions from the configured
+`extensions` folder. Each extension is one directory with an `extension.json`
+manifest and an HTML entry file:
+
+```txt
+extensions/
+  doc-status/
+    extension.json
+    index.html
+```
+
+```json
+{
+  "id": "doc-status",
+  "name": "Doc Status",
+  "description": "Shows metadata for the selected Content file.",
+  "entry": "index.html",
+  "slots": ["content.sidebar.bottom"],
+  "permissions": {
+    "appActions": ["list-documents"],
+    "extensionData": true
+  }
+}
+```
+
+`index.html` is the same Alpine/Tailwind extension body format used by normal
+database-backed extensions. When the Content app sees a local extension that
+declares `content.sidebar.bottom`, it renders that extension at the bottom of
+the Content sidebar. The host passes `window.slotContext` with the selected
+document id, title, source metadata, and whether Content is in Local File Mode.
+
+Local extensions are previewed by the app but edited as files. The Extensions
+list shows them with a Local File badge, and the full-page viewer points back to
+the entry file. SQL-backed extension actions such as update, delete, share, and
+history do not apply; use your editor, Codex, Claude Code, or Git history for
+source changes.
+
+For v1, local extensions are intentionally conservative:
+
+- they can use `extensionData` for their own small runtime state
+- they can call only the `appAction`s listed in `extension.json`
+- raw SQL helpers and external `extensionFetch` are disabled
+- slot targets are declared in `extension.json`, not installed through SQL
+
+This gives local workspaces an Obsidian-like plugin surface without letting an
+arbitrary repo file inherit every capability of a database-backed extension.
 
 ## How Apps Use It
 

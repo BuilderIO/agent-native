@@ -246,7 +246,6 @@ describe("PlanContentRenderer recap files sidebar", () => {
           editingDisabled
           hideChangedFiles
           hideRecapChrome
-          hideFloatingToc
           sourceUrl="https://github.com/BuilderIO/ai-services/pull/5385"
           fallbackTitle="Untitled plan"
           fallbackBrief=""
@@ -256,7 +255,6 @@ describe("PlanContentRenderer recap files sidebar", () => {
 
     expect(container.querySelector(".plan-document-files")).toBeNull();
     expect(container.querySelector(".plan-document-toc")).toBeNull();
-    expect(container.querySelector(".plan-toc-fallback")).toBeNull();
     expect(
       Array.from(container.querySelectorAll("header p")).some(
         (node) => node.textContent?.trim() === "Visual Recap",

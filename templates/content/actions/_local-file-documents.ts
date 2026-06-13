@@ -175,6 +175,10 @@ function documentFromLocalFile(
 ): Document {
   const parsed = parseContentSourceFile(file.path, content);
   const now = isoFromMeta(file);
+  const absolutePath =
+    "absolutePath" in file && typeof file.absolutePath === "string"
+      ? file.absolutePath
+      : undefined;
   return {
     id: localFileDocumentId(file.path),
     parentId: parentFolderId(file.path),
@@ -194,6 +198,7 @@ function documentFromLocalFile(
       mode: "local-files",
       kind: "file",
       path: file.path,
+      absolutePath,
       rootName: file.rootName,
       rootPath: file.rootPath,
       hash: file.hash,

@@ -9,6 +9,7 @@ import { writeAppState } from "@agent-native/core/application-state";
 import { assertAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
 import {
+  isLocalDocumentId,
   isContentLocalFileMode,
   moveLocalFileDocument,
 } from "./_local-file-documents.js";
@@ -77,7 +78,7 @@ export default defineAction({
       throw new Error("A document cannot be moved under itself");
     }
 
-    if (await isContentLocalFileMode()) {
+    if ((await isContentLocalFileMode()) && isLocalDocumentId(id)) {
       const doc = await moveLocalFileDocument(id, args);
       await writeAppState("refresh-signal", { ts: Date.now() });
       return {

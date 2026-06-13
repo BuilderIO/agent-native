@@ -1,6 +1,13 @@
 import { contextBridge, ipcRenderer } from "electron";
 import {
   IPC,
+  type DesktopContentFilesClearFolderRequest,
+  type DesktopContentFileDeleteRequest,
+  type DesktopContentFileRevealRequest,
+  type DesktopContentFileWriteRequest,
+  type DesktopContentFilesFolderRequest,
+  type DesktopContentFilesResult,
+  type DesktopContentFilesWriteRequest,
   type DesktopPlanFilesChooseFolderRequest,
   type DesktopPlanFilesClearFolderRequest,
   type DesktopPlanFilesFolderRequest,
@@ -31,6 +38,38 @@ const agentNativeDesktop = {
       request: DesktopPlanFilesClearFolderRequest,
     ): Promise<DesktopPlanFilesResult> =>
       ipcRenderer.invoke(IPC.PLAN_FILES_CLEAR_FOLDER, request),
+  },
+  contentFiles: {
+    getFolder: (
+      request?: DesktopContentFilesFolderRequest,
+    ): Promise<DesktopContentFilesResult> =>
+      ipcRenderer.invoke(IPC.CONTENT_FILES_GET_FOLDER, request),
+    chooseFolder: (): Promise<DesktopContentFilesResult> =>
+      ipcRenderer.invoke(IPC.CONTENT_FILES_CHOOSE_FOLDER),
+    writeFiles: (
+      request: DesktopContentFilesWriteRequest,
+    ): Promise<DesktopContentFilesResult> =>
+      ipcRenderer.invoke(IPC.CONTENT_FILES_WRITE, request),
+    writeFile: (
+      request: DesktopContentFileWriteRequest,
+    ): Promise<DesktopContentFilesResult> =>
+      ipcRenderer.invoke(IPC.CONTENT_FILES_WRITE_FILE, request),
+    deleteFile: (
+      request: DesktopContentFileDeleteRequest,
+    ): Promise<DesktopContentFilesResult> =>
+      ipcRenderer.invoke(IPC.CONTENT_FILES_DELETE_FILE, request),
+    readFiles: (
+      request?: DesktopContentFilesFolderRequest,
+    ): Promise<DesktopContentFilesResult> =>
+      ipcRenderer.invoke(IPC.CONTENT_FILES_READ, request),
+    revealFile: (
+      request: DesktopContentFileRevealRequest,
+    ): Promise<DesktopContentFilesResult> =>
+      ipcRenderer.invoke(IPC.CONTENT_FILES_REVEAL_FILE, request),
+    clearFolder: (
+      request?: DesktopContentFilesClearFolderRequest,
+    ): Promise<DesktopContentFilesResult> =>
+      ipcRenderer.invoke(IPC.CONTENT_FILES_CLEAR_FOLDER, request),
   },
 };
 

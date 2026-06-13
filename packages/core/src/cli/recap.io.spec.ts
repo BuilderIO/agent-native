@@ -157,6 +157,65 @@ function makeFakeFetch(
   return { fetchFn, calls };
 }
 
+describe("runRecap mcp-smoke — GitHub output boundary", () => {
+  it("runs the smoke subcommand and writes ok/summary outputs", async () => {
+    const outputPath = path.join(tmpDir, "github-output.txt");
+    const oldFetch = globalThis.fetch;
+    const oldOutput = process.env.GITHUB_OUTPUT;
+    const oldToken = process.env.PLAN_RECAP_TOKEN;
+    const oldExitCode = process.exitCode;
+    const oldStdoutWrite = process.stdout.write.bind(process.stdout);
+    const stdoutChunks: string[] = [];
+    const fetchFn: typeof fetch = (async (_input, init) => {
+      const body = JSON.parse(String(init?.body ?? "{}"));
+      if (body.method === "initialize") {
+        return jsonResp({ jsonrpc: "2.0", id: body.id, result: {} });
+      }
+      return jsonResp({
+        jsonrpc: "2.0",
+        id: body.id,
+        result: {
+          tools: [
+            { name: "get-plan-blocks" },
+            { name: "create-visual-recap" },
+            { name: "set-resource-visibility" },
+          ],
+        },
+      });
+    }) as typeof fetch;
+
+    try {
+      globalThis.fetch = fetchFn;
+      // @ts-expect-error patching for test
+      process.stdout.write = (chunk: string) => {
+        stdoutChunks.push(String(chunk));
+        return true;
+      };
+      process.env.GITHUB_OUTPUT = outputPath;
+      process.env.PLAN_RECAP_TOKEN = "tok-smoke";
+      process.exitCode = undefined;
+
+      await runRecap(["mcp-smoke", "--app-url", "https://plan.example.com"]);
+
+      expect(stdoutChunks.join("")).toContain('"ok":true');
+      const githubOutput = fs.readFileSync(outputPath, "utf8");
+      expect(process.exitCode).toBeUndefined();
+      expect(githubOutput).toContain("ok<<");
+      expect(githubOutput).toContain("true");
+      expect(githubOutput).toContain("summary<<");
+      expect(githubOutput).toContain("Plan MCP smoke check passed");
+    } finally {
+      globalThis.fetch = oldFetch;
+      process.stdout.write = oldStdoutWrite;
+      if (oldOutput === undefined) delete process.env.GITHUB_OUTPUT;
+      else process.env.GITHUB_OUTPUT = oldOutput;
+      if (oldToken === undefined) delete process.env.PLAN_RECAP_TOKEN;
+      else process.env.PLAN_RECAP_TOKEN = oldToken;
+      process.exitCode = oldExitCode;
+    }
+  });
+});
+
 /* ========================================================================== */
 /* 1. uploadRecapImage                                                         */
 /* ========================================================================== */

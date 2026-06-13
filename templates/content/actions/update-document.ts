@@ -9,9 +9,11 @@ import { assertAccess } from "@agent-native/core/sharing";
 import { writeAppState } from "@agent-native/core/application-state";
 import { z } from "zod";
 import {
+  isLocalDocumentId,
   isContentLocalFileMode,
   updateLocalFileDocument,
 } from "./_local-file-documents.js";
+import { serializeDocumentSource } from "./_document-source.js";
 
 function nanoid(size = 12): string {
   const chars =
@@ -45,7 +47,7 @@ export default defineAction({
     const id = args.id;
     if (!id) throw new Error("--id is required");
 
-    if (await isContentLocalFileMode()) {
+    if ((await isContentLocalFileMode()) && isLocalDocumentId(id)) {
       const doc = await updateLocalFileDocument(id, args);
       await writeAppState("refresh-signal", { ts: Date.now() });
       return {
@@ -169,6 +171,7 @@ export default defineAction({
       canManage: canManageRole(access.role),
       createdAt: doc.createdAt,
       updatedAt: doc.updatedAt,
+      source: serializeDocumentSource(doc),
     };
   },
 });

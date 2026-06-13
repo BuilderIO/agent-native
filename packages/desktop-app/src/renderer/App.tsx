@@ -19,6 +19,9 @@ import {
   MIGRATION_APP_ID,
   getCodeAgentGoal,
 } from "@shared/code-agents";
+import { shouldReserveMacOSWindowControlsSpace } from "./lib/platform.js";
+
+const reserveMacOSWindowControlsSpace = shouldReserveMacOSWindowControlsSpace();
 
 export interface Tab {
   id: string;
@@ -801,8 +804,13 @@ export default function App() {
       )}
       {isCodeAgentsActive ? (
         <div className="tabbar tabbar--shell">
-          <div className="tab tab--active tab--locked">
-            <span className="tab-label">Code</span>
+          {reserveMacOSWindowControlsSpace && (
+            <div className="tabbar-window-spacer" aria-hidden="true" />
+          )}
+          <div className="tabbar-strip">
+            <div className="tab tab--active tab--locked">
+              <span className="tab-label">Code</span>
+            </div>
           </div>
         </div>
       ) : (

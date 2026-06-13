@@ -7,6 +7,7 @@ import {
   IconExternalLink,
   IconLoader2,
   IconPlayerStop,
+  IconSubtask,
   IconX,
 } from "@tabler/icons-react";
 import { usePausingInterval } from "../use-pausing-interval.js";
@@ -163,7 +164,7 @@ function useRunsTrayState({
       ? IconLoader2
       : failedCount > 0
         ? IconAlertCircle
-        : IconClock;
+        : IconSubtask;
   const triggerTone =
     activeCount > 0
       ? "text-primary"
@@ -310,6 +311,7 @@ export function RunsTrayMenuItem({
   RunsTrayProps,
   "pollMs" | "limit" | "hideWhenIdle" | "showRecent" | "onOpenThread"
 >) {
+  const [submenuOpen, setSubmenuOpen] = useState(false);
   const {
     runs,
     hasRuns,
@@ -331,8 +333,21 @@ export function RunsTrayMenuItem({
   if (!hasRuns && hideWhenIdle) return null;
 
   return (
-    <DropdownMenuSub>
-      <DropdownMenuSubTrigger className="gap-2">
+    <DropdownMenuSub open={submenuOpen} onOpenChange={setSubmenuOpen}>
+      <DropdownMenuSubTrigger
+        aria-label={`Agent runs, ${triggerLabel}`}
+        className="cursor-pointer gap-2"
+        onClick={(event) => {
+          event.preventDefault();
+          setSubmenuOpen(true);
+        }}
+        onKeyDown={(event) => {
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            setSubmenuOpen(true);
+          }
+        }}
+      >
         <TriggerIcon
           size={14}
           className={cn(triggerTone, activeCount > 0 && "animate-spin")}

@@ -34,25 +34,34 @@ export interface BubbleToolbarProps {
   ) => void;
 }
 
-const MEDIA_NODE_TYPES = new Set(["image", "video", "audio"]);
+const BUBBLE_TOOLBAR_EXCLUDED_NODE_TYPES = new Set([
+  "image",
+  "video",
+  "audio",
+  "localMdxComponent",
+]);
 
-function selectionIncludesMedia(state: EditorState, from: number, to: number) {
+function selectionIncludesBubbleToolbarExcludedNode(
+  state: EditorState,
+  from: number,
+  to: number,
+) {
   if (
     state.selection instanceof NodeSelection &&
-    MEDIA_NODE_TYPES.has(state.selection.node.type.name)
+    BUBBLE_TOOLBAR_EXCLUDED_NODE_TYPES.has(state.selection.node.type.name)
   ) {
     return true;
   }
 
-  let includesMedia = false;
+  let includesExcludedNode = false;
   state.doc.nodesBetween(from, to, (node) => {
-    if (MEDIA_NODE_TYPES.has(node.type.name)) {
-      includesMedia = true;
+    if (BUBBLE_TOOLBAR_EXCLUDED_NODE_TYPES.has(node.type.name)) {
+      includesExcludedNode = true;
       return false;
     }
-    return !includesMedia;
+    return !includesExcludedNode;
   });
-  return includesMedia;
+  return includesExcludedNode;
 }
 
 export function BubbleToolbar({ editor, onComment }: BubbleToolbarProps) {
@@ -184,7 +193,7 @@ export function BubbleToolbar({ editor, onComment }: BubbleToolbarProps) {
         if (!editor.isFocused) return false;
         const isSelection = from !== to;
         if (!isSelection) return false;
-        return !selectionIncludesMedia(state, from, to);
+        return !selectionIncludesBubbleToolbarExcludedNode(state, from, to);
       }}
     >
       {showLinkInput ? (

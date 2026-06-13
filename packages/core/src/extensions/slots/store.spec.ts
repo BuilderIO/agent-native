@@ -1,4 +1,7 @@
 import Database from "better-sqlite3";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { drizzle } from "drizzle-orm/better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -152,6 +155,11 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
+function writeJson(filePath: string, value: unknown) {
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  fs.writeFileSync(filePath, `${JSON.stringify(value, null, 2)}\n`, "utf8");
+}
+
 describe("extension slots: slot-target declarations", () => {
   it("requires editor access on the extension to declare a slot target", async () => {
     await insertExtension({ id: "ext-1" });
@@ -236,6 +244,71 @@ describe("extension slots: slot-target declarations", () => {
 });
 
 describe("extension slots: listExtensionsForSlot scoping", () => {
+  it("includes local file extensions that declare the slot", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "an-local-slot-"));
+    const oldManifest = process.env.AGENT_NATIVE_MANIFEST;
+    const manifestPath = path.join(root, "agent-native.json");
+    try {
+      process.env.AGENT_NATIVE_MANIFEST = manifestPath;
+      writeJson(manifestPath, {
+        apps: {
+          content: {
+            mode: "local-files",
+            extensions: "extensions",
+          },
+        },
+      });
+      writeJson(path.join(root, "extensions", "doc-status", "extension.json"), {
+        id: "doc-status",
+        name: "Doc Status",
+        slots: ["content.sidebar.bottom"],
+      });
+      fs.writeFileSync(
+        path.join(root, "extensions", "doc-status", "index.html"),
+        "<div>Doc status</div>",
+        "utf8",
+      );
+
+      await runWithRequestContext(
+        { userEmail: OWNER, orgId: ORG },
+        async () => {
+          await expect(
+            listExtensionsForSlot("content.sidebar.bottom"),
+          ).resolves.toMatchObject([
+            {
+              extensionId: "doc-status",
+              name: "Doc Status",
+            },
+          ]);
+          await expect(
+            listSlotsForExtension("doc-status"),
+          ).resolves.toMatchObject([
+            {
+              extensionId: "doc-status",
+              slotId: "content.sidebar.bottom",
+            },
+          ]);
+          await expect(
+            listSlotInstallsForUser("content.sidebar.bottom"),
+          ).resolves.toMatchObject([
+            {
+              installId: "local:doc-status:content.sidebar.bottom:install",
+              extensionId: "doc-status",
+              name: "Doc Status",
+            },
+          ]);
+        },
+      );
+    } finally {
+      if (oldManifest === undefined) {
+        delete process.env.AGENT_NATIVE_MANIFEST;
+      } else {
+        process.env.AGENT_NATIVE_MANIFEST = oldManifest;
+      }
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it("only returns slot declarations for extensions the caller can access", async () => {
     await insertExtension({ id: "mine", name: "Mine", ownerEmail: OWNER });
     await insertExtension({

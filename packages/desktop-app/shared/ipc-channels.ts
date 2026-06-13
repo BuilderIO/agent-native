@@ -40,6 +40,16 @@ export const IPC = {
   PLAN_FILES_READ: "plan-files:read",
   PLAN_FILES_CLEAR_FOLDER: "plan-files:clear-folder",
 
+  /** Hosted Content app local-file sync (Content webview ↔ main) */
+  CONTENT_FILES_GET_FOLDER: "content-files:get-folder",
+  CONTENT_FILES_CHOOSE_FOLDER: "content-files:choose-folder",
+  CONTENT_FILES_WRITE: "content-files:write",
+  CONTENT_FILES_WRITE_FILE: "content-files:write-file",
+  CONTENT_FILES_DELETE_FILE: "content-files:delete-file",
+  CONTENT_FILES_READ: "content-files:read",
+  CONTENT_FILES_REVEAL_FILE: "content-files:reveal-file",
+  CONTENT_FILES_CLEAR_FOLDER: "content-files:clear-folder",
+
   /** Active webview tracking (renderer → main) */
   SET_ACTIVE_APP: "webview:set-active-app",
   SET_ACTIVE_WEBVIEW: "webview:set-active-webview",
@@ -189,6 +199,59 @@ export type DesktopPlanFilesResult =
       error: string;
       canceled?: boolean;
       folder?: DesktopPlanFilesFolder;
+    };
+
+export interface DesktopContentFilesFolder {
+  id?: string;
+  name: string;
+  path?: string;
+  sourcePrefix?: string;
+  updatedAt?: string;
+}
+
+export interface DesktopContentFilesWriteRequest {
+  folderId?: string;
+  files: Record<string, string>;
+}
+
+export interface DesktopContentFileWriteRequest {
+  folderId?: string;
+  path: string;
+  content: string;
+}
+
+export interface DesktopContentFileRevealRequest {
+  folderId?: string;
+  path: string;
+}
+
+export interface DesktopContentFileDeleteRequest {
+  folderId?: string;
+  path: string;
+}
+
+export interface DesktopContentFilesFolderRequest {
+  folderId?: string;
+}
+
+export interface DesktopContentFilesClearFolderRequest {
+  folderId?: string;
+}
+
+export type DesktopContentFilesResult =
+  | {
+      ok: true;
+      folder: DesktopContentFilesFolder;
+      folders?: DesktopContentFilesFolder[];
+      files?: string[];
+      sources?: Record<string, string>;
+    }
+  | {
+      ok: false;
+      error: string;
+      canceled?: boolean;
+      folder?: DesktopContentFilesFolder;
+      folders?: DesktopContentFilesFolder[];
     };
 
 export type CodeAgentRunStatus =

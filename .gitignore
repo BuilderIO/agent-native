@@ -65,6 +65,7 @@ templates/slides/data/exports/
 # Playwright/vitest test run state
 test-results/
 e2e/.auth/
+**/.auth/
 
 # Wrangler local state
 .wrangler

@@ -94,4 +94,13 @@ describe("document sidebar layout", () => {
     );
     expect(sidebar).toContain("if (activeAncestorIds.has(id)) return");
   });
+
+  it("keeps local files above extensions and hides the dev database link", () => {
+    const sidebar = readSidebarSource("./DocumentSidebar.tsx");
+
+    expect(sidebar).not.toContain("DevDatabaseLink");
+    expect(sidebar.indexOf("{renderLocalFilesNavButton()}")).toBeLessThan(
+      sidebar.indexOf("<ExtensionsSidebarSection />"),
+    );
+  });
 });

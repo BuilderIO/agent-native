@@ -24,7 +24,6 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
 import { ShareButton } from "@agent-native/core/client";
-import { SaveStatusIndicator } from "@/components/visual-editor";
 import type { ViewportTab } from "./types";
 import {
   Tooltip,
@@ -58,8 +57,6 @@ interface DesignToolbarProps {
   pinMode?: boolean;
   /** Toggle comment-pin drop mode. */
   onTogglePinMode?: () => void;
-  /** True while a save is in flight (drives the SaveStatusIndicator). */
-  saving?: boolean;
 }
 
 const MODE_ITEMS: {
@@ -106,7 +103,6 @@ export function DesignToolbar({
   onToggleDrawMode,
   pinMode,
   onTogglePinMode,
-  saving,
 }: DesignToolbarProps) {
   const [editingTitle, setEditingTitle] = useState(false);
   const [titleDraft, setTitleDraft] = useState(title);
@@ -243,9 +239,6 @@ export function DesignToolbar({
           </DropdownMenu>
         );
       })()}
-
-      {/* Save status */}
-      <SaveStatusIndicator saving={!!saving} className="ml-1 mr-1" />
 
       {/* Mode switcher */}
       <div className="flex overflow-hidden rounded-md border border-border">

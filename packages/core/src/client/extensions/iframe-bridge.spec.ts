@@ -216,4 +216,39 @@ describe("checkBridgePolicy (audit H4)", () => {
     expect(writeRes.ok).toBe(false);
     expect(writeRes.error).toMatch(/appFetch/);
   });
+
+  it("gates local file extensions by manifest permissions", () => {
+    const local = {
+      role: "viewer" as const,
+      isAuthor: false,
+      source: "local-files" as const,
+      permissions: {
+        appActions: ["list-documents"],
+        extensionData: true,
+      },
+    };
+
+    expect(
+      checkBridgePolicy("/_agent-native/actions/list-documents", "POST", local)
+        .ok,
+    ).toBe(true);
+    expect(
+      checkBridgePolicy("/_agent-native/actions/delete-document", "POST", local)
+        .ok,
+    ).toBe(false);
+    expect(
+      checkBridgePolicy(
+        "/_agent-native/extensions/data/doc-status/state",
+        "POST",
+        local,
+      ).ok,
+    ).toBe(true);
+    expect(
+      checkBridgePolicy("/_agent-native/extensions/sql/query", "POST", local)
+        .ok,
+    ).toBe(false);
+    expect(
+      checkBridgePolicy("/_agent-native/extensions/proxy", "POST", local).ok,
+    ).toBe(false);
+  });
 });

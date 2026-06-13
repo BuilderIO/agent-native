@@ -68,6 +68,10 @@ interface Extension {
   icon?: string;
   canDelete?: boolean;
   globallyHidden?: boolean;
+  source?: {
+    mode?: "database" | "local-files";
+    entryPath?: string;
+  };
 }
 
 const FAVORITES_KEY = "extensions-favorites";
@@ -596,6 +600,8 @@ export function ExtensionsSidebarSection() {
                 );
                 const isFav = favoriteIds.has(extension.id);
                 const isRenamingThis = renamingId === extension.id;
+                const isLocalExtension =
+                  extension.source?.mode === "local-files";
                 const actionsVisible =
                   menuOpenId === extension.id || isRenamingThis;
 
@@ -689,6 +695,11 @@ export function ExtensionsSidebarSection() {
                           <span className="block truncate">
                             {extension.name}
                           </span>
+                          {isLocalExtension && (
+                            <span className="shrink-0 rounded border border-border px-1 text-[9px] font-medium uppercase tracking-wide text-muted-foreground/70">
+                              File
+                            </span>
+                          )}
                         </span>
                       )}
                     </Link>
@@ -741,13 +752,21 @@ export function ExtensionsSidebarSection() {
                           sideOffset={4}
                           className="min-w-[140px]"
                         >
-                          <DropdownMenuItem
-                            onSelect={() => startRename(extension)}
-                          >
-                            <IconPencil className="h-3.5 w-3.5" />
-                            Rename
-                          </DropdownMenuItem>
-                          {extension.canDelete !== false &&
+                          {isLocalExtension ? (
+                            <DropdownMenuItem disabled>
+                              <IconPencil className="h-3.5 w-3.5" />
+                              Edit in files
+                            </DropdownMenuItem>
+                          ) : (
+                            <DropdownMenuItem
+                              onSelect={() => startRename(extension)}
+                            >
+                              <IconPencil className="h-3.5 w-3.5" />
+                              Rename
+                            </DropdownMenuItem>
+                          )}
+                          {!isLocalExtension &&
+                            extension.canDelete !== false &&
                             (extension.globallyHidden ? (
                               <DropdownMenuItem
                                 onSelect={() => handleGlobalUnhide(extension)}
@@ -763,15 +782,17 @@ export function ExtensionsSidebarSection() {
                                 Hide from everyone
                               </DropdownMenuItem>
                             ))}
-                          <DropdownMenuItem
-                            onSelect={() => handleDelete(extension)}
-                            className="text-destructive focus:text-destructive"
-                          >
-                            <IconTrash className="h-3.5 w-3.5" />
-                            {extension.canDelete === false
-                              ? "Remove from my list"
-                              : "Delete"}
-                          </DropdownMenuItem>
+                          {!isLocalExtension && (
+                            <DropdownMenuItem
+                              onSelect={() => handleDelete(extension)}
+                              className="text-destructive focus:text-destructive"
+                            >
+                              <IconTrash className="h-3.5 w-3.5" />
+                              {extension.canDelete === false
+                                ? "Remove from my list"
+                                : "Delete"}
+                            </DropdownMenuItem>
+                          )}
                         </DropdownMenuContent>
                       </DropdownMenu>
                     </div>

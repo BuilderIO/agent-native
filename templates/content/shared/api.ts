@@ -35,6 +35,7 @@ export interface DocumentSourceInfo {
   mode: "database" | "local-files";
   kind?: "file" | "folder" | string;
   path?: string;
+  absolutePath?: string;
   rootName?: string;
   rootPath?: string;
   hash?: string;

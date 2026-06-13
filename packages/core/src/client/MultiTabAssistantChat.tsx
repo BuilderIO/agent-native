@@ -29,6 +29,7 @@ import {
 } from "./components/ui/tooltip.js";
 import {
   Popover,
+  PopoverAnchor,
   PopoverContent,
   PopoverTrigger,
 } from "./components/ui/popover.js";
@@ -470,14 +471,6 @@ function HistoryPopover({
     inputRef.current?.focus();
   }, []);
 
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
-  }, [onClose]);
-
   // Debounced server-side search
   const searchIdRef = useRef(0);
   useEffect(() => {
@@ -542,9 +535,20 @@ function HistoryPopover({
     : null;
 
   return (
-    <>
-      <div className="fixed inset-0 z-40" onClick={onClose} />
-      <div className="absolute right-2 top-0 z-50 w-72 rounded-lg border border-border bg-popover shadow-lg">
+    <Popover open onOpenChange={(open) => !open && onClose()}>
+      <PopoverAnchor asChild>
+        <span aria-hidden className="absolute right-2 top-0 h-px w-px" />
+      </PopoverAnchor>
+      <PopoverContent
+        align="end"
+        side="bottom"
+        sideOffset={0}
+        onOpenAutoFocus={(event) => {
+          event.preventDefault();
+          inputRef.current?.focus();
+        }}
+        className="w-72 rounded-lg p-0"
+      >
         <div className="flex items-center gap-2 px-3 py-2 border-b border-border">
           <IconSearch size={13} />
           <input
@@ -615,8 +619,8 @@ function HistoryPopover({
             )
           )}
         </div>
-      </div>
-    </>
+      </PopoverContent>
+    </Popover>
   );
 }
 

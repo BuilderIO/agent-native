@@ -141,9 +141,6 @@ export function FormBuilderPage() {
     staleMessage:
       "Form edit is taking longer than expected. You can try again.",
   });
-  const [saveState, setSaveState] = useState<"idle" | "saving" | "saved">(
-    "idle",
-  );
   const descriptionRef = useRef<HTMLTextAreaElement>(null);
 
   // Local state for text inputs and fields — prevents polling-driven refetches
@@ -213,23 +210,13 @@ export function FormBuilderPage() {
   // Debounced save for non-field form properties (title, description, status,
   // settings). Full-array field saves are handled by saveFieldOps below.
   const saveTimeout = useRef<ReturnType<typeof setTimeout>>(undefined);
-  const savedTimeout = useRef<ReturnType<typeof setTimeout>>(undefined);
   const save = useCallback(
     (data: Parameters<typeof updateForm.mutate>[0]) => {
       clearTimeout(saveTimeout.current);
-      clearTimeout(savedTimeout.current);
-      setSaveState("saving");
       saveTimeout.current = setTimeout(() => {
         updateForm.mutate(data, {
           onSettled: () => {
             fieldsDirty.current = false;
-          },
-          onSuccess: () => {
-            setSaveState("saved");
-            savedTimeout.current = setTimeout(() => setSaveState("idle"), 2000);
-          },
-          onError: () => {
-            setSaveState("idle");
           },
         });
       }, 500);
@@ -247,8 +234,6 @@ export function FormBuilderPage() {
       if (!formId) return;
       pendingOps.current = [...pendingOps.current, ...ops];
       clearTimeout(fieldOpTimeout.current);
-      clearTimeout(savedTimeout.current);
-      setSaveState("saving");
       fieldOpTimeout.current = setTimeout(() => {
         const opsToSend = pendingOps.current;
         pendingOps.current = [];
@@ -257,16 +242,6 @@ export function FormBuilderPage() {
           {
             onSettled: () => {
               fieldsDirty.current = false;
-            },
-            onSuccess: () => {
-              setSaveState("saved");
-              savedTimeout.current = setTimeout(
-                () => setSaveState("idle"),
-                2000,
-              );
-            },
-            onError: () => {
-              setSaveState("idle");
             },
           },
         );
@@ -278,7 +253,6 @@ export function FormBuilderPage() {
   useEffect(
     () => () => {
       clearTimeout(saveTimeout.current);
-      clearTimeout(savedTimeout.current);
       clearTimeout(fieldOpTimeout.current);
     },
     [],
@@ -518,11 +492,6 @@ export function FormBuilderPage() {
           >
             {form.status}
           </Badge>
-          {saveState !== "idle" && (
-            <span className="text-[11px] text-muted-foreground shrink-0 hidden sm:inline">
-              {saveState === "saving" ? "Saving…" : "Saved"}
-            </span>
-          )}
         </div>
 
         <div className="flex items-center gap-1 shrink-0">

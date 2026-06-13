@@ -672,6 +672,15 @@ describe("VisualEditor markdown round-tripping", () => {
         transactionUiEvent: "paste",
       }),
     ).toBe(false);
+    expect(
+      shouldPersistLocalFileEditorUpdate({
+        docChanged: true,
+        editorFocused: false,
+        explicitLocalFileUserEdit: true,
+        recentUserEditIntent: false,
+        transactionUiEvent: undefined,
+      }),
+    ).toBe(true);
   });
 
   it("applies newer external sync through the lead client", () => {

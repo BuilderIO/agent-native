@@ -439,7 +439,7 @@ function QuestionFormReadInner({
           />
         ))}
       </div>
-      <div className="sticky bottom-0 mt-10 flex items-center justify-between gap-4 border-t border-border py-4">
+      <div className="sticky bottom-0 z-10 mt-10 flex items-center justify-between gap-4 border-t border-border bg-background py-4">
         <p className="text-sm font-semibold text-muted-foreground">
           {answered}/{questions.length} answered
         </p>

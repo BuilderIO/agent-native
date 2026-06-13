@@ -54,7 +54,10 @@ import {
   type UseCollabReconcileResult,
 } from "@agent-native/core/client";
 import { RegistryBlockNode } from "./extensions/registryBlocks";
-import { LocalMdxComponentNode } from "./extensions/LocalMdxComponentNode";
+import {
+  LOCAL_FILE_USER_EDIT_META,
+  LocalMdxComponentNode,
+} from "./extensions/LocalMdxComponentNode";
 import {
   CommentHighlight,
   setCommentHighlights,
@@ -847,15 +850,18 @@ export function shouldApplyExternalContentSync({
 export function shouldPersistLocalFileEditorUpdate({
   docChanged,
   editorFocused,
+  explicitLocalFileUserEdit,
   recentUserEditIntent,
   transactionUiEvent,
 }: {
   docChanged: boolean;
   editorFocused: boolean;
+  explicitLocalFileUserEdit?: boolean;
   recentUserEditIntent: boolean;
   transactionUiEvent: unknown;
 }): boolean {
   if (!docChanged) return false;
+  if (explicitLocalFileUserEdit) return true;
   if (editorFocused) return true;
   if (recentUserEditIntent) return true;
   return Boolean(transactionUiEvent);
@@ -1523,6 +1529,7 @@ function useRegistryBlockStore(editor: CoreEditor | null) {
         ...node.attrs,
         __raw: raw,
       });
+      tr.setMeta(LOCAL_FILE_USER_EDIT_META, true);
       editor.view.dispatch(tr);
       bump();
     },
@@ -1776,6 +1783,8 @@ export function VisualEditor({
         !shouldPersistLocalFileEditorUpdate({
           docChanged: transaction.docChanged,
           editorFocused: editor.isFocused,
+          explicitLocalFileUserEdit:
+            transaction.getMeta(LOCAL_FILE_USER_EDIT_META) === true,
           recentUserEditIntent:
             Date.now() - lastUserEditIntentAtRef.current < 2000,
           transactionUiEvent: transaction.getMeta("uiEvent"),

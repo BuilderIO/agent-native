@@ -346,9 +346,17 @@ jobs:
           PLAN_ID="$($RECAP_CLI recap comment find-plan-id --repo "$GITHUB_REPOSITORY" --issue "$PR_NUMBER" --token "$GH_TOKEN")"
           echo "plan_id=$PLAN_ID" >> "$GITHUB_OUTPUT"
 
+      - name: Smoke-test Plan MCP tools
+        id: mcp_smoke
+        if: steps.diff.outputs.tiny != 'true' && steps.scan.outputs.suppressed != 'true'
+        continue-on-error: true
+        run: |
+          set -uo pipefail
+          $RECAP_CLI recap mcp-smoke --app-url "$PLAN_RECAP_APP_URL"
+
       - name: Build recap prompt
         id: prompt
-        if: steps.diff.outputs.tiny != 'true' && steps.scan.outputs.suppressed != 'true'
+        if: steps.diff.outputs.tiny != 'true' && steps.scan.outputs.suppressed != 'true' && steps.mcp_smoke.outputs.ok == 'true'
         env:
           PREV_PLAN_ID: ${{ steps.prev.outputs.plan_id }}
           DIFF_HUGE: ${{ steps.diff.outputs.huge }}
@@ -361,7 +369,7 @@ jobs:
 
       - name: Run agent (Claude Code)
         id: claude
-        if: needs.gate.outputs.agent == 'claude' && steps.diff.outputs.tiny != 'true' && steps.scan.outputs.suppressed != 'true'
+        if: needs.gate.outputs.agent == 'claude' && steps.diff.outputs.tiny != 'true' && steps.scan.outputs.suppressed != 'true' && steps.mcp_smoke.outputs.ok == 'true'
         continue-on-error: true
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
@@ -389,7 +397,7 @@ jobs:
 
       - name: Run agent (Codex)
         id: codex
-        if: needs.gate.outputs.agent == 'codex' && steps.diff.outputs.tiny != 'true' && steps.scan.outputs.suppressed != 'true'
+        if: needs.gate.outputs.agent == 'codex' && steps.diff.outputs.tiny != 'true' && steps.scan.outputs.suppressed != 'true' && steps.mcp_smoke.outputs.ok == 'true'
         continue-on-error: true
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
@@ -493,8 +501,19 @@ jobs:
         continue-on-error: true
         env:
           RECAP_AGENT: ${{ needs.gate.outputs.agent }}
+          RECAP_MCP_SMOKE_OK: ${{ steps.mcp_smoke.outputs.ok }}
+          RECAP_MCP_SMOKE_SUMMARY: ${{ steps.mcp_smoke.outputs.summary }}
         run: |
           set -uo pipefail
+          if [ -n "${RECAP_MCP_SMOKE_SUMMARY:-}" ] && [ "${RECAP_MCP_SMOKE_OK:-}" != "true" ]; then
+            {
+              echo 'summary<<__RECAP_MCP_SMOKE_SUMMARY_EOF__'
+              echo "$RECAP_MCP_SMOKE_SUMMARY"
+              echo '__RECAP_MCP_SMOKE_SUMMARY_EOF__'
+            } >> "$GITHUB_OUTPUT"
+            node -e 'process.stdout.write(JSON.stringify({ ok: true, summary: process.env.RECAP_MCP_SMOKE_SUMMARY || "" }) + "\n")'
+            exit 0
+          fi
           RESULT=claude-result.json
           STDERR=claude-stderr.log
           EXIT_CODE=claude-exit-code.txt

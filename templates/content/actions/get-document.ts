@@ -15,9 +15,11 @@ import {
   getDatabaseItemByDocumentId,
   serializeDatabaseMembership,
 } from "./_database-utils.js";
+import { serializeDocumentSource } from "./_document-source.js";
 import "../server/db/index.js";
 import {
   getLocalFileDocument,
+  isLocalDocumentId,
   isContentLocalFileMode,
 } from "./_local-file-documents.js";
 
@@ -40,7 +42,7 @@ export default defineAction({
   run: async (args) => {
     if (!args.id) throw new Error("--id is required");
 
-    if (await isContentLocalFileMode()) {
+    if ((await isContentLocalFileMode()) && isLocalDocumentId(args.id)) {
       return getLocalFileDocument(args.id);
     }
 
@@ -65,6 +67,7 @@ export default defineAction({
       isFavorite: parseDocumentFavorite(doc.isFavorite),
       hideFromSearch: parseDocumentHideFromSearch(doc.hideFromSearch),
       visibility: doc.visibility,
+      source: serializeDocumentSource(doc),
       accessRole: access.role,
       canEdit: canEditRole(access.role),
       canManage: canManageRole(access.role),

@@ -94,6 +94,14 @@ function componentNameForFile(filePath: string) {
   return pascalCase(path.basename(path.dirname(filePath)));
 }
 
+function renderComponentRegistration(
+  moduleName: string,
+  componentName: string,
+  valueExpression: string,
+) {
+  return `registerComponent(${JSON.stringify(componentName)}, ${valueExpression}, ${moduleName});`;
+}
+
 async function walkComponentFiles(directory: string): Promise<string[]> {
   let entries: fs.Dirent[];
   try {
@@ -159,7 +167,32 @@ async function loadLocalComponentFiles() {
 
 function renderLocalComponentsModule(files: string[]) {
   const imports: string[] = [];
-  const assignments: string[] = ["const components = {};"];
+  const assignments: string[] = [
+    "const components = {};",
+    "const componentInputs = {};",
+    `function isComponent(value) {
+  return (
+    typeof value === "function" ||
+    (value && typeof value === "object" && "$$typeof" in value)
+  );
+}`,
+    `function componentInputsFor(name, component, module) {
+  return (
+    module[\`\${name}Inputs\`] ??
+    module[\`\${name}Schema\`]?.inputs ??
+    module[\`\${name}Config\`]?.inputs ??
+    component?.inputs ??
+    module.agentNative?.components?.[name]?.inputs ??
+    module.agentNative?.inputs
+  );
+}`,
+    `function registerComponent(name, component, module) {
+  if (!isComponent(component)) return;
+  components[name] = component;
+  const inputs = componentInputsFor(name, component, module);
+  if (inputs) componentInputs[name] = inputs;
+}`,
+  ];
   files.forEach((filePath, index) => {
     const variableName = `module${index}`;
     const componentName = componentNameForFile(filePath);
@@ -171,15 +204,16 @@ function renderLocalComponentsModule(files: string[]) {
     assignments.push(`{
   const named = ${JSON.stringify(componentName)};
   const candidate = ${variableName}[named] ?? ${variableName}.default;
-  if (candidate) components[named] = candidate;
+  ${renderComponentRegistration(variableName, componentName, "candidate")}
   for (const [exportName, value] of Object.entries(${variableName})) {
-    if (/^[A-Z]/.test(exportName) && value) components[exportName] = value;
+    if (/^[A-Z]/.test(exportName)) registerComponent(exportName, value, ${variableName});
   }
 }`);
   });
 
   return `${imports.join("\n")}
 ${assignments.join("\n")}
+export const localContentComponentInputs = componentInputs;
 export const localContentComponents = components;
 export default components;
 `;

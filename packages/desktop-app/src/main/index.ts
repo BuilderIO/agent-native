@@ -70,6 +70,14 @@ import {
   type InterAppMessage,
   type LocalAppFolderInfo,
   type LocalAppFolderSelectResult,
+  type DesktopContentFilesClearFolderRequest,
+  type DesktopContentFileDeleteRequest,
+  type DesktopContentFileRevealRequest,
+  type DesktopContentFileWriteRequest,
+  type DesktopContentFilesFolderRequest,
+  type DesktopContentFilesFolder,
+  type DesktopContentFilesResult,
+  type DesktopContentFilesWriteRequest,
   type DesktopPlanFilesChooseFolderRequest,
   type DesktopPlanFilesClearFolderRequest,
   type DesktopPlanFilesFolder,
@@ -4575,6 +4583,752 @@ async function chooseLocalAppFolder(): Promise<LocalAppFolderSelectResult> {
   };
 }
 
+const CONTENT_FILES_STORE_FILE = "content-file-sync.json";
+const CONTENT_SOURCE_ROOT = "content";
+const CONTENT_SOURCE_EXTENSIONS = [".md", ".mdx"] as const;
+const CONTENT_SOURCE_FILE_MAX_BYTES = 2 * 1024 * 1024;
+const CONTENT_IGNORED_DIRECTORIES = new Set([
+  ".git",
+  ".next",
+  ".turbo",
+  "build",
+  "dist",
+  "node_modules",
+]);
+
+interface ContentFilesGrant {
+  id: string;
+  path: string;
+  sourcePrefix?: string;
+  updatedAt?: string;
+}
+
+interface ContentFilesStore {
+  version: 1;
+  activeGrantId?: string;
+  grant?: ContentFilesGrant;
+  grants?: Record<string, ContentFilesGrant>;
+}
+
+function contentFilesStorePath(): string {
+  return path.join(app.getPath("userData"), CONTENT_FILES_STORE_FILE);
+}
+
+function resolveUsableContentFolder(value: unknown): string | null {
+  const folder = resolveUsableDirectory(value);
+  if (!folder) return null;
+  try {
+    const stat = fs.lstatSync(folder);
+    if (stat.isSymbolicLink() || !stat.isDirectory()) return null;
+    return folder;
+  } catch {
+    return null;
+  }
+}
+
+function contentFilesGrantId(folder: string): string {
+  return `folder-${Buffer.from(path.resolve(folder)).toString("base64url")}`;
+}
+
+function contentFilesSourcePrefixBase(name: string): string {
+  const prefix = name
+    .replace(/[\\/]/g, "-")
+    .replace(/\0/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!prefix || prefix === "." || prefix === "..") return "Local folder";
+  return prefix;
+}
+
+function uniqueContentFilesSourcePrefix(
+  base: string,
+  grants: Record<string, ContentFilesGrant>,
+  exceptId?: string,
+): string {
+  const used = new Set(
+    Object.values(grants)
+      .filter((grant) => grant.id !== exceptId)
+      .map((grant) => grant.sourcePrefix)
+      .filter((prefix): prefix is string => Boolean(prefix)),
+  );
+  if (!used.has(base)) return base;
+  let index = 2;
+  while (used.has(`${base} ${index}`)) index += 1;
+  return `${base} ${index}`;
+}
+
+function normalizeContentFilesGrant(
+  value: unknown,
+  grants: Record<string, ContentFilesGrant>,
+): ContentFilesGrant | null {
+  if (!isObject(value)) return null;
+  const folder = resolveUsableContentFolder(firstStringValue(value.path));
+  if (!folder) return null;
+  const id = firstStringValue(value.id)?.trim() || contentFilesGrantId(folder);
+  const existing = grants[id];
+  const prefixBase = contentFilesSourcePrefixBase(
+    path.basename(folder) || folder,
+  );
+  const storedPrefix = firstStringValue(value.sourcePrefix)?.trim();
+  const sourcePrefix =
+    storedPrefix && storedPrefix !== "." && storedPrefix !== ".."
+      ? storedPrefix
+      : uniqueContentFilesSourcePrefix(prefixBase, grants, id);
+  return {
+    id,
+    path: folder,
+    sourcePrefix: existing?.sourcePrefix ?? sourcePrefix,
+    updatedAt: firstStringValue(value.updatedAt),
+  };
+}
+
+function loadContentFilesStore(): ContentFilesStore {
+  try {
+    const raw = JSON.parse(
+      fs.readFileSync(contentFilesStorePath(), "utf-8"),
+    ) as Partial<ContentFilesStore>;
+    const grants: Record<string, ContentFilesGrant> = {};
+    if (raw.grants && typeof raw.grants === "object") {
+      for (const grant of Object.values(raw.grants)) {
+        const normalized = normalizeContentFilesGrant(grant, grants);
+        if (normalized) grants[normalized.id] = normalized;
+      }
+    }
+    const legacyGrant = normalizeContentFilesGrant(raw.grant, grants);
+    if (legacyGrant) grants[legacyGrant.id] = legacyGrant;
+    const grantIds = Object.keys(grants);
+    if (grantIds.length === 0) return { version: 1, grants: {} };
+    const activeGrantId =
+      firstStringValue(raw.activeGrantId) &&
+      grants[firstStringValue(raw.activeGrantId)!]
+        ? firstStringValue(raw.activeGrantId)
+        : grantIds[0];
+    return {
+      version: 1,
+      activeGrantId,
+      grants,
+    };
+  } catch {
+    return { version: 1, grants: {} };
+  }
+}
+
+function saveContentFilesStore(store: ContentFilesStore): void {
+  writeJsonFileAtomic(contentFilesStorePath(), store);
+}
+
+function contentFilesFolderInfo(
+  grant: ContentFilesGrant,
+): DesktopContentFilesFolder {
+  return {
+    id: grant.id,
+    name: path.basename(grant.path) || grant.path,
+    path: grant.path,
+    sourcePrefix: grant.sourcePrefix,
+    updatedAt: grant.updatedAt,
+  };
+}
+
+function getContentFilesGrants(): ContentFilesGrant[] {
+  const store = loadContentFilesStore();
+  return Object.values(store.grants ?? {}).sort((a, b) =>
+    contentFilesFolderInfo(a).name.localeCompare(
+      contentFilesFolderInfo(b).name,
+    ),
+  );
+}
+
+function contentFilesFoldersInfo(
+  grants = getContentFilesGrants(),
+): DesktopContentFilesFolder[] {
+  return grants.map(contentFilesFolderInfo);
+}
+
+function getContentFilesGrant(folderId?: string): ContentFilesGrant | null {
+  const store = loadContentFilesStore();
+  const grants = store.grants ?? {};
+  if (folderId && grants[folderId]) return grants[folderId];
+  if (store.activeGrantId && grants[store.activeGrantId]) {
+    return grants[store.activeGrantId];
+  }
+  return Object.values(grants)[0] ?? null;
+}
+
+function setContentFilesGrant(folder: string): {
+  grant: ContentFilesGrant;
+  grants: ContentFilesGrant[];
+} {
+  const store = loadContentFilesStore();
+  const grants = { ...(store.grants ?? {}) };
+  const id = contentFilesGrantId(folder);
+  const existing = grants[id];
+  const prefixBase = contentFilesSourcePrefixBase(
+    path.basename(folder) || folder,
+  );
+  const grant: ContentFilesGrant = {
+    id,
+    path: folder,
+    sourcePrefix:
+      existing?.sourcePrefix ??
+      uniqueContentFilesSourcePrefix(prefixBase, grants, id),
+    updatedAt: new Date().toISOString(),
+  };
+  grants[id] = grant;
+  saveContentFilesStore({ version: 1, activeGrantId: id, grants });
+  return { grant, grants: Object.values(grants) };
+}
+
+function clearContentFilesGrant(folderId?: string): DesktopContentFilesResult {
+  const store = loadContentFilesStore();
+  const grants = { ...(store.grants ?? {}) };
+  const existing = getContentFilesGrant(folderId);
+  if (existing) delete grants[existing.id];
+  const nextGrantIds = Object.keys(grants);
+  const activeGrantId =
+    store.activeGrantId && grants[store.activeGrantId]
+      ? store.activeGrantId
+      : nextGrantIds[0];
+  saveContentFilesStore({ version: 1, activeGrantId, grants });
+  if (!existing) return { ok: false, error: "No local folder is linked." };
+  return {
+    ok: true,
+    folder: contentFilesFolderInfo(existing),
+    folders: contentFilesFoldersInfo(Object.values(grants)),
+  };
+}
+
+function isContentFilesWebviewSender(event: IpcMainInvokeEvent): boolean {
+  const sender = event.sender;
+  if (sender.getType() !== "webview") return false;
+  if (activeAppId !== "content") return false;
+  if (!activeWebviewContentsId || activeWebviewContentsId !== sender.id) {
+    return false;
+  }
+  const contentApp = loadAppsForAuthContext().find(
+    (candidate) => candidate.id === "content" && candidate.enabled !== false,
+  );
+  if (!contentApp) return false;
+
+  let url: URL;
+  try {
+    url = new URL(sender.getURL());
+  } catch {
+    return false;
+  }
+
+  const trustedOrigin = getAppOrigin(contentApp);
+  if (trustedOrigin && url.origin === trustedOrigin) return true;
+  return (
+    IS_DEV &&
+    url.origin === `http://localhost:${FRAME_PORT}` &&
+    url.searchParams.get("app") === "content"
+  );
+}
+
+function requireContentFilesWebviewAccess(
+  event: IpcMainInvokeEvent,
+): DesktopContentFilesResult | null {
+  if (isContentFilesWebviewSender(event)) return null;
+  return {
+    ok: false,
+    error: "Content local files are only available to the Content desktop app.",
+  };
+}
+
+function normalizeContentSourcePath(value: string): string | null {
+  const normalized = value.replace(/\\/g, "/").replace(/^\/+/, "");
+  if (
+    !normalized ||
+    normalized.includes("\0") ||
+    normalized.split("/").some((part) => !part || part === "." || part === "..")
+  ) {
+    return null;
+  }
+  return normalized;
+}
+
+function isContentSourceMarkdownPath(filePath: string): boolean {
+  const normalized = normalizeContentSourcePath(filePath);
+  if (!normalized) return false;
+  return CONTENT_SOURCE_EXTENSIONS.some((ext) =>
+    normalized.toLowerCase().endsWith(ext),
+  );
+}
+
+function assertContentSourceTextSize(filePath: string, content: string): void {
+  if (Buffer.byteLength(content, "utf-8") > CONTENT_SOURCE_FILE_MAX_BYTES) {
+    throw new Error(`${filePath} is larger than 2 MB.`);
+  }
+}
+
+function assertInsideContentFolder(folder: string, target: string): string {
+  const resolvedFolder = path.resolve(folder);
+  const resolvedTarget = path.resolve(target);
+  const relative = path.relative(resolvedFolder, resolvedTarget);
+  if (
+    relative === "" ||
+    (!relative.startsWith("..") && !path.isAbsolute(relative))
+  ) {
+    return resolvedTarget;
+  }
+  throw new Error("Content file path escaped the linked folder.");
+}
+
+async function assertUsableContentFolder(folder: string): Promise<void> {
+  const stat = await fs.promises.lstat(folder);
+  if (stat.isSymbolicLink()) {
+    throw new Error("Linked content folders cannot be symlinks.");
+  }
+  if (!stat.isDirectory()) {
+    throw new Error("The linked content folder is not a directory.");
+  }
+}
+
+async function assertNoContentSymlink(filePath: string): Promise<void> {
+  try {
+    const stat = await fs.promises.lstat(filePath);
+    if (stat.isSymbolicLink()) {
+      throw new Error("Linked content folders cannot contain symlinked files.");
+    }
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code;
+    if (code === "ENOENT") return;
+    throw err;
+  }
+}
+
+function noFollowOpenFlags(): number {
+  return fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW ?? 0);
+}
+
+function readContentMarkdownFileWithoutSymlink(
+  filePath: string,
+): string | null {
+  let fd: number | null = null;
+  try {
+    const stat = fs.lstatSync(filePath);
+    if (
+      stat.isSymbolicLink() ||
+      !stat.isFile() ||
+      stat.size > CONTENT_SOURCE_FILE_MAX_BYTES
+    ) {
+      return null;
+    }
+
+    fd = fs.openSync(filePath, noFollowOpenFlags());
+    const openedStat = fs.fstatSync(fd);
+    if (
+      !openedStat.isFile() ||
+      openedStat.size > CONTENT_SOURCE_FILE_MAX_BYTES
+    ) {
+      return null;
+    }
+    return fs.readFileSync(fd, "utf-8");
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code;
+    if (code === "ENOENT" || code === "ENOTDIR" || code === "ELOOP") {
+      return null;
+    }
+    throw err;
+  } finally {
+    if (fd !== null) fs.closeSync(fd);
+  }
+}
+
+async function chooseContentFilesFolder(): Promise<DesktopContentFilesResult> {
+  const result = await dialog.showOpenDialog({
+    title: "Choose Content source folder",
+    message: "Choose the folder to sync Markdown and MDX files.",
+    properties: ["openDirectory", "createDirectory"],
+  });
+  if (result.canceled || result.filePaths.length === 0) {
+    return { ok: false, canceled: true, error: "No folder selected." };
+  }
+  const folder = resolveUsableContentFolder(result.filePaths[0]);
+  if (!folder) {
+    return {
+      ok: false,
+      error: "Choose an existing folder that is not a symlink.",
+    };
+  }
+
+  const { grant, grants } = setContentFilesGrant(folder);
+  return {
+    ok: true,
+    folder: contentFilesFolderInfo(grant),
+    folders: contentFilesFoldersInfo(grants),
+  };
+}
+
+function getRequiredContentFilesGrant(folderId?: string): ContentFilesGrant {
+  const grant = getContentFilesGrant(folderId);
+  if (!grant) {
+    throw new Error("Choose a local folder before syncing Content files.");
+  }
+  const folder = resolveUsableContentFolder(grant.path);
+  if (!folder) {
+    throw new Error("The linked local folder no longer exists.");
+  }
+  return { ...grant, path: folder };
+}
+
+async function contentReadRoot(folder: string): Promise<{
+  folder: string;
+  prefix: string;
+}> {
+  if (path.basename(folder) === CONTENT_SOURCE_ROOT) {
+    return { folder, prefix: `${CONTENT_SOURCE_ROOT}/` };
+  }
+  const contentFolder = assertInsideContentFolder(
+    folder,
+    path.join(folder, CONTENT_SOURCE_ROOT),
+  );
+  try {
+    await assertUsableContentFolder(contentFolder);
+    return { folder: contentFolder, prefix: `${CONTENT_SOURCE_ROOT}/` };
+  } catch {
+    return { folder, prefix: "" };
+  }
+}
+
+async function contentWriteRoot(folder: string): Promise<{
+  folder: string;
+  prefix: string;
+}> {
+  if (path.basename(folder) === CONTENT_SOURCE_ROOT) {
+    return { folder, prefix: `${CONTENT_SOURCE_ROOT}/` };
+  }
+  const contentFolder = assertInsideContentFolder(
+    folder,
+    path.join(folder, CONTENT_SOURCE_ROOT),
+  );
+  await assertNoContentSymlink(contentFolder);
+  await fs.promises.mkdir(contentFolder, { recursive: true });
+  return { folder: contentFolder, prefix: `${CONTENT_SOURCE_ROOT}/` };
+}
+
+async function collectContentMarkdownFiles(
+  folder: string,
+  prefix = "",
+): Promise<Record<string, string>> {
+  const files: Record<string, string> = {};
+  let entries: fs.Dirent[];
+  try {
+    entries = await fs.promises.readdir(folder, { withFileTypes: true });
+  } catch {
+    return files;
+  }
+
+  for (const entry of entries) {
+    if (entry.isSymbolicLink()) continue;
+    const sourcePath = `${prefix}${entry.name}`;
+    const filePath = assertInsideContentFolder(
+      folder,
+      path.join(folder, entry.name),
+    );
+    if (entry.isDirectory()) {
+      if (CONTENT_IGNORED_DIRECTORIES.has(entry.name)) continue;
+      try {
+        const stat = fs.lstatSync(filePath);
+        if (stat.isSymbolicLink() || !stat.isDirectory()) continue;
+      } catch (err) {
+        const code = (err as NodeJS.ErrnoException).code;
+        if (code === "ENOENT" || code === "ENOTDIR") continue;
+        throw err;
+      }
+      Object.assign(
+        files,
+        await collectContentMarkdownFiles(filePath, `${sourcePath}/`),
+      );
+      continue;
+    }
+
+    if (!entry.isFile() || !isContentSourceMarkdownPath(sourcePath)) continue;
+    const content = readContentMarkdownFileWithoutSymlink(filePath);
+    if (content !== null) files[sourcePath] = content;
+  }
+
+  return files;
+}
+
+async function writeContentSourceFile(
+  root: string,
+  filePath: string,
+  content: string,
+): Promise<string> {
+  const { normalized, target } = await resolveContentSourceFilePath(root, {
+    createDirectories: true,
+    filePath,
+  });
+  assertContentSourceTextSize(normalized, content);
+  await fs.promises.writeFile(target, content, "utf-8");
+  return normalized;
+}
+
+async function resolveContentSourceFilePath(
+  root: string,
+  options: { filePath: string; createDirectories?: boolean },
+): Promise<{ normalized: string; target: string }> {
+  const { filePath, createDirectories = false } = options;
+  const normalized = normalizeContentSourcePath(filePath);
+  if (!normalized || !isContentSourceMarkdownPath(normalized)) {
+    throw new Error("Only .md and .mdx source files can be used.");
+  }
+  const writePath =
+    path.basename(root) === CONTENT_SOURCE_ROOT &&
+    normalized.startsWith(`${CONTENT_SOURCE_ROOT}/`)
+      ? normalized.slice(CONTENT_SOURCE_ROOT.length + 1)
+      : normalized;
+  const parts = writePath.split("/").filter(Boolean);
+  const filename = parts.pop();
+  if (!filename) throw new Error("Invalid content source path.");
+
+  let dir = root;
+  for (const part of parts) {
+    dir = assertInsideContentFolder(root, path.join(dir, part));
+    await assertNoContentSymlink(dir);
+    if (createDirectories) {
+      await fs.promises.mkdir(dir, { recursive: true });
+    }
+  }
+
+  const target = assertInsideContentFolder(root, path.join(dir, filename));
+  await assertNoContentSymlink(target);
+  return { normalized, target };
+}
+
+async function removeStaleContentMarkdownFiles(
+  folder: string,
+  prefix: string,
+  expectedPaths: Set<string>,
+): Promise<void> {
+  let entries: fs.Dirent[];
+  try {
+    entries = await fs.promises.readdir(folder, { withFileTypes: true });
+  } catch {
+    return;
+  }
+
+  for (const entry of entries) {
+    if (entry.isSymbolicLink()) continue;
+    const sourcePath = `${prefix}${entry.name}`;
+    const filePath = assertInsideContentFolder(
+      folder,
+      path.join(folder, entry.name),
+    );
+    if (entry.isDirectory()) {
+      if (CONTENT_IGNORED_DIRECTORIES.has(entry.name)) continue;
+      await removeStaleContentMarkdownFiles(
+        filePath,
+        `${sourcePath}/`,
+        expectedPaths,
+      );
+      continue;
+    }
+
+    if (
+      entry.isFile() &&
+      isContentSourceMarkdownPath(sourcePath) &&
+      !expectedPaths.has(sourcePath)
+    ) {
+      await assertNoContentSymlink(filePath);
+      await fs.promises.rm(filePath, { force: true });
+    }
+  }
+}
+
+function normalizeContentFilesWriteRequest(
+  request: DesktopContentFilesWriteRequest,
+): Record<string, string> | null {
+  if (!isObject(request) || !isObject(request.files)) return null;
+  const files: Record<string, string> = {};
+  for (const [rawPath, content] of Object.entries(request.files)) {
+    const filePath = normalizeContentSourcePath(rawPath);
+    if (!filePath || !isContentSourceMarkdownPath(filePath)) return null;
+    if (typeof content !== "string") return null;
+    assertContentSourceTextSize(filePath, content);
+    files[filePath] = content;
+  }
+  return files;
+}
+
+function normalizeContentFileWriteRequest(
+  request: DesktopContentFileWriteRequest,
+): { path: string; content: string } | null {
+  if (!isObject(request) || typeof request.content !== "string") return null;
+  const filePath = normalizeContentSourcePath(
+    firstStringValue(request.path) ?? "",
+  );
+  if (!filePath || !isContentSourceMarkdownPath(filePath)) return null;
+  assertContentSourceTextSize(filePath, request.content);
+  return { path: filePath, content: request.content };
+}
+
+function normalizeContentFileRevealRequest(
+  request: DesktopContentFileRevealRequest,
+): { path: string } | null {
+  if (!isObject(request)) return null;
+  const filePath = normalizeContentSourcePath(
+    firstStringValue(request.path) ?? "",
+  );
+  if (!filePath || !isContentSourceMarkdownPath(filePath)) return null;
+  return { path: filePath };
+}
+
+function normalizeContentFileDeleteRequest(
+  request: DesktopContentFileDeleteRequest,
+): { path: string } | null {
+  if (!isObject(request)) return null;
+  const filePath = normalizeContentSourcePath(
+    firstStringValue(request.path) ?? "",
+  );
+  if (!filePath || !isContentSourceMarkdownPath(filePath)) return null;
+  return { path: filePath };
+}
+
+async function writeContentFilesForRequest(
+  request: DesktopContentFilesWriteRequest,
+): Promise<DesktopContentFilesResult> {
+  try {
+    const files = normalizeContentFilesWriteRequest(request);
+    if (!files) return { ok: false, error: "Invalid Content source files." };
+
+    const grant = getRequiredContentFilesGrant(request.folderId);
+    const expectedPaths = new Set(Object.keys(files));
+    const written: string[] = [];
+    for (const [filePath, content] of Object.entries(files)) {
+      written.push(await writeContentSourceFile(grant.path, filePath, content));
+    }
+    const writeRoot = await contentWriteRoot(grant.path);
+    await removeStaleContentMarkdownFiles(
+      writeRoot.folder,
+      writeRoot.prefix,
+      expectedPaths,
+    );
+    const { grant: updatedGrant, grants } = setContentFilesGrant(grant.path);
+    return {
+      ok: true,
+      folder: contentFilesFolderInfo(updatedGrant),
+      folders: contentFilesFoldersInfo(grants),
+      files: written,
+    };
+  } catch (err) {
+    return {
+      ok: false,
+      error: err instanceof Error ? err.message : String(err),
+    };
+  }
+}
+
+async function writeContentFileForRequest(
+  request: DesktopContentFileWriteRequest,
+): Promise<DesktopContentFilesResult> {
+  try {
+    const file = normalizeContentFileWriteRequest(request);
+    if (!file) return { ok: false, error: "Invalid Content source file." };
+
+    const grant = getRequiredContentFilesGrant(request.folderId);
+    const writeRoot = await contentWriteRoot(grant.path);
+    const written = await writeContentSourceFile(
+      writeRoot.folder,
+      file.path,
+      file.content,
+    );
+    const { grant: updatedGrant, grants } = setContentFilesGrant(grant.path);
+    return {
+      ok: true,
+      folder: contentFilesFolderInfo(updatedGrant),
+      folders: contentFilesFoldersInfo(grants),
+      files: [written],
+    };
+  } catch (err) {
+    return {
+      ok: false,
+      error: err instanceof Error ? err.message : String(err),
+    };
+  }
+}
+
+async function deleteContentFileForRequest(
+  request: DesktopContentFileDeleteRequest,
+): Promise<DesktopContentFilesResult> {
+  try {
+    const file = normalizeContentFileDeleteRequest(request);
+    if (!file) return { ok: false, error: "Invalid Content source file." };
+
+    const grant = getRequiredContentFilesGrant(request.folderId);
+    const readRoot = await contentReadRoot(grant.path);
+    const { target } = await resolveContentSourceFilePath(readRoot.folder, {
+      filePath: file.path,
+    });
+    await assertNoContentSymlink(target);
+    await fs.promises.rm(target, { force: true });
+    const { grant: updatedGrant, grants } = setContentFilesGrant(grant.path);
+    return {
+      ok: true,
+      folder: contentFilesFolderInfo(updatedGrant),
+      folders: contentFilesFoldersInfo(grants),
+      files: [file.path],
+    };
+  } catch (err) {
+    return {
+      ok: false,
+      error: err instanceof Error ? err.message : String(err),
+    };
+  }
+}
+
+async function revealContentFileForRequest(
+  request: DesktopContentFileRevealRequest,
+): Promise<DesktopContentFilesResult> {
+  try {
+    const file = normalizeContentFileRevealRequest(request);
+    if (!file) return { ok: false, error: "Invalid Content source file." };
+
+    const grant = getRequiredContentFilesGrant(request.folderId);
+    const readRoot = await contentReadRoot(grant.path);
+    const { target } = await resolveContentSourceFilePath(readRoot.folder, {
+      filePath: file.path,
+    });
+    await fs.promises.access(target, fs.constants.F_OK);
+    shell.showItemInFolder(target);
+    const { grant: updatedGrant, grants } = setContentFilesGrant(grant.path);
+    return {
+      ok: true,
+      folder: contentFilesFolderInfo(updatedGrant),
+      folders: contentFilesFoldersInfo(grants),
+      files: [file.path],
+    };
+  } catch (err) {
+    return {
+      ok: false,
+      error: err instanceof Error ? err.message : String(err),
+    };
+  }
+}
+
+async function readContentFilesForRequest(
+  request: DesktopContentFilesFolderRequest = {},
+): Promise<DesktopContentFilesResult> {
+  try {
+    const grant = getRequiredContentFilesGrant(request.folderId);
+    const root = await contentReadRoot(grant.path);
+    const sources = await collectContentMarkdownFiles(root.folder, root.prefix);
+    const { grant: updatedGrant, grants } = setContentFilesGrant(grant.path);
+    return {
+      ok: true,
+      folder: contentFilesFolderInfo(updatedGrant),
+      folders: contentFilesFoldersInfo(grants),
+      sources,
+    };
+  } catch (err) {
+    return {
+      ok: false,
+      error: err instanceof Error ? err.message : String(err),
+    };
+  }
+}
+
 const PLAN_FILES_STORE_FILE = "plan-file-sync.json";
 const PLAN_TEXT_FILE_NAMES = [
   "plan.mdx",
@@ -6343,6 +7097,106 @@ ipcMain.handle(
     const planId = normalizePlanFilesRequestPlanId(request);
     if (!planId) return { ok: false, error: "Invalid plan ID." };
     return clearPlanFilesGrant(planId);
+  },
+);
+
+ipcMain.handle(
+  IPC.CONTENT_FILES_GET_FOLDER,
+  (
+    event: IpcMainInvokeEvent,
+    request: DesktopContentFilesFolderRequest = {},
+  ): DesktopContentFilesResult => {
+    const denied = requireContentFilesWebviewAccess(event);
+    if (denied) return denied;
+    const grants = getContentFilesGrants();
+    const grant = getContentFilesGrant(request.folderId);
+    if (!grant) return { ok: false, error: "No local folder is linked." };
+    return {
+      ok: true,
+      folder: contentFilesFolderInfo(grant),
+      folders: contentFilesFoldersInfo(grants),
+    };
+  },
+);
+
+ipcMain.handle(
+  IPC.CONTENT_FILES_CHOOSE_FOLDER,
+  (event: IpcMainInvokeEvent): Promise<DesktopContentFilesResult> => {
+    const denied = requireContentFilesWebviewAccess(event);
+    if (denied) return Promise.resolve(denied);
+    return chooseContentFilesFolder();
+  },
+);
+
+ipcMain.handle(
+  IPC.CONTENT_FILES_WRITE,
+  (
+    event: IpcMainInvokeEvent,
+    request: DesktopContentFilesWriteRequest,
+  ): Promise<DesktopContentFilesResult> => {
+    const denied = requireContentFilesWebviewAccess(event);
+    if (denied) return Promise.resolve(denied);
+    return writeContentFilesForRequest(request);
+  },
+);
+
+ipcMain.handle(
+  IPC.CONTENT_FILES_WRITE_FILE,
+  (
+    event: IpcMainInvokeEvent,
+    request: DesktopContentFileWriteRequest,
+  ): Promise<DesktopContentFilesResult> => {
+    const denied = requireContentFilesWebviewAccess(event);
+    if (denied) return Promise.resolve(denied);
+    return writeContentFileForRequest(request);
+  },
+);
+
+ipcMain.handle(
+  IPC.CONTENT_FILES_DELETE_FILE,
+  (
+    event: IpcMainInvokeEvent,
+    request: DesktopContentFileDeleteRequest,
+  ): Promise<DesktopContentFilesResult> => {
+    const denied = requireContentFilesWebviewAccess(event);
+    if (denied) return Promise.resolve(denied);
+    return deleteContentFileForRequest(request);
+  },
+);
+
+ipcMain.handle(
+  IPC.CONTENT_FILES_READ,
+  (
+    event: IpcMainInvokeEvent,
+    request: DesktopContentFilesFolderRequest = {},
+  ): Promise<DesktopContentFilesResult> => {
+    const denied = requireContentFilesWebviewAccess(event);
+    if (denied) return Promise.resolve(denied);
+    return readContentFilesForRequest(request);
+  },
+);
+
+ipcMain.handle(
+  IPC.CONTENT_FILES_REVEAL_FILE,
+  (
+    event: IpcMainInvokeEvent,
+    request: DesktopContentFileRevealRequest,
+  ): Promise<DesktopContentFilesResult> => {
+    const denied = requireContentFilesWebviewAccess(event);
+    if (denied) return Promise.resolve(denied);
+    return revealContentFileForRequest(request);
+  },
+);
+
+ipcMain.handle(
+  IPC.CONTENT_FILES_CLEAR_FOLDER,
+  (
+    event: IpcMainInvokeEvent,
+    request: DesktopContentFilesClearFolderRequest = {},
+  ): DesktopContentFilesResult => {
+    const denied = requireContentFilesWebviewAccess(event);
+    if (denied) return denied;
+    return clearContentFilesGrant(request.folderId);
   },
 );
 

@@ -48,11 +48,17 @@ import {
 } from "@/blocks/contentBlockRegistry";
 import type { Document, DocumentSyncStatus } from "@shared/api";
 import type { NotionPageLink } from "./VisualEditor";
+import { toast } from "sonner";
 import {
   normalizeTitleText,
   stripMarkdownHeadingPrefixFromTitlePaste,
 } from "./title-text";
 import { cn } from "@/lib/utils";
+import {
+  canWriteLinkedLocalSource,
+  readDocumentFromLinkedLocalSource,
+  writeDocumentToLinkedLocalSource,
+} from "@/lib/local-content-source-files";
 
 const TAB_ID = generateTabId();
 
@@ -218,6 +224,10 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
   const [autoSync] = useLocalStorage(`notion-auto-sync:${documentId}`, false);
   const canEdit = document.canEdit ?? true;
   const isLocalFileDocument = document.source?.mode === "local-files";
+  const isLinkedLocalSourceDocument = canWriteLinkedLocalSource(
+    documentId,
+    document.source,
+  );
   // Polls Notion sync status to drive the conflict banner / sync bar and the
   // push-on-save path below (read via the query cache, not this return value).
   useDocumentSyncStatus(canEdit && !isLocalFileDocument ? documentId : null, {
@@ -225,7 +235,9 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
   });
   const [localTitle, setLocalTitle] = useState("");
   const [localContent, setLocalContent] = useState("");
-  const [isSaving, setIsSaving] = useState(false);
+  const [localContentUpdatedAt, setLocalContentUpdatedAt] = useState<
+    string | null
+  >(document.updatedAt ?? null);
   const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Separate freshness watermarks for title and content so that a content save
   // never suppresses adopting a newer external title and vice versa.
@@ -242,6 +254,7 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
   localTitleRef.current = localTitle;
   const localContentRef = useRef(localContent);
   localContentRef.current = localContent;
+  const localSourceWriteErrorShownRef = useRef(false);
   const documentUpdatedAtRef = useRef<string | null>(
     document.updatedAt ?? null,
   );
@@ -331,6 +344,7 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
     if (!isInitializedRef.current) {
       setLocalTitle(document.title);
       setLocalContent(document.content);
+      setLocalContentUpdatedAt(document.updatedAt ?? null);
       lastSavedTitleRef.current = {
         title: document.title,
         updatedAt: document.updatedAt ?? null,
@@ -346,6 +360,71 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
     }
   }, [document, documentId]);
 
+  useEffect(() => {
+    if (!isInitializedRef.current || !isLinkedLocalSourceDocument) {
+      return;
+    }
+
+    let cancelled = false;
+    readDocumentFromLinkedLocalSource(document)
+      .then((result) => {
+        if (cancelled) return;
+        if (!result.ok) {
+          toast.error("Could not read local source file", {
+            description: result.error,
+          });
+          return;
+        }
+
+        const fileDocument = result.document;
+        setLocalTitle(fileDocument.title);
+        setLocalContent(fileDocument.content);
+        setLocalContentUpdatedAt(result.updatedAt);
+        lastSavedTitleRef.current = {
+          title: fileDocument.title,
+          updatedAt: result.updatedAt,
+        };
+        lastSavedContentRef.current = {
+          content: fileDocument.content,
+          updatedAt: result.updatedAt,
+        };
+        queryClient.setQueryData(
+          ["action", "get-document", { id: documentId }],
+          (old: Document | undefined) =>
+            old && typeof old === "object" ? { ...old, ...fileDocument } : old,
+        );
+        queryClient.setQueryData(
+          ["action", "list-documents", undefined],
+          (old: any) => {
+            const docs = old?.documents ?? (Array.isArray(old) ? old : null);
+            if (!Array.isArray(docs)) return old;
+            const nextDocs = docs.map((doc: Document) =>
+              doc.id === documentId ? { ...doc, ...fileDocument } : doc,
+            );
+            return Array.isArray(old)
+              ? nextDocs
+              : { ...old, documents: nextDocs };
+          },
+        );
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        toast.error("Could not read local source file", {
+          description:
+            error instanceof Error ? error.message : "Something went wrong",
+        });
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    documentId,
+    document.source?.path,
+    isLinkedLocalSourceDocument,
+    queryClient,
+  ]);
+
   // NOTE: External body changes (agent edit, Notion pull, update-document) are
   // reconciled into the editor by VisualEditor via its content prop + the
   // updatedAt gate. The effects below keep DocumentEditor's own mirror
@@ -357,6 +436,7 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
   // actively editing.
   useEffect(() => {
     if (!document || !isInitializedRef.current) return;
+    if (isLinkedLocalSourceDocument) return;
     const serverTitle = document.title;
     const lastSaved = lastSavedTitleRef.current;
     if (serverTitle === lastSaved.title) return;
@@ -370,13 +450,14 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
         updatedAt: document.updatedAt ?? lastSaved.updatedAt,
       };
     }
-  }, [document, titleExternalIsNewer, localTitle]);
+  }, [document, isLinkedLocalSourceDocument, titleExternalIsNewer, localTitle]);
 
   // Pick up external body changes for the export/toolbar mirror. Adopt when
   // there's no unsaved local divergence, or when the server is genuinely newer;
   // clear any pending save so a stale autosave can't overwrite the fresh body.
   useEffect(() => {
     if (!document || !isInitializedRef.current) return;
+    if (isLinkedLocalSourceDocument) return;
     const serverContent = document.content;
     const lastSaved = lastSavedContentRef.current;
     if (serverContent === lastSaved.content) return;
@@ -392,7 +473,12 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
         updatedAt: document.updatedAt ?? lastSaved.updatedAt,
       };
     }
-  }, [document, contentExternalIsNewer, localContent]);
+  }, [
+    document,
+    isLinkedLocalSourceDocument,
+    contentExternalIsNewer,
+    localContent,
+  ]);
 
   // When polling/SSE refetches confirm the server now matches local editor
   // state, acknowledge it as saved (and adopt its updatedAt watermark). This
@@ -400,6 +486,7 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
   // stale "unsaved" local text.
   useEffect(() => {
     if (!document || !isInitializedRef.current) return;
+    if (isLinkedLocalSourceDocument) return;
     const titleMatchesLocal = document.title === localTitle;
     const contentMatchesLocal = document.content === localContent;
 
@@ -415,10 +502,70 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
         updatedAt: document.updatedAt ?? lastSavedContentRef.current.updatedAt,
       };
     }
-    if (titleMatchesLocal && contentMatchesLocal) {
-      setIsSaving(false);
-    }
-  }, [document, localTitle, localContent]);
+  }, [document, isLinkedLocalSourceDocument, localTitle, localContent]);
+
+  const persistDocumentUpdates = useCallback(
+    async (updates: {
+      title?: string;
+      content?: string;
+      icon?: string | null;
+    }): Promise<Document> => {
+      const localSource = document.source;
+      const isLinkedLocalSource = canWriteLinkedLocalSource(
+        documentId,
+        localSource,
+      );
+      const nextSavedAt = new Date().toISOString();
+      const fileFirstDocument: Document = {
+        ...document,
+        title: updates.title ?? localTitleRef.current,
+        content: updates.content ?? localContentRef.current,
+        icon: updates.icon !== undefined ? updates.icon : document.icon,
+        updatedAt: nextSavedAt,
+        source: localSource,
+      };
+
+      if (isLinkedLocalSource) {
+        const result = await writeDocumentToLinkedLocalSource(
+          fileFirstDocument,
+          localSource,
+        );
+        if (!result.ok) {
+          if (!localSourceWriteErrorShownRef.current) {
+            toast.error("Could not save local file", {
+              description: result.error,
+            });
+            localSourceWriteErrorShownRef.current = true;
+          }
+          throw new Error(result.error);
+        }
+        localSourceWriteErrorShownRef.current = false;
+        setLocalContentUpdatedAt(nextSavedAt);
+      }
+
+      try {
+        return await updateDocument.mutateAsync({
+          id: documentId,
+          ...updates,
+        });
+      } catch (error) {
+        if (!isLinkedLocalSource) throw error;
+        toast.warning("Local file saved, but history was not updated", {
+          description:
+            error instanceof Error ? error.message : "Something went wrong",
+        });
+        queryClient.setQueryData(
+          ["action", "get-document", { id: documentId }],
+          fileFirstDocument,
+        );
+        queryClient.invalidateQueries({
+          queryKey: ["action", "list-documents"],
+        });
+        return fileFirstDocument;
+      }
+    },
+    [document, documentId, queryClient, updateDocument],
+  );
 
   const debouncedSave = useCallback(
     (title: string, content: string) => {
@@ -428,10 +575,12 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
         // reconciled into the editor yet) with the editor's current — possibly
         // stale — content. Guard per-field using the field's own watermark.
         const titleIsStale =
+          !isLinkedLocalSourceDocument &&
           documentUpdatedAtRef.current &&
           lastSavedTitleRef.current.updatedAt &&
           documentUpdatedAtRef.current > lastSavedTitleRef.current.updatedAt;
         const contentIsStale =
+          !isLinkedLocalSourceDocument &&
           documentUpdatedAtRef.current &&
           lastSavedContentRef.current.updatedAt &&
           documentUpdatedAtRef.current > lastSavedContentRef.current.updatedAt;
@@ -443,52 +592,50 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
           updates.content = content;
         if (Object.keys(updates).length === 0) return;
 
-        setIsSaving(true);
-        try {
-          const saved = await updateDocument.mutateAsync({
-            id: documentId,
-            ...updates,
-          });
-          // Adopt the server updatedAt per saved field.
-          const savedAt = saved?.updatedAt ?? new Date().toISOString();
-          if (updates.title !== undefined) {
-            lastSavedTitleRef.current = { title, updatedAt: savedAt };
-          }
-          if (updates.content !== undefined) {
-            lastSavedContentRef.current = { content, updatedAt: savedAt };
-          }
+        const saved = await persistDocumentUpdates(updates);
+        // Adopt the server updatedAt per saved field.
+        const savedAt = saved?.updatedAt ?? new Date().toISOString();
+        if (updates.title !== undefined) {
+          lastSavedTitleRef.current = { title, updatedAt: savedAt };
+        }
+        if (updates.content !== undefined) {
+          lastSavedContentRef.current = { content, updatedAt: savedAt };
+        }
 
-          // Push-on-save: when auto-sync is on, trigger a Notion push
-          // immediately after the save lands in SQL. This eliminates the
-          // off-by-one race where a fixed-interval poll could fire between
-          // the debounce and the next save, reading the previous content.
-          // Pulls remain driven by the polling refetch in useDocumentSyncStatus.
-          if (autoSync) {
-            const status = queryClient.getQueryData<DocumentSyncStatus>([
-              "document-sync",
-              documentId,
-            ]);
-            if (status?.pageId && !status.hasConflict) {
-              try {
-                const res = await fetch(
-                  appApiPath(`/api/documents/${documentId}/notion/push`),
-                  { method: "POST" },
-                );
-                if (res.ok) {
-                  const next = (await res.json()) as DocumentSyncStatus;
-                  queryClient.setQueryData(["document-sync", documentId], next);
-                }
-              } catch {
-                // Non-fatal — next polling refetch will surface any error.
+        // Push-on-save: when auto-sync is on, trigger a Notion push
+        // immediately after the save lands in SQL. This eliminates the
+        // off-by-one race where a fixed-interval poll could fire between
+        // the debounce and the next save, reading the previous content.
+        // Pulls remain driven by the polling refetch in useDocumentSyncStatus.
+        if (autoSync) {
+          const status = queryClient.getQueryData<DocumentSyncStatus>([
+            "document-sync",
+            documentId,
+          ]);
+          if (status?.pageId && !status.hasConflict) {
+            try {
+              const res = await fetch(
+                appApiPath(`/api/documents/${documentId}/notion/push`),
+                { method: "POST" },
+              );
+              if (res.ok) {
+                const next = (await res.json()) as DocumentSyncStatus;
+                queryClient.setQueryData(["document-sync", documentId], next);
               }
+            } catch {
+              // Non-fatal — next polling refetch will surface any error.
             }
           }
-        } finally {
-          setIsSaving(false);
         }
       }, 500);
     },
-    [documentId, updateDocument, autoSync, queryClient],
+    [
+      documentId,
+      autoSync,
+      isLinkedLocalSourceDocument,
+      persistDocumentUpdates,
+      queryClient,
+    ],
   );
 
   // Collab-aware ingest flush: the `pull-document` action writes a one-shot
@@ -522,10 +669,7 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
             }
             try {
               if (Object.keys(updates).length > 0) {
-                const saved = await updateDocument.mutateAsync({
-                  id: documentId,
-                  ...updates,
-                });
+                const saved = await persistDocumentUpdates(updates);
                 const savedAt = saved?.updatedAt ?? new Date().toISOString();
                 if (updates.title !== undefined) {
                   lastSavedTitleRef.current = { title, updatedAt: savedAt };
@@ -558,7 +702,7 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
       active = false;
       clearTimeout(timer);
     };
-  }, [canEdit, documentId, isLocalFileDocument, updateDocument]);
+  }, [canEdit, documentId, isLocalFileDocument, persistDocumentUpdates]);
 
   const handleTitleChange = useCallback(
     (newTitle: string) => {
@@ -708,7 +852,6 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
             activeUsers={activeUsers}
             agentPresent={agentPresent}
             agentActive={agentActive}
-            isSaving={isSaving}
             currentUserEmail={session?.email}
             canEdit={canEdit}
             hideFromSearch={document.hideFromSearch}
@@ -745,7 +888,9 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
                         defaultIconKind === "database" ? "database" : "page"
                       }
                       onSelect={(emoji) => {
-                        updateDocument.mutate({ id: documentId, icon: emoji });
+                        void (async () => {
+                          await persistDocumentUpdates({ icon: emoji });
+                        })();
                       }}
                     />
                   ) : document.icon ? (
@@ -816,8 +961,12 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
               <VisualEditor
                 key={documentId}
                 documentId={documentId}
-                content={document.content}
-                contentUpdatedAt={document.updatedAt}
+                content={isLocalFileDocument ? localContent : document.content}
+                contentUpdatedAt={
+                  isLocalFileDocument
+                    ? (localContentUpdatedAt ?? document.updatedAt)
+                    : document.updatedAt
+                }
                 onChange={handleContentChange}
                 ydoc={canEdit && !isLocalFileDocument ? ydoc : null}
                 awareness={canEdit && !isLocalFileDocument ? awareness : null}

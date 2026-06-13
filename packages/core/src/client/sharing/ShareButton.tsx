@@ -32,6 +32,7 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "../components/ui/popover.js";
+import { writeClipboardText } from "../clipboard.js";
 import { useActionQuery, useActionMutation } from "../use-action.js";
 import { cn } from "../utils.js";
 import { agentNativePath } from "../api-path.js";
@@ -51,6 +52,9 @@ export interface ShareButtonProps {
    *  button next to an iframe use this to disable the iframe's pointer events
    *  while the popover is open, so popover hover/clicks aren't swallowed. */
   onOpenChange?: (open: boolean) => void;
+  /** Open the popover on first render. Useful after an upgrade/create flow that
+   *  lands the user directly in the shareable resource. */
+  defaultOpen?: boolean;
   /** Optional public/share URL shown as a copyable link in the popover.
    *  This is treated as the primary "Copy link" target — same convention
    *  as Google Docs' Share dialog, which copies the editor URL. */
@@ -93,7 +97,8 @@ export interface ShareButtonProps {
   /** Optional note rendered between general access and the copyable link. */
   accessNote?: ReactNode;
   /** Optional Notion-style organization access control. When present, the
-   *  share panel shows a "Hide in search" switch for org visibility. */
+   *  share panel exposes a "Hide in search" switch under Advanced for org
+   *  visibility. */
   hideInSearchControl?: {
     checked: boolean;
     pending?: boolean;
@@ -105,6 +110,7 @@ export interface ShareButtonProps {
 
 type Visibility = "private" | "org" | "public";
 type Role = "viewer" | "editor" | "admin";
+type HideInSearchControl = NonNullable<ShareButtonProps["hideInSearchControl"]>;
 
 interface Share {
   id: string;
@@ -207,6 +213,7 @@ export function ShareButton(props: ShareButtonProps) {
   const [pendingVisibility, setPendingVisibility] = useState<Visibility | null>(
     null,
   );
+  const appliedDefaultOpenRef = useRef(false);
   const visibilityRequestId = useRef(0);
   const queryClient = useQueryClient();
   const shareQueryParams = useMemo(
@@ -230,6 +237,12 @@ export function ShareButton(props: ShareButtonProps) {
     props.onOpenChange?.(v);
     if (v && pendingVisibility === null) sharesQuery.refetch();
   };
+
+  useEffect(() => {
+    if (!props.defaultOpen || appliedDefaultOpenRef.current) return;
+    appliedDefaultOpenRef.current = true;
+    handleOpenChange(true);
+  });
 
   const updateCachedVisibility = (visibility: Visibility) => {
     queryClient.setQueryData<SharesResponse>(shareQueryKey, (prev) =>
@@ -938,52 +951,18 @@ function SharePanel(
             visibilityCopy={props.visibilityCopy}
             allowPublic={policy.allowPublic}
           />
-          <div className="mt-0.5 text-xs text-muted-foreground">
-            {meta.description}
+          <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
+            <span>{meta.description}</span>
+            {visibility === "org" && props.hideInSearchControl ? (
+              <AdvancedAccessPopover
+                control={props.hideInSearchControl}
+                canManage={canManage}
+                onToggle={handleHideInSearch}
+              />
+            ) : null}
           </div>
         </div>
       </div>
-
-      {visibility === "org" && props.hideInSearchControl ? (
-        <button
-          type="button"
-          role="switch"
-          aria-checked={props.hideInSearchControl.checked}
-          disabled={!canManage || props.hideInSearchControl.pending}
-          onClick={handleHideInSearch}
-          className={cn(
-            "mb-4 flex w-full items-center gap-3 rounded-md border border-border/70 bg-muted/25 px-3 py-2.5 text-left transition-colors hover:bg-accent/45 disabled:cursor-not-allowed disabled:opacity-60",
-            props.hideInSearchControl.checked &&
-              "border-border bg-accent/35 text-foreground",
-          )}
-        >
-          <span
-            aria-hidden
-            className={cn(
-              "relative inline-flex h-5 w-9 shrink-0 items-center rounded-full border border-border bg-muted-foreground/25 transition-colors",
-              props.hideInSearchControl.checked &&
-                "border-primary/70 bg-primary",
-            )}
-          >
-            <span
-              className={cn(
-                "ml-0.5 size-4 rounded-full bg-background shadow-sm transition-transform",
-                props.hideInSearchControl.checked && "translate-x-4",
-              )}
-            />
-          </span>
-          <span className="min-w-0 flex-1">
-            <span className="flex items-center gap-1.5 text-sm font-medium text-foreground">
-              <IconSearchOff size={14} strokeWidth={1.8} />
-              {props.hideInSearchControl.label ?? "Hide in search"}
-            </span>
-            <span className="mt-0.5 block text-xs leading-5 text-muted-foreground">
-              {props.hideInSearchControl.description ??
-                "People with the link can still open this."}
-            </span>
-          </span>
-        </button>
-      ) : null}
 
       {props.accessNote ? (
         <div className="mb-4 rounded-md border border-border bg-muted/35 p-3 text-xs text-muted-foreground">
@@ -1003,6 +982,84 @@ function SharePanel(
         </button>
       </div>
     </div>
+  );
+}
+
+function AdvancedAccessPopover({
+  control,
+  canManage,
+  onToggle,
+}: {
+  control: HideInSearchControl;
+  canManage: boolean;
+  onToggle: () => void;
+}) {
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          disabled={!canManage}
+          className="inline-flex items-center gap-1 rounded-sm px-1 py-0.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          Advanced
+          <IconChevronDown size={12} strokeWidth={1.8} />
+        </button>
+      </PopoverTrigger>
+      <PopoverContent
+        align="start"
+        sideOffset={6}
+        onOpenAutoFocus={(event) => event.preventDefault()}
+        className={cn("z-[2300] w-72 p-3 shadow-lg", SHARE_POPOVER_SURFACE)}
+      >
+        <div className="space-y-3">
+          <div>
+            <div className="text-sm font-medium text-foreground">
+              Advanced access
+            </div>
+            <div className="mt-1 text-xs leading-5 text-muted-foreground">
+              Control how organization access appears in search.
+            </div>
+          </div>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={control.checked}
+            disabled={!canManage || control.pending}
+            onClick={onToggle}
+            className={cn(
+              "flex w-full items-start gap-3 rounded-md border border-border/70 bg-background px-3 py-2.5 text-left transition-colors hover:bg-accent/45 disabled:cursor-not-allowed disabled:opacity-60",
+              control.checked && "border-border bg-accent/35 text-foreground",
+            )}
+          >
+            <span
+              aria-hidden
+              className={cn(
+                "relative mt-0.5 inline-flex h-5 w-9 shrink-0 items-center rounded-full border border-border bg-muted-foreground/25 transition-colors",
+                control.checked && "border-primary/70 bg-primary",
+              )}
+            >
+              <span
+                className={cn(
+                  "ml-0.5 size-4 rounded-full bg-background shadow-sm transition-transform",
+                  control.checked && "translate-x-4",
+                )}
+              />
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="flex items-center gap-1.5 text-sm font-medium text-foreground">
+                <IconSearchOff size={14} strokeWidth={1.8} />
+                {control.label ?? "Hide in search"}
+              </span>
+              <span className="mt-0.5 block text-xs leading-5 text-muted-foreground">
+                {control.description ??
+                  "People with the link can still open this."}
+              </span>
+            </span>
+          </button>
+        </div>
+      </PopoverContent>
+    </Popover>
   );
 }
 
@@ -1278,12 +1335,11 @@ function CopyLinkField({
   }, []);
 
   const handleCopy = async () => {
-    try {
-      await navigator.clipboard.writeText(value);
+    if (await writeClipboardText(value)) {
       setCopied(true);
       if (resetRef.current) clearTimeout(resetRef.current);
       resetRef.current = setTimeout(() => setCopied(false), 1400);
-    } catch {
+    } else {
       setCopied(false);
     }
   };

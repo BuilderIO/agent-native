@@ -73,7 +73,8 @@ selected file through the normal document actions. Use this for repo-first docs,
 blogs, resource libraries, or Obsidian-style personal content; switch back to
 database mode when you want hosted collaboration and SQL-backed sharing. See
 [Local File Mode](/docs/local-file-mode) for the standalone repo layout,
-configuration, custom MDX component, and production safety guide.
+configuration, custom MDX components, local `extensions/` widgets, and
+production safety guide.
 
 ## Why it's interesting
 
@@ -145,9 +146,18 @@ Sync state is tracked in the `document_sync_links` table (last synced time, conf
 
 ### Local file sync
 
-The protected `/local-files` route uses the browser File System Access API (or
-the same Chromium capability inside Agent Native Desktop) to read and write
-Markdown/MDX files from a user-chosen folder. It calls:
+The protected `/local-files` route uses the browser File System Access API, or a
+guarded native folder bridge inside Agent Native Desktop, to read and write
+Markdown/MDX files from a user-chosen folder. After the folder is linked and
+imported, the selected file is treated as the authority: opening the page reads
+the file, and normal editor saves write the file first. SQL is then updated as a
+cache/history layer for the existing document UI, search, and version panel, not
+as the source of truth. The top-right page menu exposes the local source path:
+relative path is always available, absolute path is available in true local-file
+mode and Agent Native Desktop, and Reveal in Finder is available through the
+desktop bridge or server-backed local-file mode.
+
+The bulk sync route calls:
 
 - `export-content-source` — reads the accessible document tree and returns a
   deterministic `content/` file bundle.
@@ -157,6 +167,43 @@ Markdown/MDX files from a user-chosen folder. It calls:
 
 The source format lives in `shared/content-source.ts`. Keep that file as the
 single contract for filenames, frontmatter, parsing, and serialization.
+
+Local file workspaces can also provide repo-local React components through the
+configured `components` folder. The Content dev server imports PascalCase
+exports from those files, renders matching MDX tags such as `<ImpactCounter />`
+inside the editor, and exposes them in the slash menu under Local components.
+This keeps custom MDX blocks local to the workspace without cloning the Content
+app. A minimal workspace component can be:
+
+```tsx
+// components/ImpactCounter.tsx
+import { useState } from "react";
+
+export function ImpactCounter({
+  label = "points",
+  start = 3,
+}: {
+  label?: string;
+  start?: number;
+}) {
+  const [count, setCount] = useState(start);
+  return (
+    <button type="button" onClick={() => setCount(count + 1)}>
+      Impact: {count} {label}
+    </button>
+  );
+}
+
+export const ImpactCounterInputs = {
+  label: { type: "string", label: "Label", default: "points" },
+  start: { type: "number", label: "Starting count", default: 3 },
+};
+```
+
+Use it in local MDX as `<ImpactCounter />`, or insert it from the editor slash
+menu under Local components. When input metadata is exported, selecting the
+component in the editor shows a corner edit button that rewrites the MDX props
+in the local file.
 
 ### Comments
 

@@ -42,6 +42,7 @@ import {
   isLocalDocumentId,
   localContentViewScreenSummary,
 } from "./_local-file-documents.js";
+import { serializeDocumentSource } from "./_document-source.js";
 
 type ScreenTreeDocument = Pick<
   typeof schema.documents.$inferSelect,
@@ -648,6 +649,7 @@ export default defineAction({
   http: false,
   run: async () => {
     const navigation = await readAppState("navigation");
+    const localFilesState = await readAppState("local-files");
 
     const screen: Record<string, unknown> = {};
     if (navigation) screen.navigation = navigation;
@@ -662,10 +664,30 @@ export default defineAction({
           "create-document",
           "update-document",
           "delete-document",
+          "share-local-file-document",
         ],
       };
       if (nav?.documentId && isLocalDocumentId(nav.documentId)) {
         screen.document = await getLocalFileDocument(nav.documentId);
+      } else if (nav?.documentId) {
+        const access = await resolveAccess("document", nav.documentId);
+        if (access) {
+          const doc = access.resource;
+          screen.document = {
+            id: doc.id,
+            parentId: doc.parentId,
+            title: doc.title,
+            content: doc.content,
+            icon: doc.icon,
+            position: doc.position,
+            isFavorite: parseDocumentFavorite(doc.isFavorite),
+            hideFromSearch: parseDocumentHideFromSearch(doc.hideFromSearch),
+            visibility: doc.visibility,
+            source: serializeDocumentSource(doc),
+            createdAt: doc.createdAt,
+            updatedAt: doc.updatedAt,
+          };
+        }
       }
       return screen;
     }
@@ -678,6 +700,10 @@ export default defineAction({
         actions: ["export-content-source", "import-content-source"],
         sourceRoot: "content/",
         fileTypes: [".md", ".mdx"],
+        selectedFolders:
+          localFilesState && typeof localFilesState === "object"
+            ? localFilesState
+            : undefined,
       };
     }
 

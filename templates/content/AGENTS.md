@@ -94,6 +94,7 @@ cd templates/content && pnpm action <name> [args]
 | `edit-document`                | `--id <id> --find <text> --replace <text>`                                                                                   | Surgical text edit (preferred for modifications)                                      |
 | `edit-document`                | `--id <id> --edits <json>`                                                                                                   | Batch surgical text edits                                                             |
 | `update-document`              | `--id <id> [--title] [--content] [--icon]`                                                                                   | Full rewrite of document fields                                                       |
+| `share-local-file-document`    | `--id <local-file-document-id>`                                                                                              | Create or refresh a DB-backed shareable copy of a local file document                 |
 | `create-content-database`      | `[--documentId <id>] [--parentId <id>] [--title <text>]`                                                                     | Create a database page or convert an existing page into a database                    |
 | `get-content-database`         | `--databaseId <id>` or `--documentId <id>`                                                                                   | Get a database table with property schema and item pages                              |
 | `add-database-item`            | `--databaseId <id> [--title <text>] [--propertyValues <json>]`                                                               | Add a page row to a database, optionally seeding property values                      |
@@ -134,13 +135,23 @@ plain-text strip of the markdown.
 
 Content has two file workflows:
 
-- **Database mode import/export:** the `/local-files` view syncs SQL documents
-  with Markdown/MDX files. Export uses `export-content-source` and writes one
-  file per document under `content/`. Import uses `import-content-source`; files
-  with known `id` values update existing docs only when the caller has editor
-  access, and files without ids create new private docs for the current user.
-  Use `--dryRun true` before a large import when the source folder may contain
-  unexpected files.
+- **Database mode local folders:** the `/local-files` view links one or more
+  browser or Agent Native Desktop folders to SQL-backed documents. The UI uses
+  folder rows: **Pull** reads local `.md`/`.mdx` files through
+  `import-content-source`, **Check** runs the same import as `--dryRun true`,
+  and **Push** uses `export-content-source` to write Content documents back to
+  the chosen folder. Files with known `id` values update existing docs only
+  when the caller has editor access, and files without ids create new private
+  docs for the current user. Imported rows keep `source.mode: "local-files"`
+  and `source.path`, so `list-documents`/`get-document` can distinguish them
+  from ordinary private pages and the sidebar can show them under Local files.
+  With one linked folder, imported paths stay flat (`content/page.mdx`); with
+  multiple linked folders, paths are prefixed by folder name so Local files can
+  group them by folder. Once a source folder is linked, the selected
+  `.md`/`.mdx` file is authoritative: opening the page reads the file, editor
+  saves write the file first, and SQL is updated afterward as
+  cache/history/search glue. Use `--dryRun true` before a large import when the
+  source folder may contain unexpected files.
 - **Local File Mode editing:** when the app runs with `AGENT_NATIVE_MODE=local-files`
   or an `agent-native.json` whose app config enables local files, the standard
   Content editor reads and writes configured repo files directly. The left
@@ -149,6 +160,15 @@ Content has two file workflows:
   `update-document` writes the selected `.md`/`.mdx` file. The document id is
   derived from the file path, and unknown frontmatter is preserved when title,
   content, icon, or favorite state changes.
+- **Local MDX components:** local file workspaces can expose React components
+  from the configured `components` folder. Export PascalCase components such as
+  `ImpactCounter` from `.tsx` files, then use `<ImpactCounter />` in MDX or pick
+  it from the editor slash menu under Local components. Simple string props are
+  previewed. Components can export editable input metadata such as
+  `ImpactCounterInputs` with `string`, `textarea`, `number`, `boolean`, and
+  `select` fields; selecting the component in the editor shows a corner edit
+  button that rewrites the MDX props. JSX expression props are preserved in
+  source but shown as an unsupported preview.
 
 Minimal `agent-native.json`:
 
@@ -175,8 +195,11 @@ Minimal `agent-native.json`:
 
 In Local File Mode, use the normal document actions (`list-documents`,
 `get-document`, `create-document`, `update-document`, `delete-document`) instead
-of raw filesystem writes when operating through the app. Provider sync such as
-Builder.io pull/push should remain a Content-specific explicit sync action.
+of raw filesystem writes when operating through the app. To share a local file,
+call `share-local-file-document --id <local-file-document-id>` first; it creates
+or refreshes a database-backed copy and returns the shareable document id.
+Provider sync such as Builder.io pull/push should remain a Content-specific
+explicit sync action.
 
 ### Notion Integration
 

@@ -30,7 +30,7 @@ import {
   PlanVisualSurface,
   type PlanVisualSurfaceMode,
 } from "./PlanVisualSurface";
-import { PlanTableOfContents, PlanTocFallback } from "./PlanTableOfContents";
+import { PlanTableOfContents } from "./PlanTableOfContents";
 import { planBlockRegistry, createPlanBlockRenderContext } from "./planBlocks";
 import {
   NestedPlanBlocksEditor,
@@ -77,8 +77,6 @@ type PlanContentRendererProps = {
   hideChangedFiles?: boolean;
   /** Hide recap labels, source chips, stats, and contents rails for screenshots. */
   hideRecapChrome?: boolean;
-  /** Hide the compact floating contents pill for generated screenshots. */
-  hideFloatingToc?: boolean;
   /** Render code annotation cards as static inline overlays for screenshots. */
   showCodeAnnotationOverlays?: boolean;
   /** Force GitHub-matched screenshot colors for generated recap thumbnails. */
@@ -143,7 +141,6 @@ export function PlanContentRenderer({
   isRecap = false,
   hideChangedFiles = false,
   hideRecapChrome = false,
-  hideFloatingToc = false,
   showCodeAnnotationOverlays = false,
   recapScreenshotTheme = null,
   sourceUrl,
@@ -747,15 +744,6 @@ export function PlanContentRenderer({
                   ))
                 )}
               </div>
-              {/* Compact floating TOC pill for narrower viewports — hidden by
-                  global.css above 1400px where the full sidebar rail is shown. */}
-              {!hideRecapChrome && !hideFloatingToc && (
-                <PlanTocFallback
-                  content={content}
-                  isRecap={isRecap}
-                  omitBlockId={filesSidebarBlock?.id}
-                />
-              )}
             </div>
           </div>
         )}

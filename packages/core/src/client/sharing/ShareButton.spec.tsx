@@ -163,6 +163,48 @@ describe("ShareButton", () => {
     ).toBe(true);
   });
 
+  it("falls back when async clipboard copy is denied", async () => {
+    const shareUrl = "https://slides.agent-native.com/deck/deck-1";
+    const writeText = vi.fn(async () => {
+      throw new Error("denied");
+    });
+    const execCommand = vi.fn(() => true);
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText },
+    });
+    Object.defineProperty(document, "execCommand", {
+      configurable: true,
+      value: execCommand,
+    });
+
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <ShareButton
+            resourceType="deck"
+            resourceId="deck-1"
+            shareUrl={shareUrl}
+          />
+        </QueryClientProvider>,
+      );
+    });
+
+    const copy = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent === "Copy",
+    );
+    if (!copy) throw new Error("Copy button not found");
+
+    await act(async () => {
+      copy.click();
+      await Promise.resolve();
+    });
+
+    expect(writeText).toHaveBeenCalledWith(shareUrl);
+    expect(execCommand).toHaveBeenCalledWith("copy");
+    expect(copy.textContent).toBe("Copied");
+  });
+
   it("can render an icon-only trigger", async () => {
     await act(async () => {
       root.render(
@@ -259,6 +301,52 @@ describe("ShareButton", () => {
     expect(text.indexOf("Public response link")).toBeLessThan(
       text.indexOf("People with editing access"),
     );
+  });
+
+  it("buries organization search visibility under Advanced", async () => {
+    const onCheckedChange = vi.fn();
+    sharesData.current = {
+      ownerEmail: "owner@example.com",
+      orgId: "org-1",
+      visibility: "org",
+      role: "owner",
+      shares: [],
+    };
+
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <ShareButton
+            resourceType="document"
+            resourceId="doc-1"
+            hideInSearchControl={{
+              checked: false,
+              label: "Hide in search",
+              description:
+                "Hide from Organization and search. People with the link can still view.",
+              onCheckedChange,
+            }}
+          />
+        </QueryClientProvider>,
+      );
+    });
+
+    const text = container.textContent ?? "";
+    expect(text).toContain("Advanced");
+    expect(text.indexOf("Advanced")).toBeLessThan(
+      text.indexOf("Hide in search"),
+    );
+
+    const switchButton = container.querySelector(
+      'button[role="switch"]',
+    ) as HTMLButtonElement | null;
+    expect(switchButton).toBeTruthy();
+
+    act(() => {
+      switchButton?.click();
+    });
+
+    expect(onCheckedChange).toHaveBeenCalledWith(true);
   });
 
   it("searches org members on the server and selects a suggestion with the keyboard", async () => {

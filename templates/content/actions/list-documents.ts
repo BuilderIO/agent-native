@@ -18,6 +18,7 @@ import {
   getRequestUserEmail,
 } from "@agent-native/core/server/request-context";
 import { z } from "zod";
+import { serializeDocumentSource } from "./_document-source.js";
 import {
   isContentLocalFileMode,
   listLocalFileDocuments,
@@ -50,9 +51,8 @@ export default defineAction({
   schema: z.object({}),
   http: { method: "GET" },
   run: async () => {
-    if (await isContentLocalFileMode()) {
-      return { documents: await listLocalFileDocuments() };
-    }
+    const localFileMode = await isContentLocalFileMode();
+    const localDocuments = localFileMode ? await listLocalFileDocuments() : [];
 
     const db = getDb();
     const userEmail = getRequestUserEmail();
@@ -76,6 +76,11 @@ export default defineAction({
         isFavorite: schema.documents.isFavorite,
         hideFromSearch: schema.documents.hideFromSearch,
         visibility: schema.documents.visibility,
+        sourceMode: schema.documents.sourceMode,
+        sourceKind: schema.documents.sourceKind,
+        sourcePath: schema.documents.sourcePath,
+        sourceRootPath: schema.documents.sourceRootPath,
+        sourceUpdatedAt: schema.documents.sourceUpdatedAt,
         ownerEmail: schema.documents.ownerEmail,
         orgId: schema.documents.orgId,
         createdAt: schema.documents.createdAt,
@@ -230,6 +235,7 @@ export default defineAction({
           ? `https://www.notion.so/${notionPageIdByDocumentId.get(d.id)!.replace(/-/g, "")}`
           : null,
         visibility: d.visibility,
+        source: serializeDocumentSource(d),
         database: database
           ? {
               id: database.id,
@@ -251,6 +257,6 @@ export default defineAction({
       };
     });
 
-    return { documents: mapped };
+    return { documents: [...localDocuments, ...mapped] };
   },
 });
