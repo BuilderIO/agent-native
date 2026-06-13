@@ -58,6 +58,7 @@ export interface InstalledMcpServer {
   serverName: string;
   mcpUrl: string;
   clients: SkillClient[];
+  registeredClients: SkillClient[];
   files: string[];
   authenticated: boolean;
   guidance: string[];
@@ -583,6 +584,11 @@ export async function installSkills(
               serverName: app.serverName,
               mcpUrl: app.mcpUrl,
               clients,
+              registeredClients: unique(
+                registration.written.map(
+                  (entry) => entry.client as SkillClient,
+                ),
+              ),
               files: [
                 ...new Set(registration.written.map((entry) => entry.file)),
               ],
@@ -599,6 +605,7 @@ export async function installSkills(
               serverName: app.serverName,
               mcpUrl: app.mcpUrl,
               clients,
+              registeredClients: clients,
               files: [],
               authenticated: false,
               guidance: [],
@@ -755,10 +762,25 @@ function mcpAppsForSkills(skillNames: string[]): BuiltInAppMcp[] {
 }
 
 function mcpStatus(server: InstalledMcpServer, dryRun: boolean): string {
-  if (dryRun) return "would register";
-  if (server.authenticated) return "registered and authenticated";
-  if (server.files.length > 0) return "registered";
-  return "authentication pending";
+  if (dryRun) return `would register for ${server.clients.join(", ")}`;
+
+  const registered = server.registeredClients;
+  const pending = server.clients.filter(
+    (client) => !registered.includes(client),
+  );
+  const parts: string[] = [];
+  if (registered.length > 0) {
+    parts.push(
+      `${server.authenticated ? "registered and authenticated" : "registered"} for ${registered.join(", ")}`,
+    );
+  }
+  if (pending.length > 0) {
+    parts.push(`authentication pending for ${pending.join(", ")}`);
+  }
+  return (
+    parts.join("; ") ||
+    `authentication pending for ${server.clients.join(", ")}`
+  );
 }
 
 async function printInstallResult(
@@ -801,7 +823,7 @@ async function printInstallResult(
       const files = server.files.length
         ? ` (${summarizePaths(server.files, options.baseDir, 2)})`
         : "";
-      return `${server.serverName}: ${status} for ${server.clients.join(", ")}${files}`;
+      return `${server.serverName}: ${status}${files}`;
     });
     clack.note(mcpLines.join("\n"), "MCP");
 

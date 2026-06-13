@@ -55,6 +55,11 @@ function planIdFromPath(pathname: string): string | null {
   return match?.[1] ? decodeURIComponent(match[1]) : null;
 }
 
+function actionNameFromPath(pathname: string): string | null {
+  const match = pathname.match(/(?:^|\/)_agent-native\/actions\/([^/?#]+)/);
+  return match?.[1] ? decodeURIComponent(match[1]) : null;
+}
+
 function planIdFromEvent(event: H3Event): string | null {
   const rawUrl = event.node?.req?.url ?? event.path ?? "/";
   try {
@@ -99,6 +104,19 @@ async function getPublicPlanForEvent(event: H3Event) {
   return plan?.visibility === "public" ? plan : null;
 }
 
+function allowsAnonymousPlanAccessMetadata(event: H3Event): boolean {
+  const rawUrl = event.node?.req?.url ?? event.path ?? "/";
+  try {
+    const url = new URL(rawUrl, getAppOrigin(event) ?? "http://localhost");
+    return (
+      actionNameFromPath(url.pathname) === "get-plan-access-status" &&
+      Boolean(url.searchParams.get("planId") ?? url.searchParams.get("id"))
+    );
+  } catch {
+    return false;
+  }
+}
+
 /**
  * True when the request's effective protocol is HTTPS, so synthetic-identity
  * cookies get the `Secure` flag on hosted deploys (and stay un-secured on plain
@@ -132,6 +150,9 @@ function isSecureRequest(event: H3Event): boolean {
 export async function resolvePlanAnonymousOwner(
   event: H3Event,
 ): Promise<string | null> {
+  if (allowsAnonymousPlanAccessMetadata(event)) {
+    return resolveAnonymousPlanViewerCookie(event);
+  }
   const publicViewer = await resolvePublicPlanViewerOwner(event);
   if (publicViewer) return publicViewer;
   return isLocalPlanRuntime() ? LOCAL_PLAN_OWNER_EMAIL : null;
@@ -142,7 +163,10 @@ export async function resolvePublicPlanViewerOwner(
 ): Promise<string | null> {
   const plan = await getPublicPlanForEvent(event);
   if (!plan) return null;
+  return resolveAnonymousPlanViewerCookie(event);
+}
 
+function resolveAnonymousPlanViewerCookie(event: H3Event): string {
   let viewerId = getCookie(event, PUBLIC_PLAN_VIEWER_COOKIE);
   if (!isValidCookieUuid(viewerId)) {
     viewerId = randomUUID();
