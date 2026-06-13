@@ -71,6 +71,7 @@ import {
   type LocalAppFolderInfo,
   type LocalAppFolderSelectResult,
   type DesktopContentFilesClearFolderRequest,
+  type DesktopContentFileDeleteRequest,
   type DesktopContentFileRevealRequest,
   type DesktopContentFileWriteRequest,
   type DesktopContentFilesFolderRequest,
@@ -5129,6 +5130,17 @@ function normalizeContentFileRevealRequest(
   return { path: filePath };
 }
 
+function normalizeContentFileDeleteRequest(
+  request: DesktopContentFileDeleteRequest,
+): { path: string } | null {
+  if (!isObject(request)) return null;
+  const filePath = normalizeContentSourcePath(
+    firstStringValue(request.path) ?? "",
+  );
+  if (!filePath || !isContentSourceMarkdownPath(filePath)) return null;
+  return { path: filePath };
+}
+
 async function writeContentFilesForRequest(
   request: DesktopContentFilesWriteRequest,
 ): Promise<DesktopContentFilesResult> {
@@ -5183,6 +5195,35 @@ async function writeContentFileForRequest(
       folder: contentFilesFolderInfo(updatedGrant),
       folders: contentFilesFoldersInfo(grants),
       files: [written],
+    };
+  } catch (err) {
+    return {
+      ok: false,
+      error: err instanceof Error ? err.message : String(err),
+    };
+  }
+}
+
+async function deleteContentFileForRequest(
+  request: DesktopContentFileDeleteRequest,
+): Promise<DesktopContentFilesResult> {
+  try {
+    const file = normalizeContentFileDeleteRequest(request);
+    if (!file) return { ok: false, error: "Invalid Content source file." };
+
+    const grant = getRequiredContentFilesGrant(request.folderId);
+    const readRoot = await contentReadRoot(grant.path);
+    const { target } = await resolveContentSourceFilePath(readRoot.folder, {
+      filePath: file.path,
+    });
+    await assertNoContentSymlink(target);
+    await fs.promises.rm(target, { force: true });
+    const { grant: updatedGrant, grants } = setContentFilesGrant(grant.path);
+    return {
+      ok: true,
+      folder: contentFilesFolderInfo(updatedGrant),
+      folders: contentFilesFoldersInfo(grants),
+      files: [file.path],
     };
   } catch (err) {
     return {
@@ -7063,6 +7104,18 @@ ipcMain.handle(
     const denied = requireContentFilesWebviewAccess(event);
     if (denied) return Promise.resolve(denied);
     return writeContentFileForRequest(request);
+  },
+);
+
+ipcMain.handle(
+  IPC.CONTENT_FILES_DELETE_FILE,
+  (
+    event: IpcMainInvokeEvent,
+    request: DesktopContentFileDeleteRequest,
+  ): Promise<DesktopContentFilesResult> => {
+    const denied = requireContentFilesWebviewAccess(event);
+    if (denied) return Promise.resolve(denied);
+    return deleteContentFileForRequest(request);
   },
 );
 
