@@ -343,6 +343,18 @@ are auto-themed — no classes needed. Helper classes carry the rest:
 - \`button.primary\` or any element with \`[data-primary]\` — the accent-filled
   primary button.
 
+**Use renderer icons, not visible icon words.** For icon-only buttons or leading
+icons inside fields, chips, menu items, and toolbars, write an empty marker such
+as \`<span data-icon="mail" aria-label="Email"></span>\` or
+\`<i data-icon="lock"></i>\`. The renderer replaces it with a Tabler-style SVG and
+the \`.wf-icon\` class sizes it to the surrounding text. Supported names and
+aliases: \`mail\`/\`email\`, \`lock\`/\`password\`, \`search\`, \`plus\`/\`add\`, \`x\`/\`close\`,
+\`check\`, \`chevronDown\`, \`chevronUp\`, \`chevronLeft\`, \`chevronRight\`, \`dots\`/\`more\`,
+\`chevron\`/\`caret\`/\`dropdown\` (down chevron), \`user\`, \`settings\`, \`calendar\`,
+\`bell\`, \`send\`, \`edit\`, \`arrowLeft\`, and \`arrowRight\`. Do not put visible words
+like "email", "lock", "search", "chevron", or "more" where the product UI would
+show an icon; use text only when it is a real label a user would read.
+
 **Use the \`--wf-*\` tokens for any custom color, never hex.** The renderer flips
 these on light/dark, so reading them is what keeps a mockup correct in both
 themes. For any inline border, background, or text color, reference a token:

@@ -5613,8 +5613,8 @@ function PlanLoadError({
           ? "This plan exists, but this account is not on the access list."
           : "This looks like a private plan link, and this account may not have access."
         : planExists
-          ? "This plan exists, but it is private. Sign in with an account that belongs to the right organization or has been shared on the plan."
-          : "This looks like a private plan link. Sign in with an account that belongs to the right organization or has been shared on the plan."
+          ? "This plan is private. Sign in with the right organization account or one shared on the plan."
+          : "This may be a private plan. Sign in with the right organization account or one shared on the plan."
       : message;
   const icon = planMissing ? (
     <IconSearch className="size-5" />
@@ -5664,8 +5664,8 @@ function PlanLoadError({
             ) : null}
             {showAccessHelp && !signedIn ? (
               <p className="mt-3 text-xs leading-5 text-muted-foreground">
-                For Builder.io PR recaps, use an account in the Builder.io
-                organization or one explicitly shared on the plan.
+                Builder.io PR recaps need a Builder.io org account or one shared
+                on the plan.
               </p>
             ) : null}
             {!showAccessHelp && !planMissing ? (

@@ -32,6 +32,7 @@ import {
   sanitizeWireframeHtml,
   scopeDesignCss,
 } from "./sanitize-html.js";
+import { renderWireframeIconHtml } from "./wireframe-icons.js";
 
 /**
  * Shared `wireframe` block — a hand-drawn low-fi mockup of one screen, rendered
@@ -300,7 +301,10 @@ function HtmlArtboard({
   // XSS). Self-contained in core via the shared block sanitizer (DOM-based in the
   // browser, regex fallback on the server) so the HTML mockup path renders in any
   // app without the host wiring a sanitizer hook.
-  const safeHtml = useMemo(() => sanitizeWireframeHtml(data.html), [data.html]);
+  const safeHtml = useMemo(
+    () => renderWireframeIconHtml(sanitizeWireframeHtml(data.html)),
+    [data.html],
+  );
   const scopeId = useId().replace(/[^a-zA-Z0-9_-]/g, "");
   const scopedCss = useMemo(() => {
     const safeCss = sanitizeWireframeCss(data.css);

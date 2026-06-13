@@ -81,6 +81,56 @@ describe("wireframe auto-height frame", () => {
     expect(style).toMatch(/width\s*:\s*900px/);
   });
 
+  it("renders allowlisted icon markers as inline Tabler-style SVG icons", () => {
+    const html = render({
+      surface: "popover",
+      html: '<button aria-label="Email"><span data-icon="email" aria-label="Email"></span></button><button><i data-icon="lock"></i></button><span data-icon="chevron"></span>',
+    });
+
+    expect(html).toContain('class="wf-icon"');
+    expect(html).toContain('data-icon="mail"');
+    expect(html).toContain('data-icon="lock"');
+    expect(html).toContain('data-icon="chevronDown"');
+    expect(html).toContain('aria-label="Email"');
+    expect(html).toContain("<svg");
+    expect(html).not.toContain(">email<");
+    expect(html).not.toContain(">lock<");
+  });
+
+  it("renders unknown icon markers as a visible fallback", () => {
+    const html = render({
+      surface: "popover",
+      html: '<span data-icon="made-up" aria-label="Mystery icon"></span>',
+    });
+
+    expect(html).toContain('class="wf-icon wf-icon-fallback"');
+    expect(html).toContain('data-icon="unknown"');
+    expect(html).toContain('data-icon-name="made-up"');
+    expect(html).toContain('aria-label="Mystery icon"');
+    expect(html).toContain(">?</span>");
+  });
+
+  it("normalizes sanitized icon labels without double escaping", () => {
+    const html = render({
+      surface: "popover",
+      html: '<span data-icon="mail" aria-label="A & B"></span>',
+    });
+
+    expect(html).toContain('aria-label="A &amp; B"');
+    expect(html).not.toContain("A &amp;amp; B");
+  });
+
+  it("renders empty icon names as a visible fallback", () => {
+    const html = render({
+      surface: "popover",
+      html: '<span data-icon="" aria-label=""></span>',
+    });
+
+    expect(html).toContain('class="wf-icon wf-icon-fallback"');
+    expect(html).toContain('data-icon-name="unknown"');
+    expect(html).toContain('aria-label="Unsupported icon: unknown"');
+  });
+
   it("applies a taller floor to a phone surface than a popover", () => {
     const mobileStyle = artboardStyle(
       render({ surface: "mobile", html: "<div>x</div>" }),
