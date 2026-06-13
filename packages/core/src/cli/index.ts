@@ -69,6 +69,10 @@ function buildRedactedCommandTag(argv: string[]): string {
 Sentry.init({
   dsn: "https://0d384e9eff2f6542af468b92769f2f5b@o117565.ingest.us.sentry.io/4511270386466816",
   release: `agent-native-cli@${_version}`,
+  // Sentry's Http integration wraps outgoing fetch in a way that breaks the
+  // hosted Plan MCP route negotiation used by recap CI smoke checks.
+  integrations: (integrations) =>
+    integrations.filter((integration) => integration.name !== "Http"),
   // sendDefaultPii MUST stay false — the CLI runs in third-party developer
   // environments and we never want to ship request headers, IPs, cookies,
   // or process env contents to Sentry without explicit consent.

@@ -996,6 +996,17 @@ export function getBuilderImageGenerationBaseUrl(): string {
   );
 }
 
+/**
+ * Base URL for Builder-managed web search.
+ * Override via BUILDER_WEB_SEARCH_BASE_URL for staging / testing.
+ */
+export function getBuilderWebSearchBaseUrl(): string {
+  return (
+    process.env.BUILDER_WEB_SEARCH_BASE_URL ||
+    "https://api.builder.io/agent-native/web-search/v1"
+  );
+}
+
 /** Authorization header value for Builder-proxied calls (env-only). */
 export function getBuilderAuthHeader(): string | null {
   const key = process.env.BUILDER_PRIVATE_KEY;

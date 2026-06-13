@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { installSkills } from "./index.js";
 
@@ -22,6 +22,7 @@ afterEach(() => {
   for (const root of tmpRoots.splice(0)) {
     fs.rmSync(root, { recursive: true, force: true });
   }
+  vi.unstubAllGlobals();
 });
 
 function tmpDir(): string {
@@ -164,6 +165,35 @@ describe("installSkills MCP registration", () => {
     expect(result.mcpServers[0]?.files).toEqual([]);
     expect(result.mcpServers[0]?.guidance.join("\n")).toContain(
       "npx @agent-native/core@latest connect https://plan.agent-native.com --client codex --scope project",
+    );
+  });
+
+  it("--no-connect skips device auth for codex even in interactive installs", async () => {
+    const repo = tmpDir();
+    const project = tmpDir();
+    const codexHome = tmpDir();
+    process.env.CODEX_HOME = codexHome;
+    writeSkill(repo, "visual-plan");
+    vi.stubGlobal("fetch", async () => {
+      throw new Error("device auth should not start when connect is false");
+    });
+
+    const result = await installSkills({
+      source: repo,
+      skillNames: ["visual-plan"],
+      clients: ["codex"],
+      scope: "project",
+      baseDir: project,
+      yes: true,
+      connect: false,
+      updateInstructions: false,
+      isInteractive: () => true,
+    });
+
+    expect(fs.existsSync(path.join(codexHome, "config.toml"))).toBe(false);
+    expect(result.mcpServers[0]?.files).toEqual([]);
+    expect(result.mcpServers[0]?.guidance.join("\n")).toContain(
+      "skipped MCP config because this client needs a bearer token",
     );
   });
 });

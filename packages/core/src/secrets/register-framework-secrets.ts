@@ -19,7 +19,7 @@ import { getRequiredSecret, registerRequiredSecret } from "./register.js";
 
 export function registerFrameworkSecrets(): void {
   // Web-search tool backends — optional; the tool selects the first
-  // configured key at call time (Brave → Tavily → Exa).
+  // configured manual key at call time, then falls back to Builder Connect.
   const webSearchKeys: Array<{
     key: string;
     label: string;
@@ -30,21 +30,21 @@ export function registerFrameworkSecrets(): void {
       key: "BRAVE_SEARCH_API_KEY",
       label: "Brave Search API Key",
       description:
-        "Enables the web-search agent tool via Brave Search. At least one of BRAVE_SEARCH_API_KEY, TAVILY_API_KEY, or EXA_API_KEY is needed.",
+        "Enables the web-search agent tool via Brave Search. Optional when Builder.io is connected for managed web search.",
       docsUrl: "https://brave.com/search/api/",
     },
     {
       key: "TAVILY_API_KEY",
       label: "Tavily API Key",
       description:
-        "Enables the web-search agent tool via Tavily. Used as fallback when BRAVE_SEARCH_API_KEY is not set.",
+        "Enables the web-search agent tool via Tavily. Used as fallback when BRAVE_SEARCH_API_KEY is not set and before Builder-managed search.",
       docsUrl: "https://tavily.com/",
     },
     {
       key: "EXA_API_KEY",
       label: "Exa API Key",
       description:
-        "Enables the web-search agent tool via Exa. Used as fallback when neither BRAVE_SEARCH_API_KEY nor TAVILY_API_KEY is set.",
+        "Enables the web-search agent tool via Exa. Used as fallback when Brave and Tavily are not set and before Builder-managed search.",
       docsUrl: "https://exa.ai/",
     },
   ];

@@ -702,6 +702,7 @@ describe("agent-native skills", () => {
         "project",
         "--update-instructions",
         "--with-github-action",
+        "--no-connect",
         "--yes",
       ]),
       {
@@ -731,6 +732,7 @@ describe("agent-native skills", () => {
         "project",
         "--update-instructions",
         "--with-github-action",
+        "--no-connect",
         "--yes",
       ]),
     );

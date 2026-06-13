@@ -72,6 +72,8 @@ type AnyAction = { run: (args: any) => Promise<any> };
 let createVisualPlan: AnyAction;
 let listVisualPlans: AnyAction;
 let getVisualPlan: AnyAction;
+let getPlanAccessStatus: AnyAction;
+let requestPlanAccess: AnyAction;
 let updateVisualPlan: AnyAction;
 let shareResource: AnyAction;
 let listResourceShares: AnyAction;
@@ -147,6 +149,14 @@ async function rawPlan(planId: string) {
     .from(planSchema.plans)
     .where(eq(planSchema.plans.id, planId));
   return row as any;
+}
+
+async function rawEvents(planId: string) {
+  // guard:allow-unscoped -- test-only fixture assertion reads rows for the row just created.
+  return db
+    .select()
+    .from(planSchema.planEvents)
+    .where(eq(planSchema.planEvents.planId, planId));
 }
 
 beforeAll(async () => {
@@ -281,6 +291,10 @@ beforeAll(async () => {
   listVisualPlans = (await import("../actions/list-visual-plans.js"))
     .default as AnyAction;
   getVisualPlan = (await import("../actions/get-visual-plan.js"))
+    .default as AnyAction;
+  getPlanAccessStatus = (await import("../actions/get-plan-access-status.js"))
+    .default as AnyAction;
+  requestPlanAccess = (await import("../actions/request-plan-access.js"))
     .default as AnyAction;
   updateVisualPlan = (await import("../actions/update-visual-plan.js"))
     .default as AnyAction;
@@ -426,7 +440,83 @@ describe("non-owner on a private plan (deny)", () => {
 });
 
 // ===========================================================================
-// 3. Shared-with reviewer: read (allow) + edit gated by share role
+// 3. Private-link recovery metadata (existence only, no content)
+// ===========================================================================
+describe("private plan access status and requests", () => {
+  it("reveals a real private plan URL without revealing the plan content", async () => {
+    const planId = await createPlanAs(OWNER, undefined, {
+      brief: "PRIVATE-PLAN-SECRET",
+    });
+
+    const status = await asUser({ userEmail: OTHER }, () =>
+      getPlanAccessStatus.run({ planId }),
+    );
+    expect(status).toMatchObject({
+      exists: true,
+      hasAccess: false,
+      signedIn: true,
+      viewerEmail: OTHER,
+      role: null,
+      visibility: "private",
+    });
+    expect(JSON.stringify(status)).not.toContain("PRIVATE-PLAN-SECRET");
+
+    await expect(
+      asUser({ userEmail: OTHER }, () => getVisualPlan.run({ id: planId })),
+    ).rejects.toThrow();
+  });
+
+  it("returns a distinct missing-plan status", async () => {
+    await expect(
+      asUser({ userEmail: OTHER }, () =>
+        getPlanAccessStatus.run({ planId: "plan_nope" }),
+      ),
+    ).resolves.toMatchObject({
+      exists: false,
+      hasAccess: false,
+      signedIn: true,
+      viewerEmail: OTHER,
+      role: null,
+      visibility: null,
+    });
+  });
+
+  it("records a signed-in request for access without granting access", async () => {
+    const planId = await createPlanAs(OWNER, undefined);
+
+    const result = await asUser({ userEmail: OTHER }, () =>
+      requestPlanAccess.run({ planId }),
+    );
+    expect(result).toMatchObject({
+      ok: true,
+      alreadyHasAccess: false,
+    });
+
+    await expect(
+      asUser({ userEmail: OTHER }, () => getVisualPlan.run({ id: planId })),
+    ).rejects.toThrow();
+    expect(await rawEvents(planId)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: "plan.access_requested",
+          createdBy: "human",
+          message: `${OTHER} requested access to this plan.`,
+        }),
+      ]),
+    );
+  });
+
+  it("requires a signed-in account to request access", async () => {
+    const planId = await createPlanAs(OWNER, undefined);
+
+    await expect(
+      asUser({}, () => requestPlanAccess.run({ planId })),
+    ).rejects.toMatchObject({ statusCode: 401 });
+  });
+});
+
+// ===========================================================================
+// 4. Shared-with reviewer: read (allow) + edit gated by share role
 // ===========================================================================
 describe("explicit user shares", () => {
   it("a VIEWER share grants read but NOT edit", async () => {

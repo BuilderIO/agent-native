@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { resolveAppForSkill } from "./built-in-apps.js";
+import { resolveAppForSkill, type BuiltInAppMcp } from "./built-in-apps.js";
 import { registerMcpServer } from "./connect.js";
 import type { ClientId } from "./mcp-config-writers.js";
 import { createCliTelemetry, type CliTelemetry } from "./telemetry.js";
@@ -31,6 +31,9 @@ export interface InstallSkillsOptions {
   instructionFiles?: string[];
   withGithubAction?: boolean;
   force?: boolean;
+  connect?: boolean;
+  quiet?: boolean;
+  deviceFlowTimeoutMs?: number;
   log?: (message: string) => void;
   isInteractive?: () => boolean;
   telemetry?: CliTelemetry;
@@ -87,6 +90,7 @@ interface ParsedArgs {
   instructionFiles: string[];
   withGithubAction: boolean;
   force: boolean;
+  connect: boolean;
   baseDir?: string;
   mcp: boolean;
 }
@@ -133,6 +137,7 @@ Options:
   --with-github-action        Add .github/workflows/pr-visual-recap.yml when visual-recap is installed
   --force                     Overwrite a different existing PR Visual Recap workflow
   --no-mcp                    Install skill files only; skip registering the app's MCP server
+  --no-connect                Register MCP where possible but skip inline browser/device authentication
   -y, --yes                   Use defaults in non-interactive mode
   --dry-run                   Print intended writes without changing files
   --json                      Print the result as JSON
@@ -215,6 +220,9 @@ export function parseSkillsCliArgs(argv: string[]): ParsedArgs {
     else if (arg === "--force") out.force = true;
     else if (arg === "--no-mcp") out.mcp = false;
     else if (arg === "--mcp") out.mcp = true;
+    else if (arg === "--no-connect" || arg === "--skip-connect")
+      out.connect = false;
+    else if (arg === "--connect") out.connect = true;
     else if (arg.startsWith("-")) throw new Error(`Unknown option: ${arg}`);
     else if (!out.source) out.source = arg;
     else throw new Error(`Unexpected argument: ${arg}`);
@@ -254,6 +262,7 @@ function toCoreSkillsArgv(parsed: ParsedArgs): string[] {
   if (parsed.withGithubAction) out.push("--with-github-action");
   if (parsed.force) out.push("--force");
   if (parsed.mcp === false) out.push("--no-mcp");
+  if (parsed.connect === false) out.push("--no-connect");
   if (parsed.updateInstructions === true) out.push("--update-instructions");
   if (parsed.updateInstructions === false) out.push("--no-update-instructions");
   return out;
@@ -338,6 +347,11 @@ export async function runSkillsCli(
       }
     }
 
+    const stdoutLog =
+      parsed.printJson || options.log
+        ? options.log
+        : (message: string) => process.stdout.write(`${message}\n`);
+
     const result = await installSkills({
       source: skillSource,
       skillNames: parsed.skillNames,
@@ -352,7 +366,9 @@ export async function runSkillsCli(
       instructionFiles: parsed.instructionFiles,
       withGithubAction: parsed.withGithubAction,
       force: parsed.force,
-      log: parsed.printJson ? undefined : options.log,
+      connect: parsed.connect,
+      quiet: parsed.printJson,
+      log: parsed.printJson ? undefined : stdoutLog,
       isInteractive: options.isInteractive,
       promptSkills: options.promptSkills,
       promptClients: options.promptClients,
@@ -376,34 +392,10 @@ export async function runSkillsCli(
       return;
     }
 
-    const verb = parsed.dryRun ? "Would install" : "Installed";
-    process.stdout.write(
-      [
-        `${verb} ${result.skills.join(", ")} for ${result.clients.join(", ")} (${result.scope}).`,
-        result.written.length
-          ? `Skill files: ${result.written.join(", ")}`
-          : "",
-        result.instructionFiles.length
-          ? `Managed instructions: ${result.instructionFiles.join(", ")}`
-          : "",
-        result.githubActionPath
-          ? `PR Visual Recap workflow: ${result.githubActionPath}`
-          : "",
-        ...result.mcpServers.flatMap((server) => [
-          `MCP server "${server.serverName}" ${
-            parsed.dryRun ? "would be registered" : "registered"
-          } for ${server.clients.join(", ")}${
-            server.files.length ? `:\n  ${server.files.join("\n  ")}` : ""
-          }`,
-          ...server.guidance.map((line) => `  ${line}`),
-        ]),
-        parsed.dryRun
-          ? ""
-          : "Restart or reload selected agent clients if needed.",
-      ]
-        .filter(Boolean)
-        .join("\n") + "\n",
-    );
+    await printInstallResult(result, {
+      baseDir: parsed.baseDir ?? options.baseDir ?? process.cwd(),
+      dryRun: parsed.dryRun,
+    });
   } catch (error) {
     telemetry.track("skills_cli failed", {
       command: parsed.command,
@@ -486,112 +478,144 @@ export async function installSkills(
     const scope = await resolveSelectedScope(options);
     options.telemetry?.track("skills_cli scope selected", { scope });
 
-    const written: string[] = [];
-
-    for (const client of clients) {
-      const root = installRootForClient(client, scope, baseDir);
-      for (const skill of selected) {
-        const destination = path.join(root, skill.name);
-        written.push(destination);
-        if (!options.dryRun) {
-          fs.rmSync(destination, { recursive: true, force: true });
-          fs.mkdirSync(path.dirname(destination), { recursive: true });
-          fs.cpSync(skill.dir, destination, { recursive: true });
-        }
-      }
-    }
-
-    options.telemetry?.track("skills_cli install completed", {
-      skills: selected.map((skill) => skill.name).join(","),
-      clients: clients.join(","),
-      scope,
-      writtenCount: written.length,
-      dryRun: Boolean(options.dryRun),
-    });
-
-    const instructionFiles = await maybeUpdateInstructions(
-      selected.map((skill) => skill.name),
-      baseDir,
+    const skillNames = selected.map((skill) => skill.name);
+    const instructionBlocks = managedInstructionBlocksForSkills(skillNames);
+    const shouldUpdateInstructions = await shouldUpdateManagedInstructions(
+      instructionBlocks,
       options,
     );
-    if (instructionFiles.length) {
-      options.telemetry?.track("skills_cli instructions updated", {
-        fileCount: instructionFiles.length,
-      });
-    }
-
-    const githubActionPath =
+    const shouldWriteGithubAction =
       selected.some((skill) => skill.name === "visual-recap") &&
       (options.withGithubAction ||
-        (await shouldPromptGithubAction(options, baseDir)))
-        ? writePrVisualRecapWorkflow(baseDir, options)
-        : undefined;
-    if (githubActionPath) {
-      options.telemetry?.track("skills_cli github action added");
-    }
-
-    // Register the hosted MCP server for app-backed skills (visual-plan /
-    // visual-recap → Agent-Native Plan, assets, design-exploration) so the
-    // agent can actually call them — not just read the SKILL.md. On by
-    // default; `--no-mcp` installs the skill files only. One registration per
-    // app, so visual-plan + visual-recap share a single "plan" server.
-    const mcpServers: InstalledMcpServer[] = [];
-    if (options.mcp !== false) {
-      const mcpClients: ClientId[] = clients.map((client) =>
-        client === "claude-code" ? "claude-code" : "codex",
-      );
-      const seenApps = new Set<string>();
-      for (const skill of selected) {
-        const app = resolveAppForSkill(skill.name);
-        if (!app || seenApps.has(app.appId)) continue;
-        seenApps.add(app.appId);
-        if (options.dryRun) {
-          mcpServers.push({
-            serverName: app.serverName,
-            mcpUrl: app.mcpUrl,
-            clients,
-            files: [],
-            authenticated: false,
-            guidance: [],
-          });
-          continue;
-        }
-        const registration = await registerMcpServer({
-          descriptor: {
-            serverName: app.serverName,
-            mcpUrl: app.mcpUrl,
-            aliases: app.aliases,
-            authMode: app.authMode,
-            hostedUrl: app.hostedUrl,
-          },
-          clients: mcpClients,
-          scope,
-          baseDir,
-          interactive: isInteractive(options),
-          log,
-        });
-        mcpServers.push({
-          serverName: app.serverName,
-          mcpUrl: app.mcpUrl,
-          clients,
-          files: [...new Set(registration.written.map((entry) => entry.file))],
-          authenticated: registration.authenticated,
-          guidance: registration.guidance,
-        });
-        options.telemetry?.track("skills_cli mcp registered", {
-          serverName: app.serverName,
-          clients: clients.join(","),
-          authenticated: registration.authenticated,
-        });
-      }
-    }
-
-    log(
-      `Resolved ${selected.length} skill${selected.length === 1 ? "" : "s"} from ${source.root}.`,
+        (await shouldPromptGithubAction(options, baseDir)));
+    const mcpApps = options.mcp === false ? [] : mcpAppsForSkills(skillNames);
+    const progress = await createInstallProgress(
+      options,
+      1 +
+        (shouldUpdateInstructions ? 1 : 0) +
+        (shouldWriteGithubAction ? 1 : 0) +
+        mcpApps.length,
     );
+
+    const written: string[] = [];
+    let instructionFiles: string[] = [];
+    let githubActionPath: string | undefined;
+    const mcpServers: InstalledMcpServer[] = [];
+
+    try {
+      progress?.start("Installing skill files...");
+      for (const client of clients) {
+        const root = installRootForClient(client, scope, baseDir);
+        for (const skill of selected) {
+          const destination = path.join(root, skill.name);
+          written.push(destination);
+          if (!options.dryRun) {
+            fs.rmSync(destination, { recursive: true, force: true });
+            fs.mkdirSync(path.dirname(destination), { recursive: true });
+            fs.cpSync(skill.dir, destination, { recursive: true });
+          }
+        }
+      }
+      progress?.advance("Skill files installed");
+
+      options.telemetry?.track("skills_cli install completed", {
+        skills: skillNames.join(","),
+        clients: clients.join(","),
+        scope,
+        writtenCount: written.length,
+        dryRun: Boolean(options.dryRun),
+      });
+
+      if (shouldUpdateInstructions) {
+        progress?.message("Updating managed instructions...");
+        instructionFiles = writeManagedInstructions(
+          instructionBlocks,
+          baseDir,
+          clients,
+          scope,
+          options,
+        );
+        progress?.advance("Managed instructions updated");
+        if (instructionFiles.length) {
+          options.telemetry?.track("skills_cli instructions updated", {
+            fileCount: instructionFiles.length,
+          });
+        }
+      }
+
+      if (shouldWriteGithubAction) {
+        progress?.message("Writing PR Visual Recap workflow...");
+        githubActionPath = writePrVisualRecapWorkflow(baseDir, options);
+        progress?.advance("PR Visual Recap workflow ready");
+        if (githubActionPath) {
+          options.telemetry?.track("skills_cli github action added");
+        }
+      }
+
+      // Register the hosted MCP server for app-backed skills (visual-plan /
+      // visual-recap → Agent-Native Plan, assets, design-exploration) so the
+      // agent can actually call them — not just read the SKILL.md. On by
+      // default; `--no-mcp` installs the skill files only. One registration per
+      // app, so visual-plan + visual-recap share a single "plan" server.
+      if (mcpApps.length > 0) {
+        const mcpClients: ClientId[] = clients.map((client) =>
+          client === "claude-code" ? "claude-code" : "codex",
+        );
+        for (const app of mcpApps) {
+          progress?.message(`Registering ${app.displayName} MCP server...`);
+          if (!options.dryRun) {
+            const registration = await registerMcpServer({
+              descriptor: {
+                serverName: app.serverName,
+                mcpUrl: app.mcpUrl,
+                aliases: app.aliases,
+                authMode: app.authMode,
+                hostedUrl: app.hostedUrl,
+              },
+              clients: mcpClients,
+              scope,
+              baseDir,
+              interactive: options.connect !== false && isInteractive(options),
+              log,
+              deviceFlowTimeoutMs: options.deviceFlowTimeoutMs,
+            });
+            mcpServers.push({
+              serverName: app.serverName,
+              mcpUrl: app.mcpUrl,
+              clients,
+              files: [
+                ...new Set(registration.written.map((entry) => entry.file)),
+              ],
+              authenticated: registration.authenticated,
+              guidance: registration.guidance,
+            });
+            options.telemetry?.track("skills_cli mcp registered", {
+              serverName: app.serverName,
+              clients: clients.join(","),
+              authenticated: registration.authenticated,
+            });
+          } else {
+            mcpServers.push({
+              serverName: app.serverName,
+              mcpUrl: app.mcpUrl,
+              clients,
+              files: [],
+              authenticated: false,
+              guidance: [],
+            });
+          }
+          progress?.advance(`${app.displayName} MCP server ready`);
+        }
+      }
+      progress?.stop("Installation complete");
+    } catch (err) {
+      progress?.error("Installation failed");
+      throw err;
+    }
+
     return {
       source: source.root,
-      skills: selected.map((skill) => skill.name),
+      skills: skillNames,
       clients,
       scope,
       written,
@@ -619,6 +643,7 @@ function defaultArgs(command: ParsedArgs["command"]): ParsedArgs {
     instructionFiles: [],
     withGithubAction: false,
     force: false,
+    connect: true,
     mcp: true,
   };
 }
@@ -657,6 +682,140 @@ function normalizeSkillName(value: string): string {
 
 function unique<T>(values: T[]): T[] {
   return [...new Set(values)];
+}
+
+function plural(count: number, singular: string, pluralForm = `${singular}s`) {
+  return `${count} ${count === 1 ? singular : pluralForm}`;
+}
+
+function shortenPathForOutput(file: string, baseDir: string): string {
+  const resolved = path.resolve(file);
+  const home = process.env.HOME || os.homedir();
+  if (resolved === home || resolved.startsWith(`${home}${path.sep}`)) {
+    return `~${resolved.slice(home.length)}`;
+  }
+  const base = path.resolve(baseDir);
+  const relative = path.relative(base, resolved);
+  if (relative && !relative.startsWith("..") && !path.isAbsolute(relative)) {
+    return `.${path.sep}${relative}`;
+  }
+  return file;
+}
+
+function summarizePaths(files: string[], baseDir: string, max = 4): string {
+  const shortened = unique(files).map((file) =>
+    shortenPathForOutput(file, baseDir),
+  );
+  if (shortened.length <= max) return shortened.join(", ");
+  return `${shortened.slice(0, max).join(", ")} +${shortened.length - max} more`;
+}
+
+async function createInstallProgress(
+  options: InstallSkillsOptions,
+  max: number,
+) {
+  if (options.quiet || !isInteractive(options) || max <= 0) return null;
+  const clack = await import("@clack/prompts");
+  const progress = clack.progress({ max, indicator: "timer" });
+  let active = false;
+  return {
+    start(message: string) {
+      active = true;
+      progress.start(message);
+    },
+    message(message: string) {
+      if (active) progress.message(message);
+    },
+    advance(message: string) {
+      if (active) progress.advance(1, message);
+    },
+    stop(message: string) {
+      if (!active) return;
+      progress.stop(message);
+      active = false;
+    },
+    error(message: string) {
+      if (!active) return;
+      progress.error(message);
+      active = false;
+    },
+  };
+}
+
+function mcpAppsForSkills(skillNames: string[]): BuiltInAppMcp[] {
+  const apps: BuiltInAppMcp[] = [];
+  const seen = new Set<string>();
+  for (const skillName of skillNames) {
+    const app = resolveAppForSkill(skillName);
+    if (!app || seen.has(app.appId)) continue;
+    seen.add(app.appId);
+    apps.push(app);
+  }
+  return apps;
+}
+
+function mcpStatus(server: InstalledMcpServer, dryRun: boolean): string {
+  if (dryRun) return "would register";
+  if (server.authenticated) return "registered and authenticated";
+  if (server.files.length > 0) return "registered";
+  return "authentication pending";
+}
+
+async function printInstallResult(
+  result: InstallSkillsResult,
+  options: { baseDir: string; dryRun: boolean },
+): Promise<void> {
+  const clack = await import("@clack/prompts");
+  const verb = options.dryRun ? "Would install" : "Installed";
+  const summary = [
+    `Skills        ${result.skills.join(", ") || "none"}`,
+    `Agents        ${result.clients.join(", ") || "none"}`,
+    `Scope         ${result.scope}`,
+    result.written.length
+      ? `Skill folders ${plural(result.written.length, "folder")} (${summarizePaths(
+          result.written,
+          options.baseDir,
+        )})`
+      : "",
+  ].filter(Boolean);
+
+  clack.note(summary.join("\n"), verb);
+
+  if (result.instructionFiles.length) {
+    clack.note(
+      summarizePaths(result.instructionFiles, options.baseDir),
+      "Managed instructions",
+    );
+  }
+
+  if (result.githubActionPath) {
+    clack.note(
+      shortenPathForOutput(result.githubActionPath, options.baseDir),
+      "PR Visual Recap workflow",
+    );
+  }
+
+  if (result.mcpServers.length) {
+    const mcpLines = result.mcpServers.map((server) => {
+      const status = mcpStatus(server, options.dryRun);
+      const files = server.files.length
+        ? ` (${summarizePaths(server.files, options.baseDir, 2)})`
+        : "";
+      return `${server.serverName}: ${status} for ${server.clients.join(", ")}${files}`;
+    });
+    clack.note(mcpLines.join("\n"), "MCP");
+
+    const guidance = result.mcpServers.flatMap((server) => server.guidance);
+    if (guidance.length) {
+      clack.note(guidance.join("\n"), "Next steps");
+    }
+  }
+
+  if (!options.dryRun) {
+    clack.note("Restart or reload selected agent clients if needed.", "Reload");
+  }
+
+  clack.outro(`${options.dryRun ? "Dry run complete" : "All set"} ✅`);
 }
 
 function compactPromptHint(value: string | undefined): string {
@@ -897,14 +1056,34 @@ function skillEntry(dir: string): SkillEntry | null {
   if (!fs.existsSync(skillFile)) return null;
   const body = fs.readFileSync(skillFile, "utf-8");
   const frontmatter = body.match(/^---\n([\s\S]*?)\n---/);
-  const name =
-    frontmatter?.[1]
-      ?.match(/^name:\s*["']?([^"'\n]+)["']?\s*$/m)?.[1]
-      ?.trim() ?? path.basename(dir);
-  const description = frontmatter?.[1]
-    ?.match(/^description:\s*(?:>-\s*)?(.+)$/m)?.[1]
-    ?.trim();
+  const name = frontmatterField(frontmatter?.[1], "name") ?? path.basename(dir);
+  const description = frontmatterField(frontmatter?.[1], "description");
   return { name: normalizeSkillName(name), dir, description };
+}
+
+function frontmatterField(
+  frontmatter: string | undefined,
+  field: string,
+): string | undefined {
+  if (!frontmatter) return undefined;
+  const lines = frontmatter.split(/\r?\n/);
+  for (let i = 0; i < lines.length; i += 1) {
+    const match = lines[i].match(new RegExp(`^${field}:\\s*(.*)$`));
+    if (!match) continue;
+    const raw = match[1].trim();
+    if (raw === ">-" || raw === ">" || raw === "|-" || raw === "|") {
+      const block: string[] = [];
+      for (let j = i + 1; j < lines.length; j += 1) {
+        const line = lines[j];
+        if (line.trim() && !/^\s/.test(line)) break;
+        block.push(line.replace(/^\s+/, ""));
+      }
+      const value = raw.startsWith("|") ? block.join("\n") : block.join(" ");
+      return value.replace(/\s+/g, " ").trim() || undefined;
+    }
+    return raw.replace(/^["']|["']$/g, "").trim() || undefined;
+  }
+  return undefined;
 }
 
 async function materializeSource(input: string): Promise<{
@@ -1001,74 +1180,62 @@ function parseGitHubSource(
 
 function instructionContentForSkill(skillName: string): string | null {
   if (skillName === "quick-recap") {
-    return `## Quick Recap Status Block
-
-Every response that completes a unit of work must end with one final status line:
-
-\`\`\`md
-🟢 Actual concise status sentence
-\`\`\`
-
-Use 🟢 when the requested work is finished. Use 🟡 when non-routine follow-up work or a manual step remains, and name that pending item. Use 🔴 only when blocked on user input. Keep the status line under 100 characters. Put the status line at the very end of the response. Do not add \`---\`, spacer lines, or any content after it.
-
-Examples:
-
-\`\`\`md
-🟢 Updated quick recap docs with output examples
-\`\`\`
-
-\`\`\`md
-🟡 Code updated, set PROVIDER_WEBHOOK_SECRET before testing webhooks
-\`\`\`
-
-\`\`\`md
-🔴 Need the production API key to continue
-\`\`\``;
+    return "When writing final response status indicators, use the /quick-recap skill always.";
   }
   if (skillName === "efficient-fable") {
-    return `## Efficient Fable
-
-When operating as Claude Fable or another explicitly Fable-class expensive model, preserve Fable for the judgment layer: decomposition, architecture and product tradeoffs, synthesis, risk calls, and final review. Delegate token-heavy research, coding, testing, file inventory, repetitive edits, and independent implementation slices to cheaper subagents when available. Write delegated prompts as self-contained handoff packets with objective, scope, out-of-scope areas, expected evidence, verification commands, and stop conditions. For testing, Fable should suggest the validation direction and important scripts or browser checks, then lighter agents can run them, reduce logs, collect screenshots, and report exact failures and likely causes. Treat delegated reports as leads: Fable should verify important cited files, failures, and high-risk diffs before relying on them. Do not make unsupported quality or speed guarantees; frame savings as workload-dependent.`;
+    return "When operating as Claude Fable, use the /efficient-fable skill always.";
   }
   if (skillName === "efficient-frontier") {
-    return `## Efficient Frontier
-
-When running any high-cost frontier model on a codebase-heavy task, act as the orchestrator and reviewer. Split independent research, search, summarization, coding, and testing work into cheaper/faster subagents when the host supports them, then spend frontier-model tokens on the plan, tradeoffs, integration decisions, validation strategy, and final quality pass. Delegated prompts should be self-contained: objective, repo path, scope, out-of-scope areas, expected evidence, verification commands, and stop conditions. For testing-heavy work, the frontier model should choose the scripts or browser flows that matter while lighter agents run checks, reduce output, and return the concrete signal. Treat delegated findings as leads and verify important claims before presenting them as facts.`;
+    return "When using a high-cost frontier model for codebase-heavy work, use the /efficient-frontier skill always.";
   }
   if (skillName === "stay-within-limits") {
-    return `## Stay Within Limits
-
-Before starting long-running or parallel agent work, and between waves, check current 5-hour and weekly usage limits with the host's usage tool. For Claude Code, use npx -y ccusage@latest blocks --active --json when no better first-party signal is available. Keep waves to at most 3 parallel subagents by default. If either active 5-hour or weekly window is at or above 95%, do not launch more work; pause until the window clears. When a wake/resume tool is available, schedule a self-contained wake prompt for min(3600, secondsUntilWindowClears), re-check the actual block/window on wake, reschedule if still over budget, and only continue when safely below the threshold. The wake prompt should restate the remaining plan, usage check, wave throttle, verification steps, and any delegation scope or stop conditions needed for the next wave. Check between waves, not mid-wave.`;
+    return "When long-running or parallel work needs usage-limit checks, use the /stay-within-limits skill always.";
+  }
+  if (skillName === "visual-plan") {
+    return "When work needs an interactive visual plan before implementation, use the /visual-plan skill always.";
+  }
+  if (skillName === "visual-recap") {
+    return "When a PR, branch, commit, or diff needs an interactive visual recap, use the /visual-recap skill always.";
   }
   return null;
 }
 
-async function maybeUpdateInstructions(
-  skillNames: string[],
-  baseDir: string,
-  options: InstallSkillsOptions,
-): Promise<string[]> {
-  const blocks = skillNames
+function managedInstructionBlocksForSkills(skillNames: string[]): string[] {
+  return skillNames
     .map((name) => instructionContentForSkill(name))
     .filter((block): block is string => Boolean(block));
-  if (blocks.length === 0) return [];
+}
 
+async function shouldUpdateManagedInstructions(
+  blocks: string[],
+  options: InstallSkillsOptions,
+): Promise<boolean> {
+  if (blocks.length === 0) return false;
   let shouldUpdate = options.updateInstructions;
-  if (shouldUpdate === undefined) {
-    if (options.yes) shouldUpdate = true;
-    else if (isInteractive(options)) {
-      const prompt =
-        options.promptUpdateInstructions ?? promptForUpdateInstructions;
-      shouldUpdate = (await prompt()) === true;
-    } else {
-      shouldUpdate = false;
-    }
-  }
-  if (!shouldUpdate) return [];
+  if (shouldUpdate !== undefined) return shouldUpdate;
+  if (options.yes) return true;
+  if (!isInteractive(options)) return false;
+  const prompt =
+    options.promptUpdateInstructions ?? promptForUpdateInstructions;
+  return (await prompt()) === true;
+}
 
-  const files = resolveInstructionFiles(baseDir, options.instructionFiles);
+function writeManagedInstructions(
+  blocks: string[],
+  baseDir: string,
+  clients: SkillClient[],
+  scope: SkillScope,
+  options: InstallSkillsOptions,
+): string[] {
+  if (blocks.length === 0) return [];
+  const files = resolveInstructionFiles(
+    baseDir,
+    options.instructionFiles,
+    clients,
+    scope,
+  );
   const content = `${MANAGED_INSTRUCTIONS_START}
-${blocks.join("\n\n")}
+${blocks.join("\n")}
 ${MANAGED_INSTRUCTIONS_END}`;
   for (const file of files) {
     if (options.dryRun) continue;
@@ -1077,12 +1244,38 @@ ${MANAGED_INSTRUCTIONS_END}`;
   return files;
 }
 
+async function maybeUpdateInstructions(
+  skillNames: string[],
+  baseDir: string,
+  options: InstallSkillsOptions,
+): Promise<string[]> {
+  const blocks = managedInstructionBlocksForSkills(skillNames);
+  const clients = options.clients?.length ? options.clients : CLIENTS;
+  const scope = options.scope ?? "user";
+  if (!(await shouldUpdateManagedInstructions(blocks, options))) return [];
+  return writeManagedInstructions(blocks, baseDir, clients, scope, options);
+}
+
 function resolveInstructionFiles(
   baseDir: string,
   explicit: string[] | undefined,
+  clients: SkillClient[],
+  scope: SkillScope,
 ): string[] {
   if (explicit && explicit.length > 0) {
     return explicit.map((file) => path.resolve(baseDir, file));
+  }
+  if (scope === "user") {
+    const home = process.env.HOME || os.homedir();
+    const files: string[] = [];
+    if (clients.includes("codex")) {
+      const codexHome = process.env.CODEX_HOME || path.join(home, ".codex");
+      files.push(path.join(codexHome, "AGENTS.md"));
+    }
+    if (clients.includes("claude-code")) {
+      files.push(path.join(home, ".claude", "CLAUDE.md"));
+    }
+    return unique(files);
   }
   const candidates = ["AGENTS.md", "CLAUDE.md"].map((file) =>
     path.join(baseDir, file),

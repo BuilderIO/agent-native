@@ -83,6 +83,7 @@ describe("@agent-native/skills", () => {
         "codex",
         "-g",
         "-y",
+        "--no-connect",
       ]),
     ).toMatchObject({
       command: "add",
@@ -92,6 +93,7 @@ describe("@agent-native/skills", () => {
       clients: ["codex"],
       scope: "user",
       yes: true,
+      connect: false,
     });
   });
 
@@ -282,9 +284,15 @@ describe("@agent-native/skills", () => {
 
     expect(promptUpdateInstructions).toHaveBeenCalledTimes(1);
     const agents = fs.readFileSync(path.join(project, "AGENTS.md"), "utf-8");
-    expect(agents).toContain("Efficient Fable");
-    expect(agents).toContain("Efficient Frontier");
-    expect(agents).toContain("Quick Recap Status Block");
+    expect(agents).toContain(
+      "When operating as Claude Fable, use the /efficient-fable skill always.",
+    );
+    expect(agents).toContain(
+      "When using a high-cost frontier model for codebase-heavy work, use the /efficient-frontier skill always.",
+    );
+    expect(agents).toContain(
+      "When writing final response status indicators, use the /quick-recap skill always.",
+    );
   });
 
   it("offers the PR Visual Recap GitHub Action when visual-recap is selected", async () => {
@@ -300,6 +308,7 @@ describe("@agent-native/skills", () => {
       promptSkills: async () => ["visual-recap"],
       promptClients: async () => ["codex"],
       promptScope: async () => "project",
+      promptUpdateInstructions: async () => false,
       promptGithubAction,
     });
 
@@ -358,6 +367,41 @@ describe("@agent-native/skills", () => {
         "utf-8",
       ),
     ).toContain("Live visual plan body");
+  });
+
+  it("describes skipped codex MCP auth as pending in the final output", async () => {
+    const repo = tmpDir();
+    const project = tmpDir();
+    writeSkill(repo, "visual-plan");
+    const stdout: string[] = [];
+    vi.spyOn(process.stdout, "write").mockImplementation((chunk) => {
+      stdout.push(String(chunk));
+      return true;
+    });
+
+    await runSkillsCli(
+      [
+        "add",
+        "--copy",
+        repo,
+        "--skill",
+        "visual-plan",
+        "--client",
+        "codex",
+        "--scope",
+        "project",
+        "--yes",
+        "--no-connect",
+        "--no-update-instructions",
+      ],
+      { baseDir: project, isInteractive: () => false },
+    );
+
+    const output = stdout.join("");
+    expect(output).toContain("authentication pending");
+    expect(output).not.toContain("plan: registered for codex");
+    expect(output).toContain("All set");
+    expect(output).toContain("✅");
   });
 
   it("delegates core-only app skills to agent-native core", async () => {
@@ -458,8 +502,10 @@ describe("@agent-native/skills", () => {
 
     const agents = fs.readFileSync(path.join(project, "AGENTS.md"), "utf-8");
     expect(agents.match(/BEGIN @agent-native\/skills/g)).toHaveLength(1);
-    expect(agents).toContain("Quick Recap Status Block");
-    expect(agents).toContain("🟢 Actual concise status sentence");
+    expect(agents).toContain(
+      "When writing final response status indicators, use the /quick-recap skill always.",
+    );
+    expect(agents).not.toContain("🟢 Actual concise status sentence");
   });
 
   it("adds managed limit instructions for stay-within-limits", async () => {
@@ -478,9 +524,98 @@ describe("@agent-native/skills", () => {
     });
 
     const agents = fs.readFileSync(path.join(project, "AGENTS.md"), "utf-8");
-    expect(agents).toContain("Stay Within Limits");
-    expect(agents).toContain("ccusage@latest blocks --active --json");
-    expect(agents).toContain("95%");
+    expect(agents).toContain(
+      "When long-running or parallel work needs usage-limit checks, use the /stay-within-limits skill always.",
+    );
+    expect(agents).not.toContain("ccusage@latest blocks --active --json");
+    expect(agents).not.toContain("95%");
+  });
+
+  it("writes managed instructions to user files for user-scoped installs", async () => {
+    const repo = tmpDir();
+    const project = tmpDir();
+    const home = path.join(project, "home");
+    const codexHome = path.join(project, "codex-home");
+    fs.mkdirSync(home, { recursive: true });
+    fs.mkdirSync(codexHome, { recursive: true });
+    const prevHome = process.env.HOME;
+    const prevCodexHome = process.env.CODEX_HOME;
+    process.env.HOME = home;
+    process.env.CODEX_HOME = codexHome;
+    writeSkill(repo, "efficient-fable");
+
+    try {
+      const result = await installSkills({
+        source: repo,
+        skillNames: ["efficient-fable"],
+        clients: ["codex", "claude-code"],
+        scope: "user",
+        baseDir: project,
+        updateInstructions: true,
+        yes: true,
+      });
+
+      expect(result.instructionFiles).toEqual([
+        path.join(codexHome, "AGENTS.md"),
+        path.join(home, ".claude", "CLAUDE.md"),
+      ]);
+      expect(fs.existsSync(path.join(project, "AGENTS.md"))).toBe(false);
+      expect(fs.existsSync(path.join(project, "CLAUDE.md"))).toBe(false);
+      expect(
+        fs.readFileSync(path.join(codexHome, "AGENTS.md"), "utf-8"),
+      ).toContain(
+        "When operating as Claude Fable, use the /efficient-fable skill always.",
+      );
+      expect(
+        fs.readFileSync(path.join(home, ".claude", "CLAUDE.md"), "utf-8"),
+      ).toContain(
+        "When operating as Claude Fable, use the /efficient-fable skill always.",
+      );
+    } finally {
+      if (prevHome === undefined) delete process.env.HOME;
+      else process.env.HOME = prevHome;
+      if (prevCodexHome === undefined) delete process.env.CODEX_HOME;
+      else process.env.CODEX_HOME = prevCodexHome;
+    }
+  });
+
+  it("uses folded frontmatter descriptions as prompt hints", async () => {
+    const repo = tmpDir();
+    const project = tmpDir();
+    const dir = path.join(repo, "skills", "visual-plan");
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(
+      path.join(dir, "SKILL.md"),
+      [
+        "---",
+        "name: visual-plan",
+        "description: >-",
+        "  Turn risky coding work into interactive visual plans with diagrams,",
+        "  file maps, annotated code, questions, and optional UI review.",
+        "---",
+        "",
+        "# visual-plan",
+      ].join("\n"),
+      "utf-8",
+    );
+    let skillContext: SkillsPromptContext | undefined;
+    vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+
+    await runSkillsCli(["add", "--copy", repo, "--no-mcp"], {
+      baseDir: project,
+      isInteractive: () => true,
+      promptSkills: async (context) => {
+        skillContext = context;
+        return ["visual-plan"];
+      },
+      promptClients: async () => ["codex"],
+      promptScope: async () => "project",
+      promptUpdateInstructions: async () => false,
+    });
+
+    expect(skillContext?.options[0]?.hint).toContain(
+      "interactive visual plans",
+    );
   });
 
   it("defaults to user scope when scope is omitted non-interactively", async () => {

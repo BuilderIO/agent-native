@@ -43,4 +43,13 @@ describe("PUBLIC_PLAN_ACTION_PATHS", () => {
       "/_agent-native/actions/report-visual-plan",
     );
   });
+
+  it("allows signed-out viewers to distinguish missing URLs from private plans", () => {
+    expect(PUBLIC_PLAN_ACTION_PATHS).toContain(
+      "/_agent-native/actions/get-plan-access-status",
+    );
+    expect(PUBLIC_PLAN_ACTION_PATHS).not.toContain(
+      "/_agent-native/actions/request-plan-access",
+    );
+  });
 });

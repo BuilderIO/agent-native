@@ -960,10 +960,9 @@ directory before authoring a plan.`;
 export const VISUAL_PLANS_SKILL_MD = `---
 name: visual-plan
 description: >-
-  Use Agent-Native Plans when coding-agent work needs a reviewable plan
-  published as an interactive document — inline diagrams, annotated code
-  walkthroughs, file trees, optional UI wireframes or prototypes, open-question
-  forms, and comments — before implementation starts.
+  Turn ordinary text plans into rich interactive visual plans with diagrams,
+  file maps, annotated code, open questions, and UI/prototype review when
+  useful.
 metadata:
   visibility: exported
 ---
@@ -1405,9 +1404,9 @@ not put shared secrets in skill files.
 export const VISUAL_RECAP_SKILL_MD = `---
 name: visual-recap
 description: >-
-  Use Agent-Native Plans to turn a code change, PR diff, or git diff into a
-  visual recap plan for high-altitude review — schema, API, file, and
-  before/after changes as grounded structured blocks instead of a wall of diff.
+  Turn a PR, branch, commit, or git diff into an interactive visual recap with
+  diagrams, file maps, API/schema summaries, annotated diffs, and focused review
+  notes.
 metadata:
   visibility: exported
 ---
@@ -2054,7 +2053,7 @@ export const BUILT_IN_APP_SKILLS = {
       id: "visual-plans",
       displayName: "Agent-Native Plan",
       description:
-        "Generate and review coding-agent plans as structured documents with inline diagrams, annotated code walkthroughs, file trees, annotations, feedback, and HTML export.",
+        "Create rich interactive visual plans and recaps with diagrams, file maps, annotated code and diffs, API/schema summaries, feedback, and HTML export.",
       hosted: {
         url: "https://plan.agent-native.com",
         mcpUrl: "https://plan.agent-native.com/_agent-native/mcp",
@@ -2071,14 +2070,14 @@ export const BUILT_IN_APP_SKILLS = {
           action: "create-visual-plan",
           path: "/plans",
           description:
-            "Create a general coding-agent plan. Architecture/code plans default to inline document blocks; top canvas/prototype surfaces are optional for UI/product review.",
+            "Create a rich interactive visual plan instead of a plain-text plan, with diagrams, file maps, annotated code, questions, and optional UI/prototype review.",
         },
         {
           id: "visual-recap",
           action: "create-visual-recap",
           path: "/plans",
           description:
-            "Create a visual recap plan from a PR, commit, branch, or git diff for high-altitude review.",
+            "Create an interactive visual recap from a PR, commit, branch, or git diff so reviewers see the shape of the change before raw diff review.",
         },
       ],
       skills: [
@@ -2857,12 +2856,12 @@ const PLAN_SKILL_PROMPT_OPTIONS: SkillsTargetPromptContext["options"] = [
   {
     value: "visual-plan",
     label: "visual-plan",
-    hint: "Reviewable coding-agent plan: diagrams, annotated code, file trees, open questions.",
+    hint: "Rich interactive visual plan that turns ordinary text plans into diagrams, file maps, annotated code, questions, and UI/prototype review.",
   },
   {
     value: "visual-recap",
     label: "visual-recap",
-    hint: "Turn a PR, commit, branch, or git diff into a high-altitude visual recap.",
+    hint: "Interactive visual recap that maps PRs/diffs with diagrams, annotated diffs, API/schema summaries, and review notes.",
   },
 ];
 
@@ -3401,6 +3400,7 @@ function agentNativeSkillsInstallArgs(
   ];
   if (parsed.withGithubAction) args.push("--with-github-action");
   if (parsed.force) args.push("--force");
+  if (!parsed.connect) args.push("--no-connect");
   for (const skill of parsed.plainSkillNames ?? []) {
     args.push("--skill", skill);
   }

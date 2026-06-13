@@ -75,6 +75,7 @@ export interface RegisterMcpOptions {
   baseDir: string;
   interactive: boolean;
   log?: (m: string) => void;
+  deviceFlowTimeoutMs?: number;
   deps?: {
     fetchImpl?: typeof fetch;
     now?: () => number;
@@ -131,6 +132,8 @@ interface DeviceGrant {
 export function supportsRemoteMcpOAuth(client: ClientId): boolean {
   return REMOTE_MCP_OAUTH_CLIENTS.has(client);
 }
+
+const DEFAULT_DEVICE_FLOW_TIMEOUT_MS = 90_000;
 
 function realSleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -336,6 +339,7 @@ async function runDeviceFlow(
   appSlug: string,
   clientArg: string,
   log: (m: string) => void,
+  timeoutMs: number | undefined,
   deps: RegisterMcpOptions["deps"] = {},
 ): Promise<DeviceGrant | null> {
   const fetchImpl = deps.fetchImpl ?? fetch;
@@ -368,7 +372,14 @@ async function runDeviceFlow(
 
   const interval = Math.max(1, Number(start.interval) || 5);
   const expiresIn = Math.max(interval, Number(start.expires_in) || 600);
-  const deadline = now() + expiresIn * 1000;
+  const serverDeadlineMs = expiresIn * 1000;
+  const installerDeadlineMs = Math.max(
+    0,
+    timeoutMs ?? DEFAULT_DEVICE_FLOW_TIMEOUT_MS,
+  );
+  const waitMs = Math.min(serverDeadlineMs, installerDeadlineMs);
+  const waitWasCapped = waitMs < serverDeadlineMs;
+  const deadline = now() + waitMs;
 
   log("");
   log(`  Connecting to ${baseUrl}`);
@@ -434,10 +445,19 @@ async function runDeviceFlow(
       return null;
     }
 
-    await sleep(interval * 1000);
+    const remainingMs = deadline - now();
+    if (remainingMs <= 0) break;
+    await sleep(Math.min(interval * 1000, remainingMs));
   }
 
-  log("  Timed out waiting for approval. Run the command again to retry.");
+  if (waitWasCapped) {
+    log(
+      `  Stopped waiting after ${Math.round(waitMs / 1000)}s so installation can finish.`,
+    );
+    log("  You can authenticate later with the command below.");
+  } else {
+    log("  Timed out waiting for approval. Run the command again to retry.");
+  }
   return null;
 }
 
@@ -544,6 +564,7 @@ export async function registerMcpServer(
         appSlug,
         clientArg,
         log,
+        opts.deviceFlowTimeoutMs,
         deps,
       );
 
