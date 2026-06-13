@@ -173,6 +173,26 @@ export interface MountActionRoutesOptions {
   resolveOrgId?: (event: any) => string | null | Promise<string | null>;
 }
 
+function isAuthResolutionFailure(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const maybeStatus = error as {
+    status?: unknown;
+    statusCode?: unknown;
+    statusMessage?: unknown;
+  };
+  const status =
+    typeof maybeStatus.statusCode === "number"
+      ? maybeStatus.statusCode
+      : typeof maybeStatus.status === "number"
+        ? maybeStatus.status
+        : undefined;
+  if (status === 401 || status === 403) return true;
+  return (
+    typeof maybeStatus.statusMessage === "string" &&
+    /unauthenticated|forbidden/i.test(maybeStatus.statusMessage)
+  );
+}
+
 /**
  * Mount discovered actions as HTTP endpoints.
  *
@@ -235,12 +255,26 @@ export function mountActionRoutes(
         }
 
         // Resolve auth context for per-request scoping
-        const userEmail = options?.getOwnerFromEvent
-          ? await options.getOwnerFromEvent(event)
-          : undefined;
-        const userName = options?.getUserNameFromEvent
-          ? await options.getUserNameFromEvent(event)
-          : undefined;
+        let userEmail: string | undefined;
+        let userName: string | undefined;
+        if (options?.getOwnerFromEvent) {
+          try {
+            userEmail = await options.getOwnerFromEvent(event);
+            userName = options?.getUserNameFromEvent
+              ? await options.getUserNameFromEvent(event)
+              : undefined;
+          } catch (error) {
+            if (
+              entry.requiresAuth === false &&
+              isAuthResolutionFailure(error)
+            ) {
+              userEmail = undefined;
+              userName = undefined;
+            } else {
+              throw error;
+            }
+          }
+        }
         const orgId = options?.resolveOrgId
           ? ((await options.resolveOrgId(event)) ?? undefined)
           : undefined;

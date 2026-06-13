@@ -2198,11 +2198,18 @@ export function PlansPage() {
   );
   const planQuery = usePlan(selectedId, commentMutationPendingRef);
   const bundle = planQuery.data;
-  const showInitialPlanSkeleton =
-    !bundle && planQuery.isLoading && !planQuery.isFetched;
   const planAccessStatusQuery = usePlanAccessStatus(
     selectedId,
     Boolean(selectedId && !bundle),
+  );
+  const planAccessStatus = planAccessStatusQuery.data ?? null;
+  const showPlanLoadError = Boolean(
+    selectedId &&
+    !bundle &&
+    (planQuery.isError || (planAccessStatus && !planAccessStatus.hasAccess)),
+  );
+  const showInitialPlanSkeleton = Boolean(
+    selectedId && !bundle && !showPlanLoadError,
   );
   const requestPlanAccessMutation = useRequestPlanAccess();
   const [accessRequestSentPlanId, setAccessRequestSentPlanId] = useState<
@@ -4016,11 +4023,11 @@ export function PlansPage() {
               onArchive={handleArchivePlan}
               onSignIn={() => openSignIn()}
             />
-          ) : !bundle && planQuery.isError ? (
+          ) : showPlanLoadError ? (
             <PlanLoadError
               planId={params.id}
               error={planQuery.error}
-              accessStatus={planAccessStatusQuery.data ?? null}
+              accessStatus={planAccessStatus}
               onRetry={() => void planQuery.refetch()}
               onCreate={requestCreatePlan}
               onSignIn={() => openSignIn()}
@@ -4032,21 +4039,7 @@ export function PlansPage() {
               viewerEmail={session?.email ?? null}
             />
           ) : showInitialPlanSkeleton ? (
-            <PlanSkeleton isRecap={location.pathname.startsWith("/recaps")} />
-          ) : !bundle ? (
-            <PlanLoadError
-              planId={params.id}
-              accessStatus={planAccessStatusQuery.data ?? null}
-              onRetry={() => void planQuery.refetch()}
-              onCreate={requestCreatePlan}
-              onSignIn={() => openSignIn()}
-              onGoogleSignIn={startGoogleSignIn}
-              onRequestAccess={requestPlanAccess}
-              requestAccessPending={requestPlanAccessMutation.isPending}
-              accessRequestSent={accessRequestSentPlanId === params.id}
-              canCreate={Boolean(session)}
-              viewerEmail={session?.email ?? null}
-            />
+            <PlanSkeleton isRecap={location.pathname.includes("/recaps/")} />
           ) : (
             <div
               className="relative min-h-0 flex-1 overflow-hidden bg-background"

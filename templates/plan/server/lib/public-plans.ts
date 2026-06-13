@@ -108,10 +108,7 @@ function allowsAnonymousPlanAccessMetadata(event: H3Event): boolean {
   const rawUrl = event.node?.req?.url ?? event.path ?? "/";
   try {
     const url = new URL(rawUrl, getAppOrigin(event) ?? "http://localhost");
-    return (
-      actionNameFromPath(url.pathname) === "get-plan-access-status" &&
-      Boolean(url.searchParams.get("planId") ?? url.searchParams.get("id"))
-    );
+    return actionNameFromPath(url.pathname) === "get-plan-access-status";
   } catch {
     return false;
   }

@@ -63,6 +63,22 @@ describe("action discovery", () => {
     expect(registry["ui-sync"].agentTool).toBe(false);
   });
 
+  it("preserves requiresAuth:false from static defineAction entries", () => {
+    const registry = loadActionsFromStaticRegistry({
+      "public-metadata": {
+        default: {
+          tool: { description: "Public metadata", parameters: {} },
+          http: { method: "GET" },
+          readOnly: true,
+          requiresAuth: false,
+          run: async () => ({ ok: true }),
+        },
+      },
+    });
+
+    expect(registry["public-metadata"].requiresAuth).toBe(false);
+  });
+
   it("preserves publicAgent metadata from static defineAction entries", () => {
     const registry = loadActionsFromStaticRegistry({
       "public-search": {

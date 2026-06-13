@@ -271,8 +271,8 @@ test.describe("nav / routing / error+loading", () => {
     // It must resolve to a graceful error card within a bounded time — not crash
     // to a blank boundary and not spin on a skeleton forever.
     await expect(
-      page.getByText(/Plan not found/i),
-      "a non-existent plan must resolve to a graceful not-found card (no infinite skeleton, no crash)",
+      page.getByText(/Private plan access needed/i),
+      "a non-existent or inaccessible plan must resolve to a graceful access card (no infinite skeleton, no crash)",
     ).toBeVisible({ timeout: 25_000 });
 
     const body = await page.locator("body").innerText();

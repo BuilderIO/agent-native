@@ -1,5 +1,21 @@
 # @agent-native/core
 
+## 0.49.15
+
+### Patch Changes
+
+- 72a8b20: Render the visual recap PR comment intro as standard text and clarify that
+  private-repo recap links may require signing in with org access.
+
+  Register the Plan MCP under both `plan` and `agent-native-plans` in recap CI so
+  Claude can publish through either exposed tool namespace.
+
+## 0.49.14
+
+### Patch Changes
+
+- ecbdbf8: Document local component workspace support for Content local file mode.
+
 ## 0.49.13
 
 ### Patch Changes
