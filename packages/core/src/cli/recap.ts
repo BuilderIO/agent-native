@@ -2871,25 +2871,43 @@ export interface RecapGateInput {
   agentRaw: string | undefined;
   /** Raw VISUAL_RECAP_MODEL value (may be undefined). */
   model: string | undefined;
+  /** Raw VISUAL_RECAP_SKILL_SOURCE value (auto/latest/repo; may be undefined). */
+  skillSource: string | undefined;
   /** Filenames changed by the PR (for the self-modifying guard). */
   changedFiles: string[];
 }
 
 /**
- * Files that, if a PR touches them, would let that PR rewrite the workflow,
- * skill, or agent config the trusted recap job loads. The workflow runs the
- * recap CLI from trusted base-branch source (or an installed package), so normal
- * package code such as `packages/core/**` can be recapped without executing
- * PR-modified CLI code.
+ * Files that, if a PR touches them, would let that PR rewrite repo-pinned skill
+ * instructions or agent config the trusted recap job loads. The workflow runs
+ * the recap CLI from trusted base-branch source (or an installed package), so
+ * normal package code such as `packages/core/**` and recap workflow YAML can be
+ * recapped without executing PR-modified CLI code.
  */
-export function isRecapSensitivePath(p: string): boolean {
+function normalizeRecapSkillSourceMode(value: string | undefined): string {
+  return (value || "auto").toLowerCase();
+}
+
+function isRepoPinnedRecapSkillSource(value: string | undefined): boolean {
+  return normalizeRecapSkillSourceMode(value) === "repo";
+}
+
+export function isRecapSensitivePath(
+  p: string,
+  options: { skillSource?: string } = {},
+): boolean {
+  const skillSource = options.skillSource;
   if (
-    p === ".github/workflows/pr-visual-recap.yml" ||
-    /(^|\/)skills\/visual-(recap|plan|plans)\//.test(p) ||
     /(^|\/)\.claude\//.test(p) ||
     /(^|\/)CLAUDE\.md$/.test(p) ||
     /(^|\/)AGENTS\.md$/.test(p) ||
     /(^|\/)\.mcp\.json$/.test(p)
+  ) {
+    return true;
+  }
+  if (
+    isRepoPinnedRecapSkillSource(skillSource) &&
+    /(^|\/)skills\/visual-(recap|plan|plans)\//.test(p)
   ) {
     return true;
   }
@@ -2962,12 +2980,24 @@ export function evaluateRecapGate(input: RecapGateInput): {
     );
   }
 
-  // Self-modifying guard: if this PR changes the workflow, the
-  // visual-recap/visual-plan skill, or any agent config the runner would load
-  // (.claude/**, CLAUDE.md, .mcp.json), skip the ENTIRE job — not just the
-  // agent — so a PR can never rewrite what runs (skill, hooks, settings) and
-  // exfiltrate the publish/API secrets.
-  const hits = input.changedFiles.filter((p) => isRecapSensitivePath(p));
+  const skillSource = normalizeRecapSkillSourceMode(input.skillSource);
+  if (skillSource && !["auto", "latest", "repo"].includes(skillSource)) {
+    reasons.push(
+      'invalid VISUAL_RECAP_SKILL_SOURCE value (expected "auto", "latest", or "repo")',
+    );
+  }
+
+  // Self-modifying guard: if this PR changes the visual-recap/visual-plan skill
+  // when CI is explicitly pinned to repo-local skill instructions, or any agent
+  // config the runner would load (.claude/**, CLAUDE.md, AGENTS.md, .mcp.json),
+  // skip the ENTIRE job — not just the agent — so a PR can never rewrite what
+  // the agent loads (skill, hooks, settings) and exfiltrate the publish/API
+  // secrets. In the default auto/latest modes the recap prompt comes from the
+  // trusted bundled skill, so visual skill and recap workflow files are ordinary
+  // reviewed content and may be recapped.
+  const hits = input.changedFiles.filter((p) =>
+    isRecapSensitivePath(p, { skillSource }),
+  );
   if (hits.length) {
     reasons.push(
       `PR modifies recap-control files (${hits.slice(0, 3).join(", ")}${
@@ -3076,6 +3106,7 @@ async function runGate(): Promise<void> {
     hasOpenai: process.env.HAS_OPENAI === "true",
     agentRaw: process.env.AGENT,
     model: process.env.VISUAL_RECAP_MODEL,
+    skillSource: process.env.VISUAL_RECAP_SKILL_SOURCE,
     changedFiles,
   });
 
@@ -3802,7 +3833,7 @@ Usage:
     VISUAL_RECAP_MODEL), the repo from $GITHUB_REPOSITORY, and the PR's changed
     files from the GitHub REST API (paged, with GH_TOKEN/GITHUB_TOKEN). Skips
     drafts, forks, bot authors, the missing-secret case, an invalid agent/model,
-    and any PR that touches recap-control files (the workflow, the skill,
+    and any PR that touches recap-control files (repo-pinned skill instructions,
     .claude/**, CLAUDE.md, AGENTS.md, .mcp.json) — failing CLOSED on any
     file-list error. Writes run=<true|false> and agent=<claude|codex> to
     $GITHUB_OUTPUT.

@@ -112,6 +112,7 @@ jobs:
           HAS_OPENAI: ${{ secrets.OPENAI_API_KEY != '' }}
           AGENT: ${{ inputs.agent }}
           VISUAL_RECAP_MODEL: ${{ inputs.model }}
+          VISUAL_RECAP_SKILL_SOURCE: ${{ inputs.skill-source || 'auto' }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         with:
           script: |
@@ -150,9 +151,16 @@ jobs:
               reasons.push(`invalid model input value (must match [a-zA-Z0-9._-]{1,80})`);
             }
 
-            // Self-modifying guard: skip if the PR touches the workflow, skill,
-            // or any agent config the runner loads.  Consumer repos never have
-            // packages/core as the recap CLI source, so that rule is omitted here.
+            const skillSource = (process.env.VISUAL_RECAP_SKILL_SOURCE || 'auto').toLowerCase();
+            if (!['auto', 'latest', 'repo'].includes(skillSource)) {
+              reasons.push('invalid skill-source input value (expected "auto", "latest", or "repo")');
+            }
+            const usesRepoSkill = skillSource === 'repo';
+
+            // Self-modifying guard: skip if the PR touches repo-pinned skill
+            // instructions or any agent config the runner loads. With the
+            // default bundled skill source, visual skill and recap workflow
+            // files are reviewed content, not instructions loaded by the runner.
             if (pr) {
               try {
                 const files = await github.paginate(github.rest.pulls.listFiles, {
@@ -162,11 +170,7 @@ jobs:
                   per_page: 100,
                 });
                 const isSensitive = (p) =>
-                  // The CALLER workflow that references this reusable file.
-                  p === '.github/workflows/pr-visual-recap.yml' ||
-                  // This reusable file itself.
-                  p === '.github/workflows/pr-visual-recap-reusable.yml' ||
-                  /(^|\/)skills\/visual-(recap|plan|plans)\//.test(p) ||
+                  (usesRepoSkill && /(^|\/)skills\/visual-(recap|plan|plans)\//.test(p)) ||
                   /(^|\/)\.claude\//.test(p) ||
                   /(^|\/)CLAUDE\.md$/.test(p) ||
                   /(^|\/)AGENTS\.md$/.test(p) ||
