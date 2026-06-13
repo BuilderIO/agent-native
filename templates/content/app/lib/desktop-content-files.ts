@@ -40,6 +40,10 @@ export interface DesktopContentFilesApi {
     path: string;
     content: string;
   }): Promise<DesktopContentFilesResult>;
+  deleteFile?(request: {
+    folderId?: string;
+    path: string;
+  }): Promise<DesktopContentFilesResult>;
   readFiles(
     request?: DesktopContentFilesFolderRequest,
   ): Promise<DesktopContentFilesResult>;

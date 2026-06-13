@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useNavigate } from "react-router";
+import { useLocation, useNavigate } from "react-router";
 import {
   IconArrowBarDown,
   IconArrowBarUp,
@@ -175,8 +175,12 @@ export function DocumentToolbar({
   source,
 }: DocumentToolbarProps) {
   const navigate = useNavigate();
+  const location = useLocation();
   const queryClient = useQueryClient();
   const isLocalFileDocument = source?.mode === "local-files";
+  const openShareOnLoad =
+    !isLocalFileDocument &&
+    new URLSearchParams(location.search).get("share") === "1";
   const [autoSync, setAutoSync] = useLocalStorage(
     `notion-auto-sync:${documentId}`,
     false,
@@ -348,7 +352,7 @@ export function DocumentToolbar({
       toast.success("Shareable copy ready", {
         description: "This copy is stored in the database for sharing.",
       });
-      navigate(`/page/${result.id}`, { flushSync: true });
+      navigate(`/page/${result.id}?share=1`, { flushSync: true });
     } catch (error) {
       toast.error("Could not create shareable copy", {
         description:
@@ -356,6 +360,19 @@ export function DocumentToolbar({
       });
     }
   }, [documentId, navigate, queryClient, shareLocalFile]);
+
+  const handleDbShareOpenChange = useCallback(
+    (nextOpen: boolean) => {
+      if (nextOpen || !openShareOnLoad) return;
+      const params = new URLSearchParams(location.search);
+      params.delete("share");
+      const nextSearch = params.toString();
+      navigate(`${location.pathname}${nextSearch ? `?${nextSearch}` : ""}`, {
+        replace: true,
+      });
+    },
+    [location.pathname, location.search, navigate, openShareOnLoad],
+  );
 
   // Debounce search
   useEffect(() => {
@@ -521,6 +538,8 @@ export function DocumentToolbar({
               resourceId={documentId}
               resourceTitle={documentTitle}
               shareUrl={shareUrl}
+              defaultOpen={openShareOnLoad}
+              onOpenChange={handleDbShareOpenChange}
               visibilityCopy={{
                 org: {
                   description: effectiveHideFromSearch

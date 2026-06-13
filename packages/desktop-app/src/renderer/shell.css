@@ -141,10 +141,16 @@ body {
   display: none;
 }
 
-/* macOS: keep the first tab clear of the native traffic lights.
-   Use a border so the reserved space stays outside the scrollable tab row. */
-.platform-darwin .tabbar {
-  border-left: var(--macos-traffic-light-safe-area) solid var(--tabbar-bg);
+/* macOS: keep the first tab clear of the native traffic lights. */
+.platform-darwin .tabbar::before {
+  content: "";
+  position: sticky;
+  left: 0;
+  z-index: 2;
+  flex: 0 0 var(--macos-traffic-light-safe-area);
+  align-self: stretch;
+  background: var(--tabbar-bg);
+  -webkit-app-region: drag;
 }
 
 .tab {

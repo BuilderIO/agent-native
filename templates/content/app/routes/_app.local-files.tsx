@@ -136,11 +136,29 @@ const SOURCE_DIRECTORY_KEY = "source-directory";
 const SOURCE_DIRECTORIES_KEY = "source-directories";
 
 function supportsDirectoryPicker() {
-  return typeof window !== "undefined" && "showDirectoryPicker" in window;
+  return (
+    typeof window !== "undefined" &&
+    typeof (window as WindowWithDirectoryPicker).showDirectoryPicker ===
+      "function" &&
+    !getDesktopContentFiles() &&
+    !isElectronLikeBrowser()
+  );
 }
 
 function supportsLocalFolderSync() {
   return Boolean(getDesktopContentFiles()) || supportsDirectoryPicker();
+}
+
+function isElectronLikeBrowser() {
+  if (typeof navigator === "undefined") return false;
+  return /\bElectron\//.test(navigator.userAgent);
+}
+
+function unsupportedLocalFolderSyncMessage() {
+  if (isElectronLikeBrowser()) {
+    return "Local folder sync is unavailable in this Electron browser. Use Agent Native Desktop or a browser with folder access.";
+  }
+  return "Folder access is unavailable in this browser.";
 }
 
 function supportsDirectoryPersistence() {
@@ -353,7 +371,9 @@ async function chooseDirectory(
   }
 
   const picker = (window as WindowWithDirectoryPicker).showDirectoryPicker;
-  if (!picker) throw new Error("Folder access is not available here.");
+  if (!picker || isElectronLikeBrowser()) {
+    throw new Error(unsupportedLocalFolderSyncMessage());
+  }
   const handle = await picker({ mode: "readwrite" });
   const existing = await Promise.all(
     directories
@@ -914,7 +934,7 @@ export default function LocalFilesRoute() {
 
         {!supported && (
           <div className="rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
-            Folder access is unavailable in this browser.
+            {unsupportedLocalFolderSyncMessage()}
           </div>
         )}
 

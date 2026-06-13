@@ -45,6 +45,7 @@ export const IPC = {
   CONTENT_FILES_CHOOSE_FOLDER: "content-files:choose-folder",
   CONTENT_FILES_WRITE: "content-files:write",
   CONTENT_FILES_WRITE_FILE: "content-files:write-file",
+  CONTENT_FILES_DELETE_FILE: "content-files:delete-file",
   CONTENT_FILES_READ: "content-files:read",
   CONTENT_FILES_REVEAL_FILE: "content-files:reveal-file",
   CONTENT_FILES_CLEAR_FOLDER: "content-files:clear-folder",
@@ -220,6 +221,11 @@ export interface DesktopContentFileWriteRequest {
 }
 
 export interface DesktopContentFileRevealRequest {
+  folderId?: string;
+  path: string;
+}
+
+export interface DesktopContentFileDeleteRequest {
   folderId?: string;
   path: string;
 }

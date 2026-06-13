@@ -25,6 +25,7 @@ import {
   getTemplateGatewayUrl,
   isDefaultDesktopTemplateDevTarget,
 } from "@shared/app-registry";
+import { buildContentDirectoryPickerBridgeScript } from "../lib/content-directory-picker-bridge.js";
 
 const IS_DEV = window.location.protocol !== "file:";
 
@@ -355,6 +356,11 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
       };
 
       const onReady = () => {
+        if (app.id === "content") {
+          void wv
+            .executeJavaScript(buildContentDirectoryPickerBridgeScript(), false)
+            .catch(() => {});
+        }
         setError(false);
         setIsLoading(false);
         setSlowLoad(false);
