@@ -354,6 +354,9 @@ describe("recap mcp-config", () => {
         "X-Agent-Native-MCP-Full-Catalog": "1",
       },
     });
+    expect(parsed.mcpServers["agent-native-plans"]).toEqual(
+      parsed.mcpServers.plan,
+    );
   });
 
   it("writes Codex TOML with a JSON-stringified url, env-var bearer, and full-catalog headers", () => {
@@ -570,6 +573,8 @@ describe("recap prompt builder", () => {
     // The publish path and the single hand-off are spelled out.
     expect(prompt).toContain("mcp__plan__get-plan-blocks");
     expect(prompt).toContain("mcp__plan__create-visual-recap");
+    expect(prompt).toContain("mcp__agent-native-plans__get-plan-blocks");
+    expect(prompt).toContain("mcp__agent-native-plans__create-visual-recap");
     expect(prompt).toContain("block-registry tool is not visible");
     expect(prompt).toContain("compact MCP catalog");
     expect(prompt).toContain("Do not wait, sleep, back off");
@@ -717,7 +722,10 @@ describe("recap comment body", () => {
       `[![Visual recap](https://plan.agent-native.com/_agent-native/recap-image/${token}.png)](https://plan.agent-native.com/recaps/plan-abc123)`,
     );
     expect(body).toContain(
-      "### Here's a [visual recap](https://plan.agent-native.com/recaps/plan-abc123) of what changed:",
+      "Here's a [visual recap](https://plan.agent-native.com/recaps/plan-abc123) of what changed:",
+    );
+    expect(body).toContain(
+      "private-repo recaps are org-gated. Sign in to Agent-Native Plans with access to this org if the link does not open.",
     );
     expect(body).not.toContain("review at a higher altitude");
     expect(body).not.toContain("Updated for");
@@ -1544,6 +1552,10 @@ describe("bundled PR visual recap workflow", () => {
     );
     expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain(
       "mcp.*(register|unreachable|not usable|zero tools|not callable)",
+    );
+    expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain("CLAUDE_ALLOWED_TOOLS");
+    expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain(
+      "mcp__agent-native-plans__create-visual-recap",
     );
     expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain(
       'recap mcp-config --agent codex --app-url "$PLAN_RECAP_APP_URL" --force',
