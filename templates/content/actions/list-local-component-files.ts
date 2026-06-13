@@ -67,6 +67,7 @@ export default defineAction({
           ]
         : workspaces;
       const files = await listLocalComponentFiles({
+        scope,
         workspaces: allWorkspaces,
       });
       return {

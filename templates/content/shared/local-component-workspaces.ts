@@ -31,6 +31,7 @@ const ALLOW_PRODUCTION_LOCAL_FILES_ENV =
   "AGENT_NATIVE_ALLOW_LOCAL_FILES_IN_PRODUCTION";
 const LOCAL_COMPONENT_ACCESS_ERROR =
   "Local component workspaces are only available in local development or a trusted local file bridge.";
+const localComponentWorkspaceWriteQueues = new Map<string, Promise<void>>();
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
@@ -262,19 +263,46 @@ export function readAllLocalComponentWorkspacesSync(cwd = process.cwd()) {
   return [...deduped.values()];
 }
 
-async function writeLocalComponentWorkspaces(
+async function writeLocalComponentWorkspacesToStorePath(
   workspaces: LocalComponentWorkspace[],
-  cwd = process.cwd(),
-  scope?: string | null,
+  storePath: string,
 ) {
-  ensureLocalFileAccessAllowed();
-  const storePath = localComponentWorkspaceStorePath(cwd, scope);
   await fsp.mkdir(path.dirname(storePath), { recursive: true });
   await fsp.writeFile(
     storePath,
     `${JSON.stringify({ version: STORE_VERSION, workspaces }, null, 2)}\n`,
     "utf8",
   );
+}
+
+async function updateLocalComponentWorkspaces(options: {
+  cwd?: string;
+  scope?: string | null;
+  update: (workspaces: LocalComponentWorkspace[]) => LocalComponentWorkspace[];
+}) {
+  ensureLocalFileAccessAllowed();
+  const storePath = localComponentWorkspaceStorePath(
+    options.cwd,
+    options.scope,
+  );
+  const previous =
+    localComponentWorkspaceWriteQueues.get(storePath) ?? Promise.resolve();
+  let nextWorkspaces: LocalComponentWorkspace[] = [];
+  const queued = previous.then(async () => {
+    const current = readLocalComponentWorkspacesFromStorePath(storePath);
+    nextWorkspaces = options.update(current);
+    await writeLocalComponentWorkspacesToStorePath(nextWorkspaces, storePath);
+  });
+  const stored = queued
+    .catch(() => undefined)
+    .finally(() => {
+      if (localComponentWorkspaceWriteQueues.get(storePath) === stored) {
+        localComponentWorkspaceWriteQueues.delete(storePath);
+      }
+    });
+  localComponentWorkspaceWriteQueues.set(storePath, stored);
+  await queued;
+  return nextWorkspaces;
 }
 
 export async function registerLocalComponentWorkspace(options: {
@@ -297,12 +325,14 @@ export async function registerLocalComponentWorkspace(options: {
     componentPaths,
     updatedAt: new Date().toISOString(),
   };
-  const current = readLocalComponentWorkspacesSync(options.cwd, options.scope);
-  const next = [
-    workspace,
-    ...current.filter((item) => item.id !== workspace.id),
-  ];
-  await writeLocalComponentWorkspaces(next, options.cwd, options.scope);
+  await updateLocalComponentWorkspaces({
+    cwd: options.cwd,
+    scope: options.scope,
+    update: (current) => [
+      workspace,
+      ...current.filter((item) => item.id !== workspace.id),
+    ],
+  });
   return {
     workspace,
     componentDirs: componentDirsForWorkspace(workspace),

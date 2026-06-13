@@ -164,6 +164,41 @@ describe("local component workspaces", () => {
     );
   });
 
+  it("preserves concurrent workspace registrations in the same scope", async () => {
+    const cwd = mkdtemp("an-content-components-cwd-");
+    const workspaces = ["AlphaBlock", "BetaBlock", "GammaBlock"].map(
+      (componentName) => {
+        const workspace = mkdtemp("an-content-components-concurrent-");
+        writeFile(
+          workspace,
+          `components/${componentName}.tsx`,
+          `export function ${componentName}() { return null; }\n`,
+        );
+        return workspace;
+      },
+    );
+
+    await Promise.all(
+      workspaces.map((workspacePath) =>
+        registerLocalComponentWorkspace({
+          cwd,
+          workspacePath,
+          scope: "editor@example.com",
+        }),
+      ),
+    );
+
+    await expect(
+      listLocalComponentFiles({ cwd, scope: "editor@example.com" }),
+    ).resolves.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ path: "AlphaBlock.tsx" }),
+        expect.objectContaining({ path: "BetaBlock.tsx" }),
+        expect.objectContaining({ path: "GammaBlock.tsx" }),
+      ]),
+    );
+  });
+
   it("creates the configured component folder when writing the first file", async () => {
     const cwd = mkdtemp("an-content-components-cwd-");
     const workspace = mkdtemp("an-content-components-workspace-");
