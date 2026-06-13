@@ -228,6 +228,24 @@ components render inside the editor and appear in the slash menu under
 **Local components**. Slash insertion creates a minimal tag such as
 `<ImpactCounter />`; add props in the MDX source when needed.
 
+Component execution is intentionally a local-dev/Desktop bridge capability, not
+plain hosted browser folder access. If you open `content.agent-native.com`,
+choose **Local files**, and pick a folder in Chrome, the app can read and write
+the `.md` and `.mdx` files through the browser File System Access API, but
+Chrome does not expose an absolute folder path for Vite to compile
+`components/*.tsx`. To preview and hot reload custom React components, run
+Content locally or use Agent Native Desktop so the trusted local bridge can
+register the picked workspace with the local Content dev server. In that mode,
+edits to existing component files hot reload through Vite, and adding or
+removing component files reloads the component registry and slash menu.
+
+Agents can also work with those registered component files. Use
+`list-local-component-files` to find the registered workspace id, then
+`write-local-component-file` to create or update `.tsx`, `.jsx`, `.ts`, or
+`.js` files under the workspace's `components/` folder. The MDX files remain the
+source of truth for component usage; the component files remain normal repo
+source files reviewed with Git.
+
 If a component exports input metadata, selecting the component in the editor
 shows an edit button in the component's top-right corner. Supported input types
 are `string`, `textarea`, `number`, `boolean`, and `select`. The form writes

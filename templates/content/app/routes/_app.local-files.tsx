@@ -108,6 +108,18 @@ interface ImportContentSourceResult {
   errors: Array<{ path: string; reason: string }>;
 }
 
+interface RegisterLocalComponentWorkspaceResult {
+  ok: true;
+  workspace: {
+    id: string;
+    workspacePath: string;
+    componentPaths: string[];
+  };
+  componentDirs: string[];
+  componentCount: number;
+  reloadRequired: boolean;
+}
+
 type SyncStatus =
   | { kind: "idle" }
   | { kind: "success"; title: string; detail: string }
@@ -358,6 +370,15 @@ async function ensureReadWritePermission(handle: LocalDirectoryHandle) {
   const descriptor = { mode: "readwrite" as const };
   if ((await handle.queryPermission?.(descriptor)) === "granted") return true;
   return (await handle.requestPermission?.(descriptor)) === "granted";
+}
+
+async function hasBrowserComponentsDirectory(handle: LocalDirectoryHandle) {
+  try {
+    await handle.getDirectoryHandle("components");
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 async function chooseDirectory(
@@ -613,6 +634,9 @@ export default function LocalFilesRoute() {
           detail: `${restoredDirectories.length} linked`,
         });
         await pullDirectories(restoredDirectories, { showToast: false });
+        await connectLocalComponentWorkspaces(restoredDirectories, {
+          showToast: false,
+        });
         return;
       }
 
@@ -626,6 +650,9 @@ export default function LocalFilesRoute() {
         detail: `${restoredDirectories.length} linked`,
       });
       await pullDirectories(restoredDirectories, { showToast: false });
+      await connectLocalComponentWorkspaces(restoredDirectories, {
+        showToast: false,
+      });
     };
     restoreDirectories()
       .catch((err) => {
@@ -727,6 +754,51 @@ export default function LocalFilesRoute() {
     }
   }
 
+  async function connectLocalComponentWorkspaces(
+    selectedDirectories: SelectedDirectory[],
+    { showToast = true }: { showToast?: boolean } = {},
+  ) {
+    for (const directory of selectedDirectories) {
+      if (directory.kind === "desktop") {
+        const workspacePath = directory.folder.path;
+        if (!workspacePath) continue;
+        try {
+          const result =
+            await callAction<RegisterLocalComponentWorkspaceResult>(
+              "register-local-component-workspace" as never,
+              { workspacePath } as never,
+            );
+          if (result.componentCount > 0 && showToast) {
+            toast.success("Local components connected", {
+              description:
+                "Component previews and the slash menu will reload from this folder.",
+            });
+          }
+        } catch (error) {
+          if (showToast) {
+            toast.info("Local files linked", {
+              description:
+                error instanceof Error
+                  ? error.message
+                  : "Component previews need the local dev bridge.",
+            });
+          }
+        }
+        continue;
+      }
+
+      if (
+        showToast &&
+        (await hasBrowserComponentsDirectory(directory.handle))
+      ) {
+        toast.info("MDX files linked", {
+          description:
+            "This browser can edit the files, but React component previews need Agent Native Desktop or a local dev server.",
+        });
+      }
+    }
+  }
+
   async function handleChooseFolder() {
     setBusy("choose");
     try {
@@ -748,6 +820,7 @@ export default function LocalFilesRoute() {
 
       setBusy(`pull:${selected.id}`);
       await pullDirectories(nextDirectories);
+      await connectLocalComponentWorkspaces([selected]);
     } catch (err) {
       setStatus({
         kind: "error",
