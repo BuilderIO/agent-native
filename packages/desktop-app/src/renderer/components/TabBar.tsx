@@ -1,9 +1,9 @@
 import { IconX, IconPlus } from "@tabler/icons-react";
 import type { Tab } from "../App.js";
 import { getTabDisplayTitle } from "../lib/tab-title.js";
+import { shouldReserveMacOSWindowControlsSpace } from "../lib/platform.js";
 
-const reserveMacOSWindowControlsSpace =
-  window.electronAPI?.platform === "darwin";
+const reserveMacOSWindowControlsSpace = shouldReserveMacOSWindowControlsSpace();
 
 interface TabBarProps {
   tabs: Tab[];

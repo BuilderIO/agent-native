@@ -19,9 +19,9 @@ import {
   MIGRATION_APP_ID,
   getCodeAgentGoal,
 } from "@shared/code-agents";
+import { shouldReserveMacOSWindowControlsSpace } from "./lib/platform.js";
 
-const reserveMacOSWindowControlsSpace =
-  window.electronAPI?.platform === "darwin";
+const reserveMacOSWindowControlsSpace = shouldReserveMacOSWindowControlsSpace();
 
 export interface Tab {
   id: string;
