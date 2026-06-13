@@ -87,7 +87,7 @@ const ICON_ALIASES: Record<string, keyof typeof ICON_PATHS> = {
 };
 
 const ICON_MARKER_RE =
-  /<(span|i)\b([^>]*\s)?data-icon\s*=\s*("([^"]+)"|'([^']+)'|([^\s"'=<>`]+))([^>]*)>(?:\s*)<\/\1>|<(span|i)\b([^>]*\s)?data-icon\s*=\s*("([^"]+)"|'([^']+)'|([^\s"'=<>`]+))([^>]*)\/>/gi;
+  /<(span|i)\b([^>]*\s)?data-icon\s*=\s*("([^"]*)"|'([^']*)'|([^\s"'=<>`]+))([^>]*)>(?:\s*)<\/\1>|<(span|i)\b([^>]*\s)?data-icon\s*=\s*("([^"]*)"|'([^']*)'|([^\s"'=<>`]+))([^>]*)\/>/gi;
 
 function normalizeIconName(value: string): keyof typeof ICON_PATHS | null {
   const normalized = value
@@ -112,7 +112,37 @@ function readAttribute(attrs: string, name: string): string | null {
   );
   if (!match) return null;
   const raw = match[1] ?? "";
-  return raw.replace(/^["']|["']$/g, "");
+  return decodeAttrEntities(raw.replace(/^["']|["']$/g, ""));
+}
+
+function decodeAttrEntities(value: string): string {
+  return value.replace(
+    /&(#x[0-9a-f]+|#\d+|amp|apos|quot|lt|gt);/gi,
+    (entity, body: string) => {
+      const normalized = body.toLowerCase();
+      if (normalized === "amp") return "&";
+      if (normalized === "apos") return "'";
+      if (normalized === "quot") return '"';
+      if (normalized === "lt") return "<";
+      if (normalized === "gt") return ">";
+
+      const isHex = normalized.startsWith("#x");
+      const digits = normalized.slice(isHex ? 2 : 1);
+      const codePoint = Number.parseInt(digits, isHex ? 16 : 10);
+      if (
+        !Number.isFinite(codePoint) ||
+        codePoint < 0 ||
+        codePoint > 0x10ffff
+      ) {
+        return entity;
+      }
+      try {
+        return String.fromCodePoint(codePoint);
+      } catch {
+        return entity;
+      }
+    },
+  );
 }
 
 function escapeAttr(value: string): string {
