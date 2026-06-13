@@ -5,6 +5,8 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   listLocalComponentFiles,
   registerLocalComponentWorkspace,
+  registeredLocalComponentRootsSync,
+  resolveLocalComponentWorkspacePath,
   writeLocalComponentFile,
 } from "./local-component-workspaces";
 
@@ -110,6 +112,56 @@ describe("local component workspaces", () => {
         path: "Hero.tsx",
       },
     ]);
+  });
+
+  it("scopes registered workspaces while aggregating roots for dev previews", async () => {
+    const cwd = mkdtemp("an-content-components-cwd-");
+    const aliceWorkspace = mkdtemp("an-content-components-alice-");
+    const bobWorkspace = mkdtemp("an-content-components-bob-");
+    writeFile(
+      aliceWorkspace,
+      "components/AliceBlock.tsx",
+      "export function AliceBlock() { return null; }\n",
+    );
+    writeFile(
+      bobWorkspace,
+      "components/BobBlock.tsx",
+      "export function BobBlock() { return null; }\n",
+    );
+
+    const alice = await registerLocalComponentWorkspace({
+      cwd,
+      workspacePath: aliceWorkspace,
+      scope: "alice@example.com",
+    });
+    const bob = await registerLocalComponentWorkspace({
+      cwd,
+      workspacePath: bobWorkspace,
+      scope: "bob@example.com",
+    });
+
+    await expect(
+      listLocalComponentFiles({ cwd, scope: "alice@example.com" }),
+    ).resolves.toMatchObject([
+      {
+        workspaceId: alice.workspace.id,
+        path: "AliceBlock.tsx",
+      },
+    ]);
+    await expect(
+      listLocalComponentFiles({ cwd, scope: "bob@example.com" }),
+    ).resolves.toMatchObject([
+      {
+        workspaceId: bob.workspace.id,
+        path: "BobBlock.tsx",
+      },
+    ]);
+    expect(new Set(registeredLocalComponentRootsSync(cwd))).toEqual(
+      new Set([
+        path.join(fs.realpathSync(aliceWorkspace), "components"),
+        path.join(fs.realpathSync(bobWorkspace), "components"),
+      ]),
+    );
   });
 
   it("creates the configured component folder when writing the first file", async () => {
@@ -219,5 +271,20 @@ describe("local component workspaces", () => {
         content: "# nope\n",
       }),
     ).rejects.toThrow(/Component files must be/);
+  });
+
+  it("canonicalizes symlinked local file workspaces", async () => {
+    const realWorkspace = mkdtemp("an-content-components-real-");
+    const symlinkWorkspace = path.join(
+      mkdtemp("an-content-components-links-"),
+      "workspace",
+    );
+    if (!symlinkDirectory(realWorkspace, symlinkWorkspace)) {
+      return;
+    }
+
+    expect(resolveLocalComponentWorkspacePath(symlinkWorkspace)).toBe(
+      fs.realpathSync(realWorkspace),
+    );
   });
 });

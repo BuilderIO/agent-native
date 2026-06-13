@@ -1,6 +1,9 @@
 import { defineAction } from "@agent-native/core";
 import { z } from "zod";
-import { registerLocalComponentWorkspace } from "../shared/local-component-workspaces.js";
+import {
+  localComponentWorkspaceScope,
+  registerLocalComponentWorkspace,
+} from "../shared/local-component-workspaces.js";
 
 export default defineAction({
   description:
@@ -12,8 +15,11 @@ export default defineAction({
       .min(1)
       .describe("Absolute local workspace folder path selected by Desktop"),
   }),
-  run: async ({ workspacePath }) => {
-    const result = await registerLocalComponentWorkspace({ workspacePath });
+  run: async ({ workspacePath }, context) => {
+    const result = await registerLocalComponentWorkspace({
+      workspacePath,
+      scope: localComponentWorkspaceScope(context?.userEmail),
+    });
     return {
       ok: true,
       workspace: result.workspace,

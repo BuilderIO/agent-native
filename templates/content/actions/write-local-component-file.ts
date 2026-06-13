@@ -3,8 +3,10 @@ import { getLocalArtifactApp } from "@agent-native/core/local-artifacts";
 import { z } from "zod";
 import {
   localComponentWorkspaceId,
+  localComponentWorkspaceScope,
   readLocalComponentWorkspacesSync,
   registerLocalComponentWorkspace,
+  resolveLocalComponentWorkspacePath,
   type LocalComponentWorkspace,
   writeLocalComponentFile,
 } from "../shared/local-component-workspaces.js";
@@ -30,8 +32,10 @@ const CONTENT_LOCAL_DEFAULTS = {
   hide: ["**/_*.md", "**/_*.mdx"],
 };
 
-async function componentWorkspaces(): Promise<LocalComponentWorkspace[]> {
-  const registered = readLocalComponentWorkspacesSync();
+async function componentWorkspaces(
+  scope: string,
+): Promise<LocalComponentWorkspace[]> {
+  const registered = readLocalComponentWorkspacesSync(undefined, scope);
   const app = await getLocalArtifactApp({
     appId: "content",
     defaults: CONTENT_LOCAL_DEFAULTS,
@@ -39,9 +43,10 @@ async function componentWorkspaces(): Promise<LocalComponentWorkspace[]> {
   if (app.mode !== "local-files" || app.components.length === 0) {
     return registered;
   }
+  const workspacePath = resolveLocalComponentWorkspacePath(app.workspaceRoot);
   const localFileWorkspace: LocalComponentWorkspace = {
-    id: localComponentWorkspaceId(app.workspaceRoot),
-    workspacePath: app.workspaceRoot,
+    id: localComponentWorkspaceId(workspacePath),
+    workspacePath,
     componentPaths: app.components,
     updatedAt: new Date().toISOString(),
   };
@@ -65,15 +70,17 @@ export default defineAction({
       .describe("Relative path under the workspace components folder"),
     content: z.string().describe("Full .tsx/.jsx/.ts/.js source to write"),
   }),
-  run: async ({ workspaceId, path: filePath, content }) => {
+  run: async ({ workspaceId, path: filePath, content }, context) => {
+    const scope = localComponentWorkspaceScope(context?.userEmail);
     const file = await writeLocalComponentFile({
       workspaceId,
       filePath,
       content,
-      workspaces: await componentWorkspaces(),
+      workspaces: await componentWorkspaces(scope),
     });
     await registerLocalComponentWorkspace({
       workspacePath: file.workspacePath,
+      scope,
     });
     return {
       ok: true,

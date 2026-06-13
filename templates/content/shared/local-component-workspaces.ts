@@ -21,10 +21,10 @@ export interface LocalComponentFile {
 }
 
 const STORE_VERSION = 1;
-const STORE_RELATIVE_PATH = path.join(
-  ".agent-native",
-  "content-local-components.json",
-);
+const STORE_DIRECTORY = ".agent-native";
+const STORE_FILE_PREFIX = "content-local-components";
+const STORE_FILE_EXTENSION = ".json";
+const STORE_FILE_NAME = `${STORE_FILE_PREFIX}${STORE_FILE_EXTENSION}`;
 const COMPONENT_EXTENSIONS = new Set([".tsx", ".jsx", ".ts", ".js"]);
 const COMPONENT_FILE_MAX_BYTES = 512 * 1024;
 const ALLOW_PRODUCTION_LOCAL_FILES_ENV =
@@ -62,8 +62,41 @@ export function isLocalComponentAccessError(error: unknown) {
   );
 }
 
-export function localComponentWorkspaceStorePath(cwd = process.cwd()) {
-  return path.join(cwd, STORE_RELATIVE_PATH);
+function scopedStoreFileName(scope?: string | null) {
+  const normalizedScope = scope?.trim().toLowerCase();
+  if (!normalizedScope) return STORE_FILE_NAME;
+  const scopeHash = createHash("sha256")
+    .update(normalizedScope)
+    .digest("base64url")
+    .slice(0, 16);
+  return `${STORE_FILE_PREFIX}.${scopeHash}${STORE_FILE_EXTENSION}`;
+}
+
+export function localComponentWorkspaceScope(userEmail?: string | null) {
+  return userEmail?.trim().toLowerCase() || "local";
+}
+
+export function localComponentWorkspaceStoreDir(cwd = process.cwd()) {
+  return path.join(cwd, STORE_DIRECTORY);
+}
+
+export function localComponentWorkspaceStorePath(
+  cwd = process.cwd(),
+  scope?: string | null,
+) {
+  return path.join(
+    localComponentWorkspaceStoreDir(cwd),
+    scopedStoreFileName(scope),
+  );
+}
+
+export function isLocalComponentWorkspaceStoreFile(filePath: string) {
+  const basename = path.basename(filePath);
+  return (
+    basename === STORE_FILE_NAME ||
+    (basename.startsWith(`${STORE_FILE_PREFIX}.`) &&
+      basename.endsWith(STORE_FILE_EXTENSION))
+  );
 }
 
 function safeRelativePath(value: string, label: string) {
@@ -109,6 +142,15 @@ function resolveUsableDirectory(value: string, label: string) {
   const stat = fs.lstatSync(resolved);
   if (stat.isSymbolicLink() || !stat.isDirectory()) {
     throw new Error(`${label} must be an existing non-symlink directory.`);
+  }
+  return fs.realpathSync(resolved);
+}
+
+export function resolveLocalComponentWorkspacePath(workspacePath: string) {
+  const resolved = path.resolve(workspacePath);
+  const stat = fs.statSync(resolved);
+  if (!stat.isDirectory()) {
+    throw new Error("Workspace must be an existing directory.");
   }
   return fs.realpathSync(resolved);
 }
@@ -178,9 +220,16 @@ function normalizeStoredWorkspace(
 
 export function readLocalComponentWorkspacesSync(
   cwd = process.cwd(),
+  scope?: string | null,
 ): LocalComponentWorkspace[] {
   ensureLocalFileAccessAllowed();
-  const storePath = localComponentWorkspaceStorePath(cwd);
+  const storePath = localComponentWorkspaceStorePath(cwd, scope);
+  return readLocalComponentWorkspacesFromStorePath(storePath);
+}
+
+function readLocalComponentWorkspacesFromStorePath(
+  storePath: string,
+): LocalComponentWorkspace[] {
   let raw: unknown;
   try {
     raw = JSON.parse(fs.readFileSync(storePath, "utf8"));
@@ -194,12 +243,32 @@ export function readLocalComponentWorkspacesSync(
     .filter((item): item is LocalComponentWorkspace => Boolean(item));
 }
 
+export function readAllLocalComponentWorkspacesSync(cwd = process.cwd()) {
+  ensureLocalFileAccessAllowed();
+  const storeDir = localComponentWorkspaceStoreDir(cwd);
+  let entries: string[];
+  try {
+    entries = fs.readdirSync(storeDir);
+  } catch {
+    return [];
+  }
+  const workspaces = entries
+    .filter((entry) => isLocalComponentWorkspaceStoreFile(entry))
+    .flatMap((entry) =>
+      readLocalComponentWorkspacesFromStorePath(path.join(storeDir, entry)),
+    );
+  const deduped = new Map<string, LocalComponentWorkspace>();
+  for (const workspace of workspaces) deduped.set(workspace.id, workspace);
+  return [...deduped.values()];
+}
+
 async function writeLocalComponentWorkspaces(
   workspaces: LocalComponentWorkspace[],
   cwd = process.cwd(),
+  scope?: string | null,
 ) {
   ensureLocalFileAccessAllowed();
-  const storePath = localComponentWorkspaceStorePath(cwd);
+  const storePath = localComponentWorkspaceStorePath(cwd, scope);
   await fsp.mkdir(path.dirname(storePath), { recursive: true });
   await fsp.writeFile(
     storePath,
@@ -211,6 +280,7 @@ async function writeLocalComponentWorkspaces(
 export async function registerLocalComponentWorkspace(options: {
   workspacePath: string;
   cwd?: string;
+  scope?: string | null;
 }): Promise<{
   workspace: LocalComponentWorkspace;
   componentDirs: string[];
@@ -227,12 +297,12 @@ export async function registerLocalComponentWorkspace(options: {
     componentPaths,
     updatedAt: new Date().toISOString(),
   };
-  const current = readLocalComponentWorkspacesSync(options.cwd);
+  const current = readLocalComponentWorkspacesSync(options.cwd, options.scope);
   const next = [
     workspace,
     ...current.filter((item) => item.id !== workspace.id),
   ];
-  await writeLocalComponentWorkspaces(next, options.cwd);
+  await writeLocalComponentWorkspaces(next, options.cwd, options.scope);
   return {
     workspace,
     componentDirs: componentDirsForWorkspace(workspace),
@@ -364,13 +434,13 @@ async function ensureSafeDirectoryPath(root: string, directory: string) {
 }
 
 export function registeredLocalComponentDirsSync(cwd = process.cwd()) {
-  return readLocalComponentWorkspacesSync(cwd).flatMap(
+  return readAllLocalComponentWorkspacesSync(cwd).flatMap(
     componentDirsForWorkspace,
   );
 }
 
 export function registeredLocalComponentRootsSync(cwd = process.cwd()) {
-  return readLocalComponentWorkspacesSync(cwd).flatMap(
+  return readAllLocalComponentWorkspacesSync(cwd).flatMap(
     componentRootsForWorkspace,
   );
 }
@@ -378,12 +448,14 @@ export function registeredLocalComponentRootsSync(cwd = process.cwd()) {
 export async function listLocalComponentFiles(
   options: {
     cwd?: string;
+    scope?: string | null;
     workspaces?: LocalComponentWorkspace[];
   } = {},
 ): Promise<LocalComponentFile[]> {
   ensureLocalFileAccessAllowed();
   const workspaces =
-    options.workspaces ?? readLocalComponentWorkspacesSync(options.cwd);
+    options.workspaces ??
+    readLocalComponentWorkspacesSync(options.cwd, options.scope);
   const files: LocalComponentFile[] = [];
   for (const workspace of workspaces) {
     for (const componentRoot of componentDirsForWorkspace(workspace)) {
@@ -452,6 +524,7 @@ export async function writeLocalComponentFile(options: {
   filePath: string;
   content: string;
   cwd?: string;
+  scope?: string | null;
   workspaces?: LocalComponentWorkspace[];
 }) {
   ensureLocalFileAccessAllowed();
@@ -459,7 +532,8 @@ export async function writeLocalComponentFile(options: {
     throw new Error("Component file content is larger than 512 KB.");
   }
   const workspaces =
-    options.workspaces ?? readLocalComponentWorkspacesSync(options.cwd);
+    options.workspaces ??
+    readLocalComponentWorkspacesSync(options.cwd, options.scope);
   const workspace = workspaces.find((item) => item.id === options.workspaceId);
   if (!workspace) throw new Error("Registered component workspace not found.");
   const componentRoot =

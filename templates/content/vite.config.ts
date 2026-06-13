@@ -9,6 +9,8 @@ import {
 } from "@agent-native/core/local-artifacts";
 import type { Plugin } from "vite";
 import {
+  isLocalComponentWorkspaceStoreFile,
+  localComponentWorkspaceStoreDir,
   localComponentWorkspaceStorePath,
   registeredLocalComponentRootsSync,
 } from "./shared/local-component-workspaces";
@@ -58,7 +60,12 @@ function envManifestPath() {
 function localWorkspaceRootSync() {
   const manifestPath = envManifestPath() || findAgentNativeManifest();
   if (!manifestPath) return null;
-  return path.dirname(path.resolve(process.cwd(), manifestPath));
+  const workspaceRoot = path.dirname(path.resolve(process.cwd(), manifestPath));
+  try {
+    return fs.realpathSync(workspaceRoot);
+  } catch {
+    return workspaceRoot;
+  }
 }
 
 function normalizeRelativePath(filePath: string, label: string) {
@@ -133,7 +140,7 @@ async function walkComponentFiles(directory: string): Promise<string[]> {
     }
     if (
       !entry.isFile() ||
-      !COMPONENT_EXTENSIONS.has(path.extname(entry.name))
+      !COMPONENT_EXTENSIONS.has(path.extname(entry.name).toLowerCase())
     ) {
       continue;
     }
@@ -150,10 +157,11 @@ async function localComponentDirs() {
 
   const dirs: string[] = [];
   if (app.mode === "local-files") {
+    const workspaceRoot = fs.realpathSync(app.workspaceRoot);
     for (const componentPath of app.components) {
       const safePath = normalizeRelativePath(componentPath, "components path");
-      const absolutePath = path.resolve(app.workspaceRoot, safePath);
-      const relative = path.relative(app.workspaceRoot, absolutePath);
+      const absolutePath = path.resolve(workspaceRoot, safePath);
+      const relative = path.relative(workspaceRoot, absolutePath);
       if (relative.startsWith("..") || path.isAbsolute(relative)) {
         throw new Error(
           `components path "${componentPath}" is outside workspace`,
@@ -253,7 +261,8 @@ function contentLocalComponentsPlugin(): Plugin {
     name: "agent-native-content-local-components",
     enforce: "pre",
     async configureServer(server) {
-      const registryPath = localComponentWorkspaceStorePath();
+      const registryDir = localComponentWorkspaceStoreDir();
+      const legacyRegistryPath = localComponentWorkspaceStorePath();
       let dirs = new Set<string>();
       let refreshPromise: Promise<void> | null = null;
       let refreshAgain = false;
@@ -292,20 +301,22 @@ function contentLocalComponentsPlugin(): Plugin {
         if (fullReload) server.ws.send({ type: "full-reload" });
       };
 
-      await fs.promises.mkdir(path.dirname(registryPath), { recursive: true });
-      server.watcher.add(registryPath);
+      await fs.promises.mkdir(registryDir, { recursive: true });
+      server.watcher.add([registryDir, legacyRegistryPath]);
       await refreshDirs();
       server.watcher.on("all", async (eventName, changedPath) => {
-        if (path.resolve(changedPath) === path.resolve(registryPath)) {
+        const resolvedChangedPath = path.resolve(changedPath);
+        if (
+          path.dirname(resolvedChangedPath) === path.resolve(registryDir) &&
+          isLocalComponentWorkspaceStoreFile(resolvedChangedPath)
+        ) {
           await refreshDirs();
           invalidateComponents(true);
           return;
         }
         if (
           !["add", "unlink", "addDir", "unlinkDir"].includes(eventName) ||
-          ![...dirs].some((dir) =>
-            isInsideDirectory(dir, path.resolve(changedPath)),
-          )
+          ![...dirs].some((dir) => isInsideDirectory(dir, resolvedChangedPath))
         ) {
           return;
         }

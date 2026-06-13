@@ -5,8 +5,10 @@ import {
   isLocalComponentAccessError,
   listLocalComponentFiles,
   localComponentWorkspaceId,
+  localComponentWorkspaceScope,
   type LocalComponentWorkspace,
   readLocalComponentWorkspacesSync,
+  resolveLocalComponentWorkspacePath,
 } from "../shared/local-component-workspaces.js";
 
 const CONTENT_LOCAL_DEFAULTS = {
@@ -36,9 +38,10 @@ async function localFileModeComponentWorkspace(): Promise<LocalComponentWorkspac
     defaults: CONTENT_LOCAL_DEFAULTS,
   });
   if (app.mode !== "local-files" || app.components.length === 0) return null;
+  const workspacePath = resolveLocalComponentWorkspacePath(app.workspaceRoot);
   return {
-    id: localComponentWorkspaceId(app.workspaceRoot),
-    workspacePath: app.workspaceRoot,
+    id: localComponentWorkspaceId(workspacePath),
+    workspacePath,
     componentPaths: app.components,
     updatedAt: new Date().toISOString(),
   };
@@ -50,9 +53,10 @@ export default defineAction({
   readOnly: true,
   http: { method: "GET" },
   schema: z.object({}),
-  run: async () => {
+  run: async (_args, context) => {
     try {
-      const workspaces = readLocalComponentWorkspacesSync();
+      const scope = localComponentWorkspaceScope(context?.userEmail);
+      const workspaces = readLocalComponentWorkspacesSync(undefined, scope);
       const localFileModeWorkspace = await localFileModeComponentWorkspace();
       const allWorkspaces = localFileModeWorkspace
         ? [
