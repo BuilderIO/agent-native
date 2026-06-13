@@ -352,7 +352,7 @@ export function DocumentToolbar({
       toast.success("Shareable copy ready", {
         description: "This copy is stored in the database for sharing.",
       });
-      navigate(`/page/${result.id}?share=1`, { flushSync: true });
+      navigate(`/page/${result.id}?share=1`);
     } catch (error) {
       toast.error("Could not create shareable copy", {
         description:
