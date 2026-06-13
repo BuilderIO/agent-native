@@ -95,6 +95,8 @@ cd templates/content && pnpm action <name> [args]
 | `edit-document`                | `--id <id> --edits <json>`                                                                                                   | Batch surgical text edits                                                             |
 | `update-document`              | `--id <id> [--title] [--content] [--icon]`                                                                                   | Full rewrite of document fields                                                       |
 | `share-local-file-document`    | `--id <local-file-document-id>`                                                                                              | Create or refresh a DB-backed shareable copy of a local file document                 |
+| `list-local-component-files`   |                                                                                                                              | List registered local MDX component source files                                      |
+| `write-local-component-file`   | `--workspaceId <id> --path <relative-component-path> --content <source>`                                                     | Create or update a file in a registered local `components/` folder                    |
 | `create-content-database`      | `[--documentId <id>] [--parentId <id>] [--title <text>]`                                                                     | Create a database page or convert an existing page into a database                    |
 | `get-content-database`         | `--databaseId <id>` or `--documentId <id>`                                                                                   | Get a database table with property schema and item pages                              |
 | `add-database-item`            | `--databaseId <id> [--title <text>] [--propertyValues <json>]`                                                               | Add a page row to a database, optionally seeding property values                      |
@@ -169,6 +171,17 @@ Content has two file workflows:
   `select` fields; selecting the component in the editor shows a corner edit
   button that rewrites the MDX props. JSX expression props are preserved in
   source but shown as an unsupported preview.
+- **Picked folders and components:** browser-picked folders can be the
+  source of truth for `.md`/`.mdx` files, but the browser does not expose an
+  absolute path that Vite can compile. Component previews from a picked
+  `components/` folder require Agent Native Desktop or a local Content dev
+  server. Desktop-selected folders register their workspace path with the local
+  dev server so Vite can import and hot reload `components/*.tsx`.
+- **Agent component edits:** use `list-local-component-files` to find the
+  registered workspace id, then `write-local-component-file` to add or edit
+  `.tsx`, `.jsx`, `.ts`, or `.js` files under that workspace's `components/`
+  folder. The Vite component registry reloads after file additions/removals;
+  edits to already-loaded files hot reload through Vite.
 
 Minimal `agent-native.json`:
 
