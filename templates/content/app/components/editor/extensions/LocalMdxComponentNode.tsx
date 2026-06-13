@@ -26,6 +26,8 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 
+export const LOCAL_FILE_USER_EDIT_META = "localFileUserEdit";
+
 function parseProps(propsJson: unknown): Record<string, unknown> {
   if (typeof propsJson !== "string" || !propsJson.trim()) return {};
   try {
@@ -72,26 +74,51 @@ function LocalComponentInputEditor({
   inputs,
   props,
   children,
+  editor,
+  getPos,
   updateAttributes,
 }: {
   componentName: string;
   inputs: LocalContentComponentInputs;
   props: Record<string, unknown>;
   children?: string;
+  editor: NodeViewProps["editor"];
+  getPos: NodeViewProps["getPos"];
   updateAttributes: NodeViewProps["updateAttributes"];
 }) {
   const updateProp = (name: string, value: unknown) => {
-    const nextProps = { ...props, [name]: value };
+    const pos = getPos();
+    const liveNode =
+      typeof pos === "number" ? editor.state.doc.nodeAt(pos) : null;
+    const liveProps = liveNode ? parseProps(liveNode.attrs.propsJson) : props;
+    const liveChildren =
+      typeof liveNode?.attrs.children === "string"
+        ? liveNode.attrs.children
+        : children;
+    const nextProps = { ...liveProps, [name]: value };
     const raw = serializeLocalMdxComponentSource({
       name: componentName,
       props: nextProps,
-      children,
+      children: liveChildren,
     });
-    updateAttributes({
+
+    const nextAttrs = {
       propsJson: JSON.stringify(nextProps),
       unsupportedProps: false,
       __raw: raw,
-    });
+    };
+
+    if (typeof pos === "number" && liveNode) {
+      const tr = editor.state.tr.setNodeMarkup(pos, undefined, {
+        ...liveNode.attrs,
+        ...nextAttrs,
+      });
+      tr.setMeta(LOCAL_FILE_USER_EDIT_META, true);
+      editor.view.dispatch(tr);
+      return;
+    }
+
+    updateAttributes(nextAttrs);
   };
 
   return (
@@ -256,6 +283,8 @@ function LocalMdxComponentView({
           inputs={inputs}
           props={rawProps}
           children={children}
+          editor={editor}
+          getPos={getPos}
           updateAttributes={updateAttributes}
         />
       ) : null}
