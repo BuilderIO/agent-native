@@ -1336,6 +1336,15 @@ export function buildRecapClaudeMcpConfig(
           "X-Agent-Native-MCP-Full-Catalog": "1",
         },
       },
+      "agent-native-plans": {
+        type: "http",
+        url,
+        headers: {
+          Authorization: "Bearer " + token,
+          "X-Agent-Native-MCP-Client": RECAP_MCP_CLIENT_HEADER,
+          "X-Agent-Native-MCP-Full-Catalog": "1",
+        },
+      },
     },
   });
 }
@@ -1963,7 +1972,7 @@ export function buildRecapPrompt(input: {
   } else {
     lines.push("## Publish (this is the only way to produce output)");
     lines.push(
-      `The \`plan\` MCP server is configured for you. Call its tools by name (your host may expose them as \`get-plan-blocks\` / \`create-visual-recap\` or \`mcp__plan__get-plan-blocks\` / \`mcp__plan__create-visual-recap\` — same tools).`,
+      `The \`plan\` MCP server is configured for you, with \`agent-native-plans\` as a legacy alias. Call its tools by name (your host may expose them as \`get-plan-blocks\` / \`create-visual-recap\`, \`mcp__plan__get-plan-blocks\` / \`mcp__plan__create-visual-recap\`, or \`mcp__agent-native-plans__get-plan-blocks\` / \`mcp__agent-native-plans__create-visual-recap\` — same tools).`,
     );
     lines.push(
       "This is a one-shot GitHub Actions run. Do not wait, sleep, back off, schedule wakeups, reminders, follow-ups, or retries in another turn. Either publish the recap and write `recap-url.txt` in this process, or report the MCP/tool failure plainly.",
@@ -2280,7 +2289,11 @@ export function buildCommentBody(env: NodeJS.ProcessEnv = process.env): string {
   );
   const darkImageUrl = trustedRecapImageUrl(env.RECAP_DARK_IMAGE_URL, base);
   const fallbackImageUrl = lightImageUrl || darkImageUrl;
-  lines.push(`### Here's a [visual recap](${safeUrl}) of what changed:`);
+  lines.push(`Here's a [visual recap](${safeUrl}) of what changed:`);
+  lines.push("");
+  lines.push(
+    "_Access note: private-repo recaps are org-gated. Sign in to Agent-Native Plans with access to this org if the link does not open._",
+  );
   lines.push("");
   if (lightImageUrl && darkImageUrl) {
     lines.push(`<a href="${safeUrl}">`);

@@ -337,7 +337,8 @@ jobs:
           set -uo pipefail
           MCP_CONFIG="$RUNNER_TEMP/plan-mcp.json"
           $RECAP_CLI recap mcp-config --agent claude --app-url "$PLAN_RECAP_APP_URL" --out "$MCP_CONFIG"
-          CLAUDE_ARGS=(-p "$(cat recap-prompt.md)" --mcp-config "$MCP_CONFIG" --allowedTools "Read,Write,Bash(git diff:*),mcp__plan__get-plan-blocks,mcp__plan__create-visual-recap,mcp__plan__set-resource-visibility" --permission-mode dontAsk --output-format json)
+          CLAUDE_ALLOWED_TOOLS="Read,Write,Bash(git diff:*),mcp__plan__get-plan-blocks,mcp__plan__create-visual-recap,mcp__plan__set-resource-visibility,mcp__agent-native-plans__get-plan-blocks,mcp__agent-native-plans__create-visual-recap,mcp__agent-native-plans__set-resource-visibility"
+          CLAUDE_ARGS=(-p "$(cat recap-prompt.md)" --mcp-config "$MCP_CONFIG" --allowedTools "$CLAUDE_ALLOWED_TOOLS" --permission-mode dontAsk --output-format json)
           if [ -n "${VISUAL_RECAP_MODEL:-}" ]; then CLAUDE_ARGS+=(--model "$VISUAL_RECAP_MODEL"); fi
           rm -f recap-url.txt claude-result.json claude-stderr.log
           run_claude() {

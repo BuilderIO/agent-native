@@ -268,6 +268,13 @@ dev server you happen to know is running. The create tool returns the correct
 link; report THAT. Never make the primary link a local `plan.mdx` file, a local
 mirror folder, or a relative path such as `/plans/<id>`.
 
+When the recap is posted to a PR for a private repo, the plan link is not a
+public URL. Make the PR comment/handoff copy explicit: reviewers may need to
+sign in to Agent-Native Plans with an account that has access to the owning
+organization before the link loads. Use wording like: "Private repo recap:
+sign in with access to this org if the plan does not open." Do not imply the
+link is broken or public when access is gated by repo/org visibility.
+
 A recap lives only in the database of the MCP that created it. A separately
 running local dev server (e.g. `http://localhost:8081`) has its OWN database and
 will NOT contain a recap created through the hosted MCP, so a hand-built
@@ -491,7 +498,9 @@ inferred (not extracted) as inferred in prose.
 - **Gate visibility.** Recaps of a private repo are org/login-gated — set the
   plan's visibility to the owning org or login, never auto-public. A recap can
   expose unreleased schema, internal endpoints, and architecture; treat it like
-  the source it summarizes.
+  the source it summarizes. Any PR comment or handoff that links to the recap
+  must say that private-repo recaps require signing in with access to the owning
+  org if the link does not load.
 - **Never transcribe secrets.** A diff can contain API keys, tokens, webhook
   URLs, signing secrets, `.env` values, or credential-looking literals. Do not
   copy any of these into a `diff`, `file-tree` snippet, `api-endpoint`, or prose

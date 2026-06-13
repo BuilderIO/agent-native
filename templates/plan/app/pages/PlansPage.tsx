@@ -3961,6 +3961,7 @@ export function PlansPage() {
               error={planQuery.error}
               onRetry={() => void planQuery.refetch()}
               onCreate={requestCreatePlan}
+              onSignIn={() => openSignIn()}
               canCreate={Boolean(session)}
               viewerEmail={session?.email ?? null}
             />
@@ -3971,6 +3972,7 @@ export function PlansPage() {
               planId={params.id}
               onRetry={() => void planQuery.refetch()}
               onCreate={requestCreatePlan}
+              onSignIn={() => openSignIn()}
               canCreate={Boolean(session)}
               viewerEmail={session?.email ?? null}
             />
@@ -5404,6 +5406,7 @@ function PlanLoadError({
   error,
   onRetry,
   onCreate,
+  onSignIn,
   canCreate,
   viewerEmail,
 }: {
@@ -5411,6 +5414,7 @@ function PlanLoadError({
   error?: unknown;
   onRetry: () => void;
   onCreate: () => void;
+  onSignIn: () => void;
   canCreate: boolean;
   /** The signed-in identity for THIS origin, or null when anonymous. */
   viewerEmail?: string | null;
@@ -5420,12 +5424,10 @@ function PlanLoadError({
       ? error.message.replace(/^Action [\w-]+ failed:\s*/, "")
       : "This plan could not be loaded from the current session.";
 
-  // "Not found" here almost always means an identity or origin mismatch, not a
-  // genuinely missing plan — the access resolver deliberately conflates the two
-  // (it won't leak whether a private plan exists). So present it like a GitHub
-  // 404: it isn't a crash, the plan just isn't visible to you here, and signing
-  // in (or switching account/server) may be all that's needed. Anything else is
-  // a real load failure, kept distinct so we don't mislabel it as "not found".
+  // "Not found" here often means an identity/org/origin mismatch, not a
+  // genuinely missing plan. The access resolver deliberately conflates the two
+  // so private plans don't leak existence. Lead with the practical recovery path
+  // instead of making reviewers infer that a PR recap link is login-gated.
   const notFound = /not found/i.test(message);
   const signedIn = Boolean(viewerEmail);
 
@@ -5444,29 +5446,35 @@ function PlanLoadError({
           )}
           <div className="min-w-0">
             <h2 className="text-base font-semibold tracking-tight">
-              {notFound ? "Plan not found" : "Plan did not load"}
+              {notFound ? "Private plan access needed" : "Plan did not load"}
             </h2>
             {notFound ? (
-              <p className="mt-1 text-sm leading-6 text-muted-foreground">
+              <div className="mt-1 space-y-2 text-sm leading-6 text-muted-foreground">
                 {signedIn ? (
-                  <>
-                    Plans are private per account and server — it may belong to
-                    a different account, or live on another server (e.g. the
-                    hosted app, not this localhost). Signed in as{" "}
+                  <p>
+                    This plan is private to the owning organization. For
+                    Builder.io PR recaps, sign in with an Agent-Native Plans
+                    account that belongs to the Builder.io organization, then
+                    retry this link. You are currently signed in as{" "}
                     <span className="font-medium text-foreground">
                       {viewerEmail}
                     </span>
                     .
-                  </>
+                  </p>
                 ) : (
-                  <>
-                    Plans are private, so you may need to{" "}
-                    <span className="font-medium text-foreground">sign in</span>{" "}
-                    to view this one — or it may live on another server (e.g.
-                    the hosted app).
-                  </>
+                  <p>
+                    This plan is private to the owning organization. For
+                    Builder.io PR recaps, create or sign in to an Agent-Native
+                    Plans account that belongs to the Builder.io organization,
+                    then retry this link.
+                  </p>
                 )}
-              </p>
+                <p>
+                  The link may show up like a 404 when you are anonymous, signed
+                  into the wrong account, or opening it on a different Plan app
+                  origin than the one that published it.
+                </p>
+              </div>
             ) : (
               <p className="mt-1 text-sm leading-6 text-muted-foreground">
                 {message}
@@ -5480,14 +5488,29 @@ function PlanLoadError({
           </div>
         </div>
         <div className="mt-5 flex flex-wrap gap-2">
-          <Button type="button" onClick={onRetry}>
-            <IconRefresh className="size-4" />
-            Retry
-          </Button>
-          <Button type="button" variant="outline" onClick={onCreate}>
-            <IconPlus className="size-4" />
-            {canCreate ? "New Plan" : "Sign in"}
-          </Button>
+          {notFound ? (
+            <>
+              <Button type="button" onClick={onSignIn}>
+                <IconExternalLink className="size-4" />
+                Sign in or switch account
+              </Button>
+              <Button type="button" variant="outline" onClick={onRetry}>
+                <IconRefresh className="size-4" />
+                Retry
+              </Button>
+            </>
+          ) : (
+            <>
+              <Button type="button" onClick={onRetry}>
+                <IconRefresh className="size-4" />
+                Retry
+              </Button>
+              <Button type="button" variant="outline" onClick={onCreate}>
+                <IconPlus className="size-4" />
+                {canCreate ? "New Plan" : "Sign in"}
+              </Button>
+            </>
+          )}
         </div>
       </div>
     </div>

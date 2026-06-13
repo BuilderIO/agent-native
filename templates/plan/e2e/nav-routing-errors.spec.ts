@@ -273,8 +273,8 @@ test.describe("nav / routing / error+loading", () => {
     // It must resolve to a graceful error card within a bounded time — not crash
     // to a blank boundary and not spin on a skeleton forever.
     await expect(
-      page.getByText(/Plan not found/i),
-      "a non-existent plan must resolve to a graceful not-found card (no infinite skeleton, no crash)",
+      page.getByText(/Private plan access needed/i),
+      "a non-existent or inaccessible plan must resolve to a graceful access card (no infinite skeleton, no crash)",
     ).toBeVisible({ timeout: 25_000 });
 
     const body = await page.locator("body").innerText();
@@ -289,10 +289,10 @@ test.describe("nav / routing / error+loading", () => {
       'non-existent plan should NOT surface a raw "Internal server error" message — it is a not-found, not a 500',
     ).toBeFalsy();
     expect(
-      /not found|does not exist|couldn'?t find|no longer available|can'?t be found|isn'?t available/i.test(
+      /private plan access needed|Builder\.io organization|sign in or switch account|404/i.test(
         body,
       ),
-      "non-existent plan should communicate a not-found state to the user",
+      "non-existent plan should explain private access and sign-in recovery to the user",
     ).toBeTruthy();
 
     const reloadsAtNotFound = reloads.count();
@@ -350,7 +350,7 @@ test.describe("nav / routing / error+loading", () => {
       const state = await page.evaluate(() => {
         const errorShown =
           document.body.innerText.includes("Plan did not load") ||
-          document.body.innerText.includes("Plan not found");
+          document.body.innerText.includes("Private plan access needed");
         const skeleton = document.querySelectorAll(
           "[aria-label='Loading plan']",
         ).length;
@@ -630,8 +630,8 @@ test.describe("nav / routing — plan you don't own", () => {
     }).toPass({ timeout: 20_000 });
 
     await expect(
-      page.getByText(/Plan not found/i),
-      "an inaccessible foreign plan must resolve to the graceful not-found card",
+      page.getByText(/Private plan access needed/i),
+      "an inaccessible foreign plan must resolve to the graceful private-access card",
     ).toBeVisible({ timeout: 20_000 });
 
     // And it should not crash the shell.
