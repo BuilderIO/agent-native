@@ -123,18 +123,28 @@ function escapeAttr(value: string): string {
     .replace(/>/g, "&gt;");
 }
 
-function iconSvg(name: keyof typeof ICON_PATHS, label: string | null): string {
-  const accessibility = label
-    ? `role="img" aria-label="${escapeAttr(label)}"`
+function iconAccessibility(label: string | null): string {
+  const accessibleLabel = label?.trim();
+  return accessibleLabel
+    ? `role="img" aria-label="${escapeAttr(accessibleLabel)}"`
     : 'aria-hidden="true"';
-  return `<svg class="wf-icon" data-icon="${name}" xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" ${accessibility}>${ICON_PATHS[name].join("")}</svg>`;
+}
+
+function iconSvg(name: keyof typeof ICON_PATHS, label: string | null): string {
+  return `<svg class="wf-icon" data-icon="${name}" xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" ${iconAccessibility(label)}>${ICON_PATHS[name].join("")}</svg>`;
+}
+
+function iconFallback(rawName: string, label: string | null): string {
+  const iconName = rawName.trim() || "unknown";
+  const accessibleLabel = label?.trim() || `Unsupported icon: ${iconName}`;
+  return `<span class="wf-icon wf-icon-fallback" data-icon="unknown" data-icon-name="${escapeAttr(iconName)}" role="img" aria-label="${escapeAttr(accessibleLabel)}">?</span>`;
 }
 
 export function renderWireframeIconHtml(html: string): string {
   return html.replace(
     ICON_MARKER_RE,
     (
-      match,
+      _match,
       _tagA,
       beforeA,
       quotedA,
@@ -161,11 +171,10 @@ export function renderWireframeIconHtml(html: string): string {
         quotedB ??
         "";
       const name = normalizeIconName(rawName);
-      if (!name) return match;
       const attrs = `${beforeA ?? ""}${afterA ?? ""}${beforeB ?? ""}${afterB ?? ""}`;
       const label =
         readAttribute(attrs, "aria-label") ?? readAttribute(attrs, "title");
-      return iconSvg(name, label);
+      return name ? iconSvg(name, label) : iconFallback(rawName, label);
     },
   );
 }

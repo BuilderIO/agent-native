@@ -97,6 +97,19 @@ describe("wireframe auto-height frame", () => {
     expect(html).not.toContain(">lock<");
   });
 
+  it("renders unknown icon markers as a visible fallback", () => {
+    const html = render({
+      surface: "popover",
+      html: '<span data-icon="made-up" aria-label="Mystery icon"></span>',
+    });
+
+    expect(html).toContain('class="wf-icon wf-icon-fallback"');
+    expect(html).toContain('data-icon="unknown"');
+    expect(html).toContain('data-icon-name="made-up"');
+    expect(html).toContain('aria-label="Mystery icon"');
+    expect(html).toContain(">?</span>");
+  });
+
   it("applies a taller floor to a phone surface than a popover", () => {
     const mobileStyle = artboardStyle(
       render({ surface: "mobile", html: "<div>x</div>" }),

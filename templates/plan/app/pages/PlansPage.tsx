@@ -5664,7 +5664,8 @@ function PlanLoadError({
             ) : null}
             {showAccessHelp && !signedIn ? (
               <p className="mt-3 text-xs leading-5 text-muted-foreground">
-                Builder.io PR recaps require a Builder.io org account.
+                Builder.io PR recaps need a Builder.io org account or one shared
+                on the plan.
               </p>
             ) : null}
             {!showAccessHelp && !planMissing ? (

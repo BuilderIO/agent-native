@@ -1076,6 +1076,17 @@
   vertical-align: -0.16em;
 }
 
+.plan-html-frame:not([data-render-mode="design"]) .wf-icon-fallback {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1.2px solid currentColor;
+  border-radius: 999px;
+  font-size: 0.72em;
+  font-weight: 700;
+  line-height: 1;
+}
+
 .plan-html-frame:not([data-render-mode="design"]) button,
 .plan-html-frame:not([data-render-mode="design"]) .wf-btn {
   display: inline-flex;
