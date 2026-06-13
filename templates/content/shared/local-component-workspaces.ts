@@ -41,6 +41,13 @@ function normalizeSlash(value: string) {
   return value.replace(/\\/g, "/");
 }
 
+function stringArraysEqual(left: string[], right: string[]) {
+  return (
+    left.length === right.length &&
+    left.every((value, index) => value === right[index])
+  );
+}
+
 export function localComponentWorkspaceId(workspacePath: string) {
   return `workspace-${createHash("sha256")
     .update(path.resolve(workspacePath))
@@ -278,7 +285,9 @@ async function writeLocalComponentWorkspacesToStorePath(
 async function updateLocalComponentWorkspaces(options: {
   cwd?: string;
   scope?: string | null;
-  update: (workspaces: LocalComponentWorkspace[]) => LocalComponentWorkspace[];
+  update: (
+    workspaces: LocalComponentWorkspace[],
+  ) => LocalComponentWorkspace[] | null;
 }) {
   ensureLocalFileAccessAllowed();
   const storePath = localComponentWorkspaceStorePath(
@@ -290,7 +299,12 @@ async function updateLocalComponentWorkspaces(options: {
   let nextWorkspaces: LocalComponentWorkspace[] = [];
   const queued = previous.then(async () => {
     const current = readLocalComponentWorkspacesFromStorePath(storePath);
-    nextWorkspaces = options.update(current);
+    const updated = options.update(current);
+    if (!updated) {
+      nextWorkspaces = current;
+      return;
+    }
+    nextWorkspaces = updated;
     await writeLocalComponentWorkspacesToStorePath(nextWorkspaces, storePath);
   });
   const stored = queued
@@ -325,17 +339,26 @@ export async function registerLocalComponentWorkspace(options: {
     componentPaths,
     updatedAt: new Date().toISOString(),
   };
+  let registeredWorkspace = workspace;
   await updateLocalComponentWorkspaces({
     cwd: options.cwd,
     scope: options.scope,
-    update: (current) => [
-      workspace,
-      ...current.filter((item) => item.id !== workspace.id),
-    ],
+    update: (current) => {
+      const existing = current.find((item) => item.id === workspace.id);
+      if (
+        existing &&
+        existing.workspacePath === workspace.workspacePath &&
+        stringArraysEqual(existing.componentPaths, workspace.componentPaths)
+      ) {
+        registeredWorkspace = existing;
+        return null;
+      }
+      return [workspace, ...current.filter((item) => item.id !== workspace.id)];
+    },
   });
   return {
-    workspace,
-    componentDirs: componentDirsForWorkspace(workspace),
+    workspace: registeredWorkspace,
+    componentDirs: componentDirsForWorkspace(registeredWorkspace),
   };
 }
 
@@ -367,6 +390,39 @@ function firstComponentRootForWorkspace(workspace: LocalComponentWorkspace) {
     throw new Error("Registered workspace does not have a component root.");
   }
   return componentRoot;
+}
+
+function componentRootForWrite(
+  workspace: LocalComponentWorkspace,
+  filePath: string,
+  requestedComponentRoot?: string | null,
+) {
+  const componentRoots = componentRootsForWorkspace(workspace);
+  if (requestedComponentRoot?.trim()) {
+    const resolvedRequestedRoot = path.resolve(requestedComponentRoot);
+    const matchingRoot = componentRoots.find(
+      (componentRoot) => path.resolve(componentRoot) === resolvedRequestedRoot,
+    );
+    if (!matchingRoot) {
+      throw new Error("Target component root is not registered for workspace.");
+    }
+    return matchingRoot;
+  }
+
+  for (const componentRoot of componentRoots) {
+    const absolutePath = resolveInside(componentRoot, filePath);
+    try {
+      const stat = fs.lstatSync(absolutePath);
+      if (stat.isFile() && !stat.isSymbolicLink()) return componentRoot;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    }
+  }
+
+  return (
+    componentDirsForWorkspace(workspace)[0] ??
+    firstComponentRootForWorkspace(workspace)
+  );
 }
 
 function safeComponentRootForWorkspace(
@@ -552,6 +608,7 @@ async function collectComponentFiles(
 export async function writeLocalComponentFile(options: {
   workspaceId: string;
   filePath: string;
+  componentRoot?: string | null;
   content: string;
   cwd?: string;
   scope?: string | null;
@@ -566,10 +623,12 @@ export async function writeLocalComponentFile(options: {
     readLocalComponentWorkspacesSync(options.cwd, options.scope);
   const workspace = workspaces.find((item) => item.id === options.workspaceId);
   if (!workspace) throw new Error("Registered component workspace not found.");
-  const componentRoot =
-    componentDirsForWorkspace(workspace)[0] ??
-    firstComponentRootForWorkspace(workspace);
   const filePath = safeComponentFilePath(options.filePath);
+  const componentRoot = componentRootForWrite(
+    workspace,
+    filePath,
+    options.componentRoot,
+  );
   const absolutePath = resolveInside(componentRoot, filePath);
   await ensureSafeDirectoryPath(workspace.workspacePath, componentRoot);
   await ensureSafeDirectoryPath(componentRoot, path.dirname(absolutePath));

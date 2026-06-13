@@ -5,7 +5,6 @@ import {
   localComponentWorkspaceId,
   localComponentWorkspaceScope,
   readLocalComponentWorkspacesSync,
-  registerLocalComponentWorkspace,
   resolveLocalComponentWorkspacePath,
   type LocalComponentWorkspace,
   writeLocalComponentFile,
@@ -68,19 +67,25 @@ export default defineAction({
       .string()
       .min(1)
       .describe("Relative path under the workspace components folder"),
+    componentRoot: z
+      .string()
+      .optional()
+      .describe(
+        "Optional absolute component root returned by list-local-component-files. Use when writing a new file into a non-default component root.",
+      ),
     content: z.string().describe("Full .tsx/.jsx/.ts/.js source to write"),
   }),
-  run: async ({ workspaceId, path: filePath, content }, context) => {
+  run: async (
+    { workspaceId, path: filePath, componentRoot, content },
+    context,
+  ) => {
     const scope = localComponentWorkspaceScope(context?.userEmail);
     const file = await writeLocalComponentFile({
       workspaceId,
       filePath,
+      componentRoot,
       content,
       workspaces: await componentWorkspaces(scope),
-    });
-    await registerLocalComponentWorkspace({
-      workspacePath: file.workspacePath,
-      scope,
     });
     return {
       ok: true,

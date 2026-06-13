@@ -114,6 +114,97 @@ describe("local component workspaces", () => {
     ]);
   });
 
+  it("does not rewrite the registry when registering the same workspace", async () => {
+    const cwd = mkdtemp("an-content-components-cwd-");
+    const workspace = mkdtemp("an-content-components-workspace-");
+    writeFile(
+      workspace,
+      "components/StableBlock.tsx",
+      "export function StableBlock() { return null; }\n",
+    );
+
+    const first = await registerLocalComponentWorkspace({
+      cwd,
+      workspacePath: workspace,
+      scope: "editor@example.com",
+    });
+    const second = await registerLocalComponentWorkspace({
+      cwd,
+      workspacePath: workspace,
+      scope: "editor@example.com",
+    });
+
+    expect(second.workspace.updatedAt).toBe(first.workspace.updatedAt);
+  });
+
+  it("updates existing files in non-first component roots", async () => {
+    const cwd = mkdtemp("an-content-components-cwd-");
+    const workspace = mkdtemp("an-content-components-workspace-");
+    writeFile(
+      workspace,
+      "agent-native.json",
+      JSON.stringify({
+        apps: { content: { components: ["components", "blocks"] } },
+      }),
+    );
+    writeFile(
+      workspace,
+      "blocks/Hero.tsx",
+      "export function Hero() { return 'old'; }\n",
+    );
+    const registered = await registerLocalComponentWorkspace({
+      cwd,
+      workspacePath: workspace,
+    });
+
+    await writeLocalComponentFile({
+      cwd,
+      workspaceId: registered.workspace.id,
+      filePath: "Hero.tsx",
+      content: "export function Hero() { return 'new'; }\n",
+    });
+
+    expect(fs.existsSync(path.join(workspace, "components/Hero.tsx"))).toBe(
+      false,
+    );
+    expect(
+      fs.readFileSync(path.join(workspace, "blocks/Hero.tsx"), "utf8"),
+    ).toContain("new");
+  });
+
+  it("can create files in a requested non-first component root", async () => {
+    const cwd = mkdtemp("an-content-components-cwd-");
+    const workspace = mkdtemp("an-content-components-workspace-");
+    writeFile(
+      workspace,
+      "agent-native.json",
+      JSON.stringify({
+        apps: { content: { components: ["components", "blocks"] } },
+      }),
+    );
+    fs.mkdirSync(path.join(workspace, "blocks"), { recursive: true });
+    const registered = await registerLocalComponentWorkspace({
+      cwd,
+      workspacePath: workspace,
+    });
+    const realWorkspace = fs.realpathSync(workspace);
+
+    await writeLocalComponentFile({
+      cwd,
+      workspaceId: registered.workspace.id,
+      componentRoot: path.join(realWorkspace, "blocks"),
+      filePath: "NewHero.tsx",
+      content: "export function NewHero() { return null; }\n",
+    });
+
+    expect(fs.existsSync(path.join(workspace, "components/NewHero.tsx"))).toBe(
+      false,
+    );
+    expect(fs.existsSync(path.join(workspace, "blocks/NewHero.tsx"))).toBe(
+      true,
+    );
+  });
+
   it("scopes registered workspaces while aggregating roots for dev previews", async () => {
     const cwd = mkdtemp("an-content-components-cwd-");
     const aliceWorkspace = mkdtemp("an-content-components-alice-");
