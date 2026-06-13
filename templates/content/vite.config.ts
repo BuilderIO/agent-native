@@ -8,6 +8,10 @@ import {
   type LocalArtifactOptions,
 } from "@agent-native/core/local-artifacts";
 import type { Plugin } from "vite";
+import {
+  localComponentWorkspaceStorePath,
+  registeredLocalComponentRootsSync,
+} from "./shared/local-component-workspaces";
 
 const CONTENT_APP_ID = "content";
 const LOCAL_COMPONENTS_MODULE_ID =
@@ -143,21 +147,30 @@ async function localComponentDirs() {
     appId: CONTENT_APP_ID,
     defaults: CONTENT_LOCAL_DEFAULTS,
   });
-  if (app.mode !== "local-files") return [];
 
   const dirs: string[] = [];
-  for (const componentPath of app.components) {
-    const safePath = normalizeRelativePath(componentPath, "components path");
-    const absolutePath = path.resolve(app.workspaceRoot, safePath);
-    const relative = path.relative(app.workspaceRoot, absolutePath);
-    if (relative.startsWith("..") || path.isAbsolute(relative)) {
-      throw new Error(
-        `components path "${componentPath}" is outside workspace`,
-      );
+  if (app.mode === "local-files") {
+    for (const componentPath of app.components) {
+      const safePath = normalizeRelativePath(componentPath, "components path");
+      const absolutePath = path.resolve(app.workspaceRoot, safePath);
+      const relative = path.relative(app.workspaceRoot, absolutePath);
+      if (relative.startsWith("..") || path.isAbsolute(relative)) {
+        throw new Error(
+          `components path "${componentPath}" is outside workspace`,
+        );
+      }
+      dirs.push(absolutePath);
     }
-    dirs.push(absolutePath);
   }
-  return dirs;
+
+  try {
+    dirs.push(...registeredLocalComponentRootsSync());
+  } catch {
+    // Dynamic local component folders are a local-dev bridge only. Ignore them
+    // when the runtime disallows local file access, such as normal production.
+  }
+
+  return [...new Set(dirs.map((dir) => path.resolve(dir)))];
 }
 
 async function loadLocalComponentFiles() {
@@ -240,20 +253,47 @@ function contentLocalComponentsPlugin(): Plugin {
     name: "agent-native-content-local-components",
     enforce: "pre",
     async configureServer(server) {
-      const dirs = await localComponentDirs();
-      if (!dirs.length) return;
-      server.watcher.add(dirs);
-      server.watcher.on("all", (eventName, changedPath) => {
-        if (
-          !["add", "unlink", "addDir", "unlinkDir"].includes(eventName) ||
-          !dirs.some((dir) => isInsideDirectory(dir, path.resolve(changedPath)))
-        ) {
-          return;
+      const registryPath = localComponentWorkspaceStorePath();
+      let dirs = new Set<string>();
+      const refreshDirs = async () => {
+        const nextDirs = new Set(await localComponentDirs());
+        const newDirs = [...nextDirs].filter((dir) => !dirs.has(dir));
+        if (newDirs.length > 0) {
+          server.watcher.add(newDirs);
+          const allow = server.config.server.fs.allow ?? [];
+          for (const dir of newDirs) {
+            if (!allow.includes(dir)) allow.push(dir);
+          }
         }
+        dirs = nextDirs;
+      };
+      const invalidateComponents = (fullReload = false) => {
         const mod = server.moduleGraph.getModuleById(
           RESOLVED_LOCAL_COMPONENTS_MODULE_ID,
         );
         if (mod) server.moduleGraph.invalidateModule(mod);
+        if (fullReload) server.ws.send({ type: "full-reload" });
+      };
+
+      await fs.promises.mkdir(path.dirname(registryPath), { recursive: true });
+      server.watcher.add(registryPath);
+      await refreshDirs();
+      server.watcher.on("all", async (eventName, changedPath) => {
+        if (path.resolve(changedPath) === path.resolve(registryPath)) {
+          await refreshDirs();
+          invalidateComponents(true);
+          return;
+        }
+        if (
+          !["add", "unlink", "addDir", "unlinkDir"].includes(eventName) ||
+          ![...dirs].some((dir) =>
+            isInsideDirectory(dir, path.resolve(changedPath)),
+          )
+        ) {
+          return;
+        }
+        await refreshDirs();
+        invalidateComponents(true);
       });
     },
     resolveId(id, importer) {
@@ -270,10 +310,20 @@ function contentLocalComponentsPlugin(): Plugin {
 }
 
 const localWorkspaceRoot = localWorkspaceRootSync();
+const dynamicLocalComponentDirs = (() => {
+  try {
+    return registeredLocalComponentRootsSync();
+  } catch {
+    return [];
+  }
+})();
 
 export default defineConfig({
   plugins: [contentLocalComponentsPlugin(), reactRouter()],
-  fsAllow: localWorkspaceRoot ? [localWorkspaceRoot] : [],
+  fsAllow: [
+    ...(localWorkspaceRoot ? [localWorkspaceRoot] : []),
+    ...dynamicLocalComponentDirs,
+  ],
   // shiki only runs in AssistantChat's useEffect — keep it out of the
   // CF Pages Functions bundle (25 MiB limit).
   ssrStubs: ["shiki"],

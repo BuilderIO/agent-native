@@ -205,6 +205,15 @@ menu under Local components. When input metadata is exported, selecting the
 component in the editor shows a corner edit button that rewrites the MDX props
 in the local file.
 
+The browser **Local files** picker can read and write `.md` and `.mdx` files on
+its own, but executable React component previews require a local compiler. Run
+Content locally or use Agent Native Desktop so the selected workspace path can
+be registered with the local Content dev server. Vite then imports
+`components/*.tsx`, hot reloads edits to existing component files, and reloads
+the component registry when files are added or removed. Agents can use
+`list-local-component-files` and `write-local-component-file` to inspect or
+update registered component files while the editor updates from the same source.
+
 ### Comments
 
 Threaded comments on documents with quoted-text anchors, replies, and resolve state. Backed by the `document_comments` table and `app/components/editor/CommentsSidebar.tsx`. Actions: `list-comments`, `add-comment`. Notion comments can sync both ways via `sync-notion-comments`.
