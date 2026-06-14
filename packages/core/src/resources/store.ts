@@ -11,6 +11,18 @@ import {
   getRequestOrgId,
   getRequestUserEmail,
 } from "../server/request-context.js";
+import {
+  canUseLocalWorkspaceResourcePath,
+  deleteLocalWorkspaceResource,
+  isLocalWorkspaceResourceId,
+  isLocalWorkspaceResourcesEnabled,
+  listLocalWorkspaceResources,
+  localWorkspaceResourcePathFromId,
+  readLocalWorkspaceResource,
+  writeLocalWorkspaceResource,
+  type LocalWorkspaceResourceFile,
+  type LocalWorkspaceResourceMeta,
+} from "../local-artifacts/index.js";
 import crypto from "crypto";
 
 export const SHARED_OWNER = "__shared__";
@@ -112,6 +124,8 @@ const RESOURCE_META_SELECT =
 const DISPATCH_WORKSPACE_RESOURCE_ID_PREFIX = "dispatch-workspace-resource:";
 const DISPATCH_WORKSPACE_RESOURCE_METADATA_SOURCE =
   "dispatch-workspace-resource";
+export const LOCAL_WORKSPACE_RESOURCE_METADATA_SOURCE =
+  "local-workspace-resource";
 
 const DEFAULT_LEARNINGS_SHARED_MD = `# Learnings
 
@@ -466,6 +480,101 @@ function rowToGrantedWorkspaceResource(row: any): Resource {
     }),
   };
 }
+
+function localResourceTimestamp(value: string): number {
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) ? parsed : Date.now();
+}
+
+function localWorkspaceResourceMetadata(
+  resource: LocalWorkspaceResourceMeta,
+): string {
+  return JSON.stringify({
+    source: LOCAL_WORKSPACE_RESOURCE_METADATA_SOURCE,
+    absolutePath: resource.absolutePath,
+    hash: resource.hash,
+    mtimeMs: resource.mtimeMs,
+  });
+}
+
+function localWorkspaceResourceToResource(
+  resource: LocalWorkspaceResourceFile,
+): Resource {
+  return {
+    id: resource.id,
+    path: resource.path,
+    owner: WORKSPACE_OWNER,
+    content: resource.content,
+    mimeType: resource.mimeType,
+    size: resource.sizeBytes,
+    createdAt: localResourceTimestamp(resource.createdAt),
+    updatedAt: localResourceTimestamp(resource.updatedAt),
+    createdBy: "system",
+    visibility: "workspace",
+    threadId: null,
+    runId: null,
+    expiresAt: null,
+    metadata: localWorkspaceResourceMetadata(resource),
+  };
+}
+
+function localWorkspaceResourceToMeta(
+  resource: LocalWorkspaceResourceMeta,
+): ResourceMeta {
+  return {
+    id: resource.id,
+    path: resource.path,
+    owner: WORKSPACE_OWNER,
+    mimeType: resource.mimeType,
+    size: resource.sizeBytes,
+    createdAt: localResourceTimestamp(resource.createdAt),
+    updatedAt: localResourceTimestamp(resource.updatedAt),
+    createdBy: "system",
+    visibility: "workspace",
+    threadId: null,
+    runId: null,
+    expiresAt: null,
+    metadata: localWorkspaceResourceMetadata(resource),
+  };
+}
+
+async function localWorkspaceResourceById(
+  id: string,
+): Promise<Resource | null> {
+  const resourcePath = localWorkspaceResourcePathFromId(id);
+  if (!resourcePath) return null;
+  const resource = await readLocalWorkspaceResource({ path: resourcePath });
+  return resource ? localWorkspaceResourceToResource(resource) : null;
+}
+
+async function localWorkspaceResourceByPath(
+  resourcePath: string,
+): Promise<Resource | null> {
+  if (!canUseLocalWorkspaceResourcePath(resourcePath)) return null;
+  const resource = await readLocalWorkspaceResource({ path: resourcePath });
+  return resource ? localWorkspaceResourceToResource(resource) : null;
+}
+
+async function localWorkspaceResourceMetas(
+  pathPrefix?: string,
+): Promise<ResourceMeta[]> {
+  const resources = (await listLocalWorkspaceResources()).map(
+    localWorkspaceResourceToMeta,
+  );
+  if (!pathPrefix) return resources;
+  return resources.filter((resource) => resource.path.startsWith(pathPrefix));
+}
+
+export async function canWriteLocalWorkspaceResourcePath(
+  resourcePath: string,
+): Promise<boolean> {
+  return (
+    canUseLocalWorkspaceResourcePath(resourcePath) &&
+    (await isLocalWorkspaceResourcesEnabled())
+  );
+}
+
+export { isLocalWorkspaceResourceId };
 
 function mergeResourceMetas(
   primary: ResourceMeta[],
@@ -940,6 +1049,9 @@ export async function resourceGet(
   options?: ResourceResolutionOptions,
 ): Promise<Resource | null> {
   await ensureTable();
+  if (isLocalWorkspaceResourceId(id)) {
+    return localWorkspaceResourceById(id);
+  }
   const client = getDbExec();
   await cleanupExpiredAgentScratchResources(client);
   const { rows } = await client.execute({
@@ -956,6 +1068,10 @@ export async function resourceGetByPath(
   options?: ResourceResolutionOptions,
 ): Promise<Resource | null> {
   await ensureTable();
+  if (owner === WORKSPACE_OWNER) {
+    const local = await localWorkspaceResourceByPath(path);
+    if (local) return local;
+  }
   const client = getDbExec();
   await cleanupExpiredAgentScratchResources(client);
   const { rows } = await client.execute({
@@ -977,6 +1093,23 @@ export async function resourcePut(
   options?: ResourceWriteOptions,
 ): Promise<Resource> {
   await ensureTable();
+  if (
+    owner === WORKSPACE_OWNER &&
+    (await canWriteLocalWorkspaceResourcePath(path))
+  ) {
+    const written = await writeLocalWorkspaceResource({ path, content });
+    const resource = localWorkspaceResourceToResource({
+      ...written,
+      content,
+    });
+    emitResourceChange(
+      resource.id,
+      resource.path,
+      resource.owner,
+      options?.requestSource,
+    );
+    return resource;
+  }
   const client = getDbExec();
   const now = Date.now();
   const size = Buffer.byteLength(content, "utf8");
@@ -1078,6 +1211,15 @@ export async function resourcePut(
 
 export async function resourceDelete(id: string): Promise<boolean> {
   await ensureTable();
+  if (isLocalWorkspaceResourceId(id)) {
+    const resourcePath = localWorkspaceResourcePathFromId(id);
+    if (!resourcePath) return false;
+    const deleted = await deleteLocalWorkspaceResource({ path: resourcePath });
+    if (deleted) {
+      emitResourceDelete(id, resourcePath, WORKSPACE_OWNER);
+    }
+    return deleted;
+  }
   const client = getDbExec();
 
   // Get resource info for emitter before deleting
@@ -1103,6 +1245,17 @@ export async function resourceDeleteByPath(
   path: string,
 ): Promise<boolean> {
   await ensureTable();
+  if (
+    owner === WORKSPACE_OWNER &&
+    (await canWriteLocalWorkspaceResourcePath(path))
+  ) {
+    const existing = await localWorkspaceResourceByPath(path);
+    const deleted = await deleteLocalWorkspaceResource({ path });
+    if (deleted) {
+      emitResourceDelete(existing?.id ?? "", path, WORKSPACE_OWNER);
+      return true;
+    }
+  }
   const client = getDbExec();
 
   // Get resource info for emitter before deleting
@@ -1140,13 +1293,17 @@ export async function resourceList(
     });
     const resources = rows.map(rowToMeta);
     if (owner !== WORKSPACE_OWNER) return resources;
+    const local = await localWorkspaceResourceMetas(pathPrefix);
     const granted = await grantedWorkspaceResources({
       pathPrefix,
       workspaceAppId: options?.workspaceAppId,
       userEmail: options?.userEmail,
       orgId: options?.orgId,
     });
-    return mergeResourceMetas(resources, granted.map(resourceToMeta));
+    return mergeResourceMetas(
+      local,
+      mergeResourceMetas(resources, granted.map(resourceToMeta)),
+    );
   }
 
   const { rows } = await client.execute({
@@ -1155,12 +1312,16 @@ export async function resourceList(
   });
   const resources = rows.map(rowToMeta);
   if (owner !== WORKSPACE_OWNER) return resources;
+  const local = await localWorkspaceResourceMetas();
   const granted = await grantedWorkspaceResources({
     workspaceAppId: options?.workspaceAppId,
     userEmail: options?.userEmail,
     orgId: options?.orgId,
   });
-  return mergeResourceMetas(resources, granted.map(resourceToMeta));
+  return mergeResourceMetas(
+    local,
+    mergeResourceMetas(resources, granted.map(resourceToMeta)),
+  );
 }
 
 export async function resourceListAccessible(
@@ -1190,13 +1351,17 @@ export async function resourceListAccessible(
       ],
     });
     const resources = rows.map(rowToMeta);
+    const local = await localWorkspaceResourceMetas(pathPrefix);
     const granted = await grantedWorkspaceResources({
       pathPrefix,
       workspaceAppId: options?.workspaceAppId,
       userEmail,
       orgId: options?.orgId,
     });
-    return mergeResourceMetas(resources, granted.map(resourceToMeta));
+    return mergeResourceMetas(
+      local,
+      mergeResourceMetas(resources, granted.map(resourceToMeta)),
+    );
   }
 
   const { rows } = await client.execute({
@@ -1208,12 +1373,16 @@ export async function resourceListAccessible(
     args: [userEmail, SHARED_OWNER, WORKSPACE_OWNER],
   });
   const resources = rows.map(rowToMeta);
+  const local = await localWorkspaceResourceMetas();
   const granted = await grantedWorkspaceResources({
     workspaceAppId: options?.workspaceAppId,
     userEmail,
     orgId: options?.orgId,
   });
-  return mergeResourceMetas(resources, granted.map(resourceToMeta));
+  return mergeResourceMetas(
+    local,
+    mergeResourceMetas(resources, granted.map(resourceToMeta)),
+  );
 }
 
 export async function resourceEffectiveContext(
@@ -1250,7 +1419,7 @@ export async function resourceEffectiveContext(
       label: "Workspace default",
       owner: WORKSPACE_OWNER,
       resource: workspace,
-      canWrite: false,
+      canWrite: workspace ? isLocalWorkspaceResourceId(workspace.id) : false,
     },
     {
       scope: "shared",
@@ -1298,7 +1467,20 @@ export async function resourceListAllOwners(
     sql: `SELECT * FROM resources WHERE path LIKE ? ESCAPE '\\'`,
     args: [prefixLike(pathPrefix)],
   });
-  return rows.map(rowToResource);
+  const localResources = (
+    await Promise.all(
+      (await localWorkspaceResourceMetas(pathPrefix)).map((resource) =>
+        resourceGet(resource.id),
+      ),
+    )
+  ).filter((resource): resource is Resource => !!resource);
+  const localPaths = new Set(localResources.map((resource) => resource.path));
+  return [
+    ...localResources,
+    ...rows
+      .map(rowToResource)
+      .filter((resource) => !localPaths.has(resource.path)),
+  ];
 }
 
 export async function resourceMove(

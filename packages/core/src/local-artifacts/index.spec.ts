@@ -8,10 +8,13 @@ import {
   deleteLocalArtifactFile,
   findAgentNativeManifest,
   getLocalArtifactApp,
+  listLocalWorkspaceResources,
   listLocalArtifactFiles,
   readLocalArtifactFile,
+  readLocalWorkspaceResource,
   resolveAgentNativeDataMode,
   writeLocalArtifactFile,
+  writeLocalWorkspaceResource,
 } from "./index.js";
 
 const tmpRoots: string[] = [];
@@ -314,5 +317,103 @@ describe("local artifact helpers", () => {
         path: "docs/secret.mdx",
       }),
     ).rejects.toThrow("must not traverse a symlink");
+  });
+
+  it("lists local workspace AGENTS, skills, manifest, and MCP config as resources", async () => {
+    const root = tmpDir();
+    const manifestPath = path.join(root, "agent-native.json");
+    writeJson(manifestPath, {
+      mode: "local-files",
+      apps: {
+        content: {
+          roots: [{ path: "docs", extensions: [".mdx"] }],
+        },
+      },
+    });
+    fs.writeFileSync(path.join(root, "AGENTS.md"), "# Repo Agents", "utf8");
+    fs.writeFileSync(
+      path.join(root, "mcp.config.json"),
+      '{"servers":{"docs":{"type":"http","url":"https://example.test/mcp"}}}',
+      "utf8",
+    );
+    fs.mkdirSync(path.join(root, ".agents", "skills", "review", "references"), {
+      recursive: true,
+    });
+    fs.writeFileSync(
+      path.join(root, ".agents", "skills", "review", "SKILL.md"),
+      "---\nname: review\n---\n# Review",
+      "utf8",
+    );
+    fs.writeFileSync(
+      path.join(root, ".agents", "skills", "review", "references", "rubric.md"),
+      "# Rubric",
+      "utf8",
+    );
+
+    const resources = await listLocalWorkspaceResources({ manifestPath });
+
+    expect(resources.map((resource) => resource.path)).toEqual(
+      expect.arrayContaining([
+        "AGENTS.md",
+        "agent-native.json",
+        "mcp.config.json",
+        "skills/review/SKILL.md",
+        "skills/review/references/rubric.md",
+      ]),
+    );
+    expect(resources).toHaveLength(5);
+  });
+
+  it("reads and writes local workspace resources through resource paths", async () => {
+    const root = tmpDir();
+    const manifestPath = path.join(root, "agent-native.json");
+    writeJson(manifestPath, {
+      mode: "local-files",
+      apps: {
+        content: {
+          roots: [{ path: "docs", extensions: [".mdx"] }],
+        },
+      },
+    });
+
+    const written = await writeLocalWorkspaceResource({
+      manifestPath,
+      path: "skills/local-review/SKILL.md",
+      content: "---\nname: local-review\n---\n# Local Review",
+    });
+    const read = await readLocalWorkspaceResource({
+      manifestPath,
+      path: "skills/local-review/SKILL.md",
+    });
+
+    expect(written.path).toBe("skills/local-review/SKILL.md");
+    expect(read?.content).toContain("# Local Review");
+    expect(
+      fs.readFileSync(
+        path.join(root, ".agents", "skills", "local-review", "SKILL.md"),
+        "utf8",
+      ),
+    ).toContain("# Local Review");
+  });
+
+  it("does not expose local workspace resources outside local file mode", async () => {
+    const root = tmpDir();
+    const manifestPath = path.join(root, "agent-native.json");
+    writeJson(manifestPath, {
+      mode: "database",
+      apps: {
+        content: {
+          roots: [{ path: "docs", extensions: [".mdx"] }],
+        },
+      },
+    });
+    fs.writeFileSync(path.join(root, "AGENTS.md"), "# Repo Agents", "utf8");
+
+    await expect(
+      listLocalWorkspaceResources({ manifestPath }),
+    ).resolves.toEqual([]);
+    await expect(
+      readLocalWorkspaceResource({ manifestPath, path: "AGENTS.md" }),
+    ).resolves.toBeNull();
   });
 });

@@ -9,6 +9,7 @@ import {
   IconFolderPlus,
   IconFolderOpen,
   IconRefresh,
+  IconStarFilled,
   IconTrash,
   IconUpload,
 } from "@tabler/icons-react";
@@ -33,6 +34,11 @@ import {
   rememberLinkedLocalSourceDirectories,
   rememberLinkedLocalSourceDirectory,
 } from "@/lib/local-content-source-files";
+import {
+  collectLocalControlResourceFiles,
+  syncLocalControlResources,
+  type LocalControlResourceFiles,
+} from "@/lib/local-control-resources";
 import { CONTENT_SOURCE_ROOT } from "@shared/content-source";
 
 type PermissionState = "granted" | "denied" | "prompt";
@@ -510,7 +516,14 @@ async function removeStaleMarkdownFiles(
 
 async function readSourceFilesFromDirectory(
   directory: SelectedDirectory,
-): Promise<{ directory: SelectedDirectory; files: Record<string, string> }> {
+  {
+    includeControlResources = false,
+  }: { includeControlResources?: boolean } = {},
+): Promise<{
+  directory: SelectedDirectory;
+  files: Record<string, string>;
+  controlResources?: LocalControlResourceFiles;
+}> {
   if (directory.kind === "desktop") {
     const desktopFiles = getDesktopContentFiles();
     if (!desktopFiles) {
@@ -521,6 +534,9 @@ async function readSourceFilesFromDirectory(
     return {
       directory: desktopDirectoryFromFolder(result.folder),
       files: result.sources ?? {},
+      controlResources: includeControlResources
+        ? result.controlResources
+        : undefined,
     };
   }
 
@@ -532,7 +548,30 @@ async function readSourceFilesFromDirectory(
   return {
     directory,
     files: await collectMarkdownFiles(root.handle, root.prefix),
+    controlResources: includeControlResources
+      ? await collectLocalControlResourceFiles(handle)
+      : undefined,
   };
+}
+
+function isMainDirectory(
+  selected: SelectedDirectory,
+  activeDirectories: SelectedDirectory[],
+) {
+  return activeDirectories[0]?.id === selected.id;
+}
+
+function upsertDirectory(
+  directories: SelectedDirectory[],
+  selected: SelectedDirectory,
+) {
+  const existingIndex = directories.findIndex(
+    (directory) => directory.id === selected.id,
+  );
+  if (existingIndex === -1) return [...directories, selected];
+  return directories.map((directory, index) =>
+    index === existingIndex ? selected : directory,
+  );
 }
 
 function sourcePathForDirectoryFile(
@@ -633,7 +672,10 @@ export default function LocalFilesRoute() {
           title: "Folders remembered",
           detail: `${restoredDirectories.length} linked`,
         });
-        await pullDirectories(restoredDirectories, { showToast: false });
+        await pullDirectories(restoredDirectories, {
+          showToast: false,
+          syncControlResources: false,
+        });
         await connectLocalComponentWorkspaces(restoredDirectories, {
           showToast: false,
         });
@@ -649,7 +691,10 @@ export default function LocalFilesRoute() {
         title: "Folders remembered",
         detail: `${restoredDirectories.length} linked`,
       });
-      await pullDirectories(restoredDirectories, { showToast: false });
+      await pullDirectories(restoredDirectories, {
+        showToast: false,
+        syncControlResources: false,
+      });
       await connectLocalComponentWorkspaces(restoredDirectories, {
         showToast: false,
       });
@@ -687,13 +732,25 @@ export default function LocalFilesRoute() {
   async function pullDirectoryFiles(
     selected: SelectedDirectory,
     activeDirectories: SelectedDirectory[],
-    { dryRun = false }: { dryRun?: boolean } = {},
+    {
+      dryRun = false,
+      syncControlResources = true,
+    }: { dryRun?: boolean; syncControlResources?: boolean } = {},
   ): Promise<{
     directories: SelectedDirectory[];
     result: ImportContentSourceResult;
   }> {
-    const { directory: refreshedDirectory, files } =
-      await readSourceFilesFromDirectory(selected);
+    const includeControlResources =
+      syncControlResources &&
+      !dryRun &&
+      isMainDirectory(selected, activeDirectories);
+    const {
+      directory: refreshedDirectory,
+      files,
+      controlResources,
+    } = await readSourceFilesFromDirectory(selected, {
+      includeControlResources,
+    });
     const nextDirectories = updateDirectory(
       activeDirectories,
       refreshedDirectory,
@@ -701,6 +758,15 @@ export default function LocalFilesRoute() {
     setDirectories(nextDirectories);
     if (refreshedDirectory.kind === "browser") {
       await persistSourceDirectories(nextDirectories);
+    }
+    if (includeControlResources) {
+      const synced = await syncLocalControlResources({
+        folderName: refreshedDirectory.sourcePrefix || refreshedDirectory.name,
+        files: controlResources,
+      });
+      if (synced.count > 0) {
+        queryClient.invalidateQueries({ queryKey: ["resources"] });
+      }
     }
     if (Object.keys(files).length === 0) {
       return {
@@ -735,12 +801,17 @@ export default function LocalFilesRoute() {
 
   async function pullDirectories(
     selectedDirectories: SelectedDirectory[],
-    { showToast = true }: { showToast?: boolean } = {},
+    {
+      showToast = true,
+      syncControlResources = true,
+    }: { showToast?: boolean; syncControlResources?: boolean } = {},
   ) {
     let activeDirectories = selectedDirectories;
     let latestResult: ImportContentSourceResult | null = null;
     for (const directory of selectedDirectories) {
-      const pulled = await pullDirectoryFiles(directory, activeDirectories);
+      const pulled = await pullDirectoryFiles(directory, activeDirectories, {
+        syncControlResources,
+      });
       latestResult = pulled.result;
       activeDirectories = pulled.directories;
     }
@@ -803,10 +874,7 @@ export default function LocalFilesRoute() {
     setBusy("choose");
     try {
       const selected = await chooseDirectory(directories);
-      const nextDirectories = [
-        ...directories.filter((directory) => directory.id !== selected.id),
-        selected,
-      ];
+      const nextDirectories = upsertDirectory(directories, selected);
       if (selected.kind === "browser") {
         rememberLinkedLocalSourceDirectory(selected.handle);
         await persistSourceDirectories(nextDirectories);
@@ -961,7 +1029,10 @@ export default function LocalFilesRoute() {
         detail: directory.name,
       });
       if (nextDirectories.length === 1) {
-        await pullDirectories(nextDirectories, { showToast: false });
+        await pullDirectories(nextDirectories, {
+          showToast: false,
+          syncControlResources: false,
+        });
       }
     } catch (err) {
       setStatus({
@@ -995,6 +1066,7 @@ export default function LocalFilesRoute() {
             className="w-fit"
             onClick={handleChooseFolder}
             disabled={!supported || disabled}
+            aria-label="Choose folder"
           >
             <IconFolderPlus />
             {busy === "choose"
@@ -1108,16 +1180,25 @@ export default function LocalFilesRoute() {
                   </TableCell>
                 </TableRow>
               ) : (
-                directories.map((directory) => {
+                directories.map((directory, index) => {
                   const isBusy = busy?.endsWith(`:${directory.id}`) ?? false;
+                  const isMain = index === 0;
                   return (
                     <TableRow key={directory.id}>
                       <TableCell>
                         <div className="flex min-w-0 items-center gap-2">
                           <IconFolderOpen className="size-4 shrink-0 text-muted-foreground" />
                           <div className="min-w-0">
-                            <div className="truncate font-medium">
-                              {directory.name}
+                            <div className="flex min-w-0 items-center gap-1.5">
+                              <span className="truncate font-medium">
+                                {directory.name}
+                              </span>
+                              {isMain && (
+                                <IconStarFilled
+                                  aria-label="Main folder"
+                                  className="size-3.5 shrink-0 text-primary"
+                                />
+                              )}
                             </div>
                             <div className="truncate text-xs text-muted-foreground">
                               {directory.kind === "desktop"

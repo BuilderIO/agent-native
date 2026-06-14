@@ -174,6 +174,7 @@ import {
   getDesktopPlanFiles,
   type DesktopPlanFilesFolder,
 } from "@/lib/desktop-plan-files";
+import { syncLocalControlResources } from "@/lib/local-control-resources";
 import {
   type PlanBundle,
   type PlanKind,
@@ -2590,11 +2591,25 @@ export function PlansPage() {
     void planFiles.getFolder({ planId: selectedId }).then((result) => {
       if (cancelled) return;
       setDesktopPlanFolder(result.ok ? result.folder : null);
+      if (result.ok) {
+        void syncLocalControlResources({
+          folderName: result.folder.name,
+          files: result.controlResources,
+        })
+          .then((synced) => {
+            if (synced.count > 0) {
+              queryClient.invalidateQueries({ queryKey: ["resources"] });
+            }
+          })
+          .catch(() => {
+            // Resource refresh is best-effort when restoring a remembered folder.
+          });
+      }
     });
     return () => {
       cancelled = true;
     };
-  }, [selectedId]);
+  }, [queryClient, selectedId]);
 
   useEffect(() => {
     if (!selectedId) return;
@@ -3029,6 +3044,13 @@ export function PlansPage() {
           }
           folder = chosen.folder;
           setDesktopPlanFolder(folder);
+          const synced = await syncLocalControlResources({
+            folderName: folder.name,
+            files: chosen.controlResources,
+          });
+          if (synced.count > 0) {
+            queryClient.invalidateQueries({ queryKey: ["resources"] });
+          }
         }
 
         const data = await readPlanExport();
@@ -3042,6 +3064,13 @@ export function PlansPage() {
         });
         if (written.ok === false) throw new Error(written.error);
         setDesktopPlanFolder(written.folder);
+        const synced = await syncLocalControlResources({
+          folderName: written.folder.name,
+          files: written.controlResources,
+        });
+        if (synced.count > 0) {
+          queryClient.invalidateQueries({ queryKey: ["resources"] });
+        }
         desktopAutoSyncedVersionRef.current[plan.id] = plan.updatedAt;
         if (!options.quiet) {
           toast.success(`Synced ${written.files?.length ?? 0} local files`);
@@ -3051,7 +3080,7 @@ export function PlansPage() {
         setDesktopPlanSyncing(false);
       }
     },
-    [bundle?.plan, desktopPlanFolder, readPlanExport],
+    [bundle?.plan, desktopPlanFolder, queryClient, readPlanExport],
   );
 
   const importPlanFromDesktopFolder = useCallback(async () => {
@@ -3066,6 +3095,13 @@ export function PlansPage() {
       const result = await planFiles.readPlan({ planId: plan.id });
       if (result.ok === false) throw new Error(result.error);
       if (!result.mdx) throw new Error("No Plan source files were found.");
+      const synced = await syncLocalControlResources({
+        folderName: result.folder.name,
+        files: result.controlResources,
+      });
+      if (synced.count > 0) {
+        queryClient.invalidateQueries({ queryKey: ["resources"] });
+      }
       const imported = await importPlanSource.mutateAsync({
         planId: plan.id,
         expectedUpdatedAt: plan.updatedAt,
@@ -3081,7 +3117,7 @@ export function PlansPage() {
     } finally {
       setDesktopPlanImporting(false);
     }
-  }, [bundle?.plan, importPlanSource]);
+  }, [bundle?.plan, importPlanSource, queryClient]);
 
   const setDesktopPlanAutoSyncEnabled = useCallback(
     (enabled: boolean) => {

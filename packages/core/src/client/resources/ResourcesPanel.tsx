@@ -35,6 +35,7 @@ import {
   withAgentScratchFolder,
   type ResourceScope,
   type ResourceMeta,
+  type Resource,
 } from "./use-resources.js";
 import {
   formatMcpServerError,
@@ -66,6 +67,7 @@ import {
 } from "../components/ui/popover.js";
 
 const WORKSPACE_DOCS_URL = "https://agent-native.com/docs/workspace";
+const LOCAL_WORKSPACE_RESOURCE_METADATA_SOURCE = "local-workspace-resource";
 
 // ─── Create Menu (unified + button) ────────────────────────────────────────
 
@@ -95,6 +97,16 @@ function slugifyName(value: string): string {
       .replace(/[^a-z0-9]+/g, "-")
       .replace(/^-+|-+$/g, "") || "agent"
   );
+}
+
+function isLocalWorkspaceResource(resource: Resource | null | undefined) {
+  if (!resource?.metadata) return false;
+  try {
+    const metadata = JSON.parse(resource.metadata) as { source?: unknown };
+    return metadata.source === LOCAL_WORKSPACE_RESOURCE_METADATA_SOURCE;
+  } catch {
+    return false;
+  }
 }
 
 function buildAgentResourceContent({
@@ -1367,7 +1379,8 @@ export function ResourcesPanel() {
   const uploadResource = useUploadResource();
   const selectedResourceReadOnly =
     !!resourceQuery.data &&
-    (resourceQuery.data.owner === WORKSPACE_RESOURCE_OWNER ||
+    ((resourceQuery.data.owner === WORKSPACE_RESOURCE_OWNER &&
+      !isLocalWorkspaceResource(resourceQuery.data)) ||
       (resourceQuery.data.owner === SHARED_RESOURCE_OWNER && !canEditOrg));
 
   // Ensure AGENTS.md exists in the organization scope when the panel opens.
@@ -1822,12 +1835,12 @@ export function ResourcesPanel() {
                   <p className="mb-1.5 leading-snug">
                     Files the agent reads and writes — notes, instructions,
                     skills, custom agents, scheduled jobs, and inherited
-                    workspace context. They live in the database, so they
-                    persist across sessions and deploys.
+                    workspace context. They live in the database or, in local
+                    file mode, in the attached repo.
                   </p>
                   <p className="mb-2 leading-snug">
                     <span className="text-foreground">Workspace</span> is
-                    inherited from Dispatch.{" "}
+                    inherited from Dispatch or local file mode.{" "}
                     <span className="text-foreground">Organization</span> is
                     visible to everyone in your organization
                     {org?.orgId ? " — only admins can edit. " : ". "}
@@ -1864,7 +1877,7 @@ export function ResourcesPanel() {
                 onRename={() => {}}
                 onDrop={() => {}}
                 title="Workspace"
-                titleTooltip="Global resources inherited from Dispatch by every app. Read-only here."
+                titleTooltip="Global resources inherited by every app. Dispatch resources are read-only; local file mode resources can be edited here."
                 readOnly
                 headingHint="Inherited"
               />

@@ -15,6 +15,8 @@ import {
   resourceMove,
   resourceEffectiveContext,
   ensurePersonalDefaults,
+  canWriteLocalWorkspaceResourcePath,
+  isLocalWorkspaceResourceId,
   SHARED_OWNER,
   WORKSPACE_OWNER,
   type ResourceMeta,
@@ -474,7 +476,9 @@ export async function handleUpdateResource(event: any) {
     setResponseStatus(event, 404);
     return { error: "Resource not found" };
   }
-  if (existing.owner === WORKSPACE_OWNER) {
+  const isLocalWorkspaceResource =
+    existing.owner === WORKSPACE_OWNER && isLocalWorkspaceResourceId(id);
+  if (existing.owner === WORKSPACE_OWNER && !isLocalWorkspaceResource) {
     setResponseStatus(event, 403);
     return { error: "Workspace resources are managed from Dispatch" };
   }
@@ -483,9 +487,22 @@ export async function handleUpdateResource(event: any) {
   }
 
   const body = await readBody(event);
+  const nextPath = body.path ?? existing.path;
+
+  if (
+    isLocalWorkspaceResource &&
+    nextPath !== existing.path &&
+    !(await canWriteLocalWorkspaceResourcePath(nextPath))
+  ) {
+    setResponseStatus(event, 400);
+    return {
+      error:
+        "Local workspace resources can only be moved to AGENTS.md, agent-native.json, mcp.config.json, .mcp.json, or skills/.",
+    };
+  }
 
   // If path changed, move it
-  if (body.path && body.path !== existing.path) {
+  if (!isLocalWorkspaceResource && body.path && body.path !== existing.path) {
     await resourceMove(id, body.path);
   }
 
@@ -495,17 +512,20 @@ export async function handleUpdateResource(event: any) {
   const resource = writeOptions
     ? await resourcePut(
         existing.owner,
-        body.path ?? existing.path,
+        nextPath,
         body.content ?? existing.content,
         body.mimeType ?? existing.mimeType,
         writeOptions,
       )
     : await resourcePut(
         existing.owner,
-        body.path ?? existing.path,
+        nextPath,
         body.content ?? existing.content,
         body.mimeType ?? existing.mimeType,
       );
+  if (isLocalWorkspaceResource && nextPath !== existing.path) {
+    await resourceDelete(id);
+  }
 
   return resource;
 }
@@ -530,7 +550,10 @@ export async function handleDeleteResource(event: any) {
     setResponseStatus(event, 404);
     return { error: "Resource not found" };
   }
-  if (existing.owner === WORKSPACE_OWNER) {
+  if (
+    existing.owner === WORKSPACE_OWNER &&
+    !isLocalWorkspaceResourceId(existing.id)
+  ) {
     setResponseStatus(event, 403);
     return { error: "Workspace resources are managed from Dispatch" };
   }

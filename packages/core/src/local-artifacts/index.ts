@@ -106,6 +106,31 @@ export interface WriteLocalArtifactFileOptions extends LocalArtifactOptions {
   ifNotExists?: boolean;
 }
 
+export interface LocalWorkspaceResourceMeta {
+  id: string;
+  path: string;
+  absolutePath: string;
+  mimeType: string;
+  sizeBytes: number;
+  hash: string;
+  createdAt: string;
+  updatedAt: string;
+  mtimeMs: number;
+}
+
+export interface LocalWorkspaceResourceFile extends LocalWorkspaceResourceMeta {
+  content: string;
+}
+
+export interface LocalWorkspaceResourceOptions extends LoadAgentNativeManifestOptions {}
+
+export interface WriteLocalWorkspaceResourceOptions extends LocalWorkspaceResourceOptions {
+  path: string;
+  content: string;
+  expectedHash?: string | null;
+  ifNotExists?: boolean;
+}
+
 const MANIFEST_FILE = "agent-native.json";
 const ENV_MODE_NAMES = ["AGENT_NATIVE_MODE", "AGENT_NATIVE_DATA_MODE"];
 const ENV_MANIFEST_NAMES = [
@@ -123,6 +148,35 @@ const DEFAULT_HIDE_PATTERNS = [
   "**/dist/**",
   "**/build/**",
 ];
+export const LOCAL_WORKSPACE_RESOURCE_ID_PREFIX = "local-workspace-resource:";
+const LOCAL_WORKSPACE_RESOURCE_MAX_BYTES = 2 * 1024 * 1024;
+const LOCAL_WORKSPACE_CONTROL_FILES = new Set([
+  "AGENTS.md",
+  "agent-native.json",
+  "mcp.config.json",
+  ".mcp.json",
+]);
+const LOCAL_WORKSPACE_SKILL_ROOTS = [".agents/skills", ".agent/skills"];
+const LOCAL_WORKSPACE_TEXT_EXTENSIONS = new Set([
+  ".css",
+  ".csv",
+  ".html",
+  ".js",
+  ".json",
+  ".jsx",
+  ".md",
+  ".mdx",
+  ".py",
+  ".sh",
+  ".sql",
+  ".toml",
+  ".ts",
+  ".tsx",
+  ".txt",
+  ".xml",
+  ".yaml",
+  ".yml",
+]);
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value);
@@ -762,4 +816,425 @@ export async function ensureLocalArtifactRoot(
 
 export function createTempWorkspaceDir(prefix = "agent-native-local-"): string {
   return fsSync.mkdtempSync(path.join(os.tmpdir(), prefix));
+}
+
+function localWorkspaceResourcesEnabled(
+  loaded: LoadedAgentNativeManifest | null,
+): boolean {
+  const explicitMode = envMode();
+  if (explicitMode) {
+    assertLocalFilesRuntimeAllowed(explicitMode);
+    return explicitMode === "local-files";
+  }
+  const manifest = loaded?.manifest;
+  const mode = manifest?.mode;
+  if (mode) {
+    assertLocalFilesRuntimeAllowed(mode);
+    if (mode === "local-files") return true;
+  }
+  for (const app of Object.values(manifest?.apps ?? {})) {
+    if (!app.mode) continue;
+    assertLocalFilesRuntimeAllowed(app.mode);
+    if (app.mode === "local-files") return true;
+  }
+  return false;
+}
+
+async function resolveLocalWorkspaceRoot(
+  options: LocalWorkspaceResourceOptions = {},
+): Promise<string | null> {
+  const loaded = await loadAgentNativeManifest({ ...options, optional: true });
+  if (localWorkspaceResourcesEnabled(loaded)) {
+    return loaded?.rootDir ?? path.resolve(options.cwd ?? process.cwd());
+  }
+  return null;
+}
+
+export async function isLocalWorkspaceResourcesEnabled(
+  options: LocalWorkspaceResourceOptions = {},
+): Promise<boolean> {
+  return !!(await resolveLocalWorkspaceRoot(options));
+}
+
+export function localWorkspaceResourceId(resourcePath: string): string {
+  const normalized = normalizeSlash(resourcePath).replace(/^\/+/, "");
+  return `${LOCAL_WORKSPACE_RESOURCE_ID_PREFIX}${Buffer.from(
+    normalized,
+    "utf8",
+  ).toString("base64url")}`;
+}
+
+export function isLocalWorkspaceResourceId(id: string): boolean {
+  return id.startsWith(LOCAL_WORKSPACE_RESOURCE_ID_PREFIX);
+}
+
+export function localWorkspaceResourcePathFromId(id: string): string | null {
+  if (!isLocalWorkspaceResourceId(id)) return null;
+  const encoded = id.slice(LOCAL_WORKSPACE_RESOURCE_ID_PREFIX.length);
+  try {
+    const decoded = Buffer.from(encoded, "base64url").toString("utf8");
+    return normalizeLocalWorkspaceResourcePath(decoded);
+  } catch {
+    return null;
+  }
+}
+
+function mimeTypeForLocalWorkspaceResource(resourcePath: string): string {
+  const extension = extensionOf(resourcePath);
+  if (extension === ".md") return "text/markdown";
+  if (extension === ".mdx") return "text/mdx";
+  if (extension === ".json") return "application/json";
+  if (extension === ".yaml" || extension === ".yml") return "application/yaml";
+  if (extension === ".toml") return "text/toml";
+  if (extension === ".ts" || extension === ".tsx") return "text/typescript";
+  if (extension === ".js" || extension === ".jsx") return "text/javascript";
+  if (extension === ".html") return "text/html";
+  if (extension === ".css") return "text/css";
+  if (extension === ".xml") return "application/xml";
+  if (extension === ".csv") return "text/csv";
+  if (extension === ".sql") return "text/sql";
+  if (extension === ".sh") return "text/x-shellscript";
+  if (extension === ".py") return "text/x-python";
+  return "text/plain";
+}
+
+function isSupportedLocalWorkspaceTextFile(resourcePath: string): boolean {
+  return LOCAL_WORKSPACE_TEXT_EXTENSIONS.has(extensionOf(resourcePath));
+}
+
+export function normalizeLocalWorkspaceResourcePath(resourcePath: string) {
+  const safePath = normalizeRelativePath(
+    normalizeSlash(resourcePath).replace(/^\/+/, ""),
+    "resource path",
+  );
+  if (LOCAL_WORKSPACE_CONTROL_FILES.has(safePath)) return safePath;
+  if (safePath.startsWith(".agents/skills/")) {
+    const relativeSkillPath = normalizeRelativePath(
+      safePath.slice(".agents/skills/".length),
+      "resource path",
+    );
+    return normalizeSlash(path.posix.join("skills", relativeSkillPath));
+  }
+  if (safePath.startsWith(".agent/skills/")) {
+    const relativeSkillPath = normalizeRelativePath(
+      safePath.slice(".agent/skills/".length),
+      "resource path",
+    );
+    return normalizeSlash(path.posix.join("skills", relativeSkillPath));
+  }
+  if (safePath.startsWith("skills/")) return safePath;
+  throw new Error(
+    `Local workspace resource "${resourcePath}" must be AGENTS.md, agent-native.json, mcp.config.json, .mcp.json, or under skills/.`,
+  );
+}
+
+export function canUseLocalWorkspaceResourcePath(
+  resourcePath: string,
+): boolean {
+  try {
+    normalizeLocalWorkspaceResourcePath(resourcePath);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function localWorkspaceResourceAbsolutePath(
+  workspaceRoot: string,
+  resourcePath: string,
+): { resourcePath: string; absolutePath: string } {
+  const normalized = normalizeLocalWorkspaceResourcePath(resourcePath);
+  const relativePath = normalized.startsWith("skills/")
+    ? normalizeSlash(
+        path.posix.join(".agents/skills", normalized.slice("skills/".length)),
+      )
+    : normalized;
+  const { absolutePath } = resolveInsideWorkspace(workspaceRoot, relativePath);
+  return { resourcePath: normalized, absolutePath };
+}
+
+function assertNoSymlinkAbsolutePathSync(
+  workspaceRoot: string,
+  absolutePath: string,
+  options: { allowMissingLeaf?: boolean } = {},
+) {
+  const relative = path.relative(workspaceRoot, absolutePath);
+  const segments = relative.split(path.sep).filter(Boolean);
+  let current = workspaceRoot;
+  const pathsToCheck = [
+    current,
+    ...segments.map((segment) => {
+      current = path.join(current, segment);
+      return current;
+    }),
+  ];
+
+  for (let index = 0; index < pathsToCheck.length; index += 1) {
+    const candidate = pathsToCheck[index]!;
+    try {
+      const stat = fsSync.lstatSync(candidate);
+      if (stat.isSymbolicLink()) {
+        throw new Error(`Path "${candidate}" must not traverse a symlink`);
+      }
+      if (index < pathsToCheck.length - 1 && !stat.isDirectory()) {
+        throw new Error(`Path "${candidate}" is not a directory`);
+      }
+    } catch (error) {
+      if (errorCode(error) === "ENOENT" && options.allowMissingLeaf) return;
+      throw error;
+    }
+  }
+}
+
+function readLocalWorkspaceTextFile(
+  workspaceRoot: string,
+  absolutePath: string,
+): { content: string; stat: fsSync.Stats } {
+  assertNoSymlinkAbsolutePathSync(workspaceRoot, absolutePath);
+  const fd = fsSync.openSync(absolutePath, noFollowOpenFlags());
+  try {
+    const stat = fsSync.fstatSync(fd);
+    if (!stat.isFile()) {
+      throw new Error(`Path "${absolutePath}" is not a file`);
+    }
+    if (stat.size > LOCAL_WORKSPACE_RESOURCE_MAX_BYTES) {
+      throw new Error(
+        `Local workspace resource "${absolutePath}" is too large to load`,
+      );
+    }
+    return {
+      content: fsSync.readFileSync(fd, "utf8"),
+      stat,
+    };
+  } finally {
+    fsSync.closeSync(fd);
+  }
+}
+
+function localWorkspaceResourceMeta(
+  resourcePath: string,
+  absolutePath: string,
+  content: string,
+  stat: fsSync.Stats,
+): LocalWorkspaceResourceMeta {
+  return {
+    id: localWorkspaceResourceId(resourcePath),
+    path: resourcePath,
+    absolutePath,
+    mimeType: mimeTypeForLocalWorkspaceResource(resourcePath),
+    sizeBytes: Buffer.byteLength(content, "utf8"),
+    hash: hashContent(content),
+    createdAt: stat.birthtime.toISOString(),
+    updatedAt: stat.mtime.toISOString(),
+    mtimeMs: stat.mtimeMs,
+  };
+}
+
+async function maybeLocalWorkspaceResourceMeta(
+  workspaceRoot: string,
+  resourcePath: string,
+  absolutePath: string,
+): Promise<LocalWorkspaceResourceMeta | null> {
+  if (!isSupportedLocalWorkspaceTextFile(resourcePath)) return null;
+  try {
+    const { content, stat } = readLocalWorkspaceTextFile(
+      workspaceRoot,
+      absolutePath,
+    );
+    return localWorkspaceResourceMeta(
+      resourcePath,
+      absolutePath,
+      content,
+      stat,
+    );
+  } catch (error) {
+    if (errorCode(error) === "ENOENT") return null;
+    throw error;
+  }
+}
+
+async function walkLocalWorkspaceSkillRoot(
+  workspaceRoot: string,
+  skillRoot: string,
+  seenPaths: Set<string>,
+): Promise<LocalWorkspaceResourceMeta[]> {
+  const absoluteRoot = path.join(workspaceRoot, skillRoot);
+  try {
+    assertNoSymlinkAbsolutePathSync(workspaceRoot, absoluteRoot);
+  } catch (error) {
+    if (errorCode(error) === "ENOENT") return [];
+    throw error;
+  }
+
+  const files: LocalWorkspaceResourceMeta[] = [];
+  async function walk(directory: string): Promise<void> {
+    let entries: fsSync.Dirent[];
+    try {
+      entries = await fs.readdir(directory, { withFileTypes: true });
+    } catch (error) {
+      if (errorCode(error) === "ENOENT") return;
+      throw error;
+    }
+
+    for (const entry of entries) {
+      if (entry.name === ".DS_Store") continue;
+      const absolutePath = path.join(directory, entry.name);
+      const relativeToSkillRoot = normalizeSlash(
+        path.relative(absoluteRoot, absolutePath),
+      );
+      const resourcePath = normalizeSlash(
+        path.posix.join("skills", relativeToSkillRoot),
+      );
+      if (seenPaths.has(resourcePath)) continue;
+      if (entry.isDirectory()) {
+        await walk(absolutePath);
+        continue;
+      }
+      if (!entry.isFile()) continue;
+      const meta = await maybeLocalWorkspaceResourceMeta(
+        workspaceRoot,
+        resourcePath,
+        absolutePath,
+      );
+      if (!meta) continue;
+      seenPaths.add(resourcePath);
+      files.push(meta);
+    }
+  }
+
+  await walk(absoluteRoot);
+  return files;
+}
+
+export async function listLocalWorkspaceResources(
+  options: LocalWorkspaceResourceOptions = {},
+): Promise<LocalWorkspaceResourceMeta[]> {
+  const workspaceRoot = await resolveLocalWorkspaceRoot(options);
+  if (!workspaceRoot) return [];
+
+  const seenPaths = new Set<string>();
+  const resources: LocalWorkspaceResourceMeta[] = [];
+  for (const resourcePath of LOCAL_WORKSPACE_CONTROL_FILES) {
+    const { absolutePath } = localWorkspaceResourceAbsolutePath(
+      workspaceRoot,
+      resourcePath,
+    );
+    const meta = await maybeLocalWorkspaceResourceMeta(
+      workspaceRoot,
+      resourcePath,
+      absolutePath,
+    );
+    if (!meta) continue;
+    seenPaths.add(resourcePath);
+    resources.push(meta);
+  }
+
+  for (const skillRoot of LOCAL_WORKSPACE_SKILL_ROOTS) {
+    resources.push(
+      ...(await walkLocalWorkspaceSkillRoot(
+        workspaceRoot,
+        skillRoot,
+        seenPaths,
+      )),
+    );
+  }
+
+  return resources.sort((a, b) => a.path.localeCompare(b.path));
+}
+
+export async function readLocalWorkspaceResource(
+  options: LocalWorkspaceResourceOptions & { path: string },
+): Promise<LocalWorkspaceResourceFile | null> {
+  const workspaceRoot = await resolveLocalWorkspaceRoot(options);
+  if (!workspaceRoot) return null;
+  const { resourcePath, absolutePath } = localWorkspaceResourceAbsolutePath(
+    workspaceRoot,
+    options.path,
+  );
+  if (!isSupportedLocalWorkspaceTextFile(resourcePath)) return null;
+  try {
+    const { content, stat } = readLocalWorkspaceTextFile(
+      workspaceRoot,
+      absolutePath,
+    );
+    return {
+      ...localWorkspaceResourceMeta(resourcePath, absolutePath, content, stat),
+      content,
+    };
+  } catch (error) {
+    if (errorCode(error) === "ENOENT") return null;
+    throw error;
+  }
+}
+
+export async function writeLocalWorkspaceResource(
+  options: WriteLocalWorkspaceResourceOptions,
+): Promise<LocalWorkspaceResourceMeta> {
+  const workspaceRoot = await resolveLocalWorkspaceRoot(options);
+  if (!workspaceRoot) {
+    throw new Error("Local file mode is not enabled");
+  }
+  const { resourcePath, absolutePath } = localWorkspaceResourceAbsolutePath(
+    workspaceRoot,
+    options.path,
+  );
+  if (!isSupportedLocalWorkspaceTextFile(resourcePath)) {
+    throw new Error(`Local workspace resource "${resourcePath}" is not text`);
+  }
+  return withWriteLock(absolutePath, async () => {
+    const existing = await readLocalWorkspaceResource({
+      ...options,
+      path: resourcePath,
+    });
+    if (options.ifNotExists && existing) {
+      throw new Error(`File "${resourcePath}" already exists`);
+    }
+    if (
+      options.expectedHash &&
+      (!existing || existing.hash !== options.expectedHash)
+    ) {
+      throw new Error(
+        `File "${resourcePath}" changed on disk. Reload before saving again.`,
+      );
+    }
+
+    assertNoSymlinkAbsolutePathSync(workspaceRoot, absolutePath, {
+      allowMissingLeaf: true,
+    });
+    await fs.mkdir(path.dirname(absolutePath), { recursive: true });
+    const tempPath = path.join(
+      path.dirname(absolutePath),
+      `.${path.basename(absolutePath)}.${process.pid}.${crypto.randomUUID()}.tmp`,
+    );
+    await fs.writeFile(tempPath, options.content, "utf8");
+    await fs.rename(tempPath, absolutePath);
+    const stat = await fs.stat(absolutePath);
+    return localWorkspaceResourceMeta(
+      resourcePath,
+      absolutePath,
+      options.content,
+      stat,
+    );
+  });
+}
+
+export async function deleteLocalWorkspaceResource(
+  options: LocalWorkspaceResourceOptions & { path: string },
+): Promise<boolean> {
+  const workspaceRoot = await resolveLocalWorkspaceRoot(options);
+  if (!workspaceRoot) {
+    throw new Error("Local file mode is not enabled");
+  }
+  const { absolutePath } = localWorkspaceResourceAbsolutePath(
+    workspaceRoot,
+    options.path,
+  );
+  try {
+    assertNoSymlinkAbsolutePathSync(workspaceRoot, absolutePath);
+    await fs.unlink(absolutePath);
+    return true;
+  } catch (error) {
+    if (errorCode(error) === "ENOENT") return false;
+    throw error;
+  }
 }

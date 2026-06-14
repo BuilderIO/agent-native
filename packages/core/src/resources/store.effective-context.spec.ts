@@ -1,4 +1,7 @@
 import Database from "better-sqlite3";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 vi.mock("../db/client.js", () => ({
@@ -368,6 +371,108 @@ describe("resourceEffectiveContext", () => {
       expect(
         workspace.layers.find((layer) => layer.scope === "workspace"),
       ).toMatchObject({ exists: true, effective: true, overridden: false });
+    }
+  });
+
+  it("surfaces local file mode control files as writable workspace resources", async () => {
+    const {
+      WORKSPACE_OWNER,
+      resourceEffectiveContext,
+      resourceGetByPath,
+      resourceListAccessible,
+      resourcePut,
+    } = await import("./store.js");
+
+    const root = fs.mkdtempSync(
+      path.join(os.tmpdir(), "an-local-resource-store-"),
+    );
+    const previousManifest = process.env.AGENT_NATIVE_MANIFEST;
+    const previousManifestPath = process.env.AGENT_NATIVE_MANIFEST_PATH;
+    const manifestPath = path.join(root, "agent-native.json");
+    try {
+      fs.writeFileSync(
+        manifestPath,
+        JSON.stringify(
+          {
+            mode: "local-files",
+            apps: {
+              content: {
+                roots: [{ path: "content", extensions: [".mdx"] }],
+              },
+            },
+          },
+          null,
+          2,
+        ),
+        "utf8",
+      );
+      fs.writeFileSync(path.join(root, "AGENTS.md"), "# Local Agents", "utf8");
+      fs.mkdirSync(path.join(root, ".agents", "skills", "local-review"), {
+        recursive: true,
+      });
+      fs.writeFileSync(
+        path.join(root, ".agents", "skills", "local-review", "SKILL.md"),
+        "---\nname: local-review\n---\n# Local Review",
+        "utf8",
+      );
+      process.env.AGENT_NATIVE_MANIFEST = manifestPath;
+      delete process.env.AGENT_NATIVE_MANIFEST_PATH;
+
+      await expect(
+        resourceGetByPath(WORKSPACE_OWNER, "AGENTS.md"),
+      ).resolves.toMatchObject({
+        owner: WORKSPACE_OWNER,
+        path: "AGENTS.md",
+        content: "# Local Agents",
+      });
+
+      const resources = await resourceListAccessible(
+        "member@example.test",
+        "skills/",
+      );
+      expect(resources).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            owner: WORKSPACE_OWNER,
+            path: "skills/local-review/SKILL.md",
+          }),
+        ]),
+      );
+
+      const effective = await resourceEffectiveContext(
+        "member@example.test",
+        "AGENTS.md",
+      );
+      expect(effective.effectiveScope).toBe("workspace");
+      expect(effective.layers[0]).toMatchObject({
+        scope: "workspace",
+        exists: true,
+        canWrite: true,
+      });
+
+      await resourcePut(
+        WORKSPACE_OWNER,
+        "skills/generated/SKILL.md",
+        "---\nname: generated\n---\n# Generated",
+      );
+      expect(
+        fs.readFileSync(
+          path.join(root, ".agents", "skills", "generated", "SKILL.md"),
+          "utf8",
+        ),
+      ).toContain("# Generated");
+    } finally {
+      if (previousManifest === undefined) {
+        delete process.env.AGENT_NATIVE_MANIFEST;
+      } else {
+        process.env.AGENT_NATIVE_MANIFEST = previousManifest;
+      }
+      if (previousManifestPath === undefined) {
+        delete process.env.AGENT_NATIVE_MANIFEST_PATH;
+      } else {
+        process.env.AGENT_NATIVE_MANIFEST_PATH = previousManifestPath;
+      }
+      fs.rmSync(root, { recursive: true, force: true });
     }
   });
 });

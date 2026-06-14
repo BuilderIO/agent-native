@@ -19,6 +19,7 @@ export type DesktopPlanFilesResult =
       folder: DesktopPlanFilesFolder;
       files?: string[];
       mdx?: PlanMdxFolder;
+      controlResources?: Record<string, string>;
     }
   | {
       ok: false;

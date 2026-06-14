@@ -8,7 +8,12 @@
  */
 
 import { parseArgs, fail } from "../utils.js";
-import { resourceDeleteByPath, SHARED_OWNER } from "../../resources/store.js";
+import {
+  canWriteLocalWorkspaceResourcePath,
+  resourceDeleteByPath,
+  SHARED_OWNER,
+  WORKSPACE_OWNER,
+} from "../../resources/store.js";
 import { getRequestUserEmail } from "../../server/request-context.js";
 
 export default async function resourceDeleteScript(
@@ -21,7 +26,8 @@ export default async function resourceDeleteScript(
 
 Options:
   --path <path>            Resource path (required)
-  --scope personal|shared  Scope to delete from (default: personal). Workspace resources are managed from Dispatch.
+  --scope personal|shared|workspace
+                           Scope to delete from (default: personal). Workspace is writable for local file mode control resources.
   --help                   Show this help message`);
     return;
   }
@@ -33,13 +39,17 @@ Options:
 
   const scope = parsed.scope ?? "personal";
   if (scope === "workspace") {
-    fail(
-      "Workspace resources are managed from Dispatch. Use resource-delete for personal or shared app resources.",
-    );
+    if (!(await canWriteLocalWorkspaceResourcePath(resourcePath))) {
+      fail(
+        "Workspace resources are managed from Dispatch unless local file mode exposes this path. Writable local workspace paths are AGENTS.md, agent-native.json, mcp.config.json, .mcp.json, and skills/.",
+      );
+    }
   }
   let owner: string;
   if (scope === "shared") {
     owner = SHARED_OWNER;
+  } else if (scope === "workspace") {
+    owner = WORKSPACE_OWNER;
   } else {
     const personalOwner = getRequestUserEmail() ?? process.env.AGENT_USER_EMAIL;
     if (!personalOwner) {
