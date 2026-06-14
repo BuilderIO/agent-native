@@ -1992,6 +1992,9 @@ export function buildRecapPrompt(input: {
       }.`,
     );
     lines.push(
+      "If `create-visual-recap` returns validation feedback about empty or invalid wireframes, make one immediate correction pass in this same process: revise the named WireframeBlock/Artboard MDX so each frame has real visible product text/controls, then call `create-visual-recap` again. Do not write `recap-url.txt` until the tool succeeds.",
+    );
+    lines.push(
       `2. Write the plan URL to a file named \`recap-url.txt\` at the repo root, containing exactly one line: \`${appUrl}/recaps/<the returned plan id>\`. This file is the workflow's only hand-off — do not print anything else as the deliverable.`,
     );
     lines.push(
