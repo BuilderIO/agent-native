@@ -574,6 +574,24 @@ export async function canWriteLocalWorkspaceResourcePath(
   );
 }
 
+async function shouldHandleWorkspaceResourceAsLocal(resourcePath: string) {
+  return (
+    (await isLocalWorkspaceResourcesEnabled()) &&
+    canUseLocalWorkspaceResourcePath(resourcePath)
+  );
+}
+
+async function assertWritableWorkspaceResourcePath(resourcePath: string) {
+  if (
+    (await isLocalWorkspaceResourcesEnabled()) &&
+    !canUseLocalWorkspaceResourcePath(resourcePath)
+  ) {
+    throw new Error(
+      "Workspace resources in local file mode must be AGENTS.md, agent-native.json, mcp.config.json, .mcp.json, or under skills/.",
+    );
+  }
+}
+
 export { isLocalWorkspaceResourceId };
 
 function mergeResourceMetas(
@@ -1095,7 +1113,7 @@ export async function resourcePut(
   await ensureTable();
   if (
     owner === WORKSPACE_OWNER &&
-    (await canWriteLocalWorkspaceResourcePath(path))
+    (await shouldHandleWorkspaceResourceAsLocal(path))
   ) {
     const written = await writeLocalWorkspaceResource({ path, content });
     const resource = localWorkspaceResourceToResource({
@@ -1109,6 +1127,9 @@ export async function resourcePut(
       options?.requestSource,
     );
     return resource;
+  }
+  if (owner === WORKSPACE_OWNER) {
+    await assertWritableWorkspaceResourcePath(path);
   }
   const client = getDbExec();
   const now = Date.now();
@@ -1247,7 +1268,7 @@ export async function resourceDeleteByPath(
   await ensureTable();
   if (
     owner === WORKSPACE_OWNER &&
-    (await canWriteLocalWorkspaceResourcePath(path))
+    (await shouldHandleWorkspaceResourceAsLocal(path))
   ) {
     const existing = await localWorkspaceResourceByPath(path);
     const deleted = await deleteLocalWorkspaceResource({ path });
@@ -1255,6 +1276,9 @@ export async function resourceDeleteByPath(
       emitResourceDelete(existing?.id ?? "", path, WORKSPACE_OWNER);
       return true;
     }
+  }
+  if (owner === WORKSPACE_OWNER) {
+    await assertWritableWorkspaceResourcePath(path);
   }
   const client = getDbExec();
 

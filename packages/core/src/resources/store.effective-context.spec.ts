@@ -461,6 +461,10 @@ describe("resourceEffectiveContext", () => {
           "utf8",
         ),
       ).toContain("# Generated");
+
+      await expect(
+        resourcePut(WORKSPACE_OWNER, "context/brand.md", "# Brand"),
+      ).rejects.toThrow("Workspace resources in local file mode");
     } finally {
       if (previousManifest === undefined) {
         delete process.env.AGENT_NATIVE_MANIFEST;

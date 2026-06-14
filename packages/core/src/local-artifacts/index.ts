@@ -832,11 +832,6 @@ function localWorkspaceResourcesEnabled(
     assertLocalFilesRuntimeAllowed(mode);
     if (mode === "local-files") return true;
   }
-  for (const app of Object.values(manifest?.apps ?? {})) {
-    if (!app.mode) continue;
-    assertLocalFilesRuntimeAllowed(app.mode);
-    if (app.mode === "local-files") return true;
-  }
   return false;
 }
 
@@ -942,13 +937,32 @@ export function canUseLocalWorkspaceResourcePath(
 function localWorkspaceResourceAbsolutePath(
   workspaceRoot: string,
   resourcePath: string,
+  options: { preferExisting?: boolean } = {},
 ): { resourcePath: string; absolutePath: string } {
   const normalized = normalizeLocalWorkspaceResourcePath(resourcePath);
-  const relativePath = normalized.startsWith("skills/")
-    ? normalizeSlash(
-        path.posix.join(".agents/skills", normalized.slice("skills/".length)),
-      )
-    : normalized;
+  const safePath = normalizeRelativePath(
+    normalizeSlash(resourcePath).replace(/^\/+/, ""),
+    "resource path",
+  );
+  let relativePath = normalized;
+  if (
+    safePath.startsWith(".agents/skills/") ||
+    safePath.startsWith(".agent/skills/")
+  ) {
+    relativePath = safePath;
+  } else if (normalized.startsWith("skills/")) {
+    const skillPath = normalized.slice("skills/".length);
+    const candidates = LOCAL_WORKSPACE_SKILL_ROOTS.map((root) =>
+      normalizeSlash(path.posix.join(root, skillPath)),
+    );
+    relativePath = candidates[0]!;
+    if (options.preferExisting) {
+      relativePath =
+        candidates.find((candidate) =>
+          fsSync.existsSync(path.resolve(workspaceRoot, candidate)),
+        ) ?? relativePath;
+    }
+  }
   const { absolutePath } = resolveInsideWorkspace(workspaceRoot, relativePath);
   return { resourcePath: normalized, absolutePath };
 }
@@ -1150,6 +1164,7 @@ export async function readLocalWorkspaceResource(
   const { resourcePath, absolutePath } = localWorkspaceResourceAbsolutePath(
     workspaceRoot,
     options.path,
+    { preferExisting: true },
   );
   if (!isSupportedLocalWorkspaceTextFile(resourcePath)) return null;
   try {
@@ -1177,6 +1192,7 @@ export async function writeLocalWorkspaceResource(
   const { resourcePath, absolutePath } = localWorkspaceResourceAbsolutePath(
     workspaceRoot,
     options.path,
+    { preferExisting: true },
   );
   if (!isSupportedLocalWorkspaceTextFile(resourcePath)) {
     throw new Error(`Local workspace resource "${resourcePath}" is not text`);
@@ -1228,6 +1244,7 @@ export async function deleteLocalWorkspaceResource(
   const { absolutePath } = localWorkspaceResourceAbsolutePath(
     workspaceRoot,
     options.path,
+    { preferExisting: true },
   );
   try {
     assertNoSymlinkAbsolutePathSync(workspaceRoot, absolutePath);

@@ -396,6 +396,55 @@ describe("local artifact helpers", () => {
     ).toContain("# Local Review");
   });
 
+  it("updates legacy .agent skills in place", async () => {
+    const root = tmpDir();
+    const manifestPath = path.join(root, "agent-native.json");
+    writeJson(manifestPath, {
+      mode: "local-files",
+      apps: {
+        content: {
+          roots: [{ path: "docs", extensions: [".mdx"] }],
+        },
+      },
+    });
+    const legacySkillPath = path.join(
+      root,
+      ".agent",
+      "skills",
+      "legacy-review",
+      "SKILL.md",
+    );
+    fs.mkdirSync(path.dirname(legacySkillPath), { recursive: true });
+    fs.writeFileSync(legacySkillPath, "# Legacy Review", "utf8");
+
+    const resources = await listLocalWorkspaceResources({ manifestPath });
+    expect(resources.map((resource) => resource.path)).toContain(
+      "skills/legacy-review/SKILL.md",
+    );
+
+    const read = await readLocalWorkspaceResource({
+      manifestPath,
+      path: "skills/legacy-review/SKILL.md",
+    });
+    expect(read?.absolutePath).toBe(legacySkillPath);
+    expect(read?.content).toBe("# Legacy Review");
+
+    await writeLocalWorkspaceResource({
+      manifestPath,
+      path: "skills/legacy-review/SKILL.md",
+      content: "# Updated Legacy Review",
+    });
+
+    expect(fs.readFileSync(legacySkillPath, "utf8")).toBe(
+      "# Updated Legacy Review",
+    );
+    expect(
+      fs.existsSync(
+        path.join(root, ".agents", "skills", "legacy-review", "SKILL.md"),
+      ),
+    ).toBe(false);
+  });
+
   it("does not expose local workspace resources outside local file mode", async () => {
     const root = tmpDir();
     const manifestPath = path.join(root, "agent-native.json");
@@ -403,6 +452,28 @@ describe("local artifact helpers", () => {
       mode: "database",
       apps: {
         content: {
+          roots: [{ path: "docs", extensions: [".mdx"] }],
+        },
+      },
+    });
+    fs.writeFileSync(path.join(root, "AGENTS.md"), "# Repo Agents", "utf8");
+
+    await expect(
+      listLocalWorkspaceResources({ manifestPath }),
+    ).resolves.toEqual([]);
+    await expect(
+      readLocalWorkspaceResource({ manifestPath, path: "AGENTS.md" }),
+    ).resolves.toBeNull();
+  });
+
+  it("does not expose local workspace resources for app-scoped local file mode", async () => {
+    const root = tmpDir();
+    const manifestPath = path.join(root, "agent-native.json");
+    writeJson(manifestPath, {
+      mode: "database",
+      apps: {
+        content: {
+          mode: "local-files",
           roots: [{ path: "docs", extensions: [".mdx"] }],
         },
       },

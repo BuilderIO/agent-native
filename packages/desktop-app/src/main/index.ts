@@ -4640,6 +4640,23 @@ function assertInsideLocalFolder(folder: string, target: string): string {
   throw new Error("Local file path escaped the linked folder.");
 }
 
+function assertRealPathInsideLocalFolder(
+  folder: string,
+  target: string,
+): string {
+  const resolvedTarget = assertInsideLocalFolder(folder, target);
+  const realFolder = fs.realpathSync(folder);
+  const realTarget = fs.realpathSync(resolvedTarget);
+  const relative = path.relative(realFolder, realTarget);
+  if (
+    relative === "" ||
+    (!relative.startsWith("..") && !path.isAbsolute(relative))
+  ) {
+    return realTarget;
+  }
+  throw new Error("Local file path escaped the linked folder.");
+}
+
 function isLocalControlResourceTextPath(filePath: string): boolean {
   return LOCAL_CONTROL_RESOURCE_TEXT_EXTENSIONS.has(
     path.extname(filePath).toLowerCase(),
@@ -4698,6 +4715,13 @@ async function collectLocalControlResources(
     directory: string,
     prefix: string = rootName,
   ): Promise<void> {
+    try {
+      const stat = await fs.promises.lstat(directory);
+      if (stat.isSymbolicLink() || !stat.isDirectory()) return;
+      assertRealPathInsideLocalFolder(folder, directory);
+    } catch {
+      return;
+    }
     let entries: fs.Dirent[];
     try {
       entries = await fs.promises.readdir(directory, { withFileTypes: true });
