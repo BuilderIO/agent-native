@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import {
   deleteLocalArtifactFile,
+  deleteLocalWorkspaceResource,
   findAgentNativeManifest,
   getLocalArtifactApp,
   listLocalWorkspaceResources,
@@ -443,6 +444,47 @@ describe("local artifact helpers", () => {
         path.join(root, ".agents", "skills", "legacy-review", "SKILL.md"),
       ),
     ).toBe(false);
+  });
+
+  it("deletes duplicate skills from both current and legacy skill roots", async () => {
+    const root = tmpDir();
+    const manifestPath = path.join(root, "agent-native.json");
+    writeJson(manifestPath, {
+      mode: "local-files",
+      apps: {
+        content: {
+          roots: [{ path: "docs", extensions: [".mdx"] }],
+        },
+      },
+    });
+    const currentSkillPath = path.join(
+      root,
+      ".agents",
+      "skills",
+      "dual-review",
+      "SKILL.md",
+    );
+    const legacySkillPath = path.join(
+      root,
+      ".agent",
+      "skills",
+      "dual-review",
+      "SKILL.md",
+    );
+    fs.mkdirSync(path.dirname(currentSkillPath), { recursive: true });
+    fs.mkdirSync(path.dirname(legacySkillPath), { recursive: true });
+    fs.writeFileSync(currentSkillPath, "# Current Review", "utf8");
+    fs.writeFileSync(legacySkillPath, "# Legacy Review", "utf8");
+
+    await expect(
+      deleteLocalWorkspaceResource({
+        manifestPath,
+        path: "skills/dual-review/SKILL.md",
+      }),
+    ).resolves.toBe(true);
+
+    expect(fs.existsSync(currentSkillPath)).toBe(false);
+    expect(fs.existsSync(legacySkillPath)).toBe(false);
   });
 
   it("does not expose local workspace resources outside local file mode", async () => {

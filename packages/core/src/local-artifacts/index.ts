@@ -967,6 +967,34 @@ function localWorkspaceResourceAbsolutePath(
   return { resourcePath: normalized, absolutePath };
 }
 
+function localWorkspaceResourceDeletePaths(
+  workspaceRoot: string,
+  resourcePath: string,
+): string[] {
+  const normalized = normalizeLocalWorkspaceResourcePath(resourcePath);
+  const safePath = normalizeRelativePath(
+    normalizeSlash(resourcePath).replace(/^\/+/, ""),
+    "resource path",
+  );
+  if (
+    safePath.startsWith(".agents/skills/") ||
+    safePath.startsWith(".agent/skills/") ||
+    !normalized.startsWith("skills/")
+  ) {
+    const { absolutePath } = localWorkspaceResourceAbsolutePath(
+      workspaceRoot,
+      resourcePath,
+    );
+    return [absolutePath];
+  }
+
+  const skillPath = normalized.slice("skills/".length);
+  return LOCAL_WORKSPACE_SKILL_ROOTS.map((root) => {
+    const relativePath = normalizeSlash(path.posix.join(root, skillPath));
+    return resolveInsideWorkspace(workspaceRoot, relativePath).absolutePath;
+  });
+}
+
 function assertNoSymlinkAbsolutePathSync(
   workspaceRoot: string,
   absolutePath: string,
@@ -1241,17 +1269,20 @@ export async function deleteLocalWorkspaceResource(
   if (!workspaceRoot) {
     throw new Error("Local file mode is not enabled");
   }
-  const { absolutePath } = localWorkspaceResourceAbsolutePath(
+  const absolutePaths = localWorkspaceResourceDeletePaths(
     workspaceRoot,
     options.path,
-    { preferExisting: true },
   );
-  try {
-    assertNoSymlinkAbsolutePathSync(workspaceRoot, absolutePath);
-    await fs.unlink(absolutePath);
-    return true;
-  } catch (error) {
-    if (errorCode(error) === "ENOENT") return false;
-    throw error;
+  let deleted = false;
+  for (const absolutePath of absolutePaths) {
+    try {
+      assertNoSymlinkAbsolutePathSync(workspaceRoot, absolutePath);
+      await fs.unlink(absolutePath);
+      deleted = true;
+    } catch (error) {
+      if (errorCode(error) === "ENOENT") continue;
+      throw error;
+    }
   }
+  return deleted;
 }

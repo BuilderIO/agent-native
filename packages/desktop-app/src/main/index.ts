@@ -4699,6 +4699,13 @@ function readLocalControlResourceWithoutSymlink(
   }
 }
 
+function isMissingLocalControlResourceError(
+  err: unknown,
+): err is NodeJS.ErrnoException {
+  const code = (err as NodeJS.ErrnoException | null)?.code;
+  return code === "ENOENT" || code === "ENOTDIR" || code === "ELOOP";
+}
+
 async function collectLocalControlResources(
   folder: string,
 ): Promise<Record<string, string>> {
@@ -4715,18 +4722,26 @@ async function collectLocalControlResources(
     directory: string,
     prefix: string = rootName,
   ): Promise<void> {
+    let stat: fs.Stats;
     try {
-      const stat = await fs.promises.lstat(directory);
-      if (stat.isSymbolicLink() || !stat.isDirectory()) return;
+      stat = await fs.promises.lstat(directory);
+    } catch (err) {
+      if (isMissingLocalControlResourceError(err)) return;
+      throw err;
+    }
+    if (stat.isSymbolicLink() || !stat.isDirectory()) return;
+    try {
       assertRealPathInsideLocalFolder(folder, directory);
-    } catch {
-      return;
+    } catch (err) {
+      if (isMissingLocalControlResourceError(err)) return;
+      throw err;
     }
     let entries: fs.Dirent[];
     try {
       entries = await fs.promises.readdir(directory, { withFileTypes: true });
-    } catch {
-      return;
+    } catch (err) {
+      if (isMissingLocalControlResourceError(err)) return;
+      throw err;
     }
     for (const entry of entries) {
       if (entry.isSymbolicLink() || entry.name === ".DS_Store") continue;
