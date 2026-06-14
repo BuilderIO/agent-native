@@ -1,5 +1,14 @@
 # @agent-native/core
 
+## 0.49.20
+
+### Patch Changes
+
+- b4e6e91: Expose local file mode AGENTS.md, skills, agent-native.json, and MCP config files through workspace resources.
+- b4e6e91: Improve plan annotation overlay backgrounds so annotated code and diff callouts stay legible over code.
+- b4e6e91: Allow PR visual recaps to run on visual-plan and visual-recap skill file changes
+  when CI uses the default bundled recap instructions.
+
 ## 0.49.19
 
 ### Patch Changes
