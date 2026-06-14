@@ -1,6 +1,6 @@
 ---
 name: ship
-description: Commit current-branch work, open a ready PR, babysit it, merge when clean, then create a fresh branch
+description: Commit and push all local current-branch work, open a ready PR, babysit it, merge when clean, then create a fresh branch
 user-invocable: true
 metadata:
   internal: true
@@ -8,9 +8,9 @@ metadata:
 
 # Ship
 
-Ship the current branch end-to-end: commit local work, push, open a ready PR,
-run `/babysit-pr`, merge when the babysit merge gates are satisfied, then run
-`/new-branch` after the merge lands.
+Ship the current branch end-to-end: commit and push all local work, open a
+ready PR, run `/babysit-pr`, merge when the babysit merge gates are satisfied,
+then run `/new-branch` after the merge lands.
 
 Invoking `/ship` is explicit authorization to merge this PR once the merge gates
 below pass, unless the user says not to merge. Do not ask again just to merge a
@@ -25,7 +25,8 @@ merged PR and a fresh post-merge branch.
 
 2. **Check local changes**: run `git status --short` and `git diff --stat` to
    understand all modified/untracked files. Multiple agents may have added work;
-   include it instead of stashing or reverting it.
+   include all non-gitignored local files in shipment instead of stashing,
+   skipping, or reverting them.
 
 3. **Validate enough to avoid obvious breakage**: run focused tests for the
    changed area. Run `pnpm run prep` when it is practical. If prep is slow,
@@ -33,9 +34,10 @@ merged PR and a fresh post-merge branch.
    push and let GitHub Actions be the validation gate that `/babysit-pr`
    monitors.
 
-4. **Stage and commit**: stage all changed files except `learnings.md` or
-   gitignored personal files. Write a concise, descriptive commit message based
-   on the actual diff. Never add `Co-Authored-By` or other agent attribution.
+4. **Stage and commit**: stage all changed/untracked files except `learnings.md`
+   or gitignored personal files. Write a concise, descriptive commit message
+   based on the actual diff. Never add `Co-Authored-By` or other agent
+   attribution.
 
 5. **Push**: push the current branch. If the branch has no upstream, set it with
    `git push -u origin <branch>`.
@@ -45,10 +47,12 @@ merged PR and a fresh post-merge branch.
    agent labels in the title/body.
 
 7. **Babysit immediately**: run `/babysit-pr <number>` and follow that skill’s
-   tick loop exactly. Every tick starts by committing/pushing new local files,
-   checking mergeability, checking every unaddressed review comment by reply
-   state, and checking CI. Keep going until the PR is either merged/closed or
-   the user explicitly tells you to stop.
+   tick loop exactly. Treat `babysit-pr` as the source of truth for how to watch
+   the PR; do not duplicate, shorten, or invent a lighter monitoring loop. Its
+   Step 0 is authoritative: every tick starts by committing and pushing all local
+   files and any unpushed commits, then checking mergeability, every unaddressed
+   review comment by reply state, and CI. Keep going until the PR is either
+   merged/closed or the user explicitly tells you to stop.
 
 8. **Merge when allowed**: because `/ship` includes merge authorization, merge
    with `gh pr merge <number> --squash --admin` only after `/babysit-pr`’s merge
@@ -73,7 +77,8 @@ merged PR and a fresh post-merge branch.
 - Never commit `learnings.md` or files in `.gitignore`.
 - If feedback appears in inline comments or review bodies, every item needs a
   fix or a reply before merge.
-- Treat `/babysit-pr` as the source of truth for CI/review monitoring and merge
-  gates.
+- Treat `/babysit-pr` as the source of truth for CI/review monitoring cadence,
+  comment handling, local-file push discipline, and merge gates. Update
+  `babysit-pr` first if the watcher behavior changes.
 - Treat `/new-branch` as mandatory after a successful merge so the workspace is
   ready for the next task on fresh `main`.
