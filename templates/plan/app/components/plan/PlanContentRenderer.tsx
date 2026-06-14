@@ -619,7 +619,7 @@ export function PlanContentRenderer({
           />
         )}
         {!prototypeOnly && (
-          <div className="plan-document-shell relative mx-auto w-full max-w-[900px] px-6 py-12 sm:px-10 lg:py-14">
+          <div className="plan-document-shell relative mx-auto w-full max-w-[900px] px-6 pb-12 pt-16 sm:px-10 sm:py-12 lg:py-14">
             <header className="border-b border-plan-line pb-8">
               {!hideRecapChrome && (
                 <p className="mb-4 text-xs font-bold uppercase tracking-[0.16em] text-plan-muted">

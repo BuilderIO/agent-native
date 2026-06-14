@@ -4587,6 +4587,37 @@ const CONTENT_FILES_STORE_FILE = "content-file-sync.json";
 const CONTENT_SOURCE_ROOT = "content";
 const CONTENT_SOURCE_EXTENSIONS = [".md", ".mdx"] as const;
 const CONTENT_SOURCE_FILE_MAX_BYTES = 2 * 1024 * 1024;
+const LOCAL_CONTROL_RESOURCE_MAX_BYTES = 2 * 1024 * 1024;
+const LOCAL_CONTROL_RESOURCE_FILES = [
+  "AGENTS.md",
+  "agent-native.json",
+  "mcp.config.json",
+  ".mcp.json",
+] as const;
+const LOCAL_CONTROL_RESOURCE_SKILL_ROOTS = [
+  ".agents/skills",
+  ".agent/skills",
+] as const;
+const LOCAL_CONTROL_RESOURCE_TEXT_EXTENSIONS = new Set([
+  ".css",
+  ".csv",
+  ".html",
+  ".js",
+  ".json",
+  ".jsx",
+  ".md",
+  ".mdx",
+  ".py",
+  ".sh",
+  ".sql",
+  ".toml",
+  ".ts",
+  ".tsx",
+  ".txt",
+  ".xml",
+  ".yaml",
+  ".yml",
+]);
 const CONTENT_IGNORED_DIRECTORIES = new Set([
   ".git",
   ".next",
@@ -4595,6 +4626,152 @@ const CONTENT_IGNORED_DIRECTORIES = new Set([
   "dist",
   "node_modules",
 ]);
+
+function assertInsideLocalFolder(folder: string, target: string): string {
+  const resolvedFolder = path.resolve(folder);
+  const resolvedTarget = path.resolve(target);
+  const relative = path.relative(resolvedFolder, resolvedTarget);
+  if (
+    relative === "" ||
+    (!relative.startsWith("..") && !path.isAbsolute(relative))
+  ) {
+    return resolvedTarget;
+  }
+  throw new Error("Local file path escaped the linked folder.");
+}
+
+function assertRealPathInsideLocalFolder(
+  folder: string,
+  target: string,
+): string {
+  const resolvedTarget = assertInsideLocalFolder(folder, target);
+  const realFolder = fs.realpathSync(folder);
+  const realTarget = fs.realpathSync(resolvedTarget);
+  const relative = path.relative(realFolder, realTarget);
+  if (
+    relative === "" ||
+    (!relative.startsWith("..") && !path.isAbsolute(relative))
+  ) {
+    return realTarget;
+  }
+  throw new Error("Local file path escaped the linked folder.");
+}
+
+function isLocalControlResourceTextPath(filePath: string): boolean {
+  return LOCAL_CONTROL_RESOURCE_TEXT_EXTENSIONS.has(
+    path.extname(filePath).toLowerCase(),
+  );
+}
+
+function readLocalControlResourceWithoutSymlink(
+  filePath: string,
+): string | null {
+  let fd: number | null = null;
+  try {
+    const stat = fs.lstatSync(filePath);
+    if (
+      stat.isSymbolicLink() ||
+      !stat.isFile() ||
+      stat.size > LOCAL_CONTROL_RESOURCE_MAX_BYTES
+    ) {
+      return null;
+    }
+    fd = fs.openSync(
+      filePath,
+      fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW ?? 0),
+    );
+    const openedStat = fs.fstatSync(fd);
+    if (
+      !openedStat.isFile() ||
+      openedStat.size > LOCAL_CONTROL_RESOURCE_MAX_BYTES
+    ) {
+      return null;
+    }
+    return fs.readFileSync(fd, "utf-8");
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code;
+    if (code === "ENOENT" || code === "ENOTDIR" || code === "ELOOP") {
+      return null;
+    }
+    throw err;
+  } finally {
+    if (fd !== null) fs.closeSync(fd);
+  }
+}
+
+function isMissingLocalControlResourceError(
+  err: unknown,
+): err is NodeJS.ErrnoException {
+  const code = (err as NodeJS.ErrnoException | null)?.code;
+  return code === "ENOENT" || code === "ENOTDIR" || code === "ELOOP";
+}
+
+async function collectLocalControlResources(
+  folder: string,
+): Promise<Record<string, string>> {
+  const resources: Record<string, string> = {};
+
+  for (const file of LOCAL_CONTROL_RESOURCE_FILES) {
+    const filePath = assertInsideLocalFolder(folder, path.join(folder, file));
+    const content = readLocalControlResourceWithoutSymlink(filePath);
+    if (content !== null) resources[file] = content;
+  }
+
+  async function walkSkillRoot(
+    rootName: (typeof LOCAL_CONTROL_RESOURCE_SKILL_ROOTS)[number],
+    directory: string,
+    prefix: string = rootName,
+  ): Promise<void> {
+    let stat: fs.Stats;
+    try {
+      stat = await fs.promises.lstat(directory);
+    } catch (err) {
+      if (isMissingLocalControlResourceError(err)) return;
+      throw err;
+    }
+    if (stat.isSymbolicLink() || !stat.isDirectory()) return;
+    try {
+      assertRealPathInsideLocalFolder(folder, directory);
+    } catch (err) {
+      if (isMissingLocalControlResourceError(err)) return;
+      throw err;
+    }
+    let entries: fs.Dirent[];
+    try {
+      entries = await fs.promises.readdir(directory, { withFileTypes: true });
+    } catch (err) {
+      if (isMissingLocalControlResourceError(err)) return;
+      throw err;
+    }
+    for (const entry of entries) {
+      if (entry.isSymbolicLink() || entry.name === ".DS_Store") continue;
+      const filePath = assertInsideLocalFolder(
+        folder,
+        path.join(directory, entry.name),
+      );
+      const resourcePath = `${prefix}/${entry.name}`.replace(/\\/g, "/");
+      if (entry.isDirectory()) {
+        await walkSkillRoot(rootName, filePath, resourcePath);
+        continue;
+      }
+      if (!entry.isFile() || !isLocalControlResourceTextPath(resourcePath)) {
+        continue;
+      }
+      const content = readLocalControlResourceWithoutSymlink(filePath);
+      if (content !== null) resources[resourcePath] = content;
+    }
+  }
+
+  for (const rootName of LOCAL_CONTROL_RESOURCE_SKILL_ROOTS) {
+    const rootPath = assertInsideLocalFolder(
+      folder,
+      path.join(folder, rootName),
+    );
+    await walkSkillRoot(rootName, rootPath);
+  }
+
+  return resources;
+}
 
 interface ContentFilesGrant {
   id: string;
@@ -4957,6 +5134,7 @@ async function chooseContentFilesFolder(): Promise<DesktopContentFilesResult> {
     ok: true,
     folder: contentFilesFolderInfo(grant),
     folders: contentFilesFoldersInfo(grants),
+    controlResources: await collectLocalControlResources(grant.path),
   };
 }
 
@@ -5211,6 +5389,7 @@ async function writeContentFilesForRequest(
       folder: contentFilesFolderInfo(updatedGrant),
       folders: contentFilesFoldersInfo(grants),
       files: written,
+      controlResources: await collectLocalControlResources(updatedGrant.path),
     };
   } catch (err) {
     return {
@@ -5240,6 +5419,7 @@ async function writeContentFileForRequest(
       folder: contentFilesFolderInfo(updatedGrant),
       folders: contentFilesFoldersInfo(grants),
       files: [written],
+      controlResources: await collectLocalControlResources(updatedGrant.path),
     };
   } catch (err) {
     return {
@@ -5269,6 +5449,7 @@ async function deleteContentFileForRequest(
       folder: contentFilesFolderInfo(updatedGrant),
       folders: contentFilesFoldersInfo(grants),
       files: [file.path],
+      controlResources: await collectLocalControlResources(updatedGrant.path),
     };
   } catch (err) {
     return {
@@ -5298,6 +5479,7 @@ async function revealContentFileForRequest(
       folder: contentFilesFolderInfo(updatedGrant),
       folders: contentFilesFoldersInfo(grants),
       files: [file.path],
+      controlResources: await collectLocalControlResources(updatedGrant.path),
     };
   } catch (err) {
     return {
@@ -5320,6 +5502,7 @@ async function readContentFilesForRequest(
       folder: contentFilesFolderInfo(updatedGrant),
       folders: contentFilesFoldersInfo(grants),
       sources,
+      controlResources: await collectLocalControlResources(updatedGrant.path),
     };
   } catch (err) {
     return {
@@ -5780,7 +5963,11 @@ async function choosePlanFilesFolder(
     path: folder,
     title: sanitizePlanFilesTitle(request.title),
   });
-  return { ok: true, folder: planFilesFolderInfo(planId, grant) };
+  return {
+    ok: true,
+    folder: planFilesFolderInfo(planId, grant),
+    controlResources: await collectLocalControlResources(grant.path),
+  };
 }
 
 async function writePlanFilesForRequest(
@@ -5803,6 +5990,7 @@ async function writePlanFilesForRequest(
       ok: true,
       folder: planFilesFolderInfo(planId, updatedGrant),
       files,
+      controlResources: await collectLocalControlResources(updatedGrant.path),
     };
   } catch (err) {
     return {
@@ -5824,6 +6012,7 @@ async function readPlanFilesForRequest(
       ok: true,
       folder: planFilesFolderInfo(planId, grant),
       mdx: await readPlanMdxFolder(grant.path),
+      controlResources: await collectLocalControlResources(grant.path),
     };
   } catch (err) {
     return {
@@ -7036,17 +7225,21 @@ ipcMain.handle(
 
 ipcMain.handle(
   IPC.PLAN_FILES_GET_FOLDER,
-  (
+  async (
     event: IpcMainInvokeEvent,
     request: DesktopPlanFilesFolderRequest,
-  ): DesktopPlanFilesResult => {
+  ): Promise<DesktopPlanFilesResult> => {
     const denied = requirePlanFilesWebviewAccess(event);
     if (denied) return denied;
     const planId = normalizePlanFilesRequestPlanId(request);
     if (!planId) return { ok: false, error: "Invalid plan ID." };
     const grant = getPlanFilesGrant(planId);
     if (!grant) return { ok: false, error: "No local folder is linked." };
-    return { ok: true, folder: planFilesFolderInfo(planId, grant) };
+    return {
+      ok: true,
+      folder: planFilesFolderInfo(planId, grant),
+      controlResources: await collectLocalControlResources(grant.path),
+    };
   },
 );
 
@@ -7102,10 +7295,10 @@ ipcMain.handle(
 
 ipcMain.handle(
   IPC.CONTENT_FILES_GET_FOLDER,
-  (
+  async (
     event: IpcMainInvokeEvent,
     request: DesktopContentFilesFolderRequest = {},
-  ): DesktopContentFilesResult => {
+  ): Promise<DesktopContentFilesResult> => {
     const denied = requireContentFilesWebviewAccess(event);
     if (denied) return denied;
     const grants = getContentFilesGrants();
@@ -7115,6 +7308,7 @@ ipcMain.handle(
       ok: true,
       folder: contentFilesFolderInfo(grant),
       folders: contentFilesFoldersInfo(grants),
+      controlResources: await collectLocalControlResources(grant.path),
     };
   },
 );

@@ -12,10 +12,16 @@ const mockResourceListAccessible = vi.fn();
 const mockResourceMove = vi.fn();
 const mockResourceEffectiveContext = vi.fn();
 const mockEnsurePersonalDefaults = vi.fn();
+const mockCanWriteLocalWorkspaceResourcePath = vi.fn();
+const mockIsLocalWorkspaceResourceId = vi.fn();
 
 vi.mock("./store.js", () => ({
   SHARED_OWNER: "__shared__",
   WORKSPACE_OWNER: "__workspace__",
+  canWriteLocalWorkspaceResourcePath: (...args: any[]) =>
+    mockCanWriteLocalWorkspaceResourcePath(...args),
+  isLocalWorkspaceResourceId: (...args: any[]) =>
+    mockIsLocalWorkspaceResourceId(...args),
   resourceGet: (...args: any[]) => mockResourceGet(...args),
   resourceGetByPath: (...args: any[]) => mockResourceGetByPath(...args),
   resourcePut: (...args: any[]) => mockResourcePut(...args),
@@ -80,6 +86,8 @@ describe("resource handlers", () => {
     vi.clearAllMocks();
     lastStatus = 200;
     mockEnsurePersonalDefaults.mockResolvedValue(undefined);
+    mockCanWriteLocalWorkspaceResourcePath.mockResolvedValue(false);
+    mockIsLocalWorkspaceResourceId.mockReturnValue(false);
     vi.mocked(getSession).mockResolvedValue({ email: "test@test.com" } as any);
     mockGetOrgContext.mockResolvedValue({
       email: "test@test.com",
@@ -550,6 +558,56 @@ describe("resource handlers", () => {
       expect(mockResourceMove).toHaveBeenCalledWith("r1", "new.md");
     });
 
+    it("updates local workspace resources", async () => {
+      const existing = {
+        id: "local-workspace-resource:agents",
+        path: "AGENTS.md",
+        owner: "__workspace__",
+        content: "old",
+        mimeType: "text/markdown",
+      };
+      mockIsLocalWorkspaceResourceId.mockReturnValue(true);
+      mockResourceGet.mockResolvedValue(existing);
+      mockResourcePut.mockResolvedValue({ ...existing, content: "new" });
+
+      const event = {
+        _params: { id: "local-workspace-resource:agents" },
+        _body: { content: "new" },
+        context: {},
+      };
+      await handleUpdateResource(event);
+
+      expect(mockResourcePut).toHaveBeenCalledWith(
+        "__workspace__",
+        "AGENTS.md",
+        "new",
+        "text/markdown",
+      );
+    });
+
+    it("keeps Dispatch workspace resources read-only", async () => {
+      mockResourceGet.mockResolvedValue({
+        id: "dispatch-workspace-resource:brand",
+        path: "context/brand.md",
+        owner: "__workspace__",
+        content: "old",
+        mimeType: "text/markdown",
+      });
+
+      const event = {
+        _params: { id: "dispatch-workspace-resource:brand" },
+        _body: { content: "new" },
+        context: {},
+      };
+      const result = await handleUpdateResource(event);
+
+      expect(lastStatus).toBe(403);
+      expect(result).toEqual({
+        error: "Workspace resources are managed from Dispatch",
+      });
+      expect(mockResourcePut).not.toHaveBeenCalled();
+    });
+
     it("returns 404 when updating another user's personal resource", async () => {
       mockResourceGet.mockResolvedValue({
         id: "r1",
@@ -585,6 +643,47 @@ describe("resource handlers", () => {
       const result = await handleDeleteResource(event);
 
       expect(result).toEqual({ ok: true });
+    });
+
+    it("deletes local workspace resources", async () => {
+      mockIsLocalWorkspaceResourceId.mockReturnValue(true);
+      mockResourceGet.mockResolvedValue({
+        id: "local-workspace-resource:agents",
+        path: "AGENTS.md",
+        owner: "__workspace__",
+      });
+      mockResourceDelete.mockResolvedValue(true);
+
+      const event = {
+        _params: { id: "local-workspace-resource:agents" },
+        context: {},
+      };
+      const result = await handleDeleteResource(event);
+
+      expect(result).toEqual({ ok: true });
+      expect(mockResourceDelete).toHaveBeenCalledWith(
+        "local-workspace-resource:agents",
+      );
+    });
+
+    it("keeps Dispatch workspace resources delete-protected", async () => {
+      mockResourceGet.mockResolvedValue({
+        id: "dispatch-workspace-resource:brand",
+        path: "context/brand.md",
+        owner: "__workspace__",
+      });
+
+      const event = {
+        _params: { id: "dispatch-workspace-resource:brand" },
+        context: {},
+      };
+      const result = await handleDeleteResource(event);
+
+      expect(lastStatus).toBe(403);
+      expect(result).toEqual({
+        error: "Workspace resources are managed from Dispatch",
+      });
+      expect(mockResourceDelete).not.toHaveBeenCalled();
     });
 
     it("returns 400 when no ID provided", async () => {

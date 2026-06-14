@@ -18,7 +18,6 @@ import {
   IconArrowsMaximize,
   IconArrowsMinimize,
   IconAlertTriangle,
-  IconBrandGoogle,
   IconChevronDown,
   IconClipboardText,
   IconCopy,
@@ -51,7 +50,6 @@ import {
   IconSearch,
   IconRefresh,
   IconRestore,
-  IconShieldLock,
   IconUserPlus,
 } from "@tabler/icons-react";
 import { useTheme } from "next-themes";
@@ -174,6 +172,7 @@ import {
   getDesktopPlanFiles,
   type DesktopPlanFilesFolder,
 } from "@/lib/desktop-plan-files";
+import { syncLocalControlResources } from "@/lib/local-control-resources";
 import {
   type PlanBundle,
   type PlanKind,
@@ -205,6 +204,34 @@ import type {
   PlanContent,
   PlanContentPatch,
 } from "@shared/plan-content";
+
+function GoogleLogoIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      aria-hidden="true"
+      className={className}
+      focusable="false"
+      viewBox="0 0 24 24"
+    >
+      <path
+        fill="#4285F4"
+        d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z"
+      />
+      <path
+        fill="#34A853"
+        d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
+      />
+      <path
+        fill="#FBBC05"
+        d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"
+      />
+      <path
+        fill="#EA4335"
+        d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"
+      />
+    </svg>
+  );
+}
 
 const SOURCE_OPTIONS: Array<{ value: PlanSource; label: string }> = [
   { value: "codex", label: "Codex" },
@@ -2590,11 +2617,25 @@ export function PlansPage() {
     void planFiles.getFolder({ planId: selectedId }).then((result) => {
       if (cancelled) return;
       setDesktopPlanFolder(result.ok ? result.folder : null);
+      if (result.ok) {
+        void syncLocalControlResources({
+          folderName: result.folder.name,
+          files: result.controlResources,
+        })
+          .then((synced) => {
+            if (synced.count > 0) {
+              queryClient.invalidateQueries({ queryKey: ["resources"] });
+            }
+          })
+          .catch(() => {
+            // Resource refresh is best-effort when restoring a remembered folder.
+          });
+      }
     });
     return () => {
       cancelled = true;
     };
-  }, [selectedId]);
+  }, [queryClient, selectedId]);
 
   useEffect(() => {
     if (!selectedId) return;
@@ -3029,6 +3070,13 @@ export function PlansPage() {
           }
           folder = chosen.folder;
           setDesktopPlanFolder(folder);
+          const synced = await syncLocalControlResources({
+            folderName: folder.name,
+            files: chosen.controlResources,
+          });
+          if (synced.count > 0) {
+            queryClient.invalidateQueries({ queryKey: ["resources"] });
+          }
         }
 
         const data = await readPlanExport();
@@ -3042,6 +3090,13 @@ export function PlansPage() {
         });
         if (written.ok === false) throw new Error(written.error);
         setDesktopPlanFolder(written.folder);
+        const synced = await syncLocalControlResources({
+          folderName: written.folder.name,
+          files: written.controlResources,
+        });
+        if (synced.count > 0) {
+          queryClient.invalidateQueries({ queryKey: ["resources"] });
+        }
         desktopAutoSyncedVersionRef.current[plan.id] = plan.updatedAt;
         if (!options.quiet) {
           toast.success(`Synced ${written.files?.length ?? 0} local files`);
@@ -3051,7 +3106,7 @@ export function PlansPage() {
         setDesktopPlanSyncing(false);
       }
     },
-    [bundle?.plan, desktopPlanFolder, readPlanExport],
+    [bundle?.plan, desktopPlanFolder, queryClient, readPlanExport],
   );
 
   const importPlanFromDesktopFolder = useCallback(async () => {
@@ -3066,6 +3121,13 @@ export function PlansPage() {
       const result = await planFiles.readPlan({ planId: plan.id });
       if (result.ok === false) throw new Error(result.error);
       if (!result.mdx) throw new Error("No Plan source files were found.");
+      const synced = await syncLocalControlResources({
+        folderName: result.folder.name,
+        files: result.controlResources,
+      });
+      if (synced.count > 0) {
+        queryClient.invalidateQueries({ queryKey: ["resources"] });
+      }
       const imported = await importPlanSource.mutateAsync({
         planId: plan.id,
         expectedUpdatedAt: plan.updatedAt,
@@ -3081,7 +3143,7 @@ export function PlansPage() {
     } finally {
       setDesktopPlanImporting(false);
     }
-  }, [bundle?.plan, importPlanSource]);
+  }, [bundle?.plan, importPlanSource, queryClient]);
 
   const setDesktopPlanAutoSyncEnabled = useCallback(
     (enabled: boolean) => {
@@ -5317,7 +5379,7 @@ function PlanCanvasSkeleton() {
 function PlanDocumentSkeleton() {
   return (
     <div
-      className="mx-auto w-full max-w-[900px] px-6 py-12 sm:px-10 lg:py-14"
+      className="mx-auto w-full max-w-[900px] px-6 pb-12 pt-16 sm:px-10 sm:py-12 lg:py-14"
       aria-hidden="true"
     >
       <header className="border-b border-plan-line pb-8">
@@ -5612,34 +5674,30 @@ function PlanLoadError({
         ? planExists
           ? "This plan exists, but this account is not on the access list."
           : "This looks like a private plan link, and this account may not have access."
-        : planExists
-          ? "This plan is private. Sign in with the right organization account or one shared on the plan."
-          : "This may be a private plan. Sign in with the right organization account or one shared on the plan."
+        : "This plan is private, sign in to view it"
       : message;
   const icon = planMissing ? (
     <IconSearch className="size-5" />
-  ) : showAccessHelp ? (
-    <IconShieldLock className="size-5" />
   ) : (
     <IconAlertTriangle className="size-5" />
   );
 
   return (
-    <div className="flex h-full items-center justify-center bg-background p-8">
+    <div className="flex h-full flex-col items-center justify-center bg-background p-8">
       <div className="w-full max-w-md rounded-lg border border-border bg-background p-5 text-left shadow-sm">
-        <div className="flex items-start gap-3">
-          <div
-            className={cn(
-              "flex size-10 shrink-0 items-center justify-center rounded-lg border",
-              showAccessHelp
-                ? "border-border bg-muted/40 text-foreground"
-                : planMissing
+        <div className={cn("flex items-start", !showAccessHelp && "gap-3")}>
+          {!showAccessHelp && (
+            <div
+              className={cn(
+                "flex size-10 shrink-0 items-center justify-center rounded-lg border",
+                planMissing
                   ? "border-border bg-muted/40 text-muted-foreground"
                   : "border-amber-500/25 bg-amber-500/10 text-amber-600 dark:text-amber-300",
-            )}
-          >
-            {icon}
-          </div>
+              )}
+            >
+              {icon}
+            </div>
+          )}
           <div className="min-w-0">
             <h2 className="text-base font-semibold tracking-tight">{title}</h2>
             <p className="mt-1 text-sm leading-6 text-muted-foreground">
@@ -5662,19 +5720,13 @@ function PlanLoadError({
                 owner grants access.
               </div>
             ) : null}
-            {showAccessHelp && !signedIn ? (
-              <p className="mt-3 text-xs leading-5 text-muted-foreground">
-                Builder.io PR recaps need a Builder.io org account or one shared
-                on the plan.
-              </p>
-            ) : null}
             {!showAccessHelp && !planMissing ? (
               <p className="mt-2 text-xs leading-5 text-muted-foreground">
                 Retry the load, or sign in with another account if this is a
                 private plan link.
               </p>
             ) : null}
-            {planId && (
+            {planId && !showAccessHelp && (
               <p className="mt-3 break-all font-mono text-xs text-muted-foreground">
                 {planId}
               </p>
@@ -5703,17 +5755,18 @@ function PlanLoadError({
                   type="button"
                   onClick={() => void startGoogle()}
                   disabled={googlePending}
+                  className="h-9 w-full gap-2.5 rounded-md bg-white px-2 text-sm font-medium text-black shadow-none hover:bg-[#e5e5e5] hover:text-black dark:bg-white dark:text-black dark:hover:bg-[#e5e5e5]"
                 >
                   {googlePending ? (
-                    <IconLoader2 className="size-4 animate-spin" />
+                    <IconLoader2 className="size-[18px] animate-spin" />
                   ) : (
-                    <IconBrandGoogle className="size-4" />
+                    <GoogleLogoIcon className="size-[18px]" />
                   )}
                   Continue with Google
                 </Button>
               )}
-              <div className="flex flex-wrap gap-2">
-                {signedIn ? (
+              {signedIn ? (
+                <div className="flex flex-wrap gap-2">
                   <Button
                     type="button"
                     variant="outline"
@@ -5723,12 +5776,8 @@ function PlanLoadError({
                     <IconLogin2 className="size-4" />
                     Switch account
                   </Button>
-                ) : null}
-                <Button type="button" variant="outline" onClick={onRetry}>
-                  <IconRefresh className="size-4" />
-                  Retry
-                </Button>
-              </div>
+                </div>
+              ) : null}
               <Collapsible open={emailOpen} onOpenChange={setEmailOpen}>
                 <CollapsibleTrigger asChild>
                   <Button
@@ -5821,10 +5870,6 @@ function PlanLoadError({
             </>
           ) : planMissing ? (
             <div className="flex flex-wrap gap-2">
-              <Button type="button" onClick={onRetry}>
-                <IconRefresh className="size-4" />
-                Retry
-              </Button>
               <Button type="button" variant="outline" onClick={onCreate}>
                 <IconPlus className="size-4" />
                 {canCreate ? "New Plan" : "Sign in"}
@@ -5832,10 +5877,6 @@ function PlanLoadError({
             </div>
           ) : (
             <div className="flex flex-wrap gap-2">
-              <Button type="button" onClick={onRetry}>
-                <IconRefresh className="size-4" />
-                Retry
-              </Button>
               <Button type="button" variant="outline" onClick={onSignIn}>
                 <IconExternalLink className="size-4" />
                 Sign in
@@ -5844,6 +5885,16 @@ function PlanLoadError({
           )}
         </div>
       </div>
+      <Button
+        type="button"
+        variant="ghost"
+        size="sm"
+        onClick={onRetry}
+        className="mt-3 gap-1.5 text-muted-foreground hover:text-foreground"
+      >
+        <IconRefresh className="size-3.5" />
+        Retry
+      </Button>
     </div>
   );
 }

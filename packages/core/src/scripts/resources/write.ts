@@ -9,8 +9,10 @@
 
 import { parseArgs, fail } from "../utils.js";
 import {
+  canWriteLocalWorkspaceResourcePath,
   resourcePut,
   SHARED_OWNER,
+  WORKSPACE_OWNER,
   type ResourceCreatedBy,
   type ResourceVisibility,
 } from "../../resources/store.js";
@@ -82,7 +84,8 @@ export default async function resourceWriteScript(
 Options:
   --path <path>            Resource path (required)
   --content <content>      Content to write (required)
-  --scope personal|shared  Scope to write to (default: personal). Workspace resources are managed from Dispatch.
+  --scope personal|shared|workspace
+                           Scope to write to (default: personal). Workspace is writable for local file mode control resources.
   --mime <mime-type>       MIME type (default: inferred from extension)
   --visibility workspace|agent_scratch
                            Visibility (default: workspace)
@@ -108,9 +111,11 @@ Options:
 
   const scope = parsed.scope ?? "personal";
   if (scope === "workspace") {
-    fail(
-      "Workspace resources are managed from Dispatch. Use resource-write for personal or shared app resources.",
-    );
+    if (!(await canWriteLocalWorkspaceResourcePath(resourcePath))) {
+      fail(
+        "Workspace resources are managed from Dispatch unless local file mode exposes this path. Writable local workspace paths are AGENTS.md, agent-native.json, mcp.config.json, .mcp.json, and skills/.",
+      );
+    }
   }
   const mimeType = parsed.mime ?? inferMimeType(resourcePath);
   const visibility = parseVisibility(parsed.visibility);
@@ -124,6 +129,8 @@ Options:
   let owner: string;
   if (scope === "shared") {
     owner = SHARED_OWNER;
+  } else if (scope === "workspace") {
+    owner = WORKSPACE_OWNER;
   } else {
     const personalOwner = getRequestUserEmail() ?? process.env.AGENT_USER_EMAIL;
     if (!personalOwner) {

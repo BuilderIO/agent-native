@@ -579,6 +579,13 @@ describe("recap prompt builder", () => {
     expect(prompt).toContain("compact MCP catalog");
     expect(prompt).toContain("Do not wait, sleep, back off");
     expect(prompt).toContain("schedule wakeups");
+    expect(prompt).toContain(
+      "validation feedback about empty or invalid wireframes",
+    );
+    expect(prompt).toContain("call `create-visual-recap` again");
+    expect(prompt).toContain(
+      "Do not write `recap-url.txt` until the tool succeeds",
+    );
     expect(prompt).toContain("set-resource-visibility");
     expect(prompt).toContain("recap-url.txt");
     expect(prompt).toContain(

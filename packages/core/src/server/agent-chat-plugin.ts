@@ -404,7 +404,7 @@ async function loadResourceSkillsPromptBlock(
       );
     }
     if (lines.length === 0) return null;
-    return `<resource-skills>\nThe following SQL-backed workspace skills are available in addition to codebase skills. Read a matching skill before starting a task it applies to.\n\n${lines.join("\n")}\n</resource-skills>`;
+    return `<resource-skills>\nThe following workspace skills are available in addition to codebase skills. They may come from SQL resources, Dispatch workspace resources, or local file mode. Read a matching skill before starting a task it applies to.\n\n${lines.join("\n")}\n</resource-skills>`;
   } catch {
     return null;
   }
@@ -1202,7 +1202,7 @@ async function createResourceScriptEntries(): Promise<
       resources: {
         tool: {
           description:
-            'Manage workspace resources. Actions: "list" (browse visible files), "read" (get contents), "effective" (show workspace -> organization/app -> personal inheritance for a path), "write" (create/update personal or shared), "promote" (make agent scratch visible), "delete" (remove personal or shared). Agent scratch writes are hidden from the Workspace view by default; use visibility="workspace" only for files the user explicitly wants to keep/manage.',
+            'Manage workspace resources. Actions: "list" (browse visible files), "read" (get contents), "effective" (show workspace -> organization/app -> personal inheritance for a path), "write" (create/update personal or shared; workspace only for local file mode control files), "promote" (make agent scratch visible), "delete" (remove personal or shared; workspace only for local file mode control files). Agent scratch writes are hidden from the Workspace view by default; use visibility="workspace" only for files the user explicitly wants to keep/manage.',
           parameters: {
             type: "object",
             properties: {
@@ -1230,7 +1230,7 @@ async function createResourceScriptEntries(): Promise<
               scope: {
                 type: "string",
                 description:
-                  "personal, shared, workspace, or all (default varies by action). Workspace is read-only and inherited from Dispatch.",
+                  "personal, shared, workspace, or all (default varies by action). Workspace is read-only when inherited from Dispatch; in local file mode AGENTS.md, agent-native.json, mcp.config.json, .mcp.json, and skills/ are writable.",
                 enum: ["personal", "shared", "workspace", "all"],
               },
               prefix: {
@@ -2817,8 +2817,9 @@ export async function loadResourcesForPrompt(
     }
   } catch {}
 
-  // 3. Runtime workspace resources from SQL. These are global defaults
-  // inherited by every app in the workspace, not copied into app scopes.
+  // 3. Runtime workspace resources. These are global defaults inherited by
+  // every app in the workspace, not copied into app scopes. They may come from
+  // SQL, Dispatch, or local file mode.
   const workspaceAgents = await loadAgentsResourceForPrompt(
     WORKSPACE_OWNER,
     "workspace",

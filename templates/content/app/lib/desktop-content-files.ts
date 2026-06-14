@@ -17,6 +17,7 @@ export type DesktopContentFilesResult =
       folders?: DesktopContentFilesFolder[];
       files?: string[];
       sources?: Record<string, string>;
+      controlResources?: Record<string, string>;
     }
   | {
       ok: false;
