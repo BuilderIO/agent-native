@@ -182,10 +182,10 @@ export function AnnotationCard<A extends RailAnnotation>({
       onMouseEnter={onMouseEnter}
       onMouseLeave={onMouseLeave}
       className={cn(
-        "rounded-lg border px-3.5 py-2.5 transition-colors",
+        "rounded-lg border px-3.5 py-2.5 shadow-lg shadow-black/10 backdrop-blur-md transition-colors dark:shadow-black/40",
         active
-          ? "border-amber-400/70 bg-amber-50 dark:border-amber-300/40 dark:bg-amber-300/[0.08]"
-          : "border-plan-line bg-plan-block/40 hover:border-amber-400/50",
+          ? "border-amber-400/70 bg-amber-50/95 dark:border-amber-300/45 dark:bg-zinc-950/90"
+          : "border-plan-line bg-plan-block hover:border-amber-400/50",
         className,
       )}
     >
@@ -420,7 +420,7 @@ export function AnnotationInlineOverlayStack<A extends RailAnnotation>({
                 ctx={ctx}
                 active
                 showMarker={showMarker}
-                className="border-amber-400/80 bg-amber-50/95 shadow-lg shadow-black/10 dark:border-amber-300/45 dark:bg-amber-300/[0.09] dark:shadow-black/40"
+                className="border-amber-400/80 bg-amber-50/95 shadow-lg shadow-black/10 backdrop-blur-md dark:border-amber-300/50 dark:bg-zinc-950/90 dark:shadow-black/50"
               />
             ))}
           </div>,
@@ -802,7 +802,7 @@ export function AnnotationHoverCard<A extends RailAnnotation>({
         ctx={ctx}
         active
         showMarker={showMarker}
-        className="shadow-lg shadow-black/10 dark:shadow-black/40"
+        className="shadow-lg shadow-black/10 backdrop-blur-md dark:shadow-black/40"
       />
     </div>,
     document.body,

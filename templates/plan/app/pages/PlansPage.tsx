@@ -51,7 +51,6 @@ import {
   IconSearch,
   IconRefresh,
   IconRestore,
-  IconShieldLock,
   IconUserPlus,
 } from "@tabler/icons-react";
 import { useTheme } from "next-themes";
@@ -5353,7 +5352,7 @@ function PlanCanvasSkeleton() {
 function PlanDocumentSkeleton() {
   return (
     <div
-      className="mx-auto w-full max-w-[900px] px-6 py-12 sm:px-10 lg:py-14"
+      className="mx-auto w-full max-w-[900px] px-6 pb-12 pt-16 sm:px-10 sm:py-12 lg:py-14"
       aria-hidden="true"
     >
       <header className="border-b border-plan-line pb-8">
@@ -5648,34 +5647,30 @@ function PlanLoadError({
         ? planExists
           ? "This plan exists, but this account is not on the access list."
           : "This looks like a private plan link, and this account may not have access."
-        : planExists
-          ? "This plan is private. Sign in with the right organization account or one shared on the plan."
-          : "This may be a private plan. Sign in with the right organization account or one shared on the plan."
+        : "This plan is private, sign in to view it"
       : message;
   const icon = planMissing ? (
     <IconSearch className="size-5" />
-  ) : showAccessHelp ? (
-    <IconShieldLock className="size-5" />
   ) : (
     <IconAlertTriangle className="size-5" />
   );
 
   return (
-    <div className="flex h-full items-center justify-center bg-background p-8">
+    <div className="flex h-full flex-col items-center justify-center bg-background p-8">
       <div className="w-full max-w-md rounded-lg border border-border bg-background p-5 text-left shadow-sm">
-        <div className="flex items-start gap-3">
-          <div
-            className={cn(
-              "flex size-10 shrink-0 items-center justify-center rounded-lg border",
-              showAccessHelp
-                ? "border-border bg-muted/40 text-foreground"
-                : planMissing
+        <div className={cn("flex items-start", !showAccessHelp && "gap-3")}>
+          {!showAccessHelp && (
+            <div
+              className={cn(
+                "flex size-10 shrink-0 items-center justify-center rounded-lg border",
+                planMissing
                   ? "border-border bg-muted/40 text-muted-foreground"
                   : "border-amber-500/25 bg-amber-500/10 text-amber-600 dark:text-amber-300",
-            )}
-          >
-            {icon}
-          </div>
+              )}
+            >
+              {icon}
+            </div>
+          )}
           <div className="min-w-0">
             <h2 className="text-base font-semibold tracking-tight">{title}</h2>
             <p className="mt-1 text-sm leading-6 text-muted-foreground">
@@ -5698,19 +5693,13 @@ function PlanLoadError({
                 owner grants access.
               </div>
             ) : null}
-            {showAccessHelp && !signedIn ? (
-              <p className="mt-3 text-xs leading-5 text-muted-foreground">
-                Builder.io PR recaps need a Builder.io org account or one shared
-                on the plan.
-              </p>
-            ) : null}
             {!showAccessHelp && !planMissing ? (
               <p className="mt-2 text-xs leading-5 text-muted-foreground">
                 Retry the load, or sign in with another account if this is a
                 private plan link.
               </p>
             ) : null}
-            {planId && (
+            {planId && !showAccessHelp && (
               <p className="mt-3 break-all font-mono text-xs text-muted-foreground">
                 {planId}
               </p>
@@ -5739,17 +5728,18 @@ function PlanLoadError({
                   type="button"
                   onClick={() => void startGoogle()}
                   disabled={googlePending}
+                  className="h-9 w-full gap-2.5 rounded-md bg-white px-2 text-sm font-medium text-black shadow-none hover:bg-[#e5e5e5] hover:text-black dark:bg-white dark:text-black dark:hover:bg-[#e5e5e5]"
                 >
                   {googlePending ? (
-                    <IconLoader2 className="size-4 animate-spin" />
+                    <IconLoader2 className="size-[18px] animate-spin" />
                   ) : (
-                    <IconBrandGoogle className="size-4" />
+                    <IconBrandGoogle className="size-[18px] text-[#4285F4]" />
                   )}
                   Continue with Google
                 </Button>
               )}
-              <div className="flex flex-wrap gap-2">
-                {signedIn ? (
+              {signedIn ? (
+                <div className="flex flex-wrap gap-2">
                   <Button
                     type="button"
                     variant="outline"
@@ -5759,12 +5749,8 @@ function PlanLoadError({
                     <IconLogin2 className="size-4" />
                     Switch account
                   </Button>
-                ) : null}
-                <Button type="button" variant="outline" onClick={onRetry}>
-                  <IconRefresh className="size-4" />
-                  Retry
-                </Button>
-              </div>
+                </div>
+              ) : null}
               <Collapsible open={emailOpen} onOpenChange={setEmailOpen}>
                 <CollapsibleTrigger asChild>
                   <Button
@@ -5857,10 +5843,6 @@ function PlanLoadError({
             </>
           ) : planMissing ? (
             <div className="flex flex-wrap gap-2">
-              <Button type="button" onClick={onRetry}>
-                <IconRefresh className="size-4" />
-                Retry
-              </Button>
               <Button type="button" variant="outline" onClick={onCreate}>
                 <IconPlus className="size-4" />
                 {canCreate ? "New Plan" : "Sign in"}
@@ -5868,10 +5850,6 @@ function PlanLoadError({
             </div>
           ) : (
             <div className="flex flex-wrap gap-2">
-              <Button type="button" onClick={onRetry}>
-                <IconRefresh className="size-4" />
-                Retry
-              </Button>
               <Button type="button" variant="outline" onClick={onSignIn}>
                 <IconExternalLink className="size-4" />
                 Sign in
@@ -5880,6 +5858,16 @@ function PlanLoadError({
           )}
         </div>
       </div>
+      <Button
+        type="button"
+        variant="ghost"
+        size="sm"
+        onClick={onRetry}
+        className="mt-3 gap-1.5 text-muted-foreground hover:text-foreground"
+      >
+        <IconRefresh className="size-3.5" />
+        Retry
+      </Button>
     </div>
   );
 }
