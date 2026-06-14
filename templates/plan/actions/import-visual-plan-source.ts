@@ -16,6 +16,7 @@ import {
 import { assertGuestCreateWithinLimits } from "../server/lib/guest-abuse.js";
 import { writePlanLocalFiles } from "../server/lib/local-plan-files.js";
 import { createPlanVersionSnapshot } from "../server/lib/plan-versions.js";
+import { assertRecapWireframesHaveContent } from "../server/lib/visual-recap-validation.js";
 import {
   importPlanAssets,
   applyImportedAssets,
@@ -88,6 +89,9 @@ export default defineAction({
   },
   run: async (args) => {
     let content = await parsePlanMdxFolder(args.mdx);
+    if (args.kind === "recap") {
+      assertRecapWireframesHaveContent(content);
+    }
     const title = args.title ?? content.title ?? "Imported visual plan";
     const brief = args.brief ?? content.brief ?? "Imported from MDX source.";
     const now = nowIso();

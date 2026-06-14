@@ -72,6 +72,33 @@ const MINIMAL_MDX = {
   "plan.mdx": `---\ntitle: Test Recap\nbrief: A recap.\n---\n\n# Test\n\nMinimal content.`,
 };
 
+const EMPTY_WIREFRAME_RECAP_MDX = {
+  "plan.mdx": `---
+title: Empty Wireframe Recap
+brief: Should fail before publishing.
+---
+
+<Columns id="ui-comparison">
+
+<Column id="before" label="Before">
+
+<WireframeBlock id="empty-before" title="Before state">
+  <Screen surface="browser" />
+</WireframeBlock>
+
+</Column>
+
+<Column id="after" label="After">
+
+<WireframeBlock id="filled-after" title="After state">
+  <Screen surface="browser" html='<div style="display:flex;flex-direction:column;gap:12px;padding:16px;height:100%"><h1>Resources</h1><p class="wf-muted">Local repo instructions loaded.</p><button class="primary">Save</button></div>' />
+</WireframeBlock>
+
+</Column>
+
+</Columns>`,
+};
+
 beforeAll(async () => {
   process.env.PLAN_GUEST_ABUSE_DISABLED = "1";
   process.env.PLAN_LOCAL_MODE = "0";
@@ -223,5 +250,22 @@ describe("create-visual-recap: sourceUrl", () => {
         }),
       ),
     ).rejects.toThrow();
+  });
+
+  it("rejects nested recap wireframes that would render as empty frames", async () => {
+    await expect(
+      asOwner(() =>
+        createVisualRecap.run({
+          mdx: EMPTY_WIREFRAME_RECAP_MDX,
+          visibility: "org",
+        }),
+      ),
+    ).rejects.toThrow(/empty wireframes[\s\S]*empty-before/i);
+
+    // guard:allow-unscoped -- test-only assertion reads the isolated temp DB.
+    const rows = await db
+      .select({ id: planSchema.plans.id })
+      .from(planSchema.plans);
+    expect(rows).toHaveLength(0);
   });
 });
