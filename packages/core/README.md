@@ -193,7 +193,7 @@ Don't want to scaffold a whole app yet? Add agent-native superpowers to a coding
 npx @agent-native/core@latest skills add visual-plan
 ```
 
-It installs the skill, registers the hosted MCP connector, and signs you in in one step — then run `/visual-plan`. See the **[Skills Guide](https://agent-native.com/docs/skills-guide#app-backed-skills)** for more skills and local installs.
+It installs the skill, registers the hosted MCP connector, and signs you in one step — then run `/visual-plan`. See the **[Skills Guide](https://agent-native.com/docs/skills-guide#app-backed-skills)** for more skills and local installs.
 
 ## Workspaces (Monorepo)
 
