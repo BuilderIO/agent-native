@@ -3644,6 +3644,51 @@ export function PlansPage() {
           useCORS: true,
           width: surface.clientWidth,
           height: surface.clientHeight,
+          onclone: (clonedDocument) => {
+            const clonedReader =
+              clonedDocument.querySelector("[data-plan-reader]");
+            const clonedSurface = clonedReader?.parentElement;
+            if (!(clonedSurface instanceof HTMLElement)) return;
+            clonedSurface.setAttribute("data-plan-feedback-capture", "true");
+            const style = clonedDocument.createElement("style");
+            style.textContent = `
+              [data-plan-feedback-capture] {
+                --background: #ffffff !important;
+                --foreground: #18181b !important;
+                --muted: #f4f4f5 !important;
+                --muted-foreground: #71717a !important;
+                --border: #d4d4d8 !important;
+                --ring: #71717a !important;
+                --plan-document: #ffffff !important;
+                --plan-text: #18181b !important;
+                --plan-muted: #71717a !important;
+                --plan-line: #d4d4d8 !important;
+                --plan-chrome: #ffffff !important;
+                --plan-canvas: #f4f4f5 !important;
+                --plan-grid-line: #e4e4e7 !important;
+              }
+              [data-plan-feedback-capture],
+              [data-plan-feedback-capture] * {
+                color: #18181b !important;
+                border-color: #d4d4d8 !important;
+                outline-color: #71717a !important;
+                text-decoration-color: #18181b !important;
+                caret-color: #18181b !important;
+                background-image: none !important;
+                box-shadow: none !important;
+                text-shadow: none !important;
+              }
+              [data-plan-feedback-capture] {
+                background: #ffffff !important;
+              }
+              [data-plan-feedback-capture] svg,
+              [data-plan-feedback-capture] svg * {
+                fill: currentColor !important;
+                stroke: currentColor !important;
+              }
+            `;
+            clonedDocument.head.appendChild(style);
+          },
         });
         const label = `Comment ${index + 1}: ${thread.id}`;
         const dataUrl = cropFeedbackScreenshot({
