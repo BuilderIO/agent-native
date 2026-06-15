@@ -440,6 +440,12 @@ export interface GongCallSearchResult {
   coverageTruncated: boolean;
 }
 
+export interface GongCallSearchOptions {
+  fromDateTime?: string;
+  toDateTime?: string;
+  exhaustive?: boolean;
+}
+
 function normalizedSearchQueries(queries: string[]): string[] {
   const seen = new Set<string>();
   const result: string[] = [];
@@ -473,10 +479,11 @@ export async function searchCallsForQueries(
   queries: string[],
   days = 90,
   limit = DEFAULT_GONG_CALL_LIMIT,
+  options: GongCallSearchOptions = {},
 ): Promise<GongCallSearchResult> {
-  const fromDateTime = new Date(
-    Date.now() - days * 24 * 60 * 60 * 1000,
-  ).toISOString();
+  const fromDateTime =
+    options.fromDateTime ??
+    new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
   const normalizedLimit = normalizeGongCallLimit(limit);
   const normalizedQueries = normalizedSearchQueries(queries);
 
@@ -497,6 +504,7 @@ export async function searchCallsForQueries(
   let cursor: string | undefined;
   do {
     const params = new URLSearchParams({ fromDateTime });
+    if (options.toDateTime) params.set("toDateTime", options.toDateTime);
     if (cursor) params.set("cursor", cursor);
     const data = await apiGet<{
       calls?: GongCall[];
@@ -521,7 +529,7 @@ export async function searchCallsForQueries(
     }
 
     for (let i = 0; i < remainingForExtensive.length; i += 100) {
-      if (matches.size >= normalizedLimit) break;
+      if (!options.exhaustive && matches.size >= normalizedLimit) break;
       const batch = remainingForExtensive.slice(i, i + 100);
       const uncached = batch.filter(
         (call) => !extensivePartyCache.has(call.id),
@@ -555,7 +563,7 @@ export async function searchCallsForQueries(
       }
 
       for (const call of batch) {
-        if (matches.size >= normalizedLimit) break;
+        if (!options.exhaustive && matches.size >= normalizedLimit) break;
         const parties = extensivePartyCache.get(call.id) ?? [];
         if (!parties.length) continue;
         for (const query of normalizedQueries) {
@@ -565,7 +573,7 @@ export async function searchCallsForQueries(
         }
       }
     }
-  } while (cursor && matches.size < normalizedLimit);
+  } while (cursor && (options.exhaustive || matches.size < normalizedLimit));
 
   const matchedCalls = Array.from(matches.values());
   const limited = limitGongCalls(matchedCalls, normalizedLimit);

@@ -490,9 +490,19 @@ async function providerFetch(provider, apiPath, init = {}) {
     provider,
     path: apiPath,
     method,
-    ...(init.query ? { query: typeof init.query === "string" ? init.query : JSON.stringify(init.query) } : {}),
-    ...(init.body ? { body: typeof init.body === "string" ? init.body : JSON.stringify(init.body) } : {}),
-    ...(init.headers ? { headers: typeof init.headers === "string" ? init.headers : JSON.stringify(init.headers) } : {}),
+    ...(init.query ? { query: init.query } : {}),
+    ...(init.body ? { body: init.body } : {}),
+    ...(init.headers ? { headers: init.headers } : {}),
+    ...(init.auth ? { auth: init.auth } : {}),
+    ...(init.connectionId ? { connectionId: init.connectionId } : {}),
+    ...(init.accountId ? { accountId: init.accountId } : {}),
+    ...(init.timeoutMs ? { timeoutMs: init.timeoutMs } : {}),
+    ...(init.maxBytes ? { maxBytes: init.maxBytes } : {}),
+    ...(init.stageAs ? { stageAs: init.stageAs } : {}),
+    ...(init.itemsPath ? { itemsPath: init.itemsPath } : {}),
+    ...(init.pagination ? { pagination: init.pagination } : {}),
+    ...(init.saveToFile ? { saveToFile: init.saveToFile } : {}),
+    ...(init.fetchAllPages ? { fetchAllPages: init.fetchAllPages } : {}),
   });
   // rawResult is the action's string output; parse it if it looks like JSON
   let parsed = rawResult;

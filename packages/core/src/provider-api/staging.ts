@@ -153,7 +153,15 @@ export function extractItemsArray(
 
   // Auto-detect: common shapes
   const obj = body as Record<string, unknown>;
-  for (const key of ["data", "results", "items", "records", "rows"]) {
+  for (const key of [
+    "data",
+    "results",
+    "items",
+    "records",
+    "rows",
+    "calls",
+    "callTranscripts",
+  ]) {
     if (Array.isArray(obj[key])) return obj[key] as unknown[];
   }
 

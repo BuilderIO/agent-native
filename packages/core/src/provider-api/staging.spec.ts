@@ -305,6 +305,20 @@ describe("extractItemsArray", () => {
     expect(extractItemsArray({ records: [{ x: "a" }] })).toEqual([{ x: "a" }]);
   });
 
+  it("detects Gong response arrays", () => {
+    expect(
+      extractItemsArray({
+        calls: [{ id: "call-1" }],
+        records: { cursor: "next" },
+      }),
+    ).toEqual([{ id: "call-1" }]);
+    expect(
+      extractItemsArray({
+        callTranscripts: [{ callId: "call-1" }],
+      }),
+    ).toEqual([{ callId: "call-1" }]);
+  });
+
   it("detects single-key object wrapping an array", () => {
     expect(extractItemsArray({ charges: [{ amount: 100 }] })).toEqual([
       { amount: 100 },

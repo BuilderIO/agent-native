@@ -1577,11 +1577,25 @@ function seedReadOnlyToolResultsFromHistory(
       if (part.type !== "tool-result") continue;
       const call = pendingToolCalls.get(part.toolCallId);
       if (!call) continue;
+      if (!isReusableReadOnlyToolResult(part)) continue;
       cache.set(toolCallCacheKey(call.name, call.input), part.content);
     }
   }
 
   return cache;
+}
+
+function isReusableReadOnlyToolResult(part: EngineToolResultPart): boolean {
+  if (part.isError) return false;
+  const lower = part.content.trim().toLowerCase();
+  if (!lower) return false;
+  return !(
+    lower.startsWith("error running ") ||
+    lower.includes("run aborted") ||
+    lower.includes("tool call timed out") ||
+    lower.includes("stale_run") ||
+    lower.includes("connection_error")
+  );
 }
 
 /**
