@@ -1305,6 +1305,19 @@ export default function AssetPicker() {
                   </Link>
                 </Button>
               )}
+              <Button
+                variant="ghost"
+                size="icon"
+                title="Close"
+                aria-label="Close"
+                className="h-8 w-8"
+                onClick={() => {
+                  setStandaloneSelection(null);
+                  setStandaloneCopyOk(false);
+                }}
+              >
+                <IconX className="h-3.5 w-3.5" />
+              </Button>
             </div>
           </div>
           <p className="mt-2 text-xs text-muted-foreground">
