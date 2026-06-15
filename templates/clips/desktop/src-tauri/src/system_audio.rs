@@ -58,12 +58,22 @@ pub fn system_audio_version_status() -> VersionStatus {
     {
         macos::version_status()
     }
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(target_os = "windows")]
+    {
+        // WASAPI loopback is available on all supported Windows versions and
+        // needs no special OS capability check.
+        VersionStatus {
+            supported: true,
+            os_version: std::env::consts::OS.to_string(),
+            reason: None,
+        }
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
     {
         VersionStatus {
             supported: false,
             os_version: std::env::consts::OS.to_string(),
-            reason: Some("System audio capture is only supported on macOS.".into()),
+            reason: Some("System audio capture is only supported on macOS and Windows.".into()),
         }
     }
 }
@@ -85,9 +95,16 @@ pub async fn system_audio_request_permission() -> Result<bool, String> {
         }
         macos::request_screen_capture_access().await
     }
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(target_os = "windows")]
     {
-        Err("System audio capture is only supported on macOS.".into())
+        // WASAPI loopback requires no permission grant; the mic permission is
+        // handled by the OS at first capture. Report success so the renderer
+        // proceeds straight to capture.
+        Ok(true)
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    {
+        Err("System audio capture is only supported on macOS and Windows.".into())
     }
 }
 

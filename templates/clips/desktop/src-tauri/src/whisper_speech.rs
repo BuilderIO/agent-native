@@ -7,10 +7,10 @@
 //! by `source`. whisper.cpp has no such limit: we run one whisper context with
 //! a per-stream worker thread, fully offline.
 //!
-//! Capture is reused from the existing modules:
-//!   - mic    → `native_speech::macos::start_raw_mic_capture` (AVAudioEngine +
-//!              VoiceProcessingIO AEC, other-audio ducking off)
-//!   - system → `system_audio::macos::start_raw_system_capture` (ScreenCaptureKit)
+//! Capture is delegated to the platform-dispatched `crate::capture` module:
+//!   - macOS   → AVAudioEngine + VoiceProcessingIO AEC (mic) and
+//!               ScreenCaptureKit (system audio).
+//!   - Windows → `cpal` microphone + WASAPI loopback (system audio).
 //!
 use tauri::AppHandle;
 
@@ -24,33 +24,33 @@ pub async fn meeting_whisper_start(
     if !crate::config::feature_config(&app).whisper_model_enabled {
         return Err("whisper-model-disabled".into());
     }
-    #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
     {
-        macos::start(app, language, mic_device_id, mic_device_label).await
+        engine::start(app, language, mic_device_id, mic_device_label).await
     }
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
     {
         let _ = (app, language, mic_device_id, mic_device_label);
-        Err("Whisper meeting transcription is only supported on macOS.".into())
+        Err("Whisper meeting transcription is not supported on this platform.".into())
     }
 }
 
 #[tauri::command]
 pub async fn meeting_whisper_stop(app: AppHandle) -> Result<(), String> {
-    #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
     {
-        macos::stop(&app);
+        engine::stop(&app);
         Ok(())
     }
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
     {
         let _ = app;
         Ok(())
     }
 }
 
-#[cfg(target_os = "macos")]
-mod macos {
+#[cfg(any(target_os = "macos", target_os = "windows"))]
+mod engine {
     use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
     use std::sync::{Arc, Mutex, OnceLock};
     use std::time::{Duration, Instant};
@@ -59,8 +59,9 @@ mod macos {
     use tauri::{AppHandle, Emitter};
     use whisper_rs::{FullParams, SamplingStrategy, WhisperContext, WhisperContextParameters};
 
-    use crate::native_speech::macos::{start_raw_mic_capture, RawMicCapture};
-    use crate::system_audio::macos::{start_raw_system_capture, RawSystemCapture};
+    use crate::capture::{
+        start_raw_mic_capture, start_raw_system_capture, RawMicCapture, RawSystemCapture,
+    };
     use crate::whisper_model::{custom_model_override, ensure_model, model_file};
 
     /// One transcript segment with real timestamps from whisper, already
@@ -456,9 +457,10 @@ mod macos {
         sys: Arc<WhisperStream>,
     }
 
-    // SAFETY: the capture handles hold refcounted ObjC objects (already
-    // `Send`); the streams are `Arc` over `Send + Sync` interiors. We only move
-    // the session through the `Mutex`, never alias across threads.
+    // SAFETY: the capture handles wrap platform audio resources that are each
+    // `unsafe impl Send` (refcounted ObjC objects on macOS; cpal stream handles
+    // on Windows); the streams are `Arc` over `Send + Sync` interiors. We only
+    // move the session through the `Mutex`, never alias across threads.
     unsafe impl Send for Session {}
 
     fn session_slot() -> &'static Mutex<Option<Session>> {

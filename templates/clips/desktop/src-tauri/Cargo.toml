@@ -112,12 +112,26 @@ screencapturekit = { version = "2.0.0", features = ["macos_15_0"] }
 # AudioBufferList type so we can hand SCK's CMSampleBuffer audio bytes to
 # AVAudioPCMBuffer for the speech recognizer.
 objc2-core-audio-types = "0.3"
-whisper-rs = { version = "0.16.0" }
 # NOTE: We hand-roll the few EventKit selectors we need via raw `objc2`
 # msg_send! in `eventkit.rs` rather than depending on the `objc2-event-kit`
 # crate. Its API surface drifts between minor 0.3.x releases (and not
 # every version exposes `EKEventStore::eventsMatchingPredicate`); the
 # slice we need is small enough that hand-rolling is more durable.
+
+# Windows-only: cross-platform audio capture. Covers both the microphone
+# (default WASAPI input) and system audio (WASAPI loopback — an input stream on
+# the default output device). One crate for both meeting capture streams.
+# NOTE: pin verified against crates.io before release; network was unavailable
+# in the dev environment where this was added.
+[target."cfg(target_os = \"windows\")".dependencies]
+cpal = "0.15"
+
+# Local meeting transcription via whisper.cpp. Cross-platform (bundles its own
+# native C/C++ build via CMake), needed only on the two platforms that run the
+# Whisper meeting engine. Scoped here rather than the macOS-only block (it is
+# not macOS-specific) but kept off Linux, which has no meeting capture.
+[target."cfg(any(target_os = \"macos\", target_os = \"windows\"))".dependencies]
+whisper-rs = { version = "0.16.0" }
 
 [profile.release]
 panic = "abort"
