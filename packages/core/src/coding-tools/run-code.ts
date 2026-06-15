@@ -108,6 +108,8 @@ export function createRunCodeEntry(
         "Use this to fetch, join, aggregate, and reduce large datasets, returning only printed output to the conversation.",
         "The sandbox runs with a scrubbed environment (no secrets) and, where the Node permission model is available, no filesystem access outside its own temp dir, no child processes, and no workers. Authenticated calls must go through the provided globals; direct network requests carry no credentials. Note: isolation is process-level (env scrub + Node permission model), not an OS-level container — outbound network from sandbox code is not blocked.",
         "Available globals:",
+        "  - `appAction(name, args?)` — call any registered read-only app action/tool and get its parsed result.",
+        "    Use this to loop over app data readers and compose multi-source analyses without forcing every intermediate result into chat.",
         "  - `providerFetch(provider, path, init?)` — authenticated call to a registered provider via the provider-api-request action.",
         "    Returns the parsed JSON result (or throws on error).",
         "    Example: `const data = await providerFetch('hubspot', '/crm/v3/objects/contacts');`",
@@ -388,17 +390,22 @@ function handleBridgeRequest(
   }
 
   // Enforce allowlist.
-  if (!defaultTools.has(toolName) && !extraTools.has(toolName)) {
+  const entry = actions[toolName];
+  const isReadOnlyAction = entry?.readOnly === true;
+  if (
+    !defaultTools.has(toolName) &&
+    !extraTools.has(toolName) &&
+    !isReadOnlyAction
+  ) {
     res.writeHead(403, { "Content-Type": "application/json" });
     res.end(
       JSON.stringify({
-        error: `Tool "${toolName}" is not in the sandbox bridge allowlist.`,
+        error: `Tool "${toolName}" is not a read-only action or sandbox bridge allowlisted tool.`,
       }),
     );
     return;
   }
 
-  const entry = actions[toolName];
   if (!entry) {
     res.writeHead(404, { "Content-Type": "application/json" });
     res.end(JSON.stringify({ error: `Tool "${toolName}" is not registered.` }));
@@ -480,6 +487,19 @@ async function _bridgeCall(tool, args) {
   });
 }
 
+function _parseBridgeResult(rawResult) {
+  if (typeof rawResult !== "string") return rawResult;
+  try { return JSON.parse(rawResult); } catch { return rawResult; }
+}
+
+/**
+ * Call any registered read-only app action/tool via the sandbox bridge.
+ * Mutating actions are blocked by the parent bridge.
+ */
+async function appAction(name, args = {}) {
+  return _parseBridgeResult(await _bridgeCall(name, args));
+}
+
 /**
  * Call a provider API via the authenticated provider-api-request action.
  * Returns the parsed JSON response body (or throws on error).
@@ -505,10 +525,7 @@ async function providerFetch(provider, apiPath, init = {}) {
     ...(init.fetchAllPages ? { fetchAllPages: init.fetchAllPages } : {}),
   });
   // rawResult is the action's string output; parse it if it looks like JSON
-  let parsed = rawResult;
-  if (typeof parsed === "string") {
-    try { parsed = JSON.parse(parsed); } catch { return parsed; }
-  }
+  let parsed = _parseBridgeResult(rawResult);
   // Unwrap the provider-api-request envelope ({ provider, request, response, guidance })
   // so callers get the actual response body. fetchAllPages / saveToFile results
   // (which have no \`response\` field) are returned as-is.
