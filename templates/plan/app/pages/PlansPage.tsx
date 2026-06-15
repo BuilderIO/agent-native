@@ -1028,6 +1028,40 @@ export function commentThreadsForVisibility(
   return threads.filter((thread) => commentThreadStatus(thread) === "open");
 }
 
+function visualSurfaceModeForAnchor(
+  anchor: PlanAnnotationAnchor | null,
+): PlanVisualSurfaceMode | null {
+  if (!anchor) return null;
+  if (
+    anchor.targetKind === "prototype" ||
+    anchor.screenId ||
+    prototypeScreenIdForAnchor(anchor)
+  ) {
+    return "prototype";
+  }
+  if (
+    anchor.targetKind === "wireframe" ||
+    anchor.targetKind === "canvas" ||
+    anchor.planAnnotationId ||
+    anchor.canvasX !== undefined ||
+    anchor.canvasY !== undefined ||
+    anchor.targetNodeId
+  ) {
+    return "wireframes";
+  }
+  return null;
+}
+
+export function commentThreadsForVisualSurfaceMode(
+  threads: CommentThread[],
+  visualSurfaceMode: PlanVisualSurfaceMode,
+) {
+  return threads.filter((thread) => {
+    const threadSurfaceMode = visualSurfaceModeForAnchor(thread.anchor);
+    return !threadSurfaceMode || threadSurfaceMode === visualSurfaceMode;
+  });
+}
+
 function commentIdentityKey(source: CommentIdentitySource, fallbackId: string) {
   return (
     normalizeCommentEmail(source.authorEmail) ??
@@ -2441,6 +2475,14 @@ export function PlansPage() {
     () => commentThreadsForVisibility(commentThreads, commentVisibility),
     [commentThreads, commentVisibility],
   );
+  const visibleMarkerCommentThreads = useMemo(
+    () =>
+      commentThreadsForVisualSurfaceMode(
+        visibleCommentThreads,
+        visualSurfaceMode,
+      ),
+    [visibleCommentThreads, visualSurfaceMode],
+  );
   const visiblePlanComments = useMemo(() => {
     if (!bundle) return [] as PlanBundle["comments"];
     const visibleIds = new Set(
@@ -2495,7 +2537,7 @@ export function PlansPage() {
   );
   const runtimeCommentThreads = useMemo(
     () =>
-      visibleCommentThreads
+      visibleMarkerCommentThreads
         .map((thread, index) =>
           runtimeAnnotationFromThread(
             thread,
@@ -2507,7 +2549,7 @@ export function PlansPage() {
         .filter((annotation): annotation is RuntimeAnnotation =>
           Boolean(annotation),
         ),
-    [commentAvatarUrls, currentCommentAuthor, visibleCommentThreads],
+    [commentAvatarUrls, currentCommentAuthor, visibleMarkerCommentThreads],
   );
   const canDeletePlanComment = useCallback(
     (comment: { authorEmail?: string | null }) => {

@@ -6,6 +6,7 @@ import {
   buildCommentThreads,
   canEditPlanContentRole,
   commentAuthorEmails,
+  commentThreadsForVisualSurfaceMode,
   commentThreadsForVisibility,
   mentionQueryAtCaret,
   runtimeAnnotationFromThread,
@@ -183,6 +184,68 @@ describe("plan comment thread UI model", () => {
     expect(
       commentThreadsForVisibility(threads, "all").map((thread) => thread.id),
     ).toEqual(["open-root", "resolved-root", "mixed-root"]);
+  });
+
+  it("keeps prototype and wireframe markers scoped to the active visual tab", () => {
+    const prototypeRoot = comment("prototype-root", {
+      anchor: JSON.stringify({
+        x: 50,
+        y: 20,
+        targetKind: "prototype",
+        screenId: "runs",
+      }),
+      createdAt: "2026-06-05T00:00:01.000Z",
+    });
+    const wireframeRoot = comment("wireframe-root", {
+      anchor: JSON.stringify({
+        x: 50,
+        y: 30,
+        targetKind: "wireframe",
+        sectionId: "runs-frame",
+      }),
+      createdAt: "2026-06-05T00:00:02.000Z",
+    });
+    const canvasRoot = comment("canvas-root", {
+      anchor: JSON.stringify({
+        x: 50,
+        y: 40,
+        targetKind: "canvas",
+        canvasX: 120,
+        canvasY: 80,
+      }),
+      createdAt: "2026-06-05T00:00:03.000Z",
+    });
+    const documentRoot = comment("document-root", {
+      anchor: JSON.stringify({
+        x: 50,
+        y: 70,
+        targetKind: "text",
+        textQuote: "Overview",
+      }),
+      createdAt: "2026-06-05T00:00:04.000Z",
+    });
+    const threads = buildCommentThreads([
+      documentRoot,
+      wireframeRoot,
+      prototypeRoot,
+      canvasRoot,
+    ]);
+
+    expect(
+      commentThreadsForVisualSurfaceMode(threads, "prototype").map(
+        (thread) => thread.id,
+      ),
+    ).toEqual(["prototype-root", "document-root"]);
+    expect(
+      commentThreadsForVisualSurfaceMode(threads, "wireframes").map(
+        (thread) => thread.id,
+      ),
+    ).toEqual(["wireframe-root", "canvas-root", "document-root"]);
+    expect(
+      commentThreadsForVisualSurfaceMode(threads, "none").map(
+        (thread) => thread.id,
+      ),
+    ).toEqual(["document-root"]);
   });
 
   it("groups replies and exposes participant avatars for Figma-style pins", () => {
