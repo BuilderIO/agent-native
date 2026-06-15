@@ -2265,9 +2265,9 @@ export function buildCommentBody(env: NodeJS.ProcessEnv = process.env): string {
     return lines.join("\n");
   }
 
-  // Tiny diffs aren't worth a recap. Refresh an existing sticky comment to this
-  // state (the workflow only updates, never creates, on tiny) so stale recap
-  // links do not linger on no-op changes.
+  // Tiny diffs aren't worth a recap. The workflow upserts this state as a sticky
+  // comment (created or updated) so the too-small outcome is explained and stale
+  // recap links do not linger on no-op changes.
   if (env.DIFF_TINY === "true") {
     lines.push("### Visual recap — skipped (diff too small)");
     lines.push("");
