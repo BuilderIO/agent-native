@@ -2,6 +2,11 @@ import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { emit, listen } from "@tauri-apps/api/event";
 import { IconX } from "@tabler/icons-react";
+import {
+  onAudioLevel,
+  onFinalTranscript,
+  onPartialTranscript,
+} from "../lib/transcription-engine";
 
 type FlowState = "idle" | "recording" | "processing" | "complete" | "error";
 
@@ -52,25 +57,24 @@ export function FlowBar() {
     );
 
     trackListen(
-      listen<{ level: number }>("voice:audio-level", (ev) => {
-        levelRef.current = Math.max(0, Math.min(1, ev.payload.level));
+      onAudioLevel(({ level }) => {
+        levelRef.current = Math.max(0, Math.min(1, level));
       }),
     );
 
     trackListen(
-      listen<{ text: string }>("voice:partial-transcript", (ev) => {
+      onPartialTranscript(({ text }) => {
         // Live transcript as the user speaks — rendered above the pill.
         // Empty payload clears the display (sent at session start/end).
-        setPartialTranscript(ev.payload.text || "");
+        setPartialTranscript(text);
       }),
     );
 
     trackListen(
-      listen<{ text: string }>("voice:final-transcript", (ev) => {
+      onFinalTranscript(({ text }) => {
         // Final result from the recognizer (only fires after stop is
         // requested). Show it on the bar — the last word lingers there
         // for ~1s before voice-dictation.ts dismisses everything.
-        const text = ev.payload.text || "";
         if (text) setPartialTranscript(text);
       }),
     );

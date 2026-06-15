@@ -36,7 +36,7 @@
  * the moment they open the popover) and during recording. A session-long
  * effect in `app.tsx` calls `getUserMedia`, invokes `show_bubble`, and runs
  * the relay (see `bubble-pump.ts`). When the user clicks Start Recording, the
- * live `MediaStream` is handed to `startNativeRecording` via
+ * live `MediaStream` is handed to `startRecording` via
  * `preAcquiredCameraStream` so the recorder can composite it into the
  * captured video instead of calling `getUserMedia` a second time.
  *
@@ -50,7 +50,13 @@
 import { invoke } from "@tauri-apps/api/core";
 import { emit, listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { open as openExternal } from "@tauri-apps/plugin-shell";
+import { createAudioCue, type AudioCue } from "./audio-cue";
 import { createCameraCompositeStream } from "./camera-composite";
+import {
+  startTranscriptionCapture,
+  type CapturedTranscript,
+  type TranscriptionCapture,
+} from "./transcription-capture";
 import {
   createLocalRecordingFolderName,
   exportBlobChunksToLocalRecordingFile,
@@ -60,7 +66,6 @@ import {
   type LocalExportedFile,
   type LocalRecordingTarget,
 } from "./local-export";
-import { loadVocabulary } from "./personal-vocabulary";
 import { buildCaptureTitle, type CaptureTitleResult } from "./recording-title";
 import type { LocalRecordingMode } from "../shared/config";
 
@@ -132,6 +137,8 @@ export interface StartParams {
   cookie?: string;
   micOn: boolean;
   cameraOn: boolean;
+  /** Record + transcribe system/desktop audio. Default true. */
+  systemAudioOn?: boolean;
   localRecordingMode?: LocalRecordingMode;
   /**
    * Pre-acquired camera stream owned by the popover's session effect. The
@@ -358,6 +365,46 @@ function voiceFocusedAudioConstraints(
   return {
     ...VOICE_FOCUSED_AUDIO_CONSTRAINTS,
     ...(deviceId ? { deviceId: { exact: deviceId } } : {}),
+  };
+}
+
+interface RecordingAudio {
+  tracks: MediaStreamTrack[];
+  cleanup: () => void;
+}
+
+/**
+ * Build the audio track(s) for the recording. When BOTH a mic track and a
+ * system/display-audio track are present they're mixed into a single track via
+ * WebAudio (one audio track keeps players + our finalize step happy). With only
+ * one source we pass it through untouched.
+ */
+function buildRecordingAudio(
+  micTracks: MediaStreamTrack[],
+  systemTracks: MediaStreamTrack[],
+): RecordingAudio {
+  if (!micTracks.length || !systemTracks.length) {
+    // 0 or 1 source — no mixing needed (prefer mic when it's the only one).
+    return {
+      tracks: micTracks.length ? micTracks : systemTracks,
+      cleanup() {},
+    };
+  }
+  const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+  if (!AudioCtx) {
+    // No WebAudio — fall back to mic only.
+    return { tracks: micTracks, cleanup() {} };
+  }
+  const ctx: AudioContext = new AudioCtx();
+  const destination = ctx.createMediaStreamDestination();
+  for (const tracks of [micTracks, systemTracks]) {
+    ctx.createMediaStreamSource(new MediaStream(tracks)).connect(destination);
+  }
+  return {
+    tracks: destination.stream.getAudioTracks(),
+    cleanup() {
+      ctx.close().catch(() => {});
+    },
   };
 }
 
@@ -785,7 +832,7 @@ export async function retryBrowserRecordingBackup(input: {
   }
 }
 
-async function createRecording(
+async function createServerRecording(
   serverUrl: string,
   hasCamera: boolean,
   hasAudio: boolean,
@@ -864,20 +911,8 @@ async function captureTitleForRecording(params: {
   });
 }
 
-interface NativeTranscriptCapture {
-  stop(): Promise<string>;
-  cancel(): Promise<void>;
-}
-
-interface RecordingStartCue {
-  play(): Promise<void>;
-  cleanup(): void;
-}
-
 const COUNTDOWN_EVENT_TIMEOUT_MS = 5000;
 const COUNTDOWN_OVERLAY_SETTLE_MS = 120;
-const RECORDING_START_CUE_TIMEOUT_MS = 450;
-const RECORDING_START_CUE_SETTLE_MS = 80;
 
 function wait(ms: number): Promise<void> {
   return new Promise((resolve) => window.setTimeout(resolve, ms));
@@ -896,200 +931,13 @@ interface NativeFullscreenSaveResult {
   file: LocalExportedFile;
 }
 
-async function startNativeTranscriptCapture(mic?: {
-  deviceId?: string | null;
-  label?: string | null;
-}): Promise<NativeTranscriptCapture | null> {
-  const maxRestarts = 60;
-  let committedText = "";
-  let activeText = "";
-  let latestText = "";
-  let stopping = false;
-  let disposed = false;
-  let restartCount = 0;
-  let restartTimer: ReturnType<typeof window.setTimeout> | null = null;
-  let settleFinal: ((text: string) => void) | null = null;
-  const unlistens: UnlistenFn[] = [];
-
-  const cleanup = () => {
-    disposed = true;
-    if (restartTimer) {
-      window.clearTimeout(restartTimer);
-      restartTimer = null;
-    }
-    unlistens.splice(0).forEach((unlisten) => {
-      try {
-        unlisten();
-      } catch {
-        // ignore
-      }
-    });
-  };
-
-  const refreshLatest = () => {
-    latestText = [committedText, activeText].filter(Boolean).join("\n\n");
-  };
-
-  const commitActiveText = () => {
-    const text = activeText.trim();
-    if (!text) {
-      refreshLatest();
-      return;
-    }
-    if (!committedText.endsWith(text)) {
-      committedText = [committedText, text].filter(Boolean).join("\n\n");
-    }
-    activeText = "";
-    refreshLatest();
-  };
-
-  const shouldRestartAfterError = (error: string | undefined) => {
-    const normalized = (error ?? "").toLowerCase();
-    return (
-      normalized.includes("no speech") ||
-      normalized.includes("kafassistant") ||
-      normalized.includes("error 1101")
-    );
-  };
-
-  const startNativeSpeech = async () => {
-    const contextualStrings = await loadVocabulary().catch(() => []);
-    if (disposed || stopping) return;
-    await invoke("native_speech_set_vocabulary", {
-      strings: contextualStrings,
-    }).catch(() => {});
-    if (disposed || stopping) return;
-    await invoke("native_speech_start", {
-      locale: navigator.language || "en-US",
-      micDeviceId: mic?.deviceId || null,
-      micDeviceLabel: mic?.label || null,
-    });
-    console.log(
-      `[clips-recorder] native_speech_start ok (vocab=${contextualStrings.length})`,
-    );
-  };
-
-  // Returns true when a restart was scheduled. Callers MUST settle the
-  // final-transcript promise themselves when this returns false — otherwise
-  // the consumer hangs until the 1800ms safety timeout.
-  const scheduleRestart = (reason: string): boolean => {
-    if (disposed || stopping) return false;
-    if (restartCount >= maxRestarts) {
-      console.warn(
-        `[clips-recorder] native transcript restart limit reached after ${reason}; preserving captured text`,
-      );
-      return false;
-    }
-    restartCount += 1;
-    if (restartTimer) window.clearTimeout(restartTimer);
-    restartTimer = window.setTimeout(
-      () => {
-        restartTimer = null;
-        startNativeSpeech().catch((err) => {
-          console.warn(
-            "[clips-recorder] native transcript restart failed:",
-            err,
-          );
-          if (!scheduleRestart("restart failure")) {
-            settleFinal?.(latestText);
-          }
-        });
-      },
-      Math.min(250 + restartCount * 50, 1000),
-    );
-    return true;
-  };
-
-  try {
-    unlistens.push(
-      await listen<{ text: string }>("voice:partial-transcript", (event) => {
-        const text = event.payload?.text?.trim();
-        if (text) {
-          activeText = text;
-          refreshLatest();
-        }
-      }),
-      await listen<{ text: string }>("voice:final-transcript", (event) => {
-        const text = event.payload?.text?.trim();
-        if (text) activeText = text;
-        commitActiveText();
-        if (stopping) {
-          settleFinal?.(latestText);
-          return;
-        }
-        if (!scheduleRestart("final transcript")) {
-          settleFinal?.(latestText);
-        }
-      }),
-      await listen<{ error: string }>("voice:speech-error", (event) => {
-        const error = event.payload?.error;
-        console.warn("[clips-recorder] native transcript error:", error);
-        commitActiveText();
-        if (
-          !stopping &&
-          shouldRestartAfterError(error) &&
-          scheduleRestart("speech endpoint")
-        ) {
-          return;
-        }
-        settleFinal?.(latestText);
-      }),
-    );
-
-    await startNativeSpeech();
-  } catch (err) {
-    cleanup();
-    console.warn("[clips-recorder] native transcript unavailable:", err);
-    return null;
-  }
-
-  return {
-    async stop() {
-      stopping = true;
-      if (restartTimer) {
-        window.clearTimeout(restartTimer);
-        restartTimer = null;
-      }
-      const finalTextPromise = new Promise<string>((resolve) => {
-        const timeout = window.setTimeout(() => resolve(latestText), 1800);
-        settleFinal = (text) => {
-          window.clearTimeout(timeout);
-          resolve(text);
-        };
-      });
-
-      try {
-        await invoke("native_speech_stop");
-      } catch (err) {
-        console.warn("[clips-recorder] native_speech_stop failed:", err);
-        commitActiveText();
-        cleanup();
-        return latestText;
-      }
-
-      const finalText = await finalTextPromise;
-      cleanup();
-      return finalText.trim();
-    },
-    async cancel() {
-      stopping = true;
-      try {
-        await invoke("native_speech_cancel");
-      } catch {
-        // ignore
-      }
-      cleanup();
-    },
-  };
-}
-
-async function saveNativeTranscript(
+async function saveRecordingTranscript(
   serverUrl: string,
   recordingId: string,
-  fullText: string,
+  transcript: CapturedTranscript,
   authToken?: string,
 ): Promise<void> {
-  const text = fullText.trim();
+  const text = transcript.text.trim();
   if (!text) return;
 
   const url = `${serverUrl.replace(/\/+$/, "")}/_agent-native/actions/save-browser-transcript`;
@@ -1101,23 +949,24 @@ async function saveNativeTranscript(
       body: JSON.stringify({
         recordingId,
         fullText: text,
-        source: "macos-native",
+        segments: transcript.segments,
+        source: "whisper",
       }),
     });
     if (!res.ok) {
       const body = await res.text().catch(() => "");
       console.warn(
-        "[clips-recorder] save native transcript failed:",
+        "[clips-recorder] save transcript failed:",
         res.status,
         body.slice(0, 200),
       );
     }
   } catch (err) {
-    console.warn("[clips-recorder] save native transcript failed:", err);
+    console.warn("[clips-recorder] save transcript failed:", err);
   }
 }
 
-async function saveNativeTranscriptFailure(
+async function saveRecordingTranscriptFailure(
   serverUrl: string,
   recordingId: string,
   failureReason: string,
@@ -1135,7 +984,7 @@ async function saveNativeTranscriptFailure(
       body: JSON.stringify({
         recordingId,
         fullText: "",
-        source: "macos-native",
+        source: "whisper",
         failureReason: reason,
       }),
     });
@@ -1521,25 +1370,6 @@ async function runRecordingCountdown(wantsScreen: boolean) {
   await wait(COUNTDOWN_OVERLAY_SETTLE_MS);
 }
 
-async function playRecordingStartCueBeforeCapture(
-  recordingStartCue: RecordingStartCue,
-) {
-  let timedOut = false;
-  await Promise.race([
-    recordingStartCue.play(),
-    wait(RECORDING_START_CUE_TIMEOUT_MS).then(() => {
-      timedOut = true;
-    }),
-  ]).catch((err) => {
-    console.warn("[clips-recorder] start cue unavailable:", err);
-  });
-  if (timedOut) {
-    recordingStartCue.cleanup();
-    return;
-  }
-  await wait(RECORDING_START_CUE_SETTLE_MS);
-}
-
 function showFinalizingFeedback() {
   invoke("show_finalizing").catch((err) =>
     console.error("[clips-recorder] show_finalizing failed:", err),
@@ -1567,24 +1397,24 @@ async function startNativeFullscreenRecording(
   params: StartParams,
   wantsCamera: boolean,
   wantsAudio: boolean,
-  recordingStartCue: RecordingStartCue,
+  audioCue: AudioCue,
 ): Promise<RecorderHandle> {
   console.log("[clips-recorder] using native full-screen capture");
   const localRecordingMode = params.localRecordingMode ?? "off";
   const localOnly = localRecordingMode !== "off";
   const localFolderName = localOnly ? createLocalRecordingFolderName() : "";
-  const streamCleanups: Array<() => void> = [recordingStartCue.cleanup];
+  const streamCleanups: Array<() => void> = [audioCue.cleanup];
   let id = "";
   let localCameraExport: LocalRecordingExportHandle | null = null;
   let localCameraStream: MediaStream | null = null;
   let localOwnsCameraStream = false;
   let bubbleCaptureExcluded = false;
-  let nativeTranscriptCapture: NativeTranscriptCapture | null = null;
+  let transcriptionCapture: TranscriptionCapture | null = null;
   let nativeTranscriptFailureSaved = false;
   const saveTranscriptFailure = async (failureReason: string) => {
     if (!wantsAudio || nativeTranscriptFailureSaved || !id) return;
     nativeTranscriptFailureSaved = true;
-    await saveNativeTranscriptFailure(
+    await saveRecordingTranscriptFailure(
       params.serverUrl,
       id,
       failureReason,
@@ -1630,7 +1460,7 @@ async function startNativeFullscreenRecording(
     console.log(
       localOnly
         ? "[clips-recorder] invoking show_countdown for native local recording"
-        : "[clips-recorder] invoking show_countdown + createRecording",
+        : "[clips-recorder] invoking show_countdown + createServerRecording",
     );
     const countdownPromise = runRecordingCountdown(true);
     if (localOnly) {
@@ -1641,16 +1471,16 @@ async function startNativeFullscreenRecording(
         mode: params.mode,
         source: "full-screen",
       });
-      console.time("[clips-recorder] createRecording duration");
-      const recordingPromise = createRecording(
+      console.time("[clips-recorder] createServerRecording duration");
+      const recordingPromise = createServerRecording(
         params.serverUrl,
         wantsCamera,
         wantsAudio,
         captureTitle,
       ).finally(() => {
-        console.timeEnd("[clips-recorder] createRecording duration");
+        console.timeEnd("[clips-recorder] createServerRecording duration");
       });
-      let createRes: Awaited<ReturnType<typeof createRecording>>;
+      let createRes: Awaited<ReturnType<typeof createServerRecording>>;
       try {
         [, createRes] = await Promise.all([countdownPromise, recordingPromise]);
       } catch (err) {
@@ -1664,10 +1494,12 @@ async function startNativeFullscreenRecording(
       id = createRes.id;
     }
 
-    await playRecordingStartCueBeforeCapture(recordingStartCue);
+    await audioCue.playBeforeCapture();
+    const wantsSystemAudio = params.systemAudioOn !== false;
     await invoke("native_fullscreen_recording_start", {
       recordingId: id,
       includeAudio: wantsAudio,
+      captureSystemAudio: wantsSystemAudio,
       micDeviceId: params.micId || null,
       micDeviceLabel: params.micLabel || null,
     });
@@ -1675,20 +1507,23 @@ async function startNativeFullscreenRecording(
 
     if (!localOnly) {
       await showRegionGuidesForRecording(true);
-      nativeTranscriptCapture = wantsAudio
-        ? await startNativeTranscriptCapture({
-            deviceId: params.micId,
-            label: params.micLabel,
-          })
+      transcriptionCapture = wantsAudio
+        ? await startTranscriptionCapture(
+            {
+              deviceId: params.micId,
+              label: params.micLabel,
+            },
+            wantsSystemAudio,
+          )
         : null;
-      if (wantsAudio && !nativeTranscriptCapture) {
+      if (wantsAudio && !transcriptionCapture) {
         void saveTranscriptFailure(
           "macOS Speech recognition could not start for this recording. Check Speech Recognition and Microphone permissions, then retry transcription.",
         );
       }
     }
   } catch (err) {
-    await nativeTranscriptCapture?.cancel().catch(() => {});
+    await transcriptionCapture?.cancel().catch(() => {});
     await localCameraExport?.cancel().catch(() => {});
     if (bubbleCaptureExcluded) {
       await invoke("set_bubble_capture_excluded", {
@@ -1801,25 +1636,22 @@ async function startNativeFullscreenRecording(
 
         let uploadResult: NativeFullscreenUploadResult | null = null;
         try {
-          const nativeTranscript = await nativeTranscriptCapture
+          const capturedTranscript = await transcriptionCapture
             ?.stop()
             .catch((err) => {
-              console.warn(
-                "[clips-recorder] native transcript stop failed:",
-                err,
-              );
-              return "";
+              console.warn("[clips-recorder] transcript stop failed:", err);
+              return null;
             });
-          if (nativeTranscript) {
-            await saveNativeTranscript(
+          if (capturedTranscript?.text.trim()) {
+            await saveRecordingTranscript(
               params.serverUrl,
               id,
-              nativeTranscript,
+              capturedTranscript,
               params.authToken,
             );
           } else if (wantsAudio) {
             await saveTranscriptFailure(
-              "No speech was captured by macOS Speech during this recording. If you spoke, check Microphone input, Speech Recognition permission, and the selected mic, then retry transcription.",
+              "No speech was captured during this recording. If you spoke, check Microphone input, Speech Recognition permission, and the selected mic, then retry transcription.",
             );
           }
 
@@ -1909,7 +1741,7 @@ async function startNativeFullscreenRecording(
         }
         stateUnlistens.forEach((u) => u());
         stateUnlistens = [];
-        await nativeTranscriptCapture?.cancel().catch(() => {});
+        await transcriptionCapture?.cancel().catch(() => {});
         await localCameraExport?.cancel().catch(() => {});
         await invoke("native_fullscreen_recording_cancel").catch((err) =>
           console.warn(
@@ -2069,121 +1901,20 @@ function createSyntheticAudioStream(): {
   }
 }
 
-const noopRecordingStartCue: RecordingStartCue = {
-  async play() {},
-  cleanup() {},
-};
-
 function bubbleSizeRatioForName(size: string | null | undefined): number {
   return size === "medium" ? 0.24 : 0.18;
 }
 
-function createRecordingStartCue(): RecordingStartCue {
-  try {
-    const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
-    if (!AudioCtx) return noopRecordingStartCue;
-
-    const ctx = new AudioCtx();
-    let played = false;
-    let closed = false;
-    let cleanupTimer: ReturnType<typeof window.setTimeout> | null = null;
-
-    const close = () => {
-      if (closed) return;
-      closed = true;
-      if (cleanupTimer) {
-        window.clearTimeout(cleanupTimer);
-        cleanupTimer = null;
-      }
-      ctx.close().catch(() => {});
-    };
-
-    const play = () =>
-      new Promise<void>((resolve) => {
-        if (played || closed) {
-          resolve();
-          return;
-        }
-        played = true;
-
-        const startedAt = ctx.currentTime + 0.005;
-        const oscillator = ctx.createOscillator();
-        const gain = ctx.createGain();
-        let resolved = false;
-        let timeout: ReturnType<typeof window.setTimeout> | null =
-          window.setTimeout(() => {
-            timeout = null;
-            if (resolved) return;
-            resolved = true;
-            close();
-            resolve();
-          }, 500);
-        const finish = () => {
-          if (resolved) return;
-          resolved = true;
-          if (timeout) {
-            window.clearTimeout(timeout);
-            timeout = null;
-          }
-          close();
-          resolve();
-        };
-
-        oscillator.type = "sine";
-        oscillator.frequency.setValueAtTime(880, startedAt);
-        oscillator.frequency.exponentialRampToValueAtTime(
-          660,
-          startedAt + 0.14,
-        );
-
-        gain.gain.setValueAtTime(0.0001, startedAt);
-        gain.gain.exponentialRampToValueAtTime(0.07, startedAt + 0.018);
-        gain.gain.exponentialRampToValueAtTime(0.0001, startedAt + 0.18);
-
-        oscillator.connect(gain);
-        gain.connect(ctx.destination);
-
-        oscillator.addEventListener("ended", finish, { once: true });
-        oscillator.start(startedAt);
-        oscillator.stop(startedAt + 0.2);
-      });
-
-    const cue: RecordingStartCue = {
-      async play() {
-        if (ctx.state === "running") {
-          await play();
-          return;
-        }
-        try {
-          await ctx.resume();
-          await play();
-        } catch (err) {
-          console.warn("[clips-recorder] start cue unavailable:", err);
-          close();
-        }
-      },
-      cleanup: close,
-    };
-
-    ctx.resume().catch(() => {});
-    cleanupTimer = window.setTimeout(() => cue.cleanup(), 5 * 60_000);
-    return cue;
-  } catch (err) {
-    console.warn("[clips-recorder] start cue unavailable:", err);
-    return noopRecordingStartCue;
-  }
-}
-
-export async function startNativeRecording(
+export async function startRecording(
   params: StartParams,
 ): Promise<RecorderHandle> {
   try {
-    return await startNativeRecordingInner(params);
+    return await startRecordingInner(params);
   } catch (err) {
     await invoke("hide_recording_chrome").catch(() => {});
     const e = err as { name?: string; message?: string } | null;
     console.error(
-      "[clips-recorder] startNativeRecording threw:",
+      "[clips-recorder] startRecording threw:",
       e?.name,
       e?.message,
       err,
@@ -2192,16 +1923,17 @@ export async function startNativeRecording(
   }
 }
 
-async function startNativeRecordingInner(
+async function startRecordingInner(
   params: StartParams,
 ): Promise<RecorderHandle> {
   const wantsScreen = params.mode !== "camera";
   const wantsCamera = params.mode !== "screen" && params.cameraOn;
   const wantsAudio = params.micOn;
-  const recordingStartCue = createRecordingStartCue();
+  const wantsSystemAudio = params.systemAudioOn !== false;
+  const audioCue = createAudioCue();
   const captureSource = params.source ?? "window";
   const localRecordingMode = params.localRecordingMode ?? "off";
-  console.log("[clips-recorder] startNativeRecording", {
+  console.log("[clips-recorder] startRecording", {
     serverUrl: params.serverUrl,
     mode: params.mode,
     source: captureSource,
@@ -2216,7 +1948,7 @@ async function startNativeRecordingInner(
       params,
       wantsCamera,
       wantsAudio,
-      recordingStartCue,
+      audioCue,
     );
   }
 
@@ -2248,7 +1980,7 @@ async function startNativeRecordingInner(
   if (wantsAudio) {
     console.log("[clips-recorder] acquiring audioStream (mic only)");
   }
-  const streamCleanups: Array<() => void> = [recordingStartCue.cleanup];
+  const streamCleanups: Array<() => void> = [audioCue.cleanup];
   const devSyntheticCapture = shouldUseDevSyntheticCapture();
 
   const displayStreamPromise: Promise<MediaStream> | null = wantsScreen
@@ -2266,7 +1998,8 @@ async function startNativeRecordingInner(
               height: { ideal: CLOUD_CAPTURE_MAX_HEIGHT },
               displaySurface,
             },
-            audio: wantsAudio,
+            // System/desktop audio is gated by the system-audio toggle, not mic.
+            audio: wantsSystemAudio,
           });
         }
         console.warn(
@@ -2430,7 +2163,7 @@ async function startNativeRecordingInner(
     mode: params.mode,
     source: captureSource,
   });
-  let nativeTranscriptCapture: NativeTranscriptCapture | null = null;
+  let transcriptionCapture: TranscriptionCapture | null = null;
 
   const recordedScreenCameraStream =
     localRecordingMode !== "separate" &&
@@ -2462,13 +2195,13 @@ async function startNativeRecordingInner(
 
   const combined = new MediaStream();
   primaryVideo.getVideoTracks().forEach((t) => combined.addTrack(t));
-  // Prefer explicit mic over the system-audio track picked up by
-  // getDisplayMedia — the mic track is what viewers expect to hear first.
-  if (audioStream) {
-    audioStream.getAudioTracks().forEach((t) => combined.addTrack(t));
-  } else if (displayStream) {
-    displayStream.getAudioTracks().forEach((t) => combined.addTrack(t));
-  }
+  // Mic + system audio (mixed when both present); see buildRecordingAudio.
+  const recordingAudio = buildRecordingAudio(
+    audioStream?.getAudioTracks() ?? [],
+    displayStream?.getAudioTracks() ?? [],
+  );
+  streamCleanups.push(recordingAudio.cleanup);
+  recordingAudio.tracks.forEach((t) => combined.addTrack(t));
 
   // The popover owns the camera stream when we're reusing a pre-acquired
   // one — its session effect decides when to close the stream + hide the
@@ -2554,7 +2287,7 @@ async function startNativeRecordingInner(
     stateUnlistens = toolbarUnlistens;
 
     await showRegionGuidesForRecording(wantsScreen);
-    await playRecordingStartCueBeforeCapture(recordingStartCue);
+    await audioCue.playBeforeCapture();
     localExport.start(2_000);
     startedAt = Date.now();
     emit("clips:toolbar-enabled", true).catch(() => {});
@@ -2655,33 +2388,27 @@ async function startNativeRecordingInner(
   uploadPrimaryVideo.stream
     .getVideoTracks()
     .forEach((track) => uploadCombined.addTrack(track));
-  if (audioStream) {
-    audioStream
-      .getAudioTracks()
-      .forEach((track) => uploadCombined.addTrack(track));
-  } else if (displayStream) {
-    displayStream
-      .getAudioTracks()
-      .forEach((track) => uploadCombined.addTrack(track));
-  }
+  recordingAudio.tracks.forEach((track) => uploadCombined.addTrack(track));
 
   // 2+3. Countdown + create-recording happen IN PARALLEL. The countdown is
   // pure visual feedback — gating it on a network round-trip makes the
   // 3-2-1 feel laggy after the user picks a screen. Kick both off and
   // wait at the end before starting the MediaRecorder.
-  console.log("[clips-recorder] invoking show_countdown + createRecording");
+  console.log(
+    "[clips-recorder] invoking show_countdown + createServerRecording",
+  );
   const countdownPromise = runRecordingCountdown(wantsScreen);
-  console.time("[clips-recorder] createRecording duration");
-  const recordingPromise = createRecording(
+  console.time("[clips-recorder] createServerRecording duration");
+  const recordingPromise = createServerRecording(
     params.serverUrl,
     wantsCamera,
     wantsAudio,
     captureTitle,
   ).finally(() => {
-    console.timeEnd("[clips-recorder] createRecording duration");
+    console.timeEnd("[clips-recorder] createServerRecording duration");
   });
-  console.log("[clips-recorder] awaiting countdown + createRecording");
-  let createRes: Awaited<ReturnType<typeof createRecording>>;
+  console.log("[clips-recorder] awaiting countdown + createServerRecording");
+  let createRes: Awaited<ReturnType<typeof createServerRecording>>;
   try {
     [, createRes] = await Promise.all([countdownPromise, recordingPromise]);
   } catch (err) {
@@ -2694,7 +2421,7 @@ async function startNativeRecordingInner(
   }
   const { id } = createRes;
   console.log(
-    "[clips-recorder] countdown + createRecording both resolved, id=",
+    "[clips-recorder] countdown + createServerRecording both resolved, id=",
     id,
   );
   console.log("[clips-recorder] recording row created", { id });
@@ -2702,7 +2429,7 @@ async function startNativeRecordingInner(
   const saveTranscriptFailure = async (failureReason: string) => {
     if (!wantsAudio || nativeTranscriptFailureSaved) return;
     nativeTranscriptFailureSaved = true;
-    await saveNativeTranscriptFailure(
+    await saveRecordingTranscriptFailure(
       params.serverUrl,
       id,
       failureReason,
@@ -2867,19 +2594,22 @@ async function startNativeRecordingInner(
   ]);
   stateUnlistens = toolbarUnlistens;
 
-  nativeTranscriptCapture = wantsAudio
-    ? await startNativeTranscriptCapture({
-        deviceId: params.micId,
-        label: params.micLabel,
-      })
+  transcriptionCapture = wantsAudio
+    ? await startTranscriptionCapture(
+        {
+          deviceId: params.micId,
+          label: params.micLabel,
+        },
+        wantsSystemAudio,
+      )
     : null;
-  if (wantsAudio && !nativeTranscriptCapture) {
+  if (wantsAudio && !transcriptionCapture) {
     void saveTranscriptFailure(
       "macOS Speech recognition could not start for this recording. Check Speech Recognition and Microphone permissions, then retry transcription.",
     );
   }
   await showRegionGuidesForRecording(wantsScreen);
-  await playRecordingStartCueBeforeCapture(recordingStartCue);
+  await audioCue.playBeforeCapture();
   recorder.start(LIVE_UPLOAD_CHUNK_MS);
   startedAt = Date.now();
   // The toolbar is already open (the popover's bubble-session effect
@@ -2945,22 +2675,22 @@ async function startNativeRecordingInner(
         console.warn("[clips-recorder] thumbnail capture/upload failed:", err);
       });
 
-      const nativeTranscript = await nativeTranscriptCapture
+      const capturedTranscript = await transcriptionCapture
         ?.stop()
         .catch((err) => {
-          console.warn("[clips-recorder] native transcript stop failed:", err);
-          return "";
+          console.warn("[clips-recorder] transcript stop failed:", err);
+          return null;
         });
-      if (nativeTranscript) {
-        await saveNativeTranscript(
+      if (capturedTranscript?.text.trim()) {
+        await saveRecordingTranscript(
           params.serverUrl,
           id,
-          nativeTranscript,
+          capturedTranscript,
           params.authToken,
         );
       } else if (wantsAudio) {
         await saveTranscriptFailure(
-          "No speech was captured by macOS Speech during this recording. If you spoke, check Microphone input, Speech Recognition permission, and the selected mic, then retry transcription.",
+          "No speech was captured during this recording. If you spoke, check Microphone input, Speech Recognition permission, and the selected mic, then retry transcription.",
         );
       }
       await thumbnailUploadPromise;
@@ -3139,7 +2869,7 @@ async function startNativeRecordingInner(
       clearInterval(tickHandle);
       stateUnlistens.forEach((u) => u());
       stateUnlistens = [];
-      nativeTranscriptCapture?.cancel().catch(() => {});
+      transcriptionCapture?.cancel().catch(() => {});
       // Remove MediaRecorder's data handler so any final `ondataavailable`
       // from the stop() below doesn't push a new Blob into `inflight`
       // after we've decided to discard everything.

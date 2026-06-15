@@ -17,6 +17,7 @@ import {
 
 import { LiveTranscript, type FinalLine } from "./live-transcript";
 import { PillLogo } from "./pill-logo";
+import { speakerFor } from "../lib/transcription-engine";
 
 type PillMode = "meeting" | "clip";
 
@@ -407,7 +408,6 @@ export function RecordingPill() {
     emit(nextPaused ? "clips:recorder-pause" : "clips:recorder-resume").catch(
       () => {},
     );
-    emit("clips:pill-pause", { paused: nextPaused }).catch(() => {});
   }
 
   async function onStopClick() {
@@ -446,7 +446,7 @@ export function RecordingPill() {
     const lines = transcriptLinesRef.current;
     if (!lines.length) return;
     const text = lines
-      .map((l) => `${l.source === "system" ? "Them" : "Me"}: ${l.text}`)
+      .map((l) => `${speakerFor(l.source)}: ${l.text}`)
       .join("\n");
     try {
       await navigator.clipboard.writeText(text);

@@ -21,7 +21,7 @@ import {
   listBrowserRecordingBackups,
   retryBrowserRecordingBackup,
   shouldUseNativeFullscreenRecording,
-  startNativeRecording,
+  startRecording,
   type LocalExportedFile,
   type PendingBrowserRecordingUpload,
   type RecorderHandle,
@@ -37,16 +37,14 @@ import { UpdateBanner } from "./components/UpdateBanner";
 import { FeedbackButton } from "./components/FeedbackButton";
 import { Tooltip, TooltipContent, TooltipTrigger } from "./components/Tooltip";
 import { SourceRow, type CaptureSource } from "./components/SourceRow";
+import { MediaDeviceRow } from "./components/MediaDeviceRow";
+import { Switch } from "./components/Switch";
 import {
-  CameraIcon,
   CamIcon,
-  CheckIcon,
-  ChevronDown,
   ClockIcon,
   CloseIcon,
   GoogleIcon,
   LibraryIcon,
-  MicIcon,
   ScreenCamIcon,
   ScreenIcon,
   SettingsIcon,
@@ -118,6 +116,7 @@ const CAM_KEY = "clips:last-camera-id";
 const MIC_KEY = "clips:last-mic-id";
 const CAM_ON_KEY = "clips:camera-on";
 const MIC_ON_KEY = "clips:mic-on";
+const SYSTEM_AUDIO_KEY = "clips:system-audio";
 const READINESS_REVIEWED_KEY = "clips:readiness-reviewed";
 
 // Sensible defaults so the user never has to type a URL on first launch.
@@ -572,6 +571,9 @@ export function App() {
     loadBool(CAM_ON_KEY, false),
   );
   const [micOn, setMicOn] = useState<boolean>(() => loadBool(MIC_ON_KEY, true));
+  const [systemAudioOn, setSystemAudioOn] = useState<boolean>(() =>
+    loadBool(SYSTEM_AUDIO_KEY, true),
+  );
   const [voiceShortcut, setVoiceShortcut] = useState<VoiceShortcutPreference>(
     () => {
       if (!loadBool(VOICE_SHORTCUT_CONFIGURED_KEY, false)) {
@@ -1675,6 +1677,7 @@ export function App() {
   useEffect(() => saveString(MIC_KEY, micId), [micId]);
   useEffect(() => saveBool(CAM_ON_KEY, cameraOn), [cameraOn]);
   useEffect(() => saveBool(MIC_ON_KEY, micOn), [micOn]);
+  useEffect(() => saveBool(SYSTEM_AUDIO_KEY, systemAudioOn), [systemAudioOn]);
 
   // ---- actions -----------------------------------------------------------
 
@@ -1876,7 +1879,7 @@ export function App() {
       //
       // USER ACTIVATION: WebKit requires `getDisplayMedia` to be called
       // from within a user gesture handler. The first `await` in a click
-      // handler consumes user activation. `startNativeRecording` kicks off
+      // handler consumes user activation. `startRecording` kicks off
       // `getDisplayMedia` SYNCHRONOUSLY before its first `await`, so we
       // start the recording promise FIRST (capturing the gesture), then
       // park the popover in parallel via a fire-and-forget `invoke`.
@@ -1890,7 +1893,7 @@ export function App() {
       (window as unknown as { clipsForceAlive?: boolean }).clipsForceAlive =
         true;
 
-      const recordingPromise = startNativeRecording({
+      const recordingPromise = startRecording({
         serverUrl,
         mode,
         source,
@@ -1901,6 +1904,7 @@ export function App() {
         cookie: typeof document !== "undefined" ? document.cookie || "" : "",
         cameraOn,
         micOn,
+        systemAudioOn,
         localRecordingMode,
         preAcquiredCameraStream,
       });
@@ -1942,7 +1946,7 @@ export function App() {
       // is flipped back to false and the popover is re-shown.
       if (!handle) {
         console.warn(
-          "[clips-popover] startRecording finally: no handle — running recovery",
+          "[clips-popover] handleStartRecording finally: no handle — running recovery",
         );
         // Clear the force-alive flag if it was latched before the failure.
         (window as unknown as { clipsForceAlive?: boolean }).clipsForceAlive =
@@ -2302,7 +2306,7 @@ export function App() {
         ) : null}
 
         {showCameraRow ? (
-          <DeviceRow
+          <MediaDeviceRow
             kind="camera"
             devices={cameras}
             selectedId={cameraId}
@@ -2313,7 +2317,7 @@ export function App() {
           />
         ) : null}
 
-        <DeviceRow
+        <MediaDeviceRow
           kind="mic"
           devices={mics}
           selectedId={selectedMicId}
@@ -2321,6 +2325,8 @@ export function App() {
           onRefresh={() => requestDeviceAccess("mic")}
           on={micOn}
           onToggle={setMicOn}
+          systemAudio={systemAudioOn}
+          onSystemAudioToggle={setSystemAudioOn}
         />
       </div>
 
@@ -3055,229 +3061,6 @@ function SignInForm({
   );
 }
 
-function DeviceRow({
-  kind,
-  devices,
-  selectedId,
-  onSelect,
-  onRefresh,
-  on,
-  onToggle,
-}: {
-  kind: "camera" | "mic";
-  devices: MediaDeviceInfo[];
-  selectedId: string;
-  onSelect: (id: string) => void;
-  onRefresh: () => void;
-  on: boolean;
-  onToggle: (v: boolean) => void;
-}) {
-  const current = useMemo(
-    () =>
-      selectedId
-        ? (devices.find((d) => d.deviceId === selectedId) ?? null)
-        : null,
-    [devices, selectedId],
-  );
-  const label =
-    current?.label ||
-    (selectedId
-      ? kind === "camera"
-        ? "Selected camera unavailable"
-        : "Selected mic unavailable"
-      : kind === "camera"
-        ? "Default camera"
-        : "Default mic");
-  const Icon = kind === "camera" ? CameraIcon : MicIcon;
-
-  const [open, setOpen] = useState(false);
-  const rowRef = useRef<HTMLDivElement | null>(null);
-
-  // Close on outside click — native-feeling popover behavior.
-  useEffect(() => {
-    if (!open) return;
-    function onDoc(ev: MouseEvent) {
-      const el = rowRef.current;
-      if (!el) return;
-      if (!el.contains(ev.target as Node)) setOpen(false);
-    }
-    function onKey(ev: KeyboardEvent) {
-      if (ev.key === "Escape") setOpen(false);
-    }
-    document.addEventListener("mousedown", onDoc);
-    document.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("mousedown", onDoc);
-      document.removeEventListener("keydown", onKey);
-    };
-  }, [open]);
-
-  const disabled = !on;
-  const defaultLabel = kind === "camera" ? "Default camera" : "Default mic";
-  const accessLabel =
-    kind === "camera" ? "Allow camera access" : "Allow microphone access";
-  const refreshLabel =
-    kind === "camera" ? "Refresh cameras" : "Refresh microphones";
-
-  return (
-    <div className={`row ${on ? "row-on" : "row-off"}`} ref={rowRef}>
-      <span className="row-icon">
-        <Icon />
-      </span>
-      <button
-        type="button"
-        className="row-button"
-        onClick={() => {
-          if (!disabled) setOpen((v) => !v);
-        }}
-        disabled={disabled}
-        title={label}
-      >
-        <span className="row-label">{label}</span>
-        <span className="row-chev" aria-hidden>
-          <ChevronDown />
-        </span>
-      </button>
-      <Toggle
-        on={on}
-        onChange={onToggle}
-        label={kind === "camera" ? "Camera" : "Microphone"}
-      />
-      {kind === "mic" && on ? <MicWave /> : null}
-      {open ? (
-        <div className="row-menu" role="menu">
-          <button
-            type="button"
-            className={`row-menu-item ${!selectedId ? "selected" : ""}`}
-            role="menuitemradio"
-            aria-checked={!selectedId}
-            onClick={() => {
-              onSelect("");
-              setOpen(false);
-            }}
-          >
-            <span className="row-menu-check" aria-hidden>
-              {!selectedId ? <CheckIcon /> : null}
-            </span>
-            <span className="row-menu-label">{defaultLabel}</span>
-          </button>
-          {devices.length === 0 ? (
-            <button
-              type="button"
-              className="row-menu-item row-menu-action"
-              role="menuitem"
-              onClick={() => {
-                onRefresh();
-                setOpen(false);
-              }}
-            >
-              <span className="row-menu-check" aria-hidden />
-              <span className="row-menu-label">{accessLabel}</span>
-            </button>
-          ) : (
-            <>
-              {devices.map((d) => {
-                const isSelected = !!selectedId && d.deviceId === selectedId;
-                return (
-                  <button
-                    key={d.deviceId}
-                    type="button"
-                    className={`row-menu-item ${isSelected ? "selected" : ""}`}
-                    role="menuitemradio"
-                    aria-checked={isSelected}
-                    onClick={() => {
-                      onSelect(d.deviceId);
-                      setOpen(false);
-                    }}
-                  >
-                    <span className="row-menu-check" aria-hidden>
-                      {isSelected ? <CheckIcon /> : null}
-                    </span>
-                    <span className="row-menu-label">
-                      {d.label || (kind === "camera" ? "Camera" : "Microphone")}
-                    </span>
-                  </button>
-                );
-              })}
-              <button
-                type="button"
-                className="row-menu-item row-menu-action"
-                role="menuitem"
-                onClick={() => {
-                  onRefresh();
-                  setOpen(false);
-                }}
-              >
-                <span className="row-menu-check" aria-hidden />
-                <span className="row-menu-label">{refreshLabel}</span>
-              </button>
-            </>
-          )}
-        </div>
-      ) : null}
-    </div>
-  );
-}
-
-function Toggle({
-  on,
-  onChange,
-  label,
-}: {
-  on: boolean;
-  onChange: (v: boolean) => void;
-  label: string;
-}) {
-  return (
-    <button
-      className={`toggle ${on ? "toggle-on" : "toggle-off"}`}
-      role="switch"
-      aria-checked={on}
-      aria-label={label}
-      onClick={() => onChange(!on)}
-    >
-      {on ? "On" : "Off"}
-    </button>
-  );
-}
-
-// Slim track-with-thumb switch (shadcn-style). type="button" is required so
-// it doesn't submit any enclosing form.
-function Switch({
-  on,
-  onChange,
-  label,
-}: {
-  on: boolean;
-  onChange: (v: boolean) => void;
-  label: string;
-}) {
-  return (
-    <button
-      type="button"
-      className={`switch ${on ? "switch-on" : "switch-off"}`}
-      role="switch"
-      aria-checked={on}
-      aria-label={label}
-      onClick={() => onChange(!on)}
-    >
-      <span className="switch-thumb" aria-hidden />
-    </button>
-  );
-}
-
-function MicWave() {
-  // Purely decorative — animates four bars to suggest input level. For real
-  // input level we'd need a live stream, which Loom starts only on "Start".
-  return (
-    <span className="mic-wave" aria-hidden>
-      <span className="bar b1" />
-      <span className="bar b2" />
-      <span className="bar b3" />
-      <span className="bar b4" />
-    </span>
-  );
-}
 
 function BottomButton({
   icon,
