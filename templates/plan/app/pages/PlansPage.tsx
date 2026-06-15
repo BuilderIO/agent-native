@@ -1368,7 +1368,12 @@ function textQuoteContextForBlock(input: {
 }
 
 function textNeedleForAnchor(anchor: PlanAnnotationAnchor) {
-  return normalizedElementText(anchor.textQuote || anchor.snippet).slice(0, 120);
+  const source =
+    anchor.textQuote ??
+    (anchor.anchorKind === "text" || anchor.targetKind === "text"
+      ? anchor.snippet
+      : undefined);
+  return normalizedElementText(source).slice(0, 120);
 }
 
 function findTextAnchorTarget(scope: Element, needle: string) {

@@ -16,6 +16,7 @@ import {
   resolveNativeAnchorTarget,
   shouldKeepCommentPopoverOpenForTarget,
 } from "./PlansPage";
+import { planBundleQueryKey } from "@/hooks/use-plans";
 import type { PlanBundle } from "@shared/types";
 
 type PlanComment = PlanBundle["comments"][number];
@@ -75,7 +76,29 @@ function bundleWithComments(comments: PlanComment[]): PlanBundle {
   };
 }
 
+function rect(left: number, top: number, width: number, height: number) {
+  return {
+    left,
+    top,
+    width,
+    height,
+    right: left + width,
+    bottom: top + height,
+    x: left,
+    y: top,
+    toJSON: () => ({}),
+  } as DOMRect;
+}
+
 describe("plan comment thread UI model", () => {
+  it("uses the exact get-visual-plan query key for optimistic bundle updates", () => {
+    expect(planBundleQueryKey("plan_1")).toEqual([
+      "action",
+      "get-visual-plan",
+      { id: "plan_1", includeMdx: false, includeHtml: true },
+    ]);
+  });
+
   it("updates the bundle immediately for optimistic comment markers", () => {
     const existing = comment("existing");
     const optimistic = comment("optimistic", {
@@ -511,6 +534,47 @@ describe("plan comment thread UI model", () => {
     expect(
       resolveNativeAnchorTarget(activeAnchor as any, reader)?.tagName,
     ).toBe("P");
+
+    reader.remove();
+  });
+
+  it("falls back from a broad text selector to the quoted target before positioning", () => {
+    const reader = document.createElement("div");
+    reader.innerHTML = `
+      <div data-block-id="scope">
+        <section><p id="wrong">Wrong first paragraph</p></section>
+        <section><p id="target">Second target paragraph</p></section>
+      </div>
+    `;
+    document.body.append(reader);
+
+    const wrong = reader.querySelector<HTMLElement>("#wrong")!;
+    const target = reader.querySelector<HTMLElement>("#target")!;
+    Object.defineProperty(reader, "getBoundingClientRect", {
+      value: () => rect(0, 0, 400, 400),
+    });
+    Object.defineProperty(wrong, "getBoundingClientRect", {
+      value: () => rect(20, 40, 200, 24),
+    });
+    Object.defineProperty(target, "getBoundingClientRect", {
+      value: () => rect(20, 140, 200, 24),
+    });
+
+    const anchor = {
+      x: 50,
+      y: 50,
+      sectionId: "scope",
+      textQuote: "Second target paragraph",
+      targetSelector: '[data-block-id="scope"] p:nth-of-type(1)',
+      targetX: 25,
+      targetY: 50,
+    };
+
+    expect(resolveNativeAnchorTarget(anchor as any, reader)).toBe(target);
+    expect(nativePointForAnchor(anchor as any, reader)).toEqual({
+      left: 70,
+      top: 152,
+    });
 
     reader.remove();
   });
