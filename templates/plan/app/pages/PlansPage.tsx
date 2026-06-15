@@ -569,6 +569,18 @@ function deleteCommentLabel(replyCount: number) {
   return replyCount > 0 ? "Delete thread" : "Delete comment";
 }
 
+export function shouldKeepCommentPopoverOpenForTarget(
+  target: EventTarget | null,
+  popover: HTMLElement | null,
+) {
+  if (!target) return false;
+  if (target instanceof Node && popover?.contains(target)) return true;
+  if (!(target instanceof Element)) return false;
+  if (target.closest("[data-comment-marker]")) return true;
+  if (target.closest("[data-comment-popover-portal]")) return true;
+  return false;
+}
+
 function normalizeCommentEmail(email: string | null | undefined) {
   const trimmed = email?.trim().toLowerCase();
   return trimmed || null;
@@ -7804,12 +7816,11 @@ function AnnotationPopover({
   useEffect(() => {
     if (!onClose) return;
     const handlePointerDown = (event: MouseEvent) => {
-      const target = event.target as Node | null;
-      if (!target) return;
-      if (popoverRef.current?.contains(target)) return;
-      // Allow clicks on comment marker buttons — they have their own onClick
-      // that will open the new thread.
-      if ((event.target as Element).closest("[data-comment-marker]")) return;
+      if (
+        shouldKeepCommentPopoverOpenForTarget(event.target, popoverRef.current)
+      ) {
+        return;
+      }
       onClose();
     };
     window.addEventListener("pointerdown", handlePointerDown, {
@@ -7857,7 +7868,11 @@ function AnnotationPopover({
                 <IconDotsVertical className="size-4" />
               </Button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-48 rounded-xl">
+            <DropdownMenuContent
+              align="end"
+              className="w-48 rounded-xl"
+              data-comment-popover-portal
+            >
               {canResolve && (
                 <DropdownMenuItem
                   className="gap-2"

@@ -14,6 +14,7 @@ import {
   removePlanCommentFromBundle,
   removePlanCommentThreadFromBundle,
   resolveNativeAnchorTarget,
+  shouldKeepCommentPopoverOpenForTarget,
 } from "./PlansPage";
 import type { PlanBundle } from "@shared/types";
 
@@ -149,6 +150,31 @@ describe("plan comment thread UI model", () => {
       commentCount: 2,
       openCommentCount: 2,
     });
+  });
+
+  it("keeps the comment popover open for portalled menu clicks", () => {
+    const popover = document.createElement("div");
+    const inside = document.createElement("button");
+    const marker = document.createElement("button");
+    const menu = document.createElement("div");
+    const menuItem = document.createElement("button");
+    const outside = document.createElement("button");
+
+    popover.append(inside);
+    marker.setAttribute("data-comment-marker", "");
+    menu.setAttribute("data-comment-popover-portal", "");
+    menu.append(menuItem);
+    document.body.append(popover, marker, menu, outside);
+
+    expect(shouldKeepCommentPopoverOpenForTarget(inside, popover)).toBe(true);
+    expect(shouldKeepCommentPopoverOpenForTarget(marker, popover)).toBe(true);
+    expect(shouldKeepCommentPopoverOpenForTarget(menuItem, popover)).toBe(true);
+    expect(shouldKeepCommentPopoverOpenForTarget(outside, popover)).toBe(false);
+
+    popover.remove();
+    marker.remove();
+    menu.remove();
+    outside.remove();
   });
 
   it("filters comment threads for the toolbar visibility modes", () => {
