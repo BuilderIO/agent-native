@@ -1246,6 +1246,59 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     expect(JSON.stringify(resourcesOut).length).toBeLessThan(8_000);
   });
 
+  it("advertises `tool-search` in the compact catalog when it is a registered action", async () => {
+    // Regression guard: `tool-search` is a COMPACT_MCP_APP_CATALOG_BUILTINS
+    // member, so when a template registers a `tool-search` action it must show
+    // up in the default/compact catalog (no full-catalog header). That keeps
+    // the small-by-default catalog non-opaque — the agent can always discover
+    // every other tool on demand via tool-search.
+    const toolSearchConfig = {
+      ...compactSurfaceDefaultConfig,
+      actions: {
+        ...compactSurfaceDefaultConfig.actions,
+        "tool-search": {
+          tool: {
+            description: "Search for and load app tools on demand.",
+            parameters: {
+              type: "object" as const,
+              properties: { query: { type: "string" } },
+            },
+          },
+          readOnly: true,
+          run: async () => ({ tools: [] }),
+        },
+      },
+    };
+
+    const toolsOut = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 220,
+        method: "tools/list",
+        params: {},
+      },
+      // Default/compact caller: no full-catalog header.
+      { config: toolSearchConfig },
+    );
+
+    expect(toolsOut.error).toBeUndefined();
+    const names = toolsOut.result.tools.map((t: any) => t.name);
+    expect(names).toContain("tool-search");
+    // It rides alongside the core compact builtins, and the bulky internal
+    // tools are still excluded by the compact catalog.
+    expect(names).toEqual(
+      expect.arrayContaining([
+        "list_apps",
+        "open_app",
+        "ask_app",
+        "create_embed_session",
+        "tool-search",
+      ]),
+    );
+    expect(names).not.toContain("internal-heavy");
+    expect(names).not.toContain("bloated-widget");
+  });
+
   it("keeps the full tool catalog only for explicit code/stdio callers", async () => {
     const out = await callWeb(
       {
