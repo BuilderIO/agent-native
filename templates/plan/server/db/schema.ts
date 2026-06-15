@@ -51,6 +51,9 @@ export const plans = table("plans", {
   // URL of the source PR, issue, or page that triggered this recap (e.g. the
   // GitHub PR URL). Nullable — only populated when the caller supplies it.
   sourceUrl: text("source_url"),
+  // Stable key used by PR Visual Recap publish retries to replace the recap
+  // created by an earlier attempt instead of creating duplicate recap rows.
+  recapIdempotencyKey: text("recap_idempotency_key"),
   ...ownableColumns(),
 });
 

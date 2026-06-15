@@ -280,6 +280,15 @@ ALTER TABLE plan_comments ADD COLUMN deleted_by TEXT;
 CREATE INDEX IF NOT EXISTS plan_comments_plan_deleted_created_idx ON plan_comments(plan_id, deleted_at, created_at)`,
       },
     },
+    {
+      version: 29,
+      sql: {
+        postgres: `ALTER TABLE plans ADD COLUMN IF NOT EXISTS recap_idempotency_key TEXT;
+CREATE INDEX IF NOT EXISTS plans_recap_idempotency_key_idx ON plans(recap_idempotency_key)`,
+        sqlite: `ALTER TABLE plans ADD COLUMN recap_idempotency_key TEXT;
+CREATE INDEX IF NOT EXISTS plans_recap_idempotency_key_idx ON plans(recap_idempotency_key)`,
+      },
+    },
   ],
   { table: "plans_migrations" },
 );

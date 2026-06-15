@@ -144,6 +144,20 @@ describe("sendToAgentChat", () => {
     expect(payload.data.requestMode).toBe("plan");
   });
 
+  it("snapshots namespaced stored plan mode into the postMessage payload", () => {
+    window.localStorage.setItem("agent-native-exec-mode:workspace-app", "plan");
+
+    sendToAgentChat({
+      message: "plan this workspace app",
+      submit: true,
+    });
+
+    expect(parentPostMessageSpy).toHaveBeenCalledOnce();
+    const payload = parentPostMessageSpy.mock.calls[0][0];
+    expect(payload.data.mode).toBe("plan");
+    expect(payload.data.requestMode).toBe("plan");
+  });
+
   it("lets an explicit submitted mode override stored mode", () => {
     window.localStorage.setItem("agent-native-exec-mode", "build");
 
@@ -215,6 +229,7 @@ describe("sendToAgentChat", () => {
 
   it("routes Builder-frame code prompts to Builder chat", () => {
     frameState.inBuilderFrame = true;
+    window.localStorage.setItem("agent-native-exec-mode:builder", "plan");
 
     sendToAgentChat({
       message: "change this app",
@@ -229,6 +244,8 @@ describe("sendToAgentChat", () => {
       message: "change this app",
       context: "code context",
       submit: true,
+      mode: "plan",
+      requestMode: "plan",
     });
   });
 
@@ -284,6 +301,7 @@ describe("sendToAgentChat", () => {
     window.location.search =
       "?embedded=1&__an_embed_token=signed-token&__an_mcp_chat_bridge=1";
     sendMcpAppHostMessageMock.mockReturnValue(Promise.resolve(true));
+    window.localStorage.setItem("agent-native-exec-mode:mcp-app", "plan");
 
     sendToAgentChat({
       message: "rewrite this",
@@ -294,6 +312,8 @@ describe("sendToAgentChat", () => {
     expect(sendMcpAppHostMessageMock).toHaveBeenCalledWith({
       message: "rewrite this",
       context: "Hidden draft context",
+      mode: "plan",
+      requestMode: "plan",
     });
     expect(parentPostMessageSpy).not.toHaveBeenCalled();
   });

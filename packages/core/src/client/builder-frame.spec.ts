@@ -118,6 +118,34 @@ describe("sendToBuilderChat", () => {
     expect(consoleLog).not.toHaveBeenCalled();
   });
 
+  it("preserves request mode in Builder chat payloads", () => {
+    const parentPostMessage = vi.fn();
+    setParentWindow({ postMessage: parentPostMessage });
+    setAncestorOrigin("https://builder.io");
+
+    const sent = sendToBuilderChat({
+      message: "plan before changing this app",
+      submit: true,
+      mode: "plan",
+      requestMode: "plan",
+    });
+
+    expect(sent).toBe(true);
+    expect(parentPostMessage).toHaveBeenCalledWith(
+      {
+        type: "builder.submitChat",
+        data: {
+          message: "plan before changing this app",
+          context: undefined,
+          submit: true,
+          mode: "plan",
+          requestMode: "plan",
+        },
+      },
+      "https://builder.io",
+    );
+  });
+
   it("keeps the console relay for top-level Builder webviews", () => {
     const windowPostMessage = vi.spyOn(window, "postMessage");
     const consoleLog = vi.spyOn(console, "log").mockImplementation(() => {});

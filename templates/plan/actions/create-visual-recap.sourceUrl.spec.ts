@@ -119,7 +119,7 @@ beforeAll(async () => {
       usage_input_tokens INTEGER, usage_output_tokens INTEGER,
       usage_cache_read_tokens INTEGER, usage_cache_write_tokens INTEGER,
       usage_cost_cents_x100 INTEGER, usage_cost_source TEXT, usage_recorded_at TEXT,
-      source_url TEXT,
+      source_url TEXT, recap_idempotency_key TEXT,
       owner_email TEXT NOT NULL, org_id TEXT, visibility TEXT NOT NULL DEFAULT 'private'
     );
     CREATE TABLE plan_sections (id TEXT PRIMARY KEY, plan_id TEXT NOT NULL, type TEXT NOT NULL DEFAULT 'custom', title TEXT NOT NULL, body TEXT NOT NULL DEFAULT '', html TEXT, sort_order INTEGER NOT NULL DEFAULT 0, created_by TEXT NOT NULL DEFAULT 'agent', created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
@@ -168,6 +168,47 @@ describe("create-visual-recap: sourceUrl", () => {
     expect(result.planId).toBeTruthy();
     const row = await rawPlan(result.planId as string);
     expect(row?.sourceUrl).toBe(PR_URL);
+  });
+
+  it("reuses a recap with the same idempotency key", async () => {
+    const idempotencyKey = "visual-recap-test-key";
+    const first = await asOwner(() =>
+      createVisualRecap.run({
+        mdx: MINIMAL_MDX,
+        visibility: "org",
+        sourceUrl: PR_URL,
+        idempotencyKey,
+      }),
+    );
+    const planId = first.planId as string;
+
+    const second = await asOwner(() =>
+      createVisualRecap.run({
+        mdx: {
+          "plan.mdx":
+            "---\ntitle: Retried Recap\nbrief: Reused by idempotency.\n---\n\n# Retried\n",
+        },
+        visibility: "org",
+        sourceUrl: PR_URL,
+        idempotencyKey,
+      }),
+    );
+
+    expect(second.planId).toBe(planId);
+    const rows = await db
+      .select({
+        id: planSchema.plans.id,
+        title: planSchema.plans.title,
+        recapIdempotencyKey: planSchema.plans.recapIdempotencyKey,
+      })
+      .from(planSchema.plans);
+    expect(rows).toEqual([
+      {
+        id: planId,
+        title: "Retried Recap",
+        recapIdempotencyKey: idempotencyKey,
+      },
+    ]);
   });
 
   it("leaves sourceUrl null when not provided on create", async () => {

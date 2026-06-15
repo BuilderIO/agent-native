@@ -35,6 +35,7 @@
  */
 
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -2220,6 +2221,23 @@ function shouldRetryRecapPublish(status: number): boolean {
   );
 }
 
+function recapPublishIdempotencyKey(input: {
+  prevPlanId?: string;
+  repo?: string;
+  pr?: string;
+  sourcePath: string;
+  sourceUrl?: string;
+}): string {
+  const identity = input.prevPlanId
+    ? `plan:${input.prevPlanId}`
+    : input.repo && input.pr
+      ? `github-pr:${input.repo}:${input.pr}`
+      : input.sourceUrl
+        ? `source-url:${input.sourceUrl}`
+        : `source-path:${path.resolve(input.sourcePath)}`;
+  return `visual-recap-${createHash("sha256").update(identity).digest("hex")}`;
+}
+
 export async function publishRecapSource(input: {
   appUrl: string;
   token: string;
@@ -2244,8 +2262,16 @@ export async function publishRecapSource(input: {
     (input.repo && input.pr
       ? `https://github.com/${input.repo}/pull/${input.pr}`
       : undefined);
+  const idempotencyKey = recapPublishIdempotencyKey({
+    prevPlanId: input.prevPlanId,
+    repo: input.repo,
+    pr: input.pr,
+    sourcePath,
+    sourceUrl,
+  });
   const body = {
     ...(input.prevPlanId ? { planId: input.prevPlanId } : {}),
+    idempotencyKey,
     ...(source.title ? { title: source.title } : {}),
     ...(source.brief ? { brief: source.brief } : {}),
     visibility: "org",
@@ -2270,6 +2296,8 @@ export async function publishRecapSource(input: {
             accept: "application/json",
             "content-type": "application/json",
             authorization: `Bearer ${token}`,
+            "Idempotency-Key": idempotencyKey,
+            "X-Idempotency-Key": idempotencyKey,
           },
           body: JSON.stringify(body),
         },

@@ -207,7 +207,7 @@ beforeAll(async () => {
       usage_cost_cents_x100 INTEGER,
       usage_cost_source TEXT,
       usage_recorded_at TEXT,
-      source_url TEXT,
+      source_url TEXT, recap_idempotency_key TEXT,
       owner_email TEXT NOT NULL,
       org_id TEXT,
       visibility TEXT NOT NULL DEFAULT 'private'
