@@ -79,7 +79,6 @@ const LEGACY_SERVER_NAMES_BY_MCP_URL: Readonly<
 };
 const CONNECT_PROFILES_VERSION = 1;
 const DEFAULT_DEV_GATEWAY = "http://127.0.0.1:8080";
-const MCP_FULL_CATALOG_HEADER = "X-Agent-Native-MCP-Full-Catalog";
 
 const CLIENT_LABELS: Record<ClientId, string> = {
   "claude-code": "Claude Code",
@@ -147,9 +146,8 @@ export interface ParsedConnectArgs {
   ownerEmail?: string;
   /**
    * Embed `catalog_scope: "full"` in the minted token so the connected client
-   * bypasses the connector-catalog tier and sees the complete action surface,
-   * identical to the local/dev experience. Matches the `fullCatalog` body
-   * param on the app's token-mint route.
+   * bypasses the connector-catalog tier and sees the complete action surface.
+   * Matches the `fullCatalog` body param on the app's token-mint route.
    */
   fullCatalog?: boolean;
 }
@@ -483,12 +481,6 @@ function clientsNotIn(
 ): ClientId[] {
   const effective = new Set(effectiveClients);
   return requestedClients.filter((client) => !effective.has(client));
-}
-
-function withFullCatalogHeader(
-  headers: Record<string, string> | undefined,
-): Record<string, string> {
-  return { ...(headers ?? {}), [MCP_FULL_CATALOG_HEADER]: "1" };
 }
 
 function displayMcpServerName(serverName: string | undefined): string {
@@ -1407,9 +1399,10 @@ async function devHeadersForApp(params: {
   if (ownerEmail) {
     headers["X-Agent-Native-Owner-Email"] = ownerEmail;
   }
-  return Object.keys(headers).length
-    ? withFullCatalogHeader(headers)
-    : undefined;
+  // Local dev defaults to the compact/connector catalog + tool-search, same as
+  // every other client. The local server still honors AGENT_NATIVE_MCP_FULL_CATALOG=1
+  // for an explicit full-catalog opt-in, so we don't force the header here.
+  return Object.keys(headers).length ? headers : undefined;
 }
 
 function connectableApps(includeHidden = false): ConnectableApp[] {
@@ -2052,7 +2045,7 @@ async function connectOne(
         token,
         scope,
         baseDir,
-        withFullCatalogHeader(headers),
+        headers,
       ),
     );
   }

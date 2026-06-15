@@ -735,7 +735,6 @@ describe("runConnect", () => {
       url: "https://mail.agent-native.com/_agent-native/mcp",
       headers: {
         Authorization: "Bearer tok-fallback",
-        "X-Agent-Native-MCP-Full-Catalog": "1",
       },
     });
   });
@@ -860,7 +859,7 @@ describe("runConnect", () => {
       const toml = fs.readFileSync(codexFile, "utf-8");
       expect(toml).toContain('[mcp_servers."plan"]');
       expect(toml).toContain('"Authorization" = "Bearer fresh-token"');
-      expect(toml).toContain('"X-Agent-Native-MCP-Full-Catalog" = "1"');
+      expect(toml).not.toContain("X-Agent-Native-MCP-Full-Catalog");
     } finally {
       process.env.HOME = oldHome;
     }
@@ -1466,13 +1465,12 @@ describe("runConnect", () => {
         "utf-8",
       );
       expect(codexToml).toContain('"Authorization" = "Bearer tok-device"');
-      expect(codexToml).toContain('"X-Agent-Native-MCP-Full-Catalog" = "1"');
+      expect(codexToml).not.toContain("X-Agent-Native-MCP-Full-Catalog");
       const coworkCfg = JSON.parse(
         fs.readFileSync(path.join(home, ".cowork", "mcp.json"), "utf-8"),
       );
       expect(coworkCfg.mcpServers["agent-native-mail"].headers).toEqual({
         Authorization: "Bearer tok-device",
-        "X-Agent-Native-MCP-Full-Catalog": "1",
       });
     } finally {
       process.env.HOME = oldHome;
@@ -1630,7 +1628,6 @@ describe("runConnect", () => {
       );
       expect(coworkJson.mcpServers["agent-native-mail"].headers).toEqual({
         Authorization: "Bearer tok-fallback",
-        "X-Agent-Native-MCP-Full-Catalog": "1",
       });
       expect(fs.existsSync(path.join(home, ".codex", "config.toml"))).toBe(
         false,
@@ -1701,7 +1698,6 @@ describe("runConnect", () => {
       url: "https://calendar.agent-native.com/_agent-native/mcp",
       headers: {
         Authorization: "Bearer tok",
-        "X-Agent-Native-MCP-Full-Catalog": "1",
       },
     });
     expect(cfg.mcpServers["agent-native-mail"]).toEqual({
@@ -1709,7 +1705,6 @@ describe("runConnect", () => {
       url: "https://mail.agent-native.com/_agent-native/mcp",
       headers: {
         Authorization: "Bearer tok",
-        "X-Agent-Native-MCP-Full-Catalog": "1",
       },
     });
   });
@@ -1781,7 +1776,6 @@ describe("runConnect", () => {
       url: "http://127.0.0.1:8080/mail/_agent-native/mcp",
       headers: {
         "X-Agent-Native-Owner-Email": "u@example.com",
-        "X-Agent-Native-MCP-Full-Catalog": "1",
       },
     });
     const savedProfiles = JSON.parse(fs.readFileSync(profilesFile, "utf-8"));
@@ -1864,7 +1858,7 @@ describe("runConnect", () => {
         'url = "http://127.0.0.1:8080/mail/_agent-native/mcp"',
       );
       expect(toml).toContain('"X-Agent-Native-Owner-Email" = "u@example.com"');
-      expect(toml).toContain('"X-Agent-Native-MCP-Full-Catalog" = "1"');
+      expect(toml).not.toContain("X-Agent-Native-MCP-Full-Catalog");
 
       await runConnect(["prod", "--apps", "mail", "--client", "codex"], {
         profilesFile,
@@ -2253,7 +2247,6 @@ describe("reconnect — URL-based discovery", () => {
       url: "https://plan.agent-native.com/_agent-native/mcp",
       headers: {
         Authorization: "Bearer tok-fallback",
-        "X-Agent-Native-MCP-Full-Catalog": "1",
       },
     });
     expect(cfg.mcpServers).not.toHaveProperty("agent-native-plans");
