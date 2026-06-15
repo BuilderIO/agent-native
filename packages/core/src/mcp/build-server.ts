@@ -112,20 +112,22 @@ export interface MCPConfig {
    * Curated allow-list of action names served to **external connector** clients
    * on a hosted multi-tenant deployment.
    *
-   * When `AGENT_NATIVE_CONNECTOR_CATALOG=1` is set and this list is non-empty,
-   * the MCP server trims both the advertised tool list *and* the callable
+   * Whenever this list is non-empty it is active by default for **every**
+   * caller — hosted connectors, code/stdio clients, and the local CLI alike.
+   * The MCP server trims both the advertised tool list *and* the callable
    * surface to exactly these names (plus any builtin cross-app tools such as
    * `list_apps` / `open_app`). Any tool call for a name **not** in the list is
    * rejected — it is not merely hidden. This prevents the ~105-tool full
    * catalog from landing in every external agent's context window and removes
    * footguns (db-exec, seed-*, extension tools, browser-session tools, etc.)
-   * from multi-tenant hosted connectors.
+   * from connectors. It is no longer gated behind an environment variable, and
+   * the catalog is never inferred from the client name/user-agent.
    *
-   * Callers who need the full surface can opt up with
-   * `agent-native connect --full-catalog`, which embeds a `catalog_scope: "full"`
-   * claim in their connect-minted JWT. Local/dev deployments without
-   * `AGENT_NATIVE_CONNECTOR_CATALOG=1` are unaffected — they always see the
-   * full surface.
+   * `tool-search` stays available in the compact catalog so any trimmed tool is
+   * reachable on demand. Callers who need the full surface up front opt in
+   * explicitly with `agent-native connect --full-catalog` (embeds a
+   * `catalog_scope: "full"` claim in the connect-minted JWT) or the
+   * deployment-wide `AGENT_NATIVE_MCP_FULL_CATALOG=1` env override.
    *
    * Declare this in your template's `createAgentChatPlugin` options rather than
    * setting it on `MCPConfig` directly; the plugin copies it through.
@@ -1767,8 +1769,8 @@ export async function verifyAuth(
   /**
    * The caller explicitly opted up to the full connector catalog by minting
    * their token with `--full-catalog` (or equivalent). When `true`, the
-   * connector-catalog tier filter is bypassed even when
-   * `AGENT_NATIVE_CONNECTOR_CATALOG=1` is set. Derived from a
+   * compact/connector-catalog tier filter (active by default whenever a
+   * `connectorCatalog` is declared) is bypassed for this caller. Derived from a
    * `catalog_scope: "full"` claim in the verified A2A/connect JWT.
    */
   fullCatalog?: boolean;

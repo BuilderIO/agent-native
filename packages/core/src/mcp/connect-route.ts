@@ -212,8 +212,9 @@ async function mintConnectToken(params: {
   label: string | null;
   ttlDays: number;
   appUrl: string;
-  /** When `"full"`, embed `catalog_scope: "full"` in the JWT to bypass the
-   *  connector-catalog tier on hosted multi-tenant deployments. */
+  /** When `"full"`, embed `catalog_scope: "full"` in the JWT so this token
+   *  bypasses the compact/connector-catalog tier (active by default whenever a
+   *  `connectorCatalog` is declared) and gets the complete action surface. */
   catalogScope?: "full";
 }): Promise<{ token: string; jti: string }> {
   const orgDomain = await resolveOrgDomain(params.orgId);
@@ -252,9 +253,9 @@ async function signConnectToken(params: {
    */
   includeOrgIdClaim?: boolean;
   /**
-   * When `"full"`, embed a `catalog_scope: "full"` claim so that on hosted
-   * multi-tenant deployments (AGENT_NATIVE_CONNECTOR_CATALOG=1) this token
-   * bypasses the connector-catalog tier filter and gets the complete action
+   * When `"full"`, embed a `catalog_scope: "full"` claim so this token
+   * bypasses the compact/connector-catalog tier filter (active by default
+   * whenever a `connectorCatalog` is declared) and gets the complete action
    * surface. Minted when the user connects with `agent-native connect --full-catalog`.
    */
   catalogScope?: "full";
