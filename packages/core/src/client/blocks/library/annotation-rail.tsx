@@ -275,7 +275,7 @@ export function AnnotationInlineOverlayStack<A extends RailAnnotation>({
   const anchorRef = useRef<HTMLDivElement | null>(null);
   const portalRef = useRef<HTMLDivElement | null>(null);
   const [position, setPosition] = useState<
-    | { kind: "capture"; top: number; right: number; visible: boolean }
+    | { kind: "capture"; top: number; left: number; visible: boolean }
     | {
         kind: "margin";
         top: number;
@@ -333,10 +333,14 @@ export function AnnotationInlineOverlayStack<A extends RailAnnotation>({
         setPosition({ kind: "margin", ...next });
         return;
       }
+      const scroll = {
+        x: window.scrollX || window.pageXOffset || 0,
+        y: window.scrollY || window.pageYOffset || 0,
+      };
       setPosition({
         kind: "capture",
-        visible: true,
-        ...resolveAnnotationInlineOverlayPosition(
+        visible: Boolean(portalRect && portalRect.height > 0),
+        ...resolveAnnotationCaptureOverlayPosition(
           {
             right: anchorRect.right,
             top: anchorRect.top,
@@ -344,6 +348,7 @@ export function AnnotationInlineOverlayStack<A extends RailAnnotation>({
           },
           { width, height },
           { width: viewportWidth, height: viewportHeight },
+          scroll,
         ),
       });
     };
@@ -388,9 +393,9 @@ export function AnnotationInlineOverlayStack<A extends RailAnnotation>({
         }
       : {
           top: position?.top ?? VIEWPORT_MARGIN,
-          right:
+          left:
             position && position.kind === "capture"
-              ? position.right
+              ? position.left
               : VIEWPORT_MARGIN,
           visibility:
             position?.kind === "capture" && position.visible
@@ -410,7 +415,10 @@ export function AnnotationInlineOverlayStack<A extends RailAnnotation>({
             data-annotation-inline-overlay-side={
               position?.kind === "margin" ? position.side : "right"
             }
-            className="pointer-events-none fixed z-50 flex w-[min(20rem,45vw)] flex-col gap-2"
+            className={cn(
+              "pointer-events-none z-50 flex w-[min(20rem,45vw)] flex-col gap-2",
+              mode === "capture" ? "absolute" : "fixed",
+            )}
             style={portalStyle}
           >
             {resolved.map((item) => (
@@ -534,6 +542,25 @@ export function resolveAnnotationInlineOverlayPosition(
       VIEWPORT_MARGIN,
       Math.min(viewport.width - anchor.right, maxRight),
     ),
+  };
+}
+
+export function resolveAnnotationCaptureOverlayPosition(
+  anchor: { right: number; top: number; height: number },
+  card: { width: number; height: number },
+  viewport: { width: number; height: number },
+  scroll: { x: number; y: number } = { x: 0, y: 0 },
+): { top: number; left: number } {
+  const { right } = resolveAnnotationInlineOverlayPosition(
+    anchor,
+    card,
+    viewport,
+  );
+  const left = scroll.x + viewport.width - right - card.width;
+  const rawTop = anchor.top + anchor.height / 2 - card.height / 2;
+  return {
+    top: Math.max(scroll.y + VIEWPORT_MARGIN, scroll.y + rawTop),
+    left,
   };
 }
 

@@ -2,6 +2,7 @@ node_modules
 dist
 .netlify
 out
+.video-bakeoff
 pnpm-lock.yaml
 **/SKILL.md
 **/routeTree.gen.ts
@@ -14,6 +15,7 @@ templates/plan/e2e/.auth
 templates/plan/e2e/.report.json
 templates/plan/e2e/smoke.spec.ts
 templates/plan/e2e/zzprobe*.spec.ts
+templates/content/e2e/.report.json
 templates/plan/plans/*
 !templates/plan/plans/plan_2051dec8ca3d4644/
 !templates/plan/plans/plan_2051dec8ca3d4644/**

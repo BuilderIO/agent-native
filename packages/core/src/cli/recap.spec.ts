@@ -12,6 +12,7 @@ import {
   buildRecapFailureDiagnostic,
   buildRecapSetupPlan,
   buildCommentBody,
+  buildGateSkipCommentBody,
   buildGateSkipLine,
   buildRecapClaudeMcpConfig,
   buildRecapCodexMcpConfig,
@@ -26,6 +27,7 @@ import {
   isRecapSensitivePath,
   lineMatchesAllowlist,
   normalizeRecapAgent,
+  normalizeRecapSecretScanMode,
   parseClaudeUsage,
   parseCodexUsage,
   parseRecapScanAllowlist,
@@ -93,6 +95,41 @@ describe("recap secret scan", () => {
       `+KEY_HEADER=${privateKeyHeader}`,
     ].join("\n");
     expect(diffContainsSecret(diffText)).toBe(true);
+  });
+
+  it("does not flag benign token/secret variable references in default mode", () => {
+    const diffText = [
+      "diff --git a/main.tf b/main.tf",
+      "@@ -1,3 +1,4 @@",
+      "+  webhook_token = var.webhook_token",
+      "+  # gcloud functions deploy fn --set-secrets=GRAFANA_TOKEN=grafana-alerts-terraform-token:latest",
+      "+  firebaseStorageDownloadTokens: getDownloadToken(id),",
+    ].join("\n");
+
+    expect(diffContainsSecret(diffText)).toBe(false);
+    expect(diffContainsSecret(diffText, [], "strict")).toBe(true);
+  });
+
+  it("flags common provider-shaped credentials in default mode", () => {
+    const diffText = [
+      "diff --git a/.env b/.env",
+      "@@ -1,4 +1,4 @@",
+      `+SENDGRID_API_KEY=SG.${"a".repeat(22)}.${"b".repeat(43)}`,
+      `+GOOGLE_CLIENT_SECRET=GOCSPX-${"c".repeat(28)}`,
+      `+BUILDER_PRIVATE_KEY=bpk-${"f".repeat(32)}`,
+      `+STRIPE_SECRET_KEY=sk_live_${"d".repeat(24)}`,
+      `+OPENAI_PROJECT_KEY=sk-proj-${"e".repeat(32)}`,
+    ].join("\n");
+
+    expect(diffContainsSecret(diffText)).toBe(true);
+  });
+
+  it("allows the recap secret scan to be disabled explicitly", () => {
+    const fakeOpenAiKey = `sk-${"a".repeat(24)}`;
+    expect(normalizeRecapSecretScanMode("disabled")).toBe("off");
+    expect(
+      diffContainsSecret(`+OPENAI_API_KEY=${fakeOpenAiKey}`, [], "off"),
+    ).toBe(false);
   });
 
   it("does not flag an ordinary source diff", () => {
@@ -440,6 +477,51 @@ describe("recap mcp-smoke", () => {
     expect(calls[0].headers["mcp-protocol-version"]).toBe("2025-06-18");
   });
 
+  it("bounds each smoke probe with an abort timeout signal", async () => {
+    const signals: Array<unknown> = [];
+    const fetchFn: typeof fetch = (async (_input, init) => {
+      signals.push(init?.signal);
+      const body = JSON.parse(String(init?.body ?? "{}"));
+      if (body.method === "initialize") {
+        return jsonRpcResponse({ protocolVersion: "2025-06-18" });
+      }
+      return jsonRpcResponse({
+        tools: RECAP_MCP_REQUIRED_TOOLS.map((name) => ({ name })),
+      });
+    }) as typeof fetch;
+
+    const result = await smokeRecapMcpTools({
+      appUrl: "https://plan.agent-native.com",
+      token: "tok-123456789",
+      fetchFn,
+    });
+
+    expect(result.ok).toBe(true);
+    // initialize + tools/list each get their own abort-timeout signal so a
+    // single stuck attempt can't block the whole job past undici's default.
+    expect(signals.length).toBe(2);
+    for (const signal of signals) {
+      expect(signal).toBeInstanceOf(AbortSignal);
+    }
+  });
+
+  it("treats a timed-out probe as a retryable smoke failure", async () => {
+    const fetchFn: typeof fetch = (async () => {
+      const err = new Error("The operation timed out.");
+      err.name = "TimeoutError";
+      throw err;
+    }) as typeof fetch;
+
+    const result = await smokeRecapMcpTools({
+      appUrl: "https://plan.agent-native.com",
+      token: "tok-123456789",
+      fetchFn,
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.summary).toContain("Plan MCP smoke check");
+  });
+
   it("fails loudly when tools/list omits recap publishing tools", async () => {
     const fetchFn: typeof fetch = (async (_input, init) => {
       const body = JSON.parse(String(init?.body ?? "{}"));
@@ -717,7 +799,7 @@ describe("recap prompt builder", () => {
 });
 
 describe("recap comment body", () => {
-  it("embeds an inline screenshot + link and a plan-id marker on success", () => {
+  it("embeds an inline screenshot picture + link and a plan-id marker on success", () => {
     const token = "a".repeat(64);
     const body = buildCommentBody({
       PLAN_URL: "https://plan.agent-native.com/recaps/plan-abc123",
@@ -726,20 +808,25 @@ describe("recap comment body", () => {
       HEAD_SHA: "abcdef1234567",
     } as NodeJS.ProcessEnv);
     expect(body).toContain(
-      `[![Visual recap](https://plan.agent-native.com/_agent-native/recap-image/${token}.png)](https://plan.agent-native.com/recaps/plan-abc123)`,
+      `<a href="https://plan.agent-native.com/recaps/plan-abc123">`,
     );
+    expect(body).toContain("<picture>");
+    expect(body).toContain(
+      `<img alt="Visual recap" src="https://plan.agent-native.com/_agent-native/recap-image/${token}.png">`,
+    );
+    expect(body).toContain("</picture>");
+    expect(body).not.toContain(`<source media="(prefers-color-scheme: dark)"`);
     expect(body).toContain(
       "Here's a [visual recap](https://plan.agent-native.com/recaps/plan-abc123) of what changed:",
     );
-    expect(body).toContain(
-      "private-repo recaps are org-gated. Sign in to Agent-Native Plans with access to this org if the link does not open.",
+    expect(body).not.toContain(
+      "Access note: private-repo recaps are org-gated",
     );
     expect(body).not.toContain("review at a higher altitude");
     expect(body).not.toContain("Updated for");
     expect(body).toContain("Open the full interactive recap");
     expect(body).toContain("<!-- plan-id: plan-abc123 -->");
     expect(body).toContain("<!-- pr-visual-recap -->");
-    expect(body).not.toContain("<picture>");
     expect(body).not.toContain("_As of `");
   });
 
@@ -794,7 +881,7 @@ describe("recap comment body", () => {
     expect(body).toContain("Open the full interactive recap");
   });
 
-  it("drops an invalid dark image URL and falls back to the light screenshot", () => {
+  it("drops an invalid dark image URL and keeps the light screenshot picture", () => {
     const token = "a".repeat(64);
     const body = buildCommentBody({
       PLAN_URL: "https://plan.agent-native.com/recaps/plan-abc123",
@@ -804,9 +891,10 @@ describe("recap comment body", () => {
         "https://plan.agent-native.com/evil.png)](javascript:0)",
       HEAD_SHA: "abcdef1",
     } as NodeJS.ProcessEnv);
-    expect(body).not.toContain("<picture>");
+    expect(body).toContain("<picture>");
+    expect(body).not.toContain(`<source media="(prefers-color-scheme: dark)"`);
     expect(body).toContain(
-      `[![Visual recap](https://plan.agent-native.com/_agent-native/recap-image/${token}.png)](https://plan.agent-native.com/recaps/plan-abc123)`,
+      `<img alt="Visual recap" src="https://plan.agent-native.com/_agent-native/recap-image/${token}.png">`,
     );
     expect(body).not.toContain("javascript:");
   });
@@ -902,12 +990,12 @@ describe("recap comment body", () => {
       SUPPRESSED: "true",
       SUPPRESSED_JSON: JSON.stringify({
         suppressed: true,
-        reason: "potential secret in diff",
+        reason: "high-confidence secret in diff",
       }),
       HEAD_SHA: "abcdef1",
     } as NodeJS.ProcessEnv);
     expect(body).toContain("suppressed");
-    expect(body).toContain("Reason: `potential secret in diff`.");
+    expect(body).toContain("Reason: `high-confidence secret in diff`.");
     expect(body).not.toContain("Updated for");
     expect(body).not.toContain("Open the full interactive recap");
     expect(body).not.toContain("_As of `");
@@ -1183,19 +1271,41 @@ describe("recap gate decision", () => {
     expect(result.reasons).toContain("draft PR");
   });
 
-  it("skips a fork PR with the head repo full name", () => {
+  it("runs a fork PR when the publish token is available (org sends fork secrets)", () => {
     const result = evaluateRecapGate(
       ok({
         pr: {
           number: 7,
           draft: false,
-          head: { repo: { full_name: "evil/fork" } },
+          head: { repo: { full_name: "contributor/ai-services" } },
           user: { login: "octocat", type: "User" },
         },
+        hasPlan: true,
+      }),
+    );
+    expect(result.run).toBe(true);
+  });
+
+  it("skips a fork PR without secret access and explains how to enable it", () => {
+    const result = evaluateRecapGate(
+      ok({
+        pr: {
+          number: 7,
+          draft: false,
+          head: { repo: { full_name: "contributor/ai-services" } },
+          user: { login: "octocat", type: "User" },
+        },
+        hasPlan: false,
       }),
     );
     expect(result.run).toBe(false);
-    expect(result.reasons).toContain("fork PR (evil/fork)");
+    expect(
+      result.reasons.some((r) =>
+        r.startsWith("fork PR (contributor/ai-services)"),
+      ),
+    ).toBe(true);
+    // A fork gets the actionable fork hint, NOT the generic token-missing reason.
+    expect(result.reasons).not.toContain("PLAN_RECAP_TOKEN not configured");
   });
 
   it("skips a known bot author by login", () => {
@@ -1370,13 +1480,13 @@ describe("recap gate decision", () => {
       }),
     );
     expect(result.run).toBe(false);
-    expect(result.reasons).toEqual(
-      expect.arrayContaining([
-        "draft PR",
-        "fork PR (evil/fork)",
-        "PLAN_RECAP_TOKEN not configured",
-      ]),
-    );
+    expect(result.reasons).toContain("draft PR");
+    // A fork without secrets gets the fork-specific hint (which subsumes the
+    // generic token-missing reason).
+    expect(
+      result.reasons.some((r) => r.startsWith("fork PR (evil/fork)")),
+    ).toBe(true);
+    expect(result.reasons).not.toContain("PLAN_RECAP_TOKEN not configured");
   });
 });
 
@@ -1538,7 +1648,7 @@ describe("recap check — outcome mapper", () => {
     });
     expect(out.conclusion).toBe("skipped");
     expect(out.summary).toBe(
-      "No recap was published because potential secret in diff.",
+      "No recap was published because high-confidence secret in diff.",
     );
   });
 
@@ -1601,7 +1711,19 @@ describe("bundled PR visual recap workflow", () => {
       "backoff|connector.*register",
     );
     expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain(
-      "mcp.*(register|unreachable|not usable|zero tools|not callable)",
+      "mcp.*(register|unreachable|not usable|zero tools|not callable|timeout|timed out)",
+    );
+    expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain(
+      "create-visual-recap.*(timeout|timed out)",
+    );
+    expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain(
+      '--mode "$VISUAL_RECAP_SECRET_SCAN"',
+    );
+    // Forks run when the org sends them secrets; the prompt gets the fork
+    // injection-warning note via --fork-pr.
+    expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain("ARGS+=(--fork-pr true)");
+    expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain(
+      "Send secrets to workflows from pull requests",
     );
     expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain("CLAUDE_ALLOWED_TOOLS");
     expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain(
@@ -1844,7 +1966,7 @@ describe("recap scan allowlist", () => {
 
   it("diffContainsSecret still suppresses when the allowlist does NOT match", () => {
     const keyPrefix = "s" + "k" + "-";
-    const diff = [`+REAL_KEY=${keyPrefix}realkey1234567890abcdef`].join("\n");
+    const diff = [`+REAL_KEY=${keyPrefix}${"a".repeat(24)}`].join("\n");
     expect(diffContainsSecret(diff, ["sk-test-fixture"])).toBe(true);
   });
 });
@@ -1887,6 +2009,16 @@ describe("gate skip signal helpers", () => {
     );
     expect(updated).toContain("_Recap skipped for `abc1234`: draft PR._");
     expect(updated).toContain("### Visual recap");
+  });
+
+  it("builds a base skipped comment body for PRs that have never posted a recap", () => {
+    const updated = appendGateSkipLine(
+      buildGateSkipCommentBody(),
+      "_Recap skipped for `abc1234`: draft PR._",
+    );
+    expect(updated).toContain("### Visual recap");
+    expect(updated).toContain("skipped");
+    expect(updated).toContain("_Recap skipped for `abc1234`: draft PR._");
   });
 
   it("appendGateSkipLine replaces an existing skip line (idempotent)", () => {
@@ -1943,6 +2075,9 @@ describe("reusable caller workflow builder", () => {
     );
     expect(yml).toContain(
       "skill-source: ${{ vars.VISUAL_RECAP_SKILL_SOURCE || 'auto' }}",
+    );
+    expect(yml).toContain(
+      "secret-scan: ${{ vars.VISUAL_RECAP_SECRET_SCAN || 'high-confidence' }}",
     );
   });
 
@@ -2137,10 +2272,15 @@ describe("reusable workflow file structure", () => {
     expect(content).toContain(
       'recap mcp-smoke --app-url "$PLAN_RECAP_APP_URL"',
     );
+    expect(content).toContain("for attempt in 1 2 3");
     expect(content).toContain("steps.mcp_smoke.outputs.ok == 'true'");
     expect(content).toContain("RECAP_MCP_SMOKE_SUMMARY:");
     expect(content).toContain("Summarize agent failure");
     expect(content).toContain("recap agent-summary");
+    expect(content).toContain(
+      "mcp.*(register|unreachable|not usable|zero tools|not callable|timeout|timed out)",
+    );
+    expect(content).toContain("create-visual-recap.*(timeout|timed out)");
     expect(content).toContain("RECAP_AGENT_SUMMARY:");
     expect(content).toContain("--failure-summary");
     expect(content).toContain("--stderr-file");
@@ -2167,6 +2307,16 @@ describe("reusable workflow file structure", () => {
     );
     expect(gateSection).toContain("_Recap skipped for");
     expect(gateSection).toContain("pr-visual-recap");
+    expect(gateSection).toContain("createComment");
+  });
+
+  it("threads the configurable secret scan mode into the reusable workflow", () => {
+    const content = fs.readFileSync(reusableFile, "utf8");
+    expect(content).toContain("secret-scan:");
+    expect(content).toContain(
+      "VISUAL_RECAP_SECRET_SCAN: ${{ inputs.secret-scan || 'high-confidence' }}",
+    );
+    expect(content).toContain('--mode "$VISUAL_RECAP_SECRET_SCAN"');
   });
 });
 

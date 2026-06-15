@@ -51,11 +51,10 @@ import {
   IconRefresh,
   IconRestore,
   IconUserPlus,
+  IconTrash,
 } from "@tabler/icons-react";
 import { useTheme } from "next-themes";
 import { toast } from "sonner";
-import JSZip from "jszip";
-import html2canvas from "html2canvas";
 import {
   SIDEBAR_STATE_CHANGE_EVENT,
   PromptComposer,
@@ -77,6 +76,16 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import {
   Dialog,
   DialogContent,
@@ -160,6 +169,7 @@ import {
   useUpdatePlan,
   useUpdatePlanComments,
   useUpdatePlanStatus,
+  useDeletePlanComment,
   useExportPlan,
   useImportPlanSource,
   useRequestPlanAccess,
@@ -260,6 +270,7 @@ const REPORT_REASON_OPTIONS: Array<{
 const PLAN_READER_VIEW_EVENT = "plans-reader-view-change";
 const RECAP_SCREENSHOT_QUERY_PARAM = "recapScreenshot";
 const RECAP_SCREENSHOT_THEME_QUERY_PARAM = "recapScreenshotTheme";
+const ENABLE_PLAN_STATUS_FEATURE = false;
 const GITHUB_LIGHT_CANVAS_BACKGROUND = "#ffffff";
 const GITHUB_DARK_CANVAS_BACKGROUND = "#0d1117";
 const LOCAL_PLAN_OWNER_EMAIL = "local@agent-native.local";
@@ -457,6 +468,11 @@ type CommentThread = {
   anchor: PlanAnnotationAnchor | null;
 };
 
+type DeleteCommentRequest = {
+  commentId: string;
+  replyCount: number;
+};
+
 function withPlanComments(
   bundle: PlanBundleWithHtml,
   comments: PlanCommentItem[],
@@ -494,6 +510,61 @@ export function removePlanCommentFromBundle(
     bundle,
     bundle.comments.filter((comment) => comment.id !== commentId),
   );
+}
+
+export function removePlanCommentThreadFromBundle(
+  bundle: PlanBundleWithHtml,
+  commentId: string,
+): PlanBundleWithHtml {
+  const childrenByParent = new Map<string, PlanCommentItem[]>();
+  for (const comment of bundle.comments) {
+    if (!comment.parentCommentId) continue;
+    const children = childrenByParent.get(comment.parentCommentId) ?? [];
+    children.push(comment);
+    childrenByParent.set(comment.parentCommentId, children);
+  }
+  const removedIds = new Set<string>();
+  const stack = [commentId];
+  while (stack.length > 0) {
+    const id = stack.pop();
+    if (!id || removedIds.has(id)) continue;
+    removedIds.add(id);
+    stack.push(
+      ...(childrenByParent.get(id) ?? []).map((comment) => comment.id),
+    );
+  }
+  return withPlanComments(
+    bundle,
+    bundle.comments.filter((comment) => !removedIds.has(comment.id)),
+  );
+}
+
+function commentDescendantCount(
+  comments: Array<{ id: string; parentCommentId?: string | null }>,
+  commentId: string,
+) {
+  const childrenByParent = new Map<string, string[]>();
+  for (const comment of comments) {
+    if (!comment.parentCommentId) continue;
+    const children = childrenByParent.get(comment.parentCommentId) ?? [];
+    children.push(comment.id);
+    childrenByParent.set(comment.parentCommentId, children);
+  }
+  let count = 0;
+  const seen = new Set<string>();
+  const stack = [...(childrenByParent.get(commentId) ?? [])];
+  while (stack.length > 0) {
+    const id = stack.pop();
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    count += 1;
+    stack.push(...(childrenByParent.get(id) ?? []));
+  }
+  return count;
+}
+
+function deleteCommentLabel(replyCount: number) {
+  return replyCount > 0 ? "Delete thread" : "Delete comment";
 }
 
 function normalizeCommentEmail(email: string | null | undefined) {
@@ -1200,6 +1271,8 @@ const PLAN_VISUAL_TARGET_SELECTOR = [
   "table",
   "pre",
   "code",
+  "[data-plan-canvas-world]",
+  ".plan-canvas-world",
   "[data-plan-prototype-viewer]",
   "[data-prototype-screen]",
   "[data-canvas-frame]",
@@ -1732,7 +1805,9 @@ function buildPlanAgentContext(input: {
     "Current Agent-Native Plan review context:",
     `Plan ID: ${input.bundle.plan.id}`,
     `Title: ${input.bundle.plan.title}`,
-    `Status: ${input.bundle.plan.status}`,
+    ...(ENABLE_PLAN_STATUS_FEATURE
+      ? [`Status: ${input.bundle.plan.status}`]
+      : []),
     `URL: ${input.url}`,
     input.bundle.plan.content
       ? `Structured content blocks: ${contentBlockCount}`
@@ -1919,12 +1994,6 @@ function cropFeedbackScreenshot(input: {
 
 type PlanAccessRole = "owner" | "viewer" | "editor" | "admin";
 
-type PlanAccessResponse = {
-  ownerEmail?: string | null;
-  role?: PlanAccessRole | null;
-  visibility?: "private" | "org" | "public" | null;
-};
-
 /**
  * Status options available in the reviewer approval workflow.
  * "archived" is intentionally omitted — it lives in the kebab menu.
@@ -2107,6 +2176,8 @@ export function PlansPage() {
     annotation: RuntimeAnnotation;
     position: InlineCommentPosition;
   } | null>(null);
+  const [deleteCommentRequest, setDeleteCommentRequest] =
+    useState<DeleteCommentRequest | null>(null);
   const [nativeMarkerVersion, setNativeMarkerVersion] = useState(0);
   // Session-level preference: hide comment markers even when threads exist.
   const [commentsHidden, setCommentsHidden] = useState(false);
@@ -2119,8 +2190,9 @@ export function PlansPage() {
   // comments before the server write commits (Issue 4a).
   const commentMutationPendingRef = useRef(false);
   const { session, isLoading: sessionLoading } = useSession();
+  const selectedId = params.id;
   const plansQuery = usePlans({
-    enabled: Boolean(session),
+    enabled: Boolean(session && !selectedId),
   });
   const plans = plansQuery.data ?? [];
   // Identity for collaborative cursor labels. Only a signed-in user enables
@@ -2158,11 +2230,11 @@ export function PlansPage() {
   useEffect(() => {
     if (sessionLoading) return;
     const signedIn = Boolean(session);
-    if (signedIn && !wasSignedInRef.current) {
+    if (signedIn && !wasSignedInRef.current && !selectedId) {
       void plansQuery.refetch();
     }
     wasSignedInRef.current = signedIn;
-  }, [session, sessionLoading, plansQuery]);
+  }, [selectedId, session, sessionLoading, plansQuery]);
   useEffect(() => {
     const search = new URLSearchParams(location.search);
     if (search.get("create") !== "1" || sessionLoading) return;
@@ -2190,7 +2262,6 @@ export function PlansPage() {
     session,
     sessionLoading,
   ]);
-  const selectedId = params.id;
   const routeSearchParams = useMemo(
     () => new URLSearchParams(location.search),
     [location.search],
@@ -2321,28 +2392,18 @@ export function PlansPage() {
   // owns the content), but highlighting + commenting stay available because those
   // affordances key off `bundle`/`session`, not `canEditPlanContent`.
   const isRecap = bundle?.plan.kind === "recap";
-  const accessResourceId = bundle?.plan.id ?? selectedId ?? "";
-  const planAccessQuery = useActionQuery<PlanAccessResponse>(
-    "list-resource-shares",
-    { resourceType: "plan", resourceId: accessResourceId },
-    { enabled: Boolean(accessResourceId) },
-  );
-  const effectivePlanAccessRole =
-    planAccessQuery.data?.role ?? bundle?.access?.role ?? null;
+  const effectivePlanAccessRole = bundle?.access?.role ?? null;
   const canEditPlanContent =
     !isRecap && canEditPlanContentRole(effectivePlanAccessRole);
   const canManagePlan = canEditPlanContentRole(effectivePlanAccessRole);
-  const effectivePlanVisibility =
-    planAccessQuery.data?.visibility ?? bundle?.access?.visibility ?? null;
+  const effectivePlanVisibility = bundle?.access?.visibility ?? null;
   const canReportPlan =
     Boolean(bundle) && effectivePlanVisibility === "public" && !canManagePlan;
   const canResolveCommentThreads = Boolean(
     bundle && (session || canEditPlanContent),
   );
   const defaultInlineCommentDraft = useMemo<CommentDraft>(() => {
-    const ownerEmail = normalizeCommentEmail(
-      planAccessQuery.data?.ownerEmail ?? bundle?.access?.ownerEmail,
-    );
+    const ownerEmail = normalizeCommentEmail(bundle?.access?.ownerEmail);
     const currentEmail = normalizeCommentEmail(collabUser?.email);
     if (
       !ownerEmail ||
@@ -2360,12 +2421,7 @@ export function PlansPage() {
       mentions: [mention],
       resolutionTarget: "human",
     };
-  }, [
-    bundle?.access?.ownerEmail,
-    collabUser?.email,
-    effectivePlanAccessRole,
-    planAccessQuery.data?.ownerEmail,
-  ]);
+  }, [bundle?.access?.ownerEmail, collabUser?.email, effectivePlanAccessRole]);
   const commentThreads = useMemo(
     () => buildCommentThreads(bundle?.comments ?? []),
     [bundle?.comments],
@@ -2429,6 +2485,33 @@ export function PlansPage() {
         ),
     [commentAvatarUrls, commentThreads, currentCommentAuthor],
   );
+  const canDeletePlanComment = useCallback(
+    (comment: { authorEmail?: string | null }) => {
+      if (canManagePlan) return true;
+      const currentEmail = normalizeCommentEmail(collabUser?.email);
+      const authorEmail = normalizeCommentEmail(comment.authorEmail);
+      if (!authorEmail) return false;
+      if (currentEmail && authorEmail === currentEmail) return true;
+      return (
+        isLocalCurrentUserEmail(authorEmail) &&
+        (!currentEmail || isLocalCurrentUserEmail(currentEmail))
+      );
+    },
+    [canManagePlan, collabUser?.email],
+  );
+  const canDeleteCommentThread = useCallback(
+    (thread: CommentThread) => canDeletePlanComment(thread.root),
+    [canDeletePlanComment],
+  );
+  const activeCommentThread = useMemo(
+    () =>
+      activeAnnotation
+        ? (commentThreads.find(
+            (item) => item.id === activeAnnotation.annotation.id,
+          ) ?? null)
+        : null,
+    [activeAnnotation, commentThreads],
+  );
   useEffect(() => {
     setActiveAnnotation((current) => {
       if (!current) return current;
@@ -2449,6 +2532,7 @@ export function PlansPage() {
   // means the autosave `isPending` state cannot bleed into comment button
   // disabled states (Issue 3).
   const updateCommentMutation = useUpdatePlanComments();
+  const deleteCommentMutation = useDeletePlanComment();
 
   /**
    * Archive or unarchive a plan from the overview. Optimistically updates the
@@ -3224,6 +3308,7 @@ export function PlansPage() {
     if (!files || Object.keys(files).length === 0) {
       throw new Error("Plan source files were not available yet.");
     }
+    const { default: JSZip } = await import("jszip");
     const zip = new JSZip();
     for (const [name, content] of Object.entries(files)) {
       if (name.endsWith("/")) {
@@ -3655,6 +3740,7 @@ export function PlansPage() {
         const readerRect = reader.getBoundingClientRect();
         const pointX = readerRect.left - surfaceRect.left + point.left;
         const pointY = readerRect.top - surfaceRect.top + point.top;
+        const { default: html2canvas } = await import("html2canvas");
         const canvas = await html2canvas(surface, {
           backgroundColor: null,
           logging: false,
@@ -3662,6 +3748,53 @@ export function PlansPage() {
           useCORS: true,
           width: surface.clientWidth,
           height: surface.clientHeight,
+          onclone: (clonedDocument) => {
+            const clonedReader =
+              clonedDocument.querySelector("[data-plan-reader]");
+            const clonedSurface = clonedReader?.parentElement;
+            if (!(clonedSurface instanceof HTMLElement)) return;
+            clonedSurface.setAttribute("data-plan-feedback-capture", "true");
+            const style = clonedDocument.createElement("style");
+            style.textContent = `
+              [data-plan-feedback-capture] {
+                --background: #ffffff !important;
+                --foreground: #18181b !important;
+                --muted: #f4f4f5 !important;
+                --muted-foreground: #71717a !important;
+                --border: #d4d4d8 !important;
+                --ring: #71717a !important;
+                --plan-document: #ffffff !important;
+                --plan-text: #18181b !important;
+                --plan-muted: #71717a !important;
+                --plan-line: #d4d4d8 !important;
+                --plan-chrome: #ffffff !important;
+                --plan-canvas: #f4f4f5 !important;
+                --plan-grid-line: #e4e4e7 !important;
+              }
+              [data-plan-feedback-capture],
+              [data-plan-feedback-capture] * {
+                color: #18181b !important;
+                border-color: #d4d4d8 !important;
+                outline-color: #71717a !important;
+                text-decoration-color: #18181b !important;
+                caret-color: #18181b !important;
+                background: transparent !important;
+                background-color: transparent !important;
+                background-image: none !important;
+                box-shadow: none !important;
+                text-shadow: none !important;
+              }
+              [data-plan-feedback-capture] {
+                background: #ffffff !important;
+              }
+              [data-plan-feedback-capture] svg,
+              [data-plan-feedback-capture] svg * {
+                fill: currentColor !important;
+                stroke: currentColor !important;
+              }
+            `;
+            clonedDocument.head.appendChild(style);
+          },
         });
         const label = `Comment ${index + 1}: ${thread.id}`;
         const dataUrl = cropFeedbackScreenshot({
@@ -4048,6 +4181,54 @@ export function PlansPage() {
     );
   };
 
+  const requestDeleteComment = (thread: CommentThread, commentId: string) => {
+    const target = thread.comments.find((comment) => comment.id === commentId);
+    if (!target || !canDeletePlanComment(target)) return;
+    setDeleteCommentRequest({
+      commentId,
+      replyCount: commentDescendantCount(thread.comments, commentId),
+    });
+  };
+
+  const requestDeleteCommentThread = (thread: CommentThread) => {
+    requestDeleteComment(thread, thread.root.id);
+  };
+
+  const confirmDeleteCommentThread = async () => {
+    if (!bundle || !selectedPlanQueryKey || !deleteCommentRequest) return;
+    const request = deleteCommentRequest;
+    const prevBundle =
+      queryClient.getQueryData<PlanBundleWithHtml>(selectedPlanQueryKey);
+    const commentId = request.commentId;
+    await queryClient.cancelQueries({ queryKey: selectedPlanQueryKey });
+    queryClient.setQueryData(
+      selectedPlanQueryKey,
+      (current: PlanBundleWithHtml | undefined) =>
+        current
+          ? removePlanCommentThreadFromBundle(current, commentId)
+          : current,
+    );
+    setActiveAnnotation((current) =>
+      current?.annotation.id === commentId ? null : current,
+    );
+    setDeleteCommentRequest(null);
+    commentMutationPendingRef.current = true;
+    try {
+      await deleteCommentMutation.mutateAsync({
+        planId: bundle.plan.id,
+        commentId,
+      });
+      toast.success("Comment deleted");
+    } catch (error) {
+      if (prevBundle !== undefined) {
+        queryClient.setQueryData(selectedPlanQueryKey, prevBundle);
+      }
+      setDeleteCommentRequest(request);
+    } finally {
+      commentMutationPendingRef.current = false;
+    }
+  };
+
   const nativeMarkerPosition = (anchor: PlanAnnotationAnchor) => {
     void nativeMarkerVersion;
     const reader = nativeReaderRef.current;
@@ -4262,7 +4443,7 @@ export function PlansPage() {
                     </DropdownMenuContent>
                   </DropdownMenu>
                 )}
-                {!isRecap && (
+                {ENABLE_PLAN_STATUS_FEATURE && !isRecap && (
                   <PlanStatusControl
                     planId={bundle.plan.id}
                     status={bundle.plan.status}
@@ -4633,6 +4814,7 @@ export function PlansPage() {
                       }
                       canvasMarkupMode={reviewMode}
                       onCanvasMarkupCreate={appendCanvasMarkup}
+                      onCanvasViewportChange={scheduleNativeMarkerUpdate}
                       planId={bundle.plan.id}
                       collabUser={collabUser}
                       prototypeOnly={prototypeOnly}
@@ -4783,6 +4965,21 @@ export function PlansPage() {
                       activeAnnotation.annotation.anchor,
                     )
                   }
+                  canDelete={Boolean(
+                    activeCommentThread &&
+                    canDeleteCommentThread(activeCommentThread),
+                  )}
+                  onDelete={() => {
+                    if (activeCommentThread) {
+                      requestDeleteCommentThread(activeCommentThread);
+                    }
+                  }}
+                  canDeleteComment={canDeletePlanComment}
+                  onDeleteComment={(commentId) => {
+                    if (activeCommentThread) {
+                      requestDeleteComment(activeCommentThread, commentId);
+                    }
+                  }}
                   onClose={() => setActiveAnnotation(null)}
                 />
               )}
@@ -4795,9 +4992,13 @@ export function PlansPage() {
                   isPending={updateCommentMutation.isPending}
                   onReply={replyToCommentThread}
                   canResolve={canResolveCommentThreads}
+                  canDeleteThread={canDeleteCommentThread}
+                  canDeleteComment={canDeletePlanComment}
                   onStatusChange={(thread, status) =>
                     setCommentThreadStatus(thread.id, status, thread.anchor)
                   }
+                  onDeleteThread={requestDeleteCommentThread}
+                  onDeleteComment={requestDeleteComment}
                   onClose={() => setAnnotationsOpen(false)}
                 />
               )}
@@ -4821,6 +5022,18 @@ export function PlansPage() {
           canRestore={canEditPlanContent}
         />
       )}
+
+      <DeleteCommentDialog
+        open={Boolean(deleteCommentRequest)}
+        replyCount={deleteCommentRequest?.replyCount ?? 0}
+        isDeleting={deleteCommentMutation.isPending}
+        onOpenChange={(open) => {
+          if (!open && !deleteCommentMutation.isPending) {
+            setDeleteCommentRequest(null);
+          }
+        }}
+        onConfirm={() => void confirmDeleteCommentThread()}
+      />
     </div>
   );
 }
@@ -6124,8 +6337,12 @@ function PlansOverview({
                       )}
                     </div>
                     <div className="mt-4 flex items-center gap-2 text-xs text-muted-foreground">
-                      <span>{statusLabel(plan.status)}</span>
-                      <span>·</span>
+                      {ENABLE_PLAN_STATUS_FEATURE && (
+                        <>
+                          <span>{statusLabel(plan.status)}</span>
+                          <span>·</span>
+                        </>
+                      )}
                       <span>{shortDate(plan.updatedAt)}</span>
                     </div>
                   </Link>
@@ -7365,6 +7582,35 @@ function CommentThreadMessage({
   );
 }
 
+function CommentDeleteButton({
+  label,
+  onClick,
+}: {
+  label: string;
+  onClick: () => void;
+}) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Button
+          type="button"
+          size="icon"
+          variant="ghost"
+          className="size-7 shrink-0 rounded-full text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+          onClick={(event) => {
+            event.stopPropagation();
+            onClick();
+          }}
+          aria-label={label}
+        >
+          <IconTrash className="size-3.5" />
+        </Button>
+      </TooltipTrigger>
+      <TooltipContent>{label}</TooltipContent>
+    </Tooltip>
+  );
+}
+
 function ReplyComposer({
   author,
   isPending,
@@ -7449,6 +7695,10 @@ function AnnotationPopover({
   onReply,
   canResolve,
   onStatusChange,
+  canDelete,
+  onDelete,
+  canDeleteComment,
+  onDeleteComment,
   onClose,
 }: {
   annotation: RuntimeAnnotation;
@@ -7459,6 +7709,10 @@ function AnnotationPopover({
   onReply: (threadRootId: string, message: string) => Promise<void>;
   canResolve: boolean;
   onStatusChange: (status: PlanBundle["comments"][number]["status"]) => void;
+  canDelete: boolean;
+  onDelete: () => void;
+  canDeleteComment: (comment: RuntimeAnnotationComment) => boolean;
+  onDeleteComment: (commentId: string) => void;
   onClose?: () => void;
 }) {
   const popoverRef = useRef<HTMLDivElement>(null);
@@ -7486,6 +7740,10 @@ function AnnotationPopover({
   }, [annotation.id, annotation.message, annotation.commentCount, editing]);
   const rootComment = runtimeAnnotationRootComment(annotation);
   const replies = annotation.replies ?? [];
+  const annotationComments = [rootComment, ...replies];
+  const rootDeleteLabel = deleteCommentLabel(
+    commentDescendantCount(annotationComments, rootComment.id),
+  );
   const canSave = messageDraft.message.trim().length > 0 && !isPending;
   const resolver = normalizePlanCommentResolutionTarget(
     annotation.anchor.resolutionTarget,
@@ -7587,6 +7845,18 @@ function AnnotationPopover({
                 <IconPencil className="size-4" />
                 Edit first comment
               </DropdownMenuItem>
+              {canDelete && (
+                <>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem
+                    className="gap-2 text-destructive focus:text-destructive"
+                    onClick={onDelete}
+                  >
+                    <IconTrash className="size-4" />
+                    {rootDeleteLabel}
+                  </DropdownMenuItem>
+                </>
+              )}
             </DropdownMenuContent>
           </DropdownMenu>
           {canResolve && (
@@ -7665,9 +7935,25 @@ function AnnotationPopover({
           ) : (
             <CommentThreadMessage comment={rootComment} />
           )}
-          {replies.map((reply) => (
-            <CommentThreadMessage key={reply.id} comment={reply} />
-          ))}
+          {replies.map((reply) => {
+            const replyDeleteLabel = deleteCommentLabel(
+              commentDescendantCount(annotationComments, reply.id),
+            );
+            return (
+              <CommentThreadMessage
+                key={reply.id}
+                comment={reply}
+                action={
+                  canDeleteComment(reply) ? (
+                    <CommentDeleteButton
+                      label={replyDeleteLabel}
+                      onClick={() => onDeleteComment(reply.id)}
+                    />
+                  ) : undefined
+                }
+              />
+            );
+          })}
         </div>
       </div>
       <div className="shrink-0 border-t border-border/70 p-3">
@@ -7689,7 +7975,11 @@ function AnnotationsPanel({
   isPending,
   onReply,
   canResolve,
+  canDeleteThread,
+  canDeleteComment,
   onStatusChange,
+  onDeleteThread,
+  onDeleteComment,
   onClose,
 }: {
   threads: CommentThread[];
@@ -7699,10 +7989,14 @@ function AnnotationsPanel({
   isPending: boolean;
   onReply: (threadRootId: string, message: string) => Promise<void>;
   canResolve: boolean;
+  canDeleteThread: (thread: CommentThread) => boolean;
+  canDeleteComment: (comment: PlanCommentItem) => boolean;
   onStatusChange: (
     thread: CommentThread,
     status: PlanBundle["comments"][number]["status"],
   ) => void;
+  onDeleteThread: (thread: CommentThread) => void;
+  onDeleteComment: (thread: CommentThread, commentId: string) => void;
   onClose: () => void;
 }) {
   const panelRef = useRef<HTMLElement>(null);
@@ -7804,6 +8098,10 @@ function AnnotationsPanel({
           ) : (
             visibleThreads.map((thread) => {
               const isResolved = commentThreadStatus(thread) === "resolved";
+              const canDelete = canDeleteThread(thread);
+              const rootDeleteLabel = deleteCommentLabel(
+                commentDescendantCount(thread.comments, thread.root.id),
+              );
               return (
                 <article
                   key={thread.id}
@@ -7812,7 +8110,7 @@ function AnnotationsPanel({
                     isResolved && "opacity-70",
                   )}
                 >
-                  {(thread.anchor || canResolve) && (
+                  {(thread.anchor || canResolve || canDelete) && (
                     <div className="flex items-start gap-2">
                       {thread.anchor && (
                         <div className="min-w-0 flex-1 rounded-md border border-border/60 bg-background/60 px-2.5 py-2 text-xs leading-5 text-muted-foreground">
@@ -7828,45 +8126,100 @@ function AnnotationsPanel({
                         </div>
                       )}
                       {canResolve && (
+                        <div className="flex shrink-0 items-center gap-1">
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Button
+                                type="button"
+                                size="icon"
+                                variant={isResolved ? "secondary" : "ghost"}
+                                className="size-8 rounded-full"
+                                onClick={() =>
+                                  onStatusChange(
+                                    thread,
+                                    isResolved ? "open" : "resolved",
+                                  )
+                                }
+                                aria-label={
+                                  isResolved
+                                    ? "Reopen thread"
+                                    : "Mark as resolved"
+                                }
+                              >
+                                <IconCircleCheck className="size-4" />
+                              </Button>
+                            </TooltipTrigger>
+                            <TooltipContent>
+                              {isResolved
+                                ? "Reopen thread"
+                                : "Mark as resolved"}
+                            </TooltipContent>
+                          </Tooltip>
+                          {canDelete && (
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <Button
+                                  type="button"
+                                  size="icon"
+                                  variant="ghost"
+                                  className="size-8 rounded-full text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                                  onClick={() => onDeleteThread(thread)}
+                                  aria-label={rootDeleteLabel}
+                                >
+                                  <IconTrash className="size-4" />
+                                </Button>
+                              </TooltipTrigger>
+                              <TooltipContent>{rootDeleteLabel}</TooltipContent>
+                            </Tooltip>
+                          )}
+                        </div>
+                      )}
+                      {!canResolve && canDelete && (
                         <Tooltip>
                           <TooltipTrigger asChild>
                             <Button
                               type="button"
                               size="icon"
-                              variant={isResolved ? "secondary" : "ghost"}
-                              className="size-8 shrink-0 rounded-full"
-                              onClick={() =>
-                                onStatusChange(
-                                  thread,
-                                  isResolved ? "open" : "resolved",
-                                )
-                              }
-                              aria-label={
-                                isResolved
-                                  ? "Reopen thread"
-                                  : "Mark as resolved"
-                              }
+                              variant="ghost"
+                              className="size-8 shrink-0 rounded-full text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                              onClick={() => onDeleteThread(thread)}
+                              aria-label={rootDeleteLabel}
                             >
-                              <IconCircleCheck className="size-4" />
+                              <IconTrash className="size-4" />
                             </Button>
                           </TooltipTrigger>
-                          <TooltipContent>
-                            {isResolved ? "Reopen thread" : "Mark as resolved"}
-                          </TooltipContent>
+                          <TooltipContent>{rootDeleteLabel}</TooltipContent>
                         </Tooltip>
                       )}
                     </div>
                   )}
-                  {thread.comments.map((comment) => (
-                    <CommentThreadMessage
-                      key={comment.id}
-                      comment={runtimeCommentFromPlanComment(
-                        comment,
-                        avatarUrls,
-                        currentUser,
-                      )}
-                    />
-                  ))}
+                  {thread.comments.map((comment) => {
+                    const runtimeComment = runtimeCommentFromPlanComment(
+                      comment,
+                      avatarUrls,
+                      currentUser,
+                    );
+                    const commentDeleteLabel = deleteCommentLabel(
+                      commentDescendantCount(thread.comments, comment.id),
+                    );
+                    return (
+                      <CommentThreadMessage
+                        key={comment.id}
+                        comment={runtimeComment}
+                        action={
+                          comment.id !== thread.root.id &&
+                          canDeleteComment(comment) ? (
+                            <CommentDeleteButton
+                              label={commentDeleteLabel}
+                              onClick={() =>
+                                onDeleteComment(thread, comment.id)
+                              }
+                            />
+                          ) : undefined
+                        }
+                      />
+                    );
+                  })}
                   <ReplyComposer
                     author={pendingAuthor}
                     isPending={isPending}
@@ -7879,6 +8232,49 @@ function AnnotationsPanel({
         </div>
       </ScrollArea>
     </aside>
+  );
+}
+
+function DeleteCommentDialog({
+  open,
+  replyCount,
+  isDeleting,
+  onOpenChange,
+  onConfirm,
+}: {
+  open: boolean;
+  replyCount: number;
+  isDeleting: boolean;
+  onOpenChange: (open: boolean) => void;
+  onConfirm: () => void;
+}) {
+  return (
+    <AlertDialog open={open} onOpenChange={onOpenChange}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>
+            {replyCount > 0 ? "Delete thread?" : "Delete comment?"}
+          </AlertDialogTitle>
+          <AlertDialogDescription>
+            {replyCount > 0
+              ? `This will remove the comment and ${replyCount} ${
+                  replyCount === 1 ? "reply" : "replies"
+                } from the plan.`
+              : "This will remove the comment from the plan."}
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel disabled={isDeleting}>Cancel</AlertDialogCancel>
+          <AlertDialogAction
+            disabled={isDeleting}
+            onClick={onConfirm}
+            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+          >
+            {isDeleting ? "Deleting..." : "Delete"}
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   );
 }
 
@@ -9261,6 +9657,12 @@ function buildClientPlanHtml(bundle: PlanBundle) {
       .replace(/>/g, "&gt;")
       .replace(/"/g, "&quot;")
       .replace(/'/g, "&#39;");
+  const metaHtml = [
+    bundle.plan.source,
+    ...(ENABLE_PLAN_STATUS_FEATURE ? [statusLabel(bundle.plan.status)] : []),
+  ]
+    .map((item) => `<li>${escape(item)}</li>`)
+    .join("");
   return `<!doctype html><html lang="en"><head><meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" /><title>${escape(
     bundle.plan.title,
   )}</title><style>
@@ -9269,9 +9671,7 @@ function buildClientPlanHtml(bundle: PlanBundle) {
     bundle.plan.title,
   )}</h1><p class="lede">${escape(
     bundle.plan.brief,
-  )}</p><ul class="meta"><li>${escape(
-    bundle.plan.source,
-  )}</li><li>${escape(statusLabel(bundle.plan.status))}</li></ul>${bundle.sections
+  )}</p><ul class="meta">${metaHtml}</ul>${bundle.sections
     .map(
       (section) =>
         `<section class="section"><p class="type">${escape(section.type)}</p><h2>${escape(section.title)}</h2>${["diagram", "wireframe", "prototype"].includes(section.type) ? '<div class="visual"><i></i><i></i><i></i></div>' : ""}<p>${escape(section.body)}</p></section>`,

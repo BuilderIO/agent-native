@@ -41,6 +41,7 @@ const PINCH_ZOOM_SENSITIVITY = 0.01;
 const GRID_CELL = 28;
 
 type CanvasView = typeof DEFAULT_VIEW;
+export type CanvasViewport = CanvasView;
 export type CanvasMarkupMode = "none" | "comment" | "text" | "callout";
 
 type CanvasMarkupAnnotationInput = Omit<PlanAnnotation, "id">;
@@ -97,6 +98,7 @@ export function CanvasArea({
   blockLookup,
   markupMode = "none",
   onCanvasMarkupCreate,
+  onViewportChange,
   selectedDesignElementKey,
   onDesignElementSelect,
 }: {
@@ -107,6 +109,7 @@ export function CanvasArea({
     annotation: CanvasMarkupAnnotationInput,
     context: CanvasMarkupCreateContext,
   ) => Promise<void> | void;
+  onViewportChange?: (view: CanvasViewport) => void;
   selectedDesignElementKey?: string | null;
   onDesignElementSelect?: (selection: DesignElementSelection) => void;
 }) {
@@ -144,6 +147,40 @@ export function CanvasArea({
   const [frameHeights, setFrameHeights] = useState<Map<string, number>>(
     () => new Map(),
   );
+  const latestViewportChangeRef = useRef<CanvasViewport>(initialView);
+  const viewportChangeFrameRef = useRef<number | null>(null);
+  const queueViewportChange = useCallback(
+    (nextView: CanvasViewport) => {
+      latestViewportChangeRef.current = nextView;
+      if (!onViewportChange || typeof window === "undefined") return;
+      if (viewportChangeFrameRef.current !== null) return;
+      viewportChangeFrameRef.current = window.requestAnimationFrame(() => {
+        viewportChangeFrameRef.current = null;
+        onViewportChange(latestViewportChangeRef.current);
+      });
+    },
+    [onViewportChange],
+  );
+  const updateView = useCallback(
+    (resolve: (current: CanvasView) => CanvasView) => {
+      setView((current) => {
+        const next = resolve(current);
+        if (sameCanvasView(current, next)) return current;
+        queueViewportChange(next);
+        return next;
+      });
+    },
+    [queueViewportChange],
+  );
+  useEffect(
+    () => () => {
+      if (viewportChangeFrameRef.current !== null) {
+        window.cancelAnimationFrame(viewportChangeFrameRef.current);
+        viewportChangeFrameRef.current = null;
+      }
+    },
+    [],
+  );
   const reportFrameHeight = useCallback((id: string, height: number) => {
     setFrameHeights((prev) => {
       if (Math.abs((prev.get(id) ?? 0) - height) < 1) return prev;
@@ -177,6 +214,10 @@ export function CanvasArea({
     }
     return map;
   }, [frames, frameHeights]);
+  const frameLayoutKey = useMemo(
+    () => canvasFrameLayoutKey(canvas.mode, frames),
+    [canvas.mode, frames],
+  );
   const sections = canvas.sections ?? [];
   const annotations = canvas.annotations ?? [];
   const legacyNotes = canvas.notes ?? [];
@@ -247,9 +288,21 @@ export function CanvasArea({
     [measuredFrameById, sectionRects],
   );
 
+  const hasSavedViewport = Boolean(
+    canvas.viewport?.zoom !== undefined ||
+    canvas.viewport?.pan?.x !== undefined ||
+    canvas.viewport?.pan?.y !== undefined,
+  );
+  const savedViewportKey = `${canvas.viewport?.zoom ?? ""}:${
+    canvas.viewport?.pan?.x ?? ""
+  }:${canvas.viewport?.pan?.y ?? ""}`;
+  const lastAppliedSavedViewportKeyRef = useRef<string | null>(null);
   useEffect(() => {
-    setView(initialView);
-  }, [initialView]);
+    if (!hasSavedViewport) return;
+    if (lastAppliedSavedViewportKeyRef.current === savedViewportKey) return;
+    lastAppliedSavedViewportKeyRef.current = savedViewportKey;
+    updateView(() => initialView);
+  }, [hasSavedViewport, initialView, savedViewportKey, updateView]);
 
   const board = useMemo(() => {
     const maxX = Math.max(
@@ -273,14 +326,10 @@ export function CanvasArea({
     return { width: maxX + 360, height: maxY + 280 };
   }, [frames, annotations, legacyNotes]);
 
-  const hasSavedViewport = Boolean(
-    canvas.viewport?.zoom !== undefined ||
-    canvas.viewport?.pan?.x !== undefined ||
-    canvas.viewport?.pan?.y !== undefined,
-  );
-
+  const lastAutoFitKeyRef = useRef<string | null>(null);
   useEffect(() => {
     if (hasSavedViewport) return;
+    if (lastAutoFitKeyRef.current === frameLayoutKey) return;
     const element = viewportRef.current;
     if (!element || frames.length === 0) return;
     // Center the whole content on first view, regardless of canvas mode. The
@@ -314,7 +363,7 @@ export function CanvasArea({
       MIN_ZOOM,
       MAX_ZOOM,
     );
-    setView({
+    const nextView = {
       zoom,
       pan: {
         x: (element.clientWidth - contentWidth * zoom) / 2 - minX * zoom,
@@ -323,10 +372,15 @@ export function CanvasArea({
           (element.clientHeight - contentHeight * zoom) / 2 - minY * zoom,
         ),
       },
-    });
-  }, [canvas.mode, frames, hasSavedViewport]);
+    };
+    updateView(() => nextView);
+    lastAutoFitKeyRef.current = frameLayoutKey;
+  }, [frameLayoutKey, frames, hasSavedViewport, updateView]);
 
   const { zoom, pan } = view;
+  useEffect(() => {
+    queueViewportChange(view);
+  }, [queueViewportChange, view]);
   const isCanvasMarkupMode =
     (markupMode === "text" || markupMode === "callout") &&
     Boolean(onCanvasMarkupCreate);
@@ -337,7 +391,7 @@ export function CanvasArea({
       nextZoomFor: (currentZoom: number) => number,
       anchor?: { x: number; y: number },
     ) => {
-      setView((current) => {
+      updateView((current) => {
         const nextZoom = clamp(nextZoomFor(current.zoom), MIN_ZOOM, MAX_ZOOM);
         if (Math.abs(nextZoom - current.zoom) < 0.0001) return current;
         const rect = viewportRef.current?.getBoundingClientRect();
@@ -356,7 +410,7 @@ export function CanvasArea({
         };
       });
     },
-    [],
+    [updateView],
   );
   const zoomByFactor = useCallback(
     (factor: number, anchor?: { x: number; y: number }) => {
@@ -490,7 +544,7 @@ export function CanvasArea({
         return;
       }
       // Trackpad two-finger scroll → pan.
-      setView((current) => ({
+      updateView((current) => ({
         ...current,
         pan: {
           x: current.pan.x - (deltaX || (event.shiftKey ? deltaY : 0)),
@@ -501,7 +555,7 @@ export function CanvasArea({
 
     element.addEventListener("wheel", onWheel, { passive: false });
     return () => element.removeEventListener("wheel", onWheel);
-  }, [zoomByFactor]);
+  }, [updateView, zoomByFactor]);
 
   const onPointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
     if (event.button !== 0 && event.button !== 1) return;
@@ -581,7 +635,7 @@ export function CanvasArea({
           }
           if (!drag || drag.pointerId !== event.pointerId) return;
           event.preventDefault();
-          setView((current) => ({
+          updateView((current) => ({
             ...current,
             pan: {
               x: drag.panX + event.clientX - drag.startX,
@@ -800,6 +854,14 @@ function surfaceOf(frame: PlanArtboard): PlanWireframeSurface {
   return frame.surface ?? frame.wireframe?.surface ?? "desktop";
 }
 
+function sameCanvasView(a: CanvasView, b: CanvasView) {
+  return (
+    Math.abs(a.zoom - b.zoom) < 0.0001 &&
+    Math.abs(a.pan.x - b.pan.x) < 0.0001 &&
+    Math.abs(a.pan.y - b.pan.y) < 0.0001
+  );
+}
+
 /**
  * True when a frame actually has wireframe content to render: inline kit-tree
  * data, inline legacy region data, or a `blockId` that resolves to a wireframe /
@@ -814,6 +876,24 @@ function frameHasContent(
   if (!frame.blockId) return false;
   const block = blockLookup.get(frame.blockId);
   return block?.type === "wireframe" || block?.type === "legacy-wireframe";
+}
+
+function canvasFrameLayoutKey(
+  mode: NonNullable<PlanContent["canvas"]>["mode"],
+  frames: PlanArtboard[],
+) {
+  return `${mode ?? "canvas"}:${frames
+    .map((frame) =>
+      [
+        frame.id,
+        surfaceOf(frame),
+        frame.x ?? "",
+        frame.y ?? "",
+        frame.width ?? "",
+        frame.height ?? "",
+      ].join(":"),
+    )
+    .join("|")}`;
 }
 
 /**

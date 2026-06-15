@@ -1,17 +1,19 @@
 import { defineAction } from "@agent-native/core";
 import { z } from "zod";
-import { nanoid } from "nanoid";
 import { eq } from "drizzle-orm";
-import {
-  getRequestUserEmail,
-  getRequestOrgId,
-} from "@agent-native/core/server/request-context";
+import { assertAccess } from "@agent-native/core/sharing";
 import { getDb, schema } from "../server/db/index.js";
 import { normalizeBookingDurationInput } from "../server/lib/booking-durations.js";
 import {
   rowToBookingLink,
   serializeBookingHosts,
 } from "../server/lib/booking-link-utils.js";
+
+const durationSchema = z.coerce
+  .number()
+  .int()
+  .min(5)
+  .max(24 * 60);
 
 const hostsSchema = z
   .union([
@@ -30,29 +32,19 @@ const hostsSchema = z
 
 export default defineAction({
   description:
-    "Create a new booking link/event type. Use this instead of raw SQL for booking links.",
+    "Update an existing booking link/event type, including required co-hosts.",
   schema: z.object({
+    id: z.string().describe("Booking link id"),
     title: z.string().min(1).describe("Booking link title"),
     slug: z
       .string()
       .min(1)
       .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/)
       .describe("URL slug, lowercase words separated by hyphens"),
-    duration: z.coerce
-      .number()
-      .int()
-      .min(5)
-      .max(24 * 60)
-      .describe("Default duration in minutes"),
+    duration: durationSchema.describe("Default duration in minutes"),
     description: z.string().optional().describe("Description"),
     durations: z
-      .array(
-        z.coerce
-          .number()
-          .int()
-          .min(5)
-          .max(24 * 60),
-      )
+      .array(durationSchema)
       .optional()
       .describe("Optional duration choices, e.g. [30,45,60]"),
     hosts: hostsSchema.describe(
@@ -64,16 +56,18 @@ export default defineAction({
     isActive: z.boolean().optional().describe("Whether the link is active"),
   }),
   run: async (args) => {
-    const body = args as Record<string, any>;
+    await assertAccess("booking-link", args.id, "editor");
+
     const durationInput = normalizeBookingDurationInput({
-      duration: body.duration,
-      durations: body.durations,
+      duration: args.duration,
+      durations: args.durations,
     });
     if ("error" in durationInput) {
       throw new Error(durationInput.error);
     }
-    const slug = String(body.slug).trim().toLowerCase();
-    const [existingLink, existingRedirect] = await Promise.all([
+
+    const slug = args.slug.trim().toLowerCase();
+    const [existingSlug, existingRedirect] = await Promise.all([
       getDb()
         .select({ id: schema.bookingLinks.id })
         .from(schema.bookingLinks)
@@ -84,47 +78,67 @@ export default defineAction({
         .where(eq(schema.bookingSlugRedirects.oldSlug, slug)),
     ]);
 
-    if (existingLink.length > 0 || existingRedirect.length > 0) {
+    if (existingSlug.some((row) => row.id !== args.id)) {
+      throw new Error("A booking link with this slug already exists");
+    }
+    if (existingRedirect.length > 0) {
       throw new Error("A booking link with this slug already exists");
     }
 
-    const now = new Date().toISOString();
-    const id = nanoid();
-    const ownerEmail = (() => {
-      const e = getRequestUserEmail();
-      if (!e) throw new Error("no authenticated user");
-      return e;
-    })();
+    const [current] = await getDb()
+      .select({
+        slug: schema.bookingLinks.slug,
+        ownerEmail: schema.bookingLinks.ownerEmail,
+      })
+      .from(schema.bookingLinks)
+      .where(eq(schema.bookingLinks.id, args.id));
+
+    if (!current) throw new Error("Booking link not found");
+    const oldSlug = current.slug;
+    const slugChanged = oldSlug !== slug;
+
     await getDb()
-      .insert(schema.bookingLinks)
-      .values({
-        id,
+      .update(schema.bookingLinks)
+      .set({
         slug,
-        title: String(body.title).trim(),
-        description: body.description ? String(body.description).trim() : null,
+        title: args.title.trim(),
+        description: args.description ? args.description.trim() : null,
         duration: durationInput.duration,
         durations: durationInput.durations
           ? JSON.stringify(durationInput.durations)
           : null,
-        hosts: serializeBookingHosts(body.hosts, ownerEmail),
-        customFields: body.customFields
-          ? JSON.stringify(body.customFields)
+        hosts: serializeBookingHosts(args.hosts, current.ownerEmail),
+        customFields: args.customFields
+          ? JSON.stringify(args.customFields)
           : null,
-        conferencing: body.conferencing
-          ? JSON.stringify(body.conferencing)
+        conferencing: args.conferencing
+          ? JSON.stringify(args.conferencing)
           : null,
-        color: body.color ? String(body.color).trim() : null,
-        isActive: body.isActive ?? true,
-        ownerEmail,
-        orgId: getRequestOrgId(),
-        createdAt: now,
-        updatedAt: now,
-      });
+        color: args.color ? args.color.trim() : null,
+        isActive: args.isActive ?? true,
+        updatedAt: new Date().toISOString(),
+      })
+      .where(eq(schema.bookingLinks.id, args.id));
 
-    const created = await getDb()
+    if (slugChanged) {
+      const now = new Date().toISOString();
+      await getDb().insert(schema.bookingSlugRedirects).values({
+        oldSlug,
+        newSlug: slug,
+        createdAt: now,
+      });
+      await getDb()
+        .update(schema.bookingSlugRedirects)
+        .set({ newSlug: slug })
+        .where(eq(schema.bookingSlugRedirects.newSlug, oldSlug));
+    }
+
+    const [updated] = await getDb()
       .select()
       .from(schema.bookingLinks)
-      .where(eq(schema.bookingLinks.id, id));
-    return rowToBookingLink(created[0]);
+      .where(eq(schema.bookingLinks.id, args.id));
+
+    if (!updated) throw new Error("Booking link not found");
+    return rowToBookingLink(updated);
   },
 });

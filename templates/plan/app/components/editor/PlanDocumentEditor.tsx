@@ -78,6 +78,27 @@ function isElementFocused(element: HTMLElement | null): boolean {
   return !!active && element.contains(active);
 }
 
+function getMountedEditorView(editor: Editor): EditorView | null {
+  try {
+    const view = editor.view;
+    void view.dom;
+    return view;
+  } catch {
+    return null;
+  }
+}
+
+function scheduleEditorViewCapture(callback: () => void): void {
+  if (
+    typeof window !== "undefined" &&
+    typeof window.requestAnimationFrame === "function"
+  ) {
+    window.requestAnimationFrame(callback);
+    return;
+  }
+  setTimeout(callback, 0);
+}
+
 function isTransferredPlanBlock(value: unknown): value is PlanBlock {
   return (
     !!value &&
@@ -773,11 +794,21 @@ export function PlanDocumentEditor({
   const editorRef = useRef<Editor | null>(null);
   const wrapperRef = useRef<HTMLElement | null>(null);
   const handleEditorReady = useCallback((editor: Editor) => {
-    rootViewRef.current = editor.view;
     editorRef.current = editor;
-    wrapperRef.current =
-      (editor.view.dom.closest(`.${WRAPPER_CLASS}`) as HTMLElement | null) ??
-      null;
+
+    const captureMountedView = () => {
+      if (editor.isDestroyed) return;
+      const view = getMountedEditorView(editor);
+      if (!view) {
+        scheduleEditorViewCapture(captureMountedView);
+        return;
+      }
+      rootViewRef.current = view;
+      wrapperRef.current =
+        (view.dom.closest(`.${WRAPPER_CLASS}`) as HTMLElement | null) ?? null;
+    };
+
+    captureMountedView();
   }, []);
 
   // Single app-level undo authority over the authoritative `blocks[]` tree. PM

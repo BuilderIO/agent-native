@@ -1,9 +1,12 @@
 import { defineAction } from "@agent-native/core";
 import { readAppState } from "@agent-native/core/application-state";
 import { getRequestUserEmail } from "@agent-native/core/server";
+import { accessFilter } from "@agent-native/core/sharing";
 import { z } from "zod";
 import { extractVideoLink } from "./event-action-helpers.js";
 import { listCalendarEvents } from "./list-events.js";
+import { getDb, schema } from "../server/db/index.js";
+import { rowToBookingLink } from "../server/lib/booking-link-utils.js";
 import {
   CALENDAR_VIEW_PREFERENCES_KEY,
   normalizeCalendarViewPreferences,
@@ -133,6 +136,26 @@ export default defineAction({
     } else if (nav?.view === "booking-links") {
       screen.page = "booking-links";
       if (nav?.bookingLinkId) screen.bookingLinkId = nav.bookingLinkId;
+      const rows = await getDb()
+        .select()
+        .from(schema.bookingLinks)
+        .where(accessFilter(schema.bookingLinks, schema.bookingLinkShares));
+      const links = rows.map(rowToBookingLink);
+      screen.bookingLinks = links.slice(0, 50).map((link) => ({
+        id: link.id,
+        title: link.title,
+        slug: link.slug,
+        duration: link.duration,
+        durations: link.durations,
+        hosts: link.hosts,
+        visibility: link.visibility,
+        isActive: link.isActive,
+      }));
+      if (nav?.bookingLinkId) {
+        screen.selectedBookingLink = links.find(
+          (link) => link.id === nav.bookingLinkId,
+        );
+      }
     } else if (nav?.view === "bookings") {
       screen.page = "bookings";
     } else if (nav?.view === "settings") {

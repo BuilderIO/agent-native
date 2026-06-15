@@ -157,6 +157,8 @@ export interface PlanComment {
   resolvedBy?: string | null;
   resolvedAt?: string | null;
   consumedAt?: string | null;
+  deletedAt?: string | null;
+  deletedBy?: string | null;
   createdAt: string;
   updatedAt: string;
 }

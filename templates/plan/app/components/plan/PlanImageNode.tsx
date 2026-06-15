@@ -29,7 +29,7 @@ function PlanImageNodeView({
   const src = (node.attrs.src as string) || "";
   const alt = (node.attrs.alt as string) || "";
   const uploading = Boolean(node.attrs.uploadId);
-  const isEditable = editor.isEditable;
+  const isEditable = editor.options.editable !== false;
 
   async function handleReplaceFile(event: ChangeEvent<HTMLInputElement>) {
     const file = event.currentTarget.files?.[0];

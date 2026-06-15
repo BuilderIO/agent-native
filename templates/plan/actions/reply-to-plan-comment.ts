@@ -4,7 +4,7 @@ import {
   currentAccess,
   resolveAccess,
 } from "@agent-native/core/sharing";
-import { and, eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import {
@@ -123,6 +123,7 @@ export default defineAction({
         and(
           eq(schema.planComments.id, args.commentId),
           eq(schema.planComments.planId, args.planId),
+          isNull(schema.planComments.deletedAt),
         ),
       );
 
