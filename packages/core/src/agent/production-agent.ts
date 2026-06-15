@@ -23,6 +23,7 @@ import type {
   EngineMessage,
   EngineContentPart,
   EngineEvent,
+  EngineToolResultPart,
 } from "./engine/types.js";
 import { EngineError } from "./engine/types.js";
 import { resolveMaxOutputTokensForEngine } from "./engine/output-tokens.js";
