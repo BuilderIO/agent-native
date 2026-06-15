@@ -175,6 +175,12 @@ elementId, styles }]`. Elements must have `data-design-id` or
   existing comment thread. Text feedback should anchor to the nearest prose
   block, and visual/canvas feedback should include target coordinates plus
   concise surrounding context.
+- Use `delete-plan-comment` only when the user explicitly asks to remove a
+  comment, undo an accidental comment, or clean up an obsolete thread. Deleting
+  is a soft delete: normal comment views hide the comment while the database row
+  remains for audit/debugging. Deleting a thread root also deletes its replies.
+  When feedback has merely been handled, prefer `resolve-plan-comment` and
+  `consume-plan-feedback` so review history remains visible.
 - `get-plan-feedback` returns flat comments, grouped threads, anchor summaries,
   detailed anchor lines, and recent review events that describe the edit/comment
   delta. Use those fields before changing code or updating the plan, especially

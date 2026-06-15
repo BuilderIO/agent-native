@@ -266,6 +266,20 @@ CREATE INDEX IF NOT EXISTS plan_reports_status_updated_idx ON plan_reports(statu
       version: 27,
       sql: `CREATE INDEX IF NOT EXISTS plan_comments_plan_created_idx ON plan_comments(plan_id, created_at)`,
     },
+    {
+      version: 28,
+      sql: {
+        postgres: `ALTER TABLE plan_comments ADD COLUMN IF NOT EXISTS deleted_at TEXT;
+ALTER TABLE plan_comments ADD COLUMN IF NOT EXISTS deleted_by TEXT;
+CREATE INDEX IF NOT EXISTS plan_comments_plan_deleted_created_idx ON plan_comments(plan_id, deleted_at, created_at)`,
+        // SQLite has no ADD COLUMN IF NOT EXISTS. runMigrations only executes a
+        // version once per database, so plain ADD COLUMN is the established
+        // additive pattern here.
+        sqlite: `ALTER TABLE plan_comments ADD COLUMN deleted_at TEXT;
+ALTER TABLE plan_comments ADD COLUMN deleted_by TEXT;
+CREATE INDEX IF NOT EXISTS plan_comments_plan_deleted_created_idx ON plan_comments(plan_id, deleted_at, created_at)`,
+      },
+    },
   ],
   { table: "plans_migrations" },
 );

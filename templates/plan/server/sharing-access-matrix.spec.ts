@@ -233,6 +233,8 @@ beforeAll(async () => {
       resolved_by TEXT,
       resolved_at TEXT,
       consumed_at TEXT,
+      deleted_at TEXT,
+      deleted_by TEXT,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );

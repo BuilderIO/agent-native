@@ -93,27 +93,51 @@ async function openCanvas(
  */
 async function findEmptyCanvasPoint(
   page: Page,
+  drag?: { dx: number; dy: number },
 ): Promise<{ x: number; y: number } | null> {
   const vp = await boxOf(page, VIEWPORT);
   if (!vp) return null;
   const candidates: Array<[number, number]> = [];
-  for (let fx = 0.92; fx >= 0.5; fx -= 0.08) {
+  const xFractions =
+    drag && drag.dx > 0
+      ? [0.12, 0.2, 0.28, 0.36, 0.44, 0.52, 0.6, 0.68, 0.76, 0.84]
+      : [0.92, 0.84, 0.76, 0.68, 0.6, 0.52, 0.44, 0.36, 0.28, 0.2];
+  for (const fx of xFractions) {
     for (let fy = 0.2; fy <= 0.8; fy += 0.15) {
       candidates.push([vp.left + vp.width * fx, vp.top + vp.height * fy]);
     }
   }
-  return page.evaluate((cands) => {
-    for (const [x, y] of cands as Array<[number, number]>) {
-      const el = document.elementFromPoint(x, y);
-      if (!el) continue;
-      const inVp = el.closest(".plan-canvas-viewport");
-      const onFrame = el.closest("[data-canvas-frame]");
-      const onNote = el.closest(".plan-canvas-annotation");
-      const interactive = el.closest("[data-plan-interactive]");
-      if (inVp && !onFrame && !onNote && !interactive) return { x, y };
-    }
-    return null;
-  }, candidates);
+  return page.evaluate(
+    ({ cands, drag }) => {
+      const viewport = document
+        .querySelector(".plan-canvas-viewport")
+        ?.getBoundingClientRect();
+      for (const [x, y] of cands as Array<[number, number]>) {
+        if (
+          viewport &&
+          drag &&
+          (x + drag.dx < viewport.left + 12 ||
+            x + drag.dx > viewport.right - 12 ||
+            y + drag.dy < viewport.top + 12 ||
+            y + drag.dy > viewport.bottom - 12)
+        ) {
+          continue;
+        }
+        const el = document.elementFromPoint(x, y);
+        if (!el) continue;
+        const inVp = el.closest(".plan-canvas-viewport");
+        const onFrame = el.closest("[data-canvas-frame]");
+        const onNote = el.closest(".plan-canvas-annotation");
+        const interactive = el.closest("[data-plan-interactive]");
+        const marker = el.closest("[data-comment-marker]");
+        if (inVp && !onFrame && !onNote && !interactive && !marker) {
+          return { x, y };
+        }
+      }
+      return null;
+    },
+    { cands: candidates, drag },
+  );
 }
 
 function rectsOverlap(a: Box, b: Box): boolean {
@@ -183,6 +207,13 @@ async function worldTransform(page: Page) {
     const m = new DOMMatrixReadOnly(t === "none" ? undefined : t);
     return { scale: m.a, tx: m.e, ty: m.f };
   }, WORLD);
+}
+
+function centerOf(box: Box) {
+  return {
+    x: box.left + box.width / 2,
+    y: box.top + box.height / 2,
+  };
 }
 
 /** A board with two wide frames, one narrow popover, a section, annotations. */
@@ -339,6 +370,144 @@ test("pan drag moves the world; zoom % readout tracks the transform scale", asyn
   expect(afterOut, "zoom-out should decrease the %").toBeLessThan(afterIn);
   const tOut = await worldTransform(page);
   expect(Math.round(tOut!.scale * 100)).toBe(afterOut);
+});
+
+test("canvas comment pins preserve zoom and follow later pan", async ({
+  page,
+}) => {
+  const planId = await createPlan(
+    page,
+    richBoard(`canvas-comment-anchor-${Date.now()}`),
+    "canvas-comment-anchor",
+  );
+  const updateStatuses: number[] = [];
+  page.on("requestfinished", async (request) => {
+    if (
+      request.url().includes("update-visual-plan") &&
+      request.method().toUpperCase() === "POST"
+    ) {
+      const response = await request.response();
+      const status = response?.status();
+      if (typeof status === "number") updateStatuses.push(status);
+    }
+  });
+
+  await openCanvas(page, planId, ["ab-dash", "ab-detail", "ab-pop"]);
+
+  await page.locator(".plan-canvas-zoom button[aria-label='Zoom in']").click();
+  await page.locator(".plan-canvas-zoom button[aria-label='Zoom in']").click();
+  await page.waitForTimeout(150);
+  const beforeComment = await worldTransform(page);
+  expect(beforeComment).not.toBeNull();
+  expect(beforeComment!.scale).toBeGreaterThan(0.75);
+
+  const commentToggle = page.getByRole("radio", {
+    name: "Comment",
+    exact: true,
+  });
+  await expect(commentToggle).toBeVisible({ timeout: 15_000 });
+  await commentToggle.click();
+  await expect(
+    page.getByRole("radio", { name: "Stop commenting", exact: true }),
+  ).toBeVisible({ timeout: 10_000 });
+
+  const frame = await boxOf(page, FRAME("ab-dash"));
+  expect(frame, "dashboard frame should be measurable").toBeTruthy();
+  await page.mouse.click(
+    frame!.left + frame!.width * 0.42,
+    frame!.top + frame!.height * 0.52,
+  );
+  await expect(
+    page.getByText("Add a comment...", { exact: false }),
+    "clicking a canvas frame in comment mode should open the composer",
+  ).toBeVisible({ timeout: 10_000 });
+  await page.keyboard.type("Canvas pin must stay anchored while panning.");
+  await page.getByRole("button", { name: /^Save$/ }).click();
+
+  await expect(async () => {
+    expect(updateStatuses.length).toBeGreaterThanOrEqual(1);
+  }).toPass({ timeout: 15_000 });
+  expect(
+    updateStatuses.every((status) => status < 400),
+    `saving a canvas pin must not return a server error (statuses: ${updateStatuses.join(", ")})`,
+  ).toBeTruthy();
+  await expect(page.locator("[data-comment-marker]")).toHaveCount(1, {
+    timeout: 15_000,
+  });
+  await page.waitForTimeout(250);
+
+  const afterComment = await worldTransform(page);
+  expect(afterComment).not.toBeNull();
+  expect(
+    Math.abs(afterComment!.scale - beforeComment!.scale),
+    "saving a canvas comment must not reset zoom",
+  ).toBeLessThan(0.001);
+  expect(
+    Math.abs(afterComment!.tx - beforeComment!.tx),
+    "saving a canvas comment must not reset pan X",
+  ).toBeLessThan(1);
+  expect(
+    Math.abs(afterComment!.ty - beforeComment!.ty),
+    "saving a canvas comment must not reset pan Y",
+  ).toBeLessThan(1);
+
+  await page
+    .getByRole("radio", { name: "Stop commenting", exact: true })
+    .click();
+  await expect(
+    page.getByRole("radio", { name: "Comment", exact: true }),
+  ).toBeVisible({ timeout: 10_000 });
+
+  const markerBefore = await boxOf(page, "[data-comment-marker]");
+  expect(markerBefore, "saved comment marker should be visible").toBeTruthy();
+  const markerCenterBefore = centerOf(markerBefore!);
+  const transformBeforePan = await worldTransform(page);
+  const viewport = await boxOf(page, VIEWPORT);
+  expect(viewport, "canvas viewport should be measurable").toBeTruthy();
+  const dx =
+    markerCenterBefore.x < viewport!.left + viewport!.width / 2 ? 96 : -96;
+  const dy =
+    markerCenterBefore.y < viewport!.top + viewport!.height / 2 ? 64 : -64;
+  const start = await findEmptyCanvasPoint(page, { dx, dy });
+  expect(start, "could not find an empty grid point to pan").not.toBeNull();
+  await page.mouse.move(start!.x, start!.y);
+  await page.mouse.down();
+  await page.mouse.move(start!.x + dx, start!.y + dy, { steps: 8 });
+  await page.mouse.up();
+
+  await expect
+    .poll(
+      async () => {
+        const transform = await worldTransform(page);
+        return transform && transformBeforePan
+          ? Math.abs(transform.tx - transformBeforePan.tx)
+          : 0;
+      },
+      { timeout: 3_000 },
+    )
+    .toBeGreaterThan(Math.abs(dx) / 2);
+
+  const markerAfter = await boxOf(page, "[data-comment-marker]");
+  const transformAfterPan = await worldTransform(page);
+  expect(markerAfter).toBeTruthy();
+  expect(transformBeforePan).toBeTruthy();
+  expect(transformAfterPan).toBeTruthy();
+  const markerDelta = {
+    x: centerOf(markerAfter!).x - markerCenterBefore.x,
+    y: centerOf(markerAfter!).y - markerCenterBefore.y,
+  };
+  const worldDelta = {
+    x: transformAfterPan!.tx - transformBeforePan!.tx,
+    y: transformAfterPan!.ty - transformBeforePan!.ty,
+  };
+  expect(
+    Math.abs(markerDelta.x - worldDelta.x),
+    "comment marker should move horizontally with the canvas world",
+  ).toBeLessThan(18);
+  expect(
+    Math.abs(markerDelta.y - worldDelta.y),
+    "comment marker should move vertically with the canvas world",
+  ).toBeLessThan(18);
 });
 
 test("wheel over the canvas zooms (and never scrolls the page)", async ({

@@ -164,6 +164,12 @@ function formatUploadedFileContext(files: UploadedFile[]): string {
   return lines.join("\n");
 }
 
+function imageAttachmentsFromUploadedFiles(files: UploadedFile[]): string[] {
+  return files
+    .map((file) => file.dataUrl)
+    .filter((dataUrl): dataUrl is string => !!dataUrl?.trim());
+}
+
 function formatTweakDefinitionsContext(tweaks: TweakDefinition[]): string {
   if (tweaks.length === 0) return "None yet.";
   return JSON.stringify(
@@ -802,6 +808,7 @@ export default function DesignEditor() {
       pending.prompt?.trim() || `Create an initial design for ${design.title}.`;
     const uploadedFiles = Array.isArray(pending.files) ? pending.files : [];
     const fileContext = formatUploadedFileContext(uploadedFiles);
+    const images = imageAttachmentsFromUploadedFiles(uploadedFiles);
     const sourceContext = pending.source
       ? `The user picked the "${pending.source}" template.`
       : "The user just created a new empty design.";
@@ -836,6 +843,7 @@ export default function DesignEditor() {
       engine: pending.engine,
       effort: pending.effort,
       newTab: true,
+      images,
     });
     setGenerationChatTabId(runTabId);
     patchPendingGeneration(id, {
@@ -1341,6 +1349,7 @@ export default function DesignEditor() {
       const trimmed = prompt.trim();
       if (!trimmed) return;
       const fileContext = formatUploadedFileContext(files);
+      const images = imageAttachmentsFromUploadedFiles(files);
       const currentSelections =
         Object.keys(tweakSelections).length > 0
           ? JSON.stringify(tweakSelections, null, 2)
@@ -1372,6 +1381,7 @@ export default function DesignEditor() {
         model: options.model,
         engine: options.engine,
         effort: options.effort,
+        images,
       });
       handleTweakPromptOpenChange(false);
     },
@@ -1616,6 +1626,7 @@ export default function DesignEditor() {
       if (!id || !design) return;
       clearAutoRetryTimer();
       const fileContext = formatUploadedFileContext(promptState.files);
+      const images = imageAttachmentsFromUploadedFiles(promptState.files);
       const retryLine =
         mode === "auto"
           ? `(Automatically retrying attempt ${attempt} of ${MAX_GENERATION_ATTEMPTS} — the previous attempt did not complete.)`
@@ -1640,6 +1651,7 @@ export default function DesignEditor() {
           model: promptState.model,
           engine: promptState.engine,
           effort: promptState.effort,
+          images,
         },
       );
       setGenerationChatTabId(runTabId);
@@ -2633,6 +2645,7 @@ ${serializedHtml}
           const designSystemId = selectedPromptDesignSystemId;
           persistPromptDesignSystem(designSystemId);
           const fileContext = formatUploadedFileContext(files);
+          const images = imageAttachmentsFromUploadedFiles(files);
           const context = [
             `The user has design "${id}" (title: "${design.title}") open and wants to fill it with design files.`,
             `User request: "${prompt}"`,
@@ -2646,7 +2659,7 @@ ${serializedHtml}
           const runTabId = agentSubmit(
             `Prepare design questions for "${design.title}": ${prompt}`,
             context,
-            { ...options, newTab: true },
+            { ...options, newTab: true, images },
           );
           setGenerationChatTabId(runTabId);
           patchPendingGeneration(id, {

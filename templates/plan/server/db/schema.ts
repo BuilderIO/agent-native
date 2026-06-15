@@ -96,6 +96,8 @@ export const planComments = table("plan_comments", {
   resolvedBy: text("resolved_by"),
   resolvedAt: text("resolved_at"),
   consumedAt: text("consumed_at"),
+  deletedAt: text("deleted_at"),
+  deletedBy: text("deleted_by"),
   createdAt: text("created_at").notNull(),
   updatedAt: text("updated_at").notNull(),
 });

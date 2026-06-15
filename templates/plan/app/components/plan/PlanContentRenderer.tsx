@@ -25,6 +25,7 @@ import type {
 import {
   type CanvasMarkupCreateContext,
   type CanvasMarkupMode,
+  type CanvasViewport,
   type DesignElementSelection,
 } from "./CanvasArea";
 import { PlanBlockView } from "./DocumentArea";
@@ -73,6 +74,7 @@ type PlanContentRendererProps = {
     annotation: Omit<PlanAnnotation, "id">,
     context: CanvasMarkupCreateContext,
   ) => Promise<void> | void;
+  onCanvasViewportChange?: (view: CanvasViewport) => void;
   /** Plan id used to key per-block collaborative editing docs. */
   planId?: string | null;
   /** Current user for collaborative cursor labels. */
@@ -141,6 +143,7 @@ export function PlanContentRenderer({
   editingDisabled = false,
   canvasMarkupMode,
   onCanvasMarkupCreate,
+  onCanvasViewportChange,
   planId,
   collabUser,
   prototypeOnly = false,
@@ -545,6 +548,10 @@ export function PlanContentRenderer({
     hiddenChangedFileBlockIds,
     hideChangedFiles,
   ]);
+  const blockLookup = useMemo(
+    () => new Map(content.blocks.map((block) => [block.id, block])),
+    [content.blocks],
+  );
 
   /**
    * Map from file path → first block id that references the file. Built from
@@ -628,11 +635,10 @@ export function PlanContentRenderer({
           <PlanVisualSurface
             canvas={content.canvas}
             prototype={content.prototype}
-            blockLookup={
-              new Map(content.blocks.map((block) => [block.id, block]))
-            }
+            blockLookup={blockLookup}
             canvasMarkupMode={canvasMarkupMode}
             onCanvasMarkupCreate={onCanvasMarkupCreate}
+            onCanvasViewportChange={onCanvasViewportChange}
             prototypeOnly={prototypeOnly}
             visualMode={visualSurfaceMode}
             onVisualModeChange={onVisualSurfaceModeChange}

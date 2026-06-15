@@ -138,6 +138,7 @@ export const PLAN_CONNECTOR_CATALOG = [
   "consume-plan-feedback",
   "reply-to-plan-comment",
   "resolve-plan-comment",
+  "delete-plan-comment",
   // Plan versioning
   "list-plan-versions",
   "get-plan-version",

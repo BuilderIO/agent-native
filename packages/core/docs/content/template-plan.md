@@ -294,7 +294,7 @@ Actions in `templates/plan/actions/`:
 - **Reading & editing** — `get-visual-plan`, `update-visual-plan`, `list-visual-plans`, `import-visual-plan-source`, `patch-visual-plan-source`, `read-visual-plan-source`, `export-visual-plan`
 - **Publishing & sharing** — `publish-visual-plan`
 - **Versions** — `list-plan-versions`, `get-plan-version`, `restore-plan-version`
-- **Comments & feedback** — `get-plan-feedback`, `reply-to-plan-comment`, `resolve-plan-comment`, `consume-plan-feedback`
+- **Comments & feedback** — `get-plan-feedback`, `reply-to-plan-comment`, `resolve-plan-comment`, `consume-plan-feedback`, `delete-plan-comment`
 - **Prototype** — `convert-visual-plan-to-prototype`, `create-prototype-plan`
 - **Context & navigation** — `view-screen`, `navigate`
 

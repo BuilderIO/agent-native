@@ -14,6 +14,7 @@ import {
   CanvasArea,
   type CanvasMarkupMode,
   type CanvasMarkupCreateContext,
+  type CanvasViewport,
   type DesignElementSelection,
 } from "./CanvasArea";
 import { PrototypeViewer } from "./PrototypeViewer";
@@ -31,6 +32,7 @@ type PlanVisualSurfaceProps = {
     annotation: CanvasMarkupAnnotationInput,
     context: CanvasMarkupCreateContext,
   ) => Promise<void> | void;
+  onCanvasViewportChange?: (view: CanvasViewport) => void;
   prototypeOnly?: boolean;
   visualMode?: PlanVisualSurfaceMode;
   onVisualModeChange?: (mode: PlanVisualSurfaceMode) => void;
@@ -46,6 +48,7 @@ export function PlanVisualSurface({
   blockLookup,
   canvasMarkupMode = "none",
   onCanvasMarkupCreate,
+  onCanvasViewportChange,
   prototypeOnly = false,
   visualMode: requestedVisualMode,
   onVisualModeChange,
@@ -165,6 +168,7 @@ export function PlanVisualSurface({
             blockLookup={blockLookup}
             markupMode={canvasMarkupMode}
             onCanvasMarkupCreate={onCanvasMarkupCreate}
+            onViewportChange={onCanvasViewportChange}
             selectedDesignElementKey={selectedDesignElementKey}
             onDesignElementSelect={
               designCanvas ? setSelectedDesignElement : undefined
@@ -192,6 +196,7 @@ export function PlanVisualSurface({
           blockLookup={blockLookup}
           markupMode={canvasMarkupMode}
           onCanvasMarkupCreate={onCanvasMarkupCreate}
+          onViewportChange={onCanvasViewportChange}
           selectedDesignElementKey={selectedDesignElementKey}
           onDesignElementSelect={
             designCanvas ? setSelectedDesignElement : undefined

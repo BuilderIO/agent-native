@@ -1,5 +1,5 @@
 import { defineAction, embedApp } from "@agent-native/core";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, isNull } from "drizzle-orm";
 import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import { assertPlanEditor, nowIso, writeEvent } from "../server/plans.js";
@@ -52,6 +52,7 @@ export default defineAction({
         and(
           eq(schema.planComments.planId, args.planId),
           inArray(schema.planComments.id, args.commentIds),
+          isNull(schema.planComments.deletedAt),
         ),
       );
 
