@@ -1367,6 +1367,23 @@ function textQuoteContextForBlock(input: {
   };
 }
 
+function textNeedleForAnchor(anchor: PlanAnnotationAnchor) {
+  return normalizedElementText(anchor.textQuote || anchor.snippet).slice(0, 120);
+}
+
+function findTextAnchorTarget(scope: Element, needle: string) {
+  if (!needle) return null;
+  const candidates = [
+    ...(scope.matches(PLAN_TEXT_TARGET_SELECTOR) ? [scope] : []),
+    ...Array.from(scope.querySelectorAll<HTMLElement>(PLAN_TEXT_TARGET_SELECTOR)),
+  ];
+  return (
+    candidates.find((candidate) =>
+      normalizedElementText(candidate.textContent).includes(needle),
+    ) ?? null
+  );
+}
+
 function findPlanBlockById(blocks: PlanBlock[], id: string): PlanBlock | null {
   for (const block of blocks) {
     if (block.id === id) return block;
@@ -1644,12 +1661,17 @@ export function resolveNativeAnchorTarget(
   const prototypeScope = prototypeScopeForAnchor(anchor, reader);
   if (prototypeScope === null) return null;
   const queryRoot = prototypeScope ?? reader;
+  const needle = textNeedleForAnchor(anchor);
   if (anchor.targetSelector) {
     try {
       const target = queryRoot.matches(anchor.targetSelector)
         ? queryRoot
         : queryRoot.querySelector<HTMLElement>(anchor.targetSelector);
-      if (target) return target;
+      if (target) {
+        if (!needle) return target;
+        const textTarget = findTextAnchorTarget(target, needle);
+        if (textTarget) return textTarget;
+      }
     } catch {
       // Fall back to quote matching below.
     }
@@ -1664,9 +1686,7 @@ export function resolveNativeAnchorTarget(
     );
     if (canvasWorld) return canvasWorld;
   }
-  const quote = normalizedElementText(anchor.textQuote || anchor.snippet);
-  if (!quote) return null;
-  const needle = quote.slice(0, 120);
+  if (!needle) return null;
   const scopes: Element[] = [];
   if (prototypeScope) {
     scopes.push(prototypeScope);
@@ -1682,12 +1702,7 @@ export function resolveNativeAnchorTarget(
   }
   if (!prototypeScope) scopes.push(reader);
   for (const scope of scopes) {
-    const candidates = Array.from(
-      scope.querySelectorAll<HTMLElement>(PLAN_TEXT_TARGET_SELECTOR),
-    );
-    const match = candidates.find((candidate) =>
-      normalizedElementText(candidate.textContent).includes(needle),
-    );
+    const match = findTextAnchorTarget(scope, needle);
     if (match) return match;
   }
   return null;
@@ -4039,7 +4054,8 @@ export function PlansPage() {
     };
     clearPendingDocumentRestore();
     pendingDocumentRestoreRef.current = documentStateRef.current;
-    await queryClient.cancelQueries({ queryKey: selectedPlanQueryKey });
+    commentMutationPendingRef.current = true;
+    void queryClient.cancelQueries({ queryKey: selectedPlanQueryKey });
     queryClient.setQueryData(
       selectedPlanQueryKey,
       (current: PlanBundleWithHtml | undefined) =>
@@ -4048,7 +4064,6 @@ export function PlansPage() {
     setFailedCommentDraft(null);
     clearInlineCommentDraft();
     setAnnotateMode(true);
-    commentMutationPendingRef.current = true;
     void updatePlan
       .mutateAsync({
         planId: bundle.plan.id,
@@ -4161,13 +4176,13 @@ export function PlansPage() {
       createdAt: now,
       updatedAt: now,
     };
-    await queryClient.cancelQueries({ queryKey: selectedPlanQueryKey });
+    commentMutationPendingRef.current = true;
+    void queryClient.cancelQueries({ queryKey: selectedPlanQueryKey });
     queryClient.setQueryData(
       selectedPlanQueryKey,
       (current: PlanBundleWithHtml | undefined) =>
         current ? addPlanCommentToBundle(current, optimisticReply) : current,
     );
-    commentMutationPendingRef.current = true;
     try {
       const updated = await updateCommentMutation.mutateAsync({
         planId: bundle.plan.id,
@@ -4291,7 +4306,8 @@ export function PlansPage() {
     const prevBundle =
       queryClient.getQueryData<PlanBundleWithHtml>(selectedPlanQueryKey);
     const commentId = request.commentId;
-    await queryClient.cancelQueries({ queryKey: selectedPlanQueryKey });
+    commentMutationPendingRef.current = true;
+    void queryClient.cancelQueries({ queryKey: selectedPlanQueryKey });
     queryClient.setQueryData(
       selectedPlanQueryKey,
       (current: PlanBundleWithHtml | undefined) =>
@@ -4303,7 +4319,6 @@ export function PlansPage() {
       current?.annotation.id === commentId ? null : current,
     );
     setDeleteCommentRequest(null);
-    commentMutationPendingRef.current = true;
     try {
       await deleteCommentMutation.mutateAsync({
         planId: bundle.plan.id,
