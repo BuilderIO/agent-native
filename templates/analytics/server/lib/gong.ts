@@ -576,11 +576,33 @@ export async function searchCallsForQueries(
   } while (cursor && (options.exhaustive || matches.size < normalizedLimit));
 
   const matchedCalls = Array.from(matches.values());
-  if (options.exhaustive) {
-    // Exhaustive discovery returns EVERY matched call (newest-first), not just
-    // the newest `limit`. The caller has already bounded the set with a date
-    // window / cohort queries; re-capping here would silently drop matches and
-    // reintroduce the "only captured a subset of calls" failure mode.
+  return buildGongSearchResult(matchedCalls, normalizedLimit, {
+    searchedCallCount,
+    queryCount: normalizedQueries.length,
+    cursor,
+    exhaustive: Boolean(options.exhaustive),
+  });
+}
+
+/**
+ * Assemble the final search result from the matched calls. In `exhaustive` mode
+ * EVERY match is returned (newest-first, untruncated) — the caller has already
+ * bounded the set with a date window / cohort queries, so re-capping here would
+ * silently drop matches and reintroduce the "only captured a subset" failure.
+ * Otherwise the newest `normalizedLimit` are returned and truncation reflects
+ * the cap or a remaining cursor. Exported for unit testing.
+ */
+export function buildGongSearchResult(
+  matchedCalls: (GongCall & { matchedQueries?: string[] })[],
+  normalizedLimit: number,
+  meta: {
+    searchedCallCount: number;
+    queryCount: number;
+    cursor: string | undefined;
+    exhaustive: boolean;
+  },
+): GongCallSearchResult {
+  if (meta.exhaustive) {
     const sorted = [...matchedCalls].sort(
       (a, b) =>
         (b.started ? Date.parse(b.started) : 0) -
@@ -590,20 +612,20 @@ export async function searchCallsForQueries(
       calls: sorted,
       limit: sorted.length,
       truncated: false,
-      searchedCallCount,
+      searchedCallCount: meta.searchedCallCount,
       matchedCallCount: matchedCalls.length,
-      queryCount: normalizedQueries.length,
+      queryCount: meta.queryCount,
       coverageTruncated: false,
     };
   }
   const limited = limitGongCalls(matchedCalls, normalizedLimit);
   return {
     ...limited,
-    truncated: limited.truncated || Boolean(cursor),
-    searchedCallCount,
+    truncated: limited.truncated || Boolean(meta.cursor),
+    searchedCallCount: meta.searchedCallCount,
     matchedCallCount: matchedCalls.length,
-    queryCount: normalizedQueries.length,
-    coverageTruncated: Boolean(cursor),
+    queryCount: meta.queryCount,
+    coverageTruncated: Boolean(meta.cursor),
   };
 }
 

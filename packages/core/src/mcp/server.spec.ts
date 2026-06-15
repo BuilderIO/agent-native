@@ -1166,7 +1166,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     }
   });
 
-  it("keeps the full catalog for code-oriented OAuth clients without mcp:apps", async () => {
+  it("uses the compact catalog for code-oriented OAuth clients unless full catalog is explicit", async () => {
     mockOAuthClients.set("agent-native-oauth-client-generated-claude-code", {
       clientId: "agent-native-oauth-client-generated-claude-code",
       clientName: "Claude Code",
@@ -1191,9 +1191,10 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
 
     expect(out.error).toBeUndefined();
     const names = out.result.tools.map((t: any) => t.name);
-    expect(names).toEqual(
-      expect.arrayContaining(["echo-thing", "internal-heavy", "ask-agent"]),
-    );
+    expect(names).toEqual(["echo-thing", "review-draft"]);
+    expect(names).not.toContain("internal-heavy");
+    expect(names).not.toContain("ask-agent");
+    expect(JSON.stringify(out)).not.toContain("INTERNAL_TOOL_BLOAT_SENTINEL");
   });
 
   it("uses the compact catalog for authenticated non-OAuth callers by default", async () => {

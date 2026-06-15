@@ -58,8 +58,14 @@ function log(msg: string): void {
 function authHeaders(env: NodeJS.ProcessEnv): Record<string, string> {
   const headers: Record<string, string> = {
     "X-Agent-Native-MCP-Client": "agent-native-mcp-proxy",
-    "X-Agent-Native-MCP-Full-Catalog": "1",
   };
+  // Default to the compact/connector catalog + tool-search like every other
+  // client. The local CLI no longer auto-pulls the full ~105-tool catalog;
+  // opt in explicitly with AGENT_NATIVE_MCP_FULL_CATALOG=1 when you really want
+  // every tool schema loaded up front.
+  if (env.AGENT_NATIVE_MCP_FULL_CATALOG === "1") {
+    headers["X-Agent-Native-MCP-Full-Catalog"] = "1";
+  }
   const token = env.ACCESS_TOKEN || env.AGENT_NATIVE_MCP_TOKEN;
   if (token) headers["Authorization"] = `Bearer ${token}`;
   const owner = env.AGENT_NATIVE_OWNER_EMAIL;
@@ -263,7 +269,8 @@ async function runStandalone(opts: RunMCPStdioOptions): Promise<void> {
     {
       origin,
       clientName: "agent-native-mcp-standalone",
-      fullCatalog: true,
+      // Compact by default; opt into the full catalog with the env flag.
+      fullCatalog: process.env.AGENT_NATIVE_MCP_FULL_CATALOG === "1",
     },
   );
 
