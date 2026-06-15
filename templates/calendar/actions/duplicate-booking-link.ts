@@ -10,6 +10,7 @@ import { accessFilter } from "@agent-native/core/sharing";
 import type { BookingLink } from "../shared/api.js";
 import { getDb, schema } from "../server/db/index.js";
 import { normalizeBookingDurationInput } from "../server/lib/booking-durations.js";
+import { rowToBookingLink } from "../server/lib/booking-link-utils.js";
 
 const durationSchema = z.coerce
   .number()
@@ -40,32 +41,6 @@ function parseJson<T>(value: string | null, fallback: T): T {
   } catch {
     return fallback;
   }
-}
-
-function rowToBookingLink(
-  row: typeof schema.bookingLinks.$inferSelect,
-): BookingLink {
-  return {
-    id: row.id,
-    slug: row.slug,
-    title: row.title,
-    description: row.description ?? undefined,
-    duration: row.duration,
-    durations: parseJson<number[] | undefined>(row.durations, undefined),
-    customFields: parseJson<BookingLink["customFields"]>(
-      row.customFields,
-      undefined,
-    ),
-    conferencing: parseJson<BookingLink["conferencing"]>(
-      row.conferencing,
-      undefined,
-    ),
-    color: row.color ?? undefined,
-    isActive: row.isActive,
-    visibility: row.visibility,
-    createdAt: row.createdAt,
-    updatedAt: row.updatedAt,
-  };
 }
 
 function slugify(value: string): string {
@@ -198,6 +173,7 @@ export default defineAction({
           durations: durationInput.durations
             ? JSON.stringify(durationInput.durations)
             : null,
+          hosts: source.hosts,
           customFields: source.customFields,
           conferencing: source.conferencing,
           color: source.color,

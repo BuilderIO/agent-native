@@ -13,8 +13,10 @@ import {
   IconDotsVertical,
   IconPlus,
   IconTrash,
+  IconUsers,
   IconVideo,
   IconVideoOff,
+  IconX,
 } from "@tabler/icons-react";
 import { nanoid } from "nanoid";
 import { toast } from "sonner";
@@ -87,7 +89,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
-import { VisibilityBadge } from "@agent-native/core/client";
+import { ShareButton, VisibilityBadge } from "@agent-native/core/client";
 import { useAppHeaderControls } from "@/components/layout/AppLayout";
 import {
   useBookingLinks,
@@ -105,6 +107,7 @@ import { TimezoneCombobox } from "@/components/TimezoneCombobox";
 import BookingsList from "./BookingsList";
 import type {
   AvailabilityConfig,
+  BookingHost,
   BookingLink,
   ConferencingConfig,
   CustomField,
@@ -128,6 +131,7 @@ const BRAND_ICON_LINK_CLASS =
   "text-[#00B5FF] hover:bg-[#00B5FF]/10 hover:text-[#33C4FF]";
 const BRAND_PILL_LINK_CLASS =
   "border-[#00B5FF]/35 bg-[#00B5FF]/10 font-semibold text-[#00B5FF] hover:border-[#00B5FF]/55 hover:bg-[#00B5FF]/15 hover:text-[#33C4FF]";
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 type DraftLink = {
   id?: string;
@@ -136,6 +140,7 @@ type DraftLink = {
   description: string;
   duration: number;
   durations: number[];
+  hosts: BookingHost[];
   customFields: CustomField[];
   conferencing: ConferencingConfig;
   isActive: boolean;
@@ -178,6 +183,7 @@ function createEmptyDraft(): DraftLink {
     description: "",
     duration: 30,
     durations: [30],
+    hosts: [],
     customFields: [],
     conferencing: { type: "none" },
     isActive: true,
@@ -199,6 +205,7 @@ function draftFromBookingLink(link: BookingLink): DraftLink {
     description: link.description || "",
     duration: primaryDuration,
     durations,
+    hosts: link.hosts || [],
     customFields: link.customFields || [],
     conferencing: link.conferencing || { type: "none" },
     isActive: link.isActive,
@@ -215,10 +222,16 @@ function getDraftSignature(draft: DraftLink) {
     description: draft.description.trim(),
     duration: draft.duration,
     durations: draft.durations,
+    hosts: draft.hosts,
     customFields: draft.customFields,
     conferencing: draft.conferencing,
     isActive: draft.isActive,
   });
+}
+
+function normalizeHostEmail(value: string) {
+  const email = value.trim().toLowerCase();
+  return EMAIL_RE.test(email) ? email : null;
 }
 
 /** Format "09:00" → "9 am", "17:00" → "5 pm" */
@@ -459,6 +472,111 @@ function BookingConferencingSelect({
             placeholder="https://meet.example.com/room"
           />
         </div>
+      )}
+    </div>
+  );
+}
+
+function BookingHostsEditor({
+  hosts,
+  onChange,
+}: {
+  hosts: BookingHost[];
+  onChange: (hosts: BookingHost[]) => void;
+}) {
+  const [input, setInput] = useState("");
+
+  function addHosts() {
+    const entries = input
+      .split(/[\s,;]+/)
+      .map((entry) => entry.trim())
+      .filter(Boolean);
+    if (entries.length === 0) return;
+
+    const existing = new Set(hosts.map((host) => host.email.toLowerCase()));
+    const next = [...hosts];
+    const invalid: string[] = [];
+
+    for (const entry of entries) {
+      const email = normalizeHostEmail(entry);
+      if (!email) {
+        invalid.push(entry);
+        continue;
+      }
+      if (existing.has(email)) continue;
+      existing.add(email);
+      next.push({ email });
+    }
+
+    if (invalid.length > 0) {
+      toast.error(`Invalid email: ${invalid[0]}`);
+    }
+    if (next.length !== hosts.length) {
+      onChange(next);
+      setInput("");
+    }
+  }
+
+  function removeHost(email: string) {
+    onChange(hosts.filter((host) => host.email !== email));
+  }
+
+  return (
+    <div className="space-y-3">
+      <div className="space-y-1">
+        <Label className="flex items-center gap-1.5">
+          <IconUsers className="h-4 w-4" />
+          Required hosts
+        </Label>
+        <p className="text-xs text-muted-foreground">
+          You are included automatically. Add teammates who must also be free.
+        </p>
+      </div>
+      <div className="flex gap-2">
+        <Input
+          type="email"
+          value={input}
+          onChange={(event) => setInput(event.currentTarget.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") {
+              event.preventDefault();
+              addHosts();
+            }
+          }}
+          placeholder="teammate@example.com"
+        />
+        <Button
+          type="button"
+          variant="outline"
+          onClick={addHosts}
+          disabled={!input.trim()}
+          className="shrink-0"
+        >
+          Add
+        </Button>
+      </div>
+      {hosts.length > 0 ? (
+        <div className="flex flex-wrap gap-2">
+          {hosts.map((host) => (
+            <Badge
+              key={host.email}
+              variant="secondary"
+              className="gap-1.5 pr-1"
+            >
+              {host.displayName || host.email}
+              <button
+                type="button"
+                onClick={() => removeHost(host.email)}
+                className="rounded-sm p-0.5 text-muted-foreground hover:bg-background hover:text-foreground"
+                aria-label={`Remove ${host.email}`}
+              >
+                <IconX className="h-3 w-3" />
+              </button>
+            </Badge>
+          ))}
+        </div>
+      ) : (
+        <p className="text-xs text-muted-foreground">Only you are required.</p>
       )}
     </div>
   );
@@ -718,6 +836,7 @@ export default function BookingLinksPage({
         description: draft.description.trim() || undefined,
         duration: draft.durations[0] ?? draft.duration,
         durations: draft.durations.length > 1 ? draft.durations : undefined,
+        hosts: draft.hosts.length > 0 ? draft.hosts : undefined,
         customFields:
           draft.customFields.length > 0 ? draft.customFields : undefined,
         conferencing: draft.conferencing,
@@ -812,6 +931,35 @@ export default function BookingLinksPage({
       ),
       right: selectedLink ? (
         <div className="flex items-center gap-1.5">
+          {!selectedLink.id.startsWith(OPTIMISTIC_PREFIX) && (
+            <ShareButton
+              resourceType="booking-link"
+              resourceId={selectedLink.id}
+              resourceTitle={draft.title || selectedLink.title}
+              variant="compact"
+              shareUrl={previewUrl}
+              shareUrlLabel="Public booking link"
+              shareUrlDescription="Bookers use this URL to pick a time. Sharing controls who can manage this booking link."
+              shareUrlPlacement="top"
+              peopleAccessLabel="People with management access"
+              generalAccessLabel="General management access"
+              visibilityCopy={{
+                private: {
+                  description:
+                    "Only invited people can manage this booking link",
+                },
+                org: {
+                  description:
+                    "Anyone in your organization can open and manage this booking link",
+                },
+                public: {
+                  label: "Public management access",
+                  description:
+                    "Anyone with the app link can view this booking link setup",
+                },
+              }}
+            />
+          )}
           <TooltipProvider>
             <Tooltip>
               <TooltipTrigger asChild>
@@ -863,7 +1011,9 @@ export default function BookingLinksPage({
   }, [
     selectedId,
     selectedLink,
+    draft.title,
     draft.slug,
+    previewUrl,
     updateBookingLink.isPending,
     hasUnsavedChanges,
     navigate,
@@ -1192,6 +1342,11 @@ export default function BookingLinksPage({
                   zoomPending={connectZoom.isPending}
                 />
 
+                <BookingHostsEditor
+                  hosts={draft.hosts}
+                  onChange={(hosts) => setDraft((prev) => ({ ...prev, hosts }))}
+                />
+
                 {/* Custom fields editor — shared package component */}
                 <SharedCustomFieldsEditor
                   fields={draft.customFields}
@@ -1274,6 +1429,7 @@ export default function BookingLinksPage({
                   title={draft.title}
                   description={draft.description}
                   durations={draft.durations}
+                  hosts={draft.hosts}
                   customFields={draft.customFields}
                   isActive={draft.isActive}
                   availability={availability ?? undefined}
@@ -1332,6 +1488,11 @@ export default function BookingLinksPage({
                   const durationLabel = durations
                     .map((d) => (d >= 60 ? `${d / 60} hr` : `${d} min`))
                     .join(", ");
+                  const hostCount = (link.hosts?.length ?? 0) + 1;
+                  const hostLabel =
+                    hostCount > 1
+                      ? `${hostCount} required hosts`
+                      : "One-on-One";
 
                   return (
                     <div
@@ -1362,7 +1523,7 @@ export default function BookingLinksPage({
                             <VisibilityBadge visibility={link.visibility} />
                           </div>
                           <p className="mt-0.5 text-xs text-muted-foreground truncate">
-                            {durationLabel} • One-on-One
+                            {durationLabel} • {hostLabel}
                           </p>
                           {availability && (
                             <p className="mt-0.5 text-xs text-muted-foreground truncate">
@@ -1433,6 +1594,7 @@ export default function BookingLinksPage({
                                       slug: link.slug,
                                       duration: durations[0] ?? link.duration,
                                       durations: link.durations,
+                                      hosts: link.hosts,
                                       description: link.description,
                                       customFields: link.customFields,
                                       conferencing: link.conferencing,
@@ -1667,6 +1829,7 @@ function BookingPreview({
   title,
   description,
   durations,
+  hosts = [],
   customFields = [],
   isActive,
   availability,
@@ -1678,6 +1841,7 @@ function BookingPreview({
   title: string;
   description: string;
   durations: number[];
+  hosts?: BookingHost[];
   customFields?: CustomField[];
   isActive: boolean;
   availability?: AvailabilityConfig;
@@ -1891,10 +2055,19 @@ function BookingPreview({
               {description}
             </p>
           )}
-          {!hasDurationChoice && (
-            <span className="inline-flex rounded-full border border-border px-2.5 py-0.5 text-[11px] font-medium text-muted-foreground">
-              {primaryDuration} minute meeting
-            </span>
+          {(!hasDurationChoice || hosts.length > 0) && (
+            <div className="flex flex-wrap justify-center gap-2">
+              {!hasDurationChoice && (
+                <span className="inline-flex rounded-full border border-border px-2.5 py-0.5 text-[11px] font-medium text-muted-foreground">
+                  {primaryDuration} minute meeting
+                </span>
+              )}
+              {hosts.length > 0 && (
+                <span className="inline-flex rounded-full border border-border px-2.5 py-0.5 text-[11px] font-medium text-muted-foreground">
+                  {hosts.length + 1} required hosts
+                </span>
+              )}
+            </div>
           )}
         </div>
 

@@ -15,6 +15,16 @@ describe("booking event details", () => {
     ).toBe("Steve + Rakesh");
   });
 
+  it("includes co-host first names in group booking titles", () => {
+    expect(
+      buildBookingEventTitle({
+        hostEmail: "steve@example.com",
+        hostEmails: ["brent@example.com"],
+        attendeeName: "Rakesh Rachamalla",
+      }),
+    ).toBe("Steve + Brent + Rakesh");
+  });
+
   it("still honors an explicit event title override", () => {
     expect(
       buildBookingEventTitle({
@@ -35,6 +45,25 @@ describe("booking event details", () => {
       {
         email: "rakesh.rachamalla@walmart.com",
         displayName: "Rakesh Rachamalla",
+      },
+    ]);
+  });
+
+  it("adds co-hosts as Google Calendar attendees", () => {
+    expect(
+      buildBookingEventAttendees({
+        attendeeEmail: "rakesh.rachamalla@walmart.com",
+        attendeeName: "Rakesh Rachamalla",
+        hostEmails: ["brent@example.com"],
+      }),
+    ).toEqual([
+      {
+        email: "rakesh.rachamalla@walmart.com",
+        displayName: "Rakesh Rachamalla",
+      },
+      {
+        email: "brent@example.com",
+        displayName: "Brent",
       },
     ]);
   });

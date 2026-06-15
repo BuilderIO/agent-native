@@ -82,7 +82,8 @@ Google Calendar events are NOT stored in the local database. They are fetched li
 - \`pnpm action update-calendar-visual-preferences --colorMode single --singleColor '#5B9BD5'\` — Use one local display color for the user's Google events
 - \`pnpm action check-availability --date YYYY-MM-DD --duration 60\` — Check free slots
 - \`pnpm action list-booking-links\` — List existing booking links
-- \`pnpm action create-booking-link --title "Meeting" --slug meeting --duration 30\` — Create a booking link
+- \`pnpm action create-booking-link --title "Meeting" --slug meeting --duration 30 --hosts "brent@example.com"\` — Create a booking link; hosts are optional required co-hosts besides the owner
+- \`pnpm action update-booking-link --id <id> --title "Meeting" --slug meeting --duration 30 --hosts "brent@example.com"\` — Update a booking link, including required co-hosts
 - \`pnpm action duplicate-booking-link --sourceSlug meeting --copies '[...]'\` — Duplicate one booking link into one or more variants
 
 ## Local UI Visual Preferences vs Google Calendar Event Color
@@ -103,6 +104,7 @@ When the user says "show me", "go to", "open", or "switch to" a view or date, AL
       await import("../db/schema.js");
     const { like, desc, and, inArray } = await import("drizzle-orm");
     const { accessFilter } = await import("@agent-native/core/sharing");
+    const { parseBookingHosts } = await import("../lib/booking-link-utils.js");
     return {
       bookings: {
         label: "Bookings",
@@ -157,14 +159,20 @@ When the user says "show me", "go to", "open", or "switch to" a view or date, AL
                 .where(access)
                 .orderBy(desc(bookingLinks.updatedAt))
                 .limit(15);
-          return rows.map((link) => ({
-            id: link.id,
-            label: link.title,
-            description: `${link.duration}min · /${link.slug}`,
-            icon: "document" as const,
-            refType: "booking-link",
-            refId: link.id,
-          }));
+          return rows.map((link) => {
+            const hostCount =
+              parseBookingHosts(link.hosts, link.ownerEmail).length + 1;
+            const hostLabel =
+              hostCount > 1 ? `${hostCount} required hosts` : "one-on-one";
+            return {
+              id: link.id,
+              label: link.title,
+              description: `${link.duration}min · ${hostLabel} · /${link.slug}`,
+              icon: "document" as const,
+              refType: "booking-link",
+              refId: link.id,
+            };
+          });
         },
       },
     };

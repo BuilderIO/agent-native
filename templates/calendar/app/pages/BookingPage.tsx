@@ -230,6 +230,7 @@ export default function BookingPage() {
   const isLegacyBookingPage = !!slug && availability?.bookingPageSlug === slug;
   const pageTitle = bookingLink?.title || title;
   const pageDescription = bookingLink?.description || description;
+  const requiredHostCount = (bookingLink?.hosts?.length ?? 0) + 1;
 
   useEffect(() => {
     if (hasDurationChoice && step === "date" && selectedDuration === null) {
@@ -282,10 +283,19 @@ export default function BookingPage() {
           <p className="mt-1 text-sm text-muted-foreground">
             {pageDescription}
           </p>
-          {!hasDurationChoice && (
-            <p className="mt-3 inline-flex rounded-full border border-border px-3 py-1 text-xs font-medium text-muted-foreground">
-              {duration} minute meeting
-            </p>
+          {(!hasDurationChoice || requiredHostCount > 1) && (
+            <div className="mt-3 flex flex-wrap justify-center gap-2">
+              {!hasDurationChoice && (
+                <span className="inline-flex rounded-full border border-border px-3 py-1 text-xs font-medium text-muted-foreground">
+                  {duration} minute meeting
+                </span>
+              )}
+              {requiredHostCount > 1 && (
+                <span className="inline-flex rounded-full border border-border px-3 py-1 text-xs font-medium text-muted-foreground">
+                  {requiredHostCount} required hosts
+                </span>
+              )}
+            </div>
           )}
         </div>
 
