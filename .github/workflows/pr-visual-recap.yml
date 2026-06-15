@@ -329,23 +329,29 @@ jobs:
           PLAN_ID="$($RECAP_CLI recap comment find-plan-id --repo "$GITHUB_REPOSITORY" --issue "$PR_NUMBER" --token "$GH_TOKEN")"
           echo "plan_id=$PLAN_ID" >> "$GITHUB_OUTPUT"
 
-      - name: Smoke-test Plan MCP tools
-        id: mcp_smoke
+      - name: Fetch plan block reference
+        id: block_reference
         if: steps.diff.outputs.tiny != 'true' && steps.scan.outputs.suppressed != 'true'
         continue-on-error: true
         run: |
           set -uo pipefail
-          for attempt in 1 2 3; do
-            if $RECAP_CLI recap mcp-smoke --app-url "$PLAN_RECAP_APP_URL"; then
-              exit 0
-            fi
-            if [ "$attempt" = "3" ]; then exit 1; fi
-            sleep $((attempt * 10))
-          done
+          if $RECAP_CLI recap block-reference --app-url "$PLAN_RECAP_APP_URL" --out recap-blocks.md; then
+            echo "ok=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ok=false" >> "$GITHUB_OUTPUT"
+            {
+              echo 'summary<<__RECAP_BLOCK_REFERENCE_EOF__'
+              echo "Could not fetch the live plan block reference; the agent will fall back to bundled visual-recap instructions and the publisher will validate the final MDX."
+              echo '__RECAP_BLOCK_REFERENCE_EOF__'
+            } >> "$GITHUB_OUTPUT"
+            cat > recap-blocks.md <<'EOF'
+          Live plan block reference unavailable. Follow the bundled visual-recap skill and author conservative MDX; the deterministic publisher will validate the source before posting.
+          EOF
+          fi
 
       - name: Build recap prompt
         id: prompt
-        if: steps.diff.outputs.tiny != 'true' && steps.scan.outputs.suppressed != 'true' && steps.mcp_smoke.outputs.ok == 'true'
+        if: steps.diff.outputs.tiny != 'true' && steps.scan.outputs.suppressed != 'true'
         env:
           # Pass step outputs via env, NOT ${{ }} interpolation into the run body:
           # the prev plan id is parsed from a PR comment and could inject shell.
@@ -354,7 +360,7 @@ jobs:
           IS_FORK: ${{ github.event.pull_request.head.repo.full_name != github.repository }}
         run: |
           set -euo pipefail
-          ARGS=(--diff recap.diff --stat recap.stat --pr "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --head "$HEAD_SHA" --app-url "$PLAN_RECAP_APP_URL" --skill-source "$VISUAL_RECAP_SKILL_SOURCE" --out recap-prompt.md)
+          ARGS=(--diff recap.diff --stat recap.stat --block-reference recap-blocks.md --pr "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --head "$HEAD_SHA" --app-url "$PLAN_RECAP_APP_URL" --skill-source "$VISUAL_RECAP_SKILL_SOURCE" --out recap-prompt.md)
           if [ "${DIFF_HUGE:-}" = "true" ]; then ARGS+=(--huge); fi
           if [ "${IS_FORK:-}" = "true" ]; then ARGS+=(--fork-pr true); fi
           if [ -n "${PREV_PLAN_ID:-}" ]; then ARGS+=(--prev-plan-id "$PREV_PLAN_ID"); fi
@@ -362,18 +368,16 @@ jobs:
 
       - name: Run agent (Claude Code)
         id: claude
-        if: needs.gate.outputs.agent == 'claude' && steps.diff.outputs.tiny != 'true' && steps.scan.outputs.suppressed != 'true' && steps.mcp_smoke.outputs.ok == 'true'
+        if: needs.gate.outputs.agent == 'claude' && steps.diff.outputs.tiny != 'true' && steps.scan.outputs.suppressed != 'true'
         continue-on-error: true
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: |
           set -uo pipefail
-          MCP_CONFIG="$RUNNER_TEMP/plan-mcp.json"
-          $RECAP_CLI recap mcp-config --agent claude --app-url "$PLAN_RECAP_APP_URL" --out "$MCP_CONFIG"
-          CLAUDE_ALLOWED_TOOLS="Read,Write,Bash(git diff:*),mcp__plan__get-plan-blocks,mcp__plan__create-visual-recap,mcp__plan__set-resource-visibility,mcp__agent-native-plans__get-plan-blocks,mcp__agent-native-plans__create-visual-recap,mcp__agent-native-plans__set-resource-visibility"
-          CLAUDE_ARGS=(-p "$(cat recap-prompt.md)" --mcp-config "$MCP_CONFIG" --allowedTools "$CLAUDE_ALLOWED_TOOLS" --permission-mode dontAsk --output-format json)
+          CLAUDE_ALLOWED_TOOLS="Read,Write,Bash(git diff:*)"
+          CLAUDE_ARGS=(-p "$(cat recap-prompt.md)" --allowedTools "$CLAUDE_ALLOWED_TOOLS" --permission-mode dontAsk --output-format json)
           if [ -n "${VISUAL_RECAP_MODEL:-}" ]; then CLAUDE_ARGS+=(--model "$VISUAL_RECAP_MODEL"); fi
-          rm -f recap-url.txt claude-result.json claude-stderr.log
+          rm -f recap-source.json recap-url.txt recap-url-reason.txt claude-result.json claude-stderr.log
           run_claude() {
             set +e
             npx -y @anthropic-ai/claude-code@2 "${CLAUDE_ARGS[@]}" > claude-result.json 2> claude-stderr.log
@@ -382,22 +386,15 @@ jobs:
             echo "$CLAUDE_STATUS" > claude-exit-code.txt
           }
           run_claude
-          if [ ! -s recap-url.txt ] && grep -Eiq 'schedule(d)? (a )?(wakeup|retry)|will retry|backoff|connector.*register|mcp.*(register|unreachable|not usable|zero tools|not callable|timeout|timed out)|create-visual-recap.*(timeout|timed out)' claude-result.json claude-stderr.log 2>/dev/null; then
-            echo "Plan MCP registration appears delayed; retrying Claude once after 20s."
-            sleep 20
-            run_claude
-          fi
-          rm -f "$MCP_CONFIG" || true
 
       - name: Run agent (Codex)
         id: codex
-        if: needs.gate.outputs.agent == 'codex' && steps.diff.outputs.tiny != 'true' && steps.scan.outputs.suppressed != 'true' && steps.mcp_smoke.outputs.ok == 'true'
+        if: needs.gate.outputs.agent == 'codex' && steps.diff.outputs.tiny != 'true' && steps.scan.outputs.suppressed != 'true'
         continue-on-error: true
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         run: |
           set -uo pipefail
-          $RECAP_CLI recap mcp-config --agent codex --app-url "$PLAN_RECAP_APP_URL" --force
           # `codex login` writes ~/.codex/auth.json (the bare env var is dropped on
           # the gpt-5.5 wss transport); stdin keeps the key out of process args.
           printenv OPENAI_API_KEY | npx -y @openai/codex@0 login --with-api-key || true
@@ -412,7 +409,7 @@ jobs:
             "") ;;
             *) echo "Ignoring invalid VISUAL_RECAP_REASONING: $VISUAL_RECAP_REASONING" ;;
           esac
-          rm -f recap-url.txt codex-events.jsonl codex-stderr.log
+          rm -f recap-source.json recap-url.txt recap-url-reason.txt codex-events.jsonl codex-stderr.log
           run_codex() {
             set +e
             npx -y @openai/codex@0 "${CODEX_ARGS[@]}" --json "$(cat recap-prompt.md)" 2> codex-stderr.log | tee codex-events.jsonl
@@ -421,11 +418,18 @@ jobs:
             echo "$CODEX_STATUS" > codex-exit-code.txt
           }
           run_codex
-          if [ ! -s recap-url.txt ] && grep -Eiq 'schedule(d)? (a )?(wakeup|retry)|will retry|backoff|connector.*register|mcp.*(register|unreachable|not usable|zero tools|not callable|timeout|timed out)|create-visual-recap.*(timeout|timed out)' codex-events.jsonl codex-stderr.log 2>/dev/null; then
-            echo "Plan MCP registration appears delayed; retrying Codex once after 20s."
-            sleep 20
-            run_codex
-          fi
+
+      - name: Publish recap source
+        id: publish
+        if: steps.diff.outputs.tiny != 'true' && steps.scan.outputs.suppressed != 'true'
+        continue-on-error: true
+        env:
+          PREV_PLAN_ID: ${{ steps.prev.outputs.plan_id }}
+        run: |
+          set -uo pipefail
+          ARGS=(--source recap-source.json --out recap-url.txt --repo "$GITHUB_REPOSITORY" --pr "$PR_NUMBER" --app-url "$PLAN_RECAP_APP_URL" --token "$PLAN_RECAP_TOKEN")
+          if [ -n "${PREV_PLAN_ID:-}" ]; then ARGS+=(--prev-plan-id "$PREV_PLAN_ID"); fi
+          $RECAP_CLI recap publish "${ARGS[@]}"
 
       - name: Read plan URL
         id: url
@@ -436,8 +440,10 @@ jobs:
           URL_REASON=""
           if [ -f recap-url.txt ]; then
             PLAN_URL="$(tr -d '\r\n' < recap-url.txt | tr -d ' ')"
+          elif [ -f recap-url-reason.txt ]; then
+            URL_REASON="$(cat recap-url-reason.txt)"
           else
-            URL_REASON="recap-url.txt was not created by the agent"
+            URL_REASON="recap-url.txt was not created."
           fi
           # recap-url.txt is agent-written -> untrusted. Rebuild a canonical
           # recap URL from the trusted app base and a strictly validated plan id,
@@ -501,17 +507,26 @@ jobs:
         continue-on-error: true
         env:
           RECAP_AGENT: ${{ needs.gate.outputs.agent }}
-          RECAP_MCP_SMOKE_OK: ${{ steps.mcp_smoke.outputs.ok }}
-          RECAP_MCP_SMOKE_SUMMARY: ${{ steps.mcp_smoke.outputs.summary }}
+          RECAP_BLOCK_REFERENCE_SUMMARY: ${{ steps.block_reference.outputs.summary }}
+          RECAP_PUBLISH_REASON: ${{ steps.publish.outputs.reason }}
         run: |
           set -uo pipefail
-          if [ -n "${RECAP_MCP_SMOKE_SUMMARY:-}" ] && [ "${RECAP_MCP_SMOKE_OK:-}" != "true" ]; then
+          if [ -n "${RECAP_BLOCK_REFERENCE_SUMMARY:-}" ]; then
             {
-              echo 'summary<<__RECAP_MCP_SMOKE_SUMMARY_EOF__'
-              echo "$RECAP_MCP_SMOKE_SUMMARY"
-              echo '__RECAP_MCP_SMOKE_SUMMARY_EOF__'
+              echo 'summary<<__RECAP_BLOCK_REFERENCE_SUMMARY_EOF__'
+              echo "$RECAP_BLOCK_REFERENCE_SUMMARY"
+              echo '__RECAP_BLOCK_REFERENCE_SUMMARY_EOF__'
             } >> "$GITHUB_OUTPUT"
-            node -e 'process.stdout.write(JSON.stringify({ ok: true, summary: process.env.RECAP_MCP_SMOKE_SUMMARY || "" }) + "\n")'
+            node -e 'process.stdout.write(JSON.stringify({ ok: true, summary: process.env.RECAP_BLOCK_REFERENCE_SUMMARY || "" }) + "\n")'
+            exit 0
+          fi
+          if [ -n "${RECAP_PUBLISH_REASON:-}" ]; then
+            {
+              echo 'summary<<__RECAP_PUBLISH_SUMMARY_EOF__'
+              echo "$RECAP_PUBLISH_REASON"
+              echo '__RECAP_PUBLISH_SUMMARY_EOF__'
+            } >> "$GITHUB_OUTPUT"
+            node -e 'process.stdout.write(JSON.stringify({ ok: true, summary: process.env.RECAP_PUBLISH_REASON || "" }) + "\n")'
             exit 0
           fi
           RESULT=claude-result.json
@@ -588,7 +603,7 @@ jobs:
           retention-days: 14
 
       - name: Upsert sticky comment
-        if: always()
+        if: always() && !cancelled()
         continue-on-error: true
         env:
           PLAN_URL: ${{ steps.url.outputs.plan_url }}
@@ -605,10 +620,10 @@ jobs:
           RECAP_URL_REASON: ${{ steps.url.outputs.reason }}
         run: |
           set -euo pipefail
-          $RECAP_CLI recap comment upsert --repo "$GITHUB_REPOSITORY" --issue "$PR_NUMBER" --token "$GH_TOKEN"
+          $RECAP_CLI recap comment upsert --repo "$GITHUB_REPOSITORY" --issue "$PR_NUMBER" --token "$GH_TOKEN" --head-sha "$HEAD_SHA"
 
       - name: Complete visual recap check
-        if: always() && steps.recap_check.outputs.check_run_id != ''
+        if: always() && !cancelled() && steps.recap_check.outputs.check_run_id != ''
         continue-on-error: true
         env:
           # Untrusted/step values via env (NOT ${{ }}-interpolated into the run
