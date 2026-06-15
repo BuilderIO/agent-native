@@ -2326,14 +2326,24 @@ export function AddProperty({
   const firstFilteredPropertyType = filteredPropertyTypes[0] ?? null;
   const unmappedSourceFields =
     source?.sourceType === "builder-cms"
-      ? source.fields.filter(
-          (field) =>
-            !field.propertyId &&
-            field.mappingType !== "title" &&
-            field.sourceFieldLabel
-              .toLowerCase()
-              .includes(typeQuery.trim().toLowerCase()),
-        )
+      ? [
+          ...source.fields.filter(
+            (field) =>
+              !field.propertyId &&
+              field.mappingType !== "title" &&
+              field.sourceFieldLabel
+                .toLowerCase()
+                .includes(typeQuery.trim().toLowerCase()),
+          ),
+        ].sort((a, b) => {
+            if (a.mappingType === "system" && b.mappingType !== "system") {
+              return 1;
+            }
+            if (a.mappingType !== "system" && b.mappingType === "system") {
+              return -1;
+            }
+            return a.sourceFieldLabel.localeCompare(b.sourceFieldLabel);
+          })
       : [];
   const addPropertyNameInputRef = useRef<HTMLInputElement>(null);
 
@@ -2443,7 +2453,7 @@ export function AddProperty({
                 <div className="px-2 py-1 text-xs font-medium text-muted-foreground">
                   From Builder source
                 </div>
-                {unmappedSourceFields.slice(0, 5).map((field) => (
+                {unmappedSourceFields.map((field) => (
                   <button
                     key={field.id}
                     type="button"

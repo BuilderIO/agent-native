@@ -3300,6 +3300,7 @@ function DatabaseSettingsPanelSheet({
             properties={properties}
             activeView={activeView}
             items={items}
+            source={source}
             hiddenCount={hiddenCount}
             onPropertyHiddenChange={onPropertyHiddenChange}
             onPropertiesHiddenChange={onPropertiesHiddenChange}
@@ -4970,6 +4971,7 @@ function DatabaseSettingsPropertyVisibilityPanel({
   properties,
   activeView,
   items,
+  source,
   hiddenCount,
   onPropertyHiddenChange,
   onPropertiesHiddenChange,
@@ -4978,6 +4980,7 @@ function DatabaseSettingsPropertyVisibilityPanel({
   properties: DocumentProperty[];
   activeView: ContentDatabaseView;
   items: ContentDatabaseItem[];
+  source: ContentDatabaseSource | null;
   hiddenCount: number;
   onPropertyHiddenChange: (propertyId: string, hidden: boolean) => void;
   onPropertiesHiddenChange: (propertyIds: string[], hidden: boolean) => void;
@@ -5070,7 +5073,11 @@ function DatabaseSettingsPropertyVisibilityPanel({
         ) : null}
       </div>
       <div className="border-t border-border/70 pt-3">
-        <AddProperty documentId={documentId} label="New property" />
+        <AddProperty
+          documentId={documentId}
+          label="New property"
+          source={source}
+        />
       </div>
     </div>
   );

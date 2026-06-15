@@ -16,7 +16,10 @@ import {
   sourceSetupPayload,
   updateBuilderCmsSourceReadMetadata,
 } from "./_database-source-utils.js";
-import { readBuilderCmsContentEntries } from "./_builder-cms-read-client.js";
+import {
+  readBuilderCmsContentEntries,
+  readBuilderCmsModelFields,
+} from "./_builder-cms-read-client.js";
 import { getContentDatabaseResponse } from "./_database-utils.js";
 
 const sourceTypeSchema = z
@@ -72,9 +75,14 @@ export default defineAction({
       sourceType === "builder-cms"
         ? await readBuilderCmsContentEntries({
             model: sourceTable,
-            limit: 20,
           })
         : null;
+    const builderModelFields =
+      sourceType === "builder-cms"
+        ? await readBuilderCmsModelFields({
+            model: sourceTable,
+          })
+        : [];
     if (builderRead?.state === "live") {
       await importBuilderCmsEntriesAsDatabaseItems({
         database,
@@ -115,6 +123,7 @@ export default defineAction({
       ownerEmail: database.ownerEmail,
       sourceType,
       properties: refreshedSetup.properties,
+      builderModelFields,
       now,
     });
     await seedMockSourceRows({

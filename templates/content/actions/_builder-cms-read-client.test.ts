@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   listBuilderCmsModels,
   readBuilderCmsContentEntries,
+  readBuilderCmsModelFields,
 } from "./_builder-cms-read-client";
 
 vi.mock("@agent-native/core/server", () => ({
@@ -139,6 +140,64 @@ describe("Builder CMS read client", () => {
     });
   });
 
+  it("returns Builder model fields for a selected model", async () => {
+    resolveBuilderCredentialMock.mockImplementation(async (key) =>
+      key === "BUILDER_PRIVATE_KEY" ? "private-key" : null,
+    );
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ jsonrpc: "2.0", result: {} }), {
+          status: 200,
+          headers: { "mcp-session-id": "session-1" },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ jsonrpc: "2.0", result: {} }), {
+          status: 200,
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            jsonrpc: "2.0",
+            result: {
+              content: [
+                {
+                  type: "text",
+                  text: JSON.stringify({
+                    models: [
+                      {
+                        id: "model-blog",
+                        name: "blog-article",
+                        displayName: "Blog Article",
+                        kind: "component",
+                        fields: [
+                          { name: "title", type: "text", required: true },
+                          { name: "handle", type: "string", required: false },
+                        ],
+                      },
+                    ],
+                  }),
+                },
+              ],
+            },
+          }),
+          { status: 200 },
+        ),
+      );
+
+    await expect(
+      readBuilderCmsModelFields({
+        model: "blog-article",
+        fetchImpl: fetchImpl as unknown as typeof fetch,
+      }),
+    ).resolves.toEqual([
+      { name: "title", type: "text", required: true },
+      { name: "handle", type: "string", required: false },
+    ]);
+  });
+
   it("reads Builder content through the Content API when credentials exist", async () => {
     process.env.BUILDER_CONTENT_API_HOST = "https://cdn.test.builder.io";
     resolveBuilderCredentialMock.mockImplementation(async (key) =>
@@ -149,7 +208,8 @@ describe("Builder CMS read client", () => {
         "https://cdn.test.builder.io/api/v3/content/blog_article",
       );
       expect(input.searchParams.get("apiKey")).toBe("public-key");
-      expect(input.searchParams.get("limit")).toBe("20");
+      expect(input.searchParams.get("limit")).toBe("100");
+      expect(input.searchParams.get("offset")).toBe("0");
       expect(init?.headers).toMatchObject({
         accept: "application/json",
       });
@@ -188,5 +248,45 @@ describe("Builder CMS read client", () => {
         },
       ],
     });
+  });
+
+  it("paginates Builder content through the Content API up to the read limit", async () => {
+    process.env.BUILDER_CONTENT_API_HOST = "https://cdn.test.builder.io";
+    resolveBuilderCredentialMock.mockImplementation(async (key) =>
+      key === "BUILDER_PUBLIC_KEY" ? "public-key" : null,
+    );
+    const entries = Array.from({ length: 120 }, (_, index) => ({
+      id: `builder-entry-${index + 1}`,
+      lastUpdated: "2026-06-08T12:00:00.000Z",
+      data: {
+        title: `Builder title ${index + 1}`,
+        url: `/blog/builder-title-${index + 1}`,
+      },
+    }));
+    const fetchImpl = vi.fn(async (input: URL) => {
+      const limit = Number(input.searchParams.get("limit"));
+      const offset = Number(input.searchParams.get("offset"));
+      return new Response(
+        JSON.stringify({
+          results: entries.slice(offset, offset + limit),
+        }),
+        { status: 200 },
+      );
+    });
+
+    const result = await readBuilderCmsContentEntries({
+      model: "blog_article",
+      limit: 120,
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    });
+    expect(result.state).toBe("live");
+    expect(result.entries).toHaveLength(120);
+    expect(result.entries[0]).toMatchObject({ id: "builder-entry-1" });
+    expect(result.entries[119]).toMatchObject({ id: "builder-entry-120" });
+    expect(
+      fetchImpl.mock.calls.map(([input]) =>
+        (input as URL).searchParams.get("offset"),
+      ),
+    ).toEqual(["0", "100"]);
   });
 });

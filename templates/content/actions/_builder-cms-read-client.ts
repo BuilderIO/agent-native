@@ -1,5 +1,6 @@
 import { resolveBuilderCredential } from "@agent-native/core/server";
 import type {
+  BuilderCmsModelFieldSummary,
   BuilderCmsModelSummary,
   BuilderCmsModelsResponse,
 } from "../shared/api.js";
@@ -28,6 +29,12 @@ type BuilderMcpToolResult = {
   content?: BuilderMcpContentPart[];
 };
 
+const BUILDER_CMS_DEFAULT_READ_LIMIT = 500;
+const BUILDER_CMS_MAX_READ_LIMIT = 1000;
+const BUILDER_CMS_PAGE_SIZE = 100;
+const BUILDER_CMS_ENTRY_FIELDS =
+  "id,name,published,lastUpdated,createdDate,data.title,data.handle,data.url,data.date";
+
 function builderContentApiHost() {
   return (
     process.env.BUILDER_CONTENT_API_HOST ??
@@ -45,13 +52,32 @@ function entryArrayFromResponse(value: unknown) {
 
 function readLimit(limit: number | undefined) {
   if (typeof limit === "number" && Number.isFinite(limit) && limit > 0) {
-    return Math.min(Math.floor(limit), 100);
+    return Math.min(Math.floor(limit), BUILDER_CMS_MAX_READ_LIMIT);
   }
   const envLimit = Number(process.env.BUILDER_CMS_READ_LIMIT);
   if (Number.isFinite(envLimit) && envLimit > 0) {
-    return Math.min(Math.floor(envLimit), 100);
+    return Math.min(Math.floor(envLimit), BUILDER_CMS_MAX_READ_LIMIT);
   }
-  return 20;
+  return BUILDER_CMS_DEFAULT_READ_LIMIT;
+}
+
+function readPageLimit(remaining: number) {
+  return Math.min(remaining, BUILDER_CMS_PAGE_SIZE);
+}
+
+function appendUniqueBuilderEntries(
+  target: BuilderCmsSourceEntry[],
+  seen: Set<string>,
+  entries: BuilderCmsSourceEntry[],
+) {
+  let appended = 0;
+  for (const entry of entries) {
+    if (seen.has(entry.id)) continue;
+    seen.add(entry.id);
+    target.push(entry);
+    appended += 1;
+  }
+  return appended;
 }
 
 function builderMcpEndpoint() {
@@ -240,30 +266,42 @@ async function readBuilderCmsContentEntriesViaMcp(args: {
   });
 
   const limit = readLimit(args.limit);
-  const contentResult = await postBuilderMcp({
-    endpoint,
-    privateKey: args.privateKey,
-    fetchImpl: args.fetchImpl,
-    sessionId,
-    payload: {
-      jsonrpc: "2.0",
-      id: 2,
-      method: "tools/call",
-      params: {
-        name: "get_builder_content",
-        arguments: {
-          modelName: args.model,
-          limit,
-          fields: "id,name,published,lastUpdated,createdDate,data.title,data.handle,data.url,data.date",
+  const contentEntries: BuilderCmsSourceEntry[] = [];
+  const seenContentIds = new Set<string>();
+  for (let offset = 0; contentEntries.length < limit; offset += BUILDER_CMS_PAGE_SIZE) {
+    const pageLimit = readPageLimit(limit - contentEntries.length);
+    const contentResult = await postBuilderMcp({
+      endpoint,
+      privateKey: args.privateKey,
+      fetchImpl: args.fetchImpl,
+      sessionId,
+      payload: {
+        jsonrpc: "2.0",
+        id: `content-${offset}`,
+        method: "tools/call",
+        params: {
+          name: "get_builder_content",
+          arguments: {
+            modelName: args.model,
+            limit: pageLimit,
+            offset,
+            fields: BUILDER_CMS_ENTRY_FIELDS,
+          },
         },
       },
-    },
-  });
-  const contentJson = parseBuilderMcpToolJson(contentResult.json.result);
-  const contentEntries = builderMcpEntriesFromToolResponse(
-    contentJson,
-    args.model,
-  );
+    });
+    const contentJson = parseBuilderMcpToolJson(contentResult.json.result);
+    const pageEntries = builderMcpEntriesFromToolResponse(
+      contentJson,
+      args.model,
+    );
+    const appended = appendUniqueBuilderEntries(
+      contentEntries,
+      seenContentIds,
+      pageEntries,
+    );
+    if (pageEntries.length < pageLimit || appended === 0) break;
+  }
   if (contentEntries.length > 0) {
     return {
       state: "live",
@@ -330,8 +368,7 @@ async function readBuilderCmsContentEntriesViaMcp(args: {
             modelName: args.model,
             limit: 1,
             query: { id: entry.id },
-            fields:
-              "id,name,published,lastUpdated,createdDate,data.title,data.handle,data.url,data.date",
+            fields: BUILDER_CMS_ENTRY_FIELDS,
           },
         },
       },
@@ -349,6 +386,61 @@ async function readBuilderCmsContentEntriesViaMcp(args: {
   return {
     state: "live",
     entries: hydratedEntries,
+    fetchedAt,
+    message: null,
+  };
+}
+
+async function readBuilderCmsContentEntriesViaContentApi(args: {
+  model: string;
+  limit?: number;
+  fetchImpl: FetchLike;
+  publicKey: string;
+}): Promise<BuilderCmsReadResult> {
+  const fetchedAt = new Date().toISOString();
+  const url = new URL(
+    `/api/v3/content/${encodeURIComponent(args.model)}`,
+    builderContentApiHost(),
+  );
+  url.searchParams.set("apiKey", args.publicKey);
+  url.searchParams.set("enrich", "false");
+  url.searchParams.set("noCache", "true");
+
+  const limit = readLimit(args.limit);
+  const entries: BuilderCmsSourceEntry[] = [];
+  const seenIds = new Set<string>();
+  for (let offset = 0; entries.length < limit; offset += BUILDER_CMS_PAGE_SIZE) {
+    const pageUrl = new URL(url);
+    const pageLimit = readPageLimit(limit - entries.length);
+    pageUrl.searchParams.set("limit", String(pageLimit));
+    pageUrl.searchParams.set("offset", String(offset));
+
+    const response = await args.fetchImpl(pageUrl, {
+      headers: {
+        accept: "application/json",
+      },
+    });
+
+    if (!response.ok) {
+      return {
+        state: "error",
+        entries: [],
+        fetchedAt,
+        message: `Builder CMS read failed with HTTP ${response.status}.`,
+      };
+    }
+
+    const json = (await response.json()) as unknown;
+    const pageEntries = entryArrayFromResponse(json)
+      .map((entry) => normalizeBuilderCmsApiEntry(entry, args.model))
+      .filter((entry): entry is BuilderCmsSourceEntry => Boolean(entry));
+    const appended = appendUniqueBuilderEntries(entries, seenIds, pageEntries);
+    if (pageEntries.length < pageLimit || appended === 0) break;
+  }
+
+  return {
+    state: "live",
+    entries,
     fetchedAt,
     message: null,
   };
@@ -412,6 +504,24 @@ export async function listBuilderCmsModels(args: {
   }
 }
 
+export async function readBuilderCmsModelFields(args: {
+  model: string;
+  fetchImpl?: FetchLike;
+}): Promise<BuilderCmsModelFieldSummary[]> {
+  const models = await listBuilderCmsModels({ fetchImpl: args.fetchImpl });
+  if (models.state !== "live") return [];
+  const modelName = args.model.trim().toLowerCase();
+  return (
+    models.models.find((model) => {
+      return (
+        model.name.trim().toLowerCase() === modelName ||
+        model.id.trim().toLowerCase() === modelName ||
+        model.displayName.trim().toLowerCase() === modelName
+      );
+    })?.fields ?? []
+  );
+}
+
 export async function readBuilderCmsContentEntries(args: {
   model: string;
   limit?: number;
@@ -420,6 +530,20 @@ export async function readBuilderCmsContentEntries(args: {
   const fetchedAt = new Date().toISOString();
   const privateKey = await readBuilderPrivateKey();
   const fetchImpl = args.fetchImpl ?? fetch;
+  const publicKey = await resolveBuilderCredential("BUILDER_PUBLIC_KEY");
+  if (publicKey) {
+    const contentApiRead = await readBuilderCmsContentEntriesViaContentApi({
+      model: args.model,
+      limit: args.limit,
+      fetchImpl,
+      publicKey,
+    });
+    if (contentApiRead.state === "live" && contentApiRead.entries.length > 0) {
+      return contentApiRead;
+    }
+    if (!privateKey) return contentApiRead;
+  }
+
   if (privateKey) {
     try {
       return await readBuilderCmsContentEntriesViaMcp({
@@ -441,7 +565,6 @@ export async function readBuilderCmsContentEntries(args: {
     }
   }
 
-  const publicKey = await resolveBuilderCredential("BUILDER_PUBLIC_KEY");
   if (!publicKey) {
     return {
       state: "unconfigured",
@@ -452,39 +575,10 @@ export async function readBuilderCmsContentEntries(args: {
     };
   }
 
-  const url = new URL(
-    `/api/v3/content/${encodeURIComponent(args.model)}`,
-    builderContentApiHost(),
-  );
-  url.searchParams.set("apiKey", publicKey);
-  url.searchParams.set("limit", String(readLimit(args.limit)));
-  url.searchParams.set("enrich", "false");
-  url.searchParams.set("noCache", "true");
-
-  const response = await fetchImpl(url, {
-    headers: {
-      accept: "application/json",
-    },
-  });
-
-  if (!response.ok) {
-    return {
-      state: "error",
-      entries: [],
-      fetchedAt,
-      message: `Builder CMS read failed with HTTP ${response.status}.`,
-    };
-  }
-
-  const json = (await response.json()) as unknown;
-  const entries = entryArrayFromResponse(json)
-    .map((entry) => normalizeBuilderCmsApiEntry(entry, args.model))
-    .filter((entry): entry is BuilderCmsSourceEntry => Boolean(entry));
-
   return {
-    state: "live",
-    entries,
+    state: "error",
+    entries: [],
     fetchedAt,
-    message: null,
+    message: "Builder CMS read returned no entries.",
   };
 }

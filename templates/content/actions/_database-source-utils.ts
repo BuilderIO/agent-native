@@ -25,6 +25,7 @@ import type {
   ContentDatabaseSourceSyncState,
   ContentDatabaseSourceType,
   ContentDatabaseSourceWriteOwner,
+  BuilderCmsModelFieldSummary,
   DocumentProperty,
   DocumentPropertyValue,
 } from "../shared/api.js";
@@ -41,6 +42,7 @@ import {
 import { mergeBuilderCmsWriteSettingsIntoJson } from "./_builder-cms-write-settings.js";
 import {
   readBuilderCmsContentEntries,
+  readBuilderCmsModelFields,
   type BuilderCmsReadState,
 } from "./_builder-cms-read-client.js";
 import { listPropertiesForDatabase, nanoid } from "./_property-utils.js";
@@ -756,11 +758,36 @@ function slugifySourceField(name: string) {
   );
 }
 
+function builderCmsModelFieldLabel(name: string) {
+  return (
+    name
+      .trim()
+      .replace(/^data\./, "")
+      .replace(/[_-]+/g, " ")
+      .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+      .replace(/\s+/g, " ")
+      .replace(/\b\w/g, (letter) => letter.toUpperCase()) || "Builder field"
+  );
+}
+
+function normalizeBuilderCmsSourceFieldType(type: string) {
+  const normalized = type.trim().toLowerCase();
+  if (["number", "integer", "float"].includes(normalized)) return "number";
+  if (["date", "datetime", "timestamp"].includes(normalized)) {
+    return "datetime";
+  }
+  if (["url", "link"].includes(normalized)) return "url";
+  if (["boolean", "bool", "checkbox"].includes(normalized)) return "boolean";
+  if (["list", "array", "tags"].includes(normalized)) return "list";
+  return normalized || "text";
+}
+
 export async function seedMockSourceFields(args: {
   sourceId: string;
   ownerEmail: string;
   sourceType: ContentDatabaseSourceType;
   properties: DocumentProperty[];
+  builderModelFields?: BuilderCmsModelFieldSummary[];
   now: string;
 }) {
   const db = getDb();
@@ -884,6 +911,37 @@ export async function seedMockSourceFields(args: {
       updatedAt: args.now,
     })),
   ];
+  if (isBuilder) {
+    const existingSourceFieldKeys = new Set(
+      rows.map((row) => row.sourceFieldKey.trim().toLowerCase()),
+    );
+    for (const field of args.builderModelFields ?? []) {
+      const fieldName = field.name.trim();
+      if (!fieldName) continue;
+      const sourceFieldKey = `data.${fieldName}`;
+      const normalizedKey = sourceFieldKey.toLowerCase();
+      if (existingSourceFieldKeys.has(normalizedKey)) continue;
+      existingSourceFieldKeys.add(normalizedKey);
+      rows.push({
+        id: crypto.randomUUID(),
+        ownerEmail: args.ownerEmail,
+        sourceId: args.sourceId,
+        propertyId: null,
+        localFieldKey: sourceFieldKey,
+        sourceFieldKey,
+        sourceFieldLabel: builderCmsModelFieldLabel(fieldName),
+        sourceFieldType: normalizeBuilderCmsSourceFieldType(field.type),
+        mappingType: "property",
+        writeOwner: "source",
+        readOnly: 0,
+        provenance: "Builder model field",
+        freshness: "fresh",
+        lastSyncedAt: args.now,
+        createdAt: args.now,
+        updatedAt: args.now,
+      });
+    }
+  }
 
   await db.insert(schema.contentDatabaseSourceFields).values(rows);
 }
@@ -1361,15 +1419,34 @@ export async function resyncBuilderCmsSourceSnapshot(args: {
   source: ContentDatabaseSourceRowDb;
   now: string;
 }) {
-  const { properties, response } = await sourceSetupPayload(args.database.id);
+  let { properties, response } = await sourceSetupPayload(args.database.id);
   const db = getDb();
   const builderRead = await readBuilderCmsContentEntries({
     model: args.source.sourceTable,
   });
-  const existingRows = await db
+  let existingRows = await db
     .select()
     .from(schema.contentDatabaseSourceRows)
     .where(eq(schema.contentDatabaseSourceRows.sourceId, args.source.id));
+  if (builderRead.state === "live") {
+    const imported = await importBuilderCmsEntriesAsDatabaseItems({
+      database: args.database,
+      entries: builderRead.entries,
+      now: args.now,
+      sourceTable: args.source.sourceTable,
+      existingSourceRows: existingRows,
+    });
+    if (imported && imported > 0) {
+      ({ properties, response } = await sourceSetupPayload(args.database.id));
+      existingRows = await db
+        .select()
+        .from(schema.contentDatabaseSourceRows)
+        .where(eq(schema.contentDatabaseSourceRows.sourceId, args.source.id));
+    }
+  }
+  const builderModelFields = await readBuilderCmsModelFields({
+    model: args.source.sourceTable,
+  });
   const builderEntriesByDocumentId =
     builderRead.state === "live"
       ? mapBuilderCmsEntriesToLocalItems({
@@ -1405,6 +1482,7 @@ export async function resyncBuilderCmsSourceSnapshot(args: {
     ownerEmail: args.database.ownerEmail,
     sourceType: "builder-cms",
     properties,
+    builderModelFields,
     now: args.now,
   });
   await seedMockSourceRows({
