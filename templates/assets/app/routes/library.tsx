@@ -1081,19 +1081,21 @@ export default function AssetPicker() {
           {embedded ? "Assets" : "Library"}
         </div>
         <div className="flex shrink-0 items-center gap-2">
-          <Button
-            variant={showCreatePane ? "secondary" : "default"}
-            size="sm"
-            className="h-8 gap-1.5"
-            onClick={() => setShowCreatePane((open) => !open)}
-          >
-            {showCreatePane ? (
-              <IconX className="h-3.5 w-3.5" />
-            ) : (
-              <IconPhotoPlus className="h-3.5 w-3.5" />
-            )}
-            {showCreatePane ? "Close" : "Create"}
-          </Button>
+          {mediaType === "image" && (
+            <Button
+              variant={showCreatePane ? "secondary" : "default"}
+              size="sm"
+              className="h-8 gap-1.5"
+              onClick={() => setShowCreatePane((open) => !open)}
+            >
+              {showCreatePane ? (
+                <IconX className="h-3.5 w-3.5" />
+              ) : (
+                <IconPhotoPlus className="h-3.5 w-3.5" />
+              )}
+              {showCreatePane ? "Close" : "Create"}
+            </Button>
+          )}
           {embedded && (
             <>
               <Button asChild variant="ghost" size="icon" title="Open Assets">
@@ -1114,7 +1116,7 @@ export default function AssetPicker() {
         </div>
       </header>
 
-      {showCreatePane && (
+      {showCreatePane && mediaType === "image" && (
         <section className="shrink-0 border-b border-border px-3 py-3">
           {mediaType === "image" ? (
             <div className="mt-2 rounded-lg border border-border/80 bg-background focus-within:ring-1 focus-within:ring-ring">
