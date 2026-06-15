@@ -12,6 +12,11 @@ Detailed draft, queue, storage, sync, and UI patterns live in `.agents/skills/`.
 - Use actions for email reads, labels, settings, drafts, queued drafts, filters,
   scheduling, refresh, and CRM context. Do not edit mail SQL directly unless a
   skill/action explicitly calls for it.
+- Treat provider-specific actions as shortcuts, not capability limits. When the
+  exact Gmail, Google Calendar, or CRM endpoint/filter/pagination/API version
+  matters, use `provider-api-catalog`, `provider-api-docs`, and
+  `provider-api-request` against the real provider API. For large scans, stage
+  results with `stageAs` and analyze them with `query-staged-dataset`.
 - Never send mail unless the user explicitly asks to send. Draft or queue review
   by default.
 - When drafting, first read mail settings for signature and writing style. Use

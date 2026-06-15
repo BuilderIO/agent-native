@@ -1,0 +1,35 @@
+import { defineAction } from "@agent-native/core";
+import { z } from "zod";
+import {
+  CALENDAR_PROVIDER_API_IDS,
+  fetchProviderApiDocs,
+} from "../server/lib/provider-api.js";
+
+const ProviderSchema = z.enum(CALENDAR_PROVIDER_API_IDS);
+
+export default defineAction({
+  description:
+    "Inspect provider API docs/spec metadata, or fetch any public API documentation page, OpenAPI spec, changelog, or web page. Use this before provider-api-request when the exact Google Calendar/CRM endpoint, filter operator, payload shape, pagination, or API version is uncertain.",
+  schema: z.object({
+    provider: ProviderSchema.describe(
+      "Provider whose API docs/spec to inspect.",
+    ),
+    url: z
+      .string()
+      .url()
+      .optional()
+      .describe(
+        "Optional public docs/spec URL to fetch. Registered docs/spec URLs from provider-api-catalog are curated starting points, but any public http(s) API documentation URL is allowed.",
+      ),
+    maxBytes: z.coerce
+      .number()
+      .int()
+      .min(1_000)
+      .max(4 * 1024 * 1024)
+      .optional()
+      .describe("Maximum response bytes to read. Default 1MB, max 4MB."),
+  }),
+  http: { method: "GET" },
+  readOnly: true,
+  run: async (args) => fetchProviderApiDocs(args),
+});

@@ -11,6 +11,7 @@ import * as googleCalendar from "../server/lib/google-calendar.js";
 import { fetchICalEvents } from "../server/lib/ical-fetcher.js";
 import { getUserSetting } from "@agent-native/core/settings";
 import { getDb, schema } from "../server/db/index.js";
+import { calendarEventMatchesQuery } from "./event-search.js";
 
 const DATE_ONLY_RE = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -314,24 +315,9 @@ export async function listCalendarEvents(
 
   let events = [...googleEvents, ...icalEvents, ...bookingEvents];
   if (args.query) {
-    const query = args.query.toLowerCase();
-    events = events.filter((event) => {
-      const haystack = [
-        event.title,
-        event.description,
-        event.location,
-        event.organizer?.email,
-        event.organizer?.displayName,
-        ...(event.attendees ?? []).flatMap((attendee) => [
-          attendee.email,
-          attendee.displayName,
-        ]),
-      ]
-        .filter(Boolean)
-        .join(" ")
-        .toLowerCase();
-      return haystack.includes(query);
-    });
+    events = events.filter((event) =>
+      calendarEventMatchesQuery(event, args.query!),
+    );
   }
   const fromDate = new Date(range.from);
   events = events.filter((e) => new Date(e.end) >= fromDate);

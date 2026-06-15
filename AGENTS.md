@@ -60,7 +60,12 @@ step is still pending. Use `🔴` only when blocked on user input.
   cross-source research, prefer the shared `provider-api-catalog`,
   `provider-api-docs`, and `provider-api-request` action pattern from
   `@agent-native/core/provider-api` instead of hardcoding one action per
-  provider endpoint/filter.
+  provider endpoint/filter. This is a framework tenet: first-class actions are
+  ergonomic shortcuts, not artificial capability limits. When the upstream API
+  can express an endpoint, filter, pagination mode, or payload, agents should
+  have a safe way to call it directly through the provider API substrate. If an
+  app stores provider credentials on resource/share rows, add a scoped resolver
+  that preserves those access checks before exposing raw provider requests.
 - All AI work goes through the agent chat. UIs do not call LLMs directly.
 - Application state belongs in SQL `application_state` so the agent can know
   the current navigation, selection, and focused object.

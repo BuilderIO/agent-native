@@ -8,6 +8,7 @@ import {
   isBlockedExtensionUrlWithDns,
 } from "../extensions/url-safety.js";
 import {
+  deleteOAuthTokens,
   listOAuthAccountsByOwner,
   saveOAuthTokens,
 } from "../oauth-tokens/index.js";
@@ -220,6 +221,12 @@ export interface ProviderApiRuntimeOptions {
   getCredentialContext?: () => CredentialContext | null;
   resolveCredential?: ProviderApiCredentialResolver;
   /**
+   * Template-specific OAuth token provider overrides for built-in provider API
+   * configs. Use when an app stores a provider's OAuth grant under a narrower
+   * local provider id, e.g. Google Drive scoped to a "google-docs" connection.
+   */
+  oauthProviderOverrides?: Record<string, string>;
+  /**
    * Optional loader for custom providers registered at runtime. When provided,
    * custom providers are merged with the static built-in registry for catalog,
    * docs, and request operations. Custom providers cannot shadow built-in ids.
@@ -257,6 +264,12 @@ interface OAuthTokens {
   token_type?: string;
   scope?: string;
 }
+
+const PERMANENT_GOOGLE_OAUTH_REFRESH_ERRORS = new Set([
+  "invalid_grant",
+  "unauthorized_client",
+  "invalid_client",
+]);
 
 const DEFAULT_TIMEOUT_MS = 30_000;
 const MAX_TIMEOUT_MS = 120_000;
@@ -321,7 +334,7 @@ const PROVIDER_CONFIGS: Record<ProviderApiId, ProviderApiConfig> = {
     },
     credentialKeys: ["APOLLO_API_KEY"],
     docsUrls: ["https://docs.apollo.io/reference/api-reference"],
-    templateUses: ["analytics"],
+    templateUses: ["analytics", "calendar"],
     examples: [
       {
         label: "Search people",
@@ -497,7 +510,7 @@ const PROVIDER_CONFIGS: Record<ProviderApiId, ProviderApiConfig> = {
       Accept: "application/vnd.github+json",
       "X-GitHub-Api-Version": "2022-11-28",
     },
-    templateUses: ["analytics", "brain", "dispatch"],
+    templateUses: ["analytics", "brain", "design", "dispatch"],
     examples: [
       { label: "Authenticated user", method: "GET", path: "/user" },
       { label: "Search issues", method: "GET", path: "/search/issues" },
@@ -546,7 +559,7 @@ const PROVIDER_CONFIGS: Record<ProviderApiId, ProviderApiConfig> = {
     },
     credentialKeys: ["GONG_ACCESS_KEY", "GONG_ACCESS_SECRET", "GONG_API_BASE"],
     docsUrls: ["https://gong.app.gong.io/settings/api/documentation"],
-    templateUses: ["analytics"],
+    templateUses: ["analytics", "calendar"],
     examples: [
       { label: "List calls", method: "GET", path: "/calls" },
       {
@@ -570,7 +583,7 @@ const PROVIDER_CONFIGS: Record<ProviderApiId, ProviderApiConfig> = {
     docsUrls: ["https://developers.google.com/calendar/api/v3/reference"],
     specUrls: ["https://www.googleapis.com/discovery/v1/apis/calendar/v3/rest"],
     allowedHostSuffixes: ["googleapis.com"],
-    templateUses: ["brain", "calendar", "dispatch"],
+    templateUses: ["brain", "calendar", "dispatch", "mail"],
     examples: [
       {
         label: "List calendars",
@@ -653,7 +666,7 @@ const PROVIDER_CONFIGS: Record<ProviderApiId, ProviderApiConfig> = {
     },
     credentialKeys: ["HUBSPOT_PRIVATE_APP_TOKEN", "HUBSPOT_ACCESS_TOKEN"],
     docsUrls: ["https://developers.hubspot.com/docs/api/overview"],
-    templateUses: ["analytics", "brain", "mail", "dispatch"],
+    templateUses: ["analytics", "brain", "calendar", "mail", "dispatch"],
     examples: [
       {
         label: "Search deals with any HubSpot CRM filter",
@@ -812,7 +825,7 @@ const PROVIDER_CONFIGS: Record<ProviderApiId, ProviderApiConfig> = {
     },
     credentialKeys: ["PYLON_API_KEY"],
     docsUrls: ["https://docs.usepylon.com/pylon-docs/developer/api-reference"],
-    templateUses: ["analytics"],
+    templateUses: ["analytics", "calendar"],
     examples: [{ label: "List issues", method: "GET", path: "/issues" }],
   },
   sentry: {
@@ -1833,7 +1846,7 @@ function buildProviderUrl(options: {
   const rawPath = options.rawPath.trim();
   const url = /^https?:\/\//i.test(rawPath)
     ? new URL(rawPath)
-    : new URL(rawPath.startsWith("/") ? rawPath : `/${rawPath}`, base);
+    : new URL(joinProviderUrlPath(base, rawPath), base.origin);
 
   if (!isAllowedProviderUrl(url, base, options.config)) {
     throw new Error(
@@ -1846,6 +1859,13 @@ function buildProviderUrl(options: {
   }
 
   return url;
+}
+
+function joinProviderUrlPath(base: URL, rawPath: string): string {
+  const basePath = base.pathname.replace(/\/+$/, "");
+  const providerPath = rawPath.replace(/^\/+/, "");
+  if (!providerPath) return basePath || "/";
+  return `${basePath}/${providerPath}`;
 }
 
 function isAllowedProviderUrl(
@@ -1984,8 +2004,10 @@ async function resolveAuth(
     };
   }
   if (auth.type === "oauth-bearer") {
+    const oauthProvider =
+      runtime.oauthProviderOverrides?.[config.id] ?? auth.oauthProvider;
     const credential = await resolveOAuthBearerToken({
-      auth,
+      auth: { ...auth, oauthProvider },
       ctx,
       accountId: args.accountId,
     });
@@ -2266,7 +2288,10 @@ async function getValidOAuthAccessToken(options: {
   const refreshToken =
     options.tokens.refresh_token ?? options.tokens.refreshToken;
   if (!refreshToken) return accessToken;
-  if (options.oauthProvider === "google") {
+  if (
+    options.oauthProvider === "google" ||
+    options.oauthProvider === "google-docs"
+  ) {
     return refreshGoogleOAuthToken(options, refreshToken);
   }
   throw new Error(
@@ -2309,6 +2334,9 @@ async function refreshGoogleOAuthToken(
     error_description?: string;
   };
   if (!res.ok || !data.access_token) {
+    if (data.error && PERMANENT_GOOGLE_OAUTH_REFRESH_ERRORS.has(data.error)) {
+      await deleteOAuthTokens(options.oauthProvider, options.accountId);
+    }
     const detail = data.error_description ?? data.error ?? res.statusText;
     throw new Error(`Google OAuth refresh failed: ${detail}`);
   }
