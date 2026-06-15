@@ -8,6 +8,7 @@ const createOAuth2ClientMock = vi.hoisted(() => vi.fn());
 const oauth2GetUserInfoMock = vi.hoisted(() => vi.fn());
 const peopleGetProfileMock = vi.hoisted(() => vi.fn());
 const calendarGetEventMock = vi.hoisted(() => vi.fn());
+const calendarListEventsMock = vi.hoisted(() => vi.fn());
 const calendarFreeBusyMock = vi.hoisted(() => vi.fn());
 const calendarPatchEventMock = vi.hoisted(() => vi.fn());
 const dbExecuteMock = vi.hoisted(() => vi.fn());
@@ -33,7 +34,7 @@ vi.mock("./google-api.js", () => ({
   createOAuth2Client: createOAuth2ClientMock,
   oauth2GetUserInfo: oauth2GetUserInfoMock,
   peopleGetProfile: peopleGetProfileMock,
-  calendarListEvents: vi.fn(),
+  calendarListEvents: calendarListEventsMock,
   calendarGetEvent: calendarGetEventMock,
   calendarInsertEvent: vi.fn(),
   calendarDeleteEvent: vi.fn(),
@@ -46,6 +47,7 @@ import {
   getAuthStatus,
   getFreeBusy,
   getPrimaryAccountPhotoUrl,
+  listEvents,
   rsvpEvent,
   updateEvent,
 } from "./google-calendar";
@@ -154,6 +156,77 @@ describe("calendar Google auth status", () => {
 
     await expect(getPrimaryAccountPhotoUrl("steve@example.com")).resolves.toBe(
       "https://lh3.googleusercontent.com/a/auth-photo",
+    );
+  });
+});
+
+describe("calendar event listing", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    calendarListEventsMock.mockReset();
+    listOAuthAccountsByOwnerMock.mockResolvedValue([
+      {
+        accountId: "steve@example.com",
+        tokens: {
+          access_token: "access-token",
+          expiry_date: Date.now() + 10 * 60_000,
+        },
+      },
+    ]);
+  });
+
+  it("paginates Google events so broad searches can see later matches", async () => {
+    calendarListEventsMock
+      .mockResolvedValueOnce({
+        items: [
+          {
+            id: "routine-1",
+            summary: "Routine check-in",
+            start: { dateTime: "2026-01-05T17:00:00Z" },
+            end: { dateTime: "2026-01-05T17:30:00Z" },
+          },
+        ],
+        nextPageToken: "page-2",
+      })
+      .mockResolvedValueOnce({
+        items: [
+          {
+            id: "adobe-1",
+            summary: "Adobe Corp Dev",
+            start: { dateTime: "2026-02-05T17:00:00Z" },
+            end: { dateTime: "2026-02-05T17:30:00Z" },
+            attendees: [{ email: "poppy@adobe.com" }],
+          },
+        ],
+      });
+
+    const result = await listEvents(
+      "2026-01-01T00:00:00Z",
+      "2026-03-01T00:00:00Z",
+      "owner@example.com",
+    );
+
+    expect(result.events.map((event) => event.googleEventId)).toEqual([
+      "routine-1",
+      "adobe-1",
+    ]);
+    expect(calendarListEventsMock).toHaveBeenNthCalledWith(
+      1,
+      "access-token",
+      "primary",
+      expect.objectContaining({
+        maxResults: 2500,
+        pageToken: undefined,
+      }),
+    );
+    expect(calendarListEventsMock).toHaveBeenNthCalledWith(
+      2,
+      "access-token",
+      "primary",
+      expect.objectContaining({
+        maxResults: 2500,
+        pageToken: "page-2",
+      }),
     );
   });
 });

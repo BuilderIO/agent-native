@@ -21,6 +21,12 @@ Detailed media, meeting, dictation, editing, and sharing rules live in
   configured Builder/Gemini or Groq paths, not OpenAI.
 - Use `view-screen` when the active recording, transcript segment, meeting, or
   share context is unclear.
+- Calendar-sourced meeting actions are shortcuts, but do not add raw
+  `provider-api-request` for Google Calendar until the provider API runtime can
+  resolve Clips `calendar_accounts` through sharing/access checks and read their
+  encrypted `app_secrets` token refs. Clips calendar grants are not stored in
+  core `oauth_tokens`, and bypassing that model would break the account
+  sharing/status boundary.
 - Use framework sharing actions for recordings. Password and expiry are extra
   controls on top of visibility/share grants.
 - After mutations, rely on the app refresh/polling path; do not invent a second

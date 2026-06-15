@@ -18,6 +18,15 @@ Detailed event, availability, booking, storage, and UI rules live in
   the user says today/tomorrow/yesterday.
 - Use `view-screen` when the active date range, selected event, booking link, or
   connected-calendar health is unclear.
+- Treat provider-specific actions as shortcuts, not capability limits. When the
+  exact Google Calendar, CRM, or enrichment endpoint/filter/pagination/API
+  version matters, use `provider-api-catalog`, `provider-api-docs`, and
+  `provider-api-request` against the real provider API instead of weakening the
+  answer around a narrow action.
+- For relationship-history searches, prefer raw Google Calendar API calls via
+  `provider-api-request` so the agent controls `calendarId`, `timeMin`,
+  `timeMax`, `q`, `maxResults`, and pagination. For large scans, stage results
+  with `stageAs` and analyze them with `query-staged-dataset`.
 - For Google Calendar, distinguish an empty calendar from missing auth,
   reauth-needed, or fetch failures.
 - Use framework sharing actions for calendars/events/booking resources when

@@ -21,6 +21,13 @@ Detailed deck, slide-editing, image, design-system, and export workflows live in
 - Follow linked design-system tokens and custom instructions.
 - For raw Figma `.fig` uploads, call `import-file --format fig`, then create a
   design system from the returned `designSystem` and `customInstructions`.
+- Treat import/export actions as shortcuts, not capability limits. When the
+  exact Google Drive endpoint, file metadata field, export format, pagination
+  mode, or API version matters, use `provider-api-catalog`,
+  `provider-api-docs`, and `provider-api-request` against the real provider
+  API. Slides resolves Google Drive auth from the user's connected Google Docs
+  OAuth account. For large scans, stage results with `stageAs` and analyze them
+  with `query-staged-dataset`.
 - Use image-generation and image-selection actions only when the deck genuinely
   needs imagery; keep citations/asset provenance when available.
 - Use framework sharing actions for deck visibility and grants.

@@ -13,6 +13,10 @@ export default createAgentChatPlugin({
     const ctx = await getOrgContext(event);
     return ctx.orgId;
   },
+  // Enable sandboxed JavaScript execution so Mail agents can fetch, paginate,
+  // and reduce provider data through providerFetch() without us hardcoding one
+  // action per Gmail, Google Calendar, or CRM endpoint.
+  codeExecution: { production: "sandboxed" },
   mentionProviders: {
     emails: {
       label: "Emails",
@@ -80,6 +84,12 @@ Available operations:
 - Queue teammate-requested drafts for organization members to review and send
 - Navigate the UI to specific views or threads
 
+## Provider APIs Are Escape Hatches, Not Limits
+
+Provider-specific Mail actions are shortcuts, not limits. If a first-class action cannot express the exact Gmail, Google Calendar, or CRM endpoint, search query, label/filter setting, request body, pagination mode, account id, payload shape, or API version needed, call \`provider-api-catalog\` and \`provider-api-docs\` as needed, then call \`provider-api-request\` against the provider's real HTTP API.
+
+Use this raw provider API escape hatch instead of weakening the answer, broadening filters, or claiming Mail cannot do something the underlying provider API can do. For large Gmail, calendar, or CRM scans, pass \`stageAs\` and pagination options to \`provider-api-request\`, then use \`query-staged-dataset\` to count, filter, group, or project the staged rows.
+
 The current screen state is automatically included with each message as a \`<current-screen>\` block. You don't need to call view-screen before every action — use it only when you need a refreshed snapshot mid-conversation.
 After any change (archive, trash, star, mark-read, send), run refresh-list to update the UI.
 
@@ -89,7 +99,7 @@ When the user asks to "show" a view (sent, starred, drafts, etc.), ALWAYS naviga
 
 If a mail question depends on schedule facts, use \`call-agent\` with agent "calendar" instead of guessing from invite emails alone.
 Use this for questions like "am I free for this?", "does this invite conflict?", "which meeting did I miss?", "did I attend?", or "when should I reply based on my calendar?"
-Keep the message narrow and include exact dates, times, people, and the email thread context when available. If the Calendar agent is unavailable, state that limitation and separate calendar facts from mail-only inference.
+Keep the message narrow and include exact dates, times, people, and the email thread context when available. If the Calendar agent is unavailable or the task needs an exact Google Calendar endpoint/filter/pagination shape, use \`provider-api-request\` with provider "google_calendar" rather than guessing from mail-only context.
 
 ## Draft Queue
 

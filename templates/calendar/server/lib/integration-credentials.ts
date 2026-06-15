@@ -28,7 +28,25 @@ export type IntegrationProvider = "apollo" | "hubspot" | "gong" | "pylon";
 
 /** Vault credential key for a provider's API key. */
 function credentialKey(provider: IntegrationProvider): string {
-  return `${provider.toUpperCase()}_API_KEY`;
+  return credentialKeys(provider)[0]!;
+}
+
+/** Current provider-api-aligned key first, legacy Calendar key fallbacks after. */
+export function credentialKeys(provider: IntegrationProvider): string[] {
+  switch (provider) {
+    case "apollo":
+      return ["APOLLO_API_KEY"];
+    case "hubspot":
+      return [
+        "HUBSPOT_PRIVATE_APP_TOKEN",
+        "HUBSPOT_ACCESS_TOKEN",
+        "HUBSPOT_API_KEY",
+      ];
+    case "gong":
+      return ["GONG_API_KEY", "GONG_ACCESS_KEY"];
+    case "pylon":
+      return ["PYLON_API_KEY"];
+  }
 }
 
 /**
@@ -56,7 +74,11 @@ export async function getIntegrationKey(
 ): Promise<string | undefined> {
   const ctx = await getIntegrationContext(event);
   if (!ctx) return undefined;
-  return resolveCredential(credentialKey(provider), ctx);
+  for (const key of credentialKeys(provider)) {
+    const value = await resolveCredential(key, ctx);
+    if (value) return value;
+  }
+  return undefined;
 }
 
 /** Persist a provider's API key in the encrypted vault, scoped to the user. */

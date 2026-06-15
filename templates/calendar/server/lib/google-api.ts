@@ -349,6 +349,7 @@ export function calendarListEvents(
     singleEvents?: boolean;
     orderBy?: string;
     maxResults?: number;
+    pageToken?: string;
     eventTypes?: string[];
   } = {},
 ) {
