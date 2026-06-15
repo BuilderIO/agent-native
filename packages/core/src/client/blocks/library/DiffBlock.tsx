@@ -717,6 +717,10 @@ function DiffRead({
   });
   const showPersistentAnnotations =
     showAnnotationOverlays || showMarginAnnotations;
+  const captureOverlayAnnotationIndex = useMemo(
+    () => resolved.find((item) => item.range)?.index ?? null,
+    [resolved],
+  );
   // Effective render mode. Annotations live in a SEPARATE right-hand rail (not
   // over the code), so they no longer force a mode. When no mode was authored, a
   // truly narrow container still falls back to unified so split's doubled
@@ -914,6 +918,7 @@ function DiffRead({
           }
           annotationOverlayPreferredSide={annotationHoverSide}
           annotationOverlayContainerRef={codeRef}
+          captureOverlayAnnotationIndex={captureOverlayAnnotationIndex}
           ctx={ctx}
         />
       ) : (
@@ -935,6 +940,7 @@ function DiffRead({
           }
           annotationOverlayPreferredSide={annotationHoverSide}
           annotationOverlayContainerRef={codeRef}
+          captureOverlayAnnotationIndex={captureOverlayAnnotationIndex}
           ctx={ctx}
         />
       )}
@@ -1049,6 +1055,7 @@ interface RowAnnotationProps {
   annotationOverlaySide: AnnotationMarginSide;
   annotationOverlayPreferredSide: AnnotationSide;
   annotationOverlayContainerRef: RefObject<HTMLElement | null>;
+  captureOverlayAnnotationIndex: number | null;
 }
 
 /**
@@ -1108,6 +1115,7 @@ function UnifiedView({
   annotationOverlaySide,
   annotationOverlayPreferredSide,
   annotationOverlayContainerRef,
+  captureOverlayAnnotationIndex,
   ctx,
 }: {
   rows: DiffRow[];
@@ -1137,6 +1145,7 @@ function UnifiedView({
     annotationOverlaySide,
     annotationOverlayPreferredSide,
     annotationOverlayContainerRef,
+    captureOverlayAnnotationIndex,
     ctx,
   };
   let runIndex = 0;
@@ -1186,6 +1195,7 @@ function UnifiedRow({
   annotationOverlaySide,
   annotationOverlayPreferredSide,
   annotationOverlayContainerRef,
+  captureOverlayAnnotationIndex,
   ctx,
 }: {
   language: string;
@@ -1201,6 +1211,7 @@ function UnifiedRow({
   annotationOverlaySide: AnnotationMarginSide;
   annotationOverlayPreferredSide: AnnotationSide;
   annotationOverlayContainerRef: RefObject<HTMLElement | null>;
+  captureOverlayAnnotationIndex: number | null;
   ctx: BlockRenderContext;
 }) {
   const markers = markersForRow(row);
@@ -1208,7 +1219,12 @@ function UnifiedRow({
   const startMarker = markers.find((marker) => isMarkerRangeStart(row, marker));
   const primaryIndex = startMarker?.index ?? info?.primaryIndex;
   const overlayItems =
-    showAnnotationOverlays && startMarker ? [startMarker] : [];
+    showAnnotationOverlays &&
+    startMarker &&
+    (annotationOverlayMode !== "capture" ||
+      startMarker.index === captureOverlayAnnotationIndex)
+      ? [startMarker]
+      : [];
   return (
     <div
       data-annot-row={startMarker ? startMarker.index : undefined}
@@ -1379,6 +1395,7 @@ function SplitView({
   annotationOverlaySide,
   annotationOverlayPreferredSide,
   annotationOverlayContainerRef,
+  captureOverlayAnnotationIndex,
   ctx,
 }: {
   language: string;
@@ -1414,6 +1431,7 @@ function SplitView({
     annotationOverlaySide,
     annotationOverlayPreferredSide,
     annotationOverlayContainerRef,
+    captureOverlayAnnotationIndex,
     ctx,
   };
   return (
@@ -1466,6 +1484,7 @@ function SplitCell({
   annotationOverlaySide,
   annotationOverlayPreferredSide,
   annotationOverlayContainerRef,
+  captureOverlayAnnotationIndex,
   ctx,
 }: {
   language: string;
@@ -1482,6 +1501,7 @@ function SplitCell({
   annotationOverlaySide: AnnotationMarginSide;
   annotationOverlayPreferredSide: AnnotationSide;
   annotationOverlayContainerRef: RefObject<HTMLElement | null>;
+  captureOverlayAnnotationIndex: number | null;
   ctx: BlockRenderContext;
 }) {
   if (!row) {
@@ -1501,7 +1521,12 @@ function SplitCell({
   const startMarker = markers.find((marker) => isMarkerRangeStart(row, marker));
   const primaryIndex = startMarker?.index ?? info?.primaryIndex;
   const overlayItems =
-    showAnnotationOverlays && startMarker ? [startMarker] : [];
+    showAnnotationOverlays &&
+    startMarker &&
+    (annotationOverlayMode !== "capture" ||
+      startMarker.index === captureOverlayAnnotationIndex)
+      ? [startMarker]
+      : [];
   return (
     <div
       data-annot-row={startMarker ? startMarker.index : undefined}
