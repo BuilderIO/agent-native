@@ -216,7 +216,7 @@ export const recordingTranscripts = table("recording_transcripts", {
   recordingId: text("recording_id").primaryKey(),
   ownerEmail: text("owner_email").notNull().default("local@localhost"),
   language: text("language").notNull().default("en"),
-  // JSON array of { startMs, endMs, text }
+  // JSON array of { startMs, endMs, text, source }
   segmentsJson: text("segments_json").notNull().default("[]"),
   fullText: text("full_text").notNull().default(""),
   status: text("status", { enum: ["pending", "streaming", "ready", "failed"] })
