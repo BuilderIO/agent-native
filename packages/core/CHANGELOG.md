@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.49.24
+
+### Patch Changes
+
+- 56ad6cf: Preserve agent chat request modes across bridges.
+
 ## 0.49.23
 
 ### Patch Changes
