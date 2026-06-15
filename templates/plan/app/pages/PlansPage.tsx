@@ -14,7 +14,6 @@ import { useQueryClient } from "@tanstack/react-query";
 import {
   IconAt,
   IconArrowLeft,
-  IconArrowRight,
   IconArrowsMaximize,
   IconArrowsMinimize,
   IconAlertTriangle,
@@ -101,6 +100,8 @@ import {
   DropdownMenuGroup,
   DropdownMenuItem,
   DropdownMenuLabel,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
   DropdownMenuSeparator,
   DropdownMenuSub,
   DropdownMenuSubContent,
@@ -157,10 +158,10 @@ import type {
   CanvasMarkupMode,
 } from "@/components/plan/CanvasArea";
 import {
+  planBundleQueryKey,
   usePlan,
   usePlanAccessStatus,
   usePlans,
-  useConvertVisualPlanToPrototype,
   usePlanVersion,
   usePlanVersions,
   usePublishVisualPlan,
@@ -428,10 +429,6 @@ function statusLabel(status: string) {
   return status.replace(/_/g, " ");
 }
 
-function planBundleQueryKey(planId: string) {
-  return ["action", "get-visual-plan", { id: planId }] as const;
-}
-
 function newCommentId() {
   return `cmt_${crypto.randomUUID().replace(/-/g, "").slice(0, 16)}`;
 }
@@ -467,6 +464,8 @@ type CommentThread = {
   comments: PlanCommentItem[];
   anchor: PlanAnnotationAnchor | null;
 };
+
+export type CommentVisibility = "hidden" | "open" | "all";
 
 type DeleteCommentRequest = {
   commentId: string;
@@ -565,6 +564,18 @@ function commentDescendantCount(
 
 function deleteCommentLabel(replyCount: number) {
   return replyCount > 0 ? "Delete thread" : "Delete comment";
+}
+
+export function shouldKeepCommentPopoverOpenForTarget(
+  target: EventTarget | null,
+  popover: HTMLElement | null,
+) {
+  if (!target) return false;
+  if (target instanceof Node && popover?.contains(target)) return true;
+  if (!(target instanceof Element)) return false;
+  if (target.closest("[data-comment-marker]")) return true;
+  if (target.closest("[data-comment-popover-portal]")) return true;
+  return false;
 }
 
 function normalizeCommentEmail(email: string | null | undefined) {
@@ -1017,6 +1028,52 @@ function commentThreadStatus(thread: CommentThread) {
     : "resolved";
 }
 
+export function commentThreadsForVisibility(
+  threads: CommentThread[],
+  visibility: CommentVisibility,
+) {
+  if (visibility === "hidden") return [];
+  if (visibility === "all") return threads;
+  return threads.filter((thread) => commentThreadStatus(thread) === "open");
+}
+
+function visualSurfaceModeForAnchor(
+  anchor: PlanAnnotationAnchor | null,
+): PlanVisualSurfaceMode | null {
+  if (!anchor) return null;
+  const targetSelector = anchor.targetSelector ?? "";
+  if (
+    anchor.targetKind === "prototype" ||
+    anchor.screenId ||
+    prototypeScreenIdForAnchor(anchor)
+  ) {
+    return "prototype";
+  }
+  if (
+    anchor.targetKind === "wireframe" ||
+    anchor.targetKind === "canvas" ||
+    anchor.planAnnotationId ||
+    anchor.canvasX !== undefined ||
+    anchor.canvasY !== undefined ||
+    targetSelector.includes("data-plan-canvas-world") ||
+    targetSelector.includes("plan-canvas-world") ||
+    anchor.targetNodeId
+  ) {
+    return "wireframes";
+  }
+  return null;
+}
+
+export function commentThreadsForVisualSurfaceMode(
+  threads: CommentThread[],
+  visualSurfaceMode: PlanVisualSurfaceMode,
+) {
+  return threads.filter((thread) => {
+    const threadSurfaceMode = visualSurfaceModeForAnchor(thread.anchor);
+    return !threadSurfaceMode || threadSurfaceMode === visualSurfaceMode;
+  });
+}
+
 function commentIdentityKey(source: CommentIdentitySource, fallbackId: string) {
   return (
     normalizeCommentEmail(source.authorEmail) ??
@@ -1313,6 +1370,30 @@ function textQuoteContextForBlock(input: {
   };
 }
 
+function textNeedleForAnchor(anchor: PlanAnnotationAnchor) {
+  const source =
+    anchor.textQuote ??
+    (anchor.anchorKind === "text" || anchor.targetKind === "text"
+      ? anchor.snippet
+      : undefined);
+  return normalizedElementText(source).slice(0, 120);
+}
+
+function findTextAnchorTarget(scope: Element, needle: string) {
+  if (!needle) return null;
+  const candidates = [
+    ...(scope.matches(PLAN_TEXT_TARGET_SELECTOR) ? [scope] : []),
+    ...Array.from(
+      scope.querySelectorAll<HTMLElement>(PLAN_TEXT_TARGET_SELECTOR),
+    ),
+  ];
+  return (
+    candidates.find((candidate) =>
+      normalizedElementText(candidate.textContent).includes(needle),
+    ) ?? null
+  );
+}
+
 function findPlanBlockById(blocks: PlanBlock[], id: string): PlanBlock | null {
   for (const block of blocks) {
     if (block.id === id) return block;
@@ -1340,37 +1421,110 @@ function elementIndexAmongType(element: Element) {
   );
 }
 
-function selectorForElementWithin(root: HTMLElement, element: Element | null) {
+function childPathSelectorWithin(scope: Element, element: Element) {
+  if (scope === element) return "";
+  if (!scope.contains(element)) return undefined;
+  const parts: string[] = [];
+  let current: Element | null = element;
+  while (current && current !== scope) {
+    const parent = current.parentElement;
+    if (!parent) return undefined;
+    const tag = current.tagName.toLowerCase();
+    parts.unshift(`${tag}:nth-of-type(${elementIndexAmongType(current)})`);
+    current = parent;
+  }
+  return current === scope ? parts.join(" > ") : undefined;
+}
+
+function dataSelector(name: string, value: string) {
+  return `[${name}="${cssAttr(value)}"]`;
+}
+
+function scopedSelector(scope: string | undefined, selector: string) {
+  return scope ? `${scope} ${selector}` : selector;
+}
+
+function selectorForElementInScope(
+  scopeElement: Element,
+  scopeSelector: string,
+  element: Element,
+) {
+  const path = childPathSelectorWithin(scopeElement, element);
+  if (path === undefined) return undefined;
+  return path ? `${scopeSelector} > ${path}` : scopeSelector;
+}
+
+function stableDataSelectorForElement(
+  element: Element,
+  scope?: string,
+): string | undefined {
+  const wireNode = element.closest<HTMLElement>("[data-wire-node-id]");
+  if (wireNode?.dataset.wireNodeId) {
+    return scopedSelector(
+      scope,
+      dataSelector("data-wire-node-id", wireNode.dataset.wireNodeId),
+    );
+  }
+  const designNode = element.closest<HTMLElement>("[data-design-id]");
+  if (designNode?.dataset.designId) {
+    return scopedSelector(
+      scope,
+      dataSelector("data-design-id", designNode.dataset.designId),
+    );
+  }
+  const planDesignNode = element.closest<HTMLElement>("[data-plan-design-id]");
+  if (planDesignNode?.dataset.planDesignId) {
+    return scopedSelector(
+      scope,
+      dataSelector("data-plan-design-id", planDesignNode.dataset.planDesignId),
+    );
+  }
+  return undefined;
+}
+
+export function selectorForElementWithin(
+  root: HTMLElement,
+  element: Element | null,
+) {
   if (!element || !root.contains(element)) return undefined;
   const prototype = element.closest<HTMLElement>("[data-prototype-screen]");
-  if (prototype?.dataset.prototypeScreen) {
-    if (prototype === element) {
-      return `[data-prototype-screen="${cssAttr(prototype.dataset.prototypeScreen)}"]`;
-    }
-    const tag = element.tagName.toLowerCase();
-    return `[data-prototype-screen="${cssAttr(
-      prototype.dataset.prototypeScreen,
-    )}"] ${tag}:nth-of-type(${elementIndexAmongType(element)})`;
-  }
-  const block = element.closest<HTMLElement>("[data-block-id]");
-  if (block?.dataset.blockId) {
-    if (block === element) {
-      return `[data-block-id="${cssAttr(block.dataset.blockId)}"]`;
-    }
-    const tag = element.tagName.toLowerCase();
-    return `[data-block-id="${cssAttr(
-      block.dataset.blockId,
-    )}"] ${tag}:nth-of-type(${elementIndexAmongType(element)})`;
+  const prototypeScope = prototype?.dataset.prototypeScreen
+    ? dataSelector("data-prototype-screen", prototype.dataset.prototypeScreen)
+    : undefined;
+  const prototypeStableSelector = stableDataSelectorForElement(
+    element,
+    prototypeScope,
+  );
+  if (prototypeStableSelector) return prototypeStableSelector;
+  if (prototype && prototypeScope) {
+    return selectorForElementInScope(prototype, prototypeScope, element);
   }
   const frame = element.closest<HTMLElement>("[data-canvas-frame]");
-  if (frame?.dataset.canvasFrame) {
-    if (frame === element) {
-      return `[data-canvas-frame="${cssAttr(frame.dataset.canvasFrame)}"]`;
-    }
-    const tag = element.tagName.toLowerCase();
-    return `[data-canvas-frame="${cssAttr(
-      frame.dataset.canvasFrame,
-    )}"] ${tag}:nth-of-type(${elementIndexAmongType(element)})`;
+  const frameScope = frame?.dataset.canvasFrame
+    ? dataSelector("data-canvas-frame", frame.dataset.canvasFrame)
+    : undefined;
+  const frameStableSelector = stableDataSelectorForElement(element, frameScope);
+  if (frameStableSelector) return frameStableSelector;
+  if (frame && frameScope) {
+    return selectorForElementInScope(frame, frameScope, element);
+  }
+  const canvasWorld = element.closest<HTMLElement>(
+    "[data-plan-canvas-world], .plan-canvas-world",
+  );
+  if (canvasWorld) {
+    return canvasWorld.hasAttribute("data-plan-canvas-world")
+      ? "[data-plan-canvas-world]"
+      : ".plan-canvas-world";
+  }
+  const stableSelector = stableDataSelectorForElement(element);
+  if (stableSelector) return stableSelector;
+  const block = element.closest<HTMLElement>("[data-block-id]");
+  if (block?.dataset.blockId) {
+    return selectorForElementInScope(
+      block,
+      dataSelector("data-block-id", block.dataset.blockId),
+      element,
+    );
   }
   if (element.id) return `#${cssAttr(element.id)}`;
   return undefined;
@@ -1401,6 +1555,47 @@ function prototypeScopeForAnchor(
       `[data-prototype-screen="${cssAttr(screenId)}"]`,
     ) ?? null
   );
+}
+
+function queryFirstElement(
+  scopes: Array<Element | null | undefined>,
+  selector: string,
+) {
+  const seen = new Set<Element>();
+  for (const scope of scopes) {
+    if (!scope || seen.has(scope)) continue;
+    seen.add(scope);
+    const target = scope.matches(selector)
+      ? scope
+      : scope.querySelector<HTMLElement>(selector);
+    if (target) return target;
+  }
+  return null;
+}
+
+function resolveStableVisualAnchorTarget(
+  anchor: PlanAnnotationAnchor,
+  reader: HTMLElement,
+  queryRoot: Element,
+) {
+  const frame = anchor.sectionId
+    ? reader.querySelector<HTMLElement>(
+        dataSelector("data-canvas-frame", anchor.sectionId),
+      )
+    : null;
+  if (anchor.targetNodeId) {
+    const nodeSelectors = [
+      dataSelector("data-wire-node-id", anchor.targetNodeId),
+      dataSelector("data-design-id", anchor.targetNodeId),
+      dataSelector("data-plan-design-id", anchor.targetNodeId),
+    ];
+    for (const selector of nodeSelectors) {
+      const target = queryFirstElement([frame, queryRoot, reader], selector);
+      if (target) return target;
+    }
+  }
+  if (frame && anchor.targetKind === "wireframe") return frame;
+  return null;
 }
 
 function sectionTitleForElement(element: Element | null, fallback?: string) {
@@ -1590,16 +1785,13 @@ export function resolveNativeAnchorTarget(
   const prototypeScope = prototypeScopeForAnchor(anchor, reader);
   if (prototypeScope === null) return null;
   const queryRoot = prototypeScope ?? reader;
-  if (anchor.targetSelector) {
-    try {
-      const target = queryRoot.matches(anchor.targetSelector)
-        ? queryRoot
-        : queryRoot.querySelector<HTMLElement>(anchor.targetSelector);
-      if (target) return target;
-    } catch {
-      // Fall back to quote matching below.
-    }
-  }
+  const needle = textNeedleForAnchor(anchor);
+  const stableVisualTarget = resolveStableVisualAnchorTarget(
+    anchor,
+    reader,
+    queryRoot,
+  );
+  if (stableVisualTarget) return stableVisualTarget;
   if (
     anchor.planAnnotationId ||
     anchor.canvasX !== undefined ||
@@ -1610,9 +1802,21 @@ export function resolveNativeAnchorTarget(
     );
     if (canvasWorld) return canvasWorld;
   }
-  const quote = normalizedElementText(anchor.textQuote || anchor.snippet);
-  if (!quote) return null;
-  const needle = quote.slice(0, 120);
+  if (anchor.targetSelector) {
+    try {
+      const target = queryRoot.matches(anchor.targetSelector)
+        ? queryRoot
+        : queryRoot.querySelector<HTMLElement>(anchor.targetSelector);
+      if (target) {
+        if (!needle) return target;
+        const textTarget = findTextAnchorTarget(target, needle);
+        if (textTarget) return textTarget;
+      }
+    } catch {
+      // Fall back to quote matching below.
+    }
+  }
+  if (!needle) return null;
   const scopes: Element[] = [];
   if (prototypeScope) {
     scopes.push(prototypeScope);
@@ -1628,12 +1832,7 @@ export function resolveNativeAnchorTarget(
   }
   if (!prototypeScope) scopes.push(reader);
   for (const scope of scopes) {
-    const candidates = Array.from(
-      scope.querySelectorAll<HTMLElement>(PLAN_TEXT_TARGET_SELECTOR),
-    );
-    const match = candidates.find((candidate) =>
-      normalizedElementText(candidate.textContent).includes(needle),
-    );
+    const match = findTextAnchorTarget(scope, needle);
     if (match) return match;
   }
   return null;
@@ -1664,6 +1863,69 @@ export function nativePointForAnchor(
   return {
     left: (anchor.x / 100) * reader.scrollWidth - reader.scrollLeft,
     top: (anchor.y / 100) * reader.scrollHeight - reader.scrollTop,
+  };
+}
+
+type NativeMarkerClip = {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+};
+
+export type NativeMarkerPlacement = {
+  marker: {
+    left: number;
+    top: number;
+  };
+  clip: NativeMarkerClip | null;
+};
+
+function rectForElementWithinReader(element: HTMLElement, reader: HTMLElement) {
+  const elementRect = element.getBoundingClientRect();
+  if (!elementRect.width && !elementRect.height) return null;
+  const readerRect = reader.getBoundingClientRect();
+  return {
+    left: elementRect.left - readerRect.left,
+    top: elementRect.top - readerRect.top,
+    width: elementRect.width,
+    height: elementRect.height,
+  } satisfies NativeMarkerClip;
+}
+
+function visualMarkerClipForAnchor(
+  anchor: PlanAnnotationAnchor,
+  reader: HTMLElement,
+): NativeMarkerClip | null {
+  const surfaceMode = visualSurfaceModeForAnchor(anchor);
+  if (!surfaceMode) return null;
+  const target = resolveNativeAnchorTarget(anchor, reader);
+  const visualRoot =
+    surfaceMode === "prototype"
+      ? (target?.closest<HTMLElement>("[data-plan-prototype-viewer]") ??
+        prototypeScopeForAnchor(anchor, reader)?.closest<HTMLElement>(
+          "[data-plan-prototype-viewer]",
+        ) ??
+        reader.querySelector<HTMLElement>("[data-plan-prototype-viewer]"))
+      : (target?.closest<HTMLElement>("[data-plan-canvas-viewport]") ??
+        reader.querySelector<HTMLElement>("[data-plan-canvas-viewport]"));
+  return visualRoot ? rectForElementWithinReader(visualRoot, reader) : null;
+}
+
+export function nativeMarkerPlacementForAnchor(
+  anchor: PlanAnnotationAnchor,
+  reader: HTMLElement,
+): NativeMarkerPlacement | null {
+  const point = nativePointForAnchor(anchor, reader);
+  if (!point) return null;
+  const clip = visualMarkerClipForAnchor(anchor, reader);
+  if (!clip) return { marker: point, clip: null };
+  return {
+    clip,
+    marker: {
+      left: point.left - clip.left,
+      top: point.top - clip.top,
+    },
   };
 }
 
@@ -1845,7 +2107,7 @@ function buildPlanAgentContext(input: {
 }
 
 function buildApplyFeedbackMessage(openCommentCount: number) {
-  return `Apply the ${openCommentCount} open comment${openCommentCount === 1 ? "" : "s"} on this visual or prototype plan. Read the plan with get-visual-plan, read feedback with get-plan-feedback, use any attached focused screenshots to understand visual comments, then update structured content blocks, prototype screens, and related implementation details as needed. Use HTML only for legacy imported artifacts.`;
+  return `Apply the ${openCommentCount} open comment${openCommentCount === 1 ? "" : "s"} on this visual plan. Read the plan with get-visual-plan, read feedback with get-plan-feedback, use any attached focused screenshots to understand visual comments, then update structured content blocks, prototype screens, and related implementation details as needed. Use HTML only for legacy imported artifacts.`;
 }
 
 function buildQuestionFormRevisionMessage(summary: string) {
@@ -2179,8 +2441,8 @@ export function PlansPage() {
   const [deleteCommentRequest, setDeleteCommentRequest] =
     useState<DeleteCommentRequest | null>(null);
   const [nativeMarkerVersion, setNativeMarkerVersion] = useState(0);
-  // Session-level preference: hide comment markers even when threads exist.
-  const [commentsHidden, setCommentsHidden] = useState(false);
+  const [commentVisibility, setCommentVisibility] =
+    useState<CommentVisibility>("open");
   // When a comment submit fails, stash the draft here so the popover can
   // re-open with the user's text pre-filled (Issue 2a).
   const [failedCommentDraft, setFailedCommentDraft] =
@@ -2426,6 +2688,27 @@ export function PlansPage() {
     () => buildCommentThreads(bundle?.comments ?? []),
     [bundle?.comments],
   );
+  const visibleCommentThreads = useMemo(
+    () => commentThreadsForVisibility(commentThreads, commentVisibility),
+    [commentThreads, commentVisibility],
+  );
+  const visibleMarkerCommentThreads = useMemo(
+    () =>
+      commentThreadsForVisualSurfaceMode(
+        visibleCommentThreads,
+        visualSurfaceMode,
+      ),
+    [visibleCommentThreads, visualSurfaceMode],
+  );
+  const visiblePlanComments = useMemo(() => {
+    if (!bundle) return [] as PlanBundle["comments"];
+    const visibleIds = new Set(
+      visibleCommentThreads.flatMap((thread) =>
+        thread.comments.map((comment) => comment.id),
+      ),
+    );
+    return bundle.comments.filter((comment) => visibleIds.has(comment.id));
+  }, [bundle, visibleCommentThreads]);
   const commentAvatarEmails = useMemo(
     () => commentAuthorEmails(bundle?.comments ?? [], collabUser?.email),
     [bundle?.comments, collabUser?.email],
@@ -2471,7 +2754,7 @@ export function PlansPage() {
   );
   const runtimeCommentThreads = useMemo(
     () =>
-      commentThreads
+      visibleMarkerCommentThreads
         .map((thread, index) =>
           runtimeAnnotationFromThread(
             thread,
@@ -2483,7 +2766,7 @@ export function PlansPage() {
         .filter((annotation): annotation is RuntimeAnnotation =>
           Boolean(annotation),
         ),
-    [commentAvatarUrls, commentThreads, currentCommentAuthor],
+    [commentAvatarUrls, currentCommentAuthor, visibleMarkerCommentThreads],
   );
   const canDeletePlanComment = useCallback(
     (comment: { authorEmail?: string | null }) => {
@@ -2518,10 +2801,9 @@ export function PlansPage() {
       const fresh = runtimeCommentThreads.find(
         (annotation) => annotation.id === current.annotation.id,
       );
-      return fresh ? { ...current, annotation: fresh } : current;
+      return fresh ? { ...current, annotation: fresh } : null;
     });
   }, [runtimeCommentThreads]);
-  const convertPlanToPrototype = useConvertVisualPlanToPrototype();
   const updatePlan = useUpdatePlan();
   // Stable ref so closures (e.g. message-event handler) always call the latest
   // mutate without needing to be in a dependency array.
@@ -2632,12 +2914,16 @@ export function PlansPage() {
     ? "comment"
     : canvasMarkupMode;
   const hasOpenThreads = (bundle?.summary.openCommentCount ?? 0) > 0;
+  const resolvedCommentThreadCount = commentThreads.filter(
+    (thread) => commentThreadStatus(thread) === "resolved",
+  ).length;
+  const visibleCommentThreadCount = visibleCommentThreads.length;
   const commentMarkersVisible =
-    !commentsHidden &&
+    commentVisibility !== "hidden" &&
     (annotationsOpen ||
       annotateMode ||
       Boolean(activeAnnotation) ||
-      hasOpenThreads);
+      visibleCommentThreadCount > 0);
 
   useEffect(() => {
     if (!recapScreenshotTheme || !recapScreenshotBackground) return;
@@ -2750,14 +3036,20 @@ export function PlansPage() {
     const defaults = iframeRuntimeDefaultsRef.current;
     return injectAnnotationRuntime(
       documentHtml,
-      bundle.comments,
+      visiblePlanComments,
       false,
       defaults.planTheme,
       defaults.preferredEditor,
       commentAvatarUrls,
       currentCommentAuthor,
     );
-  }, [bundle, commentAvatarUrls, currentCommentAuthor, documentHtml]);
+  }, [
+    bundle,
+    commentAvatarUrls,
+    currentCommentAuthor,
+    documentHtml,
+    visiblePlanComments,
+  ]);
 
   const planAgentContext = useMemo(() => {
     if (!bundle) return "";
@@ -3115,14 +3407,6 @@ export function PlansPage() {
     );
   };
 
-  const convertCurrentPlanToPrototype = async () => {
-    if (!bundle?.plan.content) return;
-    await convertPlanToPrototype.mutateAsync({
-      planId: bundle.plan.id,
-    });
-    toast.success("Prototype plan ready");
-  };
-
   const readPlanExport = useCallback(async () => {
     const result = await exportPlan.refetch();
     const data = result.data ?? exportPlan.data;
@@ -3336,10 +3620,25 @@ export function PlansPage() {
     });
   };
 
+  const chooseCommentVisibility = (visibility: CommentVisibility) => {
+    preservePlanReaderScroll(() => {
+      setCommentVisibility(visibility);
+      closeInlineComment();
+      setActiveAnnotation(null);
+      if (visibility === "hidden") {
+        setAnnotationsOpen(false);
+        setAnnotateMode(false);
+        return;
+      }
+      setAnnotationsOpen(true);
+    });
+  };
+
   const startCommenting = () => {
     setCanvasMarkupMode("none");
     setActiveAnnotation(null);
     setAnnotationsOpen(false);
+    setCommentVisibility("open");
     setAnnotateMode(true);
   };
 
@@ -3464,12 +3763,14 @@ export function PlansPage() {
       anchor,
       toolbarLeft,
       toolbarTop,
-      position: resolveInlineCommentPosition({
-        pointX,
-        pointY,
-        viewportWidth: readerRect.width,
-        viewportHeight: readerRect.height,
-      }),
+      position:
+        getPositionFromAnchor(anchor) ??
+        resolveInlineCommentPosition({
+          pointX,
+          pointY,
+          viewportWidth: readerRect.width,
+          viewportHeight: readerRect.height,
+        }),
     };
   };
 
@@ -3540,16 +3841,15 @@ export function PlansPage() {
       planTitle: bundle?.plan.title,
     });
     documentStateRef.current = readNativeDocumentState();
+    const fallbackPosition = resolveInlineCommentPosition({
+      pointX,
+      pointY,
+      viewportWidth: rect.width,
+      viewportHeight: rect.height,
+    });
     setActiveAnnotation(null);
     setPendingAnnotation(anchor);
-    setInlineCommentPosition(
-      resolveInlineCommentPosition({
-        pointX,
-        pointY,
-        viewportWidth: rect.width,
-        viewportHeight: rect.height,
-      }),
-    );
+    setInlineCommentPosition(getPositionFromAnchor(anchor) ?? fallbackPosition);
   };
 
   const updateStructuredContent = async (content: PlanContent) => {
@@ -3948,7 +4248,8 @@ export function PlansPage() {
     };
     clearPendingDocumentRestore();
     pendingDocumentRestoreRef.current = documentStateRef.current;
-    await queryClient.cancelQueries({ queryKey: selectedPlanQueryKey });
+    commentMutationPendingRef.current = true;
+    void queryClient.cancelQueries({ queryKey: selectedPlanQueryKey });
     queryClient.setQueryData(
       selectedPlanQueryKey,
       (current: PlanBundleWithHtml | undefined) =>
@@ -3957,7 +4258,6 @@ export function PlansPage() {
     setFailedCommentDraft(null);
     clearInlineCommentDraft();
     setAnnotateMode(true);
-    commentMutationPendingRef.current = true;
     void updatePlan
       .mutateAsync({
         planId: bundle.plan.id,
@@ -4070,13 +4370,13 @@ export function PlansPage() {
       createdAt: now,
       updatedAt: now,
     };
-    await queryClient.cancelQueries({ queryKey: selectedPlanQueryKey });
+    commentMutationPendingRef.current = true;
+    void queryClient.cancelQueries({ queryKey: selectedPlanQueryKey });
     queryClient.setQueryData(
       selectedPlanQueryKey,
       (current: PlanBundleWithHtml | undefined) =>
         current ? addPlanCommentToBundle(current, optimisticReply) : current,
     );
-    commentMutationPendingRef.current = true;
     try {
       const updated = await updateCommentMutation.mutateAsync({
         planId: bundle.plan.id,
@@ -4200,7 +4500,8 @@ export function PlansPage() {
     const prevBundle =
       queryClient.getQueryData<PlanBundleWithHtml>(selectedPlanQueryKey);
     const commentId = request.commentId;
-    await queryClient.cancelQueries({ queryKey: selectedPlanQueryKey });
+    commentMutationPendingRef.current = true;
+    void queryClient.cancelQueries({ queryKey: selectedPlanQueryKey });
     queryClient.setQueryData(
       selectedPlanQueryKey,
       (current: PlanBundleWithHtml | undefined) =>
@@ -4212,7 +4513,6 @@ export function PlansPage() {
       current?.annotation.id === commentId ? null : current,
     );
     setDeleteCommentRequest(null);
-    commentMutationPendingRef.current = true;
     try {
       await deleteCommentMutation.mutateAsync({
         planId: bundle.plan.id,
@@ -4233,9 +4533,14 @@ export function PlansPage() {
     void nativeMarkerVersion;
     const reader = nativeReaderRef.current;
     if (!reader) return null;
-    const point = nativePointForAnchor(anchor, reader);
-    if (!point) return null;
-    const { left, top } = point;
+    const placement = nativeMarkerPlacementForAnchor(anchor, reader);
+    if (!placement) return null;
+    const { left, top } = placement.clip
+      ? {
+          left: placement.clip.left + placement.marker.left,
+          top: placement.clip.top + placement.marker.top,
+        }
+      : placement.marker;
     if (
       left < -40 ||
       top < -40 ||
@@ -4244,8 +4549,37 @@ export function PlansPage() {
     ) {
       return null;
     }
-    return { left, top };
+    return placement;
   };
+  const pendingMarkerPlacement =
+    pendingAnnotation && inlineCommentPosition
+      ? nativeMarkerPosition(pendingAnnotation)
+      : null;
+  const pendingVisualSurfaceMode =
+    visualSurfaceModeForAnchor(pendingAnnotation);
+  const pendingCommentPin =
+    pendingAnnotation && inlineCommentPosition ? (
+      pendingMarkerPlacement || !pendingVisualSurfaceMode ? (
+        <div
+          className={cn(
+            "pointer-events-none absolute flex -translate-x-1/2 -translate-y-1/2 items-center justify-center",
+            !pendingMarkerPlacement?.clip && "z-20",
+          )}
+          style={
+            pendingMarkerPlacement?.marker ?? {
+              left: inlineCommentPosition.pinLeft,
+              top: inlineCommentPosition.pinTop,
+            }
+          }
+        >
+          <CommentAvatar
+            author={pendingCommentAuthor}
+            size="pin"
+            className="shadow-2xl shadow-black/35"
+          />
+        </div>
+      ) : null
+    ) : null;
 
   return (
     <div
@@ -4268,17 +4602,14 @@ export function PlansPage() {
             />
           ) : showPlanLoadError ? (
             <PlanLoadError
-              planId={params.id}
               error={planQuery.error}
               accessStatus={planAccessStatus}
               onRetry={() => void planQuery.refetch()}
-              onCreate={requestCreatePlan}
               onSignIn={() => openSignIn()}
               onGoogleSignIn={startGoogleSignIn}
               onRequestAccess={requestPlanAccess}
               requestAccessPending={requestPlanAccessMutation.isPending}
               accessRequestSent={accessRequestSentPlanId === params.id}
-              canCreate={Boolean(session)}
               viewerEmail={session?.email ?? null}
             />
           ) : showInitialPlanSkeleton ? (
@@ -4464,52 +4795,39 @@ export function PlansPage() {
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end" className="w-56 rounded-xl">
                     <DropdownMenuGroup>
-                      <DropdownMenuItem
-                        onClick={() => {
-                          preservePlanReaderScroll(() => {
-                            setAnnotationsOpen((value) => {
-                              const next = !value;
-                              if (!next) {
-                                closeInlineComment();
-                                setActiveAnnotation(null);
-                              }
-                              return next;
-                            });
-                          });
-                        }}
-                        className="gap-2"
-                      >
-                        <IconMessageCircle className="size-4" />
-                        <span className="flex-1">
-                          {annotationsOpen ? "Close comment panel" : "Comments"}
-                        </span>
-                        {bundle.summary.openCommentCount > 0 && (
-                          <span className="text-xs text-muted-foreground">
-                            {bundle.summary.openCommentCount}
-                          </span>
-                        )}
-                      </DropdownMenuItem>
-                      {hasOpenThreads && (
-                        <DropdownMenuItem
-                          onClick={() => {
-                            preservePlanReaderScroll(() => {
-                              setCommentsHidden((value) => {
-                                const next = !value;
-                                // When showing markers again, close any stale
-                                // active popover so it doesn't re-appear without context.
-                                if (!next) setActiveAnnotation(null);
-                                return next;
-                              });
-                            });
-                          }}
-                          className="gap-2"
+                      <DropdownMenuLabel className="text-xs font-medium text-muted-foreground">
+                        Comments
+                      </DropdownMenuLabel>
+                      <DropdownMenuRadioGroup value={commentVisibility}>
+                        <DropdownMenuRadioItem
+                          value="hidden"
+                          onSelect={() => chooseCommentVisibility("hidden")}
                         >
-                          <IconMessageCircle className="size-4" />
-                          {commentsHidden
-                            ? "Show comment markers"
-                            : "Hide comment markers"}
-                        </DropdownMenuItem>
-                      )}
+                          Hide comments
+                        </DropdownMenuRadioItem>
+                        <DropdownMenuRadioItem
+                          value="open"
+                          onSelect={() => chooseCommentVisibility("open")}
+                        >
+                          <span className="flex-1">Show comments</span>
+                          {hasOpenThreads && (
+                            <span className="text-xs text-muted-foreground">
+                              {bundle.summary.openCommentCount}
+                            </span>
+                          )}
+                        </DropdownMenuRadioItem>
+                        <DropdownMenuRadioItem
+                          value="all"
+                          onSelect={() => chooseCommentVisibility("all")}
+                        >
+                          <span className="flex-1">Show all comments</span>
+                          {resolvedCommentThreadCount > 0 && (
+                            <span className="text-xs text-muted-foreground">
+                              {commentThreads.length}
+                            </span>
+                          )}
+                        </DropdownMenuRadioItem>
+                      </DropdownMenuRadioGroup>
                       <DropdownMenuItem
                         onClick={() => {
                           preservePlanReaderScroll(() => {
@@ -4584,23 +4902,6 @@ export function PlansPage() {
                         >
                           <IconExternalLink className="size-4" />
                           Open prototype window
-                        </DropdownMenuItem>
-                      ) : bundle.plan.content?.canvas && canEditPlanContent ? (
-                        <DropdownMenuItem
-                          onClick={() =>
-                            preservePlanReaderScroll(() => {
-                              void convertCurrentPlanToPrototype();
-                            })
-                          }
-                          className="gap-2"
-                          disabled={convertPlanToPrototype.isPending}
-                        >
-                          {convertPlanToPrototype.isPending ? (
-                            <IconLoader2 className="size-4 animate-spin" />
-                          ) : (
-                            <IconArrowRight className="size-4" />
-                          )}
-                          Convert to prototype
                         </DropdownMenuItem>
                       ) : null}
                     </DropdownMenuGroup>
@@ -4815,6 +5116,9 @@ export function PlansPage() {
                       canvasMarkupMode={reviewMode}
                       onCanvasMarkupCreate={appendCanvasMarkup}
                       onCanvasViewportChange={scheduleNativeMarkerUpdate}
+                      onCanvasCommentShortcut={() =>
+                        preservePlanReaderScroll(startCommenting)
+                      }
                       planId={bundle.plan.id}
                       collabUser={collabUser}
                       prototypeOnly={prototypeOnly}
@@ -4860,21 +5164,20 @@ export function PlansPage() {
                   {commentMarkersVisible && (
                     <div className="pointer-events-none absolute inset-0 z-20 overflow-hidden">
                       {runtimeCommentThreads.map((annotation) => {
-                        const position = nativeMarkerPosition(
+                        const placement = nativeMarkerPosition(
                           annotation.anchor,
                         );
-                        if (!position) return null;
+                        if (!placement) return null;
                         const participants = annotation.participants.map(
                           runtimeParticipantPresentation,
                         );
-                        return (
+                        const marker = (
                           <CommentThreadMarker
-                            key={annotation.id}
                             participants={participants}
                             count={annotation.commentCount}
                             title={runtimeAnnotationMarkerTitle(annotation)}
                             className="absolute"
-                            style={position}
+                            style={placement.marker}
                             onClick={() => {
                               const popoverPosition = getPositionFromAnchor(
                                 annotation.anchor,
@@ -4888,6 +5191,18 @@ export function PlansPage() {
                               });
                             }}
                           />
+                        );
+                        if (!placement.clip) {
+                          return <div key={annotation.id}>{marker}</div>;
+                        }
+                        return (
+                          <div
+                            key={annotation.id}
+                            className="pointer-events-none absolute overflow-hidden"
+                            style={placement.clip}
+                          >
+                            {marker}
+                          </div>
                         );
                       })}
                     </div>
@@ -4908,19 +5223,16 @@ export function PlansPage() {
               )}
               {pendingAnnotation && inlineCommentPosition && (
                 <>
-                  <div
-                    className="pointer-events-none absolute z-20 flex -translate-x-1/2 -translate-y-1/2 items-center justify-center"
-                    style={{
-                      left: inlineCommentPosition.pinLeft,
-                      top: inlineCommentPosition.pinTop,
-                    }}
-                  >
-                    <CommentAvatar
-                      author={pendingCommentAuthor}
-                      size="pin"
-                      className="shadow-2xl shadow-black/35"
-                    />
-                  </div>
+                  {pendingMarkerPlacement?.clip ? (
+                    <div
+                      className="pointer-events-none absolute z-20 overflow-hidden"
+                      style={pendingMarkerPlacement.clip}
+                    >
+                      {pendingCommentPin}
+                    </div>
+                  ) : (
+                    pendingCommentPin
+                  )}
                   {!session ? (
                     <GuestCommentCta
                       position={inlineCommentPosition}
@@ -4985,7 +5297,8 @@ export function PlansPage() {
               )}
               {annotationsOpen && (
                 <AnnotationsPanel
-                  threads={commentThreads}
+                  threads={visibleCommentThreads}
+                  showResolvedComments={commentVisibility === "all"}
                   avatarUrls={commentAvatarUrls}
                   currentUser={currentCommentAuthor}
                   pendingAuthor={pendingCommentAuthor}
@@ -5741,30 +6054,24 @@ function ReviewMarkupToolbar({
 }
 
 function PlanLoadError({
-  planId,
   error,
   accessStatus,
   onRetry,
-  onCreate,
   onSignIn,
   onGoogleSignIn,
   onRequestAccess,
   requestAccessPending,
   accessRequestSent,
-  canCreate,
   viewerEmail,
 }: {
-  planId?: string;
   error?: unknown;
   accessStatus?: PlanAccessStatusResponse | null;
   onRetry: () => void;
-  onCreate: () => void;
   onSignIn: () => void;
   onGoogleSignIn: () => Promise<void> | void;
   onRequestAccess: () => void;
   requestAccessPending?: boolean;
   accessRequestSent?: boolean;
-  canCreate: boolean;
   /** The signed-in identity for THIS origin, or null when anonymous. */
   viewerEmail?: string | null;
 }) {
@@ -5795,6 +6102,11 @@ function PlanLoadError({
     status === 403 &&
     /not found|no access|forbidden/i.test(message);
   const showAccessHelp = hasNoAccess || likelyPrivatePlan;
+  const orgName = accessStatus?.orgName?.trim() || null;
+  const orgAccessBody =
+    orgName && accessStatus?.visibility === "org"
+      ? `This plan belongs to ${orgName}. You need to be a member of ${orgName} to view it.`
+      : null;
 
   const returnPath = () =>
     window.location.pathname + window.location.search + window.location.hash;
@@ -5881,34 +6193,24 @@ function PlanLoadError({
         : "Sign in to view this plan"
       : "Plan did not load";
   const body = planMissing
-    ? "This link points to a plan that does not exist on this Plan app."
+    ? "This plan does not exist, or it belongs to another organization and you need access."
     : showAccessHelp
-      ? signedIn
-        ? planExists
-          ? "This plan exists, but this account is not on the access list."
-          : "This looks like a private plan link, and this account may not have access."
-        : "This plan is private, sign in to view it"
+      ? orgAccessBody
+        ? orgAccessBody
+        : signedIn
+          ? planExists
+            ? "This plan exists, but this account does not have access to view it."
+            : "This plan may belong to another organization, or this account may not have access."
+          : "This plan is private. Sign in with an account that has access."
       : message;
-  const icon = planMissing ? (
-    <IconSearch className="size-5" />
-  ) : (
-    <IconAlertTriangle className="size-5" />
-  );
 
   return (
     <div className="flex h-full flex-col items-center justify-center bg-background p-8">
       <div className="w-full max-w-md rounded-lg border border-border bg-background p-5 text-left shadow-sm">
         <div className={cn("flex items-start", !showAccessHelp && "gap-3")}>
-          {!showAccessHelp && (
-            <div
-              className={cn(
-                "flex size-10 shrink-0 items-center justify-center rounded-lg border",
-                planMissing
-                  ? "border-border bg-muted/40 text-muted-foreground"
-                  : "border-amber-500/25 bg-amber-500/10 text-amber-600 dark:text-amber-300",
-              )}
-            >
-              {icon}
+          {!showAccessHelp && !planMissing && (
+            <div className="flex size-10 shrink-0 items-center justify-center rounded-lg border border-amber-500/25 bg-amber-500/10 text-amber-600 dark:text-amber-300">
+              <IconAlertTriangle className="size-5" />
             </div>
           )}
           <div className="min-w-0">
@@ -5939,164 +6241,156 @@ function PlanLoadError({
                 private plan link.
               </p>
             ) : null}
-            {planId && !showAccessHelp && (
-              <p className="mt-3 break-all font-mono text-xs text-muted-foreground">
-                {planId}
-              </p>
-            )}
           </div>
         </div>
 
-        <div className="mt-5 flex flex-col gap-2">
-          {showAccessHelp ? (
-            <>
-              {signedIn ? (
-                <Button
-                  type="button"
-                  onClick={onRequestAccess}
-                  disabled={requestAccessPending || accessRequestSent}
-                >
-                  {requestAccessPending ? (
-                    <IconLoader2 className="size-4 animate-spin" />
-                  ) : (
-                    <IconUserPlus className="size-4" />
-                  )}
-                  {accessRequestSent ? "Request sent" : "Request access"}
-                </Button>
-              ) : (
-                <Button
-                  type="button"
-                  onClick={() => void startGoogle()}
-                  disabled={googlePending}
-                  className="h-9 w-full gap-2.5 rounded-md bg-white px-2 text-sm font-medium text-black shadow-none hover:bg-[#e5e5e5] hover:text-black dark:bg-white dark:text-black dark:hover:bg-[#e5e5e5]"
-                >
-                  {googlePending ? (
-                    <IconLoader2 className="size-[18px] animate-spin" />
-                  ) : (
-                    <GoogleLogoIcon className="size-[18px]" />
-                  )}
-                  Continue with Google
-                </Button>
-              )}
-              {signedIn ? (
-                <div className="flex flex-wrap gap-2">
+        {showAccessHelp || !planMissing ? (
+          <div className="mt-5 flex flex-col gap-2">
+            {showAccessHelp ? (
+              <>
+                {signedIn ? (
                   <Button
                     type="button"
-                    variant="outline"
+                    onClick={onRequestAccess}
+                    disabled={requestAccessPending || accessRequestSent}
+                  >
+                    {requestAccessPending ? (
+                      <IconLoader2 className="size-4 animate-spin" />
+                    ) : (
+                      <IconUserPlus className="size-4" />
+                    )}
+                    {accessRequestSent ? "Request sent" : "Request access"}
+                  </Button>
+                ) : (
+                  <Button
+                    type="button"
                     onClick={() => void startGoogle()}
                     disabled={googlePending}
+                    className="h-9 w-full gap-2.5 rounded-md bg-white px-2 text-sm font-medium text-black shadow-none hover:bg-[#e5e5e5] hover:text-black dark:bg-white dark:text-black dark:hover:bg-[#e5e5e5]"
                   >
-                    <IconLogin2 className="size-4" />
-                    Switch account
+                    {googlePending ? (
+                      <IconLoader2 className="size-[18px] animate-spin" />
+                    ) : (
+                      <GoogleLogoIcon className="size-[18px]" />
+                    )}
+                    Continue with Google
                   </Button>
-                </div>
-              ) : null}
-              <Collapsible open={emailOpen} onOpenChange={setEmailOpen}>
-                <CollapsibleTrigger asChild>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    className="w-full justify-between px-2 text-muted-foreground"
-                  >
-                    <span className="inline-flex items-center gap-2">
-                      <IconMail className="size-4" />
-                      Sign in with email
-                    </span>
-                    <IconChevronDown
-                      className={cn(
-                        "size-4 transition-transform",
-                        emailOpen ? "rotate-180" : "",
-                      )}
-                    />
-                  </Button>
-                </CollapsibleTrigger>
-                <CollapsibleContent className="pt-2">
-                  <form
-                    className="space-y-3 rounded-md border border-border bg-muted/20 p-3"
-                    onSubmit={submitEmailAuth}
-                  >
-                    <div className="space-y-1.5">
-                      <Label htmlFor="plan-access-email">Email</Label>
-                      <Input
-                        id="plan-access-email"
-                        type="email"
-                        autoComplete="email"
-                        value={email}
-                        onChange={(event) => setEmail(event.target.value)}
-                        required
-                      />
-                    </div>
-                    <div className="space-y-1.5">
-                      <Label htmlFor="plan-access-password">Password</Label>
-                      <Input
-                        id="plan-access-password"
-                        type="password"
-                        autoComplete={
-                          emailMode === "create"
-                            ? "new-password"
-                            : "current-password"
-                        }
-                        minLength={emailMode === "create" ? 8 : undefined}
-                        value={password}
-                        onChange={(event) => setPassword(event.target.value)}
-                        required
-                      />
-                    </div>
-                    {emailAuthError ? (
-                      <p className="text-sm text-destructive">
-                        {emailAuthError}
-                      </p>
-                    ) : null}
-                    {emailAuthNotice ? (
-                      <p className="text-sm text-muted-foreground">
-                        {emailAuthNotice}
-                      </p>
-                    ) : null}
-                    <div className="flex flex-wrap items-center gap-2">
-                      <Button type="submit" disabled={emailAuthPending}>
-                        {emailAuthPending ? (
-                          <IconLoader2 className="size-4 animate-spin" />
-                        ) : (
-                          <IconLock className="size-4" />
+                )}
+                {signedIn ? (
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => void startGoogle()}
+                      disabled={googlePending}
+                    >
+                      <IconLogin2 className="size-4" />
+                      Switch account
+                    </Button>
+                  </div>
+                ) : null}
+                <Collapsible open={emailOpen} onOpenChange={setEmailOpen}>
+                  <CollapsibleTrigger asChild>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      className="w-full justify-between px-2 text-muted-foreground"
+                    >
+                      <span className="inline-flex items-center gap-2">
+                        <IconMail className="size-4" />
+                        Sign in with email
+                      </span>
+                      <IconChevronDown
+                        className={cn(
+                          "size-4 transition-transform",
+                          emailOpen ? "rotate-180" : "",
                         )}
-                        {emailMode === "create" ? "Create account" : "Sign in"}
-                      </Button>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        onClick={() => {
-                          setEmailMode(
-                            emailMode === "create" ? "sign-in" : "create",
-                          );
-                          setEmailAuthError(null);
-                          setEmailAuthNotice(null);
-                        }}
-                      >
-                        {emailMode === "create"
-                          ? "I have an account"
-                          : "Create account"}
-                      </Button>
-                    </div>
-                  </form>
-                </CollapsibleContent>
-              </Collapsible>
-            </>
-          ) : planMissing ? (
-            <div className="flex flex-wrap gap-2">
-              <Button type="button" variant="outline" onClick={onCreate}>
-                <IconPlus className="size-4" />
-                {canCreate ? "New Plan" : "Sign in"}
-              </Button>
-            </div>
-          ) : (
-            <div className="flex flex-wrap gap-2">
-              <Button type="button" variant="outline" onClick={onSignIn}>
-                <IconExternalLink className="size-4" />
-                Sign in
-              </Button>
-            </div>
-          )}
-        </div>
+                      />
+                    </Button>
+                  </CollapsibleTrigger>
+                  <CollapsibleContent className="pt-2">
+                    <form
+                      className="space-y-3 rounded-md border border-border bg-muted/20 p-3"
+                      onSubmit={submitEmailAuth}
+                    >
+                      <div className="space-y-1.5">
+                        <Label htmlFor="plan-access-email">Email</Label>
+                        <Input
+                          id="plan-access-email"
+                          type="email"
+                          autoComplete="email"
+                          value={email}
+                          onChange={(event) => setEmail(event.target.value)}
+                          required
+                        />
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label htmlFor="plan-access-password">Password</Label>
+                        <Input
+                          id="plan-access-password"
+                          type="password"
+                          autoComplete={
+                            emailMode === "create"
+                              ? "new-password"
+                              : "current-password"
+                          }
+                          minLength={emailMode === "create" ? 8 : undefined}
+                          value={password}
+                          onChange={(event) => setPassword(event.target.value)}
+                          required
+                        />
+                      </div>
+                      {emailAuthError ? (
+                        <p className="text-sm text-destructive">
+                          {emailAuthError}
+                        </p>
+                      ) : null}
+                      {emailAuthNotice ? (
+                        <p className="text-sm text-muted-foreground">
+                          {emailAuthNotice}
+                        </p>
+                      ) : null}
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Button type="submit" disabled={emailAuthPending}>
+                          {emailAuthPending ? (
+                            <IconLoader2 className="size-4 animate-spin" />
+                          ) : (
+                            <IconLock className="size-4" />
+                          )}
+                          {emailMode === "create"
+                            ? "Create account"
+                            : "Sign in"}
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          onClick={() => {
+                            setEmailMode(
+                              emailMode === "create" ? "sign-in" : "create",
+                            );
+                            setEmailAuthError(null);
+                            setEmailAuthNotice(null);
+                          }}
+                        >
+                          {emailMode === "create"
+                            ? "I have an account"
+                            : "Create account"}
+                        </Button>
+                      </div>
+                    </form>
+                  </CollapsibleContent>
+                </Collapsible>
+              </>
+            ) : (
+              <div className="flex flex-wrap gap-2">
+                <Button type="button" variant="outline" onClick={onSignIn}>
+                  <IconExternalLink className="size-4" />
+                  Sign in
+                </Button>
+              </div>
+            )}
+          </div>
+        ) : null}
       </div>
       <Button
         type="button"
@@ -7773,12 +8067,11 @@ function AnnotationPopover({
   useEffect(() => {
     if (!onClose) return;
     const handlePointerDown = (event: MouseEvent) => {
-      const target = event.target as Node | null;
-      if (!target) return;
-      if (popoverRef.current?.contains(target)) return;
-      // Allow clicks on comment marker buttons — they have their own onClick
-      // that will open the new thread.
-      if ((event.target as Element).closest("[data-comment-marker]")) return;
+      if (
+        shouldKeepCommentPopoverOpenForTarget(event.target, popoverRef.current)
+      ) {
+        return;
+      }
       onClose();
     };
     window.addEventListener("pointerdown", handlePointerDown, {
@@ -7826,7 +8119,11 @@ function AnnotationPopover({
                 <IconDotsVertical className="size-4" />
               </Button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-48 rounded-xl">
+            <DropdownMenuContent
+              align="end"
+              className="w-48 rounded-xl"
+              data-comment-popover-portal
+            >
               {canResolve && (
                 <DropdownMenuItem
                   className="gap-2"
@@ -7969,6 +8266,7 @@ function AnnotationPopover({
 
 function AnnotationsPanel({
   threads,
+  showResolvedComments,
   avatarUrls,
   currentUser,
   pendingAuthor,
@@ -7983,6 +8281,7 @@ function AnnotationsPanel({
   onClose,
 }: {
   threads: CommentThread[];
+  showResolvedComments: boolean;
   avatarUrls: Record<string, string | null>;
   currentUser?: CurrentCommentAuthor | null;
   pendingAuthor: CommentAuthorPresentation;
@@ -8001,6 +8300,12 @@ function AnnotationsPanel({
 }) {
   const panelRef = useRef<HTMLElement>(null);
   const [filterTab, setFilterTab] = useState<"open" | "resolved">("open");
+
+  useEffect(() => {
+    if (!showResolvedComments && filterTab === "resolved") {
+      setFilterTab("open");
+    }
+  }, [filterTab, showResolvedComments]);
 
   // Move focus into the panel when it opens.
   useEffect(() => {
@@ -8033,11 +8338,13 @@ function AnnotationsPanel({
   const openThreads = threads.filter(
     (thread) => commentThreadStatus(thread) === "open",
   );
-  const resolvedThreads = threads.filter(
-    (thread) => commentThreadStatus(thread) === "resolved",
-  );
+  const resolvedThreads = showResolvedComments
+    ? threads.filter((thread) => commentThreadStatus(thread) === "resolved")
+    : [];
   const visibleThreads =
-    filterTab === "resolved" ? resolvedThreads : openThreads;
+    showResolvedComments && filterTab === "resolved"
+      ? resolvedThreads
+      : openThreads;
   return (
     <aside
       ref={panelRef}
@@ -8060,38 +8367,43 @@ function AnnotationsPanel({
           <IconX className="size-4" />
         </Button>
       </div>
-      <div className="shrink-0 border-b border-border/60 px-3 py-2">
-        <Tabs
-          value={filterTab}
-          onValueChange={(v) =>
-            setFilterTab(v === "resolved" ? "resolved" : "open")
-          }
-        >
-          <TabsList className="h-7 gap-0.5 rounded-lg p-0.5">
-            <TabsTrigger value="open" className="h-6 gap-1.5 px-2 text-xs">
-              Open
-              {openThreads.length > 0 && (
-                <span className="rounded-md bg-muted px-1 text-[10px] font-medium text-muted-foreground">
-                  {openThreads.length}
-                </span>
-              )}
-            </TabsTrigger>
-            <TabsTrigger value="resolved" className="h-6 gap-1.5 px-2 text-xs">
-              Resolved
-              {resolvedThreads.length > 0 && (
-                <span className="rounded-md bg-muted px-1 text-[10px] font-medium text-muted-foreground">
-                  {resolvedThreads.length}
-                </span>
-              )}
-            </TabsTrigger>
-          </TabsList>
-        </Tabs>
-      </div>
+      {showResolvedComments && (
+        <div className="shrink-0 border-b border-border/60 px-3 py-2">
+          <Tabs
+            value={filterTab}
+            onValueChange={(v) =>
+              setFilterTab(v === "resolved" ? "resolved" : "open")
+            }
+          >
+            <TabsList className="h-7 gap-0.5 rounded-lg p-0.5">
+              <TabsTrigger value="open" className="h-6 gap-1.5 px-2 text-xs">
+                Open
+                {openThreads.length > 0 && (
+                  <span className="rounded-md bg-muted px-1 text-[10px] font-medium text-muted-foreground">
+                    {openThreads.length}
+                  </span>
+                )}
+              </TabsTrigger>
+              <TabsTrigger
+                value="resolved"
+                className="h-6 gap-1.5 px-2 text-xs"
+              >
+                Resolved
+                {resolvedThreads.length > 0 && (
+                  <span className="rounded-md bg-muted px-1 text-[10px] font-medium text-muted-foreground">
+                    {resolvedThreads.length}
+                  </span>
+                )}
+              </TabsTrigger>
+            </TabsList>
+          </Tabs>
+        </div>
+      )}
       <ScrollArea className="min-h-0 flex-1">
         <div className="space-y-3 p-3">
           {visibleThreads.length === 0 ? (
             <p className="rounded-lg border border-dashed border-border p-4 text-sm leading-6 text-muted-foreground">
-              {filterTab === "resolved"
+              {showResolvedComments && filterTab === "resolved"
                 ? "No resolved comments."
                 : "No open comments. Click Comment, then click to place one."}
             </p>

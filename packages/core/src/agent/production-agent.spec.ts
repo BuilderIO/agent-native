@@ -945,6 +945,118 @@ describe("runAgentLoop", () => {
     });
   });
 
+  it("retries identical read-only tools when the continuation history result was aborted", async () => {
+    let streamCalls = 0;
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: true,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        streamCalls += 1;
+        if (streamCalls === 1) {
+          yield {
+            type: "assistant-content",
+            parts: [
+              {
+                type: "tool-call" as const,
+                id: "tool-repeat",
+                name: "get-document",
+                input: { id: "doc-1" },
+              },
+            ],
+          };
+          yield { type: "stop", reason: "tool_use" };
+          return;
+        }
+        yield {
+          type: "assistant-content",
+          parts: [{ type: "text" as const, text: "answered after retry" }],
+        };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+    const readAction = vi.fn(async () => "fresh document");
+    const events: any[] = [];
+
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [
+        {
+          role: "user",
+          content: [{ type: "text", text: "summarize this doc" }],
+        },
+        {
+          role: "assistant",
+          content: [
+            {
+              type: "tool-call",
+              id: "tool-original",
+              name: "get-document",
+              input: { id: "doc-1" },
+            },
+          ],
+        },
+        {
+          role: "user",
+          content: [
+            {
+              type: "tool-result",
+              toolCallId: "tool-original",
+              toolName: "get-document",
+              toolInput: '{"id":"doc-1"}',
+              content: "Error running get-document: Run aborted",
+              isError: true,
+            },
+          ],
+        },
+        {
+          role: "user",
+          content: [
+            {
+              type: "text",
+              text: `${AGENT_INTERNAL_CONTINUE_PROMPT}\n\nInternal note: retry`,
+            },
+          ],
+        },
+      ],
+      actions: {
+        "get-document": {
+          ...actionEntry({ readOnly: true }),
+          run: readAction,
+        },
+      },
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+    });
+
+    expect(readAction).toHaveBeenCalledTimes(1);
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "tool_done",
+        tool: "get-document",
+        result: "fresh document",
+      }),
+    );
+    expect(events).not.toContainEqual(
+      expect.objectContaining({
+        type: "tool_done",
+        tool: "get-document",
+        result: expect.stringContaining("Skipped duplicate read-only call"),
+      }),
+    );
+  });
+
   it("stops write tool that was interrupted twice in continuation history", async () => {
     let streamCalls = 0;
     const writeAction = vi.fn(async () => ({ ok: true }));
@@ -2009,6 +2121,10 @@ describe("runAgentLoop", () => {
 
     expect(streamCalls).toBe(3);
     expect(guard).toHaveBeenCalledTimes(2);
+    expect(guard.mock.calls.map(([ctx]) => ctx.executionMode)).toEqual([
+      "act",
+      "act",
+    ]);
     expect(events).not.toContainEqual({
       type: "text",
       text: "Looks up and to the right.",
@@ -2026,6 +2142,47 @@ describe("runAgentLoop", () => {
     expect(JSON.stringify(seenMessages[1])).toContain(
       "This answer needs a real data-source query",
     );
+  });
+
+  it("passes plan execution mode to final-response guards", async () => {
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        yield { type: "text-delta", text: "Plan only." };
+        yield {
+          type: "assistant-content",
+          parts: [{ type: "text" as const, text: "Plan only." }],
+        };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+    const guard = vi.fn(() => null);
+
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "plan" }] }],
+      actions: {},
+      send: () => {},
+      signal: new AbortController().signal,
+      executionMode: "plan",
+      finalResponseGuard: guard,
+    });
+
+    expect(guard).toHaveBeenCalledTimes(1);
+    expect(guard.mock.calls[0]?.[0].executionMode).toBe("plan");
   });
 
   it("flushes guarded final-answer text after the guard accepts it", async () => {

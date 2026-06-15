@@ -91,6 +91,32 @@ When a single transcript is needed, `gong-calls(transcript: "...")` returns
 compact extracted text by default. Set `rawTranscript=true` only for
 debugging/export, and never pass raw transcript payloads into `save-analysis`.
 
+## Complete-Coverage Transcript Scan (corpus-first)
+
+When the question is "do ANY of these calls mention X?" or "how many calls across
+this cohort mention X?" — where missing a single call makes the answer wrong — do
+NOT rely on `includeTranscripts` excerpts. They load only the newest few calls,
+truncated, and concluding "not mentioned" from that sample is how you ship a false
+negative. Use this two-step pattern:
+
+1. **Discover every call (cheap, metadata only).** For each account/deal, call
+   `gong-calls` with `exhaustive: true` and a bounded window via `after` (e.g. the
+   deal's closed-won date) and optionally `before`. This returns ALL matching
+   calls — not just `limit` — and never auto-loads transcripts, so it stays under
+   the function timeout. Collect the full `calls[]` (IDs + titles) across the cohort.
+
+2. **Scan transcript content in `run-code`.** Loop the discovered call IDs in a
+   `run-code` block, calling `appAction("gong-calls", { transcript: id })` to pull
+   each compact transcript, search the text locally for the term (plus sensible
+   variants), and return only per-call hits with short quoted snippets — never the
+   raw transcripts. Persist progress with `saveToFile` and process in chunks so a
+   soft-timeout continuation resumes instead of restarting. Because `gong-calls` is
+   read-only, transcripts already pulled are reused across continuations, not
+   re-fetched.
+
+Report coverage explicitly: deals in cohort, calls discovered, calls scanned, and
+matches found. Never turn "I inspected a sample" into "no call mentions X".
+
 ## Limits (Current)
 
 | Parameter | Default | Max |

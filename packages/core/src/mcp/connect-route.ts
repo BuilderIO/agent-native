@@ -65,7 +65,6 @@ import {
 
 /** Device-flow poll interval hint (seconds). */
 const DEVICE_POLL_INTERVAL_S = 3;
-const MCP_FULL_CATALOG_HEADER = "X-Agent-Native-MCP-Full-Catalog";
 
 // Human-typable user code: 8 base32 chars, dashed XXXX-XXXX.
 const USER_CODE_RE = /^[A-Z2-7]{4}-[A-Z2-7]{4}$/;
@@ -213,8 +212,9 @@ async function mintConnectToken(params: {
   label: string | null;
   ttlDays: number;
   appUrl: string;
-  /** When `"full"`, embed `catalog_scope: "full"` in the JWT to bypass the
-   *  connector-catalog tier on hosted multi-tenant deployments. */
+  /** When `"full"`, embed `catalog_scope: "full"` in the JWT so this token
+   *  bypasses the compact/connector-catalog tier (active by default whenever a
+   *  `connectorCatalog` is declared) and gets the complete action surface. */
   catalogScope?: "full";
 }): Promise<{ token: string; jti: string }> {
   const orgDomain = await resolveOrgDomain(params.orgId);
@@ -253,9 +253,9 @@ async function signConnectToken(params: {
    */
   includeOrgIdClaim?: boolean;
   /**
-   * When `"full"`, embed a `catalog_scope: "full"` claim so that on hosted
-   * multi-tenant deployments (AGENT_NATIVE_CONNECTOR_CATALOG=1) this token
-   * bypasses the connector-catalog tier filter and gets the complete action
+   * When `"full"`, embed a `catalog_scope: "full"` claim so this token
+   * bypasses the compact/connector-catalog tier filter (active by default
+   * whenever a `connectorCatalog` is declared) and gets the complete action
    * surface. Minted when the user connects with `agent-native connect --full-catalog`.
    */
   catalogScope?: "full";
@@ -362,9 +362,11 @@ function mcpResultPayload(
   if (!auth.token && auth.ownerEmail) {
     headers["X-Agent-Native-Owner-Email"] = auth.ownerEmail;
   }
-  if (auth.token || auth.ownerEmail) {
-    headers[MCP_FULL_CATALOG_HEADER] = "1";
-  }
+  // Intentionally do NOT inject the full-catalog header here. Every connector
+  // used to receive it, which silently forced the ~105-tool full catalog on
+  // every client. Full-catalog intent now lives durably in the token itself
+  // (`catalog_scope: "full"`, minted only by `connect --full-catalog`), so a
+  // normal connection defaults to the compact/connector catalog + tool-search.
   return {
     token: auth.token ?? "",
     mcpUrl,

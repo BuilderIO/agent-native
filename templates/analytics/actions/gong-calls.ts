@@ -224,9 +224,24 @@ async function loadTranscriptEvidence(
   );
 }
 
+/**
+ * Normalize a user-supplied date (ISO `yyyy-mm-dd` or full timestamp) to an
+ * ISO string for the Gong window filters. Returns undefined for empty/invalid
+ * input so the caller falls back to the `days` window.
+ */
+function normalizeGongDate(value: string | undefined): string | undefined {
+  if (!value || typeof value !== "string") return undefined;
+  const ms = Date.parse(value.trim());
+  if (Number.isNaN(ms)) return undefined;
+  return new Date(ms).toISOString();
+}
+
 export default defineAction({
+  // Read-only provider query: safe to call from run-code `appAction` and
+  // reusable across continuation retries (no re-fetch on resume).
+  readOnly: true,
   description:
-    "Query Gong sales calls, transcripts, and users. Pass --users for user list, --transcript for one transcript, --company to search by company/domain/person/email. For deal, customer, objection, next-step, or deep-dive analysis, set includeTranscripts=true so the answer uses transcript evidence instead of call metadata alone.",
+    "Query Gong sales calls, transcripts, and users. Pass --users for user list, --transcript for one transcript, --company to search by company/domain/person/email. For deal, customer, objection, next-step, or deep-dive analysis, set includeTranscripts=true so the answer uses transcript evidence instead of call metadata alone. For complete account/cohort coverage (call counts, or when 'no calls mention X' must be defensible), set exhaustive=true with a bounded window via after/before to enumerate every matching call (metadata only), then scan transcripts deliberately.",
   schema: z.object({
     users: cliBoolean.optional().describe("Set to true to list Gong users"),
     transcript: z.string().optional().describe("Call ID to get transcript"),
@@ -275,6 +290,23 @@ export default defineAction({
       .describe(
         "Maximum transcript characters to return per call (default 8000, max 100000). Use the default for analysis; raise it only when the user asks for more quoted detail.",
       ),
+    exhaustive: cliBoolean
+      .optional()
+      .describe(
+        "Return EVERY matching call in the window instead of stopping at `limit` — use this for complete cohort/account coverage when 'how many' or absence matters (e.g. scanning all of an account's calls). Returns call metadata only (transcripts are never auto-loaded in this mode, so it stays fast and avoids context bloat); then pull transcripts deliberately with `--transcript=<callId>` or a run-code scan. Always bound it with `after`/`before` or a small `days`: an unbounded exhaustive scan pages the whole Gong org and can hit the function timeout.",
+      ),
+    after: z
+      .string()
+      .optional()
+      .describe(
+        "Only include calls on/after this date (ISO yyyy-mm-dd or full timestamp), e.g. a deal's closed-won date. Sets the window start and overrides `days` for the start bound.",
+      ),
+    before: z
+      .string()
+      .optional()
+      .describe(
+        "Only include calls on/before this date (ISO yyyy-mm-dd or full timestamp). Sets the window end.",
+      ),
   }),
   http: { method: "GET" },
   run: async (args) => {
@@ -301,8 +333,20 @@ export default defineAction({
       const limit = normalizeGongCallLimit(
         args.limit ?? DEFAULT_GONG_CALL_LIMIT,
       );
-      const result = await searchCalls(args.company, days, limit);
-      const shouldLoadTranscripts = Boolean(args.includeTranscripts);
+      const exhaustive = Boolean(args.exhaustive);
+      const fromDateTime = normalizeGongDate(args.after);
+      const toDateTime = normalizeGongDate(args.before);
+      const result = await searchCalls(args.company, days, limit, {
+        exhaustive,
+        ...(fromDateTime ? { fromDateTime } : {}),
+        ...(toDateTime ? { toDateTime } : {}),
+      });
+      // Exhaustive mode is a metadata-only discovery pass: never auto-load
+      // transcripts (that would bloat context and risk the function timeout).
+      // The agent pulls transcripts deliberately afterward (--transcript or a
+      // run-code scan over result.calls).
+      const shouldLoadTranscripts =
+        Boolean(args.includeTranscripts) && !exhaustive;
       const transcriptLimit = normalizeBoundedInt(
         args.transcriptLimit,
         DEFAULT_GONG_TRANSCRIPT_LIMIT,
@@ -328,11 +372,17 @@ export default defineAction({
         total: result.calls.length,
         ...(transcripts ? { transcripts } : {}),
         guidance: [
-          callLimitGuidance(result.limit, result.truncated),
+          exhaustive
+            ? `Exhaustive discovery: returned all ${result.calls.length} matching call(s) in the window (metadata only). To search transcript content for a term, pull transcripts with --transcript=<callId> or a run-code scan over these call IDs — do not conclude a term is absent from metadata alone.`
+            : callLimitGuidance(result.limit, result.truncated),
           shouldLoadTranscripts
             ? `Loaded transcript excerpts for ${transcripts?.length ?? 0} matching call(s). Ground qualitative claims in the transcript text and cite the inspected call count.`
-            : "For deep-dive or qualitative analysis, call this action again with includeTranscripts=true before drawing conclusions from call content.",
-        ].join(" "),
+            : exhaustive
+              ? ""
+              : "For deep-dive or qualitative analysis, call this action again with includeTranscripts=true before drawing conclusions from call content.",
+        ]
+          .filter(Boolean)
+          .join(" "),
       };
     } else {
       const days = args.days ?? 30;

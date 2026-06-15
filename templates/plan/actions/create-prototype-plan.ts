@@ -84,7 +84,7 @@ export default defineAction({
     "Create a plan whose primary review surface is a running interactive prototype. For a document-first plan use create-visual-plan; for a UI-first wireframe canvas use create-ui-plan; for a recap of an existing diff use create-visual-recap; for full-fidelity branded design use create-plan-design. Prototype screen HTML uses safe Alpine-like directives for local state and data-goto for screen navigation only. Publish via this tool; never deliver the plan as inline chat text.",
   schema: z
     .object({
-      title: z.string().optional().describe("Short prototype plan title"),
+      title: z.string().optional().describe("Short visual plan title"),
       brief: z
         .string()
         .optional()
@@ -125,7 +125,7 @@ export default defineAction({
       markdown: z
         .string()
         .optional()
-        .describe("Markdown/text fallback or source prototype plan"),
+        .describe("Markdown/text fallback or source visual plan"),
       sections: z
         .array(sectionInputSchema)
         .optional()
@@ -145,18 +145,18 @@ export default defineAction({
     readOnly: false,
     requiresAuth: true,
     isConsequential: true,
-    title: "Create Prototype Plan",
+    title: "Create Visual Plan",
     description:
       "Create a plan whose primary review surface is a functional prototype.",
   },
   mcpApp: {
     compactCatalog: true,
     resource: embedApp({
-      title: "Prototype Plan",
+      title: "Visual Plan",
       description:
         "Open the Agent-Native Plan prototype review surface for functional states, comments, static mocks, and implementation notes.",
       iframeTitle: "Agent-Native Plan",
-      openLabel: "Open Prototype Plan",
+      openLabel: "Open Visual Plan",
       height: 860,
     }),
   },
@@ -165,7 +165,7 @@ export default defineAction({
     const requesterName = getRequestUserName();
     const ownerEmail = requirePlanOwnerEmailForWrite(
       requesterEmail,
-      "Creating a prototype plan",
+      "Creating a visual plan",
     );
     const ownerOrgId = resolvePlanOrgIdForWrite(
       requesterEmail,
@@ -176,7 +176,7 @@ export default defineAction({
     const id = newId("plan");
     const now = nowIso();
     const brief = args.brief || args.goal || "";
-    const title = args.title || "Untitled prototype plan";
+    const title = args.title || "Untitled visual plan";
     const sections =
       args.sections.length > 0
         ? args.sections
@@ -313,7 +313,7 @@ export default defineAction({
       url: planPath(id),
       ...(local?.written ? { localFiles: local } : {}),
       fallbackInstructions:
-        "Open the Agent-Native Prototype Plan link, click through the prototype states, add comments directly on the live prototype or static mocks, then I will call get-plan-feedback before continuing. Use the prototype popout for a focused browser review.",
+        "Open the Agent-Native Visual Plan link, click through the prototype states, add comments directly on the live prototype or static mocks, then I will call get-plan-feedback before continuing. Use the prototype popout for a focused browser review.",
     };
   },
   link: ({ result }) => {
@@ -321,7 +321,7 @@ export default defineAction({
     if (!plan?.id) return null;
     return {
       url: planDeepLink(plan.id),
-      label: "Open Prototype Plan",
+      label: "Open Visual Plan",
       view: "plan",
     };
   },

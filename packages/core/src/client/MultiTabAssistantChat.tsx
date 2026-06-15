@@ -18,6 +18,7 @@ import {
   AssistantChat,
   type AssistantChatProps,
   type AssistantChatHandle,
+  type AssistantChatSendOptions,
 } from "./AssistantChat.js";
 import { isTrustedFrameMessage } from "./frame.js";
 import { cn } from "./utils.js";
@@ -74,6 +75,7 @@ interface PendingSend {
   images?: string[];
   submit: boolean;
   trackInRunsTray?: boolean;
+  requestMode?: "act" | "plan";
 }
 
 const MODEL_SELECTION_STORAGE_KEY = "agent-native:chat-models:selection";
@@ -723,6 +725,18 @@ interface AgentTeamTabInfo {
 
 function readString(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
+}
+
+function normalizeRequestMode(value: unknown): "act" | "plan" | undefined {
+  return value === "act" || value === "plan" ? value : undefined;
+}
+
+function requestModeFromExecMode(
+  value: AssistantChatProps["execMode"],
+): "act" | "plan" | undefined {
+  if (value === "plan") return "plan";
+  if (value === "build") return "act";
+  return undefined;
 }
 
 function isActiveAgentTeamStatus(status?: AgentTeamRunStatus): boolean {
@@ -1597,6 +1611,10 @@ export function MultiTabAssistantChat({
               typeof image === "string" && image.length > 0,
           )
         : undefined;
+      const requestMode =
+        normalizeRequestMode(
+          event.data.data?.requestMode ?? event.data.data?.mode,
+        ) ?? requestModeFromExecMode(props.execMode);
 
       // Make sure the sidebar is visible to show the response, unless the
       // caller explicitly opted out or it's a background send.
@@ -1635,7 +1653,13 @@ export function MultiTabAssistantChat({
         }
 
         const ref = chatRefs.current.get(threadId);
-        const sendOptions = background ? { trackInRunsTray: true } : undefined;
+        const sendOptions: AssistantChatSendOptions | undefined =
+          background || requestMode
+            ? {
+                ...(background ? { trackInRunsTray: true } : {}),
+                ...(requestMode ? { requestMode } : {}),
+              }
+            : undefined;
         if (ref) {
           if (submit) {
             if (sendOptions) {
@@ -1687,6 +1711,7 @@ export function MultiTabAssistantChat({
     clearContextInTab,
     createThread,
     postMessageSubmissionsDisabled,
+    props.execMode,
     removeContextInTab,
     setContextInTab,
     switchThread,
@@ -1712,9 +1737,12 @@ export function MultiTabAssistantChat({
         if (pending) {
           setTimeout(() => {
             if (pending.submit) {
-              if (pending.trackInRunsTray) {
+              if (pending.trackInRunsTray || pending.requestMode) {
                 ref.sendMessage(pending.message, pending.images, {
-                  trackInRunsTray: true,
+                  ...(pending.trackInRunsTray ? { trackInRunsTray: true } : {}),
+                  ...(pending.requestMode
+                    ? { requestMode: pending.requestMode }
+                    : {}),
                 });
               } else {
                 ref.sendMessage(pending.message, pending.images);

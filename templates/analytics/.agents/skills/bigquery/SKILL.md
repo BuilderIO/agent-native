@@ -77,7 +77,11 @@ answers the question.
 | `list-data-dictionary --search <topic>` | Find canonical metric/table definitions before SQL. |
 | `search-bigquery-schema` | List datasets, list tables in a dataset, or describe table columns. |
 | `bigquery --sql "<sql>"` | Run a real warehouse query after table/column names are known. |
-| `top-amplitude-events --days N` | Inspect common Amplitude event names when the deployment uses the default product-events layout. |
+
+For direct Amplitude/PostHog/Mixpanel product-event data (outside the warehouse
+copy), there is no first-class action — call `provider-api-catalog` /
+`provider-api-docs` then `provider-api-request` (provider `amplitude`, `posthog`,
+or `mixpanel`), and aggregate in `run-code` for corpus-wide event analysis.
 
 ## Schema Discovery
 

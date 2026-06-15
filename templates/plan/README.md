@@ -41,10 +41,11 @@ for reading the actual diff.
 Command behavior:
 
 - `/visual-plan` creates a new rich visual plan with docs-level detail, diagrams,
-  detailed wireframes/mockups when UI is involved, clickable prototypes when the
-  interaction feel matters, tradeoffs, open questions, annotated code walkthroughs
-  and file trees for code work, code previews, and feedback prompts. When an
-  existing plan is provided, it builds from that plan instead of starting over.
+  detailed wireframes/mockups when UI is involved, functional prototypes when
+  the interaction feel matters, tradeoffs, open questions, annotated code
+  walkthroughs and file trees for code work, code previews, and feedback prompts.
+  When an existing plan is provided, it builds from that plan instead of starting
+  over.
 - `/visual-recap` creates a reverse plan from code that already changed:
   file-tree, diff, data-model, API, and columns blocks that let a
   reviewer scan the shape of a PR before reading line-by-line.

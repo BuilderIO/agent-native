@@ -2319,18 +2319,21 @@ export interface AgentChatPluginOptions {
    * Curated allow-list of action names to serve external **connector** clients
    * on a hosted multi-tenant deployment.
    *
-   * When `AGENT_NATIVE_CONNECTOR_CATALOG=1` is set and this list is non-empty,
-   * external MCP clients see (and can call) only these actions plus the builtin
+   * Whenever this list is non-empty it is active by default for **every**
+   * caller (hosted connectors, code/stdio clients, and the local CLI): external
+   * MCP clients see (and can call) only these actions plus the builtin
    * cross-app tools (`list_apps`, `open_app`, `ask_app`, `create_embed_session`).
    * Calls to any tool outside the list are rejected with "Unknown tool".
    * This prevents the full ~105-tool catalog from bloating external-agent
    * context windows and removes footguns (db-exec, seed-*, extension suite,
-   * browser-session tools) from hosted multi-tenant connectors.
+   * browser-session tools) from connectors. It is no longer gated behind an
+   * environment variable, and the catalog is never inferred from the client.
    *
-   * Callers who need the full surface can opt up with
-   * `agent-native connect --full-catalog`, which embeds a `catalog_scope: "full"`
-   * claim in their connect-minted JWT. Local/dev deployments without the env
-   * flag are unaffected — they always see the full surface.
+   * `tool-search` stays available so any trimmed tool is reachable on demand.
+   * Callers who need the full surface up front opt in explicitly with
+   * `agent-native connect --full-catalog` (embeds a `catalog_scope: "full"`
+   * claim in their connect-minted JWT) or the deployment-wide
+   * `AGENT_NATIVE_MCP_FULL_CATALOG=1` env override.
    *
    * Declare here rather than in MCPConfig directly; the plugin copies it through.
    */

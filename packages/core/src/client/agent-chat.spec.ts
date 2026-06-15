@@ -53,12 +53,38 @@ async function flushMicrotasks() {
   await Promise.resolve();
 }
 
+function createMemoryStorage(): Storage {
+  const values = new Map<string, string>();
+  return {
+    get length() {
+      return values.size;
+    },
+    clear: vi.fn(() => values.clear()),
+    getItem: vi.fn((key: string) => values.get(key) ?? null),
+    key: vi.fn((index: number) => Array.from(values.keys())[index] ?? null),
+    removeItem: vi.fn((key: string) => {
+      values.delete(key);
+    }),
+    setItem: vi.fn((key: string, value: string) => {
+      values.set(key, value);
+    }),
+  };
+}
+
 describe("sendToAgentChat", () => {
   beforeEach(() => {
     frameState.inBuilderFrame = false;
     (window as unknown as { parent: unknown }).parent = {
       postMessage: parentPostMessageSpy,
     };
+    Object.defineProperty(window, "localStorage", {
+      configurable: true,
+      value: createMemoryStorage(),
+    });
+    Object.defineProperty(window, "sessionStorage", {
+      configurable: true,
+      value: createMemoryStorage(),
+    });
     parentPostMessageSpy.mockClear();
     selfPostMessageSpy.mockClear();
     dispatchEventSpy.mockClear();
@@ -67,6 +93,7 @@ describe("sendToAgentChat", () => {
     sendMcpAppHostMessageMock.mockReturnValue(false);
     fetchSpy.mockClear();
     window.location.search = "";
+    window.localStorage?.clear();
     window.sessionStorage?.clear();
     _resetEmbedAuthForTests();
     _resetAgentChatContextForTests();
@@ -101,6 +128,34 @@ describe("sendToAgentChat", () => {
     expect(parentPostMessageSpy).toHaveBeenCalledOnce();
     const payload = parentPostMessageSpy.mock.calls[0][0];
     expect(payload.data.images).toEqual(["data:image/png;base64,abc"]);
+  });
+
+  it("snapshots stored plan mode into the postMessage payload", () => {
+    window.localStorage.setItem("agent-native-exec-mode", "plan");
+
+    sendToAgentChat({
+      message: "plan this dashboard",
+      submit: true,
+    });
+
+    expect(parentPostMessageSpy).toHaveBeenCalledOnce();
+    const payload = parentPostMessageSpy.mock.calls[0][0];
+    expect(payload.data.mode).toBe("plan");
+    expect(payload.data.requestMode).toBe("plan");
+  });
+
+  it("lets an explicit submitted mode override stored mode", () => {
+    window.localStorage.setItem("agent-native-exec-mode", "build");
+
+    sendToAgentChat({
+      message: "plan this dashboard",
+      mode: "plan",
+      submit: true,
+    });
+
+    const payload = parentPostMessageSpy.mock.calls[0][0];
+    expect(payload.data.mode).toBe("plan");
+    expect(payload.data.requestMode).toBe("plan");
   });
 
   it("opens the local sidebar before posting to a top-level chat listener", () => {

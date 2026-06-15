@@ -15,6 +15,9 @@ const StringListSchema = z.preprocess((value) => {
 }, z.array(z.string()).optional());
 
 export default defineAction({
+  // Read-only provider query: safe to call from run-code `appAction` and
+  // reusable across continuation retries (no re-fetch on resume).
+  readOnly: true,
   description:
     "Search or list HubSpot CRM records across contacts, companies, deals, and tickets. Use this for HubSpot data that is not just deal pipeline metrics. This is a convenience reader; for unsupported object types, associations, custom filters, batch APIs, pagination modes, or any HubSpot endpoint this does not model, use provider-api-catalog/provider-api-docs/provider-api-request with provider = hubspot.",
   schema: z.object({

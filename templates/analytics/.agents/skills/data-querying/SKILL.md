@@ -45,9 +45,6 @@ If `generate-chart` returns an error in any chat-answering flow, the recovery is
 ### Reusing Existing Actions
 
 ```bash
-# GitHub PRs
-pnpm action github-prs --org=<org> --query="is:open label:bug"
-
 # Jira tickets
 pnpm action jira-search --jql="summary ~ SSO" --fields=key,summary,status
 
@@ -63,6 +60,17 @@ pnpm action hubspot-records --objectType=companies --query=builder.io --properti
 # Gong call content for a customer deep dive
 pnpm action gong-calls --company="The Knot" --days=180 --includeTranscripts=true --transcriptLimit=5
 ```
+
+The first-class actions above are convenience shortcuts for the common cases, not
+the limit of what you can do. Many providers (GitHub, Amplitude, PostHog,
+Mixpanel, Apollo, Common Room, Twitter/X, Notion, Pylon, GA4, plus any
+endpoint/filter a shortcut can't express) have **no bespoke action** — reach them
+the same way fusion-analytics does: `provider-api-catalog` / `provider-api-docs`
+to learn the endpoint, then `provider-api-request` (or `providerFetch` inside
+`run-code`) against the provider's real HTTP API. For broad/corpus-wide questions
+("how many", "which", "any/none across all …") prefer this raw-API + `run-code`
+path from the first step — fetch the full cohort with `fetchAllPages`/`saveToFile`
+and grep/aggregate locally — rather than stretching a capped shortcut action.
 
 ### Writing Ad-Hoc Scripts
 

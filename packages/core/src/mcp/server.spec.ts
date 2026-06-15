@@ -1166,7 +1166,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     }
   });
 
-  it("keeps the full catalog for code-oriented OAuth clients without mcp:apps", async () => {
+  it("uses the compact catalog for code-oriented OAuth clients unless full catalog is explicit", async () => {
     mockOAuthClients.set("agent-native-oauth-client-generated-claude-code", {
       clientId: "agent-native-oauth-client-generated-claude-code",
       clientName: "Claude Code",
@@ -1191,9 +1191,10 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
 
     expect(out.error).toBeUndefined();
     const names = out.result.tools.map((t: any) => t.name);
-    expect(names).toEqual(
-      expect.arrayContaining(["echo-thing", "internal-heavy", "ask-agent"]),
-    );
+    expect(names).toEqual(["echo-thing", "review-draft"]);
+    expect(names).not.toContain("internal-heavy");
+    expect(names).not.toContain("ask-agent");
+    expect(JSON.stringify(out)).not.toContain("INTERNAL_TOOL_BLOAT_SENTINEL");
   });
 
   it("uses the compact catalog for authenticated non-OAuth callers by default", async () => {
@@ -1243,6 +1244,59 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       "MCP_APP_RESOURCE_BLOAT_SENTINEL",
     );
     expect(JSON.stringify(resourcesOut).length).toBeLessThan(8_000);
+  });
+
+  it("advertises `tool-search` in the compact catalog when it is a registered action", async () => {
+    // Regression guard: `tool-search` is a COMPACT_MCP_APP_CATALOG_BUILTINS
+    // member, so when a template registers a `tool-search` action it must show
+    // up in the default/compact catalog (no full-catalog header). That keeps
+    // the small-by-default catalog non-opaque — the agent can always discover
+    // every other tool on demand via tool-search.
+    const toolSearchConfig = {
+      ...compactSurfaceDefaultConfig,
+      actions: {
+        ...compactSurfaceDefaultConfig.actions,
+        "tool-search": {
+          tool: {
+            description: "Search for and load app tools on demand.",
+            parameters: {
+              type: "object" as const,
+              properties: { query: { type: "string" } },
+            },
+          },
+          readOnly: true,
+          run: async () => ({ tools: [] }),
+        },
+      },
+    };
+
+    const toolsOut = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 220,
+        method: "tools/list",
+        params: {},
+      },
+      // Default/compact caller: no full-catalog header.
+      { config: toolSearchConfig },
+    );
+
+    expect(toolsOut.error).toBeUndefined();
+    const names = toolsOut.result.tools.map((t: any) => t.name);
+    expect(names).toContain("tool-search");
+    // It rides alongside the core compact builtins, and the bulky internal
+    // tools are still excluded by the compact catalog.
+    expect(names).toEqual(
+      expect.arrayContaining([
+        "list_apps",
+        "open_app",
+        "ask_app",
+        "create_embed_session",
+        "tool-search",
+      ]),
+    );
+    expect(names).not.toContain("internal-heavy");
+    expect(names).not.toContain("bloated-widget");
   });
 
   it("keeps the full tool catalog only for explicit code/stdio callers", async () => {

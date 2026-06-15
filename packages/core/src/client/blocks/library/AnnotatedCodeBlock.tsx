@@ -213,6 +213,10 @@ function AnnotatedCodeRead({
   });
   const showPersistentAnnotations =
     showAnnotationOverlays || showMarginAnnotations;
+  const captureOverlayAnnotationIndex = useMemo(
+    () => resolved.find((item) => item.range)?.index ?? null,
+    [resolved],
+  );
   const langChip = data.language?.trim();
   const hasFilename = Boolean(data.filename?.trim());
   const showLangChip = Boolean(langChip && !hasFilename);
@@ -245,7 +249,12 @@ function AnnotatedCodeRead({
       activeIndex != null && !!markers?.some((m) => m.index === activeIndex);
     const overlayItems =
       showPersistentAnnotations && markers
-        ? markers.filter((item) => item.range?.start === lineNo)
+        ? markers.filter(
+            (item) =>
+              item.range?.start === lineNo &&
+              (!showAnnotationOverlays ||
+                item.index === captureOverlayAnnotationIndex),
+          )
         : [];
 
     const buildAnchorForRow = (el: HTMLElement) => {

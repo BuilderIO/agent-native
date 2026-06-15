@@ -149,8 +149,12 @@ export {
 
 export { displayableUserMessageText } from "./chat/message-components.js";
 
-type AgentRequestMode = "act" | "plan";
+export type AgentRequestMode = "act" | "plan";
 export type AgentRecoveryAction = "continue" | "retry";
+export interface AssistantChatSendOptions {
+  trackInRunsTray?: boolean;
+  requestMode?: AgentRequestMode;
+}
 
 function createUserMessageRunConfig(
   references?: Reference[],
@@ -513,7 +517,7 @@ export interface AssistantChatHandle {
   sendMessage(
     text: string,
     images?: string[],
-    options?: { trackInRunsTray?: boolean },
+    options?: AssistantChatSendOptions,
   ): void;
   /** Programmatically prefill the composer without submitting. */
   prefillMessage(text: string): void;
@@ -2369,14 +2373,14 @@ const AssistantChatInner = forwardRef<
       sendMessage(
         text: string,
         images?: string[],
-        options?: { trackInRunsTray?: boolean },
+        options?: AssistantChatSendOptions,
       ) {
         addToQueue(
           text,
           images,
           undefined,
           undefined,
-          undefined,
+          options?.requestMode,
           "queued",
           undefined,
           false,

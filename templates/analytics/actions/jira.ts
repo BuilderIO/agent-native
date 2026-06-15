@@ -15,6 +15,9 @@ import {
 } from "./_provider-action-utils";
 
 export default defineAction({
+  // Read-only provider query: safe to call from run-code `appAction` and
+  // reusable across continuation retries (no re-fetch on resume).
+  readOnly: true,
   description:
     "Query Jira issues, issue details, projects, statuses, boards, sprints, and sprint analytics. Use this first when the user asks about Jira, tickets, issues, bugs, sprints, boards, or project tracking from Jira. Do not use BigQuery for Jira data unless the user explicitly asks for a warehouse copy.",
   schema: z.object({

@@ -26,6 +26,8 @@ import {
 } from "./builder-frame.js";
 import { agentNativePath } from "./api-path.js";
 
+export type AgentChatRequestMode = "act" | "plan";
+
 export interface AgentChatMessage {
   /** The visible prompt message sent to the chat */
   message: string;
@@ -62,6 +64,13 @@ export interface AgentChatMessage {
   engine?: string;
   /** Reasoning effort preference paired with model. */
   effort?: ReasoningEffort;
+  /**
+   * Execution mode for this submitted turn. When omitted, sendToAgentChat
+   * snapshots the current AgentPanel mode from localStorage when available.
+   */
+  mode?: AgentChatRequestMode;
+  /** @deprecated Use `mode` instead. */
+  requestMode?: AgentChatRequestMode;
   /** Scoped system prompt additions for this sub-agent */
   instructions?: string;
   /**
@@ -123,6 +132,7 @@ export interface AgentChatContextRemoveOptions extends AgentChatContextMutationO
 
 const AGENT_CHAT_MESSAGE_TYPE = "agentNative.submitChat";
 const AGENT_CHAT_CONTEXT_STATE_KEY = "agent-chat-context";
+const AGENT_CHAT_EXEC_MODE_KEY = "agent-native-exec-mode";
 export const AGENT_CHAT_CONTEXT_CHANGED_EVENT =
   "agentNative.chatContextChanged";
 export const AGENT_CHAT_SET_CONTEXT_MESSAGE_TYPE = "agentNative.setChatContext";
@@ -396,6 +406,22 @@ function dispatchAgentChatRunning(isRunning: boolean): void {
   );
 }
 
+function normalizeAgentChatRequestMode(
+  value: unknown,
+): AgentChatRequestMode | undefined {
+  return value === "act" || value === "plan" ? value : undefined;
+}
+
+function readStoredAgentChatRequestMode(): AgentChatRequestMode | undefined {
+  if (typeof window === "undefined") return undefined;
+  try {
+    const saved = window.localStorage.getItem(AGENT_CHAT_EXEC_MODE_KEY);
+    if (saved === "plan") return "plan";
+    if (saved === "build") return "act";
+  } catch {}
+  return undefined;
+}
+
 /**
  * Send a message to the agent chat via postMessage.
  * Returns the stable tabId for tracking this chat run.
@@ -411,10 +437,17 @@ export function sendToAgentChat(opts: AgentChatMessage): string {
     });
     return tabId;
   }
+  const requestMode =
+    normalizeAgentChatRequestMode(opts.requestMode ?? opts.mode) ??
+    readStoredAgentChatRequestMode();
 
   const payload = {
     type: AGENT_CHAT_MESSAGE_TYPE,
-    data: { ...opts, tabId },
+    data: {
+      ...opts,
+      tabId,
+      ...(requestMode ? { mode: requestMode, requestMode } : {}),
+    },
   };
 
   if (opts.submit !== false && isMcpAppChatBridgeEnabled()) {

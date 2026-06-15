@@ -6,13 +6,19 @@ import {
   buildCommentThreads,
   canEditPlanContentRole,
   commentAuthorEmails,
+  commentThreadsForVisualSurfaceMode,
+  commentThreadsForVisibility,
   mentionQueryAtCaret,
+  nativeMarkerPlacementForAnchor,
   runtimeAnnotationFromThread,
   nativePointForAnchor,
   removePlanCommentFromBundle,
   removePlanCommentThreadFromBundle,
   resolveNativeAnchorTarget,
+  selectorForElementWithin,
+  shouldKeepCommentPopoverOpenForTarget,
 } from "./PlansPage";
+import { planBundleQueryKey } from "@/hooks/use-plans";
 import type { PlanBundle } from "@shared/types";
 
 type PlanComment = PlanBundle["comments"][number];
@@ -72,7 +78,29 @@ function bundleWithComments(comments: PlanComment[]): PlanBundle {
   };
 }
 
+function rect(left: number, top: number, width: number, height: number) {
+  return {
+    left,
+    top,
+    width,
+    height,
+    right: left + width,
+    bottom: top + height,
+    x: left,
+    y: top,
+    toJSON: () => ({}),
+  } as DOMRect;
+}
+
 describe("plan comment thread UI model", () => {
+  it("uses the exact get-visual-plan query key for optimistic bundle updates", () => {
+    expect(planBundleQueryKey("plan_1")).toEqual([
+      "action",
+      "get-visual-plan",
+      { id: "plan_1", includeMdx: false, includeHtml: true },
+    ]);
+  });
+
   it("updates the bundle immediately for optimistic comment markers", () => {
     const existing = comment("existing");
     const optimistic = comment("optimistic", {
@@ -147,6 +175,128 @@ describe("plan comment thread UI model", () => {
       commentCount: 2,
       openCommentCount: 2,
     });
+  });
+
+  it("keeps the comment popover open for portalled menu clicks", () => {
+    const popover = document.createElement("div");
+    const inside = document.createElement("button");
+    const marker = document.createElement("button");
+    const menu = document.createElement("div");
+    const menuItem = document.createElement("button");
+    const outside = document.createElement("button");
+
+    popover.append(inside);
+    marker.setAttribute("data-comment-marker", "");
+    menu.setAttribute("data-comment-popover-portal", "");
+    menu.append(menuItem);
+    document.body.append(popover, marker, menu, outside);
+
+    expect(shouldKeepCommentPopoverOpenForTarget(inside, popover)).toBe(true);
+    expect(shouldKeepCommentPopoverOpenForTarget(marker, popover)).toBe(true);
+    expect(shouldKeepCommentPopoverOpenForTarget(menuItem, popover)).toBe(true);
+    expect(shouldKeepCommentPopoverOpenForTarget(outside, popover)).toBe(false);
+
+    popover.remove();
+    marker.remove();
+    menu.remove();
+    outside.remove();
+  });
+
+  it("filters comment threads for the toolbar visibility modes", () => {
+    const openRoot = comment("open-root", {
+      createdAt: "2026-06-05T00:00:01.000Z",
+    });
+    const resolvedRoot = comment("resolved-root", {
+      status: "resolved",
+      createdAt: "2026-06-05T00:00:02.000Z",
+    });
+    const mixedRoot = comment("mixed-root", {
+      status: "resolved",
+      createdAt: "2026-06-05T00:00:03.000Z",
+    });
+    const mixedReply = comment("mixed-reply", {
+      parentCommentId: mixedRoot.id,
+      status: "open",
+      createdAt: "2026-06-05T00:00:04.000Z",
+    });
+    const threads = buildCommentThreads([
+      resolvedRoot,
+      mixedReply,
+      openRoot,
+      mixedRoot,
+    ]);
+
+    expect(
+      commentThreadsForVisibility(threads, "hidden").map((thread) => thread.id),
+    ).toEqual([]);
+    expect(
+      commentThreadsForVisibility(threads, "open").map((thread) => thread.id),
+    ).toEqual(["open-root", "mixed-root"]);
+    expect(
+      commentThreadsForVisibility(threads, "all").map((thread) => thread.id),
+    ).toEqual(["open-root", "resolved-root", "mixed-root"]);
+  });
+
+  it("keeps prototype and wireframe markers scoped to the active visual tab", () => {
+    const prototypeRoot = comment("prototype-root", {
+      anchor: JSON.stringify({
+        x: 50,
+        y: 20,
+        targetKind: "prototype",
+        screenId: "runs",
+      }),
+      createdAt: "2026-06-05T00:00:01.000Z",
+    });
+    const wireframeRoot = comment("wireframe-root", {
+      anchor: JSON.stringify({
+        x: 50,
+        y: 30,
+        targetKind: "wireframe",
+        sectionId: "runs-frame",
+      }),
+      createdAt: "2026-06-05T00:00:02.000Z",
+    });
+    const canvasRoot = comment("canvas-root", {
+      anchor: JSON.stringify({
+        x: 50,
+        y: 40,
+        targetKind: "canvas",
+        canvasX: 120,
+        canvasY: 80,
+      }),
+      createdAt: "2026-06-05T00:00:03.000Z",
+    });
+    const documentRoot = comment("document-root", {
+      anchor: JSON.stringify({
+        x: 50,
+        y: 70,
+        targetKind: "text",
+        textQuote: "Overview",
+      }),
+      createdAt: "2026-06-05T00:00:04.000Z",
+    });
+    const threads = buildCommentThreads([
+      documentRoot,
+      wireframeRoot,
+      prototypeRoot,
+      canvasRoot,
+    ]);
+
+    expect(
+      commentThreadsForVisualSurfaceMode(threads, "prototype").map(
+        (thread) => thread.id,
+      ),
+    ).toEqual(["prototype-root", "document-root"]);
+    expect(
+      commentThreadsForVisualSurfaceMode(threads, "wireframes").map(
+        (thread) => thread.id,
+      ),
+    ).toEqual(["wireframe-root", "canvas-root", "document-root"]);
+    expect(
+      commentThreadsForVisualSurfaceMode(threads, "none").map(
+        (thread) => thread.id,
+      ),
+    ).toEqual(["document-root"]);
   });
 
   it("groups replies and exposes participant avatars for Figma-style pins", () => {
@@ -386,6 +536,230 @@ describe("plan comment thread UI model", () => {
     expect(
       resolveNativeAnchorTarget(activeAnchor as any, reader)?.tagName,
     ).toBe("P");
+
+    reader.remove();
+  });
+
+  it("falls back from a broad text selector to the quoted target before positioning", () => {
+    const reader = document.createElement("div");
+    reader.innerHTML = `
+      <div data-block-id="scope">
+        <section><p id="wrong">Wrong first paragraph</p></section>
+        <section><p id="target">Second target paragraph</p></section>
+      </div>
+    `;
+    document.body.append(reader);
+
+    const wrong = reader.querySelector<HTMLElement>("#wrong")!;
+    const target = reader.querySelector<HTMLElement>("#target")!;
+    Object.defineProperty(reader, "getBoundingClientRect", {
+      value: () => rect(0, 0, 400, 400),
+    });
+    Object.defineProperty(wrong, "getBoundingClientRect", {
+      value: () => rect(20, 40, 200, 24),
+    });
+    Object.defineProperty(target, "getBoundingClientRect", {
+      value: () => rect(20, 140, 200, 24),
+    });
+
+    const anchor = {
+      x: 50,
+      y: 50,
+      sectionId: "scope",
+      textQuote: "Second target paragraph",
+      targetSelector: '[data-block-id="scope"] p:nth-of-type(1)',
+      targetX: 25,
+      targetY: 50,
+    };
+
+    expect(resolveNativeAnchorTarget(anchor as any, reader)).toBe(target);
+    expect(nativePointForAnchor(anchor as any, reader)).toEqual({
+      left: 70,
+      top: 152,
+    });
+
+    reader.remove();
+  });
+
+  it("stores a scoped child path for repeated nested block elements", () => {
+    const reader = document.createElement("div");
+    reader.innerHTML = `
+      <div data-block-id="scope">
+        <section><p id="wrong">Wrong first paragraph</p></section>
+        <section><p id="target">Second target paragraph</p></section>
+      </div>
+    `;
+    document.body.append(reader);
+
+    const target = reader.querySelector<HTMLElement>("#target")!;
+    const selector = selectorForElementWithin(reader, target);
+
+    expect(selector).toBe(
+      '[data-block-id="scope"] > section:nth-of-type(2) > p:nth-of-type(1)',
+    );
+    expect(reader.querySelector(selector!)).toBe(target);
+
+    reader.remove();
+  });
+
+  it("prefers wireframe node identity over a stale block selector", () => {
+    const reader = document.createElement("div");
+    reader.innerHTML = `
+      <div data-block-id="wire-block">
+        <div id="wrong">Earlier block div</div>
+        <div data-canvas-frame="frame_1">
+          <div>
+            <button id="target" data-wire-node-id="cta">Review CTA</button>
+          </div>
+        </div>
+      </div>
+    `;
+    document.body.append(reader);
+
+    const wrong = reader.querySelector<HTMLElement>("#wrong")!;
+    const frame = reader.querySelector<HTMLElement>("[data-canvas-frame]")!;
+    const target = reader.querySelector<HTMLElement>("#target")!;
+    Object.defineProperty(reader, "getBoundingClientRect", {
+      value: () => rect(0, 0, 500, 500),
+    });
+    Object.defineProperty(wrong, "getBoundingClientRect", {
+      value: () => rect(20, 30, 120, 40),
+    });
+    Object.defineProperty(frame, "getBoundingClientRect", {
+      value: () => rect(60, 180, 260, 160),
+    });
+    Object.defineProperty(target, "getBoundingClientRect", {
+      value: () => rect(100, 240, 80, 32),
+    });
+
+    const anchor = {
+      x: 40,
+      y: 50,
+      sectionId: "frame_1",
+      targetKind: "wireframe",
+      targetNodeId: "cta",
+      targetSelector: '[data-block-id="wire-block"] div:nth-of-type(1)',
+      targetX: 50,
+      targetY: 50,
+    };
+
+    expect(resolveNativeAnchorTarget(anchor as any, reader)).toBe(target);
+    expect(nativePointForAnchor(anchor as any, reader)).toEqual({
+      left: 140,
+      top: 256,
+    });
+
+    reader.remove();
+  });
+
+  it("clips canvas comment markers to the canvas viewport instead of the document", () => {
+    const reader = document.createElement("div");
+    reader.innerHTML = `
+      <section class="plan-canvas">
+        <div data-plan-canvas-viewport>
+          <div data-plan-canvas-world></div>
+        </div>
+      </section>
+      <article><h1>Overview</h1></article>
+    `;
+    document.body.append(reader);
+
+    const viewport = reader.querySelector<HTMLElement>(
+      "[data-plan-canvas-viewport]",
+    )!;
+    const world = reader.querySelector<HTMLElement>(
+      "[data-plan-canvas-world]",
+    )!;
+    Object.defineProperty(reader, "getBoundingClientRect", {
+      value: () => rect(0, 0, 1000, 800),
+    });
+    Object.defineProperty(viewport, "getBoundingClientRect", {
+      value: () => rect(0, -240, 1000, 650),
+    });
+    Object.defineProperty(world, "getBoundingClientRect", {
+      value: () => rect(0, -280, 1800, 1400),
+    });
+
+    const anchor = {
+      x: 50,
+      y: 80,
+      anchorKind: "visual",
+      targetKind: "canvas",
+      visualX: 50,
+      visualY: 90,
+      canvasX: 900,
+      canvasY: 1260,
+    };
+
+    const placement = nativeMarkerPlacementForAnchor(anchor as any, reader);
+
+    expect(placement).toEqual({
+      clip: {
+        left: 0,
+        top: -240,
+        width: 1000,
+        height: 650,
+      },
+      marker: {
+        left: 900,
+        top: 1220,
+      },
+    });
+
+    reader.remove();
+  });
+
+  it("clips legacy canvas-world visual markers to the canvas viewport", () => {
+    const reader = document.createElement("div");
+    reader.innerHTML = `
+      <section class="plan-canvas">
+        <div data-plan-canvas-viewport>
+          <div data-plan-canvas-world></div>
+        </div>
+      </section>
+      <article><h1>Overview</h1></article>
+    `;
+    document.body.append(reader);
+
+    const viewport = reader.querySelector<HTMLElement>(
+      "[data-plan-canvas-viewport]",
+    )!;
+    const world = reader.querySelector<HTMLElement>(
+      "[data-plan-canvas-world]",
+    )!;
+    Object.defineProperty(reader, "getBoundingClientRect", {
+      value: () => rect(0, 0, 1000, 800),
+    });
+    Object.defineProperty(viewport, "getBoundingClientRect", {
+      value: () => rect(0, -240, 1000, 650),
+    });
+    Object.defineProperty(world, "getBoundingClientRect", {
+      value: () => rect(0, -280, 1800, 1400),
+    });
+
+    const anchor = {
+      x: 50,
+      y: 80,
+      anchorKind: "visual",
+      targetSelector: "[data-plan-canvas-world]",
+      visualX: 50,
+      visualY: 90,
+    };
+
+    const placement = nativeMarkerPlacementForAnchor(anchor as any, reader);
+
+    expect(placement).toEqual({
+      clip: {
+        left: 0,
+        top: -240,
+        width: 1000,
+        height: 650,
+      },
+      marker: {
+        left: 900,
+        top: 1220,
+      },
+    });
 
     reader.remove();
   });

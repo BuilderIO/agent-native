@@ -75,6 +75,7 @@ type PlanContentRendererProps = {
     context: CanvasMarkupCreateContext,
   ) => Promise<void> | void;
   onCanvasViewportChange?: (view: CanvasViewport) => void;
+  onCanvasCommentShortcut?: () => void;
   /** Plan id used to key per-block collaborative editing docs. */
   planId?: string | null;
   /** Current user for collaborative cursor labels. */
@@ -144,6 +145,7 @@ export function PlanContentRenderer({
   canvasMarkupMode,
   onCanvasMarkupCreate,
   onCanvasViewportChange,
+  onCanvasCommentShortcut,
   planId,
   collabUser,
   prototypeOnly = false,
@@ -159,7 +161,7 @@ export function PlanContentRenderer({
   const planLabel = isRecap
     ? "Visual Recap"
     : content.prototype
-      ? "Prototype Plan"
+      ? "Visual Plan"
       : content.canvas?.title === "UI Flow"
         ? "UI Plan"
         : "Visual Plan";
@@ -639,6 +641,7 @@ export function PlanContentRenderer({
             canvasMarkupMode={canvasMarkupMode}
             onCanvasMarkupCreate={onCanvasMarkupCreate}
             onCanvasViewportChange={onCanvasViewportChange}
+            onCanvasCommentShortcut={onCanvasCommentShortcut}
             prototypeOnly={prototypeOnly}
             visualMode={visualSurfaceMode}
             onVisualModeChange={onVisualSurfaceModeChange}

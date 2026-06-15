@@ -21,6 +21,10 @@ window, then read them back selectively for synthesis.
 - **Large API payloads**: use `saveToFile` on `provider-api-request` or
   `web-request` to write a 20 MB dataset to a workspace file instead of
   returning it in context.
+- **Provider-wide search/count/classification**: build a durable corpus first,
+  then search or aggregate it with `run-code`. This is required when the user
+  expects broad recall or when a negative answer such as "no mentions" would be
+  misleading if based on a sample.
 - **Multi-step analyses** that span multiple conversations or agent turns.
 - **run-code aggregation**: call `workspaceRead` / `workspaceWrite` inside a
   `run-code` block to load and process data that's too large to print as output.
@@ -66,6 +70,24 @@ For large fan-outs (account deep dives, Gong call reviews, deal cohorts):
 For very large cohorts (100+ items), use agent-teams sub-agents to process
 chunks in parallel — each sub-agent writes its memos independently, the
 orchestrator synthesizes at the end.
+
+## Corpus-First Provider Search
+
+Use this workflow for arbitrary provider questions where a canned action is too
+narrow, where records must be joined across systems, or where absence matters:
+
+1. Discover the provider surface with `provider-api-catalog` and
+   `provider-api-docs` when endpoint/filter/pagination details are uncertain.
+2. Pull the relevant records with `provider-api-request`. Use `fetchAllPages`
+   for cursor pagination, `stageAs` for queryable staged datasets, and
+   `saveToFile` for large raw responses.
+3. Use `run-code` to call `providerFetch` or `appAction` in loops, write
+   intermediate files, normalize records, join identity fields, and aggregate.
+4. Validate coverage before synthesis. Track pages fetched, records inspected,
+   truncation flags, aborted calls, and records skipped for missing joins.
+5. Finalize with the answer plus coverage and caveats. If coverage is partial,
+   say so directly; never state "none found", "all records", or an exhaustive
+   conclusion from sampled, truncated, or aborted data.
 
 ## saveToFile on Provider API Requests
 

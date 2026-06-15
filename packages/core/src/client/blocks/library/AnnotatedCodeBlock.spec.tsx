@@ -336,9 +336,14 @@ describe("AnnotatedCodeBlock annotations", () => {
             code: ["const one = 1;", "const two = 2;"].join("\n"),
             annotations: [
               {
-                lines: "1-2",
+                lines: "1",
                 label: "Entry",
                 note: "This note is visible without hover.",
+              },
+              {
+                lines: "2",
+                label: "Exit",
+                note: "This note stays collapsed in capture mode.",
               },
             ],
           }}
@@ -346,7 +351,11 @@ describe("AnnotatedCodeBlock annotations", () => {
       );
     });
 
-    const overlay = document.querySelector("[data-annotation-inline-overlay]");
+    const overlays = document.querySelectorAll(
+      "[data-annotation-inline-overlay]",
+    );
+    expect(overlays).toHaveLength(1);
+    const overlay = overlays[0];
     expect(overlay).toBeTruthy();
     expect(
       container.querySelector("[data-annotation-inline-overlay]"),
@@ -356,6 +365,9 @@ describe("AnnotatedCodeBlock annotations", () => {
     ).toBeTruthy();
     expect(overlay?.textContent).toContain(
       "This note is visible without hover.",
+    );
+    expect(overlay?.textContent).not.toContain(
+      "This note stays collapsed in capture mode.",
     );
     expect(document.querySelector("[data-annotation-hover-card]")).toBeNull();
   });

@@ -157,10 +157,12 @@ export function extractItemsArray(
     if (Array.isArray(obj[key])) return obj[key] as unknown[];
   }
 
-  // Single-key object wrapping an array
-  const keys = Object.keys(obj);
-  if (keys.length === 1 && Array.isArray(obj[keys[0]])) {
-    return obj[keys[0]] as unknown[];
+  // Many provider APIs return `{ providerSpecificName: [...], metadata: ... }`.
+  // If exactly one top-level field is an array, treat that as the item list
+  // without hardcoding provider vocabulary.
+  const arrayFields = Object.values(obj).filter(Array.isArray);
+  if (arrayFields.length === 1) {
+    return arrayFields[0] as unknown[];
   }
 
   // If the object itself looks like a flat row, wrap it

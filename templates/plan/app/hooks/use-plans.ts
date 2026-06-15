@@ -213,13 +213,21 @@ export function usePlans(options?: UsePlansOptions) {
   return useActionQuery<PlanSummary[]>("list-visual-plans", {}, options);
 }
 
+export function planBundleQueryParams(id: string) {
+  return { id, includeMdx: false, includeHtml: true } as const;
+}
+
+export function planBundleQueryKey(id: string) {
+  return ["action", "get-visual-plan", planBundleQueryParams(id)] as const;
+}
+
 export function usePlan(
   id?: string,
   pausePollRef?: RefObject<boolean> | { current: boolean },
 ) {
   return useActionQuery<PlanBundle & { html?: string }>(
     "get-visual-plan",
-    { id: id ?? "", includeMdx: false, includeHtml: true },
+    planBundleQueryParams(id ?? ""),
     {
       enabled: !!id,
       // Pause the 3-second poll while a comment mutation is in-flight so
@@ -241,6 +249,8 @@ export type PlanAccessStatusResponse = {
   viewerEmail: string | null;
   viewerName: string | null;
   role: "owner" | "viewer" | "editor" | "admin" | null;
+  orgId: string | null;
+  orgName: string | null;
   visibility: "private" | "org" | "public" | null;
 };
 
@@ -301,7 +311,7 @@ export function useCreatePrototypePlan() {
     CreatePrototypePlanInput
   >("create-prototype-plan", {
     onSuccess: invalidate,
-    onError: showActionError("Failed to create prototype plan"),
+    onError: showActionError("Failed to create visual plan"),
   });
 }
 

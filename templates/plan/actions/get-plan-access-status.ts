@@ -4,6 +4,7 @@ import {
   getRequestUserEmail,
   getRequestUserName,
 } from "@agent-native/core/server/request-context";
+import { organizations } from "@agent-native/core/org";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
@@ -17,6 +18,20 @@ function isRealSignedInUser(email: string | null | undefined): boolean {
   return Boolean(
     email && !isAnonymousPublicViewer(email) && !isGuestAuthorIdentity(email),
   );
+}
+
+async function getOrgName(orgId: string | null | undefined) {
+  if (!orgId) return null;
+  try {
+    const [org] = await getDb()
+      .select({ name: organizations.name })
+      .from(organizations)
+      .where(eq(organizations.id, orgId))
+      .limit(1);
+    return org?.name ?? null;
+  } catch {
+    return null;
+  }
 }
 
 export default defineAction({
@@ -39,6 +54,7 @@ export default defineAction({
     const [plan] = await getDb()
       .select({
         id: schema.plans.id,
+        orgId: schema.plans.orgId,
         visibility: schema.plans.visibility,
       })
       .from(schema.plans)
@@ -53,6 +69,8 @@ export default defineAction({
         viewerEmail,
         viewerName,
         role: null,
+        orgId: null,
+        orgName: null,
         visibility: null,
       };
     }
@@ -62,6 +80,8 @@ export default defineAction({
       planId,
       resolvePlanAccessContext(currentAccess()),
     );
+    const visibility = plan.visibility ?? "private";
+    const canRevealOrg = Boolean(access) || visibility === "org";
 
     return {
       exists: true as const,
@@ -70,7 +90,9 @@ export default defineAction({
       viewerEmail,
       viewerName,
       role: access?.role ?? null,
-      visibility: plan.visibility ?? "private",
+      orgId: canRevealOrg ? (plan.orgId ?? null) : null,
+      orgName: canRevealOrg ? await getOrgName(plan.orgId) : null,
+      visibility,
     };
   },
 });

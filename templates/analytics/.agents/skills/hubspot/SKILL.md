@@ -28,10 +28,11 @@ actions do not expose, inspect the provider catalog/docs and call
 - `hubspot-records` — generic HubSpot search/list for contacts, companies,
   deals, and tickets. Use this to enrich a deep dive with company, contact, or
   ticket records.
-- `hubspot-properties` / `hubspot-deal-properties` — property metadata before
-  requesting custom fields.
 - `hubspot-pipelines` / `hubspot-metrics` — pipeline definitions and aggregate
   sales metrics.
+- For HubSpot **property metadata** (available fields before requesting custom
+  ones) there is no first-class action — call `provider-api-request` (provider
+  `hubspot`, e.g. `/crm/v3/properties/deals`) via `provider-api-docs`.
 - `provider-api-request` with `provider: "hubspot"` — arbitrary HubSpot HTTP
   API calls when first-class actions are too narrow.
 
@@ -122,8 +123,9 @@ For deal cohorts:
 2. Do not use `query` for property-specific filters. `query: "Publish"` is a
    broad HubSpot search across deal text and can include unrelated deals.
 3. Report the cohort count, filters, and date window before synthesizing. If the
-   count looks too low, inspect `hubspot-deal-properties` or use stage-entry
-   date fields via `provider-api-request`.
+   count looks too low, inspect deal property metadata
+   (`/crm/v3/properties/deals`) or use stage-entry date fields via
+   `provider-api-request`.
 4. When pairing a cohort with Gong, use returned deal/company/contact evidence
    to run bounded Gong follow-ups and state Gong coverage separately from the
    HubSpot cohort size.

@@ -305,6 +305,20 @@ describe("extractItemsArray", () => {
     expect(extractItemsArray({ records: [{ x: "a" }] })).toEqual([{ x: "a" }]);
   });
 
+  it("detects a single top-level array field alongside metadata", () => {
+    expect(
+      extractItemsArray({
+        providerSpecificRecords: [{ id: "record-1" }],
+        records: { cursor: "next" },
+      }),
+    ).toEqual([{ id: "record-1" }]);
+    expect(
+      extractItemsArray({
+        providerSpecificEvents: [{ eventId: "event-1" }],
+      }),
+    ).toEqual([{ eventId: "event-1" }]);
+  });
+
   it("detects single-key object wrapping an array", () => {
     expect(extractItemsArray({ charges: [{ amount: 100 }] })).toEqual([
       { amount: 100 },

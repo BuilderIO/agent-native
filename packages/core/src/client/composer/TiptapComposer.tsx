@@ -1598,12 +1598,24 @@ export function TiptapComposer({
 
   const syncComposerState = useCallback(() => {
     const { text, references } = extractComposerPayload();
+    const requestMode =
+      execMode === "plan" ? "plan" : execMode === "build" ? "act" : undefined;
+    const custom: {
+      references?: Reference[];
+      requestMode?: "act" | "plan";
+    } = {};
+    if (references.length > 0) {
+      custom.references = references;
+    }
+    if (requestMode) {
+      custom.requestMode = requestMode;
+    }
     composerRuntime.setText(text);
     composerRuntime.setRunConfig(
-      references.length > 0 ? { custom: { references } } : {},
+      Object.keys(custom).length > 0 ? { custom } : {},
     );
     return { text, references };
-  }, [composerRuntime, extractComposerPayload]);
+  }, [composerRuntime, execMode, extractComposerPayload]);
 
   const submitComposer = useCallback(
     (intent: ComposerSubmitIntent = "immediate") => {
@@ -1661,6 +1673,12 @@ export function TiptapComposer({
           sendToAgentChat({
             message,
             context: config.getContext(modePrompt),
+            mode:
+              execMode === "plan"
+                ? "plan"
+                : execMode === "build"
+                  ? "act"
+                  : undefined,
             submit: true,
           });
         }

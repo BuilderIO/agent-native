@@ -6,6 +6,7 @@ import {
   useState,
   type CSSProperties,
   type FormEvent,
+  type KeyboardEvent as ReactKeyboardEvent,
   type PointerEvent as ReactPointerEvent,
   type RefObject,
 } from "react";
@@ -99,6 +100,7 @@ export function CanvasArea({
   markupMode = "none",
   onCanvasMarkupCreate,
   onViewportChange,
+  onCommentShortcut,
   selectedDesignElementKey,
   onDesignElementSelect,
 }: {
@@ -110,6 +112,7 @@ export function CanvasArea({
     context: CanvasMarkupCreateContext,
   ) => Promise<void> | void;
   onViewportChange?: (view: CanvasViewport) => void;
+  onCommentShortcut?: () => void;
   selectedDesignElementKey?: string | null;
   onDesignElementSelect?: (selection: DesignElementSelection) => void;
 }) {
@@ -418,6 +421,9 @@ export function CanvasArea({
     },
     [zoomAtAnchor],
   );
+  const resetZoom = useCallback(() => {
+    zoomAtAnchor(() => 1);
+  }, [zoomAtAnchor]);
 
   useEffect(() => {
     if (isCanvasMarkupMode) return;
@@ -562,6 +568,9 @@ export function CanvasArea({
     const target = event.target as HTMLElement;
     // Don't start a pan when grabbing interactive chrome (zoom controls etc.).
     if (event.button === 0 && target.closest("[data-plan-interactive]")) return;
+    if (!isEditableShortcutTarget(target)) {
+      event.currentTarget.focus({ preventScroll: true });
+    }
     if (
       event.button === 0 &&
       onDesignElementSelect &&
@@ -597,6 +606,35 @@ export function CanvasArea({
       panY: pan.y,
     });
   };
+  const onViewportKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+    if (
+      event.target === event.currentTarget &&
+      event.key.toLowerCase() === "c" &&
+      !event.metaKey &&
+      !event.ctrlKey &&
+      !event.altKey &&
+      !event.shiftKey &&
+      !event.defaultPrevented &&
+      onCommentShortcut
+    ) {
+      event.preventDefault();
+      event.stopPropagation();
+      onCommentShortcut();
+      return;
+    }
+    if (
+      event.key !== "0" ||
+      !(event.metaKey || event.ctrlKey) ||
+      event.altKey ||
+      event.shiftKey ||
+      isEditableShortcutTarget(event.target)
+    ) {
+      return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    resetZoom();
+  };
 
   return (
     <section
@@ -610,7 +648,8 @@ export function CanvasArea({
           reviewCursor
             ? "cursor-crosshair active:cursor-crosshair"
             : "cursor-grab active:cursor-grabbing"
-        }`}
+        } focus:outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[hsl(var(--ring)/0.45)]`}
+        tabIndex={0}
         style={
           {
             backgroundPosition: `${pan.x}px ${pan.y}px`,
@@ -620,6 +659,7 @@ export function CanvasArea({
           } as CSSProperties
         }
         onPointerDown={onPointerDown}
+        onKeyDown={onViewportKeyDown}
         onPointerMove={(event) => {
           if (draftCallout?.pointerId === event.pointerId) {
             const point = clientPointToWorld(event);
@@ -859,6 +899,17 @@ function sameCanvasView(a: CanvasView, b: CanvasView) {
     Math.abs(a.zoom - b.zoom) < 0.0001 &&
     Math.abs(a.pan.x - b.pan.x) < 0.0001 &&
     Math.abs(a.pan.y - b.pan.y) < 0.0001
+  );
+}
+
+function isEditableShortcutTarget(target: EventTarget | null) {
+  return (
+    target instanceof HTMLElement &&
+    Boolean(
+      target.closest(
+        "input, textarea, select, [contenteditable='true'], [role='textbox']",
+      ),
+    )
   );
 }
 

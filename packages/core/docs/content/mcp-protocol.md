@@ -103,17 +103,22 @@ See [MCP Apps](/docs/mcp-apps#mcp-app-bridge) for the full embed bridge details 
 
 ## Tools {#tools}
 
-Stdio/code developer clients can see all connected app actions as MCP tools
-when they explicitly request the full catalog. Chat-style app hosts, including
-OAuth callers that request `mcp:apps` and generic authenticated remote
-HTTP/static-token callers, get a compact app-host catalog by default:
-app-facing builtins (`list_apps`, `open_app`, `ask_app`, and app-only
-`create_embed_session`) plus rare actions marked `mcpApp.compactCatalog: true`.
-Their `resources/list` is compact too, normally advertising only the generic
-`open_app` embed resource. `publicAgent.expose` remains the opt-in for safe
-read/ingest tools outside that compact app catalog. This keeps ChatGPT/Claude
-app-host discovery small while preserving the full developer surface for local
-agents.
+Every caller gets a compact app-host catalog by default — chat-style app hosts
+(OAuth callers that request `mcp:apps` and generic authenticated remote
+HTTP/static-token callers), code/stdio developer clients, and the local CLI
+proxy alike: app-facing builtins (`list_apps`, `open_app`, `ask_app`, and
+app-only `create_embed_session`), the template-declared app actions, and rare
+actions marked `mcpApp.compactCatalog: true`. Their `resources/list` is compact
+too, normally advertising only the generic `open_app` embed resource. The
+catalog is never inferred from the client name or user-agent. The full action
+surface is served only on explicit opt-in — a token minted with `--full-catalog`
+(`catalog_scope: "full"`) or the deployment-wide `AGENT_NATIVE_MCP_FULL_CATALOG=1`
+override. `tool-search` is always available, including in the compact catalog:
+call it with no query for the full menu of tool names and one-line descriptions,
+or with a query for ranked matches with parameter summaries, to reach any tool
+on demand. `publicAgent.expose` remains the opt-in for safe read/ingest tools
+outside that compact app catalog. This keeps ChatGPT/Claude app-host discovery
+small while keeping every tool reachable.
 
 The mapping is direct:
 

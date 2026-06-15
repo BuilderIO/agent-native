@@ -186,6 +186,26 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
     expect(chatHandleMocks.prefillMessage).not.toHaveBeenCalled();
   });
 
+  it("preserves plan mode on submitted bridge messages", () => {
+    act(() => {
+      root.render(
+        <MultiTabAssistantChat storageKey="bridge-test" execMode="plan" />,
+      );
+    });
+
+    act(() => {
+      dispatchSubmitChat({
+        message: "Plan this first",
+      });
+    });
+
+    expect(chatHandleMocks.sendMessage).toHaveBeenCalledWith(
+      "Plan this first",
+      undefined,
+      { requestMode: "plan" },
+    );
+  });
+
   it("starts background new-tab sends without focusing the new tab", async () => {
     act(() => {
       dispatchSubmitChat({

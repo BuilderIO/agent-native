@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
+  hasExplicitPartialDisclosure,
   hasDataQueryAttempt,
+  hasIncompleteDataEvidence,
   isSafeNoDataAnalyticsResponse,
+  looksLikeStrongCoverageClaim,
   looksLikeAnalyticsDataRequest,
   stripInjectedAnalyticsGuardContext,
 } from "./real-data-actions";
@@ -49,10 +52,10 @@ describe("real data action classification", () => {
     expect(
       hasDataQueryAttempt([
         {
-          name: "pylon-issues",
+          name: "gong-calls",
           content: JSON.stringify({
             error: "missing_api_key",
-            message: "Connect your Pylon account.",
+            message: "Connect your Gong account.",
           }),
         },
       ]),
@@ -210,5 +213,71 @@ describe("safe no-data analytics responses", () => {
     expect(
       isSafeNoDataAnalyticsResponse("The data shows 42 signups last week."),
     ).toBe(false);
+  });
+});
+
+describe("incomplete evidence detection", () => {
+  it("detects aborted and timed-out data source reads", () => {
+    expect(
+      hasIncompleteDataEvidence([
+        {
+          name: "gong-calls",
+          content: "Error running gong-calls: Run aborted",
+        },
+      ]),
+    ).toBe(true);
+    expect(
+      hasIncompleteDataEvidence([
+        {
+          name: "provider-api-request",
+          isError: true,
+          content: "Tool call timed out",
+        },
+      ]),
+    ).toBe(true);
+  });
+
+  it("detects structured truncation and pagination hints", () => {
+    expect(
+      hasIncompleteDataEvidence([
+        {
+          name: "run-code",
+          content: JSON.stringify({
+            ok: true,
+            rows: [{ id: 1 }],
+            truncated: true,
+          }),
+        },
+      ]),
+    ).toBe(true);
+    expect(
+      hasIncompleteDataEvidence([
+        {
+          name: "provider-api-request",
+          content: JSON.stringify({
+            response: {
+              json: {
+                data: [{ id: 1 }],
+                nextCursor: "abc",
+              },
+            },
+          }),
+        },
+      ]),
+    ).toBe(true);
+  });
+
+  it("recognizes strong coverage claims but allows explicit partial wording", () => {
+    expect(
+      looksLikeStrongCoverageClaim("I found zero mentions in the transcripts."),
+    ).toBe(true);
+    expect(
+      looksLikeStrongCoverageClaim("I reviewed every call in the cohort."),
+    ).toBe(true);
+    expect(
+      hasExplicitPartialDisclosure(
+        "This is partial: I only inspected the first 20 calls.",
+      ),
+    ).toBe(true);
   });
 });

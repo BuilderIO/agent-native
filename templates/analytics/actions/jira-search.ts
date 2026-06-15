@@ -7,6 +7,9 @@ import {
 } from "./_provider-action-utils";
 
 export default defineAction({
+  // Read-only provider query: safe to call from run-code `appAction` and
+  // reusable across continuation retries (no re-fetch on resume).
+  readOnly: true,
   description:
     "Search Jira issues using JQL. Use this first when the user asks to search Jira tickets, issues, bugs, or project work. Do not use BigQuery for Jira data unless the user explicitly asks for a warehouse copy.",
   schema: z.object({

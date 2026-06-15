@@ -7,6 +7,7 @@ import {
   type GongCallLike,
 } from "./gong-limits";
 import {
+  buildGongSearchResult,
   gongSearchVariants,
   matchesGongCallQuery,
   type GongCall,
@@ -75,5 +76,44 @@ describe("Gong call search matching", () => {
     expect(matchesGongCallQuery(call, "theknot.com")).toBe(true);
     expect(matchesGongCallQuery(call, "Jane Buyer")).toBe(true);
     expect(matchesGongCallQuery(call, "Unrelated Account")).toBe(false);
+  });
+});
+
+describe("buildGongSearchResult", () => {
+  const matched = [
+    { id: "a", started: "2026-05-01T10:00:00Z" },
+    { id: "b", started: "2026-05-03T10:00:00Z" },
+    { id: "c", started: "2026-05-02T10:00:00Z" },
+  ] as (GongCall & { matchedQueries?: string[] })[];
+
+  it("caps to the newest `limit` and flags truncation when not exhaustive", () => {
+    const result = buildGongSearchResult(matched, 2, {
+      searchedCallCount: 50,
+      queryCount: 1,
+      cursor: "next-page",
+      exhaustive: false,
+    });
+
+    expect(result.calls.map((c) => c.id)).toEqual(["b", "c"]);
+    expect(result.truncated).toBe(true);
+    expect(result.coverageTruncated).toBe(true);
+    expect(result.matchedCallCount).toBe(3);
+  });
+
+  it("returns every match newest-first and untruncated when exhaustive", () => {
+    const result = buildGongSearchResult(matched, 2, {
+      searchedCallCount: 50,
+      queryCount: 1,
+      cursor: "next-page",
+      exhaustive: true,
+    });
+
+    // All three returned despite limit=2 and a remaining cursor.
+    expect(result.calls.map((c) => c.id)).toEqual(["b", "c", "a"]);
+    expect(result.calls).toHaveLength(3);
+    expect(result.limit).toBe(3);
+    expect(result.truncated).toBe(false);
+    expect(result.coverageTruncated).toBe(false);
+    expect(result.matchedCallCount).toBe(3);
   });
 });

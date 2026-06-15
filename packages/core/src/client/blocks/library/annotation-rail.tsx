@@ -142,8 +142,8 @@ export function AnnotationGutterMarker({
       className={cn(
         "inline-flex size-[15px] shrink-0 items-center justify-center rounded-full text-[9px] font-semibold leading-none tabular-nums transition-colors",
         active
-          ? "bg-amber-500 text-white dark:bg-amber-400 dark:text-amber-950"
-          : "bg-amber-400/25 text-amber-700 dark:bg-amber-300/20 dark:text-amber-300",
+          ? "bg-yellow-400 text-yellow-950 dark:bg-yellow-300 dark:text-yellow-950"
+          : "bg-yellow-300/25 text-yellow-800 dark:bg-yellow-300/16 dark:text-yellow-200",
         className,
       )}
     >
@@ -184,8 +184,8 @@ export function AnnotationCard<A extends RailAnnotation>({
       className={cn(
         "rounded-lg border px-3.5 py-2.5 shadow-lg shadow-black/10 backdrop-blur-md transition-colors dark:shadow-black/40",
         active
-          ? "border-amber-400/70 bg-amber-50/95 dark:border-amber-300/60 dark:bg-amber-900/70"
-          : "border-plan-line bg-plan-block hover:border-amber-400/50",
+          ? "border-yellow-300/80 bg-yellow-50/95 dark:border-yellow-200/35 dark:bg-yellow-300/16"
+          : "border-plan-line bg-plan-block hover:border-yellow-300/45",
         className,
       )}
     >
@@ -428,7 +428,7 @@ export function AnnotationInlineOverlayStack<A extends RailAnnotation>({
                 ctx={ctx}
                 active
                 showMarker={showMarker}
-                className="border-amber-400/80 bg-amber-50/95 shadow-lg shadow-black/10 backdrop-blur-md dark:border-amber-300/60 dark:bg-amber-900/70 dark:shadow-black/50"
+                className="border-yellow-300/80 bg-yellow-50/95 shadow-lg shadow-black/10 backdrop-blur-md dark:border-yellow-200/35 dark:bg-yellow-300/16 dark:shadow-black/50"
               />
             ))}
           </div>,

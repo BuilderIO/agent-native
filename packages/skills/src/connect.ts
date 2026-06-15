@@ -45,9 +45,6 @@ const REMOTE_MCP_OAUTH_CLIENTS = new Set<ClientId>([
   "claude-code-cli",
 ]);
 
-/** Identical to core: ask the deployed app to expose the full action catalog. */
-const MCP_FULL_CATALOG_HEADER = "X-Agent-Native-MCP-Full-Catalog";
-
 // ---------------------------------------------------------------------------
 // Public types
 // ---------------------------------------------------------------------------
@@ -186,13 +183,6 @@ function configKeys(descriptor: McpDescriptor): string[] {
   return keys;
 }
 
-/** Always tag bearer-bearing entries so the client sees the full catalog. */
-function withFullCatalogHeader(
-  headers: Record<string, string> | undefined,
-): Record<string, string> {
-  return { ...(headers ?? {}), [MCP_FULL_CATALOG_HEADER]: "1" };
-}
-
 function responseMessage(json: any, fallback: string): string {
   const message =
     typeof json?.message === "string"
@@ -312,7 +302,7 @@ function writeAuthedEntries(
           token,
           baseDir,
           scope,
-          withFullCatalogHeader(headers),
+          headers,
         );
         written.push({ client, file });
       } catch (err: any) {

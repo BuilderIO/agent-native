@@ -246,7 +246,6 @@ describe("handleMcpConnect", () => {
         url: "https://mail.agent-native.com/_agent-native/mcp",
         headers: {
           Authorization: `Bearer ${data.token}`,
-          "X-Agent-Native-MCP-Full-Catalog": "1",
         },
       });
       expect(data.cli).toBe(
@@ -319,8 +318,10 @@ describe("handleMcpConnect", () => {
       });
       expect(data.mcpServerEntry.headers).toMatchObject({
         Authorization: `Bearer ${data.token}`,
-        "X-Agent-Native-MCP-Full-Catalog": "1",
       });
+      expect(data.mcpServerEntry.headers).not.toHaveProperty(
+        "X-Agent-Native-MCP-Full-Catalog",
+      );
       expect(Math.round(lifetimeDays)).toBe(365);
       expect(tokenRows[0]).toMatchObject({
         jti: verified?.jti,
@@ -345,7 +346,6 @@ describe("handleMcpConnect", () => {
         url: "http://localhost:4321/_agent-native/mcp",
         headers: {
           "X-Agent-Native-Owner-Email": "u@example.com",
-          "X-Agent-Native-MCP-Full-Catalog": "1",
         },
       });
     });
@@ -570,7 +570,6 @@ describe("handleMcpConnect", () => {
       expect(data.token).toBe("");
       expect(data.mcpServerEntry.headers).toEqual({
         "X-Agent-Native-Owner-Email": "u@example.com",
-        "X-Agent-Native-MCP-Full-Catalog": "1",
       });
     });
 
@@ -612,8 +611,10 @@ describe("handleMcpConnect", () => {
       });
       expect(data.mcpServerEntry.headers).toMatchObject({
         Authorization: `Bearer ${data.token}`,
-        "X-Agent-Native-MCP-Full-Catalog": "1",
       });
+      expect(data.mcpServerEntry.headers).not.toHaveProperty(
+        "X-Agent-Native-MCP-Full-Catalog",
+      );
       expect(Math.round(lifetimeDays)).toBe(365);
       expect(verified?.jti).toBeTruthy();
       expect(tokenRows[0]).toMatchObject({

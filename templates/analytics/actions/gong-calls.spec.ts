@@ -83,11 +83,45 @@ describe("gong-calls action", () => {
       transcriptMaxChars: 5_000,
     })) as Record<string, any>;
 
-    expect(searchCalls).toHaveBeenCalledWith("The Knot", 90, 8);
+    expect(searchCalls).toHaveBeenCalledWith("The Knot", 90, 8, {
+      exhaustive: false,
+    });
     expect(getCallTranscript).toHaveBeenCalledWith("call-1");
     expect(result.transcripts).toHaveLength(1);
     expect(result.transcripts[0].text).toContain("Budget is the blocker.");
     expect(result.guidance).toContain("Loaded transcript excerpts");
+  });
+
+  it("exhaustive discovery passes the window, returns all calls, and skips transcripts", async () => {
+    searchCalls.mockResolvedValue({
+      calls: [
+        { id: "c1", title: "Acme sync", started: "2026-05-03T10:00:00Z" },
+        { id: "c2", title: "Acme review", started: "2026-05-01T10:00:00Z" },
+      ],
+      limit: 2,
+      truncated: false,
+      matchedCallCount: 2,
+      coverageTruncated: false,
+    });
+
+    const result = (await gongCalls.run({
+      company: "Acme",
+      exhaustive: true,
+      after: "2025-07-01",
+      // includeTranscripts must be ignored in exhaustive mode so the discovery
+      // pass stays cheap and under the function timeout.
+      includeTranscripts: true,
+      transcriptLimit: 5,
+    })) as Record<string, any>;
+
+    expect(searchCalls).toHaveBeenCalledWith("Acme", 90, 8, {
+      exhaustive: true,
+      fromDateTime: "2025-07-01T00:00:00.000Z",
+    });
+    expect(getCallTranscript).not.toHaveBeenCalled();
+    expect(result.transcripts).toBeUndefined();
+    expect(result.total).toBe(2);
+    expect(result.guidance).toContain("Exhaustive discovery");
   });
 
   it("honors string false for transcript loading from GET query params", async () => {

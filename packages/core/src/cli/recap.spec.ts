@@ -7,15 +7,12 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   RECAP_DIFF_BYTE_CAP,
-  RECAP_MCP_REQUIRED_TOOLS,
   appendGateSkipLine,
   buildRecapFailureDiagnostic,
   buildRecapSetupPlan,
   buildCommentBody,
   buildGateSkipCommentBody,
   buildGateSkipLine,
-  buildRecapClaudeMcpConfig,
-  buildRecapCodexMcpConfig,
   buildRecapPrompt,
   buildReusableCallerWorkflow,
   canonicalRecapUrl,
@@ -23,20 +20,25 @@ import {
   countDiffLines,
   diffContainsSecret,
   evaluateRecapGate,
+  fetchRecapBlockReference,
   inferLocalRecapUrlFailureReason,
+  isPullRequestHeadCurrent,
   isRecapSensitivePath,
+  launchRecapChromium,
   lineMatchesAllowlist,
   normalizeRecapAgent,
   normalizeRecapSecretScanMode,
   parseClaudeUsage,
   parseCodexUsage,
   parseRecapScanAllowlist,
+  publishRecapSource,
   recapCheckOutcome,
   recapRequiredSecrets,
   readVisualRecapSkillBundle,
+  readRecapSourcePayload,
   sanitizeAgentFailureSummary,
   sortDiffSourceFirst,
-  smokeRecapMcpTools,
+  runShot,
   summarizeAgentRun,
   summarizeLocalAgentFailure,
   summarizeAgentResult,
@@ -75,11 +77,8 @@ function textResponse(text: string, status = 200): Response {
   } as unknown as Response;
 }
 
-function jsonRpcResponse(result: unknown, status = 200): Response {
-  return textResponse(
-    JSON.stringify({ jsonrpc: "2.0", id: 1, result }),
-    status,
-  );
+function jsonResponse(result: unknown, status = 200): Response {
+  return textResponse(JSON.stringify(result), status);
 }
 
 describe("recap secret scan", () => {
@@ -374,194 +373,142 @@ describe("countDiffLines", () => {
   });
 });
 
-describe("recap mcp-config", () => {
-  it("writes valid Claude JSON with the plan url + bearer header", () => {
-    const json = buildRecapClaudeMcpConfig(
-      "https://plan.agent-native.com/",
-      "tok-123",
-    );
-    const parsed = JSON.parse(json);
-    expect(parsed.mcpServers.plan).toEqual({
-      type: "http",
-      // Trailing slash trimmed before appending the mcp path.
-      url: "https://plan.agent-native.com/_agent-native/mcp",
-      headers: {
-        Authorization: "Bearer tok-123",
-        "X-Agent-Native-MCP-Client": "agent-native-pr-visual-recap",
-        "X-Agent-Native-MCP-Full-Catalog": "1",
-      },
-    });
-    expect(parsed.mcpServers["agent-native-plans"]).toEqual(
-      parsed.mcpServers.plan,
-    );
-  });
-
-  it("writes Codex TOML with a JSON-stringified url, env-var bearer, and full-catalog headers", () => {
-    const toml = buildRecapCodexMcpConfig("https://plan.agent-native.com");
-    expect(toml).toBe(
-      [
-        "[mcp_servers.plan]",
-        'url = "https://plan.agent-native.com/_agent-native/mcp"',
-        'bearer_token_env_var = "PLAN_RECAP_TOKEN"',
-        'http_headers = { "X-Agent-Native-MCP-Client" = "agent-native-pr-visual-recap", "X-Agent-Native-MCP-Full-Catalog" = "1" }',
-        "",
-      ].join("\n"),
-    );
-  });
-
-  it("JSON-stringifies the Codex url so a stray quote can't break the TOML", () => {
-    // A pathological app-url containing a quote must be escaped inside the TOML
-    // basic string, never break out of it.
-    const toml = buildRecapCodexMcpConfig('https://evil"\n[hacked]');
-    // The url line stays a single, properly-escaped basic string.
-    expect(toml).toContain(
-      'url = "https://evil\\"\\n[hacked]/_agent-native/mcp"',
-    );
-    // No injected table header on its own line.
-    expect(toml).not.toMatch(/^\[hacked\]/m);
-  });
-});
-
-describe("recap mcp-smoke", () => {
-  it("probes the Plan MCP tool catalog with the recap client headers", async () => {
-    const calls: Array<{
-      url: string;
-      method: string;
-      headers: Record<string, string>;
-      body: any;
-    }> = [];
-    const fetchFn: typeof fetch = (async (input, init) => {
-      const body = JSON.parse(String(init?.body ?? "{}"));
-      calls.push({
-        url: String(input),
-        method: String(init?.method ?? "GET"),
-        headers: init?.headers as Record<string, string>,
-        body,
-      });
-      if (body.method === "initialize") {
-        return jsonRpcResponse({
-          protocolVersion: "2025-06-18",
-          serverInfo: { name: "plan", version: "test" },
-          capabilities: {},
+describe("recap direct publish", () => {
+  it("fetches the live block reference through the public action route", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "an-recap-blocks-"));
+    try {
+      const calls: Array<{ url: string; method: string }> = [];
+      const fetchFn: typeof fetch = (async (input, init) => {
+        calls.push({
+          url: String(input),
+          method: String(init?.method ?? "GET"),
         });
-      }
-      return jsonRpcResponse({
-        tools: RECAP_MCP_REQUIRED_TOOLS.map((name) => ({ name })),
+        return jsonResponse({
+          reference: "## Blocks\n\n| type | tag |",
+          count: 12,
+        });
+      }) as typeof fetch;
+
+      const out = path.join(dir, "recap-blocks.md");
+      const result = await fetchRecapBlockReference({
+        appUrl: "https://plan.agent-native.com/",
+        out,
+        fetchFn,
       });
-    }) as typeof fetch;
 
-    const result = await smokeRecapMcpTools({
-      appUrl: "https://plan.agent-native.com/",
-      token: "tok-123456789",
-      fetchFn,
-    });
-
-    expect(result.ok).toBe(true);
-    expect(result.mcpUrl).toBe(
-      "https://plan.agent-native.com/_agent-native/mcp",
-    );
-    expect(result.toolCount).toBe(RECAP_MCP_REQUIRED_TOOLS.length);
-    expect(calls.map((call) => call.body.method)).toEqual([
-      "initialize",
-      "tools/list",
-    ]);
-    expect(calls[0].url).toBe(
-      "https://plan.agent-native.com/_agent-native/mcp",
-    );
-    expect(calls[0].method).toBe("POST");
-    expect(calls[0].headers.authorization).toBe("Bearer tok-123456789");
-    expect(calls[0].headers["x-agent-native-mcp-client"]).toBe(
-      "agent-native-pr-visual-recap",
-    );
-    expect(calls[0].headers["x-agent-native-mcp-full-catalog"]).toBe("1");
-    expect(calls[0].headers["mcp-protocol-version"]).toBe("2025-06-18");
-  });
-
-  it("bounds each smoke probe with an abort timeout signal", async () => {
-    const signals: Array<unknown> = [];
-    const fetchFn: typeof fetch = (async (_input, init) => {
-      signals.push(init?.signal);
-      const body = JSON.parse(String(init?.body ?? "{}"));
-      if (body.method === "initialize") {
-        return jsonRpcResponse({ protocolVersion: "2025-06-18" });
-      }
-      return jsonRpcResponse({
-        tools: RECAP_MCP_REQUIRED_TOOLS.map((name) => ({ name })),
-      });
-    }) as typeof fetch;
-
-    const result = await smokeRecapMcpTools({
-      appUrl: "https://plan.agent-native.com",
-      token: "tok-123456789",
-      fetchFn,
-    });
-
-    expect(result.ok).toBe(true);
-    // initialize + tools/list each get their own abort-timeout signal so a
-    // single stuck attempt can't block the whole job past undici's default.
-    expect(signals.length).toBe(2);
-    for (const signal of signals) {
-      expect(signal).toBeInstanceOf(AbortSignal);
+      expect(result).toEqual({ ok: true, out, count: 12 });
+      expect(calls[0].url).toBe(
+        "https://plan.agent-native.com/_agent-native/actions/get-plan-blocks?format=reference",
+      );
+      expect(calls[0].method).toBe("GET");
+      expect(fs.readFileSync(out, "utf8")).toContain("## Blocks");
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
     }
   });
 
-  it("treats a timed-out probe as a retryable smoke failure", async () => {
-    const fetchFn: typeof fetch = (async () => {
-      const err = new Error("The operation timed out.");
-      err.name = "TimeoutError";
-      throw err;
-    }) as typeof fetch;
+  it("validates and publishes recap-source.json with CI-owned metadata", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "an-recap-publish-"));
+    try {
+      const source = path.join(dir, "recap-source.json");
+      const out = path.join(dir, "recap-url.txt");
+      fs.writeFileSync(
+        source,
+        JSON.stringify({
+          title: "Visual recap - auth changes",
+          brief: "Shows the API and UI changes.",
+          mdx: {
+            "plan.mdx":
+              '---\ntitle: Auth recap\n---\n\n<RichText id="a" data={{ markdown: "## Done" }} />\n',
+          },
+        }),
+      );
 
-    const result = await smokeRecapMcpTools({
-      appUrl: "https://plan.agent-native.com",
-      token: "tok-123456789",
-      fetchFn,
-    });
+      const bodies: any[] = [];
+      const fetchFn: typeof fetch = (async (input, init) => {
+        expect(String(input)).toBe(
+          "https://plan.agent-native.com/_agent-native/actions/create-visual-recap",
+        );
+        expect((init?.headers as Record<string, string>).authorization).toBe(
+          "Bearer plan-token",
+        );
+        bodies.push(JSON.parse(String(init?.body ?? "{}")));
+        return jsonResponse({
+          planId: "recap-abc123",
+          url: "/recaps/recap-abc123",
+        });
+      }) as typeof fetch;
 
-    expect(result.ok).toBe(false);
-    expect(result.summary).toContain("Plan MCP smoke check");
+      const result = await publishRecapSource({
+        appUrl: "https://plan.agent-native.com",
+        token: "plan-token",
+        sourcePath: source,
+        out,
+        prevPlanId: "recap-prev",
+        repo: "BuilderIO/ai-services",
+        pr: "5440",
+        fetchFn,
+        cwd: dir,
+      });
+
+      expect(result.url).toBe(
+        "https://plan.agent-native.com/recaps/recap-abc123",
+      );
+      expect(fs.readFileSync(out, "utf8").trim()).toBe(result.url);
+      expect(bodies[0]).toMatchObject({
+        planId: "recap-prev",
+        title: "Visual recap - auth changes",
+        brief: "Shows the API and UI changes.",
+        visibility: "org",
+        source: "imported",
+        repoPath: "BuilderIO/ai-services",
+        sourceUrl: "https://github.com/BuilderIO/ai-services/pull/5440",
+        currentFocus: "visual recap review",
+        status: "review",
+      });
+      expect(bodies[0].mdx["plan.mdx"]).toContain("Auth recap");
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
   });
 
-  it("fails loudly when tools/list omits recap publishing tools", async () => {
-    const fetchFn: typeof fetch = (async (_input, init) => {
-      const body = JSON.parse(String(init?.body ?? "{}"));
-      if (body.method === "initialize") {
-        return jsonRpcResponse({ protocolVersion: "2025-06-18" });
-      }
-      return jsonRpcResponse({ tools: [] });
-    }) as typeof fetch;
-
-    const result = await smokeRecapMcpTools({
-      appUrl: "https://plan.agent-native.com",
-      token: "tok-123456789",
-      fetchFn,
-    });
-
-    expect(result.ok).toBe(false);
-    expect(result.summary).toContain("Plan MCP smoke check failed");
-    expect(result.summary).toContain("tools/list returned 0 tools");
-    expect(result.summary).toContain("create-visual-recap");
-    expect(result.summary).toContain("get-plan-blocks");
-    expect(result.summary).toContain("set-resource-visibility");
+  it("rejects malformed recap source before publishing", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "an-recap-source-"));
+    try {
+      const source = path.join(dir, "recap-source.json");
+      fs.writeFileSync(source, JSON.stringify({ mdx: {} }));
+      expect(() => readRecapSourcePayload(source)).toThrow(
+        /plan\.mdx.*non-empty/,
+      );
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
   });
 
-  it("redacts bearer tokens from HTTP failure diagnostics", async () => {
+  it("checks whether the workflow head sha is still current", async () => {
     const fetchFn: typeof fetch = (async () =>
-      textResponse(
-        "Authorization: Bearer tok-secret-value",
-        401,
-      )) as typeof fetch;
+      jsonResponse({ head: { sha: "abc123" } })) as typeof fetch;
 
-    const result = await smokeRecapMcpTools({
-      appUrl: "https://plan.agent-native.com",
-      token: "tok-secret-value",
-      fetchFn,
-    });
-
-    expect(result.ok).toBe(false);
-    expect(result.summary).toContain("HTTP 401");
-    expect(result.summary).toContain("Bearer [redacted]");
-    expect(result.summary).not.toContain("tok-secret-value");
+    await expect(
+      isPullRequestHeadCurrent({
+        token: "gh-token",
+        owner: "BuilderIO",
+        repo: "ai-services",
+        issue: "5440",
+        headSha: "abc123",
+        fetchFn,
+      }),
+    ).resolves.toBe(true);
+    await expect(
+      isPullRequestHeadCurrent({
+        token: "gh-token",
+        owner: "BuilderIO",
+        repo: "ai-services",
+        issue: "5440",
+        headSha: "def456",
+        fetchFn,
+      }),
+    ).resolves.toBe(false);
   });
 });
 
@@ -633,7 +580,7 @@ describe("recap setup planning", () => {
 describe("recap prompt builder", () => {
   const skillMd = "---\nname: visual-recap\n---\n\nUNIQUE_SKILL_MARKER body.";
 
-  it("embeds the repo SKILL.md and the publish contract", () => {
+  it("embeds the repo SKILL.md and the source-file publish contract", () => {
     const prompt = buildRecapPrompt({
       skillMd,
       pr: "1095",
@@ -642,6 +589,7 @@ describe("recap prompt builder", () => {
       appUrl: "https://plan.agent-native.com/",
       diffPath: "recap.diff",
       statPath: "recap.stat",
+      blockReferencePath: "recap-blocks.md",
     });
     // The skill text is injected verbatim — custom instructions take effect.
     expect(prompt).toContain("UNIQUE_SKILL_MARKER");
@@ -652,32 +600,24 @@ describe("recap prompt builder", () => {
     expect(prompt).toContain(
       "https://github.com/BuilderIO/ai-services/pull/1095",
     );
-    // The publish path and the single hand-off are spelled out.
-    expect(prompt).toContain("mcp__plan__get-plan-blocks");
-    expect(prompt).toContain("mcp__plan__create-visual-recap");
-    expect(prompt).toContain("mcp__agent-native-plans__get-plan-blocks");
-    expect(prompt).toContain("mcp__agent-native-plans__create-visual-recap");
-    expect(prompt).toContain("block-registry tool is not visible");
-    expect(prompt).toContain("compact MCP catalog");
+    // The source-file hand-off is spelled out; CI owns the publish call.
+    expect(prompt).toContain("recap-blocks.md");
+    expect(prompt).toContain("recap-source.json");
+    expect(prompt).toContain("Do NOT call the Plan MCP server");
+    expect(prompt).toContain("deterministic CLI publisher");
     expect(prompt).toContain("Do not wait, sleep, back off");
     expect(prompt).toContain("schedule wakeups");
-    expect(prompt).toContain(
-      "validation feedback about empty or invalid wireframes",
+    expect(prompt).toContain("Do not write `recap-url.txt`");
+    expect(prompt).not.toContain("mcp__plan__create-visual-recap");
+    expect(prompt).not.toContain(
+      "mcp__agent-native-plans__create-visual-recap",
     );
-    expect(prompt).toContain("call `create-visual-recap` again");
-    expect(prompt).toContain(
-      "Do not write `recap-url.txt` until the tool succeeds",
-    );
-    expect(prompt).toContain("set-resource-visibility");
-    expect(prompt).toContain("recap-url.txt");
-    expect(prompt).toContain(
-      "https://plan.agent-native.com/recaps/<the returned plan id>",
-    );
+    expect(prompt).not.toContain("set-resource-visibility");
     // No RECAP_JSON contract.
     expect(prompt).not.toContain("RECAP_JSON");
   });
 
-  it("threads the previous plan id for in-place replacement", () => {
+  it("keeps the previous plan id out of the agent-authored source contract", () => {
     const prompt = buildRecapPrompt({
       skillMd,
       pr: "7",
@@ -685,8 +625,8 @@ describe("recap prompt builder", () => {
       diffPath: "recap.diff",
       prevPlanId: "plan-deadbeef",
     });
-    expect(prompt).toContain('planId: "plan-deadbeef"');
-    expect(prompt).toMatch(/REPLACES/i);
+    expect(prompt).not.toContain('planId: "plan-deadbeef"');
+    expect(prompt).not.toMatch(/REPLACES/i);
   });
 
   it("can build a DB-free local-files prompt instead of a publish prompt", () => {
@@ -712,7 +652,7 @@ describe("recap prompt builder", () => {
     );
   });
 
-  it("threads the PR sourceUrl when repo and pr are provided", () => {
+  it("includes the PR URL as context while leaving sourceUrl to the publisher", () => {
     const prompt = buildRecapPrompt({
       skillMd,
       pr: "1095",
@@ -720,11 +660,10 @@ describe("recap prompt builder", () => {
       appUrl: "https://plan.agent-native.com",
       diffPath: "recap.diff",
     });
-    // The sourceUrl is derived deterministically and injected into the tool call.
     expect(prompt).toContain(
-      'sourceUrl: "https://github.com/BuilderIO/ai-services/pull/1095"',
+      "https://github.com/BuilderIO/ai-services/pull/1095",
     );
-    expect(prompt).toContain("link back to the PR");
+    expect(prompt).not.toContain('sourceUrl: "');
   });
 
   it("omits sourceUrl from the prompt when no repo is provided", () => {
@@ -738,7 +677,7 @@ describe("recap prompt builder", () => {
     expect(prompt).not.toContain("link back to the PR");
   });
 
-  it("uses an explicit sourceUrl override over the derived one", () => {
+  it("does not ask the agent to thread explicit sourceUrl overrides", () => {
     const prompt = buildRecapPrompt({
       skillMd,
       pr: "1095",
@@ -747,12 +686,8 @@ describe("recap prompt builder", () => {
       diffPath: "recap.diff",
       sourceUrl: "https://github.com/OtherOrg/other-repo/pull/999",
     });
-    // The override URL must appear in the tool call instruction.
-    expect(prompt).toContain(
-      'sourceUrl: "https://github.com/OtherOrg/other-repo/pull/999"',
-    );
-    // The derived URL from repo+pr must NOT appear in the tool call instruction
-    // (it may still appear in the Inputs section where the PR URL is listed).
+    expect(prompt).not.toContain("OtherOrg/other-repo");
+    expect(prompt).not.toContain("sourceUrl:");
     expect(prompt).not.toContain(
       'sourceUrl: "https://github.com/BuilderIO/ai-services/pull/1095"',
     );
@@ -1055,6 +990,191 @@ describe("recap screenshot URL params", () => {
     ).toBe(
       "https://plan.agent-native.com/recaps/plan-abc123?foo=bar&recapScreenshot=1&recapScreenshotTheme=dark",
     );
+  });
+});
+
+describe("recap screenshot browser launch", () => {
+  it("falls back to system Chrome when the Playwright browser is missing", async () => {
+    const browser = {} as import("playwright").Browser;
+    const launch = vi
+      .fn()
+      .mockRejectedValueOnce(
+        new Error("Executable doesn't exist at /ms-playwright/chromium"),
+      )
+      .mockResolvedValueOnce(browser);
+    const exists = vi
+      .spyOn(fs, "existsSync")
+      .mockImplementation((candidate) => {
+        return candidate === "/usr/bin/google-chrome-stable";
+      });
+
+    await expect(
+      launchRecapChromium({
+        launch,
+      } as unknown as import("playwright").BrowserType),
+    ).resolves.toBe(browser);
+
+    expect(launch).toHaveBeenNthCalledWith(1, { args: ["--no-sandbox"] });
+    expect(launch).toHaveBeenNthCalledWith(2, {
+      args: ["--no-sandbox"],
+      executablePath: "/usr/bin/google-chrome-stable",
+    });
+    exists.mockRestore();
+  });
+
+  it("reports system Chrome fallback launch failures", async () => {
+    const launch = vi
+      .fn()
+      .mockRejectedValueOnce(
+        new Error("Executable doesn't exist at /ms-playwright/chromium"),
+      )
+      .mockRejectedValueOnce(new Error("missing shared library"));
+    const exists = vi
+      .spyOn(fs, "existsSync")
+      .mockImplementation((candidate) => {
+        return candidate === "/usr/bin/google-chrome-stable";
+      });
+
+    await expect(
+      launchRecapChromium({
+        launch,
+      } as unknown as import("playwright").BrowserType),
+    ).rejects.toThrow(
+      "system Chrome fallback failed (/usr/bin/google-chrome-stable: missing shared library)",
+    );
+
+    exists.mockRestore();
+  });
+
+  it("does not hide non-install browser launch errors", async () => {
+    const error = new Error("GPU process crashed");
+    const launch = vi.fn().mockRejectedValue(error);
+    const exists = vi.spyOn(fs, "existsSync");
+
+    await expect(
+      launchRecapChromium({
+        launch,
+      } as unknown as import("playwright").BrowserType),
+    ).rejects.toBe(error);
+
+    expect(exists).not.toHaveBeenCalled();
+    exists.mockRestore();
+  });
+});
+
+describe("recap screenshot capture", () => {
+  function createShotPlaywright(screenshotBytes: Buffer[]) {
+    const page = {
+      goto: vi.fn(async () => undefined),
+      waitForSelector: vi.fn(async () => undefined),
+      waitForTimeout: vi.fn(async () => undefined),
+      evaluate: vi.fn(async (_fn: unknown, arg?: unknown) => {
+        return typeof arg === "number" ? 320 : undefined;
+      }),
+      setViewportSize: vi.fn(async () => undefined),
+      screenshot: vi.fn(async ({ path: outPath }: { path: string }) => {
+        fs.writeFileSync(
+          outPath,
+          screenshotBytes.shift() ?? Buffer.from("png"),
+        );
+      }),
+    };
+    const context = {
+      addInitScript: vi.fn(async () => undefined),
+      route: vi.fn(async () => undefined),
+      newPage: vi.fn(async () => page),
+    };
+    const browser = {
+      newContext: vi.fn(async () => context),
+      close: vi.fn(async () => undefined),
+    };
+    const chromium = {
+      launch: vi.fn(async () => browser),
+    };
+    return {
+      page,
+      importPlaywright: async () => ({ chromium }),
+    };
+  }
+
+  it("retries oversized screenshots at CSS-pixel scale", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "an-recap-shot-"));
+    const out = path.join(dir, "recap.png");
+    const { page, importPlaywright } = createShotPlaywright([
+      Buffer.alloc(5 * 1024 * 1024 + 1),
+      Buffer.from("small-png"),
+    ]);
+    const writes: string[] = [];
+    const stdout = vi
+      .spyOn(process.stdout, "write")
+      .mockImplementation((chunk: string | Uint8Array) => {
+        writes.push(String(chunk));
+        return true;
+      });
+
+    try {
+      await runShot(
+        {
+          url: "https://plan.agent-native.com/recaps/plan-abc123",
+          out,
+        },
+        importPlaywright,
+      );
+
+      expect(page.screenshot).toHaveBeenNthCalledWith(2, {
+        path: out,
+        scale: "css",
+      });
+      expect(fs.readFileSync(out, "utf8")).toBe("small-png");
+      expect(JSON.parse(writes.join("").trim())).toMatchObject({
+        ok: true,
+        out,
+      });
+    } finally {
+      stdout.mockRestore();
+      fs.rmSync(dir, { force: true, recursive: true });
+    }
+  });
+
+  it("marks shot output not ok when upload fails after capture", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "an-recap-shot-"));
+    const out = path.join(dir, "recap.png");
+    const { importPlaywright } = createShotPlaywright([Buffer.from("png")]);
+    const writes: string[] = [];
+    const stdout = vi
+      .spyOn(process.stdout, "write")
+      .mockImplementation((chunk: string | Uint8Array) => {
+        writes.push(String(chunk));
+        return true;
+      });
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response("upload failed", {
+        status: 500,
+      }),
+    );
+
+    try {
+      await runShot(
+        {
+          url: "https://plan.agent-native.com/recaps/plan-abc123",
+          out,
+          token: "recap-token",
+          "app-url": "https://plan.agent-native.com",
+        },
+        importPlaywright,
+      );
+
+      expect(JSON.parse(writes.join("").trim())).toMatchObject({
+        ok: false,
+        out,
+        imageUrl: null,
+        reason: "screenshot captured but image upload failed",
+      });
+    } finally {
+      fetchSpy.mockRestore();
+      stdout.mockRestore();
+      fs.rmSync(dir, { force: true, recursive: true });
+    }
   });
 });
 
@@ -1697,25 +1817,22 @@ describe("bundled PR visual recap workflow", () => {
     // an inline github-script step.
     expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain("recap check start");
     expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain("recap check complete");
-    expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain("Smoke-test Plan MCP tools");
     expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain(
-      'recap mcp-smoke --app-url "$PLAN_RECAP_APP_URL"',
+      "Fetch plan block reference",
     );
     expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain(
-      "steps.mcp_smoke.outputs.ok == 'true'",
+      'recap block-reference --app-url "$PLAN_RECAP_APP_URL" --out recap-blocks.md',
     );
-    expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain("RECAP_MCP_SMOKE_SUMMARY");
+    expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain(
+      "--block-reference recap-blocks.md",
+    );
+    expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain("Publish recap source");
+    expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain("recap publish");
+    expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain("recap-source.json");
+    expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain("recap-url-reason.txt");
     expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain("Summarize agent failure");
     expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain("recap agent-summary");
-    expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain(
-      "backoff|connector.*register",
-    );
-    expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain(
-      "mcp.*(register|unreachable|not usable|zero tools|not callable|timeout|timed out)",
-    );
-    expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain(
-      "create-visual-recap.*(timeout|timed out)",
-    );
+    expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain("RECAP_PUBLISH_REASON");
     expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain(
       '--mode "$VISUAL_RECAP_SECRET_SCAN"',
     );
@@ -1727,11 +1844,16 @@ describe("bundled PR visual recap workflow", () => {
     );
     expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain("CLAUDE_ALLOWED_TOOLS");
     expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain(
-      "mcp__agent-native-plans__create-visual-recap",
+      'CLAUDE_ALLOWED_TOOLS="Read,Write,Bash(git diff:*)"',
     );
     expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain(
-      'recap mcp-config --agent codex --app-url "$PLAN_RECAP_APP_URL" --force',
+      "npx -y @openai/codex@0 login --with-api-key",
     );
+    expect(PR_VISUAL_RECAP_WORKFLOW_YML).not.toContain("mcp__plan__");
+    expect(PR_VISUAL_RECAP_WORKFLOW_YML).not.toContain(
+      "mcp__agent-native-plans__",
+    );
+    expect(PR_VISUAL_RECAP_WORKFLOW_YML).not.toContain("recap mcp-config");
     expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain("--failure-summary");
     expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain("--stderr-file");
     expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain("--exit-code-file");
@@ -1744,11 +1866,18 @@ describe("bundled PR visual recap workflow", () => {
       "--out recap-dark.png --theme dark",
     );
     expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain("RECAP_DARK_IMAGE_URL");
+    expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain("RECAP_PLAYWRIGHT");
+    expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain("[recap shot] ${label}");
+    expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain(
+      "Visual recap screenshot unavailable; posting link-only recap comment.",
+    );
     expect(PR_VISUAL_RECAP_WORKFLOW_YML).not.toContain("github.rest.checks");
     // The completed-check step is gated on a created check id and best-effort.
     expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain(
       "steps.recap_check.outputs.check_run_id != ''",
     );
+    expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain("!cancelled()");
+    expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain('--head-sha "$HEAD_SHA"');
     expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain("VISUAL_RECAP_SKILL_SOURCE");
     expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain("--skill-source");
   });
@@ -2252,6 +2381,7 @@ describe("reusable workflow file structure", () => {
     expect(content).toContain("Install published recap CLI");
     expect(content).toContain("@agent-native/core@$VERSION");
     expect(content).toContain("node_modules/.bin/agent-native");
+    expect(content).toContain("RECAP_PLAYWRIGHT");
   });
 
   it("has the auth probe step (parity with copy workflow)", () => {
@@ -2268,25 +2398,29 @@ describe("reusable workflow file structure", () => {
 
   it("passes sanitized agent failure output to the comment and check", () => {
     const content = fs.readFileSync(reusableFile, "utf8");
-    expect(content).toContain("Smoke-test Plan MCP tools");
+    expect(content).toContain("Fetch plan block reference");
     expect(content).toContain(
-      'recap mcp-smoke --app-url "$PLAN_RECAP_APP_URL"',
+      'recap block-reference --app-url "$PLAN_RECAP_APP_URL" --out recap-blocks.md',
     );
-    expect(content).toContain("for attempt in 1 2 3");
-    expect(content).toContain("steps.mcp_smoke.outputs.ok == 'true'");
-    expect(content).toContain("RECAP_MCP_SMOKE_SUMMARY:");
+    expect(content).toContain("Publish recap source");
+    expect(content).toContain("recap publish");
+    expect(content).toContain("RECAP_PUBLISH_REASON:");
     expect(content).toContain("Summarize agent failure");
     expect(content).toContain("recap agent-summary");
-    expect(content).toContain(
-      "mcp.*(register|unreachable|not usable|zero tools|not callable|timeout|timed out)",
-    );
-    expect(content).toContain("create-visual-recap.*(timeout|timed out)");
+    expect(content).not.toContain("steps.mcp_smoke.outputs.ok == 'true'");
+    expect(content).not.toContain("recap mcp-config");
     expect(content).toContain("RECAP_AGENT_SUMMARY:");
     expect(content).toContain("--failure-summary");
     expect(content).toContain("--stderr-file");
     expect(content).toContain("--exit-code-file");
     expect(content).toContain("RECAP_URL_REASON:");
     expect(content).toContain("--url-reason");
+    expect(content).toContain("[recap shot] ${label}");
+    expect(content).toContain(
+      "Visual recap screenshot unavailable; posting link-only recap comment.",
+    );
+    expect(content).toContain("!cancelled()");
+    expect(content).toContain('--head-sha "$HEAD_SHA"');
   });
 
   it("gate job has issues: write permission for the skip-comment refresh", () => {
@@ -2456,7 +2590,7 @@ describe("buildRecapPrompt diff-consumption instructions", () => {
 /* ------------------------------------------------------------------ */
 
 describe("buildRecapPrompt — small-diff override sentence", () => {
-  it("instructs the agent to always publish, ignoring the skill's skip advice", () => {
+  it("instructs the agent to always author source, ignoring the skill's skip advice", () => {
     const prompt = buildRecapPrompt({
       skillMd: "skill",
       pr: "1",
@@ -2464,7 +2598,7 @@ describe("buildRecapPrompt — small-diff override sentence", () => {
       diffPath: "recap.diff",
     });
     expect(prompt).toContain("CI already gated tiny diffs before invoking you");
-    expect(prompt).toContain("always publish");
+    expect(prompt).toContain("always produce output");
   });
 });
 
@@ -2529,6 +2663,10 @@ describe("reusable vs copy workflow step-sequence parity", () => {
     repoRoot,
     ".github/workflows/pr-visual-recap-reusable.yml",
   );
+  const forkFile = path.join(
+    repoRoot,
+    ".github/workflows/pr-visual-recap-fork.yml",
+  );
 
   /**
    * Extract the name/id of each step from the recap job of a workflow file.
@@ -2583,5 +2721,36 @@ describe("reusable vs copy workflow step-sequence parity", () => {
     for (const step of copyFiltered) {
       expect(reusableFiltered).toContain(step);
     }
+  });
+
+  it("fork workflow fetches blocks, then authors source, then publishes deterministically", () => {
+    const content = fs.readFileSync(forkFile, "utf8");
+    expect(content).toContain("Fetch plan block reference");
+    expect(content).toContain(
+      'recap block-reference --app-url "$PLAN_RECAP_APP_URL" --out recap-blocks.md',
+    );
+    expect(content).toContain("--block-reference recap-blocks.md");
+    expect(content).toContain("Publish recap source");
+    expect(content).toContain("recap publish");
+    expect(content).not.toContain("steps.mcp_smoke.outputs.ok == 'true'");
+    expect(content).not.toContain("recap mcp-config");
+
+    const blocksIndex = content.indexOf("Fetch plan block reference");
+    const promptIndex = content.indexOf("Build recap prompt");
+    const agentIndex = content.indexOf("Run agent (Claude Code)");
+    const publishIndex = content.indexOf("Publish recap source");
+    expect(blocksIndex).toBeGreaterThan(-1);
+    expect(blocksIndex).toBeLessThan(promptIndex);
+    expect(promptIndex).toBeLessThan(agentIndex);
+    expect(agentIndex).toBeLessThan(publishIndex);
+  });
+
+  it("fork workflow uses the recap CLI Playwright package for screenshots", () => {
+    const content = fs.readFileSync(forkFile, "utf8");
+    expect(content).toContain("RECAP_PLAYWRIGHT");
+    expect(content).toContain("[recap shot] ${label}");
+    expect(content).toContain(
+      "Visual recap screenshot unavailable; posting link-only recap comment.",
+    );
   });
 });

@@ -53,14 +53,14 @@ they already have.
 For UI-first work where the plan leads with product screens, use `/visual-plan`
 and call `create-ui-plan`.
 
-For prototype-first work — when the user needs to click through states or review
-the feel of an interaction before implementation — use `/visual-plan` and call
-`create-prototype-plan`. Call `convert-visual-plan-to-prototype` when an
-existing visual plan has HTML canvas wireframes that should become a live
-prototype. Prototype plans keep static mocks in the document and use the top
-viewer for clickable review, comments, rough/clean mode, dark/light mode, and
-prototype popout. (`create-prototype-plan` and `convert-visual-plan-to-prototype`
-are MCP tools reached from `/visual-plan`, not separate slash commands.)
+For prototype-first work — when the user needs to operate the behavior before
+implementation — use `/visual-plan` and call `create-prototype-plan`. Prototype
+plans must be functional review surfaces with local state and realistic controls;
+do not pass off static screen-to-screen navigation as a prototype. Keep static
+mocks in the document and use the top viewer for functional review, comments,
+rough/clean mode, dark/light mode, and prototype popout.
+(`create-prototype-plan` is an MCP tool reached from `/visual-plan`, not a
+separate slash command.)
 
 For full-fidelity branded UI design before implementation, use `/visual-plan` and
 call `create-plan-design`. Research the real app shell, `design.md` if present,

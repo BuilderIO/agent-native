@@ -39,6 +39,22 @@ const MAX_OUTPUT_CHARS = 200_000;
 /** Hard cap on bridge request bodies so sandboxed code can't exhaust parent memory. */
 const BRIDGE_MAX_BODY_BYTES = 10 * 1024 * 1024;
 
+function sandboxReadAllowPaths(tmpDir: string): string[] {
+  const paths = new Set<string>([tmpDir]);
+  try {
+    paths.add(fs.realpathSync(tmpDir));
+  } catch {}
+  return [...paths];
+}
+
+function sandboxWriteAllowPaths(tmpDir: string): string[] {
+  const paths = new Set<string>([tmpDir]);
+  try {
+    paths.add(fs.realpathSync(tmpDir));
+  } catch {}
+  return [...paths];
+}
+
 /**
  * Resolve the Node permission-model flag supported by the current runtime,
  * probing once and caching. Returns null when the permission model is
@@ -108,6 +124,8 @@ export function createRunCodeEntry(
         "Use this to fetch, join, aggregate, and reduce large datasets, returning only printed output to the conversation.",
         "The sandbox runs with a scrubbed environment (no secrets) and, where the Node permission model is available, no filesystem access outside its own temp dir, no child processes, and no workers. Authenticated calls must go through the provided globals; direct network requests carry no credentials. Note: isolation is process-level (env scrub + Node permission model), not an OS-level container — outbound network from sandbox code is not blocked.",
         "Available globals:",
+        "  - `appAction(name, args?)` — call any registered agent-exposed read-only app action/tool and get its parsed result.",
+        "    Use this to loop over app data readers and compose multi-source analyses without forcing every intermediate result into chat.",
         "  - `providerFetch(provider, path, init?)` — authenticated call to a registered provider via the provider-api-request action.",
         "    Returns the parsed JSON result (or throws on error).",
         "    Example: `const data = await providerFetch('hubspot', '/crm/v3/objects/contacts');`",
@@ -115,6 +133,7 @@ export function createRunCodeEntry(
         "    Returns `{ status, body }` where body is the response text.",
         "    Example: `const { body } = await webFetch('https://api.example.com/data');`",
         "  - `workspaceRead(path, opts?)` — read a workspace file by path. Returns content string or null. opts: { offset?, maxChars? }.",
+        "  - `workspaceReadMeta(path, opts?)` — read a workspace file with metadata such as sizeBytes, truncated, and nextOffset.",
         "  - `workspaceWrite(path, content, contentType?)` — create or overwrite a workspace file.",
         "  - `workspaceAppend(path, content)` — append text to a workspace file.",
         "  - `workspaceList(prefix?)` — list workspace files, returns [{ path, sizeBytes, contentType, updatedAt }].",
@@ -177,7 +196,8 @@ export function createRunCodeEntry(
       let tmpFile: string | undefined;
       try {
         // Write code to a temp ESM file (top-level await needs a module).
-        tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "agent-run-code-"));
+        const tmpBaseDir = fs.realpathSync(os.tmpdir());
+        tmpDir = fs.mkdtempSync(path.join(tmpBaseDir, "agent-run-code-"));
         tmpFile = path.join(tmpDir, "sandbox.mjs");
         fs.writeFileSync(
           tmpFile,
@@ -211,8 +231,12 @@ export function createRunCodeEntry(
         const nodeArgs = permissionFlag
           ? [
               permissionFlag,
-              `--allow-fs-read=${tmpDir}`,
-              `--allow-fs-write=${tmpDir}`,
+              ...sandboxReadAllowPaths(tmpDir).map(
+                (allowedPath) => `--allow-fs-read=${allowedPath}`,
+              ),
+              ...sandboxWriteAllowPaths(tmpDir).map(
+                (allowedPath) => `--allow-fs-write=${allowedPath}`,
+              ),
               tmpFile,
             ]
           : [tmpFile];
@@ -388,17 +412,25 @@ function handleBridgeRequest(
   }
 
   // Enforce allowlist.
-  if (!defaultTools.has(toolName) && !extraTools.has(toolName)) {
+  const entry = actions[toolName];
+  const isReadOnlyAction =
+    entry?.readOnly === true &&
+    entry.agentTool !== false &&
+    entry.toolCallable !== false;
+  if (
+    !defaultTools.has(toolName) &&
+    !extraTools.has(toolName) &&
+    !isReadOnlyAction
+  ) {
     res.writeHead(403, { "Content-Type": "application/json" });
     res.end(
       JSON.stringify({
-        error: `Tool "${toolName}" is not in the sandbox bridge allowlist.`,
+        error: `Tool "${toolName}" is not an agent-exposed read-only action or sandbox bridge allowlisted tool.`,
       }),
     );
     return;
   }
 
-  const entry = actions[toolName];
   if (!entry) {
     res.writeHead(404, { "Content-Type": "application/json" });
     res.end(JSON.stringify({ error: `Tool "${toolName}" is not registered.` }));
@@ -480,6 +512,19 @@ async function _bridgeCall(tool, args) {
   });
 }
 
+function _parseBridgeResult(rawResult) {
+  if (typeof rawResult !== "string") return rawResult;
+  try { return JSON.parse(rawResult); } catch { return rawResult; }
+}
+
+/**
+ * Call any registered agent-exposed read-only app action/tool via the sandbox bridge.
+ * Mutating and explicitly hidden actions are blocked by the parent bridge.
+ */
+async function appAction(name, args = {}) {
+  return _parseBridgeResult(await _bridgeCall(name, args));
+}
+
 /**
  * Call a provider API via the authenticated provider-api-request action.
  * Returns the parsed JSON response body (or throws on error).
@@ -490,15 +535,22 @@ async function providerFetch(provider, apiPath, init = {}) {
     provider,
     path: apiPath,
     method,
-    ...(init.query ? { query: typeof init.query === "string" ? init.query : JSON.stringify(init.query) } : {}),
-    ...(init.body ? { body: typeof init.body === "string" ? init.body : JSON.stringify(init.body) } : {}),
-    ...(init.headers ? { headers: typeof init.headers === "string" ? init.headers : JSON.stringify(init.headers) } : {}),
+    ...(init.query ? { query: init.query } : {}),
+    ...(init.body ? { body: init.body } : {}),
+    ...(init.headers ? { headers: init.headers } : {}),
+    ...(init.auth ? { auth: init.auth } : {}),
+    ...(init.connectionId ? { connectionId: init.connectionId } : {}),
+    ...(init.accountId ? { accountId: init.accountId } : {}),
+    ...(init.timeoutMs ? { timeoutMs: init.timeoutMs } : {}),
+    ...(init.maxBytes ? { maxBytes: init.maxBytes } : {}),
+    ...(init.stageAs ? { stageAs: init.stageAs } : {}),
+    ...(init.itemsPath ? { itemsPath: init.itemsPath } : {}),
+    ...(init.pagination ? { pagination: init.pagination } : {}),
+    ...(init.saveToFile ? { saveToFile: init.saveToFile } : {}),
+    ...(init.fetchAllPages ? { fetchAllPages: init.fetchAllPages } : {}),
   });
   // rawResult is the action's string output; parse it if it looks like JSON
-  let parsed = rawResult;
-  if (typeof parsed === "string") {
-    try { parsed = JSON.parse(parsed); } catch { return parsed; }
-  }
+  let parsed = _parseBridgeResult(rawResult);
   // Unwrap the provider-api-request envelope ({ provider, request, response, guidance })
   // so callers get the actual response body. fetchAllPages / saveToFile results
   // (which have no \`response\` field) are returned as-is.
@@ -541,16 +593,23 @@ async function webFetch(url, init = {}) {
  * Supports optional offset and maxChars for paging large files.
  */
 async function workspaceRead(path, opts = {}) {
+  const parsed = await workspaceReadMeta(path, opts);
+  if (parsed && parsed.ok === false) return null;
+  return parsed && typeof parsed.content === "string" ? parsed.content : null;
+}
+
+/**
+ * Read a workspace file by path and return the full metadata envelope.
+ * Use this when offset/maxChars paging or truncation status matters.
+ */
+async function workspaceReadMeta(path, opts = {}) {
   const rawResult = await _bridgeCall("workspace-files", {
     action: "read",
     path,
     ...(opts.offset !== undefined ? { offset: opts.offset } : {}),
     ...(opts.maxChars !== undefined ? { maxChars: opts.maxChars } : {}),
   });
-  let parsed;
-  try { parsed = typeof rawResult === "string" ? JSON.parse(rawResult) : rawResult; } catch { return rawResult; }
-  if (parsed && parsed.ok === false) return null;
-  return parsed && typeof parsed.content === "string" ? parsed.content : null;
+  return _parseBridgeResult(rawResult);
 }
 
 /**

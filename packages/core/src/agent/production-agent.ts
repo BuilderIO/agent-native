@@ -23,6 +23,7 @@ import type {
   EngineMessage,
   EngineContentPart,
   EngineEvent,
+  EngineToolResultPart,
 } from "./engine/types.js";
 import { EngineError } from "./engine/types.js";
 import { resolveMaxOutputTokensForEngine } from "./engine/output-tokens.js";
@@ -1344,6 +1345,7 @@ export interface AgentLoopFinalResponseGuardContext {
   toolCalls: AgentLoopToolCallSummary[];
   toolResults: AgentLoopToolResultSummary[];
   retryCount: number;
+  executionMode: AgentExecutionMode;
 }
 
 export type AgentLoopFinalResponseGuardResult =
@@ -1576,11 +1578,25 @@ function seedReadOnlyToolResultsFromHistory(
       if (part.type !== "tool-result") continue;
       const call = pendingToolCalls.get(part.toolCallId);
       if (!call) continue;
+      if (!isReusableReadOnlyToolResult(part)) continue;
       cache.set(toolCallCacheKey(call.name, call.input), part.content);
     }
   }
 
   return cache;
+}
+
+function isReusableReadOnlyToolResult(part: EngineToolResultPart): boolean {
+  if (part.isError) return false;
+  const lower = part.content.trim().toLowerCase();
+  if (!lower) return false;
+  return !(
+    lower.startsWith("error running ") ||
+    lower.includes("run aborted") ||
+    lower.includes("tool call timed out") ||
+    lower.includes("stale_run") ||
+    lower.includes("connection_error")
+  );
 }
 
 /**
@@ -2055,6 +2071,7 @@ export async function runAgentLoop(opts: {
             toolCalls: [...toolCallHistory],
             toolResults: [...toolResultHistory],
             retryCount: finalGuardRetries,
+            executionMode: opts.executionMode ?? "act",
           })
         : null;
       let guardEmittedFallback = false;

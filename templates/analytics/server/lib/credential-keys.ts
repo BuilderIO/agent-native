@@ -312,7 +312,6 @@ const credentialAliases: Record<string, string[]> = {
   ga4: ["GOOGLE_APPLICATION_CREDENTIALS_JSON", "GA4_PROPERTY_ID"],
   googleanalytics: ["GOOGLE_APPLICATION_CREDENTIALS_JSON", "GA4_PROPERTY_ID"],
   github: ["GITHUB_TOKEN"],
-  githubcode: ["GITHUB_TOKEN"],
   repositories: ["GITHUB_TOKEN"],
   repos: ["GITHUB_TOKEN"],
   gcloud: ["GOOGLE_APPLICATION_CREDENTIALS_JSON"],
