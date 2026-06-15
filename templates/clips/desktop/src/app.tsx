@@ -36,6 +36,7 @@ import {
 import { UpdateBanner } from "./components/UpdateBanner";
 import { FeedbackButton } from "./components/FeedbackButton";
 import { Tooltip, TooltipContent, TooltipTrigger } from "./components/Tooltip";
+import { SourceRow, type CaptureSource } from "./components/SourceRow";
 import { useFeatureConfig, type LocalRecordingMode } from "./shared/config";
 import { useMeetingTranscription } from "./hooks/useMeetingTranscription";
 import { normalizeServerUrl } from "./lib/url";
@@ -87,7 +88,6 @@ interface LocalRecordingNotice {
 type MeetingTranscriptionMode = "manual" | "ask" | "auto";
 
 type CaptureMode = "screen" | "screen-camera" | "camera";
-type CaptureSource = "full-screen" | "window";
 
 const STORAGE_KEY = "clips:server-url";
 const MODE_KEY = "clips:last-mode";
@@ -3062,37 +3062,6 @@ function GoogleIcon() {
   );
 }
 
-function SourceRow({
-  value,
-  onChange,
-}: {
-  value: CaptureSource;
-  onChange: (v: CaptureSource) => void;
-}) {
-  const labels: Record<CaptureSource, string> = {
-    "full-screen": "Full screen",
-    window: "Window",
-  };
-  return (
-    <label className="row">
-      <span className="row-icon">
-        <MonitorIcon />
-      </span>
-      <select
-        className="row-select"
-        value={value}
-        onChange={(e) => onChange(e.target.value as CaptureSource)}
-      >
-        {Object.entries(labels).map(([k, label]) => (
-          <option key={k} value={k}>
-            {label}
-          </option>
-        ))}
-      </select>
-    </label>
-  );
-}
-
 function DeviceRow({
   kind,
   devices,
@@ -3421,28 +3390,6 @@ function CloseIcon() {
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
       <path
         d="M6 6l12 12M18 6L6 18"
-        stroke="currentColor"
-        strokeWidth="1.75"
-        strokeLinecap="round"
-      />
-    </svg>
-  );
-}
-
-function MonitorIcon() {
-  return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
-      <rect
-        x="3"
-        y="4"
-        width="18"
-        height="13"
-        rx="2"
-        stroke="currentColor"
-        strokeWidth="1.75"
-      />
-      <path
-        d="M8 21h8M12 17v4"
         stroke="currentColor"
         strokeWidth="1.75"
         strokeLinecap="round"
