@@ -576,6 +576,26 @@ export async function searchCallsForQueries(
   } while (cursor && (options.exhaustive || matches.size < normalizedLimit));
 
   const matchedCalls = Array.from(matches.values());
+  if (options.exhaustive) {
+    // Exhaustive discovery returns EVERY matched call (newest-first), not just
+    // the newest `limit`. The caller has already bounded the set with a date
+    // window / cohort queries; re-capping here would silently drop matches and
+    // reintroduce the "only captured a subset of calls" failure mode.
+    const sorted = [...matchedCalls].sort(
+      (a, b) =>
+        (b.started ? Date.parse(b.started) : 0) -
+        (a.started ? Date.parse(a.started) : 0),
+    );
+    return {
+      calls: sorted,
+      limit: sorted.length,
+      truncated: false,
+      searchedCallCount,
+      matchedCallCount: matchedCalls.length,
+      queryCount: normalizedQueries.length,
+      coverageTruncated: false,
+    };
+  }
   const limited = limitGongCalls(matchedCalls, normalizedLimit);
   return {
     ...limited,
@@ -591,6 +611,7 @@ export async function searchCalls(
   query: string,
   days = 90,
   limit = DEFAULT_GONG_CALL_LIMIT,
+  options: GongCallSearchOptions = {},
 ): Promise<{ calls: GongCall[]; limit: number; truncated: boolean }> {
-  return searchCallsForQueries([query], days, limit);
+  return searchCallsForQueries([query], days, limit, options);
 }
