@@ -81,10 +81,7 @@ import {
   useDuplicateDocumentProperty,
   useSetDocumentProperty,
 } from "@/hooks/use-document-properties";
-import {
-  applySourceFieldPropertyToDatabaseResponse,
-  contentDatabaseQueryKey,
-} from "@/hooks/use-content-database";
+import { applySourceFieldPropertyToDatabaseResponse } from "@/hooks/use-content-database";
 import {
   CREATABLE_DOCUMENT_PROPERTY_TYPES,
   DOCUMENT_PROPERTY_TYPE_LABELS,
@@ -2316,8 +2313,8 @@ export function AddProperty({
     AddContentDatabaseSourceFieldPropertyRequest
   >("add-content-database-source-field-property", {
     onSuccess: (data) => {
-      queryClient.setQueryData<ContentDatabaseResponse>(
-        contentDatabaseQueryKey(documentId),
+      queryClient.setQueriesData<ContentDatabaseResponse>(
+        { queryKey: ["action", "get-content-database"] },
         (current) => applySourceFieldPropertyToDatabaseResponse(current, data),
       );
       queryClient.invalidateQueries({

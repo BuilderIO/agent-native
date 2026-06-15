@@ -167,6 +167,7 @@ export const contentDatabaseSourceRows = table("content_database_source_rows", {
   sourceRowId: text("source_row_id").notNull(),
   sourceQualifiedId: text("source_qualified_id").notNull(),
   sourceDisplayKey: text("source_display_key").notNull(),
+  sourceValuesJson: text("source_values_json").notNull().default("{}"),
   provenance: text("provenance").notNull().default("source"),
   syncState: text("sync_state").notNull().default("linked"),
   freshness: text("freshness").notNull().default("unknown"),

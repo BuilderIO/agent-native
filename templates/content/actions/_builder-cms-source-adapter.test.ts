@@ -47,6 +47,11 @@ describe("Builder CMS source adapter", () => {
       title: "Hello Builder CMS",
       urlPath: "/blog/hello-builder-cms",
       updatedAt: "2026-06-08T12:00:00.000Z",
+      sourceValues: {
+        "data.title": "Hello Builder CMS",
+        "data.url": "/blog/hello-builder-cms",
+        lastUpdated: "2026-06-08T12:00:00.000Z",
+      },
     });
   });
 
@@ -114,6 +119,11 @@ describe("Builder CMS source adapter", () => {
           title: "Live Builder title",
           urlPath: "/blog/live-builder-title",
           updatedAt: "2026-06-08T12:00:00.000Z",
+          sourceValues: {
+            "data.title": "Live Builder title",
+            "data.url": "/blog/live-builder-title",
+            lastUpdated: "2026-06-08T12:00:00.000Z",
+          },
         },
       }),
     ).toEqual({
@@ -173,6 +183,8 @@ describe("Builder CMS source adapter", () => {
           data: {
             title: "Builder API title",
             url: "/blog/builder-api-title",
+            handle: "builder-api-title",
+            description: "A useful field",
           },
         },
         "blog_article",
@@ -183,6 +195,13 @@ describe("Builder CMS source adapter", () => {
       title: "Builder API title",
       urlPath: "/blog/builder-api-title",
       updatedAt: "2026-06-08T12:00:00.000Z",
+      sourceValues: {
+        "data.title": "Builder API title",
+        "data.url": "/blog/builder-api-title",
+        "data.handle": "builder-api-title",
+        "data.description": "A useful field",
+        lastUpdated: "2026-06-08T12:00:00.000Z",
+      },
     });
   });
 });

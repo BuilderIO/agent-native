@@ -154,6 +154,18 @@ function sourceFieldPatch(): ContentDatabaseSourceFieldPropertyResponse {
       freshness: "fresh",
       lastSyncedAt: createdAt,
     },
+    itemValues: [
+      {
+        itemId: "item-0",
+        documentId: "document-0",
+        value: "welcome-to-builder",
+      },
+      {
+        itemId: "item-1",
+        documentId: "document-1",
+        value: "second-post",
+      },
+    ],
   };
 }
 
@@ -172,6 +184,14 @@ describe("applySourceFieldPropertyToDatabaseResponse", () => {
     expect(updated?.items).toHaveLength(500);
     expect(updated?.items[0]).not.toBe(firstItem);
     expect(updated?.items[0]?.properties[0]).toMatchObject({
+      definition: { id: "property-handle", name: "Handle" },
+      value: "welcome-to-builder",
+    });
+    expect(updated?.items[1]?.properties[0]).toMatchObject({
+      definition: { id: "property-handle", name: "Handle" },
+      value: "second-post",
+    });
+    expect(updated?.items[2]?.properties[0]).toMatchObject({
       definition: { id: "property-handle", name: "Handle" },
       value: null,
     });

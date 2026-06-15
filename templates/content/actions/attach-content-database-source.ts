@@ -43,6 +43,8 @@ export default defineAction({
       .string()
       .optional()
       .describe("Source table/model name, for example content_items."),
+    limit: z.coerce.number().int().min(1).max(500).default(100),
+    offset: z.coerce.number().int().min(0).default(0),
   }),
   run: async (args): Promise<ContentDatabaseResponse> => {
     const database = await resolveDatabaseForSourceMutation(args);
@@ -112,8 +114,13 @@ export default defineAction({
               );
               return entry ? ([item.document.id, entry] as const) : null;
             })
-            .filter((entry): entry is readonly [string, NonNullable<typeof builderRead>["entries"][number]] =>
-              Boolean(entry),
+            .filter(
+              (
+                entry,
+              ): entry is readonly [
+                string,
+                NonNullable<typeof builderRead>["entries"][number],
+              ] => Boolean(entry),
             ),
         )
       : undefined;
@@ -124,6 +131,8 @@ export default defineAction({
       sourceType,
       properties: refreshedSetup.properties,
       builderModelFields,
+      builderSampleEntries:
+        builderRead?.state === "live" ? builderRead.entries : [],
       now,
     });
     await seedMockSourceRows({
@@ -149,6 +158,9 @@ export default defineAction({
       });
     }
 
-    return getContentDatabaseResponse(database.id);
+    return getContentDatabaseResponse(database.id, {
+      limit: args.limit,
+      offset: args.offset,
+    });
   },
 });

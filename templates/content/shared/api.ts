@@ -382,6 +382,7 @@ export interface ContentDatabaseSourceRow {
   sourceRowId: string;
   sourceQualifiedId: string;
   sourceDisplayKey: string;
+  sourceValues?: Record<string, DocumentPropertyValue>;
   provenance: string;
   syncState: ContentDatabaseSourceSyncState;
   freshness: ContentDatabaseSourceFreshness;
@@ -515,6 +516,13 @@ export interface ContentDatabaseResponse {
   properties: DocumentProperty[];
   items: ContentDatabaseItem[];
   source: ContentDatabaseSource | null;
+  pagination?: {
+    offset: number;
+    limit: number;
+    totalItems: number;
+    returnedItems: number;
+    hasMore: boolean;
+  };
   createdItemId?: string;
   createdDocumentId?: string;
   duplicatedItemId?: string;
@@ -526,6 +534,11 @@ export interface ContentDatabaseSourceFieldPropertyResponse {
   documentId: string;
   property: DocumentProperty;
   sourceField: ContentDatabaseSourceFieldMapping;
+  itemValues?: Array<{
+    itemId: string;
+    documentId: string;
+    value: DocumentPropertyValue;
+  }>;
 }
 
 export interface CreateDatabaseRequest {
@@ -563,6 +576,8 @@ export interface AttachContentDatabaseSourceRequest {
   sourceType?: ContentDatabaseSourceType;
   sourceName?: string;
   sourceTable?: string;
+  limit?: number;
+  offset?: number;
 }
 
 export interface RefreshContentDatabaseSourceRequest {

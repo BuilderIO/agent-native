@@ -33,7 +33,7 @@ const BUILDER_CMS_DEFAULT_READ_LIMIT = 500;
 const BUILDER_CMS_MAX_READ_LIMIT = 1000;
 const BUILDER_CMS_PAGE_SIZE = 100;
 const BUILDER_CMS_ENTRY_FIELDS =
-  "id,name,published,lastUpdated,createdDate,data.title,data.handle,data.url,data.date";
+  "id,name,published,lastUpdated,createdDate,data.title,data.handle,data.url,data.slug,data.date,data.description,data.status,data.author,data.image";
 
 function builderContentApiHost() {
   return (
@@ -152,7 +152,9 @@ function builderMcpEntriesFromToolResponse(
     .filter((entry): entry is BuilderCmsSourceEntry => Boolean(entry));
 }
 
-function normalizeBuilderCmsModel(value: unknown): BuilderCmsModelSummary | null {
+function normalizeBuilderCmsModel(
+  value: unknown,
+): BuilderCmsModelSummary | null {
   if (!value || typeof value !== "object") return null;
   const record = value as Record<string, unknown>;
   const name = typeof record.name === "string" ? record.name.trim() : "";
@@ -173,9 +175,7 @@ function normalizeBuilderCmsModel(value: unknown): BuilderCmsModelSummary | null
           if (!field || typeof field !== "object") return null;
           const fieldRecord = field as Record<string, unknown>;
           const fieldName =
-            typeof fieldRecord.name === "string"
-              ? fieldRecord.name.trim()
-              : "";
+            typeof fieldRecord.name === "string" ? fieldRecord.name.trim() : "";
           if (!fieldName) return null;
           return {
             name: fieldName,
@@ -186,9 +186,8 @@ function normalizeBuilderCmsModel(value: unknown): BuilderCmsModelSummary | null
             required: fieldRecord.required === true,
           };
         })
-        .filter(
-          (field): field is BuilderCmsModelSummary["fields"][number] =>
-            Boolean(field),
+        .filter((field): field is BuilderCmsModelSummary["fields"][number] =>
+          Boolean(field),
         )
     : [];
 
@@ -268,7 +267,11 @@ async function readBuilderCmsContentEntriesViaMcp(args: {
   const limit = readLimit(args.limit);
   const contentEntries: BuilderCmsSourceEntry[] = [];
   const seenContentIds = new Set<string>();
-  for (let offset = 0; contentEntries.length < limit; offset += BUILDER_CMS_PAGE_SIZE) {
+  for (
+    let offset = 0;
+    contentEntries.length < limit;
+    offset += BUILDER_CMS_PAGE_SIZE
+  ) {
     const pageLimit = readPageLimit(limit - contentEntries.length);
     const contentResult = await postBuilderMcp({
       endpoint,
@@ -376,10 +379,7 @@ async function readBuilderCmsContentEntriesViaMcp(args: {
     const entryJson = entryResult
       ? parseBuilderMcpToolJson(entryResult.json.result)
       : null;
-    const [hydrated] = builderMcpEntriesFromToolResponse(
-      entryJson,
-      args.model,
-    );
+    const [hydrated] = builderMcpEntriesFromToolResponse(entryJson, args.model);
     hydratedEntries.push(hydrated ?? entry);
   }
 
@@ -409,7 +409,11 @@ async function readBuilderCmsContentEntriesViaContentApi(args: {
   const limit = readLimit(args.limit);
   const entries: BuilderCmsSourceEntry[] = [];
   const seenIds = new Set<string>();
-  for (let offset = 0; entries.length < limit; offset += BUILDER_CMS_PAGE_SIZE) {
+  for (
+    let offset = 0;
+    entries.length < limit;
+    offset += BUILDER_CMS_PAGE_SIZE
+  ) {
     const pageUrl = new URL(url);
     const pageLimit = readPageLimit(limit - entries.length);
     pageUrl.searchParams.set("limit", String(pageLimit));
@@ -446,9 +450,11 @@ async function readBuilderCmsContentEntriesViaContentApi(args: {
   };
 }
 
-export async function listBuilderCmsModels(args: {
-  fetchImpl?: FetchLike;
-} = {}): Promise<BuilderCmsModelsResponse> {
+export async function listBuilderCmsModels(
+  args: {
+    fetchImpl?: FetchLike;
+  } = {},
+): Promise<BuilderCmsModelsResponse> {
   const fetchedAt = new Date().toISOString();
   const privateKey = await readBuilderPrivateKey();
   const fetchImpl = args.fetchImpl ?? fetch;

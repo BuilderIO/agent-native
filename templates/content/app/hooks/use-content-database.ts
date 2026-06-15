@@ -24,8 +24,8 @@ import type {
   ValidateBuilderSourceExecutionRequest,
 } from "@shared/api";
 
-export function contentDatabaseQueryKey(documentId: string) {
-  return ["action", "get-content-database", { documentId }] as const;
+export function contentDatabaseQueryKey(_documentId?: string) {
+  return ["action", "get-content-database"] as const;
 }
 
 export function applySourceFieldPropertyToDatabaseResponse(
@@ -47,6 +47,13 @@ export function applySourceFieldPropertyToDatabaseResponse(
         (a, b) => a.definition.position - b.definition.position,
       );
 
+  const valueByItemId = new Map(
+    (patch.itemValues ?? []).map((itemValue) => [
+      itemValue.itemId,
+      itemValue.value,
+    ]),
+  );
+
   return {
     ...current,
     properties,
@@ -54,15 +61,20 @@ export function applySourceFieldPropertyToDatabaseResponse(
       const itemHasProperty = item.properties.some(
         (property) => property.definition.id === patch.property.definition.id,
       );
-      return itemHasProperty
-        ? item
-        : {
-            ...item,
-            properties: [
-              ...item.properties,
-              { ...patch.property, value: null },
-            ],
-          };
+      const propertyValue = valueByItemId.has(item.id)
+        ? valueByItemId.get(item.id)!
+        : patch.property.value;
+      const nextProperty = { ...patch.property, value: propertyValue };
+      return {
+        ...item,
+        properties: itemHasProperty
+          ? item.properties.map((property) =>
+              property.definition.id === patch.property.definition.id
+                ? nextProperty
+                : property,
+            )
+          : [...item.properties, nextProperty],
+      };
     }),
     source: current.source
       ? {
@@ -75,10 +87,10 @@ export function applySourceFieldPropertyToDatabaseResponse(
   };
 }
 
-export function useContentDatabase(documentId: string | null) {
+export function useContentDatabase(documentId: string | null, limit?: number) {
   return useActionQuery<ContentDatabaseResponse>(
     "get-content-database",
-    documentId ? { documentId } : undefined,
+    documentId ? { documentId, limit } : undefined,
     {
       enabled: !!documentId,
       retry: false,

@@ -5,10 +5,13 @@ import { z } from "zod";
 import type {
   AddContentDatabaseSourceFieldPropertyRequest,
   ContentDatabaseSourceFieldPropertyResponse,
+  DocumentPropertyValue,
 } from "../shared/api.js";
 import {
   defaultPropertyOptions,
+  normalizePropertyValue,
   normalizePropertyVisibility,
+  serializePropertyValue,
   type DocumentPropertyType,
 } from "../shared/properties.js";
 import { getDb, schema } from "../server/db/index.js";
@@ -17,6 +20,43 @@ import {
   resolveDatabaseForSourceMutation,
   serializeSourceField,
 } from "./_database-source-utils.js";
+
+function parseSourceValues(
+  value: string | null | undefined,
+): Record<string, DocumentPropertyValue> {
+  if (!value) return {};
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? (parsed as Record<string, DocumentPropertyValue>)
+      : {};
+  } catch {
+    return {};
+  }
+}
+
+export function sourceFieldPropertyValuesFromRows(
+  rows: Array<{
+    databaseItemId: string;
+    documentId: string;
+    sourceValuesJson: string | null;
+  }>,
+  sourceFieldKey: string,
+  type: DocumentPropertyType,
+) {
+  return rows
+    .map((row) => {
+      const sourceValues = parseSourceValues(row.sourceValuesJson);
+      const sourceValue = sourceValues[sourceFieldKey];
+      const value = normalizePropertyValue(type, sourceValue);
+      return {
+        itemId: row.databaseItemId,
+        documentId: row.documentId,
+        value,
+      };
+    })
+    .filter((row) => row.value !== null);
+}
 
 export function propertyTypeForSourceField(
   sourceFieldType: string,
@@ -122,6 +162,29 @@ export default defineAction({
       .set({ updatedAt: now })
       .where(eq(schema.contentDatabaseSources.id, source.id));
 
+    const sourceRows = await db
+      .select()
+      .from(schema.contentDatabaseSourceRows)
+      .where(eq(schema.contentDatabaseSourceRows.sourceId, source.id));
+    const itemValues = sourceFieldPropertyValuesFromRows(
+      sourceRows,
+      field.sourceFieldKey,
+      type,
+    );
+    if (itemValues.length > 0) {
+      await db.insert(schema.documentPropertyValues).values(
+        itemValues.map((row) => ({
+          id: nanoid(),
+          ownerEmail: database.ownerEmail,
+          documentId: row.documentId,
+          propertyId,
+          valueJson: serializePropertyValue(row.value),
+          createdAt: now,
+          updatedAt: now,
+        })),
+      );
+    }
+
     const sourceField = serializeSourceField(
       {
         ...field,
@@ -152,6 +215,7 @@ export default defineAction({
         editable: true,
       },
       sourceField,
+      itemValues,
     };
   },
 });

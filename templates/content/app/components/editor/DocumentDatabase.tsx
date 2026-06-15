@@ -4,6 +4,7 @@ import {
   useRef,
   useState,
   type DragEvent as ReactDragEvent,
+  type MouseEvent as ReactMouseEvent,
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from "react";
@@ -171,6 +172,8 @@ interface DocumentDatabaseProps {
   document: Document;
   canEdit: boolean;
 }
+
+const CONTENT_DATABASE_PAGE_SIZE = 100;
 
 export type SortDirection = ContentDatabaseSortDirection;
 export type DatabaseSort = ContentDatabaseSort;
@@ -380,7 +383,10 @@ function DatabaseTable({
   canEdit: boolean;
 }) {
   const navigate = useNavigate();
-  const database = useContentDatabase(document.id);
+  const [databaseItemLimit, setDatabaseItemLimit] = useState(
+    CONTENT_DATABASE_PAGE_SIZE,
+  );
+  const database = useContentDatabase(document.id, databaseItemLimit);
   const addItem = useAddDatabaseItem(document.id);
   const attachSource = useAttachContentDatabaseSource(document.id);
   const refreshSource = useRefreshContentDatabaseSource(document.id);
@@ -404,6 +410,8 @@ function DatabaseTable({
   const data = database.data;
   const properties = data?.properties ?? [];
   const items = data?.items ?? [];
+  const totalItemCount = data?.pagination?.totalItems ?? items.length;
+  const hasMoreItems = data?.pagination?.hasMore === true;
   const databaseId = data?.database.id ?? null;
   const source = data?.source ?? null;
   const [previewDocumentId, setPreviewDocumentId] = useState<string | null>(
@@ -584,7 +592,7 @@ function DatabaseTable({
       visibleItems: screenVisibleItems,
       visibleProperties: tableProperties,
       visibleItemCount: screenVisibleItems.length,
-      totalItemCount: items.length,
+      totalItemCount,
       selectedItems,
       previewItem,
     });
@@ -601,7 +609,7 @@ function DatabaseTable({
     dateViewRange,
     document,
     activeFilters,
-    items.length,
+    totalItemCount,
     orderedProperties,
     previewItem,
     searchQuery,
@@ -1300,7 +1308,7 @@ function DatabaseTable({
           activeFilters={activeFilters}
           selectedItemIds={selectedItemIds}
           hasSearch={!!searchQuery}
-          totalCount={items.length}
+          totalCount={totalItemCount}
           constrained={hasResultConstraints}
           rowsAreManuallyOrdered={rowsAreManuallyOrdered}
           wrapCells={activeView.wrapCells === true}
@@ -1338,6 +1346,26 @@ function DatabaseTable({
           onOpenPage={openItemPage}
         />
       )}
+
+      {hasMoreItems ? (
+        <div className="flex items-center justify-center border-t border-border/45 py-3">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            disabled={database.isFetching}
+            onClick={() =>
+              setDatabaseItemLimit(
+                (current) => current + CONTENT_DATABASE_PAGE_SIZE,
+              )
+            }
+          >
+            {database.isFetching
+              ? "Loading..."
+              : `Load more rows (${items.length} of ${totalItemCount})`}
+          </Button>
+        </div>
+      ) : null}
 
       <DatabaseItemPreviewSheet
         item={previewItem}
@@ -1535,7 +1563,7 @@ function DatabaseTable({
               visibleItems,
               screenVisibleItems,
             )}
-            totalCount={items.length}
+            totalCount={totalItemCount}
             constrained={hasResultConstraints}
           />
         )
@@ -3236,7 +3264,11 @@ function DatabaseSettingsPanelSheet({
     panel === "main" ? "Database settings" : databaseSettingsPanelTitle(panel);
 
   return (
-    <aside className="fixed bottom-0 right-0 top-12 z-40 flex w-[320px] max-w-[calc(100vw-1rem)] flex-col border-l border-border bg-background shadow-[-12px_0_32px_rgba(15,23,42,0.06)]">
+    <aside
+      className="fixed bottom-0 right-0 top-12 z-40 flex w-[320px] max-w-[calc(100vw-1rem)] flex-col border-l border-border bg-background shadow-[-12px_0_32px_rgba(15,23,42,0.06)]"
+      onClick={(event) => event.stopPropagation()}
+      onPointerDown={(event) => event.stopPropagation()}
+    >
       <div className="flex h-11 shrink-0 items-center gap-2 border-b border-border/70 px-3">
         {panel === "main" ? null : (
           <button
@@ -4040,7 +4072,7 @@ function DatabaseSettingsSourcePanel({
             ) : null}
             <SourceMetadataRow
               label="Rows tracked"
-              value={`${source.rows.length}`}
+              value={`${source.metadata.lastReadMatchedRowCount ?? source.rows.length}`}
             />
             {isCodeMode ? (
               <SourceMetadataRow
@@ -4052,6 +4084,28 @@ function DatabaseSettingsSourcePanel({
               label="Local Builder changes"
               value={`${outboundChangeSets.length}`}
             />
+            <div className="mt-1 border-t border-border/70 pt-3">
+              <div className="text-xs font-medium">Refresh source</div>
+              <div className="mt-0.5 text-xs text-muted-foreground">
+                Pull the latest read-only source snapshot and update field
+                mappings, row identity, and source row values.
+              </div>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="mt-2 h-8 text-xs"
+                disabled={!canEdit || sourceActionPending}
+                onClick={onRefreshSource}
+              >
+                {sourceActionPending ? (
+                  <Spinner className="mr-1 size-3.5" />
+                ) : (
+                  <IconRefresh className="mr-1 size-3.5" />
+                )}
+                Refresh
+              </Button>
+            </div>
             <div className="mt-1 border-t border-border/70 pt-3">
               <div className="text-xs font-medium">Disconnect source</div>
               <div className="mt-0.5 text-xs text-muted-foreground">
@@ -4798,7 +4852,10 @@ function DatabaseSettingsRow({
           ? "cursor-default text-muted-foreground/60"
           : "text-foreground hover:bg-muted",
       )}
-      onClick={onClick}
+      onClick={(event: ReactMouseEvent<HTMLButtonElement>) => {
+        event.stopPropagation();
+        onClick?.();
+      }}
     >
       <span className="flex size-5 shrink-0 items-center justify-center text-muted-foreground">
         {icon}

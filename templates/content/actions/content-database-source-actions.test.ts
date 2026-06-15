@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import attachSource from "./attach-content-database-source";
 import addSourceFieldProperty, {
   propertyTypeForSourceField,
+  sourceFieldPropertyValuesFromRows,
 } from "./add-content-database-source-field-property";
 import disconnectSource from "./disconnect-content-database-source";
 import executeExecution from "./execute-builder-source-execution";
@@ -17,6 +18,7 @@ import reviewChangeSet from "./review-content-database-source-change-set";
 import setWriteMode from "./set-content-database-source-write-mode";
 import stageBuilderRevision from "./stage-builder-revision";
 import validateExecution from "./validate-builder-source-execution";
+import { normalizeContentDatabasePageOptions } from "./_database-utils";
 import { serializeBuilderCmsSourceReadMetadataRecord } from "./_database-source-utils";
 import type { ContentDatabaseSource } from "../shared/api";
 
@@ -33,6 +35,8 @@ describe("content database source actions", () => {
   it("defaults source attachment to the safe mock-local source type", () => {
     expect(attachSource.schema.parse({ documentId: "database-page" })).toEqual({
       documentId: "database-page",
+      limit: 100,
+      offset: 0,
       sourceType: "mock-local",
     });
   });
@@ -44,18 +48,41 @@ describe("content database source actions", () => {
         sourceType: "builder-cms",
         sourceName: "Mock Builder",
         sourceTable: "blog_article",
+        limit: 50,
+        offset: 25,
       }),
     ).toEqual({
       databaseId: "database",
       sourceType: "builder-cms",
       sourceName: "Mock Builder",
       sourceTable: "blog_article",
+      limit: 50,
+      offset: 25,
     });
   });
 
   it("accepts refresh requests without external provider details", () => {
     expect(refreshSource.schema.parse({ databaseId: "database" })).toEqual({
       databaseId: "database",
+    });
+  });
+
+  it("caps content database page sizes for bounded responses", () => {
+    expect(
+      normalizeContentDatabasePageOptions({ limit: 1, offset: -5 }),
+    ).toEqual({
+      limit: 1,
+      offset: 0,
+    });
+    expect(
+      normalizeContentDatabasePageOptions({ limit: 10_000, offset: 25 }),
+    ).toEqual({
+      limit: 500,
+      offset: 25,
+    });
+    expect(normalizeContentDatabasePageOptions({})).toEqual({
+      limit: null,
+      offset: 0,
     });
   });
 
@@ -86,6 +113,47 @@ describe("content database source actions", () => {
     expect(propertyTypeForSourceField("url")).toBe("url");
     expect(propertyTypeForSourceField("boolean")).toBe("checkbox");
     expect(propertyTypeForSourceField("text")).toBe("text");
+  });
+
+  it("builds populated property values from persisted source row snapshots", () => {
+    expect(
+      sourceFieldPropertyValuesFromRows(
+        [
+          {
+            databaseItemId: "item-1",
+            documentId: "doc-1",
+            sourceValuesJson: JSON.stringify({
+              "data.handle": "hello-builder",
+            }),
+          },
+          {
+            databaseItemId: "item-2",
+            documentId: "doc-2",
+            sourceValuesJson: JSON.stringify({
+              "data.handle": "second-post",
+            }),
+          },
+          {
+            databaseItemId: "item-3",
+            documentId: "doc-3",
+            sourceValuesJson: JSON.stringify({ "data.other": "skip-me" }),
+          },
+        ],
+        "data.handle",
+        "text",
+      ),
+    ).toEqual([
+      {
+        itemId: "item-1",
+        documentId: "doc-1",
+        value: "hello-builder",
+      },
+      {
+        itemId: "item-2",
+        documentId: "doc-2",
+        value: "second-post",
+      },
+    ]);
   });
 
   it("accepts no-argument Builder model discovery requests", () => {

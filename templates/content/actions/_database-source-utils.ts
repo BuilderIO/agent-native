@@ -265,6 +265,10 @@ function serializeSourceRowRecord(
     sourceRowId: row.sourceRowId,
     sourceQualifiedId: row.sourceQualifiedId,
     sourceDisplayKey: row.sourceDisplayKey,
+    sourceValues:
+      parseObject<Record<string, DocumentPropertyValue>>(
+        row.sourceValuesJson,
+      ) ?? {},
     provenance: row.provenance,
     syncState: normalizeSourceSyncState(row.syncState),
     freshness: normalizeSourceFreshness(row.freshness),
@@ -788,6 +792,7 @@ export async function seedMockSourceFields(args: {
   sourceType: ContentDatabaseSourceType;
   properties: DocumentProperty[];
   builderModelFields?: BuilderCmsModelFieldSummary[];
+  builderSampleEntries?: BuilderCmsSourceEntry[];
   now: string;
 }) {
   const db = getDb();
@@ -941,6 +946,42 @@ export async function seedMockSourceFields(args: {
         updatedAt: args.now,
       });
     }
+    for (const entry of args.builderSampleEntries ?? []) {
+      for (const sourceFieldKey of Object.keys(entry.sourceValues)) {
+        if (!sourceFieldKey.startsWith("data.")) continue;
+        const normalizedKey = sourceFieldKey.toLowerCase();
+        if (existingSourceFieldKeys.has(normalizedKey)) continue;
+        existingSourceFieldKeys.add(normalizedKey);
+        const value = entry.sourceValues[sourceFieldKey];
+        rows.push({
+          id: crypto.randomUUID(),
+          ownerEmail: args.ownerEmail,
+          sourceId: args.sourceId,
+          propertyId: null,
+          localFieldKey: sourceFieldKey,
+          sourceFieldKey,
+          sourceFieldLabel: builderCmsModelFieldLabel(
+            sourceFieldKey.slice("data.".length),
+          ),
+          sourceFieldType:
+            typeof value === "number"
+              ? "number"
+              : typeof value === "boolean"
+                ? "boolean"
+                : Array.isArray(value)
+                  ? "list"
+                  : "text",
+          mappingType: "property",
+          writeOwner: "source",
+          readOnly: 0,
+          provenance: "Builder content field",
+          freshness: "fresh",
+          lastSyncedAt: args.now,
+          createdAt: args.now,
+          updatedAt: args.now,
+        });
+      }
+    }
   }
 
   await db.insert(schema.contentDatabaseSourceFields).values(rows);
@@ -986,6 +1027,10 @@ export async function seedMockSourceRows(args: {
           builderIdentity?.sourceDisplayKey ??
           item.document.title?.trim() ??
           `${args.sourceType}-${index + 1}`,
+        sourceValuesJson: JSON.stringify(
+          args.builderEntriesByDocumentId?.get(item.document.id)
+            ?.sourceValues ?? {},
+        ),
         provenance:
           args.sourceType === "builder-cms"
             ? args.builderEntriesByDocumentId?.has(item.document.id)
@@ -1483,6 +1528,8 @@ export async function resyncBuilderCmsSourceSnapshot(args: {
     sourceType: "builder-cms",
     properties,
     builderModelFields,
+    builderSampleEntries:
+      builderRead.state === "live" ? builderRead.entries : [],
     now: args.now,
   });
   await seedMockSourceRows({

@@ -322,6 +322,7 @@ const runContentMigrations = runMigrations(
       source_row_id TEXT NOT NULL,
       source_qualified_id TEXT NOT NULL,
       source_display_key TEXT NOT NULL,
+      source_values_json TEXT NOT NULL DEFAULT '{}',
       provenance TEXT NOT NULL DEFAULT 'source',
       sync_state TEXT NOT NULL DEFAULT 'linked',
       freshness TEXT NOT NULL DEFAULT 'unknown',
@@ -395,6 +396,10 @@ const runContentMigrations = runMigrations(
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     )`,
+    },
+    {
+      version: 46,
+      sql: `ALTER TABLE content_database_source_rows ADD COLUMN IF NOT EXISTS source_values_json TEXT NOT NULL DEFAULT '{}'`,
     },
   ],
   { table: "content_migrations" },

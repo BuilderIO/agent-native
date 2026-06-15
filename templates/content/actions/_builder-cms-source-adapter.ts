@@ -1,6 +1,7 @@
 import type {
   ContentDatabaseItem,
   ContentDatabaseSourceFieldMapping,
+  DocumentPropertyValue,
 } from "../shared/api.js";
 
 export interface BuilderCmsSourceEntry {
@@ -9,6 +10,7 @@ export interface BuilderCmsSourceEntry {
   title: string;
   urlPath: string;
   updatedAt: string;
+  sourceValues: Record<string, DocumentPropertyValue>;
 }
 
 export interface ExistingBuilderSourceRowIdentity {
@@ -44,6 +46,11 @@ export function buildBuilderCmsFixtureEntry(args: {
     title,
     urlPath: `/blog/${slug}`,
     updatedAt: args.now,
+    sourceValues: {
+      "data.title": title,
+      "data.url": `/blog/${slug}`,
+      lastUpdated: args.now,
+    },
   };
 }
 
@@ -188,6 +195,55 @@ function stringFromRecord(
   return null;
 }
 
+function sourceValueFromUnknown(value: unknown): DocumentPropertyValue {
+  if (
+    value === null ||
+    typeof value === "string" ||
+    typeof value === "number" ||
+    typeof value === "boolean"
+  ) {
+    return value;
+  }
+  if (Array.isArray(value)) {
+    return value
+      .map((entry) =>
+        typeof entry === "string" ||
+        typeof entry === "number" ||
+        typeof entry === "boolean"
+          ? String(entry)
+          : null,
+      )
+      .filter((entry): entry is string => entry !== null);
+  }
+  if (value && typeof value === "object") {
+    return JSON.stringify(value);
+  }
+  return null;
+}
+
+function builderSourceValuesFromRecord(args: {
+  record: Record<string, unknown>;
+  data: Record<string, unknown>;
+  title: string;
+  urlPath: string;
+  updatedAt: string;
+}) {
+  const values: Record<string, DocumentPropertyValue> = {
+    "data.title": args.title,
+    "data.url": args.urlPath,
+    lastUpdated: args.updatedAt,
+  };
+  for (const [key, value] of Object.entries(args.data)) {
+    values[`data.${key}`] = sourceValueFromUnknown(value);
+  }
+  for (const key of ["published", "createdDate", "updatedDate", "updatedAt"]) {
+    if (key in args.record) {
+      values[key] = sourceValueFromUnknown(args.record[key]);
+    }
+  }
+  return values;
+}
+
 export function normalizeBuilderCmsApiEntry(
   value: unknown,
   model: string,
@@ -225,5 +281,12 @@ export function normalizeBuilderCmsApiEntry(
     title,
     urlPath,
     updatedAt,
+    sourceValues: builderSourceValuesFromRecord({
+      record,
+      data,
+      title,
+      urlPath,
+      updatedAt,
+    }),
   };
 }

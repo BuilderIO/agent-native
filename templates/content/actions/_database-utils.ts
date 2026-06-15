@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray } from "drizzle-orm";
+import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import { getDb, schema } from "../server/db/index.js";
 import {
   parseDocumentFavorite,
@@ -70,6 +70,21 @@ export function filterDatabaseContainedDocuments<
   return documents.filter((doc) => !isContained(doc));
 }
 
+export function normalizeContentDatabasePageOptions(options: {
+  limit?: number;
+  offset?: number;
+}) {
+  const limit =
+    typeof options.limit === "number" && Number.isFinite(options.limit)
+      ? Math.max(1, Math.min(Math.floor(options.limit), 500))
+      : null;
+  const offset =
+    typeof options.offset === "number" && Number.isFinite(options.offset)
+      ? Math.max(0, Math.floor(options.offset))
+      : 0;
+  return { limit, offset };
+}
+
 function serializeDocument(
   doc: typeof schema.documents.$inferSelect,
   membership?: DatabaseMembershipRow,
@@ -97,6 +112,7 @@ function serializeDocument(
 
 export async function getContentDatabaseResponse(
   databaseId: string,
+  options: { limit?: number; offset?: number } = {},
 ): Promise<ContentDatabaseResponse> {
   const db = getDb();
   const [database] = await db
@@ -106,11 +122,22 @@ export async function getContentDatabaseResponse(
 
   if (!database) throw new Error(`Database "${databaseId}" not found`);
 
-  const items = await db
+  const { limit, offset } = normalizeContentDatabasePageOptions(options);
+  const [itemCount] = await db
+    .select({ count: sql<number>`COUNT(*)` })
+    .from(schema.contentDatabaseItems)
+    .where(eq(schema.contentDatabaseItems.databaseId, databaseId));
+
+  let itemsQuery = db
     .select()
     .from(schema.contentDatabaseItems)
     .where(eq(schema.contentDatabaseItems.databaseId, databaseId))
-    .orderBy(asc(schema.contentDatabaseItems.position));
+    .orderBy(asc(schema.contentDatabaseItems.position))
+    .$dynamic();
+  if (limit !== null) {
+    itemsQuery = itemsQuery.limit(limit).offset(offset);
+  }
+  const items = await itemsQuery;
 
   const documents =
     items.length > 0
@@ -143,12 +170,35 @@ export async function getContentDatabaseResponse(
   }
 
   const source = await getContentDatabaseSourceSnapshot(database);
+  const serializedDocumentIds = new Set(
+    serializedItems.map((item) => item.document.id),
+  );
+  const pagedSource =
+    limit !== null && source
+      ? {
+          ...source,
+          rows: source.rows.filter((row) =>
+            serializedDocumentIds.has(row.documentId),
+          ),
+        }
+      : source;
 
   return {
     database: serializeDatabase(database),
     properties: await listPropertiesForDatabase(databaseId),
-    items: applySourceSnapshotToItems(serializedItems, source),
-    source,
+    items: applySourceSnapshotToItems(serializedItems, pagedSource),
+    source: pagedSource,
+    pagination:
+      limit !== null
+        ? {
+            offset,
+            limit,
+            totalItems: Number(itemCount?.count ?? 0),
+            returnedItems: serializedItems.length,
+            hasMore:
+              offset + serializedItems.length < Number(itemCount?.count ?? 0),
+          }
+        : undefined,
   };
 }
 

@@ -114,7 +114,7 @@ describe("document database layout", () => {
 
     expect(source).toContain("function databaseToolbarIconButtonClass");
     expect(source).toContain('aria-label="Search"');
-    expect(source).toContain('aria-label="View settings"');
+    expect(source).toContain(": \"Database settings\"");
     expect(source).toContain("Property visibility");
     expect(source).toContain("bg-foreground px-2.5 text-xs font-medium");
   });
@@ -123,14 +123,40 @@ describe("document database layout", () => {
     const source = readDatabaseSource();
 
     expect(source).toContain("type DatabaseSettingsPanel");
-    expect(source).toContain("function DatabaseViewSettingsPanel");
-    expect(source).toContain("View settings");
+    expect(source).toContain("function DatabaseSettingsPanelSheet");
+    expect(source).toContain("Database settings");
     expect(source).toContain("function DatabaseSettingsLayoutPanel");
     expect(source).toContain(
       "function DatabaseSettingsPropertyVisibilityPanel",
     );
     expect(source).toContain("function DatabaseSettingsGroupPanel");
     expect(source).toContain("fixed bottom-0 right-0 top-12");
+  });
+
+  it("keeps database settings row clicks inside the source drawer", () => {
+    const source = readDatabaseSource();
+
+    expect(source).toContain('onClick={(event) => event.stopPropagation()}');
+    expect(source).toContain(
+      'onPointerDown={(event) => event.stopPropagation()}',
+    );
+    expect(source).toContain(
+      "onClick={(event: ReactMouseEvent<HTMLButtonElement>) => {",
+    );
+    expect(source).toContain("event.stopPropagation();");
+    expect(source).toContain(
+      'value={source ? source.sourceName : "Local / no source"}',
+    );
+    expect(source).toContain('onClick={() => onPanelChange("source")}');
+  });
+
+  it("exposes a manual refresh action in connected source settings", () => {
+    const source = readDatabaseSource();
+
+    expect(source).toContain("Refresh source");
+    expect(source).toContain("onClick={onRefreshSource}");
+    expect(source).toContain("update field");
+    expect(source).toContain("source row values");
   });
 
   it("keeps the Layout settings panel limited to implemented controls", () => {
