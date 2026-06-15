@@ -164,6 +164,25 @@ For analyses spanning 30+ accounts, deals, or calls:
 
 Do not try to hold 30+ full records in one context pass.
 
+### Corpus-First Provider Analysis
+
+For broad provider searches, cross-source joins, mention counts, classifications,
+or questions where absence matters:
+
+1. Inspect the provider catalog/docs when a canned action cannot express the
+   exact endpoint, filter, body, or pagination needed.
+2. Fetch the full relevant cohort, or an explicit bounded cohort, using
+   `provider-api-request` with `fetchAllPages`, `stageAs`, or `saveToFile` when
+   the payload is large.
+3. Use `run-code` with `providerFetch`, `appAction`, and workspace files to
+   join, grep, classify, count, and aggregate without flooding chat context.
+4. Report coverage: source, filters, time window, row/record counts, joins,
+   failed/aborted pages, truncation, and any remaining gaps.
+
+Never turn sampled records, default limits, truncated excerpts, or aborted tool
+calls into a confident "none found", "all records", or exhaustive conclusion.
+Recover coverage first, or answer as explicitly partial.
+
 ### Learnings Flywheel
 
 After completing any significant analysis, record discoveries to `LEARNINGS.md`

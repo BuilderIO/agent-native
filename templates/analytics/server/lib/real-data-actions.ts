@@ -244,6 +244,83 @@ function isProviderErrorOnlyContent(content: string | undefined): boolean {
   return !hasEvidencePayload(record);
 }
 
+function valueHasIncompleteDataFlag(value: unknown): boolean {
+  if (!value || typeof value !== "object") return false;
+  if (Array.isArray(value)) return value.some(valueHasIncompleteDataFlag);
+
+  return Object.entries(value as Record<string, unknown>).some(
+    ([key, candidate]) => {
+      const normalizedKey = key.toLowerCase();
+      if (
+        [
+          "truncated",
+          "coveragetruncated",
+          "hasmore",
+          "has_more",
+          "moreavailable",
+        ].includes(normalizedKey) &&
+        candidate === true
+      ) {
+        return true;
+      }
+      if (
+        ["nextoffset", "nextcursor", "nextpage", "nexttoken", "next"].includes(
+          normalizedKey,
+        ) &&
+        candidate !== null &&
+        candidate !== undefined &&
+        candidate !== "" &&
+        candidate !== false
+      ) {
+        return true;
+      }
+      return valueHasIncompleteDataFlag(candidate);
+    },
+  );
+}
+
+const INCOMPLETE_DATA_TEXT =
+  /\b(?:error running|run aborted|tool call timed out|stale_run|connection_error|interrupted before this tool returned|truncated|coverage gap|provider page cap|hit the .* page cap|has more content|call again with offset|full result was|only first)\b/i;
+
+export function hasIncompleteDataEvidence(
+  toolResults:
+    | Array<{ name?: string; isError?: boolean; content?: string }>
+    | undefined,
+): boolean {
+  return (toolResults ?? []).some((result) => {
+    if (!result.content && !result.isError) return false;
+    const name = String(result.name ?? "");
+    if (
+      name &&
+      !DATA_QUERY_ACTIONS.has(name) &&
+      !isMcpDataSourceTool(name) &&
+      name !== "run-code" &&
+      name !== "provider-api-request"
+    ) {
+      return false;
+    }
+    if (result.isError) return true;
+    const content = String(result.content ?? "");
+    if (INCOMPLETE_DATA_TEXT.test(content)) return true;
+    const parsed = tryParseJsonContent(content);
+    return valueHasIncompleteDataFlag(parsed);
+  });
+}
+
+const STRONG_COVERAGE_OR_ABSENCE_CLAIM =
+  /\b(?:no|zero|0)\s+(?:mentions?|matches?|results?|records?|calls?|tickets?|issues?|deals?|accounts?|customers?|transcripts?|examples?)\b|\b(?:none|nothing)\b[^.?!]*(?:found|matched|mentioned|returned|showed|surfaced)\b|\b(?:all|every|entire|complete|full|exhaustive)\b[^.?!]*(?:calls?|records?|transcripts?|deals?|accounts?|customers?|dataset|cohort|results?|search)\b|\b(?:did not|didn't|does not|doesn't)\s+(?:mention|include|contain|show|surface)\b/i;
+
+const EXPLICIT_PARTIAL_DISCLOSURE =
+  /\b(?:partial|partially|sample|sampled|subset|bounded|limited|not exhaustive|non-exhaustive|incomplete|truncated|aborted|timed out|coverage gap|could not inspect|only inspected|first \d+|top \d+|returned \d+)\b/i;
+
+export function looksLikeStrongCoverageClaim(text: string): boolean {
+  return STRONG_COVERAGE_OR_ABSENCE_CLAIM.test(text);
+}
+
+export function hasExplicitPartialDisclosure(text: string): boolean {
+  return EXPLICIT_PARTIAL_DISCLOSURE.test(text);
+}
+
 export function hasDataQueryAttempt(
   toolResults:
     | Array<{ name?: string; isError?: boolean; content?: string }>

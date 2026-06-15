@@ -10,8 +10,11 @@ import {
   resolveSettingsScope,
 } from "../lib/scoped-settings";
 import {
+  hasExplicitPartialDisclosure,
   hasDataQueryAttempt,
+  hasIncompleteDataEvidence,
   isSafeNoDataAnalyticsResponse,
+  looksLikeStrongCoverageClaim,
   looksLikeAnalyticsDataRequest,
 } from "../lib/real-data-actions";
 import { renderDataDictionary } from "../lib/data-dictionary-context";
@@ -39,6 +42,18 @@ function realDataFinalGuard(context: AgentLoopFinalResponseGuardContext) {
   }
   const userText = latestUserText(context.messages ?? []);
   if (!looksLikeAnalyticsDataRequest(userText)) return null;
+  if (
+    hasIncompleteDataEvidence(context.toolResults) &&
+    looksLikeStrongCoverageClaim(context.text) &&
+    !hasExplicitPartialDisclosure(context.text)
+  ) {
+    return {
+      retryMessage:
+        "Some source evidence for this analytics answer was aborted, truncated, or indicated more pages, but the draft makes a strong zero/all/exhaustive claim. Recover coverage with provider-api-request/run-code/workspace staging if possible; otherwise finalize with explicit partial-coverage wording, the inspected sample size, and the missing coverage.",
+      fallbackMessage:
+        "I can't make a confident exhaustive analytics claim yet because part of the source evidence was aborted, truncated, or still paginated. I need to recover the missing coverage or state the answer as partial with the inspected sample size.",
+    };
+  }
   if (hasDataQueryAttempt(context.toolResults)) return null;
   if (isSafeNoDataAnalyticsResponse(context.text)) return null;
 
@@ -79,6 +94,7 @@ export default createAgentChatPlugin({
       "The built-in `demo` dashboard source is a demo-environment Prometheus source reserved for the Node Exporter demo. It must never satisfy REAL_DATA_REQUIRED or be cited as user analytics evidence unless the user explicitly asks to inspect the demo dashboard. " +
       "When the user names a provider or tool such as Jira, Pylon, HubSpot, Gong, Slack, Sentry, GA4, or BigQuery, that named source is authoritative for the turn: check that provider and call its action or connected MCP tool first. For HubSpot, call `hubspot-records` or a HubSpot MCP search tool for contacts, companies, tickets, or broad CRM lookup; call `hubspot-deals`, `hubspot-metrics`, or `hubspot-pipelines` for deal pipeline analysis. Do not substitute BigQuery for Pylon, Jira, HubSpot, or another provider unless the user explicitly asks for the warehouse copy or the named provider is unavailable and the user chooses a fallback. " +
       "Provider-specific actions are shortcuts, not limits. If a first-class action cannot express the exact endpoint, object type, filters, request body, pagination mode, or API version needed, call `provider-api-catalog` and `provider-api-docs` as needed, then call `provider-api-request` against the provider's real HTTP API. Use this raw provider API escape hatch instead of weakening the analysis, broadening filters, or claiming the integration cannot do something the underlying API can do. " +
+      "For complex provider questions, broad searches, corpus-wide counts, cross-source joins, or any answer where absence matters, prefer a corpus-first workflow: inspect the provider API, fetch every relevant page or an explicitly bounded cohort, stage large responses with `saveToFile`/`stageAs`/`fetchAllPages`, and use `run-code` with `providerFetch`, `appAction`, and workspace files to join, grep, classify, and aggregate. Do not infer no results from sampled records, default limits, truncated excerpts, or aborted calls. If full coverage is not possible in the turn, say exactly what was inspected and what remains uncovered. " +
       'For HubSpot deal cohorts, use structured `hubspot-deals` filters: `product` for the `products` field, `pipeline` for pipeline label/id, `closedStatus` for won/lost/open/closed, and `closedDateFrom`/`closedDateTo` for close-date windows. The `query` argument is full-text deal search and is not proof that a specific property matched; do not use `query: "Publish"` when the user asked for products field = Publish. Report the returned filter values and cohort count in the methodology. ' +
       "For named deal, account, renewal, churn-risk, or customer deep dives that need HubSpot and Gong context, call `account-deep-dive` first with the named company, domain, deal, or opportunity. It returns HubSpot associations, Gong call details, compact transcript excerpts, source coverage, and gaps in one bounded evidence bundle. Use `hubspot-deals`, `hubspot-records`, or `gong-calls` only for targeted follow-up gaps. Do not answer a requested Gong deep dive from call metadata alone. " +
       "When the user refers to the current analysis, this analysis, this project, or asks to spin off, adapt, modify, or reuse a saved analysis, call `view-screen` first and use the returned analysis details; if an analysis id or @mention is provided, call `get-analysis` before responding. " +

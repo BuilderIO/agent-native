@@ -108,7 +108,7 @@ export function createRunCodeEntry(
         "Use this to fetch, join, aggregate, and reduce large datasets, returning only printed output to the conversation.",
         "The sandbox runs with a scrubbed environment (no secrets) and, where the Node permission model is available, no filesystem access outside its own temp dir, no child processes, and no workers. Authenticated calls must go through the provided globals; direct network requests carry no credentials. Note: isolation is process-level (env scrub + Node permission model), not an OS-level container — outbound network from sandbox code is not blocked.",
         "Available globals:",
-        "  - `appAction(name, args?)` — call any registered read-only app action/tool and get its parsed result.",
+        "  - `appAction(name, args?)` — call any registered agent-exposed read-only app action/tool and get its parsed result.",
         "    Use this to loop over app data readers and compose multi-source analyses without forcing every intermediate result into chat.",
         "  - `providerFetch(provider, path, init?)` — authenticated call to a registered provider via the provider-api-request action.",
         "    Returns the parsed JSON result (or throws on error).",
@@ -117,6 +117,7 @@ export function createRunCodeEntry(
         "    Returns `{ status, body }` where body is the response text.",
         "    Example: `const { body } = await webFetch('https://api.example.com/data');`",
         "  - `workspaceRead(path, opts?)` — read a workspace file by path. Returns content string or null. opts: { offset?, maxChars? }.",
+        "  - `workspaceReadMeta(path, opts?)` — read a workspace file with metadata such as sizeBytes, truncated, and nextOffset.",
         "  - `workspaceWrite(path, content, contentType?)` — create or overwrite a workspace file.",
         "  - `workspaceAppend(path, content)` — append text to a workspace file.",
         "  - `workspaceList(prefix?)` — list workspace files, returns [{ path, sizeBytes, contentType, updatedAt }].",
@@ -179,7 +180,8 @@ export function createRunCodeEntry(
       let tmpFile: string | undefined;
       try {
         // Write code to a temp ESM file (top-level await needs a module).
-        tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "agent-run-code-"));
+        const tmpBaseDir = fs.realpathSync(os.tmpdir());
+        tmpDir = fs.mkdtempSync(path.join(tmpBaseDir, "agent-run-code-"));
         tmpFile = path.join(tmpDir, "sandbox.mjs");
         fs.writeFileSync(
           tmpFile,
@@ -391,7 +393,10 @@ function handleBridgeRequest(
 
   // Enforce allowlist.
   const entry = actions[toolName];
-  const isReadOnlyAction = entry?.readOnly === true;
+  const isReadOnlyAction =
+    entry?.readOnly === true &&
+    entry.agentTool !== false &&
+    entry.toolCallable !== false;
   if (
     !defaultTools.has(toolName) &&
     !extraTools.has(toolName) &&
@@ -400,7 +405,7 @@ function handleBridgeRequest(
     res.writeHead(403, { "Content-Type": "application/json" });
     res.end(
       JSON.stringify({
-        error: `Tool "${toolName}" is not a read-only action or sandbox bridge allowlisted tool.`,
+        error: `Tool "${toolName}" is not an agent-exposed read-only action or sandbox bridge allowlisted tool.`,
       }),
     );
     return;
@@ -493,8 +498,8 @@ function _parseBridgeResult(rawResult) {
 }
 
 /**
- * Call any registered read-only app action/tool via the sandbox bridge.
- * Mutating actions are blocked by the parent bridge.
+ * Call any registered agent-exposed read-only app action/tool via the sandbox bridge.
+ * Mutating and explicitly hidden actions are blocked by the parent bridge.
  */
 async function appAction(name, args = {}) {
   return _parseBridgeResult(await _bridgeCall(name, args));
@@ -568,16 +573,23 @@ async function webFetch(url, init = {}) {
  * Supports optional offset and maxChars for paging large files.
  */
 async function workspaceRead(path, opts = {}) {
+  const parsed = await workspaceReadMeta(path, opts);
+  if (parsed && parsed.ok === false) return null;
+  return parsed && typeof parsed.content === "string" ? parsed.content : null;
+}
+
+/**
+ * Read a workspace file by path and return the full metadata envelope.
+ * Use this when offset/maxChars paging or truncation status matters.
+ */
+async function workspaceReadMeta(path, opts = {}) {
   const rawResult = await _bridgeCall("workspace-files", {
     action: "read",
     path,
     ...(opts.offset !== undefined ? { offset: opts.offset } : {}),
     ...(opts.maxChars !== undefined ? { maxChars: opts.maxChars } : {}),
   });
-  let parsed;
-  try { parsed = typeof rawResult === "string" ? JSON.parse(rawResult) : rawResult; } catch { return rawResult; }
-  if (parsed && parsed.ok === false) return null;
-  return parsed && typeof parsed.content === "string" ? parsed.content : null;
+  return _parseBridgeResult(rawResult);
 }
 
 /**
