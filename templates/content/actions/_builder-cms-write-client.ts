@@ -1,4 +1,7 @@
 import { resolveBuilderCredential } from "@agent-native/core/server";
+import { request as httpRequest } from "node:http";
+import { request as httpsRequest } from "node:https";
+import type { ClientRequest, IncomingMessage, RequestOptions } from "node:http";
 
 export interface BuilderCmsWriteRequest {
   method: "POST" | "PATCH";
@@ -16,6 +19,11 @@ export interface BuilderCmsWriteResult {
 }
 
 type FetchLike = typeof fetch;
+type NodeRequestLike = (
+  url: URL,
+  options: RequestOptions,
+  callback: (response: IncomingMessage) => void,
+) => ClientRequest;
 
 function builderWriteApiHost() {
   return (
@@ -70,9 +78,70 @@ export function extractBuilderCmsWriteEntryId(
   return undefined;
 }
 
+function buildWriteResult(args: {
+  ok: boolean;
+  status: number;
+  responseText: string;
+}): BuilderCmsWriteResult {
+  const responseBody = parseResponseBody(args.responseText);
+  const entryId = extractBuilderCmsWriteEntryId(responseBody);
+  return {
+    ok: args.ok,
+    status: args.status,
+    entryId,
+    responseBody,
+    error: args.ok
+      ? undefined
+      : `Builder write request failed with HTTP ${args.status}.`,
+  };
+}
+
+async function executeNodeRequest(args: {
+  url: URL;
+  method: "POST" | "PATCH";
+  headers: Record<string, string>;
+  body: string;
+  requestImpl?: NodeRequestLike;
+}): Promise<BuilderCmsWriteResult> {
+  const requestImpl =
+    args.requestImpl ??
+    (args.url.protocol === "http:" ? httpRequest : httpsRequest);
+
+  return await new Promise((resolve, reject) => {
+    const request = requestImpl(
+      args.url,
+      {
+        method: args.method,
+        headers: args.headers,
+      },
+      (response) => {
+        const chunks: Buffer[] = [];
+        response.on("data", (chunk: Buffer | string) => {
+          chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+        });
+        response.on("end", () => {
+          const status = response.statusCode ?? 0;
+          resolve(
+            buildWriteResult({
+              ok: status >= 200 && status < 300,
+              status,
+              responseText: Buffer.concat(chunks).toString("utf8"),
+            }),
+          );
+        });
+        response.on("error", reject);
+      },
+    );
+    request.on("error", reject);
+    request.write(args.body);
+    request.end();
+  });
+}
+
 export async function executeBuilderCmsWrite(args: {
   request: BuilderCmsWriteRequest;
   fetchImpl?: FetchLike;
+  nodeRequestImpl?: NodeRequestLike;
 }): Promise<BuilderCmsWriteResult> {
   const privateKey = await readBuilderPrivateKey();
   if (!privateKey) {
@@ -89,29 +158,39 @@ export async function executeBuilderCmsWrite(args: {
     url.searchParams.set(key, value);
   }
 
+  const body = JSON.stringify(args.request.body);
+  const headers = {
+    accept: "application/json",
+    authorization: `Bearer ${privateKey}`,
+    "content-type": "application/json",
+  };
+
   try {
     const response = await (args.fetchImpl ?? fetch)(url, {
       method: args.request.method,
-      headers: {
-        accept: "application/json",
-        authorization: `Bearer ${privateKey}`,
-        "content-type": "application/json",
-      },
-      body: JSON.stringify(args.request.body),
+      headers,
+      body,
     });
-    const responseBody = parseResponseBody(await response.text());
-    const entryId = extractBuilderCmsWriteEntryId(responseBody);
-
-    return {
+    return buildWriteResult({
       ok: response.ok,
       status: response.status,
-      entryId,
-      responseBody,
-      error: response.ok
-        ? undefined
-        : `Builder write request failed with HTTP ${response.status}.`,
-    };
+      responseText: await response.text(),
+    });
   } catch (error) {
+    if (args.nodeRequestImpl || !args.fetchImpl) {
+      try {
+        return await executeNodeRequest({
+          url,
+          method: args.request.method,
+          headers,
+          body,
+          requestImpl: args.nodeRequestImpl,
+        });
+      } catch {
+        // Return the original fetch failure below; it is usually more specific.
+      }
+    }
+
     return {
       ok: false,
       status: 0,

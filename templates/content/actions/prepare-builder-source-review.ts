@@ -112,6 +112,8 @@ export function buildBuilderSourceReviewPayload(args: {
   const executionStates = rows
     .map((row) => row.execution?.state)
     .filter(Boolean);
+  const hasExecutionEvidence =
+    statuses.length > 0 || executionStates.length > 0;
   const resultStatus =
     executionStates.length > 0 &&
     executionStates.every((state) => state === "succeeded")
@@ -126,7 +128,9 @@ export function buildBuilderSourceReviewPayload(args: {
               ? "blocked"
               : statuses.includes("validated")
                 ? "validated"
-                : "write_disabled";
+                : args.source.capabilities.liveWritesEnabled
+                  ? "validated"
+                  : "write_disabled";
   const pushMode = args.source.metadata.pushMode ?? "autosave";
   const summary =
     rows.length === 1
@@ -154,7 +158,9 @@ export function buildBuilderSourceReviewPayload(args: {
               ? "Builder push is running."
               : resultStatus === "validated"
                 ? args.source.capabilities.liveWritesEnabled
-                  ? "Push checked successfully. Ready to send to Builder."
+                  ? hasExecutionEvidence
+                    ? "Push checked successfully. Ready to send to Builder."
+                    : "Ready to send to Builder."
                   : "Push checked successfully. Nothing was sent to Builder."
                 : resultStatus === "blocked"
                   ? "Push needs attention before anything can be sent to Builder."

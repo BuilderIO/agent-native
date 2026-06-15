@@ -181,6 +181,43 @@ describe("database source helpers", () => {
     });
   });
 
+  it("does not synthesize live Builder push diffs for legacy fixture rows", () => {
+    const pending = buildBuilderLocalOutboundChangeSets({
+      source: {
+        sourceType: "builder-cms",
+        capabilitiesJson: JSON.stringify({ liveWritesEnabled: true }),
+        metadataJson: JSON.stringify({ liveReadConfigured: true }),
+      },
+      rowRows: [
+        {
+          id: "fixture-row",
+          databaseItemId: "item-1",
+          documentId: "BU5P0mT9anul",
+          sourceDisplayKey: "Old fixture title",
+          provenance: "Builder CMS fixture adapter",
+        },
+        {
+          id: "live-row",
+          databaseItemId: "item-2",
+          documentId: "doc-2",
+          sourceDisplayKey: "Old live title",
+          provenance: "Builder CMS read adapter",
+        },
+      ],
+      documentTitleById: new Map([
+        ["BU5P0mT9anul", "New fixture title"],
+        ["doc-2", "New live title"],
+      ]),
+      storedChangeSets: [],
+    } as Parameters<typeof buildBuilderLocalOutboundChangeSets>[0]);
+
+    expect(pending).toHaveLength(1);
+    expect(pending[0]).toMatchObject({
+      documentId: "doc-2",
+      fieldChanges: [{ proposedValue: "New live title" }],
+    });
+  });
+
   it("recognizes already imported Builder rows by source-qualified identity", () => {
     expect(
       builderCmsEntryAlreadyRepresented({

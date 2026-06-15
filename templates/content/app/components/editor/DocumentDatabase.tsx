@@ -3474,6 +3474,8 @@ export function buildClientBuilderReviewPayload(
   const executionStates = rows
     .map((row) => row.execution?.state)
     .filter(Boolean);
+  const hasExecutionEvidence =
+    statuses.length > 0 || executionStates.length > 0;
   const resultStatus =
     executionStates.length > 0 &&
     executionStates.every((state) => state === "succeeded")
@@ -3488,7 +3490,9 @@ export function buildClientBuilderReviewPayload(
               ? "blocked"
               : statuses.some((status) => status.status === "validated")
                 ? "validated"
-                : "write_disabled";
+                : source.capabilities.liveWritesEnabled
+                  ? "validated"
+                  : "write_disabled";
 
   return {
     summary:
@@ -3514,7 +3518,9 @@ export function buildClientBuilderReviewPayload(
               ? "Builder push is running."
               : resultStatus === "validated"
                 ? source.capabilities.liveWritesEnabled
-                  ? "Push checked successfully. Ready to send to Builder."
+                  ? hasExecutionEvidence
+                    ? "Push checked successfully. Ready to send to Builder."
+                    : "Ready to send to Builder."
                   : "Push checked successfully. Nothing was sent to Builder."
                 : resultStatus === "blocked"
                   ? "Push needs attention before anything can be sent to Builder."
@@ -3927,8 +3933,12 @@ function DatabaseSettingsSourcePanel({
             <div className="text-xs text-muted-foreground">
               {isBuilderSource
                 ? source.metadata.liveReadConfigured
-                  ? "Builder CMS is connected for read-only source checks. Staged revisions are still saved locally; live Builder writes are disabled."
-                  : "Builder CMS is connected as a local review target. Add Builder credentials to read live CMS entries; live Builder writes are disabled."
+                  ? source.capabilities.liveWritesEnabled
+                    ? "Builder CMS is connected for source checks and guarded autosave writes to the Agent Native test collection."
+                    : "Builder CMS is connected for read-only source checks. Live Builder writes are disabled."
+                  : source.capabilities.liveWritesEnabled
+                    ? "Builder CMS is connected as a local review target with guarded autosave writes enabled for the Agent Native test collection."
+                    : "Builder CMS is connected as a local review target. Add Builder credentials to read live CMS entries; live Builder writes are disabled."
                 : "This source snapshot is rebuilt from the current local database when resynced. No provider writes run from this panel."}
             </div>
             <SourceMetadataRow
@@ -4110,7 +4120,9 @@ function DatabaseSettingsSourcePanel({
                 </div>
                 <div className="text-xs text-muted-foreground">
                   {source.sourceType === "builder-cms"
-                    ? "Local edits can be staged as a Builder save revision/autosave record. Live Builder writes are disabled."
+                    ? source.capabilities.liveWritesEnabled
+                      ? "Local edits can be reviewed and sent through the guarded Builder autosave path."
+                      : "Local edits can be staged as a Builder save revision/autosave record. Live Builder writes are disabled."
                     : "No local outbound push lane is active for this mock source."}
                 </div>
                 <div className="grid min-w-0 gap-2">

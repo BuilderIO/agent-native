@@ -1,4 +1,5 @@
 import { resolveBuilderCredential } from "@agent-native/core/server";
+import { EventEmitter } from "node:events";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   executeBuilderCmsWrite,
@@ -153,6 +154,55 @@ describe("Builder CMS write client", () => {
       error: "Builder write request failed with HTTP 400.",
     });
     expect(JSON.stringify(result)).not.toContain("example-private-key");
+  });
+
+  it("falls back to node http transport when fetch throws", async () => {
+    resolveBuilderCredentialMock.mockResolvedValue("example-private-key");
+    const fetchImpl = vi.fn(async () => {
+      throw new Error("fetch failed");
+    });
+    const writes: string[] = [];
+    const requestImpl = vi.fn((url, options, callback) => {
+      expect(url.href).toBe(
+        "https://builder.io/api/v1/write/agent-native-blog-article-test/entry-1",
+      );
+      expect(options.method).toBe("PATCH");
+      const request = new EventEmitter() as EventEmitter & {
+        write: (chunk: string) => void;
+        end: () => void;
+      };
+      request.write = (chunk: string) => {
+        writes.push(chunk);
+      };
+      request.end = () => {};
+      const response = new EventEmitter() as EventEmitter & {
+        statusCode: number;
+      };
+      response.statusCode = 200;
+      queueMicrotask(() => {
+        callback(response as never);
+        response.emit("data", JSON.stringify({ id: "entry-1" }));
+        response.emit("end");
+      });
+      return request as never;
+    });
+
+    await expect(
+      executeBuilderCmsWrite({
+        request: {
+          method: "PATCH",
+          path: "/api/v1/write/agent-native-blog-article-test/entry-1",
+          body: { data: { title: "New title" } },
+        },
+        fetchImpl: fetchImpl as unknown as typeof fetch,
+        nodeRequestImpl: requestImpl,
+      }),
+    ).resolves.toMatchObject({
+      ok: true,
+      status: 200,
+      entryId: "entry-1",
+    });
+    expect(writes).toEqual([JSON.stringify({ data: { title: "New title" } })]);
   });
 
   it("extracts entry ids from common Builder response envelopes", () => {

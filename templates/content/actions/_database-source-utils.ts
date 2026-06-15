@@ -411,8 +411,21 @@ export function buildBuilderLocalOutboundChangeSets(args: {
 }): ContentDatabaseSourceChangeSet[] {
   if (normalizeSourceType(args.source.sourceType) !== "builder-cms") return [];
 
+  const sourceMetadata =
+    parseObject<SourceMetadataRecord>(args.source.metadataJson) ?? {};
+  const skipFixtureRows =
+    sourceMetadata.liveReadConfigured === true ||
+    normalizeCapabilities(args.source.capabilitiesJson).liveWritesEnabled ===
+      true;
   const pending: ContentDatabaseSourceChangeSet[] = [];
   for (const row of args.rowRows) {
+    if (
+      skipFixtureRows &&
+      row.provenance === BUILDER_CMS_FIXTURE_ROW_PROVENANCE
+    ) {
+      continue;
+    }
+
     const sourceTitle = row.sourceDisplayKey.trim();
     const localTitle = args.documentTitleById.get(row.documentId)?.trim() ?? "";
     if (!localTitle || localTitle === sourceTitle) continue;
