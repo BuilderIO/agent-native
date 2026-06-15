@@ -22,6 +22,12 @@ Detailed event, availability, booking, storage, and UI rules live in
   reauth-needed, or fetch failures.
 - Use framework sharing actions for calendars/events/booking resources when
   applicable.
+- Booking-link sharing controls who can manage the link. Public booking access
+  is still controlled by the `/book/{username}/{slug}` URL and `isActive`.
+- `create-booking-link` and `update-booking-link` accept `hosts` for required
+  co-hosts besides the owner, e.g. `hosts: ["brent@example.com"]`. Group links
+  only offer times when the owner and all co-hosts are free, then invite
+  co-hosts to the created Google Calendar event.
 - Keep scheduling answers concrete: exact dates, time zones, conflicts, and
   assumptions.
 - Use `rsvp-event` for invitation responses. Pass `note` when the user wants a

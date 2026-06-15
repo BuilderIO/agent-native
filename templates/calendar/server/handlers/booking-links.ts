@@ -13,7 +13,6 @@ import {
   getRequestUserEmail,
   getRequestOrgId,
 } from "@agent-native/core/server/request-context";
-import type { BookingLink } from "../../shared/api.js";
 import { getDb, schema } from "../db/index.js";
 import {
   getSession,
@@ -22,6 +21,10 @@ import {
 } from "@agent-native/core/server";
 import { ensureBookingUsername } from "./booking-usernames.js";
 import { normalizeBookingDurationInput } from "../lib/booking-durations.js";
+import {
+  rowToBookingLink,
+  serializeBookingHosts,
+} from "../lib/booking-link-utils.js";
 
 async function requireRequestContext<T>(
   event: H3Event,
@@ -35,44 +38,6 @@ async function requireRequestContext<T>(
     { userEmail: session.email, orgId: session.orgId },
     fn,
   );
-}
-
-function rowToBookingLink(
-  row: typeof schema.bookingLinks.$inferSelect,
-): BookingLink {
-  let durations: number[] | undefined;
-  if (row.durations) {
-    try {
-      durations = JSON.parse(row.durations);
-    } catch {}
-  }
-  let customFields: BookingLink["customFields"];
-  if (row.customFields) {
-    try {
-      customFields = JSON.parse(row.customFields);
-    } catch {}
-  }
-  let conferencing: BookingLink["conferencing"];
-  if (row.conferencing) {
-    try {
-      conferencing = JSON.parse(row.conferencing);
-    } catch {}
-  }
-  return {
-    id: row.id,
-    slug: row.slug,
-    title: row.title,
-    description: row.description ?? undefined,
-    duration: row.duration,
-    durations,
-    customFields,
-    conferencing,
-    color: row.color ?? undefined,
-    isActive: row.isActive,
-    visibility: row.visibility,
-    createdAt: row.createdAt,
-    updatedAt: row.updatedAt,
-  };
 }
 
 export const listBookingLinks = defineEventHandler(async (event: H3Event) => {
@@ -128,6 +93,11 @@ export const createBookingLink = defineEventHandler(async (event: H3Event) => {
 
       const now = new Date().toISOString();
       const id = nanoid();
+      const ownerEmail = (() => {
+        const e = getRequestUserEmail();
+        if (!e) throw new Error("no authenticated user");
+        return e;
+      })();
       await getDb()
         .insert(schema.bookingLinks)
         .values({
@@ -141,6 +111,7 @@ export const createBookingLink = defineEventHandler(async (event: H3Event) => {
           durations: durationInput.durations
             ? JSON.stringify(durationInput.durations)
             : null,
+          hosts: serializeBookingHosts(body.hosts, ownerEmail),
           customFields: body.customFields
             ? JSON.stringify(body.customFields)
             : null,
@@ -149,11 +120,7 @@ export const createBookingLink = defineEventHandler(async (event: H3Event) => {
             : null,
           color: body.color ? String(body.color).trim() : null,
           isActive: body.isActive ?? true,
-          ownerEmail: (() => {
-            const e = getRequestUserEmail();
-            if (!e) throw new Error("no authenticated user");
-            return e;
-          })(),
+          ownerEmail,
           orgId: getRequestOrgId(),
           createdAt: now,
           updatedAt: now,
@@ -166,125 +133,6 @@ export const createBookingLink = defineEventHandler(async (event: H3Event) => {
       return rowToBookingLink(created[0]);
     } catch (error: any) {
       setResponseStatus(event, error?.statusCode ?? 500);
-      return { error: error.message };
-    }
-  });
-});
-
-export const updateBookingLink = defineEventHandler(async (event: H3Event) => {
-  return requireRequestContext(event, async () => {
-    try {
-      const id = getRouterParam(event, "id");
-      if (!id) {
-        setResponseStatus(event, 400);
-        return { error: "id is required" };
-      }
-
-      const body = await readBody(event);
-      if (!body.title || !body.slug || !body.duration) {
-        setResponseStatus(event, 400);
-        return { error: "title, slug, and duration are required" };
-      }
-      const durationInput = normalizeBookingDurationInput({
-        duration: body.duration,
-        durations: body.durations,
-      });
-      if ("error" in durationInput) {
-        setResponseStatus(event, 400);
-        return { error: durationInput.error };
-      }
-
-      // Sharing: only owner / editor / admin can update.
-      await assertAccess("booking-link", id, "editor");
-
-      const slug = String(body.slug).trim().toLowerCase();
-      const [existingSlug, existingRedirect] = await Promise.all([
-        getDb()
-          .select({ id: schema.bookingLinks.id })
-          .from(schema.bookingLinks)
-          .where(eq(schema.bookingLinks.slug, slug)),
-        getDb()
-          .select({ oldSlug: schema.bookingSlugRedirects.oldSlug })
-          .from(schema.bookingSlugRedirects)
-          .where(eq(schema.bookingSlugRedirects.oldSlug, slug)),
-      ]);
-
-      if (existingSlug.some((row) => row.id !== id)) {
-        setResponseStatus(event, 409);
-        return { error: "A booking link with this slug already exists" };
-      }
-      if (existingRedirect.length > 0) {
-        setResponseStatus(event, 409);
-        return { error: "A booking link with this slug already exists" };
-      }
-
-      // Fetch current slug to detect changes
-      const current = await getDb()
-        .select({ slug: schema.bookingLinks.slug })
-        .from(schema.bookingLinks)
-        .where(eq(schema.bookingLinks.id, id));
-
-      if (current.length === 0) {
-        setResponseStatus(event, 404);
-        return { error: "Booking link not found" };
-      }
-
-      const oldSlug = current[0].slug;
-      const slugChanged = oldSlug !== slug;
-
-      await getDb()
-        .update(schema.bookingLinks)
-        .set({
-          slug,
-          title: String(body.title).trim(),
-          description: body.description
-            ? String(body.description).trim()
-            : null,
-          duration: durationInput.duration,
-          durations: durationInput.durations
-            ? JSON.stringify(durationInput.durations)
-            : null,
-          customFields: body.customFields
-            ? JSON.stringify(body.customFields)
-            : null,
-          conferencing: body.conferencing
-            ? JSON.stringify(body.conferencing)
-            : null,
-          color: body.color ? String(body.color).trim() : null,
-          isActive: body.isActive ?? true,
-          updatedAt: new Date().toISOString(),
-        })
-        .where(eq(schema.bookingLinks.id, id));
-
-      // Create redirect from old slug and repoint any existing redirects
-      if (slugChanged) {
-        const now = new Date().toISOString();
-        await getDb().insert(schema.bookingSlugRedirects).values({
-          oldSlug,
-          newSlug: slug,
-          createdAt: now,
-        });
-        // Chain: any redirects pointing to the old slug now point to the new one
-        await getDb()
-          .update(schema.bookingSlugRedirects)
-          .set({ newSlug: slug })
-          .where(eq(schema.bookingSlugRedirects.newSlug, oldSlug));
-      }
-
-      const updated = await getDb()
-        .select()
-        .from(schema.bookingLinks)
-        .where(eq(schema.bookingLinks.id, id));
-
-      if (updated.length === 0) {
-        setResponseStatus(event, 404);
-        return { error: "Booking link not found" };
-      }
-
-      return rowToBookingLink(updated[0]);
-    } catch (error: any) {
-      const status = error?.statusCode ?? 500;
-      setResponseStatus(event, status);
       return { error: error.message };
     }
   });

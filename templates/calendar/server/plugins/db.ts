@@ -1,3 +1,4 @@
+import "../db/index.js";
 import { runMigrations } from "@agent-native/core/db";
 
 const LEGACY_DEV_OWNER_SQL = "'local@localhost'"; // guard:allow-localhost-fallback - migration marker for legacy dev-owned rows, not an auth fallback
@@ -171,6 +172,10 @@ WHERE owner_email = ${LEGACY_DEV_OWNER_SQL}`,
       sql: `CREATE INDEX IF NOT EXISTS idx_booking_links_owner ON booking_links (owner_email, org_id, updated_at);
 CREATE INDEX IF NOT EXISTS idx_booking_link_shares_lookup ON booking_link_shares (resource_id, principal_type, principal_id);
 CREATE INDEX IF NOT EXISTS idx_bookings_slug_start ON bookings (slug, "start");`,
+    },
+    {
+      version: 20,
+      sql: `ALTER TABLE booking_links ADD COLUMN IF NOT EXISTS hosts TEXT`,
     },
   ],
   { table: "calendar_migrations" },

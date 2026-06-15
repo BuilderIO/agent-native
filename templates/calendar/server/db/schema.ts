@@ -39,6 +39,8 @@ export const bookingLinks = table("booking_links", {
   duration: integer("duration").notNull().default(30),
   /** JSON array of additional duration options, e.g. [15, 30, 60] */
   durations: text("durations"),
+  /** JSON array of required co-hosts, excluding the owner */
+  hosts: text("hosts"),
   /** JSON array of custom field definitions */
   customFields: text("custom_fields"),
   /** JSON conferencing config (type + optional URL) */
