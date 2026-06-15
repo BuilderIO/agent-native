@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import attachSource from "./attach-content-database-source";
 import addSourceFieldProperty from "./add-content-database-source-field-property";
+import disconnectSource from "./disconnect-content-database-source";
 import executeExecution from "./execute-builder-source-execution";
 import getSource from "./get-content-database-source";
 import listBuilderModels from "./list-builder-cms-models";
@@ -53,6 +54,14 @@ describe("content database source actions", () => {
   it("accepts refresh requests without external provider details", () => {
     expect(refreshSource.schema.parse({ databaseId: "database" })).toEqual({
       databaseId: "database",
+    });
+  });
+
+  it("accepts source disconnect requests", () => {
+    expect(
+      disconnectSource.schema.parse({ documentId: "database-page" }),
+    ).toEqual({
+      documentId: "database-page",
     });
   });
 

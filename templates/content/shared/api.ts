@@ -563,6 +563,11 @@ export interface RefreshContentDatabaseSourceRequest {
   documentId?: string;
 }
 
+export interface DisconnectContentDatabaseSourceRequest {
+  databaseId?: string;
+  documentId?: string;
+}
+
 export interface AddContentDatabaseSourceFieldPropertyRequest {
   databaseId?: string;
   documentId?: string;

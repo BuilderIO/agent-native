@@ -88,6 +88,7 @@ import {
   useAttachContentDatabaseSource,
   useBuilderCmsModels,
   useContentDatabase,
+  useDisconnectContentDatabaseSource,
   useDuplicateDatabaseItem,
   useExecuteBuilderSourceExecution,
   useMoveDatabaseItem,
@@ -383,6 +384,7 @@ function DatabaseTable({
   const addItem = useAddDatabaseItem(document.id);
   const attachSource = useAttachContentDatabaseSource(document.id);
   const refreshSource = useRefreshContentDatabaseSource(document.id);
+  const disconnectSource = useDisconnectContentDatabaseSource(document.id);
   const proposeSourceChangeSet = useProposeContentDatabaseSourceChangeSet(
     document.id,
   );
@@ -1386,6 +1388,31 @@ function DatabaseTable({
             documentId: document.id,
           })
         }
+        onDisconnectSource={() =>
+          disconnectSource.mutate(
+            {
+              documentId: document.id,
+            },
+            {
+              onSuccess: () => {
+                setSettingsPanel("source");
+                setBuilderReviewOpen(false);
+                setBuilderReviewResult(null);
+                setBuilderReviewCheckedAt(null);
+                toast.success("Source disconnected", {
+                  description:
+                    "Database rows and local properties were kept intact.",
+                });
+              },
+              onError: (error) => {
+                toast.error("Source was not disconnected", {
+                  description:
+                    error instanceof Error ? error.message : "Try again.",
+                });
+              },
+            },
+          )
+        }
         onProposeSourceChangeSet={() =>
           proposeSourceChangeSet.mutate({
             documentId: document.id,
@@ -1461,6 +1488,7 @@ function DatabaseTable({
         sourceActionPending={
           attachSource.isPending ||
           refreshSource.isPending ||
+          disconnectSource.isPending ||
           proposeSourceChangeSet.isPending ||
           stageBuilderRevision.isPending ||
           reviewSourceChangeSet.isPending ||
@@ -3144,6 +3172,7 @@ function DatabaseSettingsPanelSheet({
   onPanelChange,
   onAttachBuilderSource,
   onRefreshSource,
+  onDisconnectSource,
   onProposeSourceChangeSet,
   onReviewBuilderUpdate,
   onStageBuilderRevision,
@@ -3176,6 +3205,7 @@ function DatabaseSettingsPanelSheet({
   onPanelChange: (panel: DatabaseSettingsPanel) => void;
   onAttachBuilderSource: (model: BuilderCmsModelSummary) => void;
   onRefreshSource: () => void;
+  onDisconnectSource: () => void;
   onProposeSourceChangeSet: () => void;
   onReviewBuilderUpdate: () => void;
   onStageBuilderRevision: () => void;
@@ -3246,6 +3276,7 @@ function DatabaseSettingsPanelSheet({
             canEdit={canEdit}
             onAttachBuilderSource={onAttachBuilderSource}
             onRefreshSource={onRefreshSource}
+            onDisconnectSource={onDisconnectSource}
             onProposeSourceChangeSet={onProposeSourceChangeSet}
             onReviewBuilderUpdate={onReviewBuilderUpdate}
             onStageBuilderRevision={onStageBuilderRevision}
@@ -3789,6 +3820,7 @@ function DatabaseSettingsSourcePanel({
   canEdit,
   onAttachBuilderSource,
   onRefreshSource,
+  onDisconnectSource,
   onProposeSourceChangeSet,
   onReviewBuilderUpdate,
   onStageBuilderRevision,
@@ -3804,6 +3836,7 @@ function DatabaseSettingsSourcePanel({
   canEdit: boolean;
   onAttachBuilderSource: (model: BuilderCmsModelSummary) => void;
   onRefreshSource: () => void;
+  onDisconnectSource: () => void;
   onProposeSourceChangeSet: () => void;
   onReviewBuilderUpdate: () => void;
   onStageBuilderRevision: () => void;
@@ -4018,6 +4051,28 @@ function DatabaseSettingsSourcePanel({
               label="Local Builder changes"
               value={`${outboundChangeSets.length}`}
             />
+            <div className="mt-1 border-t border-border/70 pt-3">
+              <div className="text-xs font-medium">Disconnect source</div>
+              <div className="mt-0.5 text-xs text-muted-foreground">
+                Keep the database rows and local properties, but remove source
+                mappings, row identity, and pending source changes.
+              </div>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="mt-2 h-8 text-xs text-destructive hover:text-destructive"
+                disabled={!canEdit || sourceActionPending}
+                onClick={onDisconnectSource}
+              >
+                {sourceActionPending ? (
+                  <Spinner className="mr-1 size-3.5" />
+                ) : (
+                  <IconX className="mr-1 size-3.5" />
+                )}
+                Disconnect
+              </Button>
+            </div>
           </div>
 
           {isCodeMode ? (

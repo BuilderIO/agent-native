@@ -7,6 +7,7 @@ import type {
   ContentDatabaseResponse,
   ContentDatabaseSourceStatusResponse,
   CreateDatabaseRequest,
+  DisconnectContentDatabaseSourceRequest,
   DuplicateDatabaseItemRequest,
   ExecuteBuilderSourceExecutionRequest,
   MoveDatabaseItemRequest,
@@ -161,6 +162,23 @@ export function useRefreshContentDatabaseSource(documentId: string) {
     ContentDatabaseSourceStatusResponse,
     RefreshContentDatabaseSourceRequest
   >("refresh-content-database-source", {
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: ["action", "get-content-database", { documentId }],
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["action", "get-content-database-source", { documentId }],
+      });
+    },
+  });
+}
+
+export function useDisconnectContentDatabaseSource(documentId: string) {
+  const queryClient = useQueryClient();
+  return useActionMutation<
+    ContentDatabaseResponse,
+    DisconnectContentDatabaseSourceRequest
+  >("disconnect-content-database-source", {
     onSuccess: () => {
       queryClient.invalidateQueries({
         queryKey: ["action", "get-content-database", { documentId }],
