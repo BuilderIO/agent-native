@@ -1,26 +1,6 @@
-export type CaptureSource = "full-screen" | "window";
+import { MonitorIcon } from "./Icons";
 
-function MonitorIcon() {
-  return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
-      <rect
-        x="3"
-        y="4"
-        width="18"
-        height="13"
-        rx="2"
-        stroke="currentColor"
-        strokeWidth="1.75"
-      />
-      <path
-        d="M8 21h8M12 17v4"
-        stroke="currentColor"
-        strokeWidth="1.75"
-        strokeLinecap="round"
-      />
-    </svg>
-  );
-}
+export type CaptureSource = "full-screen" | "window";
 
 export function SourceRow({
   value,
