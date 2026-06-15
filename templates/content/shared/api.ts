@@ -320,6 +320,7 @@ export type ContentDatabaseSourcePushMode =
   | "autosave"
   | "draft"
   | "publish";
+export const BUILDER_CMS_SAFE_WRITE_MODEL = "agent-native-blog-article-test";
 export type ContentDatabaseSourceChangeDirection = "incoming" | "outbound";
 export type ContentDatabaseSourceChangeState =
   | "proposed"
@@ -601,6 +602,23 @@ export interface ValidateBuilderSourceExecutionRequest {
   documentId?: string;
   changeSetId: string;
   idempotencyKey?: string;
+}
+
+export interface ExecuteBuilderSourceExecutionRequest {
+  databaseId?: string;
+  documentId?: string;
+  changeSetId: string;
+  idempotencyKey?: string;
+  pushModeConfirmation?: ContentDatabaseSourcePushMode;
+}
+
+export interface SetContentDatabaseSourceWriteModeRequest {
+  databaseId?: string;
+  documentId?: string;
+  liveWritesEnabled: boolean;
+  allowedWriteModes?: Exclude<ContentDatabaseSourcePushMode, "none">[];
+  allowDraftWrites?: boolean;
+  allowPublishWrites?: boolean;
 }
 
 export interface PrepareBuilderSourceReviewRequest {

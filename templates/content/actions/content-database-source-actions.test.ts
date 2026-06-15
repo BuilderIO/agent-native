@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import attachSource from "./attach-content-database-source";
 import addSourceFieldProperty from "./add-content-database-source-field-property";
+import executeExecution from "./execute-builder-source-execution";
 import getSource from "./get-content-database-source";
 import listBuilderModels from "./list-builder-cms-models";
 import prepareExecution from "./prepare-builder-source-execution";
@@ -148,6 +149,22 @@ describe("content database source actions", () => {
     });
   });
 
+  it("accepts live Builder execution requests behind the execution gate", () => {
+    expect(
+      executeExecution.schema.parse({
+        documentId: "database-page",
+        changeSetId: "change-set",
+        idempotencyKey: "builder-cms:source:change:autosave",
+        pushModeConfirmation: "autosave",
+      }),
+    ).toEqual({
+      documentId: "database-page",
+      changeSetId: "change-set",
+      idempotencyKey: "builder-cms:source:change:autosave",
+      pushModeConfirmation: "autosave",
+    });
+  });
+
   it("marks successful Builder reads as live source metadata", () => {
     expect(
       JSON.parse(
@@ -251,9 +268,7 @@ describe("content database source actions", () => {
 
     expect(review.summary).toBe("1 Builder row has changes ready to review.");
     expect(review.rows[0]?.title).toBe("New title");
-    expect(review.rows[0]?.fieldChanges[0]?.sourceFieldKey).toBe(
-      "data.title",
-    );
+    expect(review.rows[0]?.fieldChanges[0]?.sourceFieldKey).toBe("data.title");
     expect(review.result.message).toContain("Push will check the update only");
   });
 });

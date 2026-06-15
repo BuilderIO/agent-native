@@ -3,19 +3,23 @@ import type {
   ContentDatabaseSource,
   ContentDatabaseSourceChangeSet,
 } from "../shared/api";
+import { BUILDER_CMS_SAFE_WRITE_MODEL } from "../shared/api";
 import {
   buildBuilderCmsExecutionPlan,
   builderCmsExecutionIdempotencyKey,
   validateBuilderCmsExecutionDryRun,
 } from "./_builder-cms-write-adapter";
 
-function source(liveWritesEnabled = false): ContentDatabaseSource {
+function source(
+  liveWritesEnabled = false,
+  sourceTable = "blog_article",
+): ContentDatabaseSource {
   return {
     id: "source-1",
     databaseId: "database-1",
     sourceType: "builder-cms",
     sourceName: "Builder CMS",
-    sourceTable: "blog_article",
+    sourceTable,
     syncState: "idle",
     freshness: "fresh",
     lastRefreshedAt: null,
@@ -47,7 +51,7 @@ function source(liveWritesEnabled = false): ContentDatabaseSource {
         databaseItemId: "item-1",
         documentId: "doc-1",
         sourceRowId: "builder-entry-1",
-        sourceQualifiedId: "builder-cms://blog_article/builder-entry-1",
+        sourceQualifiedId: `builder-cms://${sourceTable}/builder-entry-1`,
         sourceDisplayKey: "Old title",
         provenance: "Builder CMS fixture adapter",
         syncState: "idle",
@@ -151,16 +155,51 @@ describe("Builder CMS write adapter plan", () => {
     });
   });
 
-  it("keeps the plan write-disabled even when live writes are configured", () => {
+  it("returns ready when live writes are configured for the safe Builder test model", () => {
     expect(
       buildBuilderCmsExecutionPlan({
-        source: source(true),
+        source: source(true, BUILDER_CMS_SAFE_WRITE_MODEL),
         changeSet: approvedChangeSet(),
         pushModeConfirmation: "autosave",
       }),
     ).toMatchObject({
-      state: "write_disabled",
-      lastError: "Live Builder writes are disabled for this source.",
+      state: "ready",
+      summary: "Prepared Builder autosave execution. Ready to send to Builder.",
+      payload: {
+        sourceTable: BUILDER_CMS_SAFE_WRITE_MODEL,
+        request: {
+          method: "PATCH",
+          path: `/api/v1/write/${BUILDER_CMS_SAFE_WRITE_MODEL}/builder-entry-1`,
+        },
+        safety: {
+          liveWritesEnabled: true,
+          dryRunOnly: false,
+          blockers: [],
+        },
+      },
+      lastError: null,
+    });
+  });
+
+  it("blocks live writes for Builder models outside the safe test collection", () => {
+    expect(
+      buildBuilderCmsExecutionPlan({
+        source: source(true, "blog_article"),
+        changeSet: approvedChangeSet(),
+        pushModeConfirmation: "autosave",
+      }),
+    ).toMatchObject({
+      state: "blocked",
+      lastError: `Live Builder writes are only allowed for ${BUILDER_CMS_SAFE_WRITE_MODEL}.`,
+      payload: {
+        safety: {
+          liveWritesEnabled: true,
+          dryRunOnly: true,
+          blockers: [
+            `Live Builder writes are only allowed for ${BUILDER_CMS_SAFE_WRITE_MODEL}.`,
+          ],
+        },
+      },
     });
   });
 
@@ -168,15 +207,15 @@ describe("Builder CMS write adapter plan", () => {
     expect(
       buildBuilderCmsExecutionPlan({
         source: {
-          ...source(true),
+          ...source(true, BUILDER_CMS_SAFE_WRITE_MODEL),
           rows: [],
         },
         changeSet: approvedChangeSet(),
         pushModeConfirmation: "autosave",
       }),
     ).toMatchObject({
-      state: "write_disabled",
-      lastError: "Live Builder writes are disabled for this source.",
+      state: "blocked",
+      lastError: "Autosave requires an existing Builder entry ID.",
       payload: {
         safety: {
           blockers: ["Autosave requires an existing Builder entry ID."],
@@ -188,7 +227,7 @@ describe("Builder CMS write adapter plan", () => {
   it("keeps publish blocked without explicit adapter opt-in", () => {
     expect(
       buildBuilderCmsExecutionPlan({
-        source: source(true),
+        source: source(true, BUILDER_CMS_SAFE_WRITE_MODEL),
         changeSet: {
           ...approvedChangeSet(),
           pushMode: "publish",
@@ -196,8 +235,8 @@ describe("Builder CMS write adapter plan", () => {
         pushModeConfirmation: "publish",
       }),
     ).toMatchObject({
-      state: "write_disabled",
-      lastError: "Live Builder writes are disabled for this source.",
+      state: "blocked",
+      lastError: "Publish writes require explicit adapter opt-in.",
       payload: {
         intent: "publish",
         request: {
@@ -218,7 +257,7 @@ describe("Builder CMS write adapter plan", () => {
   it("keeps draft blocked for existing entries without explicit adapter opt-in", () => {
     expect(
       buildBuilderCmsExecutionPlan({
-        source: source(true),
+        source: source(true, BUILDER_CMS_SAFE_WRITE_MODEL),
         changeSet: {
           ...approvedChangeSet(),
           pushMode: "draft",
@@ -226,8 +265,9 @@ describe("Builder CMS write adapter plan", () => {
         pushModeConfirmation: "draft",
       }),
     ).toMatchObject({
-      state: "write_disabled",
-      lastError: "Live Builder writes are disabled for this source.",
+      state: "blocked",
+      lastError:
+        "Draft writes require explicit adapter opt-in because draft can affect already-live content.",
       payload: {
         intent: "save_draft",
         request: {
@@ -245,7 +285,7 @@ describe("Builder CMS write adapter plan", () => {
   it("keeps draft blocked for new entries without explicit adapter opt-in", () => {
     const plan = buildBuilderCmsExecutionPlan({
       source: {
-        ...source(true),
+        ...source(true, BUILDER_CMS_SAFE_WRITE_MODEL),
         rows: [],
       },
       changeSet: {
@@ -256,8 +296,9 @@ describe("Builder CMS write adapter plan", () => {
     });
 
     expect(plan).toMatchObject({
-      state: "write_disabled",
-      lastError: "Live Builder writes are disabled for this source.",
+      state: "blocked",
+      lastError:
+        "Draft writes require explicit adapter opt-in because draft can affect already-live content.",
       payload: {
         intent: "save_draft",
         target: {

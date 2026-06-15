@@ -4,6 +4,7 @@ import type {
   ContentDatabaseSourceExecutionState,
   ContentDatabaseSourcePushMode,
 } from "../shared/api.js";
+import { BUILDER_CMS_SAFE_WRITE_MODEL as SAFE_WRITE_MODEL } from "../shared/api.js";
 
 export type BuilderCmsWriteIntent =
   | "autosave_revision"
@@ -187,6 +188,14 @@ function builderSafetyChecks(args: {
   if (allowedModes?.length && !allowedModes.includes(args.pushMode)) {
     blockers.push(`Push mode ${args.pushMode} is not allowed for this source.`);
   }
+  if (
+    args.source.capabilities.liveWritesEnabled === true &&
+    args.source.sourceTable !== SAFE_WRITE_MODEL
+  ) {
+    blockers.push(
+      `Live Builder writes are only allowed for ${SAFE_WRITE_MODEL}.`,
+    );
+  }
 
   return { checks, blockers };
 }
@@ -248,22 +257,36 @@ export function buildBuilderCmsExecutionPlan(args: {
     entryId: targetRow?.sourceRowId ?? null,
     operations,
   });
-  const state: ContentDatabaseSourceExecutionState = "write_disabled";
+  const state: ContentDatabaseSourceExecutionState =
+    safety.blockers.length > 0
+      ? "blocked"
+      : args.source.capabilities.liveWritesEnabled === true
+        ? "ready"
+        : "write_disabled";
   const idempotencyKey = builderCmsExecutionIdempotencyKey({
     sourceId: args.source.id,
     changeSetId: args.changeSet.id,
     pushMode,
   });
-  const blockerSummary = safety.blockers.length
-    ? ` Blocked by: ${safety.blockers.join(" ")}`
-    : "";
+  const summary =
+    state === "ready"
+      ? `Prepared Builder ${pushMode} execution. Ready to send to Builder.`
+      : state === "blocked"
+        ? `Prepared Builder ${pushMode} execution, but it is blocked: ${safety.blockers.join(" ")}`
+        : `Prepared Builder ${pushMode} execution, but live writes are disabled.`;
+  const lastError =
+    state === "ready"
+      ? null
+      : state === "blocked"
+        ? safety.blockers.join(" ")
+        : "Live Builder writes are disabled for this source.";
 
   return {
     adapter: "builder-cms",
     pushMode,
     state,
     idempotencyKey,
-    summary: `Prepared Builder ${pushMode} execution, but live writes are disabled.${blockerSummary}`,
+    summary,
     payload: {
       sourceId: args.source.id,
       databaseId: args.source.databaseId,
@@ -282,12 +305,14 @@ export function buildBuilderCmsExecutionPlan(args: {
       operations,
       safety: {
         liveWritesEnabled: args.source.capabilities.liveWritesEnabled,
-        dryRunOnly: !args.source.capabilities.liveWritesEnabled,
+        dryRunOnly:
+          args.source.capabilities.liveWritesEnabled !== true ||
+          state !== "ready",
         checks: safety.checks,
         blockers: safety.blockers,
       },
     },
-    lastError: "Live Builder writes are disabled for this source.",
+    lastError,
   };
 }
 
@@ -359,8 +384,7 @@ export function validateBuilderCmsExecutionDryRun(args: {
         ? "blocked"
         : "validated";
 
-  const basePayload =
-    mismatches.length > 0 ? storedPayload : args.plan.payload;
+  const basePayload = mismatches.length > 0 ? storedPayload : args.plan.payload;
 
   return {
     ...basePayload,
