@@ -1380,7 +1380,9 @@ function findTextAnchorTarget(scope: Element, needle: string) {
   if (!needle) return null;
   const candidates = [
     ...(scope.matches(PLAN_TEXT_TARGET_SELECTOR) ? [scope] : []),
-    ...Array.from(scope.querySelectorAll<HTMLElement>(PLAN_TEXT_TARGET_SELECTOR)),
+    ...Array.from(
+      scope.querySelectorAll<HTMLElement>(PLAN_TEXT_TARGET_SELECTOR),
+    ),
   ];
   return (
     candidates.find((candidate) =>
