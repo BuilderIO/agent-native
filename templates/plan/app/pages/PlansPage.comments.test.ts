@@ -709,6 +709,65 @@ describe("plan comment thread UI model", () => {
     reader.remove();
   });
 
+  it("measures generic wireframe child clicks against the saved selector target", () => {
+    const reader = document.createElement("div");
+    reader.innerHTML = `
+      <section class="plan-canvas">
+        <div data-plan-canvas-viewport>
+          <div data-plan-canvas-world>
+            <div data-canvas-frame="frame_1">
+              <div>
+                <button id="target">New run</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+    `;
+    document.body.append(reader);
+
+    const frame = reader.querySelector<HTMLElement>("[data-canvas-frame]")!;
+    const target = reader.querySelector<HTMLElement>("#target")!;
+    Object.defineProperties(reader, {
+      scrollWidth: { value: 1000, configurable: true },
+      scrollHeight: { value: 1000, configurable: true },
+      scrollLeft: { value: 0, configurable: true },
+      scrollTop: { value: 0, configurable: true },
+    });
+    Object.defineProperty(reader, "getBoundingClientRect", {
+      value: () => rect(0, 0, 1000, 800),
+    });
+    Object.defineProperty(frame, "getBoundingClientRect", {
+      value: () => rect(100, 200, 300, 200),
+    });
+    Object.defineProperty(target, "getBoundingClientRect", {
+      value: () => rect(250, 260, 80, 40),
+    });
+
+    const anchor = buildNativeAnchorFromElement({
+      reader,
+      target,
+      pointX: 290,
+      pointY: 280,
+      planTitle: "Wireframe",
+    });
+
+    expect(anchor.sectionId).toBe("frame_1");
+    expect(anchor.targetKind).toBe("wireframe");
+    expect(anchor.targetSelector).toBe(
+      '[data-canvas-frame="frame_1"] > div:nth-of-type(1) > button:nth-of-type(1)',
+    );
+    expect(anchor.targetX).toBeCloseTo(50);
+    expect(anchor.targetY).toBeCloseTo(50);
+    expect(resolveNativeAnchorTarget(anchor, reader)).toBe(target);
+    expect(nativePointForAnchor(anchor, reader)).toEqual({
+      left: 290,
+      top: 280,
+    });
+
+    reader.remove();
+  });
+
   it("clips canvas comment markers to the canvas viewport instead of the document", () => {
     const reader = document.createElement("div");
     reader.innerHTML = `

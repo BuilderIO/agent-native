@@ -103,6 +103,9 @@ const ANALYTICS_RESULT_TERMS =
 const ANALYTICS_INTENT_TERMS =
   /\b(analy[sz]e|measure|calculate|query|report|summari[sz]e|break ?down|compare|rank|segment|forecast|trend|count|total|average|median|percent(?:age)?|rate|top|bottom|highest|lowest|how many|how much|what (?:is|are|was|were)|which|why)\b/;
 
+const SOURCE_SEARCH_INTENT_TERMS =
+  /\b(find|surface|search|scan|grep|review|inspect|check|look through|go find)\b/;
+
 const ARTIFACT_TERMS = /\b(analysis|dashboard|panel|chart|metric|metrics)\b/;
 
 const ARTIFACT_DATA_INTENT =
@@ -123,14 +126,20 @@ export function looksLikeAnalyticsDataRequest(text: string): boolean {
   if (
     /\b(open|navigate|go to|rename|delete|share|favorite|unfavorite)\b/.test(
       lower,
-    )
+    ) &&
+    !ANALYTICS_INTENT_TERMS.test(lower) &&
+    !SOURCE_SEARCH_INTENT_TERMS.test(lower)
   ) {
     return false;
   }
   if (
-    /\b(fix|bug|layout|style|component|route|code|source code|integration|connect|configure|settings)\b/.test(
-      lower,
-    )
+    /\b(fix|bug|layout|style|component|route|code|source code)\b/.test(lower)
+  ) {
+    return false;
+  }
+  if (
+    /\b(integration|connect|configure|settings)\b/.test(lower) &&
+    !ANALYTICS_RESULT_TERMS.test(lower)
   ) {
     return false;
   }
@@ -266,7 +275,7 @@ function valueHasIncompleteDataFlag(value: unknown): boolean {
 }
 
 const INCOMPLETE_DATA_TEXT =
-  /\b(?:error running|run aborted|tool call timed out|stale_run|connection_error|interrupted before this tool returned|truncated|coverage gap|provider page cap|hit the .* page cap|has more content|call again with offset|full result was|only first)\b/i;
+  /\b(?:error running|run aborted|tool call timed out|timed out|inactivity timeout|stale_run|connection_error|interrupted before this tool returned|truncated|coverage gap|provider page cap|hit the .* page cap|has more content|call again with offset|full result was|default limit|duplicate skipped|only first)\b/i;
 
 export function hasIncompleteDataEvidence(
   toolResults:
@@ -297,7 +306,10 @@ const STRONG_COVERAGE_OR_ABSENCE_CLAIM =
   /\b(?:no|zero|0)\s+(?:mentions?|matches?|results?|records?|calls?|tickets?|issues?|deals?|accounts?|customers?|transcripts?|examples?)\b|\b(?:none|nothing)\b[^.?!]*(?:found|matched|mentioned|returned|showed|surfaced)\b|\b(?:all|every|entire|complete|full|exhaustive)\b[^.?!]*(?:calls?|records?|transcripts?|deals?|accounts?|customers?|dataset|cohort|results?|search)\b|\b(?:did not|didn't|does not|doesn't)\s+(?:mention|include|contain|show|surface)\b/i;
 
 const EXPLICIT_PARTIAL_DISCLOSURE =
-  /\b(?:partial|partially|sample|sampled|subset|bounded|limited|not exhaustive|non-exhaustive|incomplete|truncated|aborted|timed out|coverage gap|could not inspect|only inspected|first \d+|top \d+|returned \d+)\b/i;
+  /\b(?:partial|partially|sample|sampled|subset|bounded|limited|not exhaustive|non-exhaustive|incomplete|truncated|aborted|timed out|coverage gap|could not inspect|only inspected|first \d+|top \d+|returned \d+|remaining|unsearched|uninspected|unreviewed|not covered|uncovered|missing coverage)\b|\b(?:inspected|searched|reviewed|analy[sz]ed)\s+\d+\s+(?:of|out of)\s+\d+\b/i;
+
+const COVERAGE_SENSITIVE_ANALYTICS_REQUEST =
+  /\b(?:all|every|each|entire|complete|full|exhaustive)\b[^.?!]{0,220}\b(?:calls?|records?|transcripts?|deals?|accounts?|customers?|tickets?|issues?|messages?|source records?|cohort|dataset|results?)\b|\b(?:find|surface|search|scan|grep|review|inspect|check|look through)\b[^.?!]{0,220}\b(?:any|all|every|each|mentions?|matches?|examples?|source records?|calls?|records?|transcripts?|deals?|accounts?|customers?|tickets?|issues?|messages?)\b|\b(?:let me know if you surface anything|surface anything|anything around|absence matters|where (?:the )?lack thereof|lack thereof is impacting|no mentions?|zero mentions?)\b/i;
 
 export function looksLikeStrongCoverageClaim(text: string): boolean {
   return STRONG_COVERAGE_OR_ABSENCE_CLAIM.test(text);
@@ -305,6 +317,14 @@ export function looksLikeStrongCoverageClaim(text: string): boolean {
 
 export function hasExplicitPartialDisclosure(text: string): boolean {
   return EXPLICIT_PARTIAL_DISCLOSURE.test(text);
+}
+
+export function looksLikeCoverageSensitiveAnalyticsRequest(
+  text: string,
+): boolean {
+  const requestText = stripInjectedAnalyticsGuardContext(text);
+  if (!looksLikeAnalyticsDataRequest(requestText)) return false;
+  return COVERAGE_SENSITIVE_ANALYTICS_REQUEST.test(requestText);
 }
 
 export function hasDataQueryAttempt(

@@ -10,7 +10,7 @@ import { eq } from "drizzle-orm";
 import { getDb, schema } from "../db/index.js";
 import {
   GUEST_AUTHOR_DOMAIN,
-  LOCAL_PLAN_OWNER_EMAIL,
+  getLocalPlanOwnerEmail,
   isGuestAuthorIdentity,
   isLocalPlanRuntime,
 } from "./local-identity.js";
@@ -137,10 +137,10 @@ function isSecureRequest(event: H3Event): boolean {
  *      viewer can read (but, per the comment gate, not comment) without an
  *      account. Honored in every environment, hosted and local. Read-only.
  *   2. Local single-user identity — in local mode only (`isLocalPlanRuntime()`),
- *      fall back to `LOCAL_PLAN_OWNER_EMAIL` so the no-login local workflow can
- *      create, read, list, and edit its own plans without signing in. This MUST
- *      NOT fire on a hosted/production deploy; `isLocalPlanRuntime()` enforces
- *      the production refusal.
+ *      fall back to the configured local owner so the no-login local workflow
+ *      can create, read, list, and edit its own plans without signing in. This
+ *      MUST NOT fire on a hosted/production deploy; `isLocalPlanRuntime()`
+ *      enforces the production refusal.
  *
  * Returns `null` when none applies, so the caller rejects exactly as before.
  */
@@ -152,7 +152,7 @@ export async function resolvePlanAnonymousOwner(
   }
   const publicViewer = await resolvePublicPlanViewerOwner(event);
   if (publicViewer) return publicViewer;
-  return isLocalPlanRuntime() ? LOCAL_PLAN_OWNER_EMAIL : null;
+  return isLocalPlanRuntime() ? getLocalPlanOwnerEmail() : null;
 }
 
 export async function resolvePublicPlanViewerOwner(

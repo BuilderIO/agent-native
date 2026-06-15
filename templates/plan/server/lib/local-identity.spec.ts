@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   GUEST_AUTHOR_DOMAIN,
   LOCAL_PLAN_OWNER_EMAIL,
+  getLocalPlanOwnerEmail,
   isAnonymousPublicViewer,
   isGuestAuthorIdentity,
   isLocalPlanRuntime,
@@ -16,7 +17,12 @@ const GUEST_EMAIL = `guest-123e4567-e89b-12d3-a456-426614174000@${GUEST_AUTHOR_D
 const PUBLIC_VIEWER_EMAIL =
   "public-123e4567-e89b-12d3-a456-426614174000@agent-native.local";
 
-const ENV_KEYS = ["NODE_ENV", "AUTH_MODE", "PLAN_LOCAL_MODE"] as const;
+const ENV_KEYS = [
+  "NODE_ENV",
+  "AUTH_MODE",
+  "PLAN_LOCAL_MODE",
+  "PLAN_LOCAL_OWNER_EMAIL",
+] as const;
 
 describe("local-identity", () => {
   let saved: Record<string, string | undefined>;
@@ -106,9 +112,33 @@ describe("local-identity", () => {
       expect(resolvePlanOwnerEmail(undefined)).toBe(LOCAL_PLAN_OWNER_EMAIL);
     });
 
+    it("uses PLAN_LOCAL_OWNER_EMAIL as the local identity override", () => {
+      setEnv({
+        NODE_ENV: "development",
+        PLAN_LOCAL_OWNER_EMAIL: "owner@example.com",
+      });
+      expect(getLocalPlanOwnerEmail()).toBe("owner@example.com");
+      expect(resolvePlanOwnerEmail(undefined)).toBe("owner@example.com");
+      expect(resolvePlanOwnerEmail("user@example.com")).toBe(
+        "owner@example.com",
+      );
+    });
+
     it("returns undefined when hosted and unauthenticated", () => {
       setEnv({ NODE_ENV: "production" });
       expect(resolvePlanOwnerEmail(undefined)).toBeUndefined();
+    });
+
+    it("does not use PLAN_LOCAL_OWNER_EMAIL in production", () => {
+      setEnv({
+        NODE_ENV: "production",
+        PLAN_LOCAL_MODE: "1",
+        PLAN_LOCAL_OWNER_EMAIL: "owner@example.com",
+      });
+      expect(resolvePlanOwnerEmail(undefined)).toBeUndefined();
+      expect(resolvePlanOwnerEmail("user@example.com")).toBe(
+        "user@example.com",
+      );
     });
   });
 
@@ -121,6 +151,19 @@ describe("local-identity", () => {
           orgId: "org_1",
         }),
       ).toEqual({ userEmail: LOCAL_PLAN_OWNER_EMAIL });
+    });
+
+    it("maps local access to PLAN_LOCAL_OWNER_EMAIL when configured", () => {
+      setEnv({
+        NODE_ENV: "development",
+        PLAN_LOCAL_OWNER_EMAIL: "owner@example.com",
+      });
+      expect(
+        resolvePlanAccessContext({
+          userEmail: "user@example.com",
+          orgId: "org_1",
+        }),
+      ).toEqual({ userEmail: "owner@example.com" });
     });
 
     it("does not upgrade public-link viewers to local owner/editor", () => {

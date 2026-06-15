@@ -4,6 +4,7 @@ import {
   hasDataQueryAttempt,
   hasIncompleteDataEvidence,
   isSafeNoDataAnalyticsResponse,
+  looksLikeCoverageSensitiveAnalyticsRequest,
   looksLikeStrongCoverageClaim,
   looksLikeAnalyticsDataRequest,
   stripInjectedAnalyticsGuardContext,
@@ -132,10 +133,57 @@ describe("analytics data request classification", () => {
     );
   });
 
+  it("does not reject source-record analysis just because it mentions integrations", () => {
+    expect(
+      looksLikeAnalyticsDataRequest(
+        "Search Gong transcripts and Pylon tickets for customers asking for a deeper Figma integration.",
+      ),
+    ).toBe(true);
+  });
+
+  it("does not reject source searches because quoted context mentions sharing", () => {
+    expect(
+      looksLikeAnalyticsDataRequest(
+        'Find any HubSpot deals with product = "fusion" and look through all Gong transcripts for examples of customers asking for the Figma MCP. The partner manager said they can share that with the team.',
+      ),
+    ).toBe(true);
+  });
+
   it("does not classify generic chat/message bug reports as data requests", () => {
     expect(
       looksLikeAnalyticsDataRequest(
         "the chat keeps typing long messages that disappear",
+      ),
+    ).toBe(false);
+  });
+});
+
+describe("coverage-sensitive analytics request classification", () => {
+  it("flags broad provider searches where absence matters", () => {
+    expect(
+      looksLikeCoverageSensitiveAnalyticsRequest(
+        'Find any closed won deal in HubSpot where products = "fusion", then for all those deals look through all Gong call transcripts after close and let me know if you surface anything around Figma MCP.',
+      ),
+    ).toBe(true);
+    expect(
+      looksLikeCoverageSensitiveAnalyticsRequest(
+        "Search all Pylon tickets and Gong transcripts for any examples of customers asking for a deeper Figma integration.",
+      ),
+    ).toBe(true);
+  });
+
+  it("does not flag ordinary bounded metric questions as coverage-sensitive", () => {
+    expect(
+      looksLikeCoverageSensitiveAnalyticsRequest(
+        "Show weekly signup trends for the last 30 days.",
+      ),
+    ).toBe(false);
+  });
+
+  it("keeps metadata-only questions out of coverage-sensitive handling", () => {
+    expect(
+      looksLikeCoverageSensitiveAnalyticsRequest(
+        "What Gong and HubSpot tables are available?",
       ),
     ).toBe(false);
   });
@@ -277,6 +325,11 @@ describe("incomplete evidence detection", () => {
     expect(
       hasExplicitPartialDisclosure(
         "This is partial: I only inspected the first 20 calls.",
+      ),
+    ).toBe(true);
+    expect(
+      hasExplicitPartialDisclosure(
+        "I reviewed 10 of 25 accounts; the remaining accounts are not covered.",
       ),
     ).toBe(true);
   });

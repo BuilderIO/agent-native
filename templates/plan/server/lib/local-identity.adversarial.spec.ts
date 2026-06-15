@@ -25,7 +25,12 @@ import {
   resolvePlanOwnerEmailForWrite,
 } from "./local-identity.js";
 
-const ENV_KEYS = ["NODE_ENV", "AUTH_MODE", "PLAN_LOCAL_MODE"] as const;
+const ENV_KEYS = [
+  "NODE_ENV",
+  "AUTH_MODE",
+  "PLAN_LOCAL_MODE",
+  "PLAN_LOCAL_OWNER_EMAIL",
+] as const;
 
 describe("local-identity adversarial", () => {
   let saved: Record<string, string | undefined>;
@@ -122,6 +127,17 @@ describe("local-identity adversarial", () => {
     it("PLAN_LOCAL_MODE=1 CANNOT override the production refusal", () => {
       setEnv({ NODE_ENV: "production", PLAN_LOCAL_MODE: "1" });
       expect(isLocalPlanRuntime()).toBe(false);
+    });
+
+    it("PLAN_LOCAL_OWNER_EMAIL CANNOT override the production refusal", () => {
+      setEnv({
+        NODE_ENV: "production",
+        PLAN_LOCAL_MODE: "1",
+        PLAN_LOCAL_OWNER_EMAIL: "owner@example.com",
+      });
+      expect(isLocalPlanRuntime()).toBe(false);
+      expect(resolvePlanOwnerEmail(undefined)).toBeUndefined();
+      expect(resolvePlanOwnerEmailForWrite(undefined)).toBeUndefined();
     });
 
     it("only the exact string '0' opts out — '00'/'false'/'no' do NOT (they enable local in dev)", () => {
