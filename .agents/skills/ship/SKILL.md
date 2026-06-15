@@ -12,6 +12,14 @@ Ship the current branch end-to-end: commit and push all local work, open a
 ready PR, run `/babysit-pr`, merge when the babysit merge gates are satisfied,
 then run `/new-branch` after the merge lands.
 
+## Non-Negotiable Shipping Invariant
+
+`/ship` ships the **branch**, not just the agent's own edits. Commit and push
+all non-gitignored local changes that are present on the current branch,
+including work created by the user or other concurrent agents. Do not leave
+local changes behind because you did not author them. The only routine
+exceptions are `learnings.md` and ignored/personal files.
+
 Invoking `/ship` is explicit authorization to merge this PR once the merge gates
 below pass, unless the user says not to merge. Do not ask again just to merge a
 clean PR. Do not stop after creating the PR; the default `/ship` outcome is a

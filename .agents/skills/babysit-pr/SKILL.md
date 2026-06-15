@@ -8,6 +8,14 @@ metadata:
 
 Monitor PR #$ARGUMENTS in the current repo. Fix CI failures and human or bot review feedback until everything is green and no new feedback arrives for 30 minutes.
 
+## Non-Negotiable Branch Ownership Rule
+
+During `/babysit-pr`, the PR branch is the unit of ownership. Every tick must
+commit and push **all** non-gitignored local changes on the current branch,
+including changes made by the user or other concurrent agents. Do not limit
+commits to files you personally edited. Do not stash, skip, or leave behind
+local work unless it is `learnings.md` or an ignored/personal file.
+
 **If no PR number is given**, auto-detect it: get the current branch (`git branch --show-current`), find the open PR for it (`gh pr list --head <branch> --state open --json number --limit 1`). If no open PR exists, check recent merged/closed PRs. Only ask the user if no PR can be found.
 
 ## Setup
