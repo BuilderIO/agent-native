@@ -3,6 +3,7 @@
 import { describe, expect, it } from "vitest";
 import {
   addPlanCommentToBundle,
+  buildNativeAnchorFromElement,
   buildCommentThreads,
   canEditPlanContentRole,
   commentAuthorEmails,
@@ -647,6 +648,62 @@ describe("plan comment thread UI model", () => {
     expect(nativePointForAnchor(anchor as any, reader)).toEqual({
       left: 140,
       top: 256,
+    });
+
+    reader.remove();
+  });
+
+  it("measures wireframe element clicks against the stored node target", () => {
+    const reader = document.createElement("div");
+    reader.innerHTML = `
+      <div data-block-id="canvas-block">
+        <div data-canvas-frame="frame_1">
+          <div id="card" data-wire-node-id="card" data-wire-node-el="card">
+            <button id="target">Save</button>
+          </div>
+        </div>
+      </div>
+    `;
+    document.body.append(reader);
+
+    const card = reader.querySelector<HTMLElement>("#card")!;
+    const target = reader.querySelector<HTMLElement>("#target")!;
+    Object.defineProperties(reader, {
+      scrollWidth: { value: 1000, configurable: true },
+      scrollHeight: { value: 1000, configurable: true },
+      scrollLeft: { value: 0, configurable: true },
+      scrollTop: { value: 0, configurable: true },
+      getBoundingClientRect: {
+        value: () => rect(0, 0, 1000, 1000),
+        configurable: true,
+      },
+    });
+    Object.defineProperty(card, "getBoundingClientRect", {
+      value: () => rect(100, 200, 300, 200),
+    });
+    Object.defineProperty(target, "getBoundingClientRect", {
+      value: () => rect(200, 260, 100, 40),
+    });
+
+    const anchor = buildNativeAnchorFromElement({
+      reader,
+      target,
+      pointX: 250,
+      pointY: 280,
+      planTitle: "Wireframe",
+    });
+
+    expect(anchor.sectionId).toBe("frame_1");
+    expect(anchor.targetNodeId).toBe("card");
+    expect(anchor.targetSelector).toBe(
+      '[data-canvas-frame="frame_1"] [data-wire-node-id="card"]',
+    );
+    expect(anchor.targetX).toBeCloseTo(50);
+    expect(anchor.targetY).toBeCloseTo(40);
+    expect(resolveNativeAnchorTarget(anchor, reader)).toBe(card);
+    expect(nativePointForAnchor(anchor, reader)).toEqual({
+      left: 250,
+      top: 280,
     });
 
     reader.remove();
