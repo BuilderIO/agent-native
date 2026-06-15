@@ -372,6 +372,47 @@ test("pan drag moves the world; zoom % readout tracks the transform scale", asyn
   expect(Math.round(tOut!.scale * 100)).toBe(afterOut);
 });
 
+test("focused canvas resets to 100% on Command/Ctrl+0", async ({ page }) => {
+  const planId = await createPlan(
+    page,
+    richBoard(`keyboard-zoom-${Date.now()}`),
+    "keyboard-zoom-reset",
+  );
+  await openCanvas(page, planId, ["ab-dash", "ab-detail", "ab-pop"]);
+
+  for (let i = 0; i < 3; i += 1) {
+    await page.locator(".plan-canvas-zoom button[aria-label='Zoom in']").click();
+  }
+  await expect
+    .poll(
+      async () => Math.round(((await worldTransform(page))?.scale ?? 0) * 100),
+      { timeout: 5_000 },
+    )
+    .toBeGreaterThan(100);
+
+  const focusPoint = await findEmptyCanvasPoint(page);
+  expect(
+    focusPoint,
+    "could not find an empty grid point to focus the canvas",
+  ).not.toBeNull();
+  await page.mouse.click(focusPoint!.x, focusPoint!.y);
+  await expect
+    .poll(() =>
+      page.locator(VIEWPORT).evaluate((el) => document.activeElement === el),
+    )
+    .toBeTruthy();
+
+  const modifier = process.platform === "darwin" ? "Meta" : "Control";
+  await page.keyboard.press(`${modifier}+0`);
+  await expect
+    .poll(
+      async () => Math.round(((await worldTransform(page))?.scale ?? 0) * 100),
+      { timeout: 5_000 },
+    )
+    .toBe(100);
+  await expect(page.locator(ZOOM_PCT)).toHaveText("100%");
+});
+
 test("canvas comment pins preserve zoom and follow later pan", async ({
   page,
 }) => {
