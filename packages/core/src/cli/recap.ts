@@ -2983,11 +2983,19 @@ export function evaluateRecapGate(input: RecapGateInput): {
   if (!pr) reasons.push("no pull_request payload");
   if (pr && pr.draft) reasons.push("draft PR");
 
-  // Fork PRs: head repo differs from this repo. Plain pull_request runs fork
-  // code with NO secrets, so publishing would fail anyway — skip.
+  // Fork PRs only receive repo secrets when the org/repo opts into GitHub's
+  // "Send secrets to workflows from pull requests" setting (common in private
+  // orgs that use forks heavily). The real gate is therefore secret
+  // availability, not fork-ness: run on forks that have the publish token, and
+  // skip — with an actionable hint — those that don't. The recap never executes
+  // PR-head code and adds a prompt-injection note for fork diffs, so a trusted
+  // same-org fork is no riskier than a same-org branch PR.
   const headRepo = pr && pr.head && pr.head.repo && pr.head.repo.full_name;
-  if (pr && headRepo && headRepo !== input.repository) {
-    reasons.push(`fork PR (${headRepo})`);
+  const isFork = Boolean(pr && headRepo && headRepo !== input.repository);
+  if (isFork && !input.hasPlan) {
+    reasons.push(
+      `fork PR (${headRepo}) without secret access — enable "Send secrets to workflows from pull requests" (and write tokens) in the repo/org Actions settings to run recaps on forks`,
+    );
   }
 
   // Skip noisy automated authors.
@@ -3003,8 +3011,10 @@ export function evaluateRecapGate(input: RecapGateInput): {
     reasons.push("bot author (type=Bot)");
 
   // Publish secret must be configured — otherwise this is a no-op so the
-  // workflow can be merged before secrets exist.
-  if (!input.hasPlan) reasons.push("PLAN_RECAP_TOKEN not configured");
+  // workflow can be merged before secrets exist. Forks get the fork-specific
+  // hint above instead of this generic one.
+  if (!isFork && !input.hasPlan)
+    reasons.push("PLAN_RECAP_TOKEN not configured");
 
   // The chosen backend's API key must be present. Normalize the agent value once
   // here and validate it: an unknown or mis-cased value (e.g. "Claude", "gpt")

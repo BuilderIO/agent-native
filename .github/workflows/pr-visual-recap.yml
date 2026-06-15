@@ -52,10 +52,15 @@ jobs:
             if (!pr) reasons.push('no pull_request payload');
             if (pr && pr.draft) reasons.push('draft PR');
 
-            // Fork PRs run with no secrets, so publishing would fail anyway — skip.
+            // Fork PRs only receive repo secrets when the org/repo opts into
+            // GitHub's "Send secrets to workflows from pull requests" setting
+            // (common in private orgs that use forks heavily). Gate on secret
+            // availability, not fork-ness: run on forks that have the token,
+            // and skip — with an actionable hint — those that don't.
             const headRepo = pr && pr.head && pr.head.repo && pr.head.repo.full_name;
-            if (pr && headRepo && headRepo !== process.env.GITHUB_REPOSITORY) {
-              reasons.push(`fork PR (${headRepo})`);
+            const isFork = !!(pr && headRepo && headRepo !== process.env.GITHUB_REPOSITORY);
+            if (isFork && process.env.HAS_PLAN !== 'true') {
+              reasons.push(`fork PR (${headRepo}) without secret access — enable "Send secrets to workflows from pull requests" (and write tokens) in the repo/org Actions settings to run recaps on forks`);
             }
 
             const login = (pr && pr.user && pr.user.login || '').toLowerCase();
@@ -63,7 +68,7 @@ jobs:
             if (botAuthors.includes(login)) reasons.push(`bot author (${login})`);
             if (pr && pr.user && pr.user.type === 'Bot') reasons.push('bot author (type=Bot)');
 
-            if (process.env.HAS_PLAN !== 'true') reasons.push('PLAN_RECAP_TOKEN not configured');
+            if (!isFork && process.env.HAS_PLAN !== 'true') reasons.push('PLAN_RECAP_TOKEN not configured');
 
             // Normalize + validate the agent so a mis-cased value can't pass the
             // gate and then match neither agent step below.
@@ -344,10 +349,12 @@ jobs:
           # the prev plan id is parsed from a PR comment and could inject shell.
           PREV_PLAN_ID: ${{ steps.prev.outputs.plan_id }}
           DIFF_HUGE: ${{ steps.diff.outputs.huge }}
+          IS_FORK: ${{ github.event.pull_request.head.repo.full_name != github.repository }}
         run: |
           set -euo pipefail
           ARGS=(--diff recap.diff --stat recap.stat --pr "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --head "$HEAD_SHA" --app-url "$PLAN_RECAP_APP_URL" --skill-source "$VISUAL_RECAP_SKILL_SOURCE" --out recap-prompt.md)
           if [ "${DIFF_HUGE:-}" = "true" ]; then ARGS+=(--huge); fi
+          if [ "${IS_FORK:-}" = "true" ]; then ARGS+=(--fork-pr true); fi
           if [ -n "${PREV_PLAN_ID:-}" ]; then ARGS+=(--prev-plan-id "$PREV_PLAN_ID"); fi
           $RECAP_CLI recap build-prompt "${ARGS[@]}"
 

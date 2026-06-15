@@ -1270,19 +1270,41 @@ describe("recap gate decision", () => {
     expect(result.reasons).toContain("draft PR");
   });
 
-  it("skips a fork PR with the head repo full name", () => {
+  it("runs a fork PR when the publish token is available (org sends fork secrets)", () => {
     const result = evaluateRecapGate(
       ok({
         pr: {
           number: 7,
           draft: false,
-          head: { repo: { full_name: "evil/fork" } },
+          head: { repo: { full_name: "contributor/ai-services" } },
           user: { login: "octocat", type: "User" },
         },
+        hasPlan: true,
+      }),
+    );
+    expect(result.run).toBe(true);
+  });
+
+  it("skips a fork PR without secret access and explains how to enable it", () => {
+    const result = evaluateRecapGate(
+      ok({
+        pr: {
+          number: 7,
+          draft: false,
+          head: { repo: { full_name: "contributor/ai-services" } },
+          user: { login: "octocat", type: "User" },
+        },
+        hasPlan: false,
       }),
     );
     expect(result.run).toBe(false);
-    expect(result.reasons).toContain("fork PR (evil/fork)");
+    expect(
+      result.reasons.some((r) =>
+        r.startsWith("fork PR (contributor/ai-services)"),
+      ),
+    ).toBe(true);
+    // A fork gets the actionable fork hint, NOT the generic token-missing reason.
+    expect(result.reasons).not.toContain("PLAN_RECAP_TOKEN not configured");
   });
 
   it("skips a known bot author by login", () => {
@@ -1457,13 +1479,13 @@ describe("recap gate decision", () => {
       }),
     );
     expect(result.run).toBe(false);
-    expect(result.reasons).toEqual(
-      expect.arrayContaining([
-        "draft PR",
-        "fork PR (evil/fork)",
-        "PLAN_RECAP_TOKEN not configured",
-      ]),
-    );
+    expect(result.reasons).toContain("draft PR");
+    // A fork without secrets gets the fork-specific hint (which subsumes the
+    // generic token-missing reason).
+    expect(
+      result.reasons.some((r) => r.startsWith("fork PR (evil/fork)")),
+    ).toBe(true);
+    expect(result.reasons).not.toContain("PLAN_RECAP_TOKEN not configured");
   });
 });
 
@@ -1695,6 +1717,12 @@ describe("bundled PR visual recap workflow", () => {
     );
     expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain(
       '--mode "$VISUAL_RECAP_SECRET_SCAN"',
+    );
+    // Forks run when the org sends them secrets; the prompt gets the fork
+    // injection-warning note via --fork-pr.
+    expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain("ARGS+=(--fork-pr true)");
+    expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain(
+      "Send secrets to workflows from pull requests",
     );
     expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain("CLAUDE_ALLOWED_TOOLS");
     expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain(
