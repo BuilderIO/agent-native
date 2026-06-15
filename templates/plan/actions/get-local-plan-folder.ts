@@ -2,7 +2,10 @@ import { defineAction } from "@agent-native/core";
 import { z } from "zod";
 import { exportPlanContentToMdxFolder } from "../server/plan-mdx.js";
 import { buildPlanHtml, nowIso } from "../server/plans.js";
-import { isLocalPlanRuntime } from "../server/lib/local-identity.js";
+import {
+  getLocalPlanOwnerEmail,
+  isLocalPlanRuntime,
+} from "../server/lib/local-identity.js";
 import { readPlanLocalFolder } from "../server/lib/local-plan-files.js";
 import type { PlanBundle, PlanKind } from "../shared/types.js";
 
@@ -63,7 +66,7 @@ export default defineAction({
       },
       access: {
         role: "viewer",
-        ownerEmail: "local@agent-native.local",
+        ownerEmail: getLocalPlanOwnerEmail(),
         orgId: null,
         visibility: "private",
       },

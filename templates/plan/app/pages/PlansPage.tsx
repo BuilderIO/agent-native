@@ -1595,7 +1595,6 @@ function resolveStableVisualAnchorTarget(
       if (target) return target;
     }
   }
-  if (frame && anchor.targetKind === "wireframe") return frame;
   return null;
 }
 
@@ -1635,10 +1634,10 @@ function targetKindForElement(
   if (tag === "pre" || tag === "code") return "code";
   if (tag === "svg") return "diagram";
   if (element.closest("[data-plan-prototype-viewer]")) return "prototype";
-  if (tag === "canvas" || element.closest(".plan-canvas")) return "canvas";
   if (element.closest("[data-canvas-frame],.plan-artboard-frame")) {
     return "wireframe";
   }
+  if (tag === "canvas" || element.closest(".plan-canvas")) return "canvas";
   if (element.matches("button,a,input,textarea,select,label")) return "control";
   if (element.closest("[data-block-id]")) return "block";
   return "unknown";
@@ -1795,16 +1794,6 @@ export function resolveNativeAnchorTarget(
     queryRoot,
   );
   if (stableVisualTarget) return stableVisualTarget;
-  if (
-    anchor.planAnnotationId ||
-    anchor.canvasX !== undefined ||
-    anchor.targetKind === "canvas"
-  ) {
-    const canvasWorld = reader.querySelector<HTMLElement>(
-      "[data-plan-canvas-world], .plan-canvas-world",
-    );
-    if (canvasWorld) return canvasWorld;
-  }
   if (anchor.targetSelector) {
     try {
       const target = queryRoot.matches(anchor.targetSelector)
@@ -1816,8 +1805,24 @@ export function resolveNativeAnchorTarget(
         if (textTarget) return textTarget;
       }
     } catch {
-      // Fall back to quote matching below.
+      // Fall back to broad visual targets or quote matching below.
     }
+  }
+  if (
+    anchor.planAnnotationId ||
+    anchor.canvasX !== undefined ||
+    anchor.targetKind === "canvas"
+  ) {
+    const canvasWorld = reader.querySelector<HTMLElement>(
+      "[data-plan-canvas-world], .plan-canvas-world",
+    );
+    if (canvasWorld) return canvasWorld;
+  }
+  if (anchor.targetKind === "wireframe" && anchor.sectionId) {
+    const frame = reader.querySelector<HTMLElement>(
+      dataSelector("data-canvas-frame", anchor.sectionId),
+    );
+    if (frame) return frame;
   }
   if (!needle) return null;
   const scopes: Element[] = [];

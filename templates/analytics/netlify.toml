@@ -7,6 +7,7 @@
 [build.environment]
   NITRO_PRESET = "netlify"
   NPM_CONFIG_PRODUCTION = "false"
+  AGENT_PROD_CODE_EXECUTION = "sandboxed"
 
 # A2A delegation calls run a full agent loop (LLM + tool calls + DB queries).
 # Hosted agent chat uses a soft timeout before this function timeout so the

@@ -25,6 +25,10 @@
  * hosted deploy: a production process always rejects, and a non-local AUTH_MODE
  * always rejects. An optional explicit `PLAN_LOCAL_MODE=1` flag lets a developer
  * force local mode on, but it still cannot override the production refusal.
+ *
+ * `PLAN_LOCAL_OWNER_EMAIL` may override the synthetic owner in local runtime
+ * only. This is useful when pointing localhost at a shared/prod database to
+ * inspect private rows owned by the signed-in hosted account.
  */
 
 /**
@@ -33,6 +37,10 @@
  * and from the anonymous public-viewer identity `public-*@agent-native.local`.
  */
 export const LOCAL_PLAN_OWNER_EMAIL = "local@agent-native.local";
+
+export function getLocalPlanOwnerEmail(): string {
+  return process.env.PLAN_LOCAL_OWNER_EMAIL?.trim() || LOCAL_PLAN_OWNER_EMAIL;
+}
 
 /**
  * Domain used for hosted guest-author identities (`guest-<uuid>@agent-native.guest`).
@@ -123,7 +131,7 @@ export function resolvePlanAccessContext(
   ctx: PlanAccessContext,
 ): PlanAccessContext {
   if (shouldUseLocalPlanOwner(ctx.userEmail)) {
-    return { userEmail: LOCAL_PLAN_OWNER_EMAIL };
+    return { userEmail: getLocalPlanOwnerEmail() };
   }
   return ctx;
 }
@@ -163,7 +171,7 @@ export function resolvePlanOwnerEmail(
   authenticatedEmail: string | undefined,
 ): string | undefined {
   if (shouldUseLocalPlanOwner(authenticatedEmail)) {
-    return LOCAL_PLAN_OWNER_EMAIL;
+    return getLocalPlanOwnerEmail();
   }
   if (authenticatedEmail) return authenticatedEmail;
   return undefined;
@@ -189,7 +197,7 @@ export function resolvePlanOwnerEmailForWrite(
   authenticatedEmail: string | undefined,
 ): string | undefined {
   if (shouldUseLocalPlanOwner(authenticatedEmail)) {
-    return LOCAL_PLAN_OWNER_EMAIL;
+    return getLocalPlanOwnerEmail();
   }
   if (authenticatedEmail && !isGuestAuthorIdentity(authenticatedEmail)) {
     return authenticatedEmail;

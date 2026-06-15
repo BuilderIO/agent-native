@@ -14,6 +14,7 @@ import {
   hasDataQueryAttempt,
   hasIncompleteDataEvidence,
   isSafeNoDataAnalyticsResponse,
+  looksLikeCoverageSensitiveAnalyticsRequest,
   looksLikeStrongCoverageClaim,
   looksLikeAnalyticsDataRequest,
 } from "../lib/real-data-actions";
@@ -42,14 +43,16 @@ function realDataFinalGuard(context: AgentLoopFinalResponseGuardContext) {
   }
   const userText = latestUserText(context.messages ?? []);
   if (!looksLikeAnalyticsDataRequest(userText)) return null;
+  const incompleteEvidence = hasIncompleteDataEvidence(context.toolResults);
   if (
-    hasIncompleteDataEvidence(context.toolResults) &&
-    looksLikeStrongCoverageClaim(context.text) &&
+    incompleteEvidence &&
+    (looksLikeStrongCoverageClaim(context.text) ||
+      looksLikeCoverageSensitiveAnalyticsRequest(userText)) &&
     !hasExplicitPartialDisclosure(context.text)
   ) {
     return {
       retryMessage:
-        "Some source evidence for this analytics answer was aborted, truncated, or indicated more pages, but the draft makes a strong zero/all/exhaustive claim. Recover coverage with provider-api-request/run-code/workspace staging if possible; otherwise finalize with explicit partial-coverage wording, the inspected sample size, and the missing coverage.",
+        "Some source evidence for this analytics answer was aborted, truncated, timed out, or indicated more pages. The user asked a coverage-sensitive provider question, or the draft makes a strong zero/all/exhaustive claim. Recover coverage with provider-api-request/run-code/workspace staging if possible; otherwise finalize with explicit partial-coverage wording, the inspected sample size, and the missing coverage.",
       fallbackMessage:
         "I can't make a confident exhaustive analytics claim yet because part of the source evidence was aborted, truncated, or still paginated. I need to recover the missing coverage or state the answer as partial with the inspected sample size.",
     };
