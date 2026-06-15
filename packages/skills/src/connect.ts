@@ -183,7 +183,6 @@ function configKeys(descriptor: McpDescriptor): string[] {
   return keys;
 }
 
-
 function responseMessage(json: any, fallback: string): string {
   const message =
     typeof json?.message === "string"
