@@ -37,6 +37,7 @@ import {
   type BuilderCmsSourceEntry,
   type ExistingBuilderSourceRowIdentity,
 } from "./_builder-cms-source-adapter.js";
+import { mergeBuilderCmsWriteSettingsIntoJson } from "./_builder-cms-write-settings.js";
 import {
   readBuilderCmsContentEntries,
   type BuilderCmsReadState,
@@ -1560,18 +1561,33 @@ export async function updateBuilderCmsSourceReadMetadata(args: {
   syncState?: ContentDatabaseSourceSyncState;
 }) {
   const db = getDb();
+  const [currentSource] = await db
+    .select({
+      capabilitiesJson: schema.contentDatabaseSources.capabilitiesJson,
+      metadataJson: schema.contentDatabaseSources.metadataJson,
+    })
+    .from(schema.contentDatabaseSources)
+    .where(eq(schema.contentDatabaseSources.id, args.sourceId))
+    .limit(1);
+  const nextJson = mergeBuilderCmsWriteSettingsIntoJson({
+    sourceTable: args.sourceTable,
+    currentCapabilitiesJson: currentSource?.capabilitiesJson,
+    currentMetadataJson: currentSource?.metadataJson,
+    nextCapabilitiesJson: sourceCapabilitiesForType("builder-cms"),
+    nextMetadataJson: serializeBuilderCmsSourceReadMetadataRecord({
+      sourceTable: args.sourceTable,
+      readState: args.readState,
+      entryCount: args.entryCount,
+      matchedRowCount: args.matchedRowCount,
+    }),
+  });
   await db
     .update(schema.contentDatabaseSources)
     .set({
       syncState: args.syncState ?? "linked",
       freshness: args.readState === "error" ? "stale" : "fresh",
-      capabilitiesJson: sourceCapabilitiesForType("builder-cms"),
-      metadataJson: serializeBuilderCmsSourceReadMetadataRecord({
-        sourceTable: args.sourceTable,
-        readState: args.readState,
-        entryCount: args.entryCount,
-        matchedRowCount: args.matchedRowCount,
-      }),
+      capabilitiesJson: nextJson.capabilitiesJson,
+      metadataJson: nextJson.metadataJson,
       lastRefreshedAt: args.now,
       lastSourceUpdatedAt: args.fetchedAt,
       lastError: args.readState === "error" ? args.message : null,

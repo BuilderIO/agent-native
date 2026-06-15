@@ -8,6 +8,7 @@ import type {
   ContentDatabaseSourceStatusResponse,
   CreateDatabaseRequest,
   DuplicateDatabaseItemRequest,
+  ExecuteBuilderSourceExecutionRequest,
   MoveDatabaseItemRequest,
   PrepareBuilderSourceExecutionRequest,
   PrepareBuilderSourceReviewRequest,
@@ -15,6 +16,7 @@ import type {
   ProposeContentDatabaseSourceChangeSetRequest,
   RefreshContentDatabaseSourceRequest,
   ReviewContentDatabaseSourceChangeSetRequest,
+  SetContentDatabaseSourceWriteModeRequest,
   StageBuilderRevisionRequest,
   UpdateContentDatabaseViewRequest,
   ValidateBuilderSourceExecutionRequest,
@@ -244,6 +246,40 @@ export function useValidateBuilderSourceExecution(documentId: string) {
     ContentDatabaseResponse,
     ValidateBuilderSourceExecutionRequest
   >("validate-builder-source-execution", {
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: ["action", "get-content-database", { documentId }],
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["action", "get-content-database-source", { documentId }],
+      });
+    },
+  });
+}
+
+export function useExecuteBuilderSourceExecution(documentId: string) {
+  const queryClient = useQueryClient();
+  return useActionMutation<
+    ContentDatabaseResponse,
+    ExecuteBuilderSourceExecutionRequest
+  >("execute-builder-source-execution", {
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: ["action", "get-content-database", { documentId }],
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["action", "get-content-database-source", { documentId }],
+      });
+    },
+  });
+}
+
+export function useSetContentDatabaseSourceWriteMode(documentId: string) {
+  const queryClient = useQueryClient();
+  return useActionMutation<
+    ContentDatabaseResponse,
+    SetContentDatabaseSourceWriteModeRequest
+  >("set-content-database-source-write-mode", {
     onSuccess: () => {
       queryClient.invalidateQueries({
         queryKey: ["action", "get-content-database", { documentId }],

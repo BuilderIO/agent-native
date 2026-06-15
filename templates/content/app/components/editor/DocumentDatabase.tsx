@@ -89,12 +89,14 @@ import {
   useBuilderCmsModels,
   useContentDatabase,
   useDuplicateDatabaseItem,
+  useExecuteBuilderSourceExecution,
   useMoveDatabaseItem,
   usePrepareBuilderSourceExecution,
   usePrepareBuilderSourceReview,
   useProposeContentDatabaseSourceChangeSet,
   useRefreshContentDatabaseSource,
   useReviewContentDatabaseSourceChangeSet,
+  useSetContentDatabaseSourceWriteMode,
   useStageBuilderRevision,
   useUpdateContentDatabaseView,
   useValidateBuilderSourceExecution,
@@ -130,29 +132,30 @@ import {
 } from "./DocumentProperties";
 import { EmojiPicker } from "./EmojiPicker";
 import { VisualEditor } from "./VisualEditor";
-import type {
-  BuilderCmsModelSummary,
-  ContentDatabaseItem,
-  ContentDatabaseResponse,
-  ContentDatabaseSource,
-  ContentDatabaseSourceChangeSet,
-  ContentDatabaseSourceReviewPayload,
-  ContentDatabaseView,
-  ContentDatabaseViewConfig,
-  ContentDatabaseColumnCalculation,
-  ContentDatabaseFilter,
-  ContentDatabaseFilterMode,
-  ContentDatabaseFilterOperator,
-  ContentDatabaseOpenPagesIn,
-  ContentDatabaseRowDensity,
-  ContentDatabaseSort,
-  ContentDatabaseSortDirection,
-  ContentDatabaseViewType,
-  Document,
-  DocumentProperty,
-  DocumentPropertyOption,
-  DocumentPropertyType,
-  DocumentPropertyValue,
+import {
+  BUILDER_CMS_SAFE_WRITE_MODEL,
+  type BuilderCmsModelSummary,
+  type ContentDatabaseItem,
+  type ContentDatabaseResponse,
+  type ContentDatabaseSource,
+  type ContentDatabaseSourceChangeSet,
+  type ContentDatabaseSourceReviewPayload,
+  type ContentDatabaseView,
+  type ContentDatabaseViewConfig,
+  type ContentDatabaseColumnCalculation,
+  type ContentDatabaseFilter,
+  type ContentDatabaseFilterMode,
+  type ContentDatabaseFilterOperator,
+  type ContentDatabaseOpenPagesIn,
+  type ContentDatabaseRowDensity,
+  type ContentDatabaseSort,
+  type ContentDatabaseSortDirection,
+  type ContentDatabaseViewType,
+  type Document,
+  type DocumentProperty,
+  type DocumentPropertyOption,
+  type DocumentPropertyType,
+  type DocumentPropertyValue,
 } from "@shared/api";
 import {
   type DocumentPropertyOptionColor,
@@ -392,6 +395,8 @@ function DatabaseTable({
   const validateBuilderExecution = useValidateBuilderSourceExecution(
     document.id,
   );
+  const executeBuilderExecution = useExecuteBuilderSourceExecution(document.id);
+  const setSourceWriteMode = useSetContentDatabaseSourceWriteMode(document.id);
   const setProperty = useSetDocumentProperty(document.id);
   const updateView = useUpdateContentDatabaseView(document.id);
   const data = database.data;
@@ -540,8 +545,7 @@ function DatabaseTable({
   );
   const builderReviewPreview = useMemo(
     () =>
-      source?.sourceType === "builder-cms" &&
-      builderReviewChangeSets.length > 0
+      source?.sourceType === "builder-cms" && builderReviewChangeSets.length > 0
         ? buildClientBuilderReviewPayload(source, builderReviewChangeSets)
         : null,
     [builderReviewChangeSets, source],
@@ -846,6 +850,65 @@ function DatabaseTable({
 
   function setHideEmptyGroups(hideEmptyGroups: boolean) {
     updateActiveView((view) => ({ ...view, hideEmptyGroups }));
+  }
+
+  async function handleBuilderReviewPush() {
+    setBuilderReviewResult(null);
+    setBuilderReviewCheckedAt(null);
+    try {
+      const prepared = await prepareBuilderReview.mutateAsync({
+        documentId: document.id,
+        pushModeConfirmation: "autosave",
+      });
+      let nextReview = prepared.review;
+
+      if (
+        nextReview.liveWritesEnabled &&
+        nextReview.result.status === "validated"
+      ) {
+        const executableRows = builderReviewExecutableRows(nextReview);
+        let executedResponse: ContentDatabaseResponse | null = null;
+        for (const row of executableRows) {
+          if (!row.execution?.idempotencyKey) continue;
+          executedResponse = await executeBuilderExecution.mutateAsync({
+            documentId: document.id,
+            changeSetId: row.changeSetId,
+            idempotencyKey: row.execution.idempotencyKey,
+            pushModeConfirmation: nextReview.pushMode,
+          });
+        }
+        const executedSource = executedResponse?.source ?? null;
+        if (executedSource) {
+          const reviewedIds = new Set(
+            nextReview.rows.map((row) => row.changeSetId),
+          );
+          const reviewedChangeSets = executedSource.changeSets.filter(
+            (changeSet) => reviewedIds.has(changeSet.id),
+          );
+          if (reviewedChangeSets.length > 0) {
+            nextReview = buildClientBuilderReviewPayload(
+              executedSource,
+              reviewedChangeSets,
+            );
+          }
+        }
+      }
+
+      setBuilderReviewResult(nextReview);
+      setBuilderReviewCheckedAt(new Date().toISOString());
+      toast.success(
+        nextReview.result.status === "succeeded"
+          ? "Builder update pushed"
+          : "Builder update checked",
+        {
+          description: nextReview.result.message,
+        },
+      );
+    } catch (error) {
+      toast.error("Builder update failed", {
+        description: error instanceof Error ? error.message : "Try again.",
+      });
+    }
   }
 
   const toolbarGroups = useMemo(() => {
@@ -1366,6 +1429,35 @@ function DatabaseTable({
             idempotencyKey,
           })
         }
+        onSetBuilderLiveWrites={(enabled) =>
+          setSourceWriteMode.mutate(
+            {
+              documentId: document.id,
+              liveWritesEnabled: enabled,
+              allowedWriteModes: enabled ? ["autosave"] : [],
+            },
+            {
+              onSuccess: () => {
+                toast.success(
+                  enabled
+                    ? "Builder live writes enabled"
+                    : "Builder live writes disabled",
+                  {
+                    description: enabled
+                      ? "Only autosave writes to the Agent Native test collection can run."
+                      : "Push will return to local validation only.",
+                  },
+                );
+              },
+              onError: (error) => {
+                toast.error("Builder write mode was not changed", {
+                  description:
+                    error instanceof Error ? error.message : "Try again.",
+                });
+              },
+            },
+          )
+        }
         sourceActionPending={
           attachSource.isPending ||
           refreshSource.isPending ||
@@ -1374,7 +1466,9 @@ function DatabaseTable({
           reviewSourceChangeSet.isPending ||
           prepareBuilderExecution.isPending ||
           prepareBuilderReview.isPending ||
-          validateBuilderExecution.isPending
+          validateBuilderExecution.isPending ||
+          executeBuilderExecution.isPending ||
+          setSourceWriteMode.isPending
         }
         onViewTypeChange={(type) =>
           setViewConfig(updateDatabaseViewType(viewConfig, activeView.id, type))
@@ -1397,31 +1491,12 @@ function DatabaseTable({
         review={activeBuilderReview}
         source={source}
         canEdit={canEdit}
-        pending={prepareBuilderReview.isPending}
+        pending={
+          prepareBuilderReview.isPending || executeBuilderExecution.isPending
+        }
         checkedAt={builderReviewCheckedAt}
         onClose={() => setBuilderReviewOpen(false)}
-        onValidate={() => {
-          setBuilderReviewResult(null);
-          setBuilderReviewCheckedAt(null);
-          prepareBuilderReview.mutate(
-            { documentId: document.id, pushModeConfirmation: "autosave" },
-            {
-              onSuccess: (response) => {
-                setBuilderReviewResult(response.review);
-                setBuilderReviewCheckedAt(new Date().toISOString());
-                toast.success("Builder update checked", {
-                  description: response.review.result.message,
-                });
-              },
-              onError: (error) => {
-                toast.error("Builder update failed", {
-                  description:
-                    error instanceof Error ? error.message : "Try again.",
-                });
-              },
-            },
-          );
-        }}
+        onValidate={() => void handleBuilderReviewPush()}
       />
 
       {!database.isLoading ? (
@@ -3071,6 +3146,7 @@ function DatabaseSettingsPanelSheet({
   onRejectSourceChangeSet,
   onPrepareBuilderExecution,
   onValidateBuilderExecution,
+  onSetBuilderLiveWrites,
   sourceActionPending,
   onViewTypeChange,
   onWrapCellsChange,
@@ -3108,6 +3184,7 @@ function DatabaseSettingsPanelSheet({
     changeSetId: string,
     idempotencyKey: string,
   ) => void;
+  onSetBuilderLiveWrites: (enabled: boolean) => void;
   sourceActionPending: boolean;
   onViewTypeChange: (type: ContentDatabaseViewType) => void;
   onWrapCellsChange: (wrapCells: boolean) => void;
@@ -3171,6 +3248,7 @@ function DatabaseSettingsPanelSheet({
             onRejectSourceChangeSet={onRejectSourceChangeSet}
             onPrepareBuilderExecution={onPrepareBuilderExecution}
             onValidateBuilderExecution={onValidateBuilderExecution}
+            onSetBuilderLiveWrites={onSetBuilderLiveWrites}
             sourceActionPending={sourceActionPending}
           />
         ) : panel === "layout" ? (
@@ -3273,7 +3351,9 @@ function DatabaseSettingsMainPanel({
   );
 }
 
-function builderReviewableChangeSets(source: ContentDatabaseSource | null) {
+export function builderReviewableChangeSets(
+  source: ContentDatabaseSource | null,
+) {
   if (source?.sourceType !== "builder-cms") return [];
   return source.changeSets.filter(
     (changeSet) =>
@@ -3301,7 +3381,40 @@ function maxSourceReviewRisk(
     : current;
 }
 
-function buildClientBuilderReviewPayload(
+export function builderReviewExecutableRows(
+  review: ContentDatabaseSourceReviewPayload,
+) {
+  if (!review.liveWritesEnabled || review.result.status !== "validated") {
+    return [];
+  }
+  return review.rows.filter(
+    (row) => row.execution?.state === "ready" && row.execution.idempotencyKey,
+  );
+}
+
+export function builderSourceLiveWriteControlState(
+  source: ContentDatabaseSource | null,
+) {
+  const isBuilderSource = source?.sourceType === "builder-cms";
+  const safeTarget =
+    isBuilderSource && source?.sourceTable === BUILDER_CMS_SAFE_WRITE_MODEL;
+  const enabled = source?.capabilities.liveWritesEnabled === true;
+  return {
+    safeTarget,
+    enabled,
+    showAction: safeTarget,
+    actionLabel: enabled ? "Disable" : "Enable",
+    description: enabled
+      ? "Enabled for autosave writes to the Agent Native test collection."
+      : safeTarget
+        ? "Off by default. Enable only when you are ready to send autosave writes to the Agent Native test collection."
+        : isBuilderSource
+          ? "Unavailable here; live writes are locked to the Agent Native test collection."
+          : "Live writes are not available for this source.",
+  };
+}
+
+export function buildClientBuilderReviewPayload(
   source: ContentDatabaseSource,
   changeSets: ContentDatabaseSourceChangeSet[],
 ): ContentDatabaseSourceReviewPayload {
@@ -3353,13 +3466,24 @@ function buildClientBuilderReviewPayload(
         validatedAt: string | null;
       } => !!status,
     );
-  const resultStatus = statuses.some((status) => status.status === "stale")
-    ? "stale"
-    : statuses.some((status) => status.status === "blocked")
-      ? "blocked"
-      : statuses.some((status) => status.status === "validated")
-        ? "validated"
-        : "write_disabled";
+  const executionStates = rows
+    .map((row) => row.execution?.state)
+    .filter(Boolean);
+  const resultStatus =
+    executionStates.length > 0 &&
+    executionStates.every((state) => state === "succeeded")
+      ? "succeeded"
+      : executionStates.includes("failed")
+        ? "failed"
+        : executionStates.includes("running")
+          ? "running"
+          : statuses.some((status) => status.status === "stale")
+            ? "stale"
+            : statuses.some((status) => status.status === "blocked")
+              ? "blocked"
+              : statuses.some((status) => status.status === "validated")
+                ? "validated"
+                : "write_disabled";
 
   return {
     summary:
@@ -3377,13 +3501,21 @@ function buildClientBuilderReviewPayload(
     result: {
       status: resultStatus,
       message:
-        resultStatus === "validated"
-          ? "Push checked successfully. Nothing was sent to Builder."
-          : resultStatus === "blocked"
-            ? "Push needs attention before anything can be sent to Builder."
-            : resultStatus === "stale"
-              ? "Push needs a fresh review because the plan changed."
-              : "Builder writes are off in this local build. Push will check the update only.",
+        resultStatus === "succeeded"
+          ? "Pushed to Builder and reconciled locally."
+          : resultStatus === "failed"
+            ? "Builder push failed. The change remains retryable."
+            : resultStatus === "running"
+              ? "Builder push is running."
+              : resultStatus === "validated"
+                ? source.capabilities.liveWritesEnabled
+                  ? "Push checked successfully. Ready to send to Builder."
+                  : "Push checked successfully. Nothing was sent to Builder."
+                : resultStatus === "blocked"
+                  ? "Push needs attention before anything can be sent to Builder."
+                  : resultStatus === "stale"
+                    ? "Push needs a fresh review because the plan changed."
+                    : "Builder writes are off in this local build. Push will check the update only.",
     },
   };
 }
@@ -3410,8 +3542,38 @@ function BuilderSourceReviewDialog({
   if (!open) return null;
 
   const checked = !!checkedAt;
+  const retryable =
+    review?.result.status === "failed" ||
+    review?.result.status === "blocked" ||
+    review?.result.status === "stale";
   const disabled =
-    !canEdit || pending || checked || !review || review.rows.length === 0;
+    !canEdit ||
+    pending ||
+    (!retryable && checked) ||
+    !review ||
+    review.rows.length === 0;
+  const footerText = pending
+    ? review?.liveWritesEnabled
+      ? "Preparing the Builder gate and sending through the guarded write path."
+      : "Checking the Builder gate locally."
+    : checked
+      ? review?.result.status === "succeeded"
+        ? "Pushed to Builder and reconciled locally."
+        : review?.liveWritesEnabled
+          ? (review?.result.message ?? "Builder push finished.")
+          : "Checked just now. Nothing was sent to Builder."
+      : review?.liveWritesEnabled
+        ? "Push will send autosave writes through the guarded Builder path."
+        : "Builder writes are disabled. Push will check the update only.";
+  const buttonLabel = pending
+    ? review?.liveWritesEnabled
+      ? "Pushing..."
+      : "Checking..."
+    : checked && review?.result.status === "succeeded"
+      ? "Pushed"
+      : checked && !retryable
+        ? "Checked"
+        : "Push";
 
   return (
     <div
@@ -3502,6 +3664,11 @@ function BuilderSourceReviewDialog({
                             </div>
                           </div>
                         ) : null}
+                        {row.execution?.lastError ? (
+                          <div className="rounded border border-destructive/30 bg-destructive/10 p-2 text-xs text-destructive">
+                            {row.execution.lastError}
+                          </div>
+                        ) : null}
                       </div>
                     </div>
                   ))}
@@ -3511,10 +3678,7 @@ function BuilderSourceReviewDialog({
               <section className="grid gap-2 rounded-md border border-border p-3">
                 <div className="text-sm font-medium">Where it will go</div>
                 <div className="grid gap-2 text-xs">
-                  <SourceMetadataRow
-                    label="Source"
-                    value={review.sourceName}
-                  />
+                  <SourceMetadataRow label="Source" value={review.sourceName} />
                   <SourceMetadataRow
                     label="Builder model"
                     value={review.sourceTable}
@@ -3525,9 +3689,7 @@ function BuilderSourceReviewDialog({
                   />
                   <SourceMetadataRow
                     label="Live writes"
-                    value={
-                      review.liveWritesEnabled ? "enabled" : "disabled"
-                    }
+                    value={review.liveWritesEnabled ? "enabled" : "disabled"}
                   />
                   <SourceMetadataRow
                     label="Read mode"
@@ -3556,9 +3718,7 @@ function BuilderSourceReviewDialog({
                     </span>
                   ))}
                   <span className="rounded border border-border px-1.5 py-0.5 text-muted-foreground">
-                    {review.dryRunOnly
-                      ? "checks only"
-                      : "can send to Builder"}
+                    {review.dryRunOnly ? "checks only" : "can send to Builder"}
                   </span>
                 </div>
               </section>
@@ -3586,9 +3746,7 @@ function BuilderSourceReviewDialog({
 
         <div className="flex shrink-0 items-center justify-between gap-3 border-t border-border p-3">
           <div className="min-w-0 text-xs text-muted-foreground">
-            {checked
-              ? "Checked just now. Nothing was sent to Builder."
-              : "Builder writes are off in this local build."}
+            {footerText}
           </div>
           <div className="flex shrink-0 items-center gap-2">
             <Button type="button" variant="ghost" size="sm" onClick={onClose}>
@@ -3605,7 +3763,7 @@ function BuilderSourceReviewDialog({
               ) : checked ? (
                 <IconCheck className="mr-1.5 size-3.5" />
               ) : null}
-              {pending ? "Checking..." : checked ? "Checked" : "Push"}
+              {buttonLabel}
             </Button>
           </div>
         </div>
@@ -3627,6 +3785,7 @@ function DatabaseSettingsSourcePanel({
   onRejectSourceChangeSet,
   onPrepareBuilderExecution,
   onValidateBuilderExecution,
+  onSetBuilderLiveWrites,
   sourceActionPending,
 }: {
   source: ContentDatabaseSource | null;
@@ -3647,6 +3806,7 @@ function DatabaseSettingsSourcePanel({
     changeSetId: string,
     idempotencyKey: string,
   ) => void;
+  onSetBuilderLiveWrites: (enabled: boolean) => void;
   sourceActionPending: boolean;
 }) {
   const incomingChangeSets =
@@ -3669,6 +3829,7 @@ function DatabaseSettingsSourcePanel({
     ) ?? [];
   const { isCodeMode } = useCodeMode();
   const isBuilderSource = source?.sourceType === "builder-cms";
+  const liveWriteControl = builderSourceLiveWriteControlState(source);
   const showMockSourceControls = isCodeMode;
   const showAttentionCard =
     !source ||
@@ -3783,6 +3944,37 @@ function DatabaseSettingsSourcePanel({
               label="Push mode"
               value={sourcePushModeSummary(source)}
             />
+            {isBuilderSource ? (
+              <div className="flex min-w-0 items-start justify-between gap-3 rounded-md border border-border/70 bg-muted/20 p-2">
+                <div className="min-w-0">
+                  <div className="text-xs font-medium">Builder live writes</div>
+                  <div className="mt-0.5 break-words text-xs text-muted-foreground">
+                    {liveWriteControl.description}
+                  </div>
+                </div>
+                {liveWriteControl.showAction ? (
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant={liveWriteControl.enabled ? "outline" : "default"}
+                    className="h-7 shrink-0 px-2 text-xs"
+                    disabled={!canEdit || sourceActionPending}
+                    onClick={() =>
+                      onSetBuilderLiveWrites(!liveWriteControl.enabled)
+                    }
+                  >
+                    {sourceActionPending ? (
+                      <Spinner className="mr-1 size-3.5" />
+                    ) : liveWriteControl.enabled ? (
+                      <IconX className="mr-1 size-3.5" />
+                    ) : (
+                      <IconCheck className="mr-1 size-3.5" />
+                    )}
+                    {liveWriteControl.actionLabel}
+                  </Button>
+                ) : null}
+              </div>
+            ) : null}
             {isBuilderSource ? (
               <>
                 <SourceMetadataRow
@@ -3965,12 +4157,14 @@ function BuilderCmsModelAttachControl({
   const models = modelsQuery.data?.models ?? [];
   const [selectedModelName, setSelectedModelName] = useState("");
   const selectedModel =
-    models.find((model) => model.name === selectedModelName) ?? models[0] ?? null;
+    models.find((model) => model.name === selectedModelName) ??
+    models[0] ??
+    null;
 
   useEffect(() => {
     if (selectedModelName || models.length === 0) return;
     const testModel = models.find(
-      (model) => model.name === "agent-native-blog-article-test",
+      (model) => model.name === BUILDER_CMS_SAFE_WRITE_MODEL,
     );
     setSelectedModelName((testModel ?? models[0]).name);
   }, [models, selectedModelName]);
@@ -4252,6 +4446,11 @@ function SourceChangeSetReviewCard({
               {dryRunStatus.validatedAt
                 ? ` • ${formatSourceTimestamp(dryRunStatus.validatedAt)}`
                 : ""}
+            </div>
+          ) : null}
+          {latestExecution.lastError ? (
+            <div className="mt-1 break-words text-destructive">
+              {latestExecution.lastError}
             </div>
           ) : null}
           <div className="mt-1 break-all text-muted-foreground">

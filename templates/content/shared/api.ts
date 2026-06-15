@@ -651,7 +651,14 @@ export interface ContentDatabaseSourceReviewPayload {
   riskReasons: string[];
   rows: ContentDatabaseSourceReviewRowSummary[];
   result: {
-    status: "validated" | "blocked" | "stale" | "write_disabled";
+    status:
+      | "validated"
+      | "blocked"
+      | "stale"
+      | "write_disabled"
+      | "running"
+      | "succeeded"
+      | "failed";
     message: string;
   };
 }

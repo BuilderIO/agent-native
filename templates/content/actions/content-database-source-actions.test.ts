@@ -11,6 +11,7 @@ import prepareReview, {
 import proposeChangeSet from "./propose-content-database-source-change-set";
 import refreshSource from "./refresh-content-database-source";
 import reviewChangeSet from "./review-content-database-source-change-set";
+import setWriteMode from "./set-content-database-source-write-mode";
 import stageBuilderRevision from "./stage-builder-revision";
 import validateExecution from "./validate-builder-source-execution";
 import { serializeBuilderCmsSourceReadMetadataRecord } from "./_database-source-utils";
@@ -162,6 +163,20 @@ describe("content database source actions", () => {
       changeSetId: "change-set",
       idempotencyKey: "builder-cms:source:change:autosave",
       pushModeConfirmation: "autosave",
+    });
+  });
+
+  it("accepts explicit per-source Builder live-write enablement requests", () => {
+    expect(
+      setWriteMode.schema.parse({
+        documentId: "database-page",
+        liveWritesEnabled: true,
+        allowedWriteModes: ["autosave"],
+      }),
+    ).toEqual({
+      documentId: "database-page",
+      liveWritesEnabled: true,
+      allowedWriteModes: ["autosave"],
     });
   });
 

@@ -109,13 +109,24 @@ export function buildBuilderSourceReviewPayload(args: {
   const statuses = rows
     .map((row) => dryRunStatus(row.execution))
     .filter((status): status is "validated" | "blocked" | "stale" => !!status);
-  const resultStatus = statuses.includes("stale")
-    ? "stale"
-    : statuses.includes("blocked")
-      ? "blocked"
-      : statuses.includes("validated")
-        ? "validated"
-        : "write_disabled";
+  const executionStates = rows
+    .map((row) => row.execution?.state)
+    .filter(Boolean);
+  const resultStatus =
+    executionStates.length > 0 &&
+    executionStates.every((state) => state === "succeeded")
+      ? "succeeded"
+      : executionStates.includes("failed")
+        ? "failed"
+        : executionStates.includes("running")
+          ? "running"
+          : statuses.includes("stale")
+            ? "stale"
+            : statuses.includes("blocked")
+              ? "blocked"
+              : statuses.includes("validated")
+                ? "validated"
+                : "write_disabled";
   const pushMode = args.source.metadata.pushMode ?? "autosave";
   const summary =
     rows.length === 1
@@ -135,13 +146,21 @@ export function buildBuilderSourceReviewPayload(args: {
     result: {
       status: resultStatus,
       message:
-        resultStatus === "validated"
-          ? "Push checked successfully. Nothing was sent to Builder."
-          : resultStatus === "blocked"
-            ? "Push needs attention before anything can be sent to Builder."
-            : resultStatus === "stale"
-              ? "Push needs a fresh review because the plan changed."
-              : "Builder writes are off in this local build. Push will check the update only.",
+        resultStatus === "succeeded"
+          ? "Pushed to Builder and reconciled locally."
+          : resultStatus === "failed"
+            ? "Builder push failed. The change remains retryable."
+            : resultStatus === "running"
+              ? "Builder push is running."
+              : resultStatus === "validated"
+                ? args.source.capabilities.liveWritesEnabled
+                  ? "Push checked successfully. Ready to send to Builder."
+                  : "Push checked successfully. Nothing was sent to Builder."
+                : resultStatus === "blocked"
+                  ? "Push needs attention before anything can be sent to Builder."
+                  : resultStatus === "stale"
+                    ? "Push needs a fresh review because the plan changed."
+                    : "Builder writes are off in this local build. Push will check the update only.",
     },
   };
 }
