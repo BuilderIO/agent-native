@@ -5,7 +5,7 @@ import type {
   ContentDatabaseSourcePushMode,
 } from "../shared/api.js";
 import { BUILDER_CMS_SAFE_WRITE_MODEL as SAFE_WRITE_MODEL } from "../shared/api.js";
-import { builderCmsWriteTargetFromSourceRow } from "./_builder-cms-source-adapter.js";
+import { builderCmsSourceRowIdentityState } from "./_builder-cms-source-adapter.js";
 
 export type BuilderCmsWriteIntent =
   | "autosave_revision"
@@ -149,6 +149,7 @@ function builderSafetyChecks(args: {
   pushMode: ContentDatabaseSourcePushMode;
   intent: BuilderCmsWriteIntent;
   entryId: string | null;
+  syntheticFixtureTarget: boolean;
   operations: BuilderCmsExecutionOperation[];
 }) {
   const checks = [
@@ -166,7 +167,11 @@ function builderSafetyChecks(args: {
   }
   if (args.intent === "autosave_revision") {
     checks.push("Autosave keeps published state unchanged.");
-    if (!args.entryId) {
+    if (args.syntheticFixtureTarget) {
+      blockers.push(
+        "This row is not matched to a Builder entry yet. Refresh or match a Builder row before pushing.",
+      );
+    } else if (!args.entryId) {
       blockers.push("Autosave requires an existing Builder entry ID.");
     }
   }
@@ -239,14 +244,16 @@ export function buildBuilderCmsExecutionPlan(args: {
         row.databaseItemId === args.changeSet.databaseItemId,
     ) ?? null;
   const target = targetRow
-    ? builderCmsWriteTargetFromSourceRow({
-        sourceTable: args.source.sourceTable,
+    ? builderCmsSourceRowIdentityState({
         row: targetRow,
-        normalizeFixtureIdentity:
-          args.source.capabilities.liveWritesEnabled === true &&
-          args.source.sourceTable === SAFE_WRITE_MODEL,
       })
     : null;
+  const targetEntryId = target?.isSyntheticFixture
+    ? null
+    : (target?.sourceRowId ?? null);
+  const targetSourceQualifiedId = target?.isSyntheticFixture
+    ? null
+    : (target?.sourceQualifiedId ?? null);
   const operations = args.changeSet.fieldChanges.map((field) => ({
     sourceFieldKey: field.sourceFieldKey,
     localFieldKey: field.localFieldKey,
@@ -256,7 +263,7 @@ export function buildBuilderCmsExecutionPlan(args: {
   const request = builderRequestForIntent({
     intent,
     model: args.source.sourceTable,
-    entryId: target?.entryId ?? null,
+    entryId: targetEntryId,
     bodyPatch,
   });
   const safety = builderSafetyChecks({
@@ -264,7 +271,11 @@ export function buildBuilderCmsExecutionPlan(args: {
     changeSet: args.changeSet,
     pushMode,
     intent,
-    entryId: target?.entryId ?? null,
+    entryId: targetEntryId,
+    syntheticFixtureTarget:
+      args.source.capabilities.liveWritesEnabled === true &&
+      args.source.sourceTable === SAFE_WRITE_MODEL &&
+      target?.isSyntheticFixture === true,
     operations,
   });
   const state: ContentDatabaseSourceExecutionState =
@@ -305,8 +316,8 @@ export function buildBuilderCmsExecutionPlan(args: {
       intent,
       target: {
         model: args.source.sourceTable,
-        entryId: target?.entryId ?? null,
-        sourceQualifiedId: target?.sourceQualifiedId ?? null,
+        entryId: targetEntryId,
+        sourceQualifiedId: targetSourceQualifiedId,
         documentId: args.changeSet.documentId,
         databaseItemId: args.changeSet.databaseItemId,
       },

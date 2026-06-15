@@ -35,7 +35,6 @@ import {
   builderCmsSourceFieldKey,
   builderCmsSourceMetadata,
   builderCmsSourceRowIdentity,
-  builderCmsSyntheticFixtureEntryId,
   type BuilderCmsSourceEntry,
   type ExistingBuilderSourceRowIdentity,
 } from "./_builder-cms-source-adapter.js";
@@ -1206,13 +1205,6 @@ export function mapBuilderCmsEntriesToLocalItems(args: {
 
   for (const item of args.items) {
     const existing = existingRowsByDocumentId.get(item.document.id);
-    const existingSyntheticEntryId = existing
-      ? builderCmsSyntheticFixtureEntryId({
-          sourceRowId: existing.sourceRowId,
-          documentId: existing.documentId,
-          provenance: existing.provenance,
-        })
-      : null;
     const fixtureEntry = buildBuilderCmsFixtureEntry({
       item,
       sourceTable: args.sourceTable,
@@ -1221,16 +1213,7 @@ export function mapBuilderCmsEntriesToLocalItems(args: {
     const match =
       (existing
         ? (entriesById.get(existing.sourceRowId) ??
-          entriesByQualifiedId.get(existing.sourceQualifiedId) ??
-          (existingSyntheticEntryId
-            ? (entriesById.get(existingSyntheticEntryId) ??
-              entriesByQualifiedId.get(
-                builderCmsQualifiedId({
-                  sourceTable: args.sourceTable,
-                  entryId: existingSyntheticEntryId,
-                }),
-              ))
-            : null))
+          entriesByQualifiedId.get(existing.sourceQualifiedId))
         : null) ??
       entriesByUrlPath.get(fixtureEntry.urlPath.toLowerCase()) ??
       entriesByTitle.get(item.document.title.trim().toLowerCase());
@@ -1258,23 +1241,10 @@ export function builderCmsEntryAlreadyRepresented(args: {
     sourceTable: args.sourceTable,
     entryId: args.entry.id,
   });
-  const wrappedSourceQualifiedId = builderCmsQualifiedId({
-    sourceTable: args.sourceTable,
-    entryId: `builder-${args.entry.id}`,
-  });
   return args.existingSourceRows.some((row) => {
-    const syntheticEntryId = row.sourceRowId
-      ? builderCmsSyntheticFixtureEntryId({
-          sourceRowId: row.sourceRowId,
-          documentId: row.documentId ?? null,
-          provenance: row.provenance,
-        })
-      : null;
     return (
       row.sourceQualifiedId === sourceQualifiedId ||
-      row.sourceQualifiedId === wrappedSourceQualifiedId ||
-      row.sourceRowId === args.entry.id ||
-      syntheticEntryId === args.entry.id
+      row.sourceRowId === args.entry.id
     );
   });
 }

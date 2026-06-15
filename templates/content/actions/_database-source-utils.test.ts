@@ -202,7 +202,7 @@ describe("database source helpers", () => {
     ).toBe(true);
   });
 
-  it("recognizes legacy fixture-wrapped Builder row IDs as already represented", () => {
+  it("does not treat legacy fixture-wrapped Builder row IDs as represented live entries", () => {
     expect(
       builderCmsEntryAlreadyRepresented({
         sourceTable: "agent-native-blog-article-test",
@@ -223,7 +223,7 @@ describe("database source helpers", () => {
           },
         ],
       }),
-    ).toBe(true);
+    ).toBe(false);
   });
 
   it("does not duplicate a Builder title edit that already has a staged outbound record", () => {

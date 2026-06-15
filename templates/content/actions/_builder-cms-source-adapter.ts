@@ -71,33 +71,24 @@ export function builderCmsSyntheticFixtureEntryId(args: {
     : null;
 }
 
-export function builderCmsWriteTargetFromSourceRow(args: {
-  sourceTable: string;
+export function builderCmsSourceRowIdentityState(args: {
   row: {
     documentId: string | null;
     sourceRowId: string;
     sourceQualifiedId: string;
     provenance?: string | null;
   };
-  normalizeFixtureIdentity: boolean;
 }) {
-  const normalizedEntryId = args.normalizeFixtureIdentity
-    ? builderCmsSyntheticFixtureEntryId({
-        sourceRowId: args.row.sourceRowId,
-        documentId: args.row.documentId,
-        provenance: args.row.provenance,
-      })
-    : null;
-  const entryId = normalizedEntryId ?? args.row.sourceRowId;
+  const syntheticFixtureEntryId = builderCmsSyntheticFixtureEntryId({
+    sourceRowId: args.row.sourceRowId,
+    documentId: args.row.documentId,
+    provenance: args.row.provenance,
+  });
   return {
-    entryId,
-    sourceQualifiedId: normalizedEntryId
-      ? builderCmsQualifiedId({
-          sourceTable: args.sourceTable,
-          entryId: normalizedEntryId,
-        })
-      : args.row.sourceQualifiedId,
-    normalizedFixtureIdentity: !!normalizedEntryId,
+    sourceRowId: args.row.sourceRowId,
+    sourceQualifiedId: args.row.sourceQualifiedId,
+    syntheticFixtureEntryId,
+    isSyntheticFixture: !!syntheticFixtureEntryId,
   };
 }
 

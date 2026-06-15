@@ -1495,6 +1495,12 @@ describe("database item preview", () => {
     expect(pruneDatabaseRowSelection(["item-alpha", "missing"], rows)).toEqual([
       "item-alpha",
     ]);
+    const unchangedSelection = ["item-alpha"];
+    expect(pruneDatabaseRowSelection(unchangedSelection, rows)).toBe(
+      unchangedSelection,
+    );
+    const emptySelection: string[] = [];
+    expect(pruneDatabaseRowSelection(emptySelection, [])).toBe(emptySelection);
   });
 
   it("keeps bulk-editable selected row properties to editable non-computed fields", () => {

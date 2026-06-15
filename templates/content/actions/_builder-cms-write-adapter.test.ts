@@ -181,7 +181,7 @@ describe("Builder CMS write adapter plan", () => {
     });
   });
 
-  it("normalizes legacy fixture-wrapped Builder entry IDs before live autosave", () => {
+  it("blocks live autosave for unmatched legacy fixture-wrapped Builder rows", () => {
     const plan = buildBuilderCmsExecutionPlan({
       source: {
         ...source(true, BUILDER_CMS_SAFE_WRITE_MODEL),
@@ -203,15 +203,17 @@ describe("Builder CMS write adapter plan", () => {
     });
 
     expect(plan).toMatchObject({
-      state: "ready",
+      state: "blocked",
+      lastError:
+        "This row is not matched to a Builder entry yet. Refresh or match a Builder row before pushing.",
       payload: {
         target: {
-          entryId: "BU5P0mT9anul",
-          sourceQualifiedId: `builder-cms://${BUILDER_CMS_SAFE_WRITE_MODEL}/BU5P0mT9anul`,
+          entryId: null,
+          sourceQualifiedId: null,
         },
         request: {
           method: "PATCH",
-          path: `/api/v1/write/${BUILDER_CMS_SAFE_WRITE_MODEL}/BU5P0mT9anul`,
+          path: `/api/v1/write/${BUILDER_CMS_SAFE_WRITE_MODEL}`,
           query: {
             autoSaveOnly: "true",
             triggerWebhooks: "false",
@@ -222,9 +224,14 @@ describe("Builder CMS write adapter plan", () => {
             },
           },
         },
+        safety: {
+          dryRunOnly: true,
+          blockers: [
+            "This row is not matched to a Builder entry yet. Refresh or match a Builder row before pushing.",
+          ],
+        },
       },
     });
-    expect(plan.payload.request.path).not.toContain("builder-BU5P0mT9anul");
   });
 
   it("blocks live writes for Builder models outside the safe test collection", () => {

@@ -1809,7 +1809,12 @@ export function pruneDatabaseRowSelection(
   visibleItems: ContentDatabaseItem[],
 ) {
   const visibleIds = new Set(visibleItems.map((item) => item.id));
-  return selectedItemIds.filter((id) => visibleIds.has(id));
+  const nextSelectedItemIds = selectedItemIds.filter((id) =>
+    visibleIds.has(id),
+  );
+  return nextSelectedItemIds.length === selectedItemIds.length
+    ? selectedItemIds
+    : nextSelectedItemIds;
 }
 
 export function toggleAllDatabaseRowSelection(
