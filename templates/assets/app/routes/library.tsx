@@ -1116,7 +1116,7 @@ export default function AssetPicker() {
 
       {showCreatePane && (
       <section className="shrink-0 border-b border-border px-3 py-3">
-        <div className="grid gap-2 sm:grid-cols-[minmax(0,12rem)_1fr]">
+        <div className="grid gap-2">
           <Select
             value={selectedLibraryId}
             onValueChange={setSelectedLibraryId}
@@ -1134,14 +1134,6 @@ export default function AssetPicker() {
               </SelectGroup>
             </SelectContent>
           </Select>
-          <Input
-            type="search"
-            value={query}
-            onInput={(event) => setQuery(event.currentTarget.value)}
-            onChange={(event) => setQuery(event.target.value)}
-            placeholder={`Search ${mediaLabel}s`}
-            className="h-9 border-border/70 bg-background"
-          />
         </div>
 
         {mediaType === "image" ? (
@@ -1361,17 +1353,26 @@ export default function AssetPicker() {
 
       <main className="min-h-0 flex-1 overflow-y-auto p-3">
         {selectedLibraryId && (
-          <Tabs
-            value={assetTab}
-            onValueChange={(value) => setAssetTab(value as AssetTab)}
-            className="mb-3"
-          >
-            <TabsList>
-              <TabsTrigger value="all">All</TabsTrigger>
-              <TabsTrigger value="generated">Generated</TabsTrigger>
-              <TabsTrigger value="references">References</TabsTrigger>
-            </TabsList>
-          </Tabs>
+          <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <Tabs
+              value={assetTab}
+              onValueChange={(value) => setAssetTab(value as AssetTab)}
+            >
+              <TabsList>
+                <TabsTrigger value="all">All</TabsTrigger>
+                <TabsTrigger value="generated">Generated</TabsTrigger>
+                <TabsTrigger value="references">References</TabsTrigger>
+              </TabsList>
+            </Tabs>
+            <Input
+              type="search"
+              value={query}
+              onInput={(event) => setQuery(event.currentTarget.value)}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder={`Search ${mediaLabel}s`}
+              className="h-9 border-border/70 bg-background sm:max-w-xs"
+            />
+          </div>
         )}
 
         {!selectedLibraryId && (
