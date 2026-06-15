@@ -7,15 +7,12 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   RECAP_DIFF_BYTE_CAP,
-  RECAP_MCP_REQUIRED_TOOLS,
   appendGateSkipLine,
   buildRecapFailureDiagnostic,
   buildRecapSetupPlan,
   buildCommentBody,
   buildGateSkipCommentBody,
   buildGateSkipLine,
-  buildRecapClaudeMcpConfig,
-  buildRecapCodexMcpConfig,
   buildRecapPrompt,
   buildReusableCallerWorkflow,
   canonicalRecapUrl,
@@ -42,7 +39,6 @@ import {
   sanitizeAgentFailureSummary,
   sortDiffSourceFirst,
   runShot,
-  smokeRecapMcpTools,
   summarizeAgentRun,
   summarizeLocalAgentFailure,
   summarizeAgentResult,
@@ -79,13 +75,6 @@ function textResponse(text: string, status = 200): Response {
     redirected: false,
     type: "default" as ResponseType,
   } as unknown as Response;
-}
-
-function jsonRpcResponse(result: unknown, status = 200): Response {
-  return textResponse(
-    JSON.stringify({ jsonrpc: "2.0", id: 1, result }),
-    status,
-  );
 }
 
 function jsonResponse(result: unknown, status = 200): Response {
@@ -381,197 +370,6 @@ describe("countDiffLines", () => {
     ].join("\n");
     // 4 real diff lines, 4 header lines that must be excluded.
     expect(countDiffLines(diff)).toBe(4);
-  });
-});
-
-describe("recap mcp-config", () => {
-  it("writes valid Claude JSON with the plan url + bearer header", () => {
-    const json = buildRecapClaudeMcpConfig(
-      "https://plan.agent-native.com/",
-      "tok-123",
-    );
-    const parsed = JSON.parse(json);
-    expect(parsed.mcpServers.plan).toEqual({
-      type: "http",
-      // Trailing slash trimmed before appending the mcp path.
-      url: "https://plan.agent-native.com/_agent-native/mcp",
-      headers: {
-        Authorization: "Bearer tok-123",
-        "X-Agent-Native-MCP-Client": "agent-native-pr-visual-recap",
-        "X-Agent-Native-MCP-Full-Catalog": "1",
-      },
-    });
-    expect(parsed.mcpServers["agent-native-plans"]).toEqual(
-      parsed.mcpServers.plan,
-    );
-  });
-
-  it("writes Codex TOML with a JSON-stringified url, env-var bearer, and full-catalog headers", () => {
-    const toml = buildRecapCodexMcpConfig("https://plan.agent-native.com");
-    expect(toml).toBe(
-      [
-        "[mcp_servers.plan]",
-        'url = "https://plan.agent-native.com/_agent-native/mcp"',
-        'bearer_token_env_var = "PLAN_RECAP_TOKEN"',
-        'http_headers = { "X-Agent-Native-MCP-Client" = "agent-native-pr-visual-recap", "X-Agent-Native-MCP-Full-Catalog" = "1" }',
-        "",
-      ].join("\n"),
-    );
-  });
-
-  it("JSON-stringifies the Codex url so a stray quote can't break the TOML", () => {
-    // A pathological app-url containing a quote must be escaped inside the TOML
-    // basic string, never break out of it.
-    const toml = buildRecapCodexMcpConfig('https://evil"\n[hacked]');
-    // The url line stays a single, properly-escaped basic string.
-    expect(toml).toContain(
-      'url = "https://evil\\"\\n[hacked]/_agent-native/mcp"',
-    );
-    // No injected table header on its own line.
-    expect(toml).not.toMatch(/^\[hacked\]/m);
-  });
-});
-
-describe("recap mcp-smoke", () => {
-  it("probes the Plan MCP tool catalog with the recap client headers", async () => {
-    const calls: Array<{
-      url: string;
-      method: string;
-      headers: Record<string, string>;
-      body: any;
-    }> = [];
-    const fetchFn: typeof fetch = (async (input, init) => {
-      const body = JSON.parse(String(init?.body ?? "{}"));
-      calls.push({
-        url: String(input),
-        method: String(init?.method ?? "GET"),
-        headers: init?.headers as Record<string, string>,
-        body,
-      });
-      if (body.method === "initialize") {
-        return jsonRpcResponse({
-          protocolVersion: "2025-06-18",
-          serverInfo: { name: "plan", version: "test" },
-          capabilities: {},
-        });
-      }
-      return jsonRpcResponse({
-        tools: RECAP_MCP_REQUIRED_TOOLS.map((name) => ({ name })),
-      });
-    }) as typeof fetch;
-
-    const result = await smokeRecapMcpTools({
-      appUrl: "https://plan.agent-native.com/",
-      token: "tok-123456789",
-      fetchFn,
-    });
-
-    expect(result.ok).toBe(true);
-    expect(result.mcpUrl).toBe(
-      "https://plan.agent-native.com/_agent-native/mcp",
-    );
-    expect(result.toolCount).toBe(RECAP_MCP_REQUIRED_TOOLS.length);
-    expect(calls.map((call) => call.body.method)).toEqual([
-      "initialize",
-      "tools/list",
-    ]);
-    expect(calls[0].url).toBe(
-      "https://plan.agent-native.com/_agent-native/mcp",
-    );
-    expect(calls[0].method).toBe("POST");
-    expect(calls[0].headers.authorization).toBe("Bearer tok-123456789");
-    expect(calls[0].headers["x-agent-native-mcp-client"]).toBe(
-      "agent-native-pr-visual-recap",
-    );
-    expect(calls[0].headers["x-agent-native-mcp-full-catalog"]).toBe("1");
-    expect(calls[0].headers["mcp-protocol-version"]).toBe("2025-06-18");
-  });
-
-  it("bounds each smoke probe with an abort timeout signal", async () => {
-    const signals: Array<unknown> = [];
-    const fetchFn: typeof fetch = (async (_input, init) => {
-      signals.push(init?.signal);
-      const body = JSON.parse(String(init?.body ?? "{}"));
-      if (body.method === "initialize") {
-        return jsonRpcResponse({ protocolVersion: "2025-06-18" });
-      }
-      return jsonRpcResponse({
-        tools: RECAP_MCP_REQUIRED_TOOLS.map((name) => ({ name })),
-      });
-    }) as typeof fetch;
-
-    const result = await smokeRecapMcpTools({
-      appUrl: "https://plan.agent-native.com",
-      token: "tok-123456789",
-      fetchFn,
-    });
-
-    expect(result.ok).toBe(true);
-    // initialize + tools/list each get their own abort-timeout signal so a
-    // single stuck attempt can't block the whole job past undici's default.
-    expect(signals.length).toBe(2);
-    for (const signal of signals) {
-      expect(signal).toBeInstanceOf(AbortSignal);
-    }
-  });
-
-  it("treats a timed-out probe as a retryable smoke failure", async () => {
-    const fetchFn: typeof fetch = (async () => {
-      const err = new Error("The operation timed out.");
-      err.name = "TimeoutError";
-      throw err;
-    }) as typeof fetch;
-
-    const result = await smokeRecapMcpTools({
-      appUrl: "https://plan.agent-native.com",
-      token: "tok-123456789",
-      fetchFn,
-    });
-
-    expect(result.ok).toBe(false);
-    expect(result.summary).toContain("Plan MCP smoke check");
-  });
-
-  it("fails loudly when tools/list omits recap publishing tools", async () => {
-    const fetchFn: typeof fetch = (async (_input, init) => {
-      const body = JSON.parse(String(init?.body ?? "{}"));
-      if (body.method === "initialize") {
-        return jsonRpcResponse({ protocolVersion: "2025-06-18" });
-      }
-      return jsonRpcResponse({ tools: [] });
-    }) as typeof fetch;
-
-    const result = await smokeRecapMcpTools({
-      appUrl: "https://plan.agent-native.com",
-      token: "tok-123456789",
-      fetchFn,
-    });
-
-    expect(result.ok).toBe(false);
-    expect(result.summary).toContain("Plan MCP smoke check failed");
-    expect(result.summary).toContain("tools/list returned 0 tools");
-    expect(result.summary).toContain("create-visual-recap");
-    expect(result.summary).toContain("get-plan-blocks");
-    expect(result.summary).toContain("set-resource-visibility");
-  });
-
-  it("redacts bearer tokens from HTTP failure diagnostics", async () => {
-    const fetchFn: typeof fetch = (async () =>
-      textResponse(
-        "Authorization: Bearer tok-secret-value",
-        401,
-      )) as typeof fetch;
-
-    const result = await smokeRecapMcpTools({
-      appUrl: "https://plan.agent-native.com",
-      token: "tok-secret-value",
-      fetchFn,
-    });
-
-    expect(result.ok).toBe(false);
-    expect(result.summary).toContain("HTTP 401");
-    expect(result.summary).toContain("Bearer [redacted]");
-    expect(result.summary).not.toContain("tok-secret-value");
   });
 });
 

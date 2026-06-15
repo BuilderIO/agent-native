@@ -36,7 +36,7 @@ explicitly at any time:
 npx @agent-native/core@latest skills add visual-plan --with-github-action
 ```
 
-This installs the `visual-plan` skill (which includes the `visual-recap` skill the action runs) and writes `.github/workflows/pr-visual-recap.yml` into your repo. The workflow calls **published CLI subcommands** through `npx @agent-native/core@latest recap <subcommand>` — including `gate`, `collect-diff`, `mcp-config`, `scan`, `build-prompt`, `shot`, `comment`, `check`, and `usage` — so nothing is copied into your repo as helper scripts. `setup` and `doctor` are the interactive helpers you run locally; `gate` is the security-gate step the workflow runs before every recap.
+This installs the `visual-plan` skill (which includes the `visual-recap` skill the action runs) and writes `.github/workflows/pr-visual-recap.yml` into your repo. The workflow calls **published CLI subcommands** through `npx @agent-native/core@latest recap <subcommand>` — including `gate`, `collect-diff`, `block-reference`, `scan`, `build-prompt`, `publish`, `shot`, `comment`, `check`, and `usage` — so nothing is copied into your repo as helper scripts. `setup` and `doctor` are the interactive helpers you run locally; `gate` is the security-gate step the workflow runs before every recap.
 
 Then run the guided setup helper:
 
