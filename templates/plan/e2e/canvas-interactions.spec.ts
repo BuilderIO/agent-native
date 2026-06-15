@@ -381,7 +381,9 @@ test("focused canvas resets to 100% on Command/Ctrl+0", async ({ page }) => {
   await openCanvas(page, planId, ["ab-dash", "ab-detail", "ab-pop"]);
 
   for (let i = 0; i < 3; i += 1) {
-    await page.locator(".plan-canvas-zoom button[aria-label='Zoom in']").click();
+    await page
+      .locator(".plan-canvas-zoom button[aria-label='Zoom in']")
+      .click();
   }
   await expect
     .poll(
