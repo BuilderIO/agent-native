@@ -2172,6 +2172,96 @@ describe("reconnect — URL-based discovery", () => {
     expect(cfg.mcpServers).not.toHaveProperty("agent-native-plans");
   });
 
+  it("reconnect falls back to bearer auth when OAuth metadata is temporarily unavailable", async () => {
+    const root = tmpDir();
+    process.chdir(root);
+    fs.writeFileSync(
+      path.join(root, ".mcp.json"),
+      JSON.stringify(
+        {
+          mcpServers: {
+            plan: {
+              type: "http",
+              url: "https://plan.agent-native.com/_agent-native/mcp",
+            },
+            "agent-native-plans": {
+              type: "http",
+              url: "https://plan.agent-native.com/_agent-native/mcp",
+            },
+          },
+        },
+        null,
+        2,
+      ) + "\n",
+      "utf-8",
+    );
+    const output: string[] = [];
+    vi.spyOn(process.stdout, "write").mockImplementation((chunk) => {
+      output.push(String(chunk));
+      return true;
+    });
+    const fetchImpl = vi.fn(async (url: string) => {
+      if (String(url).endsWith("/.well-known/oauth-protected-resource")) {
+        return new Response("not found", { status: 404 });
+      }
+      if (String(url).endsWith("/device/start")) {
+        return new Response(
+          JSON.stringify({
+            device_code: "dev-123",
+            user_code: "WXYZ-1234",
+            verification_uri: "https://plan.agent-native.com/connect",
+            verification_uri_complete:
+              "https://plan.agent-native.com/connect?code=WXYZ-1234",
+            interval: 1,
+            expires_in: 600,
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      if (String(url).endsWith("/device/poll")) {
+        return new Response(
+          JSON.stringify({
+            status: "approved",
+            token: "tok-fallback",
+            mcpUrl: "https://plan.agent-native.com/_agent-native/mcp",
+            serverName: "plan",
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      return new Response("not found", { status: 404 });
+    }) as unknown as typeof fetch;
+
+    await runConnect(
+      [
+        "reconnect",
+        "https://plan.agent-native.com",
+        "--client",
+        "claude-code",
+        "--scope",
+        "project",
+      ],
+      { fetchImpl, sleep: noopSleep, openBrowser: vi.fn() },
+    );
+
+    expect(process.exitCode).toBeFalsy();
+    const cfg = JSON.parse(
+      fs.readFileSync(path.join(root, ".mcp.json"), "utf-8"),
+    );
+    expect(cfg.mcpServers.plan).toMatchObject({
+      type: "http",
+      url: "https://plan.agent-native.com/_agent-native/mcp",
+      headers: {
+        Authorization: "Bearer tok-fallback",
+        "X-Agent-Native-MCP-Full-Catalog": "1",
+      },
+    });
+    expect(cfg.mcpServers).not.toHaveProperty("agent-native-plans");
+    expect(output.join("")).toContain(
+      "OAuth metadata was unavailable; falling back to bearer-token reconnect",
+    );
+  });
+
   it("auto-selects canonical 'plan' when entries are ordered [agent-native-plan, agent-native-plans, plan] for the same URL", async () => {
     const root = tmpDir();
     const home = tmpDir();

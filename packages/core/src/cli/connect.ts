@@ -724,42 +724,48 @@ async function validateOAuthMcpServer(
   deps: ConnectDeps,
 ): Promise<boolean> {
   const fetchImpl = deps.fetchImpl ?? fetch;
+  const sleep = deps.sleep ?? realSleep;
   const metadataUrl = `${baseUrl}/.well-known/oauth-protected-resource`;
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 15_000);
-  try {
-    const response = await fetchImpl(metadataUrl, {
-      method: "GET",
-      headers: { accept: "application/json" },
-      signal: controller.signal,
-    });
-    if (!response.ok) {
-      logErr(
-        `  Could not validate OAuth MCP support at ${metadataUrl} ` +
-          `(HTTP ${response.status}).`,
-      );
-      return false;
+  let lastFailure = "";
+
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 15_000);
+    try {
+      const response = await fetchImpl(metadataUrl, {
+        method: "GET",
+        headers: { accept: "application/json" },
+        signal: controller.signal,
+      });
+      if (!response.ok) {
+        lastFailure = `HTTP ${response.status}`;
+      } else {
+        const metadata = (await response.json().catch(() => null)) as {
+          resource?: unknown;
+        } | null;
+        if (metadata?.resource !== mcpUrl) {
+          logErr(
+            `  ${metadataUrl} did not advertise the expected MCP resource ` +
+              `${mcpUrl}.`,
+          );
+          return false;
+        }
+        return true;
+      }
+    } catch (err: any) {
+      lastFailure = err?.message ?? String(err);
+    } finally {
+      clearTimeout(timeout);
     }
-    const metadata = (await response.json().catch(() => null)) as {
-      resource?: unknown;
-    } | null;
-    if (metadata?.resource !== mcpUrl) {
-      logErr(
-        `  ${metadataUrl} did not advertise the expected MCP resource ` +
-          `${mcpUrl}.`,
-      );
-      return false;
-    }
-    return true;
-  } catch (err: any) {
-    logErr(
-      `  Could not reach ${metadataUrl} (${err?.message ?? err}). ` +
-        `Check the URL and your network.`,
-    );
-    return false;
-  } finally {
-    clearTimeout(timeout);
+
+    if (attempt === 0) await sleep(500);
   }
+
+  logErr(
+    `  Could not validate OAuth MCP support at ${metadataUrl}` +
+      (lastFailure ? ` (${lastFailure}).` : "."),
+  );
+  return false;
 }
 
 const SPINNER = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
@@ -1957,10 +1963,10 @@ async function connectOne(
   const scope = parsed.scope === "user" ? "user" : "project";
   const baseDir = projectBaseDir();
   const allWritten: { client: ClientId; file: string }[] = [];
-  const oauthClients = parsed.token
+  let oauthClients = parsed.token
     ? []
     : clients.filter((client) => supportsRemoteMcpOAuth(client));
-  const deviceFlowClients = parsed.token
+  let deviceFlowClients = parsed.token
     ? clients
     : clients.filter((client) => !supportsRemoteMcpOAuth(client));
   const oauthMigrations: ClientId[] = [];
@@ -2002,7 +2008,38 @@ async function connectOne(
 
   if (oauthClients.length > 0 && !parsed.token) {
     if (!(await validateOAuthMcpServer(baseUrl, mcpUrl, deps))) {
-      return { ok: false };
+      if (parsed.mode !== "reconnect") {
+        return { ok: false };
+      }
+
+      logOut("");
+      logOut(
+        `  OAuth metadata was unavailable; falling back to bearer-token reconnect for ${clientLabelList(
+          oauthClients,
+        )}.`,
+      );
+
+      if (!token) {
+        const grant = await runDeviceFlow(
+          baseUrl,
+          appSlug,
+          clientArgForDeviceFlow(oauthClients),
+          deps,
+          { fullCatalog: parsed.fullCatalog },
+        );
+        if (!grant) return { ok: false };
+        token = grant.token;
+        mcpUrl = grant.mcpUrl;
+        serverName =
+          parsed.name ??
+          reconnectServerNameForMcpUrl(grant.mcpUrl, grant.serverName) ??
+          grant.serverName ??
+          defaultServerName(baseUrl);
+        headers = grant.headers;
+      }
+
+      deviceFlowClients = [...deviceFlowClients, ...oauthClients];
+      oauthClients = [];
     }
   }
 
