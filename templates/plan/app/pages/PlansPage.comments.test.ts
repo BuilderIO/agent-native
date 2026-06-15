@@ -10,6 +10,7 @@ import {
   runtimeAnnotationFromThread,
   nativePointForAnchor,
   removePlanCommentFromBundle,
+  removePlanCommentThreadFromBundle,
   resolveNativeAnchorTarget,
 } from "./PlansPage";
 import type { PlanBundle } from "@shared/types";
@@ -106,6 +107,45 @@ describe("plan comment thread UI model", () => {
     expect(removed.summary).toMatchObject({
       commentCount: 1,
       openCommentCount: 1,
+    });
+  });
+
+  it("removes a whole comment thread for optimistic delete", () => {
+    const root = comment("root");
+    const reply = comment("reply", {
+      parentCommentId: root.id,
+      status: "resolved",
+    });
+    const nestedReply = comment("nested", {
+      parentCommentId: reply.id,
+    });
+    const sibling = comment("sibling");
+    const base = bundleWithComments([root, reply, nestedReply, sibling]);
+
+    const removed = removePlanCommentThreadFromBundle(base, root.id);
+
+    expect(removed.comments.map((item) => item.id)).toEqual(["sibling"]);
+    expect(removed.summary).toMatchObject({
+      commentCount: 1,
+      openCommentCount: 1,
+    });
+  });
+
+  it("removes a reply without deleting the rest of the thread", () => {
+    const root = comment("root");
+    const reply = comment("reply", { parentCommentId: root.id });
+    const siblingReply = comment("sibling-reply", { parentCommentId: root.id });
+    const base = bundleWithComments([root, reply, siblingReply]);
+
+    const removed = removePlanCommentThreadFromBundle(base, reply.id);
+
+    expect(removed.comments.map((item) => item.id)).toEqual([
+      "root",
+      "sibling-reply",
+    ]);
+    expect(removed.summary).toMatchObject({
+      commentCount: 2,
+      openCommentCount: 2,
     });
   });
 

@@ -269,6 +269,11 @@
   margin-top: 1rem;
 }
 
+.plan-document-flow .plan-questions-block > .sticky {
+  border-top-color: var(--plan-line);
+  background-color: var(--plan-document);
+}
+
 /* A RUN of consecutive `api-endpoint` blocks reads as ONE tight, scannable list
  * (Swagger / Stripe house style) — not a stack of full-width cards each set off
  * by the generic inter-block gap. When an api-endpoint block directly follows

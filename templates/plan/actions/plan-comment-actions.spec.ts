@@ -1,5 +1,6 @@
 /**
- * Spec for reply-to-plan-comment, resolve-plan-comment, and consume-plan-feedback.
+ * Spec for reply-to-plan-comment, resolve-plan-comment, delete-plan-comment,
+ * and consume-plan-feedback.
  *
  * Follows the mock patterns from update-visual-plan.spec.ts and
  * update-visual-plan-comment-flow.spec.ts: importOriginal spread for
@@ -21,6 +22,7 @@ const assertPlanEditorMock = vi.hoisted(() => vi.fn());
 const loadPlanBundleMock = vi.hoisted(() => vi.fn());
 const notifyPlanCommentRecipientsMock = vi.hoisted(() => vi.fn());
 const resolveAccessMock = vi.hoisted(() => vi.fn());
+const assertAccessMock = vi.hoisted(() => vi.fn());
 const getDbMock = vi.hoisted(() => vi.fn());
 
 const originalAuthMode = process.env.AUTH_MODE;
@@ -34,6 +36,7 @@ vi.mock("drizzle-orm", () => ({
   and: (...args: unknown[]) => ({ op: "and", args }),
   eq: (...args: unknown[]) => ({ op: "eq", args }),
   inArray: (...args: unknown[]) => ({ op: "inArray", args }),
+  isNull: (...args: unknown[]) => ({ op: "isNull", args }),
 }));
 
 vi.mock("@agent-native/core", async (importOriginal) => ({
@@ -57,6 +60,7 @@ vi.mock("@agent-native/core/sharing", () => {
   }
   return {
     ForbiddenError,
+    assertAccess: (...args: unknown[]) => assertAccessMock(...args),
     currentAccess: () => ({ userEmail: request.email }),
     resolveAccess: (...args: unknown[]) => resolveAccessMock(...args),
   };
@@ -80,6 +84,10 @@ vi.mock("../server/db/index.js", () => ({
       resolutionTarget: "planComments.resolutionTarget",
       mentionsJson: "planComments.mentionsJson",
       status: "planComments.status",
+      consumedAt: "planComments.consumedAt",
+      deletedAt: "planComments.deletedAt",
+      deletedBy: "planComments.deletedBy",
+      updatedAt: "planComments.updatedAt",
     },
     planEvents: { id: "planEvents.id" },
   },
@@ -113,6 +121,7 @@ vi.mock("../server/plans.js", async () => {
 
 const { default: replyToComment } = await import("./reply-to-plan-comment.js");
 const { default: resolveComment } = await import("./resolve-plan-comment.js");
+const { default: deleteComment } = await import("./delete-plan-comment.js");
 const { default: consumeFeedback } = await import("./consume-plan-feedback.js");
 
 type ActionWithRun = { run: (args: unknown) => Promise<unknown> };
@@ -123,6 +132,10 @@ function runReply(args: Record<string, unknown>) {
 
 function runResolve(args: Record<string, unknown>) {
   return (resolveComment as ActionWithRun).run(args);
+}
+
+function runDelete(args: Record<string, unknown>) {
+  return (deleteComment as ActionWithRun).run(args);
 }
 
 function runConsume(args: Record<string, unknown>) {
@@ -182,6 +195,7 @@ function makeDb(
   updateCapture: Record<string, unknown>[] = [],
   /** Rows to return from a SELECT query (used to load the parent comment) */
   selectRows: Record<string, unknown>[] = [],
+  deleteCapture: Record<string, unknown>[] = [],
 ) {
   const dbInsert = vi.fn((_table: unknown) => ({
     values: vi.fn(async (row: Record<string, unknown>) => {
@@ -201,7 +215,17 @@ function makeDb(
       where: vi.fn(async () => selectRows),
     })),
   }));
-  return { insert: dbInsert, update: dbUpdate, select: dbSelect };
+  const dbDelete = vi.fn((_table: unknown) => ({
+    where: vi.fn(async (where: Record<string, unknown>) => {
+      deleteCapture.push(where);
+    }),
+  }));
+  return {
+    insert: dbInsert,
+    update: dbUpdate,
+    select: dbSelect,
+    delete: dbDelete,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -221,6 +245,11 @@ beforeEach(() => {
   resolveAccessMock.mockResolvedValue({
     resource: { id: "plan_1", ownerEmail: "owner@example.com" },
     role: "owner",
+  });
+  assertAccessMock.mockReset();
+  assertAccessMock.mockResolvedValue({
+    resource: { id: "plan_1", ownerEmail: "owner@example.com" },
+    role: "editor",
   });
   getDbMock.mockReset();
   delete process.env.AUTH_MODE;
@@ -458,6 +487,129 @@ describe("resolve-plan-comment", () => {
         commentId: "root_cmt",
         status: "resolved",
       }),
+    ).rejects.toMatchObject({ statusCode: 403 });
+
+    expect(resolveAccessMock).not.toHaveBeenCalled();
+  });
+});
+
+// ===========================================================================
+// delete-plan-comment
+// ===========================================================================
+
+describe("delete-plan-comment", () => {
+  it("soft-deletes a root comment and its descendants", async () => {
+    const updates: Record<string, unknown>[] = [];
+    const db = makeDb([], updates, [
+      {
+        id: "root_cmt",
+        parentCommentId: null,
+        authorEmail: "agent@example.com",
+      },
+      {
+        id: "reply_cmt",
+        parentCommentId: "root_cmt",
+        authorEmail: "reviewer@example.com",
+      },
+      {
+        id: "nested_cmt",
+        parentCommentId: "reply_cmt",
+        authorEmail: "owner@example.com",
+      },
+      {
+        id: "other_cmt",
+        parentCommentId: null,
+        authorEmail: "agent@example.com",
+      },
+    ]);
+    getDbMock.mockReturnValue(db);
+
+    const result = (await runDelete({
+      planId: "plan_1",
+      commentId: "root_cmt",
+    })) as { deletedCommentIds: string[]; deletedCount: number };
+
+    expect(result.deletedCommentIds).toEqual([
+      "root_cmt",
+      "reply_cmt",
+      "nested_cmt",
+    ]);
+    expect(result.deletedCount).toBe(3);
+    expect(db.update).toHaveBeenCalledTimes(1);
+    expect(updates[0]).toMatchObject({
+      deletedAt: "2026-06-10T00:00:00.000Z",
+      deletedBy: "agent@example.com",
+      updatedAt: "2026-06-10T00:00:00.000Z",
+    });
+    expect(assertAccessMock).not.toHaveBeenCalled();
+  });
+
+  it("allows a plan editor to delete someone else's reply", async () => {
+    const updates: Record<string, unknown>[] = [];
+    const db = makeDb([], updates, [
+      {
+        id: "root_cmt",
+        parentCommentId: null,
+        authorEmail: "reviewer@example.com",
+      },
+      {
+        id: "reply_cmt",
+        parentCommentId: "root_cmt",
+        authorEmail: "reviewer@example.com",
+      },
+    ]);
+    getDbMock.mockReturnValue(db);
+
+    const result = (await runDelete({
+      planId: "plan_1",
+      commentId: "reply_cmt",
+    })) as { deletedCommentIds: string[] };
+
+    expect(result.deletedCommentIds).toEqual(["reply_cmt"]);
+    expect(assertAccessMock).toHaveBeenCalledWith("plan", "plan_1", "editor", {
+      userEmail: "agent@example.com",
+    });
+    expect(db.update).toHaveBeenCalledTimes(1);
+    expect(updates[0]?.deletedAt).toBe("2026-06-10T00:00:00.000Z");
+  });
+
+  it("throws a friendly error when the comment is not on the plan", async () => {
+    const db = makeDb(
+      [],
+      [],
+      [
+        {
+          id: "other_cmt",
+          parentCommentId: null,
+          authorEmail: "agent@example.com",
+        },
+      ],
+    );
+    getDbMock.mockReturnValue(db);
+
+    await expect(
+      runDelete({ planId: "plan_1", commentId: "ghost_cmt" }),
+    ).rejects.toThrow("Comment not found on this plan.");
+
+    expect(db.update).not.toHaveBeenCalled();
+  });
+
+  it("rejects an anonymous public-link viewer", async () => {
+    request.email = "public-abc123@agent-native.local";
+
+    await expect(
+      runDelete({ planId: "plan_1", commentId: "root_cmt" }),
+    ).rejects.toMatchObject({ statusCode: 403 });
+
+    expect(resolveAccessMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects a hosted guest-author identity", async () => {
+    request.email =
+      "guest-123e4567-e89b-12d3-a456-426614174000@agent-native.guest";
+
+    await expect(
+      runDelete({ planId: "plan_1", commentId: "root_cmt" }),
     ).rejects.toMatchObject({ statusCode: 403 });
 
     expect(resolveAccessMock).not.toHaveBeenCalled();

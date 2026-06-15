@@ -170,6 +170,19 @@ export type ReportVisualPlanResult = {
   message: string;
 };
 
+export type DeletePlanCommentInput = {
+  planId: string;
+  commentId: string;
+};
+
+export type DeletePlanCommentResult = {
+  planId: string;
+  commentId: string;
+  deletedCommentIds: string[];
+  deletedCount: number;
+  deletedAt: string;
+};
+
 function usePlanInvalidation() {
   const qc = useQueryClient();
   return () => {
@@ -366,6 +379,17 @@ export function useUpdatePlanComments() {
     {
       onSuccess: invalidate,
       onError: showActionError("Failed to update visual plan"),
+    },
+  );
+}
+
+export function useDeletePlanComment() {
+  const invalidate = usePlanInvalidation();
+  return useActionMutation<DeletePlanCommentResult, DeletePlanCommentInput>(
+    "delete-plan-comment",
+    {
+      onSuccess: invalidate,
+      onError: showActionError("Failed to delete comment"),
     },
   );
 }

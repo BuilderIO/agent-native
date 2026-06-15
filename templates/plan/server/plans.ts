@@ -6,7 +6,7 @@ import {
   currentAccess,
   resolveAccess,
 } from "@agent-native/core/sharing";
-import { asc, eq, inArray } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull } from "drizzle-orm";
 import { Buffer } from "node:buffer";
 import { z } from "zod";
 import { getDb, schema } from "./db/index.js";
@@ -520,6 +520,8 @@ export function toComment(
     resolvedBy: row.resolvedBy,
     resolvedAt: row.resolvedAt,
     consumedAt: row.consumedAt,
+    deletedAt: row.deletedAt,
+    deletedBy: row.deletedBy,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   };
@@ -725,7 +727,12 @@ export async function loadPlanBundle(planId: string): Promise<PlanBundle> {
     db
       .select()
       .from(schema.planComments)
-      .where(eq(schema.planComments.planId, planId))
+      .where(
+        and(
+          eq(schema.planComments.planId, planId),
+          isNull(schema.planComments.deletedAt),
+        ),
+      )
       .orderBy(asc(schema.planComments.createdAt)),
     db
       .select()
@@ -828,7 +835,12 @@ export async function summarizePlans(
         status: schema.planComments.status,
       })
       .from(schema.planComments)
-      .where(inArray(schema.planComments.planId, ids)),
+      .where(
+        and(
+          inArray(schema.planComments.planId, ids),
+          isNull(schema.planComments.deletedAt),
+        ),
+      ),
   ]);
   return plans.map((plan) => {
     // summarizePlan only needs type (sections) and status (comments).

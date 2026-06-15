@@ -41,9 +41,18 @@ export interface UploadedFile {
   size: number;
   textContent?: string;
   textTruncated?: boolean;
+  dataUrl?: string;
 }
 
 const DEFAULT_ASSETS_PICKER_URL = "https://assets.agent-native.com/picker";
+const MAX_CHAT_IMAGE_ATTACHMENT_BYTES = 4 * 1024 * 1024;
+const CHAT_IMAGE_ATTACHMENT_TYPES = new Set([
+  "image/gif",
+  "image/jpeg",
+  "image/jpg",
+  "image/png",
+  "image/webp",
+]);
 
 interface PickedAssetImagePayload {
   url?: unknown;
@@ -100,6 +109,23 @@ function pickedAssetContext(payload: unknown, url: string) {
     if (altText) lines.push(`Alt text: ${altText}`);
   }
   return lines.join("\n");
+}
+
+function readChatImageAttachment(file: File): Promise<string | null> {
+  if (
+    file.size > MAX_CHAT_IMAGE_ATTACHMENT_BYTES ||
+    !CHAT_IMAGE_ATTACHMENT_TYPES.has(file.type.toLowerCase())
+  ) {
+    return Promise.resolve(null);
+  }
+
+  return new Promise((resolve) => {
+    const reader = new FileReader();
+    reader.onload = () =>
+      resolve(typeof reader.result === "string" ? reader.result : null);
+    reader.onerror = () => resolve(null);
+    reader.readAsDataURL(file);
+  });
 }
 
 interface AssetsPickerDialogProps {
@@ -321,7 +347,15 @@ export default function PromptPopover({
               : `Upload failed (${res.status})`,
           );
         }
-        return (await res.json()) as UploadedFile[];
+        const uploaded = (await res.json()) as UploadedFile[];
+        const visualAttachments = await Promise.all(
+          files.map((file) => readChatImageAttachment(file)),
+        );
+        return uploaded.map((file, index) =>
+          visualAttachments[index]
+            ? { ...file, dataUrl: visualAttachments[index] }
+            : file,
+        );
       } finally {
         setUploading(false);
       }
