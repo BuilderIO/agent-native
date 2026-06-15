@@ -6,6 +6,8 @@ import {
   builderCmsSourceFieldKey,
   builderCmsSourceMetadata,
   builderCmsSourceRowIdentity,
+  builderCmsSyntheticFixtureEntryId,
+  builderCmsWriteTargetFromSourceRow,
   normalizeBuilderCmsApiEntry,
 } from "./_builder-cms-source-adapter";
 
@@ -120,6 +122,53 @@ describe("Builder CMS source adapter", () => {
       sourceDisplayKey: "Live Builder title",
       lastSourceUpdatedAt: "2026-06-08T12:00:00.000Z",
     });
+  });
+
+  it("normalizes legacy fixture-wrapped Builder IDs only when requested", () => {
+    const row = {
+      documentId: "BU5P0mT9anul",
+      sourceRowId: "builder-BU5P0mT9anul",
+      sourceQualifiedId:
+        "builder-cms://agent-native-blog-article-test/builder-BU5P0mT9anul",
+      provenance: "Builder CMS fixture adapter",
+    };
+
+    expect(
+      builderCmsSyntheticFixtureEntryId({
+        sourceRowId: row.sourceRowId,
+        documentId: row.documentId,
+        provenance: row.provenance,
+      }),
+    ).toBe("BU5P0mT9anul");
+    expect(
+      builderCmsWriteTargetFromSourceRow({
+        sourceTable: "agent-native-blog-article-test",
+        row,
+        normalizeFixtureIdentity: true,
+      }),
+    ).toEqual({
+      entryId: "BU5P0mT9anul",
+      sourceQualifiedId:
+        "builder-cms://agent-native-blog-article-test/BU5P0mT9anul",
+      normalizedFixtureIdentity: true,
+    });
+    expect(
+      builderCmsWriteTargetFromSourceRow({
+        sourceTable: "agent-native-blog-article-test",
+        row,
+        normalizeFixtureIdentity: false,
+      }).entryId,
+    ).toBe("builder-BU5P0mT9anul");
+  });
+
+  it("does not strip builder-prefixed IDs from non-fixture rows", () => {
+    expect(
+      builderCmsSyntheticFixtureEntryId({
+        sourceRowId: "builder-BU5P0mT9anul",
+        documentId: "BU5P0mT9anul",
+        provenance: "Builder CMS read adapter",
+      }),
+    ).toBeNull();
   });
 
   it("normalizes Builder Content API entries", () => {

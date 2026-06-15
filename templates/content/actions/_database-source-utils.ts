@@ -29,11 +29,13 @@ import type {
   DocumentPropertyValue,
 } from "../shared/api.js";
 import {
+  BUILDER_CMS_FIXTURE_ROW_PROVENANCE,
   buildBuilderCmsFixtureEntry,
   builderCmsQualifiedId,
   builderCmsSourceFieldKey,
   builderCmsSourceMetadata,
   builderCmsSourceRowIdentity,
+  builderCmsSyntheticFixtureEntryId,
   type BuilderCmsSourceEntry,
   type ExistingBuilderSourceRowIdentity,
 } from "./_builder-cms-source-adapter.js";
@@ -918,7 +920,7 @@ export async function seedMockSourceRows(args: {
           args.sourceType === "builder-cms"
             ? args.builderEntriesByDocumentId?.has(item.document.id)
               ? "Builder CMS read adapter"
-              : "Builder CMS fixture adapter"
+              : BUILDER_CMS_FIXTURE_ROW_PROVENANCE
             : "mock source row",
         syncState: "linked",
         freshness: "fresh",
@@ -1204,6 +1206,13 @@ export function mapBuilderCmsEntriesToLocalItems(args: {
 
   for (const item of args.items) {
     const existing = existingRowsByDocumentId.get(item.document.id);
+    const existingSyntheticEntryId = existing
+      ? builderCmsSyntheticFixtureEntryId({
+          sourceRowId: existing.sourceRowId,
+          documentId: existing.documentId,
+          provenance: existing.provenance,
+        })
+      : null;
     const fixtureEntry = buildBuilderCmsFixtureEntry({
       item,
       sourceTable: args.sourceTable,
@@ -1212,7 +1221,16 @@ export function mapBuilderCmsEntriesToLocalItems(args: {
     const match =
       (existing
         ? (entriesById.get(existing.sourceRowId) ??
-          entriesByQualifiedId.get(existing.sourceQualifiedId))
+          entriesByQualifiedId.get(existing.sourceQualifiedId) ??
+          (existingSyntheticEntryId
+            ? (entriesById.get(existingSyntheticEntryId) ??
+              entriesByQualifiedId.get(
+                builderCmsQualifiedId({
+                  sourceTable: args.sourceTable,
+                  entryId: existingSyntheticEntryId,
+                }),
+              ))
+            : null))
         : null) ??
       entriesByUrlPath.get(fixtureEntry.urlPath.toLowerCase()) ??
       entriesByTitle.get(item.document.title.trim().toLowerCase());
@@ -1225,18 +1243,40 @@ export function mapBuilderCmsEntriesToLocalItems(args: {
 export function builderCmsEntryAlreadyRepresented(args: {
   entry: BuilderCmsSourceEntry;
   sourceTable: string;
-  existingSourceRows: Pick<
+  existingSourceRows: (Pick<
     ContentDatabaseSourceRecordRowDb,
     "sourceQualifiedId"
-  >[];
+  > &
+    Partial<
+      Pick<
+        ContentDatabaseSourceRecordRowDb,
+        "documentId" | "sourceRowId" | "provenance"
+      >
+    >)[];
 }) {
   const sourceQualifiedId = builderCmsQualifiedId({
     sourceTable: args.sourceTable,
     entryId: args.entry.id,
   });
-  return args.existingSourceRows.some(
-    (row) => row.sourceQualifiedId === sourceQualifiedId,
-  );
+  const wrappedSourceQualifiedId = builderCmsQualifiedId({
+    sourceTable: args.sourceTable,
+    entryId: `builder-${args.entry.id}`,
+  });
+  return args.existingSourceRows.some((row) => {
+    const syntheticEntryId = row.sourceRowId
+      ? builderCmsSyntheticFixtureEntryId({
+          sourceRowId: row.sourceRowId,
+          documentId: row.documentId ?? null,
+          provenance: row.provenance,
+        })
+      : null;
+    return (
+      row.sourceQualifiedId === sourceQualifiedId ||
+      row.sourceQualifiedId === wrappedSourceQualifiedId ||
+      row.sourceRowId === args.entry.id ||
+      syntheticEntryId === args.entry.id
+    );
+  });
 }
 
 export async function importBuilderCmsEntriesAsDatabaseItems(args: {

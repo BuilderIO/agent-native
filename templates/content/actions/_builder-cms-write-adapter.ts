@@ -5,6 +5,7 @@ import type {
   ContentDatabaseSourcePushMode,
 } from "../shared/api.js";
 import { BUILDER_CMS_SAFE_WRITE_MODEL as SAFE_WRITE_MODEL } from "../shared/api.js";
+import { builderCmsWriteTargetFromSourceRow } from "./_builder-cms-source-adapter.js";
 
 export type BuilderCmsWriteIntent =
   | "autosave_revision"
@@ -237,6 +238,15 @@ export function buildBuilderCmsExecutionPlan(args: {
         row.documentId === args.changeSet.documentId ||
         row.databaseItemId === args.changeSet.databaseItemId,
     ) ?? null;
+  const target = targetRow
+    ? builderCmsWriteTargetFromSourceRow({
+        sourceTable: args.source.sourceTable,
+        row: targetRow,
+        normalizeFixtureIdentity:
+          args.source.capabilities.liveWritesEnabled === true &&
+          args.source.sourceTable === SAFE_WRITE_MODEL,
+      })
+    : null;
   const operations = args.changeSet.fieldChanges.map((field) => ({
     sourceFieldKey: field.sourceFieldKey,
     localFieldKey: field.localFieldKey,
@@ -246,7 +256,7 @@ export function buildBuilderCmsExecutionPlan(args: {
   const request = builderRequestForIntent({
     intent,
     model: args.source.sourceTable,
-    entryId: targetRow?.sourceRowId ?? null,
+    entryId: target?.entryId ?? null,
     bodyPatch,
   });
   const safety = builderSafetyChecks({
@@ -254,7 +264,7 @@ export function buildBuilderCmsExecutionPlan(args: {
     changeSet: args.changeSet,
     pushMode,
     intent,
-    entryId: targetRow?.sourceRowId ?? null,
+    entryId: target?.entryId ?? null,
     operations,
   });
   const state: ContentDatabaseSourceExecutionState =
@@ -295,8 +305,8 @@ export function buildBuilderCmsExecutionPlan(args: {
       intent,
       target: {
         model: args.source.sourceTable,
-        entryId: targetRow?.sourceRowId ?? null,
-        sourceQualifiedId: targetRow?.sourceQualifiedId ?? null,
+        entryId: target?.entryId ?? null,
+        sourceQualifiedId: target?.sourceQualifiedId ?? null,
         documentId: args.changeSet.documentId,
         databaseItemId: args.changeSet.databaseItemId,
       },

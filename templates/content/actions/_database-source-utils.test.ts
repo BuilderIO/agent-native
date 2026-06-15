@@ -202,6 +202,30 @@ describe("database source helpers", () => {
     ).toBe(true);
   });
 
+  it("recognizes legacy fixture-wrapped Builder row IDs as already represented", () => {
+    expect(
+      builderCmsEntryAlreadyRepresented({
+        sourceTable: "agent-native-blog-article-test",
+        entry: {
+          id: "BU5P0mT9anul",
+          model: "agent-native-blog-article-test",
+          title: "TestName",
+          urlPath: "/blog/test-name",
+          updatedAt: "2026-06-08T00:00:00.000Z",
+        },
+        existingSourceRows: [
+          {
+            documentId: "BU5P0mT9anul",
+            sourceRowId: "builder-BU5P0mT9anul",
+            sourceQualifiedId:
+              "builder-cms://agent-native-blog-article-test/builder-BU5P0mT9anul",
+            provenance: "Builder CMS fixture adapter",
+          },
+        ],
+      }),
+    ).toBe(true);
+  });
+
   it("does not duplicate a Builder title edit that already has a staged outbound record", () => {
     expect(
       buildBuilderLocalOutboundChangeSets({
@@ -367,7 +391,9 @@ describe("database source helpers", () => {
           sourceRowId: "builder-existing",
           sourceQualifiedId: "builder-cms://blog_article/builder-existing",
         },
-      ] as Parameters<typeof mapBuilderCmsEntriesToLocalItems>[0]["existingRows"],
+      ] as Parameters<
+        typeof mapBuilderCmsEntriesToLocalItems
+      >[0]["existingRows"],
     });
 
     expect(mapped.get("doc-existing")?.id).toBe("builder-existing");

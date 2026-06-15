@@ -19,6 +19,8 @@ export interface ExistingBuilderSourceRowIdentity {
   lastSourceUpdatedAt: string | null;
 }
 
+export const BUILDER_CMS_FIXTURE_ROW_PROVENANCE = "Builder CMS fixture adapter";
+
 function slugifyBuilderTitle(title: string, fallback: string) {
   return (
     title
@@ -50,6 +52,53 @@ export function builderCmsQualifiedId(args: {
   entryId: string;
 }) {
   return `builder-cms://${args.sourceTable}/${args.entryId}`;
+}
+
+export function builderCmsSyntheticFixtureEntryId(args: {
+  sourceRowId: string;
+  documentId: string | null;
+  provenance?: string | null;
+}) {
+  if (!args.documentId) return null;
+  if (
+    args.provenance &&
+    args.provenance !== BUILDER_CMS_FIXTURE_ROW_PROVENANCE
+  ) {
+    return null;
+  }
+  return args.sourceRowId === `builder-${args.documentId}`
+    ? args.documentId
+    : null;
+}
+
+export function builderCmsWriteTargetFromSourceRow(args: {
+  sourceTable: string;
+  row: {
+    documentId: string | null;
+    sourceRowId: string;
+    sourceQualifiedId: string;
+    provenance?: string | null;
+  };
+  normalizeFixtureIdentity: boolean;
+}) {
+  const normalizedEntryId = args.normalizeFixtureIdentity
+    ? builderCmsSyntheticFixtureEntryId({
+        sourceRowId: args.row.sourceRowId,
+        documentId: args.row.documentId,
+        provenance: args.row.provenance,
+      })
+    : null;
+  const entryId = normalizedEntryId ?? args.row.sourceRowId;
+  return {
+    entryId,
+    sourceQualifiedId: normalizedEntryId
+      ? builderCmsQualifiedId({
+          sourceTable: args.sourceTable,
+          entryId: normalizedEntryId,
+        })
+      : args.row.sourceQualifiedId,
+    normalizedFixtureIdentity: !!normalizedEntryId,
+  };
 }
 
 export function builderCmsSourceFieldKey(

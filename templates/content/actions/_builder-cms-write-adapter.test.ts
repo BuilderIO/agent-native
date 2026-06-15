@@ -181,6 +181,52 @@ describe("Builder CMS write adapter plan", () => {
     });
   });
 
+  it("normalizes legacy fixture-wrapped Builder entry IDs before live autosave", () => {
+    const plan = buildBuilderCmsExecutionPlan({
+      source: {
+        ...source(true, BUILDER_CMS_SAFE_WRITE_MODEL),
+        rows: [
+          {
+            ...source(true, BUILDER_CMS_SAFE_WRITE_MODEL).rows[0],
+            documentId: "BU5P0mT9anul",
+            sourceRowId: "builder-BU5P0mT9anul",
+            sourceQualifiedId: `builder-cms://${BUILDER_CMS_SAFE_WRITE_MODEL}/builder-BU5P0mT9anul`,
+            provenance: "Builder CMS fixture adapter",
+          },
+        ],
+      },
+      changeSet: {
+        ...approvedChangeSet(),
+        documentId: "BU5P0mT9anul",
+      },
+      pushModeConfirmation: "autosave",
+    });
+
+    expect(plan).toMatchObject({
+      state: "ready",
+      payload: {
+        target: {
+          entryId: "BU5P0mT9anul",
+          sourceQualifiedId: `builder-cms://${BUILDER_CMS_SAFE_WRITE_MODEL}/BU5P0mT9anul`,
+        },
+        request: {
+          method: "PATCH",
+          path: `/api/v1/write/${BUILDER_CMS_SAFE_WRITE_MODEL}/BU5P0mT9anul`,
+          query: {
+            autoSaveOnly: "true",
+            triggerWebhooks: "false",
+          },
+          body: {
+            data: {
+              title: "New title",
+            },
+          },
+        },
+      },
+    });
+    expect(plan.payload.request.path).not.toContain("builder-BU5P0mT9anul");
+  });
+
   it("blocks live writes for Builder models outside the safe test collection", () => {
     expect(
       buildBuilderCmsExecutionPlan({
