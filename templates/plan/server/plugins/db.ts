@@ -258,6 +258,14 @@ CREATE INDEX IF NOT EXISTS plan_reports_status_updated_idx ON plan_reports(statu
       version: 25,
       sql: `CREATE INDEX IF NOT EXISTS plan_reports_plan_reporter_status_idx ON plan_reports(plan_id, reporter_email, status)`,
     },
+    {
+      version: 26,
+      sql: `CREATE INDEX IF NOT EXISTS plan_shares_resource_principal_idx ON plan_shares(resource_id, principal_type, principal_id)`,
+    },
+    {
+      version: 27,
+      sql: `CREATE INDEX IF NOT EXISTS plan_comments_plan_created_idx ON plan_comments(plan_id, created_at)`,
+    },
   ],
   { table: "plans_migrations" },
 );

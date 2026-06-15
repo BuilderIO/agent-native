@@ -54,8 +54,6 @@ import {
 } from "@tabler/icons-react";
 import { useTheme } from "next-themes";
 import { toast } from "sonner";
-import JSZip from "jszip";
-import html2canvas from "html2canvas";
 import {
   SIDEBAR_STATE_CHANGE_EVENT,
   PromptComposer,
@@ -260,6 +258,7 @@ const REPORT_REASON_OPTIONS: Array<{
 const PLAN_READER_VIEW_EVENT = "plans-reader-view-change";
 const RECAP_SCREENSHOT_QUERY_PARAM = "recapScreenshot";
 const RECAP_SCREENSHOT_THEME_QUERY_PARAM = "recapScreenshotTheme";
+const ENABLE_PLAN_STATUS_FEATURE = false;
 const GITHUB_LIGHT_CANVAS_BACKGROUND = "#ffffff";
 const GITHUB_DARK_CANVAS_BACKGROUND = "#0d1117";
 const LOCAL_PLAN_OWNER_EMAIL = "local@agent-native.local";
@@ -1732,7 +1731,9 @@ function buildPlanAgentContext(input: {
     "Current Agent-Native Plan review context:",
     `Plan ID: ${input.bundle.plan.id}`,
     `Title: ${input.bundle.plan.title}`,
-    `Status: ${input.bundle.plan.status}`,
+    ...(ENABLE_PLAN_STATUS_FEATURE
+      ? [`Status: ${input.bundle.plan.status}`]
+      : []),
     `URL: ${input.url}`,
     input.bundle.plan.content
       ? `Structured content blocks: ${contentBlockCount}`
@@ -1918,12 +1919,6 @@ function cropFeedbackScreenshot(input: {
 }
 
 type PlanAccessRole = "owner" | "viewer" | "editor" | "admin";
-
-type PlanAccessResponse = {
-  ownerEmail?: string | null;
-  role?: PlanAccessRole | null;
-  visibility?: "private" | "org" | "public" | null;
-};
 
 /**
  * Status options available in the reviewer approval workflow.
@@ -2119,8 +2114,9 @@ export function PlansPage() {
   // comments before the server write commits (Issue 4a).
   const commentMutationPendingRef = useRef(false);
   const { session, isLoading: sessionLoading } = useSession();
+  const selectedId = params.id;
   const plansQuery = usePlans({
-    enabled: Boolean(session),
+    enabled: Boolean(session && !selectedId),
   });
   const plans = plansQuery.data ?? [];
   // Identity for collaborative cursor labels. Only a signed-in user enables
@@ -2158,11 +2154,11 @@ export function PlansPage() {
   useEffect(() => {
     if (sessionLoading) return;
     const signedIn = Boolean(session);
-    if (signedIn && !wasSignedInRef.current) {
+    if (signedIn && !wasSignedInRef.current && !selectedId) {
       void plansQuery.refetch();
     }
     wasSignedInRef.current = signedIn;
-  }, [session, sessionLoading, plansQuery]);
+  }, [selectedId, session, sessionLoading, plansQuery]);
   useEffect(() => {
     const search = new URLSearchParams(location.search);
     if (search.get("create") !== "1" || sessionLoading) return;
@@ -2190,7 +2186,6 @@ export function PlansPage() {
     session,
     sessionLoading,
   ]);
-  const selectedId = params.id;
   const routeSearchParams = useMemo(
     () => new URLSearchParams(location.search),
     [location.search],
@@ -2321,28 +2316,18 @@ export function PlansPage() {
   // owns the content), but highlighting + commenting stay available because those
   // affordances key off `bundle`/`session`, not `canEditPlanContent`.
   const isRecap = bundle?.plan.kind === "recap";
-  const accessResourceId = bundle?.plan.id ?? selectedId ?? "";
-  const planAccessQuery = useActionQuery<PlanAccessResponse>(
-    "list-resource-shares",
-    { resourceType: "plan", resourceId: accessResourceId },
-    { enabled: Boolean(accessResourceId) },
-  );
-  const effectivePlanAccessRole =
-    planAccessQuery.data?.role ?? bundle?.access?.role ?? null;
+  const effectivePlanAccessRole = bundle?.access?.role ?? null;
   const canEditPlanContent =
     !isRecap && canEditPlanContentRole(effectivePlanAccessRole);
   const canManagePlan = canEditPlanContentRole(effectivePlanAccessRole);
-  const effectivePlanVisibility =
-    planAccessQuery.data?.visibility ?? bundle?.access?.visibility ?? null;
+  const effectivePlanVisibility = bundle?.access?.visibility ?? null;
   const canReportPlan =
     Boolean(bundle) && effectivePlanVisibility === "public" && !canManagePlan;
   const canResolveCommentThreads = Boolean(
     bundle && (session || canEditPlanContent),
   );
   const defaultInlineCommentDraft = useMemo<CommentDraft>(() => {
-    const ownerEmail = normalizeCommentEmail(
-      planAccessQuery.data?.ownerEmail ?? bundle?.access?.ownerEmail,
-    );
+    const ownerEmail = normalizeCommentEmail(bundle?.access?.ownerEmail);
     const currentEmail = normalizeCommentEmail(collabUser?.email);
     if (
       !ownerEmail ||
@@ -2360,12 +2345,7 @@ export function PlansPage() {
       mentions: [mention],
       resolutionTarget: "human",
     };
-  }, [
-    bundle?.access?.ownerEmail,
-    collabUser?.email,
-    effectivePlanAccessRole,
-    planAccessQuery.data?.ownerEmail,
-  ]);
+  }, [bundle?.access?.ownerEmail, collabUser?.email, effectivePlanAccessRole]);
   const commentThreads = useMemo(
     () => buildCommentThreads(bundle?.comments ?? []),
     [bundle?.comments],
@@ -3224,6 +3204,7 @@ export function PlansPage() {
     if (!files || Object.keys(files).length === 0) {
       throw new Error("Plan source files were not available yet.");
     }
+    const { default: JSZip } = await import("jszip");
     const zip = new JSZip();
     for (const [name, content] of Object.entries(files)) {
       if (name.endsWith("/")) {
@@ -3655,6 +3636,7 @@ export function PlansPage() {
         const readerRect = reader.getBoundingClientRect();
         const pointX = readerRect.left - surfaceRect.left + point.left;
         const pointY = readerRect.top - surfaceRect.top + point.top;
+        const { default: html2canvas } = await import("html2canvas");
         const canvas = await html2canvas(surface, {
           backgroundColor: null,
           logging: false,
@@ -4262,7 +4244,7 @@ export function PlansPage() {
                     </DropdownMenuContent>
                   </DropdownMenu>
                 )}
-                {!isRecap && (
+                {ENABLE_PLAN_STATUS_FEATURE && !isRecap && (
                   <PlanStatusControl
                     planId={bundle.plan.id}
                     status={bundle.plan.status}
@@ -6124,8 +6106,12 @@ function PlansOverview({
                       )}
                     </div>
                     <div className="mt-4 flex items-center gap-2 text-xs text-muted-foreground">
-                      <span>{statusLabel(plan.status)}</span>
-                      <span>·</span>
+                      {ENABLE_PLAN_STATUS_FEATURE && (
+                        <>
+                          <span>{statusLabel(plan.status)}</span>
+                          <span>·</span>
+                        </>
+                      )}
                       <span>{shortDate(plan.updatedAt)}</span>
                     </div>
                   </Link>
@@ -9261,6 +9247,12 @@ function buildClientPlanHtml(bundle: PlanBundle) {
       .replace(/>/g, "&gt;")
       .replace(/"/g, "&quot;")
       .replace(/'/g, "&#39;");
+  const metaHtml = [
+    bundle.plan.source,
+    ...(ENABLE_PLAN_STATUS_FEATURE ? [statusLabel(bundle.plan.status)] : []),
+  ]
+    .map((item) => `<li>${escape(item)}</li>`)
+    .join("");
   return `<!doctype html><html lang="en"><head><meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" /><title>${escape(
     bundle.plan.title,
   )}</title><style>
@@ -9269,9 +9261,7 @@ function buildClientPlanHtml(bundle: PlanBundle) {
     bundle.plan.title,
   )}</h1><p class="lede">${escape(
     bundle.plan.brief,
-  )}</p><ul class="meta"><li>${escape(
-    bundle.plan.source,
-  )}</li><li>${escape(statusLabel(bundle.plan.status))}</li></ul>${bundle.sections
+  )}</p><ul class="meta">${metaHtml}</ul>${bundle.sections
     .map(
       (section) =>
         `<section class="section"><p class="type">${escape(section.type)}</p><h2>${escape(section.title)}</h2>${["diagram", "wireframe", "prototype"].includes(section.type) ? '<div class="visual"><i></i><i></i><i></i></div>' : ""}<p>${escape(section.body)}</p></section>`,

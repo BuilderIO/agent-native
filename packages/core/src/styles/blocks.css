@@ -1249,6 +1249,17 @@
 
 .plan-diagram-frame-content {
   width: 100%;
+  padding: 8px 0;
+}
+
+.plan-diagram-frame-content
+  > :is(.diagram-panel, .diagram-card, .diagram-box):not([data-rough]):not(
+    [data-diagram-frame]
+  ) {
+  --rough-skip: 1;
+  background: transparent;
+  border-color: transparent;
+  box-shadow: none;
 }
 
 .plan-diagram-frame svg {

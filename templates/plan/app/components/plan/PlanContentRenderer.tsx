@@ -1,8 +1,10 @@
 import {
   useEffect,
+  lazy,
   useMemo,
   useRef,
   useState,
+  Suspense,
   type ClipboardEvent,
   type FormEvent,
   type KeyboardEvent,
@@ -32,10 +34,16 @@ import {
 } from "./PlanVisualSurface";
 import { PlanTableOfContents } from "./PlanTableOfContents";
 import { planBlockRegistry, createPlanBlockRenderContext } from "./planBlocks";
-import {
-  NestedPlanBlocksEditor,
-  PlanDocumentEditor,
-} from "../editor/PlanDocumentEditor";
+
+const loadPlanDocumentEditor = () => import("../editor/PlanDocumentEditor");
+const LazyPlanDocumentEditor = lazy(() =>
+  loadPlanDocumentEditor().then((mod) => ({ default: mod.PlanDocumentEditor })),
+);
+const LazyNestedPlanBlocksEditor = lazy(() =>
+  loadPlanDocumentEditor().then((mod) => ({
+    default: mod.NestedPlanBlocksEditor,
+  })),
+);
 
 type PlanContentRendererProps = {
   content: PlanContent;
@@ -433,23 +441,40 @@ export function PlanContentRenderer({
           // the stale node's id is gone from the side-map, a permanent
           // "Loading diff block…". Columns already render each region at its own
           // keyed position, so this is a no-op there.
-          <NestedPlanBlocksEditor
-            key={`${containerBlockId}::${regionId}`}
-            blocks={blocks as PlanBlock[]}
-            contentUpdatedAt={contentUpdatedAt}
-            planId={planId}
-            collabUser={collabUser}
-            editable={editable && !handlersRef.current.editingDisabled}
-            onBlocksChange={(nextBlocks) => onChange(nextBlocks)}
-            onVisualQuestionsSubmit={(summary) =>
-              handlersRef.current.onVisualQuestionsSubmit?.(summary)
+          <Suspense
+            fallback={
+              <div className="grid gap-4">
+                {(blocks as PlanBlock[]).map((block) => (
+                  <PlanBlockView
+                    key={block.id}
+                    block={block}
+                    editingDisabled
+                    contentUpdatedAt={contentUpdatedAt}
+                    planId={planId}
+                    collabUser={collabUser}
+                  />
+                ))}
+              </div>
             }
-            notionCompatibleOnly={notionCompatibleOnly}
-            containerBlockId={containerBlockId}
-            regionId={regionId}
-            regionLabel={regionLabel}
-            compactVisuals={compactVisuals}
-          />
+          >
+            <LazyNestedPlanBlocksEditor
+              key={`${containerBlockId}::${regionId}`}
+              blocks={blocks as PlanBlock[]}
+              contentUpdatedAt={contentUpdatedAt}
+              planId={planId}
+              collabUser={collabUser}
+              editable={editable && !handlersRef.current.editingDisabled}
+              onBlocksChange={(nextBlocks) => onChange(nextBlocks)}
+              onVisualQuestionsSubmit={(summary) =>
+                handlersRef.current.onVisualQuestionsSubmit?.(summary)
+              }
+              notionCompatibleOnly={notionCompatibleOnly}
+              containerBlockId={containerBlockId}
+              regionId={regionId}
+              regionLabel={regionLabel}
+              compactVisuals={compactVisuals}
+            />
+          </Suspense>
         ),
         editingDisabled,
         showCodeAnnotationOverlays,
@@ -719,15 +744,29 @@ export function PlanContentRenderer({
                   // The whole body is ONE editable rich-markdown document; custom
                   // blocks are inline `planBlock` NodeViews. Read-only / review /
                   // SSR keeps the per-block render below (no Tiptap server-side).
-                  <PlanDocumentEditor
-                    content={content}
-                    contentUpdatedAt={contentUpdatedAt}
-                    planId={planId}
-                    collabUser={collabUser}
-                    editable
-                    onBlocksChange={replaceBlocks}
-                    onVisualQuestionsSubmit={onVisualQuestionsSubmit}
-                  />
+                  <Suspense
+                    fallback={renderedBlocks.map((block) => (
+                      <PlanBlockView
+                        key={block.id}
+                        block={block}
+                        onVisualQuestionsSubmit={onVisualQuestionsSubmit}
+                        contentUpdatedAt={contentUpdatedAt}
+                        editingDisabled
+                        planId={planId}
+                        collabUser={collabUser}
+                      />
+                    ))}
+                  >
+                    <LazyPlanDocumentEditor
+                      content={content}
+                      contentUpdatedAt={contentUpdatedAt}
+                      planId={planId}
+                      collabUser={collabUser}
+                      editable
+                      onBlocksChange={replaceBlocks}
+                      onVisualQuestionsSubmit={onVisualQuestionsSubmit}
+                    />
+                  </Suspense>
                 ) : (
                   renderedBlocks.map((block) => (
                     <PlanBlockView
