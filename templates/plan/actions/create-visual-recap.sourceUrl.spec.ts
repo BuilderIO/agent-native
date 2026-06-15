@@ -127,6 +127,9 @@ beforeAll(async () => {
     CREATE TABLE plan_events (id TEXT PRIMARY KEY, plan_id TEXT NOT NULL, type TEXT NOT NULL, message TEXT NOT NULL, payload TEXT, created_by TEXT NOT NULL DEFAULT 'agent', created_at TEXT NOT NULL);
     CREATE TABLE plan_versions (id TEXT PRIMARY KEY, owner_email TEXT NOT NULL DEFAULT 'local@localhost', plan_id TEXT NOT NULL, title TEXT NOT NULL, snapshot_json TEXT NOT NULL, change_label TEXT, created_by TEXT NOT NULL DEFAULT 'agent', created_at TEXT NOT NULL);
     CREATE TABLE plan_shares (id TEXT PRIMARY KEY, resource_id TEXT NOT NULL, principal_type TEXT NOT NULL, principal_id TEXT NOT NULL, role TEXT NOT NULL DEFAULT 'viewer', created_by TEXT NOT NULL, created_at TEXT NOT NULL);
+    CREATE UNIQUE INDEX plans_recap_idempotency_key_unique_idx
+      ON plans(owner_email, COALESCE(org_id, ''), recap_idempotency_key)
+      WHERE kind = 'recap' AND recap_idempotency_key IS NOT NULL;
   `);
 
   registerShareableResource({
@@ -209,6 +212,32 @@ describe("create-visual-recap: sourceUrl", () => {
         recapIdempotencyKey: idempotencyKey,
       },
     ]);
+
+    await expect(
+      client.execute({
+        sql: `
+          INSERT INTO plans (
+            id, title, brief, kind, status, source, created_at, updated_at,
+            owner_email, org_id, visibility, recap_idempotency_key
+          )
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `,
+        args: [
+          "duplicate-recap",
+          "Duplicate Recap",
+          "Duplicate key should be rejected.",
+          "recap",
+          "review",
+          "imported",
+          new Date().toISOString(),
+          new Date().toISOString(),
+          OWNER,
+          ORG,
+          "private",
+          idempotencyKey,
+        ],
+      }),
+    ).rejects.toThrow();
   });
 
   it("leaves sourceUrl null when not provided on create", async () => {

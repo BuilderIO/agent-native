@@ -158,6 +158,21 @@ describe("sendToAgentChat", () => {
     expect(payload.data.requestMode).toBe("plan");
   });
 
+  it("does not guess from ambiguous namespaced stored modes", () => {
+    window.localStorage.setItem("agent-native-exec-mode:workspace-app", "plan");
+    window.localStorage.setItem("agent-native-exec-mode:builder", "build");
+
+    sendToAgentChat({
+      message: "use the current explicit mode only",
+      submit: true,
+    });
+
+    expect(parentPostMessageSpy).toHaveBeenCalledOnce();
+    const payload = parentPostMessageSpy.mock.calls[0][0];
+    expect(payload.data.mode).toBeUndefined();
+    expect(payload.data.requestMode).toBeUndefined();
+  });
+
   it("lets an explicit submitted mode override stored mode", () => {
     window.localStorage.setItem("agent-native-exec-mode", "build");
 

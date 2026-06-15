@@ -428,14 +428,16 @@ function readStoredAgentChatRequestMode(): AgentChatRequestMode | undefined {
       storage.getItem(AGENT_CHAT_EXEC_MODE_KEY),
     );
     if (saved) return saved;
+    const scopedModes: AgentChatRequestMode[] = [];
     for (let index = 0; index < storage.length; index += 1) {
       const key = storage.key(index);
       if (!key?.startsWith(`${AGENT_CHAT_EXEC_MODE_KEY}:`)) continue;
       const scopedSaved = normalizeStoredAgentChatExecMode(
         storage.getItem(key),
       );
-      if (scopedSaved) return scopedSaved;
+      if (scopedSaved) scopedModes.push(scopedSaved);
     }
+    if (scopedModes.length === 1) return scopedModes[0];
   } catch {}
   return undefined;
 }

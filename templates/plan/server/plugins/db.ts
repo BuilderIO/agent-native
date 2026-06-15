@@ -1,3 +1,5 @@
+// guard:allow-unscoped -- schema migrations and data backfills run system-wide
+// during startup, not in a user-scoped request path.
 import { runMigrations } from "@agent-native/core/db";
 
 export default runMigrations(
@@ -288,6 +290,12 @@ CREATE INDEX IF NOT EXISTS plans_recap_idempotency_key_idx ON plans(recap_idempo
         sqlite: `ALTER TABLE plans ADD COLUMN recap_idempotency_key TEXT;
 CREATE INDEX IF NOT EXISTS plans_recap_idempotency_key_idx ON plans(recap_idempotency_key)`,
       },
+    },
+    {
+      version: 30,
+      sql: `CREATE UNIQUE INDEX IF NOT EXISTS plans_recap_idempotency_key_unique_idx
+ON plans(owner_email, COALESCE(org_id, ''), recap_idempotency_key)
+WHERE kind = 'recap' AND recap_idempotency_key IS NOT NULL`,
     },
   ],
   { table: "plans_migrations" },

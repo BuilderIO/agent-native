@@ -143,14 +143,26 @@ export default defineAction({
     const existingPlanId = args.planId
       ? undefined
       : await findExistingRecapForIdempotencyKey(idempotencyKey);
-    const result = await importVisualPlanSourceAction.run({
-      ...importArgs,
-      planId: args.planId ?? existingPlanId,
-      kind: "recap",
-      source: args.source ?? "imported",
-      currentFocus: args.currentFocus ?? "visual recap review",
-      status: args.status ?? "review",
-    });
+    const importRecap = (planId: string | undefined) =>
+      importVisualPlanSourceAction.run({
+        ...importArgs,
+        planId,
+        kind: "recap",
+        ...(idempotencyKey ? { recapIdempotencyKey: idempotencyKey } : {}),
+        source: args.source ?? "imported",
+        currentFocus: args.currentFocus ?? "visual recap review",
+        status: args.status ?? "review",
+      });
+    let result;
+    try {
+      result = await importRecap(args.planId ?? existingPlanId);
+    } catch (error) {
+      if (args.planId || existingPlanId || !idempotencyKey) throw error;
+      const replayPlanId =
+        await findExistingRecapForIdempotencyKey(idempotencyKey);
+      if (!replayPlanId) throw error;
+      result = await importRecap(replayPlanId);
+    }
     // Apply requested visibility server-side so the recap is never left private
     // (the import action always creates with visibility='private'). Route this
     // through the shared visibility action instead of updating the row directly:
