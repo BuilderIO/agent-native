@@ -1,5 +1,26 @@
 # @agent-native/core
 
+## 0.49.21
+
+### Patch Changes
+
+- f0df64f: Reduce PR visual recap secret-scan false positives and surface gate skip reasons reliably.
+- f0df64f: Expose local file mode AGENTS.md, skills, agent-native.json, and MCP config files through workspace resources.
+- f0df64f: Improve plan annotation overlay backgrounds so annotated code and diff callouts stay legible over code.
+- f0df64f: Match the question-form footer background to the plan document surface.
+- f0df64f: Hide the dev database admin footer link from app sidebars.
+- f0df64f: Polish PR visual recap comments, diagram framing, and screenshot annotation placement.
+- f0df64f: Run the PR visual recap on fork pull requests when the publish token is
+  available. The gate now keys off secret availability instead of blanket-skipping
+  all forks, so private orgs that send secrets to fork PRs get recaps on forks; the
+  prompt gets the fork prompt-injection note via the new `--fork-pr` wiring, and
+  forks without secret access get an actionable skip message.
+- f0df64f: Bound each PR visual recap MCP smoke probe with a per-attempt abort timeout so a
+  cold-start hang on the plan app fails fast and the workflow's retry loop can
+  re-probe a warm endpoint instead of blocking on undici's multi-minute default.
+- f0df64f: Allow PR visual recaps to run on visual-plan and visual-recap skill file changes
+  when CI uses the default bundled recap instructions.
+
 ## 0.49.20
 
 ### Patch Changes
