@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import {
   BlockRegistry,
   registerBlocks,
@@ -19,7 +19,6 @@ import {
 } from "@agent-native/core/client";
 import type { PlanBlock } from "@shared/plan-content";
 import { PlanBlockView } from "./DocumentArea";
-import { PlanMarkdownEditor } from "./PlanMarkdownEditor";
 import { PlanMarkdownReader } from "./PlanMarkdownReader";
 import {
   Popover,
@@ -27,6 +26,12 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
+
+const LazyPlanMarkdownEditor = lazy(() =>
+  import("./PlanMarkdownEditor").then((mod) => ({
+    default: mod.PlanMarkdownEditor,
+  })),
+);
 
 type PlanBlockRenderContextExtras = {
   onQuestionFormSubmit?: (summary: string) => void;
@@ -172,17 +177,21 @@ export function createPlanBlockRenderContext(options: {
       className,
       ariaLabel,
     }) => (
-      <PlanMarkdownEditor
-        markdown={value}
-        editable={editable}
-        className={className}
-        ariaLabel={ariaLabel}
-        contentUpdatedAt={options.contentUpdatedAt}
-        planId={options.planId}
-        blockId={blockId}
-        user={options.collabUser}
-        onSave={onChange}
-      />
+      <Suspense
+        fallback={<PlanMarkdownReader markdown={value} className={className} />}
+      >
+        <LazyPlanMarkdownEditor
+          markdown={value}
+          editable={editable}
+          className={className}
+          ariaLabel={ariaLabel}
+          contentUpdatedAt={options.contentUpdatedAt}
+          planId={options.planId}
+          blockId={blockId}
+          user={options.collabUser}
+          onSave={onChange}
+        />
+      </Suspense>
     ),
     renderAiFieldAction: (props) => <PlanAiFieldAction {...props} />,
     // Recursively render a nested child block through the plan dispatcher. The

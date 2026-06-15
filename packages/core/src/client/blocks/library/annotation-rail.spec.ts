@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  resolveAnnotationCaptureOverlayPosition,
   resolveAnnotationInlineOverlayPosition,
   resolveAnnotationMarginOverlayPosition,
   resolveAnnotationHoverCardPosition,
@@ -96,6 +97,16 @@ describe("annotation inline overlay placement", () => {
         { width: 950, height: 700 },
       ),
     ).toEqual({ right: 90, top: 8 });
+  });
+
+  it("uses document coordinates in capture mode without bottom-clamping", () => {
+    expect(
+      resolveAnnotationCaptureOverlayPosition(
+        { right: 860, top: 2100, height: 22 },
+        { width: 320, height: 120 },
+        { width: 950, height: 700 },
+      ),
+    ).toEqual({ left: 540, top: 2051 });
   });
 });
 

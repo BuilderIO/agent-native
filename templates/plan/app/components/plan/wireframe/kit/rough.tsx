@@ -196,6 +196,8 @@ function build(
   }
 
   scope.querySelectorAll<HTMLElement>(opts.selector).forEach((node) => {
+    if (node.getAttribute("data-rough") === "none") return;
+    if (readVar(node, "--rough-skip") === "1") return;
     const r = node.getBoundingClientRect();
     const x = (r.left - base.left) / zoom;
     const y = (r.top - base.top) / zoom;

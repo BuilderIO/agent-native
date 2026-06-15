@@ -96,6 +96,7 @@ export const PR_VISUAL_RECAP_SETUP: string[] = [
   "  OPENAI_API_KEY (secret) + VISUAL_RECAP_AGENT=codex (variable) — use Codex instead of Claude",
   "  VISUAL_RECAP_MODEL / VISUAL_RECAP_REASONING (variables) — pin the model (e.g. gpt-5.5) and reasoning depth (none|minimal|low|medium|high|xhigh; Codex only)",
   "  VISUAL_RECAP_SKILL_SOURCE=repo (variable) — pin CI to the repo-local visual-recap skill instead of latest bundled guidance",
+  "  VISUAL_RECAP_SECRET_SCAN=off|high-confidence|strict (variable) — default high-confidence; strict restores generic TOKEN/SECRET assignment suppression",
   "  PLAN_RECAP_APP_URL (secret) — only when self-hosting the plan app (defaults to https://plan.agent-native.com)",
 ];
 
@@ -198,6 +199,7 @@ export function buildReusableCallerWorkflow(
     `      model: ${modelValue}\n` +
     `      reasoning: \${{ vars.VISUAL_RECAP_REASONING || '' }}\n` +
     `      skill-source: \${{ vars.VISUAL_RECAP_SKILL_SOURCE || 'auto' }}\n` +
+    `      secret-scan: \${{ vars.VISUAL_RECAP_SECRET_SCAN || 'high-confidence' }}\n` +
     `      # cli-version: "latest"  # pin to a specific @agent-native/core version\n` +
     ``
   );
@@ -705,30 +707,59 @@ function runDoctor(args: Record<string, string | boolean>): void {
 /* -------------------------------------------------------------------------- */
 
 /**
- * If the diff contains anything that looks like a real secret, we refuse to
- * build a recap at all (rather than risk echoing it into a published plan).
- * These patterns intentionally err toward caution and scan added, removed, and
- * context lines so deleting a real secret does not leak it in a split diff.
+ * If the diff contains a high-confidence secret shape, we refuse to build a
+ * recap at all (rather than risk echoing it into a published plan). The default
+ * deliberately avoids generic TOKEN/SECRET assignment names because code often
+ * contains harmless variable references like `var.webhook_token`.
  */
-const SECRET_PATTERNS: RegExp[] = [
+const HIGH_CONFIDENCE_SECRET_PATTERNS: RegExp[] = [
   // Common provider key prefixes.
-  /\b(?:sk|pk|rk)-[A-Za-z0-9]{16,}\b/,
+  /\bsk-(?:proj-)?[A-Za-z0-9_-]{24,}\b/,
+  /\b(?:sk|rk)_live_[A-Za-z0-9]{16,}\b/,
+  /\bSG\.[A-Za-z0-9_-]{16,}\.[A-Za-z0-9_-]{16,}\b/,
+  /\bGOCSPX-[A-Za-z0-9_-]{20,}\b/,
+  /\bbpk-[A-Za-z0-9_-]{16,}\b/,
   /\bghp_[A-Za-z0-9]{20,}\b/,
   /\bgithub_pat_[A-Za-z0-9_]{20,}\b/,
   /\bxox[baprs]-[A-Za-z0-9-]{10,}\b/,
   /\bAKIA[0-9A-Z]{16}\b/,
   /\bAIza[0-9A-Za-z_-]{20,}\b/,
   // Bearer / Authorization header values with an actual token.
-  /authorization\s*[:=]\s*['"]?bearer\s+[A-Za-z0-9._-]{12,}/i,
+  /authorization\s*[:=]\s*['"]?bearer\s+[A-Za-z0-9._-]{20,}/i,
   // Private key blocks.
   /-----BEGIN (?:RSA |EC |OPENSSH |DSA |PGP )?PRIVATE KEY-----/,
-  // `KEY=...`, `TOKEN=...`, `SECRET=...`, `PASSWORD=...` assigned a real-looking
-  // value (long, non-placeholder).
+];
+
+const STRICT_SECRET_PATTERNS: RegExp[] = [
+  ...HIGH_CONFIDENCE_SECRET_PATTERNS,
+  // Strict mode only: `KEY=...`, `TOKEN=...`, `SECRET=...`, `PASSWORD=...`
+  // assigned a real-looking value. This is intentionally not the default; it
+  // has produced too many false positives on variable names and CLI flags.
   /\b[A-Z0-9_]*(?:SECRET|TOKEN|PASSWORD|API_KEY|PRIVATE_KEY|ACCESS_KEY)[A-Z0-9_]*\s*[:=]\s*['"]?(?!.*(?:your|example|placeholder|changeme|xxxx|\*\*\*|<|\$\{|process\.env|env\.|REDACTED))[A-Za-z0-9/_+=.-]{16,}/i,
 ];
 
-export function lineLooksSecret(line: string): boolean {
-  return SECRET_PATTERNS.some((re) => re.test(line));
+export type RecapSecretScanMode = "off" | "high-confidence" | "strict";
+
+export function normalizeRecapSecretScanMode(
+  value: string | undefined,
+): RecapSecretScanMode {
+  const mode = (value || "high-confidence").trim().toLowerCase();
+  if (mode === "off" || mode === "false" || mode === "disabled") return "off";
+  if (mode === "strict") return "strict";
+  return "high-confidence";
+}
+
+function secretPatternsForMode(mode: RecapSecretScanMode): RegExp[] {
+  if (mode === "off") return [];
+  if (mode === "strict") return STRICT_SECRET_PATTERNS;
+  return HIGH_CONFIDENCE_SECRET_PATTERNS;
+}
+
+export function lineLooksSecret(
+  line: string,
+  mode: RecapSecretScanMode = "high-confidence",
+): boolean {
+  return secretPatternsForMode(mode).some((re) => re.test(line));
 }
 
 /**
@@ -790,7 +821,9 @@ export function lineMatchesAllowlist(
 export function diffContainsSecret(
   diffText: string,
   allowlist: Array<RegExp | string> = [],
+  mode: RecapSecretScanMode = "high-confidence",
 ): boolean {
+  if (mode === "off") return false;
   for (const line of diffText.split("\n")) {
     if (
       line.startsWith("+") ||
@@ -799,7 +832,7 @@ export function diffContainsSecret(
       line.startsWith("+++") ||
       line.startsWith("---")
     ) {
-      if (lineLooksSecret(line) && !lineMatchesAllowlist(line, allowlist))
+      if (lineLooksSecret(line, mode) && !lineMatchesAllowlist(line, allowlist))
         return true;
     }
   }
@@ -1390,6 +1423,16 @@ type RecapMcpSmokeFailure = {
 
 export type RecapMcpSmokeResult = RecapMcpSmokeOk | RecapMcpSmokeFailure;
 
+/**
+ * Per-attempt timeout for the non-mutating MCP smoke probe. Short enough that
+ * the workflow's 3-attempt retry loop can recover from a cold-start hang within
+ * the job budget, long enough not to flake on a warm-but-slow response. The
+ * plan app is serverless and intermittently 404s / stalls during a cold start
+ * or mid-deploy; without a bound, undici's multi-minute default header/body
+ * timeout would burn the whole job on a single stuck attempt.
+ */
+const RECAP_MCP_SMOKE_TIMEOUT_MS = 15_000;
+
 function recapMcpUrl(appUrl: string): string {
   return appUrl.replace(/\/$/, "") + "/_agent-native/mcp";
 }
@@ -1463,6 +1506,10 @@ async function postRecapMcpRpc(input: {
       method: input.method,
       params: input.params ?? {},
     }),
+    // Bound each attempt so a cold-start hang fails fast and the workflow's
+    // smoke retry loop can re-probe a (by-then warm) endpoint, instead of
+    // blocking on undici's multi-minute default timeout.
+    signal: AbortSignal.timeout(RECAP_MCP_SMOKE_TIMEOUT_MS),
   });
 
   const raw = await response.text().catch((err) => String(err));
@@ -2204,7 +2251,7 @@ export function buildCommentBody(env: NodeJS.ProcessEnv = process.env): string {
   const prevPlanId = (env.PREV_PLAN_ID || "").trim() || null;
 
   if (env.SUPPRESSED === "true") {
-    let reason = "potential secret in diff";
+    let reason = "high-confidence secret in diff";
     try {
       const parsed = JSON.parse(env.SUPPRESSED_JSON || "{}");
       if (parsed && typeof parsed.reason === "string") reason = parsed.reason;
@@ -2222,9 +2269,9 @@ export function buildCommentBody(env: NodeJS.ProcessEnv = process.env): string {
     return lines.join("\n");
   }
 
-  // Tiny diffs aren't worth a recap. Refresh an existing sticky comment to this
-  // state (the workflow only updates, never creates, on tiny) so stale recap
-  // links do not linger on no-op changes.
+  // Tiny diffs aren't worth a recap. The workflow upserts this state as a sticky
+  // comment (created or updated) so the too-small outcome is explained and stale
+  // recap links do not linger on no-op changes.
   if (env.DIFF_TINY === "true") {
     lines.push("### Visual recap — skipped (diff too small)");
     lines.push("");
@@ -2294,22 +2341,17 @@ export function buildCommentBody(env: NodeJS.ProcessEnv = process.env): string {
   const fallbackImageUrl = lightImageUrl || darkImageUrl;
   lines.push(`Here's a [visual recap](${safeUrl}) of what changed:`);
   lines.push("");
-  lines.push(
-    "_Access note: private-repo recaps are org-gated. Sign in to Agent-Native Plans with access to this org if the link does not open._",
-  );
-  lines.push("");
-  if (lightImageUrl && darkImageUrl) {
+  if (fallbackImageUrl) {
     lines.push(`<a href="${safeUrl}">`);
     lines.push(`<picture>`);
-    lines.push(
-      `  <source media="(prefers-color-scheme: dark)" srcset="${darkImageUrl}">`,
-    );
-    lines.push(`  <img alt="Visual recap" src="${lightImageUrl}">`);
+    if (lightImageUrl && darkImageUrl) {
+      lines.push(
+        `  <source media="(prefers-color-scheme: dark)" srcset="${darkImageUrl}">`,
+      );
+    }
+    lines.push(`  <img alt="Visual recap" src="${fallbackImageUrl}">`);
     lines.push(`</picture>`);
     lines.push(`</a>`);
-    lines.push("");
-  } else if (fallbackImageUrl) {
-    lines.push(`[![Visual recap](${fallbackImageUrl})](${safeUrl})`);
     lines.push("");
   }
   lines.push(`**[Open the full interactive recap](${safeUrl})**`);
@@ -2330,17 +2372,24 @@ export function buildCommentBody(env: NodeJS.ProcessEnv = process.env): string {
 function runScan(args: Record<string, string | boolean>): void {
   const diffPath = stringArg(args, "diff");
   const diffText = fs.readFileSync(path.resolve(diffPath), "utf8");
+  const mode = normalizeRecapSecretScanMode(
+    optionalArg(args, "mode") ?? process.env.VISUAL_RECAP_SECRET_SCAN,
+  );
   // Load the optional consumer-repo allowlist to suppress known false positives.
   const allowlistPath =
     optionalArg(args, "allowlist") ??
     path.join(process.cwd(), ".github", "recap-scan-allowlist");
   const allowlist = parseRecapScanAllowlist(allowlistPath);
-  if (diffContainsSecret(diffText, allowlist)) {
+  if (diffContainsSecret(diffText, allowlist, mode)) {
+    const reason =
+      mode === "strict"
+        ? "strict secret-pattern match in diff"
+        : "high-confidence secret in diff";
     process.stdout.write(
-      `${JSON.stringify({ suppressed: true, reason: "potential secret in diff" })}\n`,
+      `${JSON.stringify({ suppressed: true, reason, mode })}\n`,
     );
   } else {
-    process.stdout.write(`${JSON.stringify({ suppressed: false })}\n`);
+    process.stdout.write(`${JSON.stringify({ suppressed: false, mode })}\n`);
   }
 }
 
@@ -2935,11 +2984,19 @@ export function evaluateRecapGate(input: RecapGateInput): {
   if (!pr) reasons.push("no pull_request payload");
   if (pr && pr.draft) reasons.push("draft PR");
 
-  // Fork PRs: head repo differs from this repo. Plain pull_request runs fork
-  // code with NO secrets, so publishing would fail anyway — skip.
+  // Fork PRs only receive repo secrets when the org/repo opts into GitHub's
+  // "Send secrets to workflows from pull requests" setting (common in private
+  // orgs that use forks heavily). The real gate is therefore secret
+  // availability, not fork-ness: run on forks that have the publish token, and
+  // skip — with an actionable hint — those that don't. The recap never executes
+  // PR-head code and adds a prompt-injection note for fork diffs, so a trusted
+  // same-org fork is no riskier than a same-org branch PR.
   const headRepo = pr && pr.head && pr.head.repo && pr.head.repo.full_name;
-  if (pr && headRepo && headRepo !== input.repository) {
-    reasons.push(`fork PR (${headRepo})`);
+  const isFork = Boolean(pr && headRepo && headRepo !== input.repository);
+  if (isFork && !input.hasPlan) {
+    reasons.push(
+      `fork PR (${headRepo}) without secret access — enable "Send secrets to workflows from pull requests" (and write tokens) in the repo/org Actions settings to run recaps on forks`,
+    );
   }
 
   // Skip noisy automated authors.
@@ -2955,8 +3012,10 @@ export function evaluateRecapGate(input: RecapGateInput): {
     reasons.push("bot author (type=Bot)");
 
   // Publish secret must be configured — otherwise this is a no-op so the
-  // workflow can be merged before secrets exist.
-  if (!input.hasPlan) reasons.push("PLAN_RECAP_TOKEN not configured");
+  // workflow can be merged before secrets exist. Forks get the fork-specific
+  // hint above instead of this generic one.
+  if (!isFork && !input.hasPlan)
+    reasons.push("PLAN_RECAP_TOKEN not configured");
 
   // The chosen backend's API key must be present. Normalize the agent value once
   // here and validate it: an unknown or mis-cased value (e.g. "Claude", "gpt")
@@ -3140,9 +3199,8 @@ async function runGate(): Promise<void> {
       : `Visual recap skipped: ${reasons.join("; ")}`,
   );
 
-  // When gate skips, refresh an EXISTING sticky comment with a short skip line
-  // so it doesn't silently go stale. Do NOT create a new comment when none
-  // exists (no spam for repos where the recap has never run).
+  // When gate skips, post or refresh a sticky comment with a short skip line so
+  // users are not left guessing whether the recap job ran.
   if (!run) {
     const ghToken = process.env.GH_TOKEN || process.env.GITHUB_TOKEN || "";
     const prNumber =
@@ -3169,17 +3227,17 @@ async function runGate(): Promise<void> {
           repo,
           issue: prNumber,
         });
-        if (existing) {
-          const updatedBody = appendGateSkipLine(existing.body ?? "", skipLine);
-          await upsertComment({
-            token: ghToken,
-            owner,
-            repo,
-            issue: prNumber,
-            body: updatedBody,
-            updateOnly: true,
-          });
-        }
+        const updatedBody = appendGateSkipLine(
+          existing?.body ?? buildGateSkipCommentBody(),
+          skipLine,
+        );
+        await upsertComment({
+          token: ghToken,
+          owner,
+          repo,
+          issue: prNumber,
+          body: updatedBody,
+        });
       } catch {
         // Best-effort — never fail the gate step over a comment update.
       }
@@ -3197,6 +3255,14 @@ async function runGate(): Promise<void> {
 export function buildGateSkipLine(reason: string, headShort: string): string {
   const shaRef = headShort ? `\`${headShort}\`` : "latest push";
   return `_Recap skipped for ${shaRef}: ${reason}._`;
+}
+
+export function buildGateSkipCommentBody(): string {
+  return [
+    "### Visual recap — skipped",
+    "",
+    "The visual recap job did not run for this pull request. This is informational only and does **not** block the PR.",
+  ].join("\n");
 }
 
 /**
@@ -3382,7 +3448,7 @@ export function recapCheckOutcome(
     summary = "The diff is too small to need a visual recap.";
     text = "";
   } else if (input.suppressed) {
-    let reason = "potential secret in diff";
+    let reason = "high-confidence secret in diff";
     try {
       const parsed = JSON.parse(input.suppressedJson || "{}");
       if (parsed && typeof parsed.reason === "string") reason = parsed.reason;
@@ -3811,7 +3877,7 @@ Usage:
   npx @agent-native/core@latest recap collect-diff --base <baseSha> --head <headSha> [--out recap.diff] [--stat recap.stat]
   npx @agent-native/core@latest recap mcp-config --agent claude|codex --app-url <url> [--out <path>]
   npx @agent-native/core@latest recap mcp-smoke [--app-url <url>] [--token <planToken>]
-  npx @agent-native/core@latest recap scan --diff <path>
+  npx @agent-native/core@latest recap scan --diff <path> [--mode off|high-confidence|strict]
   npx @agent-native/core@latest recap build-prompt --pr <n> [--repo owner/name] [--head <sha>] [--app-url <url>] [--diff <path>] [--stat <path>] [--prev-plan-id <id>] [--huge] [--local-files] [--local-dir <folder>] [--skill-source auto|latest|repo] [--out <path>]
   npx @agent-native/core@latest recap shot --url <planUrl> [--token <planToken>] [--app-url <url>] [--out recap.png] [--theme light|dark]
   npx @agent-native/core@latest recap usage --plan-url <planUrl> --result-file <path> --app-url <url> --token <planToken> [--agent claude|codex] [--model <id>]
@@ -3844,6 +3910,11 @@ Usage:
     Read the captured Claude/Codex result file and write a sanitized one-line
     summary to stdout and $GITHUB_OUTPUT (summary). Used only when no plan URL
     was produced, so PR comments/checks explain the actual failure.
+  npx @agent-native/core@latest recap scan
+    Default mode is high-confidence. It suppresses only obvious credential
+    shapes such as private key blocks and known provider token prefixes. Set
+    VISUAL_RECAP_SECRET_SCAN=strict, or pass --mode strict, to restore generic
+    TOKEN/SECRET assignment suppression; set off to disable this preflight.
   npx @agent-native/core@latest recap mcp-smoke
     Non-mutating Plan MCP JSON-RPC smoke test. Calls initialize + tools/list
     against PLAN_RECAP_APP_URL / PLAN_RECAP_TOKEN and requires get-plan-blocks,

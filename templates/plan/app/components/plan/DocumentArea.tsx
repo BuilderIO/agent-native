@@ -1,4 +1,12 @@
-import { Component, useEffect, useRef, useState, type ReactNode } from "react";
+import {
+  Component,
+  lazy,
+  Suspense,
+  useEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import {
   IconAlertTriangle,
   IconCheck,
@@ -23,9 +31,14 @@ import {
 import { cn } from "@/lib/utils";
 import { imageDataSchema, type PlanBlock } from "@shared/plan-content";
 import { Wireframe } from "./wireframe/Wireframe";
-import { PlanMarkdownEditor } from "./PlanMarkdownEditor";
 import { PlanMarkdownReader } from "./PlanMarkdownReader";
 import { PlanImageViewer } from "./PlanImageViewer";
+
+const LazyPlanMarkdownEditor = lazy(() =>
+  import("./PlanMarkdownEditor").then((mod) => ({
+    default: mod.PlanMarkdownEditor,
+  })),
+);
 
 /**
  * Marker prefix embedded in salvaged "unknown-block" callout bodies by the
@@ -456,22 +469,31 @@ function RichTextBlock({
   return (
     <section className="plan-block group" data-block-id={block.id}>
       {canUseInlineEditor && !editingDisabled ? (
-        <PlanMarkdownEditor
-          markdown={block.data.markdown}
-          editable={editable}
-          contentUpdatedAt={contentUpdatedAt}
-          planId={planId}
-          blockId={block.id}
-          user={collabUser}
-          onSave={(markdown) =>
-            onRichTextChange
-              ? onRichTextChange(block.id, markdown)
-              : onChange?.({
-                  ...block,
-                  data: { ...block.data, markdown },
-                })
+        <Suspense
+          fallback={
+            <PlanMarkdownReader
+              markdown={block.data.markdown}
+              blockId={block.id}
+            />
           }
-        />
+        >
+          <LazyPlanMarkdownEditor
+            markdown={block.data.markdown}
+            editable={editable}
+            contentUpdatedAt={contentUpdatedAt}
+            planId={planId}
+            blockId={block.id}
+            user={collabUser}
+            onSave={(markdown) =>
+              onRichTextChange
+                ? onRichTextChange(block.id, markdown)
+                : onChange?.({
+                    ...block,
+                    data: { ...block.data, markdown },
+                  })
+            }
+          />
+        </Suspense>
       ) : (
         // Read-only path (public / shared-reviewer / review mode / SSR): render
         // markdown without mounting Tiptap so comment clicks hit stable text.

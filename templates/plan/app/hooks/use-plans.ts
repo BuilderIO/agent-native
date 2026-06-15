@@ -206,7 +206,7 @@ export function usePlan(
 ) {
   return useActionQuery<PlanBundle & { html?: string }>(
     "get-visual-plan",
-    { id: id ?? "" },
+    { id: id ?? "", includeMdx: false, includeHtml: true },
     {
       enabled: !!id,
       // Pause the 3-second poll while a comment mutation is in-flight so

@@ -38,6 +38,7 @@ concurrency:
 env:
   VISUAL_RECAP_AGENT: ${{ vars.VISUAL_RECAP_AGENT || 'claude' }}
   VISUAL_RECAP_SKILL_SOURCE: ${{ vars.VISUAL_RECAP_SKILL_SOURCE || 'auto' }}
+  VISUAL_RECAP_SECRET_SCAN: ${{ vars.VISUAL_RECAP_SECRET_SCAN || 'high-confidence' }}
 
 jobs:
   gate:
@@ -151,8 +152,8 @@ jobs:
             core.setOutput('agent', agent);
             core.info(run ? `Fork visual recap will run (${agent}).` : `Fork visual recap skipped: ${reasons.join('; ')}`);
 
-            // When skipping, refresh an EXISTING sticky recap comment — same
-            // pattern as the main workflow gate.
+            // When skipping, upsert a sticky recap comment — same pattern as
+            // the main workflow gate.
             if (!run && pr) {
               try {
                 const MARKER = '<!-- pr-visual-recap -->';
@@ -165,22 +166,30 @@ jobs:
                 const existing = comments.find(
                   (c) => c.user && c.user.type === 'Bot' && c.body && c.body.includes(MARKER)
                 );
+                const headShort = (process.env.HEAD_SHA || '').slice(0, 7);
+                const shaRef = headShort ? `\`${headShort}\`` : 'latest push';
+                const primaryReason = reasons.filter(
+                  (r) => !r.startsWith('could not list PR files for the self-modifying guard')
+                )[0] || reasons[0] || 'skipped';
+                const skipLine = `_Recap skipped for ${shaRef}: ${primaryReason}._`;
+                const baseBody = `${MARKER}\n### Visual recap — skipped\n\nThe visual recap job did not run for this pull request. This is informational only and does **not** block the PR.`;
+                const withoutPrev = (existing && existing.body ? existing.body : baseBody)
+                  .split('\n')
+                  .filter((l) => !/_Recap skipped for .+_$/.test(l.trim()))
+                  .join('\n')
+                  .trimEnd();
                 if (existing) {
-                  const headShort = (process.env.HEAD_SHA || '').slice(0, 7);
-                  const shaRef = headShort ? `\`${headShort}\`` : 'latest push';
-                  const primaryReason = reasons.filter(
-                    (r) => !r.startsWith('could not list PR files for the self-modifying guard')
-                  )[0] || reasons[0] || 'skipped';
-                  const skipLine = `_Recap skipped for ${shaRef}: ${primaryReason}._`;
-                  const withoutPrev = (existing.body || '')
-                    .split('\n')
-                    .filter((l) => !/_Recap skipped for .+_$/.test(l.trim()))
-                    .join('\n')
-                    .trimEnd();
                   await github.rest.issues.updateComment({
                     owner: context.repo.owner,
                     repo: context.repo.repo,
                     comment_id: existing.id,
+                    body: `${withoutPrev}\n\n${skipLine}`,
+                  });
+                } else {
+                  await github.rest.issues.createComment({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    issue_number: pr.number,
                     body: `${withoutPrev}\n\n${skipLine}`,
                   });
                 }
@@ -209,6 +218,7 @@ jobs:
       VISUAL_RECAP_MODEL: ${{ vars.VISUAL_RECAP_MODEL }}
       VISUAL_RECAP_REASONING: ${{ vars.VISUAL_RECAP_REASONING }}
       VISUAL_RECAP_SKILL_SOURCE: ${{ vars.VISUAL_RECAP_SKILL_SOURCE || 'auto' }}
+      VISUAL_RECAP_SECRET_SCAN: ${{ vars.VISUAL_RECAP_SECRET_SCAN || 'high-confidence' }}
     steps:
       # Checkout the BASE repository at the BASE ref ONLY.
       # - `repository:` is pinned to GITHUB_REPOSITORY (the base repo) to rule
@@ -329,7 +339,7 @@ jobs:
         if: steps.diff.outputs.tiny != 'true'
         run: |
           set -uo pipefail
-          if ! SCAN_JSON="$($RECAP_CLI recap scan --diff recap.diff)"; then
+          if ! SCAN_JSON="$($RECAP_CLI recap scan --diff recap.diff --mode "$VISUAL_RECAP_SECRET_SCAN")"; then
             SCAN_JSON='{"suppressed":true,"reason":"secret scan failed to run; failing closed"}'
           fi
           {
@@ -374,7 +384,8 @@ jobs:
           set -uo pipefail
           MCP_CONFIG="$RUNNER_TEMP/plan-mcp.json"
           $RECAP_CLI recap mcp-config --agent claude --app-url "$PLAN_RECAP_APP_URL" --out "$MCP_CONFIG"
-          CLAUDE_ARGS=(-p "$(cat recap-prompt.md)" --mcp-config "$MCP_CONFIG" --allowedTools "Read,Write,Bash(git diff:*),mcp__plan__get-plan-blocks,mcp__plan__create-visual-recap,mcp__plan__set-resource-visibility" --permission-mode dontAsk --output-format json)
+          CLAUDE_ALLOWED_TOOLS="Read,Write,Bash(git diff:*),mcp__plan__get-plan-blocks,mcp__plan__create-visual-recap,mcp__plan__set-resource-visibility,mcp__agent-native-plans__get-plan-blocks,mcp__agent-native-plans__create-visual-recap,mcp__agent-native-plans__set-resource-visibility"
+          CLAUDE_ARGS=(-p "$(cat recap-prompt.md)" --mcp-config "$MCP_CONFIG" --allowedTools "$CLAUDE_ALLOWED_TOOLS" --permission-mode dontAsk --output-format json)
           if [ -n "${VISUAL_RECAP_MODEL:-}" ]; then CLAUDE_ARGS+=(--model "$VISUAL_RECAP_MODEL"); fi
           rm -f recap-url.txt claude-result.json claude-stderr.log
           run_claude() {
@@ -385,7 +396,7 @@ jobs:
             echo "$CLAUDE_STATUS" > claude-exit-code.txt
           }
           run_claude
-          if [ ! -s recap-url.txt ] && grep -Eiq 'schedule(d)? a wakeup|connector.*register|mcp.*register' claude-result.json claude-stderr.log 2>/dev/null; then
+          if [ ! -s recap-url.txt ] && grep -Eiq 'schedule(d)? (a )?(wakeup|retry)|will retry|backoff|connector.*register|mcp.*(register|unreachable|not usable|zero tools|not callable|timeout|timed out)|create-visual-recap.*(timeout|timed out)' claude-result.json claude-stderr.log 2>/dev/null; then
             echo "Plan MCP registration appears delayed; retrying Claude once after 20s."
             sleep 20
             run_claude
@@ -419,7 +430,7 @@ jobs:
             echo "$CODEX_STATUS" > codex-exit-code.txt
           }
           run_codex
-          if [ ! -s recap-url.txt ] && grep -Eiq 'schedule(d)? a wakeup|connector.*register|mcp.*register' codex-events.jsonl codex-stderr.log 2>/dev/null; then
+          if [ ! -s recap-url.txt ] && grep -Eiq 'schedule(d)? (a )?(wakeup|retry)|will retry|backoff|connector.*register|mcp.*(register|unreachable|not usable|zero tools|not callable|timeout|timed out)|create-visual-recap.*(timeout|timed out)' codex-events.jsonl codex-stderr.log 2>/dev/null; then
             echo "Plan MCP registration appears delayed; retrying Codex once after 20s."
             sleep 20
             run_codex
@@ -574,9 +585,7 @@ jobs:
           RECAP_URL_REASON: ${{ steps.url.outputs.reason }}
         run: |
           set -euo pipefail
-          ARGS=(recap comment upsert --repo "$GITHUB_REPOSITORY" --issue "$PR_NUMBER" --token "$GH_TOKEN")
-          if [ "${DIFF_TINY:-}" = "true" ]; then ARGS+=(--update-only); fi
-          $RECAP_CLI "${ARGS[@]}"
+          $RECAP_CLI recap comment upsert --repo "$GITHUB_REPOSITORY" --issue "$PR_NUMBER" --token "$GH_TOKEN"
 
       - name: Complete visual recap check
         if: always() && steps.recap_check.outputs.check_run_id != ''
