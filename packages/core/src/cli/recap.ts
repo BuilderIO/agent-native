@@ -2576,6 +2576,61 @@ async function defaultImportPlaywright(): Promise<PlaywrightModule> {
   }
 }
 
+const RECAP_SYSTEM_CHROME_EXECUTABLES = [
+  "/usr/bin/google-chrome-stable",
+  "/usr/bin/google-chrome",
+  "/usr/bin/chromium-browser",
+  "/usr/bin/chromium",
+];
+
+function shouldTrySystemChromeFallback(err: unknown): boolean {
+  const message = err instanceof Error ? err.message : String(err);
+  return /Executable doesn't exist|playwright install|browser.*not found|chromium.*not found/i.test(
+    message,
+  );
+}
+
+export async function launchRecapChromium(
+  chromium: import("playwright").BrowserType,
+): Promise<import("playwright").Browser> {
+  const launchOptions = { args: ["--no-sandbox"] };
+  try {
+    return await chromium.launch(launchOptions);
+  } catch (err) {
+    if (!shouldTrySystemChromeFallback(err)) throw err;
+
+    const fallbackErrors: string[] = [];
+    for (const executablePath of RECAP_SYSTEM_CHROME_EXECUTABLES) {
+      if (!fs.existsSync(executablePath)) continue;
+      try {
+        process.stderr.write(
+          `[recap shot] Playwright browser unavailable; trying system Chrome at ${executablePath}\n`,
+        );
+        return await chromium.launch({ ...launchOptions, executablePath });
+      } catch (fallbackErr) {
+        const message =
+          fallbackErr instanceof Error
+            ? fallbackErr.message
+            : String(fallbackErr);
+        fallbackErrors.push(`${executablePath}: ${message}`);
+        process.stderr.write(
+          `[recap shot] system Chrome launch failed at ${executablePath}: ${message}\n`,
+        );
+      }
+    }
+
+    if (fallbackErrors.length) {
+      const originalMessage = err instanceof Error ? err.message : String(err);
+      throw new Error(
+        `${originalMessage}; system Chrome fallback failed (${fallbackErrors.join("; ")})`,
+        { cause: err },
+      );
+    }
+
+    throw err;
+  }
+}
+
 function parseRecapScreenshotTheme(
   value: string | undefined,
 ): RecapScreenshotTheme | undefined {
@@ -2656,13 +2711,14 @@ export async function runShot(
   }
 
   let captured = false;
+  let reason = "";
   let browser: import("playwright").Browser | undefined;
   const hardTimer = setTimeout(() => {
     done({ ok: false, reason: "hard 60s timeout reached" });
     process.exit(0);
   }, 60_000);
   try {
-    browser = await chromium!.launch({ args: ["--no-sandbox"] });
+    browser = await launchRecapChromium(chromium!);
     const context = await browser.newContext({
       viewport: RECAP_SHOT_VIEWPORT,
       deviceScaleFactor: RECAP_SHOT_DEVICE_SCALE_FACTOR,
@@ -2790,14 +2846,22 @@ export async function runShot(
     await page.waitForTimeout(250);
     await page.screenshot({ path: out });
 
-    // If the captured PNG is over the upload cap, remove it so the upload step
-    // sees no file and the comment falls back to a link-only recap.
+    // If the captured PNG is over the upload cap, retry at CSS-pixel scale
+    // before giving up. The server route rejects oversized files, and the
+    // GitHub comment can only embed an image after a successful upload.
     const firstSize = fs.existsSync(out) ? fs.statSync(out).size : 0;
     if (firstSize > RECAP_SHOT_MAX_BYTES) {
       process.stderr.write(
-        `[recap shot] PNG is ${firstSize} bytes (cap ${RECAP_SHOT_MAX_BYTES}) — skipping upload\n`,
+        `[recap shot] PNG is ${firstSize} bytes (cap ${RECAP_SHOT_MAX_BYTES}) — retrying at CSS-pixel scale\n`,
       );
       fs.unlinkSync(out);
+      await page.screenshot({ path: out, scale: "css" });
+      const retrySize = fs.existsSync(out) ? fs.statSync(out).size : 0;
+      if (retrySize > RECAP_SHOT_MAX_BYTES) {
+        reason = `screenshot PNG exceeded upload cap (${retrySize} bytes > ${RECAP_SHOT_MAX_BYTES})`;
+        process.stderr.write(`[recap shot] ${reason}; skipping upload\n`);
+        fs.unlinkSync(out);
+      }
     }
 
     captured = fs.existsSync(out);
@@ -2820,8 +2884,12 @@ export async function runShot(
   let imageUrl: string | null = null;
   if (captured && token && appUrl) {
     imageUrl = await uploadRecapImage({ appUrl, token, pngPath: out });
+    if (!imageUrl) {
+      reason = "screenshot captured but image upload failed";
+    }
   }
-  done({ ok: captured, out, imageUrl });
+  const ok = captured && (!(token && appUrl) || !!imageUrl);
+  done({ ok, out, imageUrl, ...(reason ? { reason } : {}) });
 }
 
 async function runComment(

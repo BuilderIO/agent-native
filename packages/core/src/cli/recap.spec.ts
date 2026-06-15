@@ -25,6 +25,7 @@ import {
   evaluateRecapGate,
   inferLocalRecapUrlFailureReason,
   isRecapSensitivePath,
+  launchRecapChromium,
   lineMatchesAllowlist,
   normalizeRecapAgent,
   normalizeRecapSecretScanMode,
@@ -36,6 +37,7 @@ import {
   readVisualRecapSkillBundle,
   sanitizeAgentFailureSummary,
   sortDiffSourceFirst,
+  runShot,
   smokeRecapMcpTools,
   summarizeAgentRun,
   summarizeLocalAgentFailure,
@@ -1058,6 +1060,191 @@ describe("recap screenshot URL params", () => {
   });
 });
 
+describe("recap screenshot browser launch", () => {
+  it("falls back to system Chrome when the Playwright browser is missing", async () => {
+    const browser = {} as import("playwright").Browser;
+    const launch = vi
+      .fn()
+      .mockRejectedValueOnce(
+        new Error("Executable doesn't exist at /ms-playwright/chromium"),
+      )
+      .mockResolvedValueOnce(browser);
+    const exists = vi
+      .spyOn(fs, "existsSync")
+      .mockImplementation((candidate) => {
+        return candidate === "/usr/bin/google-chrome-stable";
+      });
+
+    await expect(
+      launchRecapChromium({
+        launch,
+      } as unknown as import("playwright").BrowserType),
+    ).resolves.toBe(browser);
+
+    expect(launch).toHaveBeenNthCalledWith(1, { args: ["--no-sandbox"] });
+    expect(launch).toHaveBeenNthCalledWith(2, {
+      args: ["--no-sandbox"],
+      executablePath: "/usr/bin/google-chrome-stable",
+    });
+    exists.mockRestore();
+  });
+
+  it("reports system Chrome fallback launch failures", async () => {
+    const launch = vi
+      .fn()
+      .mockRejectedValueOnce(
+        new Error("Executable doesn't exist at /ms-playwright/chromium"),
+      )
+      .mockRejectedValueOnce(new Error("missing shared library"));
+    const exists = vi
+      .spyOn(fs, "existsSync")
+      .mockImplementation((candidate) => {
+        return candidate === "/usr/bin/google-chrome-stable";
+      });
+
+    await expect(
+      launchRecapChromium({
+        launch,
+      } as unknown as import("playwright").BrowserType),
+    ).rejects.toThrow(
+      "system Chrome fallback failed (/usr/bin/google-chrome-stable: missing shared library)",
+    );
+
+    exists.mockRestore();
+  });
+
+  it("does not hide non-install browser launch errors", async () => {
+    const error = new Error("GPU process crashed");
+    const launch = vi.fn().mockRejectedValue(error);
+    const exists = vi.spyOn(fs, "existsSync");
+
+    await expect(
+      launchRecapChromium({
+        launch,
+      } as unknown as import("playwright").BrowserType),
+    ).rejects.toBe(error);
+
+    expect(exists).not.toHaveBeenCalled();
+    exists.mockRestore();
+  });
+});
+
+describe("recap screenshot capture", () => {
+  function createShotPlaywright(screenshotBytes: Buffer[]) {
+    const page = {
+      goto: vi.fn(async () => undefined),
+      waitForSelector: vi.fn(async () => undefined),
+      waitForTimeout: vi.fn(async () => undefined),
+      evaluate: vi.fn(async (_fn: unknown, arg?: unknown) => {
+        return typeof arg === "number" ? 320 : undefined;
+      }),
+      setViewportSize: vi.fn(async () => undefined),
+      screenshot: vi.fn(async ({ path: outPath }: { path: string }) => {
+        fs.writeFileSync(
+          outPath,
+          screenshotBytes.shift() ?? Buffer.from("png"),
+        );
+      }),
+    };
+    const context = {
+      addInitScript: vi.fn(async () => undefined),
+      route: vi.fn(async () => undefined),
+      newPage: vi.fn(async () => page),
+    };
+    const browser = {
+      newContext: vi.fn(async () => context),
+      close: vi.fn(async () => undefined),
+    };
+    const chromium = {
+      launch: vi.fn(async () => browser),
+    };
+    return {
+      page,
+      importPlaywright: async () => ({ chromium }),
+    };
+  }
+
+  it("retries oversized screenshots at CSS-pixel scale", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "an-recap-shot-"));
+    const out = path.join(dir, "recap.png");
+    const { page, importPlaywright } = createShotPlaywright([
+      Buffer.alloc(5 * 1024 * 1024 + 1),
+      Buffer.from("small-png"),
+    ]);
+    const writes: string[] = [];
+    const stdout = vi
+      .spyOn(process.stdout, "write")
+      .mockImplementation((chunk: string | Uint8Array) => {
+        writes.push(String(chunk));
+        return true;
+      });
+
+    try {
+      await runShot(
+        {
+          url: "https://plan.agent-native.com/recaps/plan-abc123",
+          out,
+        },
+        importPlaywright,
+      );
+
+      expect(page.screenshot).toHaveBeenNthCalledWith(2, {
+        path: out,
+        scale: "css",
+      });
+      expect(fs.readFileSync(out, "utf8")).toBe("small-png");
+      expect(JSON.parse(writes.join("").trim())).toMatchObject({
+        ok: true,
+        out,
+      });
+    } finally {
+      stdout.mockRestore();
+      fs.rmSync(dir, { force: true, recursive: true });
+    }
+  });
+
+  it("marks shot output not ok when upload fails after capture", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "an-recap-shot-"));
+    const out = path.join(dir, "recap.png");
+    const { importPlaywright } = createShotPlaywright([Buffer.from("png")]);
+    const writes: string[] = [];
+    const stdout = vi
+      .spyOn(process.stdout, "write")
+      .mockImplementation((chunk: string | Uint8Array) => {
+        writes.push(String(chunk));
+        return true;
+      });
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response("upload failed", {
+        status: 500,
+      }),
+    );
+
+    try {
+      await runShot(
+        {
+          url: "https://plan.agent-native.com/recaps/plan-abc123",
+          out,
+          token: "recap-token",
+          "app-url": "https://plan.agent-native.com",
+        },
+        importPlaywright,
+      );
+
+      expect(JSON.parse(writes.join("").trim())).toMatchObject({
+        ok: false,
+        out,
+        imageUrl: null,
+        reason: "screenshot captured but image upload failed",
+      });
+    } finally {
+      fetchSpy.mockRestore();
+      stdout.mockRestore();
+      fs.rmSync(dir, { force: true, recursive: true });
+    }
+  });
+});
+
 describe("recap image public readiness", () => {
   it("retries until the uploaded image is anonymously readable as image/png", async () => {
     const fetchFn = vi
@@ -1744,6 +1931,11 @@ describe("bundled PR visual recap workflow", () => {
       "--out recap-dark.png --theme dark",
     );
     expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain("RECAP_DARK_IMAGE_URL");
+    expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain("RECAP_PLAYWRIGHT");
+    expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain("[recap shot] ${label}");
+    expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain(
+      "Visual recap screenshot unavailable; posting link-only recap comment.",
+    );
     expect(PR_VISUAL_RECAP_WORKFLOW_YML).not.toContain("github.rest.checks");
     // The completed-check step is gated on a created check id and best-effort.
     expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain(
@@ -2252,6 +2444,7 @@ describe("reusable workflow file structure", () => {
     expect(content).toContain("Install published recap CLI");
     expect(content).toContain("@agent-native/core@$VERSION");
     expect(content).toContain("node_modules/.bin/agent-native");
+    expect(content).toContain("RECAP_PLAYWRIGHT");
   });
 
   it("has the auth probe step (parity with copy workflow)", () => {
@@ -2287,6 +2480,10 @@ describe("reusable workflow file structure", () => {
     expect(content).toContain("--exit-code-file");
     expect(content).toContain("RECAP_URL_REASON:");
     expect(content).toContain("--url-reason");
+    expect(content).toContain("[recap shot] ${label}");
+    expect(content).toContain(
+      "Visual recap screenshot unavailable; posting link-only recap comment.",
+    );
   });
 
   it("gate job has issues: write permission for the skip-comment refresh", () => {
@@ -2529,6 +2726,10 @@ describe("reusable vs copy workflow step-sequence parity", () => {
     repoRoot,
     ".github/workflows/pr-visual-recap-reusable.yml",
   );
+  const forkFile = path.join(
+    repoRoot,
+    ".github/workflows/pr-visual-recap-fork.yml",
+  );
 
   /**
    * Extract the name/id of each step from the recap job of a workflow file.
@@ -2583,5 +2784,34 @@ describe("reusable vs copy workflow step-sequence parity", () => {
     for (const step of copyFiltered) {
       expect(reusableFiltered).toContain(step);
     }
+  });
+
+  it("fork workflow keeps the Plan MCP smoke gate before agent execution", () => {
+    const content = fs.readFileSync(forkFile, "utf8");
+    expect(content).toContain("Smoke-test Plan MCP tools");
+    expect(content).toContain(
+      'recap mcp-smoke --app-url "$PLAN_RECAP_APP_URL"',
+    );
+    expect(content).toContain("steps.mcp_smoke.outputs.ok == 'true'");
+    expect(content).toContain("RECAP_MCP_SMOKE_SUMMARY:");
+    expect(content).toContain(
+      'recap mcp-config --agent codex --app-url "$PLAN_RECAP_APP_URL" --force',
+    );
+
+    const smokeIndex = content.indexOf("Smoke-test Plan MCP tools");
+    const promptIndex = content.indexOf("Build recap prompt");
+    const agentIndex = content.indexOf("Run agent (Claude Code)");
+    expect(smokeIndex).toBeGreaterThan(-1);
+    expect(smokeIndex).toBeLessThan(promptIndex);
+    expect(promptIndex).toBeLessThan(agentIndex);
+  });
+
+  it("fork workflow uses the recap CLI Playwright package for screenshots", () => {
+    const content = fs.readFileSync(forkFile, "utf8");
+    expect(content).toContain("RECAP_PLAYWRIGHT");
+    expect(content).toContain("[recap shot] ${label}");
+    expect(content).toContain(
+      "Visual recap screenshot unavailable; posting link-only recap comment.",
+    );
   });
 });

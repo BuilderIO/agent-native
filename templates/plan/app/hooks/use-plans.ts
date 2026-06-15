@@ -241,6 +241,8 @@ export type PlanAccessStatusResponse = {
   viewerEmail: string | null;
   viewerName: string | null;
   role: "owner" | "viewer" | "editor" | "admin" | null;
+  orgId: string | null;
+  orgName: string | null;
   visibility: "private" | "org" | "public" | null;
 };
 

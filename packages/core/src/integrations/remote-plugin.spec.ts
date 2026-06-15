@@ -293,6 +293,63 @@ describe("remote integration plugin routes", () => {
     expect(enqueueRemoteCommandMock).not.toHaveBeenCalled();
   });
 
+  it("preserves permission mode when enqueuing remote code follow-ups", async () => {
+    getSessionMock.mockResolvedValueOnce({ email: "alice@example.com" });
+    getOrgContextMock.mockResolvedValueOnce({ orgId: "org-1" });
+    listRemoteCommandsForOwnerMock.mockResolvedValueOnce([]);
+    listRemoteDevicesForOwnerMock.mockResolvedValueOnce([
+      {
+        id: "device-1",
+        ownerEmail: "alice@example.com",
+        orgId: "org-1",
+        label: "Studio Mac",
+        deviceTokenHash: "hashed",
+        lastSeenAt: Date.now(),
+        status: "active",
+        createdAt: 1,
+        updatedAt: 1,
+      },
+    ]);
+    enqueueRemoteCommandMock.mockResolvedValueOnce({
+      id: "cmd-1",
+      deviceId: "device-1",
+      kind: "append-followup",
+      status: "pending",
+      params: {},
+      result: null,
+      completedAt: null,
+    });
+    const nitroApp = createNitroApp();
+    await createIntegrationsPlugin({ adapters: [] })(nitroApp);
+
+    const result = await dispatch(
+      nitroApp,
+      "/_agent-native/integrations/remote/enqueue",
+      "POST",
+      {
+        operation: "code-agent.run.follow-up",
+        payload: {
+          runId: "run-1",
+          prompt: "Stay read-only",
+          hostId: "device-1",
+          permissionMode: "read-only",
+        },
+      },
+    );
+
+    expect(result.status).toBe(200);
+    expect(enqueueRemoteCommandMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        kind: "append-followup",
+        params: expect.objectContaining({
+          runId: "run-1",
+          prompt: "Stay read-only",
+          permissionMode: "read-only",
+        }),
+      }),
+    );
+  });
+
   it("lists scoped host details without exposing device token hashes", async () => {
     getSessionMock.mockResolvedValueOnce({ email: "alice@example.com" });
     getOrgContextMock.mockResolvedValueOnce({ orgId: "org-1" });

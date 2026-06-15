@@ -14,7 +14,6 @@ import { useQueryClient } from "@tanstack/react-query";
 import {
   IconAt,
   IconArrowLeft,
-  IconArrowRight,
   IconArrowsMaximize,
   IconArrowsMinimize,
   IconAlertTriangle,
@@ -101,6 +100,8 @@ import {
   DropdownMenuGroup,
   DropdownMenuItem,
   DropdownMenuLabel,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
   DropdownMenuSeparator,
   DropdownMenuSub,
   DropdownMenuSubContent,
@@ -160,7 +161,6 @@ import {
   usePlan,
   usePlanAccessStatus,
   usePlans,
-  useConvertVisualPlanToPrototype,
   usePlanVersion,
   usePlanVersions,
   usePublishVisualPlan,
@@ -467,6 +467,8 @@ type CommentThread = {
   comments: PlanCommentItem[];
   anchor: PlanAnnotationAnchor | null;
 };
+
+export type CommentVisibility = "hidden" | "open" | "all";
 
 type DeleteCommentRequest = {
   commentId: string;
@@ -1015,6 +1017,15 @@ function commentThreadStatus(thread: CommentThread) {
   return thread.comments.some((comment) => comment.status === "open")
     ? "open"
     : "resolved";
+}
+
+export function commentThreadsForVisibility(
+  threads: CommentThread[],
+  visibility: CommentVisibility,
+) {
+  if (visibility === "hidden") return [];
+  if (visibility === "all") return threads;
+  return threads.filter((thread) => commentThreadStatus(thread) === "open");
 }
 
 function commentIdentityKey(source: CommentIdentitySource, fallbackId: string) {
@@ -2179,8 +2190,8 @@ export function PlansPage() {
   const [deleteCommentRequest, setDeleteCommentRequest] =
     useState<DeleteCommentRequest | null>(null);
   const [nativeMarkerVersion, setNativeMarkerVersion] = useState(0);
-  // Session-level preference: hide comment markers even when threads exist.
-  const [commentsHidden, setCommentsHidden] = useState(false);
+  const [commentVisibility, setCommentVisibility] =
+    useState<CommentVisibility>("open");
   // When a comment submit fails, stash the draft here so the popover can
   // re-open with the user's text pre-filled (Issue 2a).
   const [failedCommentDraft, setFailedCommentDraft] =
@@ -2426,6 +2437,19 @@ export function PlansPage() {
     () => buildCommentThreads(bundle?.comments ?? []),
     [bundle?.comments],
   );
+  const visibleCommentThreads = useMemo(
+    () => commentThreadsForVisibility(commentThreads, commentVisibility),
+    [commentThreads, commentVisibility],
+  );
+  const visiblePlanComments = useMemo(() => {
+    if (!bundle) return [] as PlanBundle["comments"];
+    const visibleIds = new Set(
+      visibleCommentThreads.flatMap((thread) =>
+        thread.comments.map((comment) => comment.id),
+      ),
+    );
+    return bundle.comments.filter((comment) => visibleIds.has(comment.id));
+  }, [bundle, visibleCommentThreads]);
   const commentAvatarEmails = useMemo(
     () => commentAuthorEmails(bundle?.comments ?? [], collabUser?.email),
     [bundle?.comments, collabUser?.email],
@@ -2471,7 +2495,7 @@ export function PlansPage() {
   );
   const runtimeCommentThreads = useMemo(
     () =>
-      commentThreads
+      visibleCommentThreads
         .map((thread, index) =>
           runtimeAnnotationFromThread(
             thread,
@@ -2483,7 +2507,7 @@ export function PlansPage() {
         .filter((annotation): annotation is RuntimeAnnotation =>
           Boolean(annotation),
         ),
-    [commentAvatarUrls, commentThreads, currentCommentAuthor],
+    [commentAvatarUrls, currentCommentAuthor, visibleCommentThreads],
   );
   const canDeletePlanComment = useCallback(
     (comment: { authorEmail?: string | null }) => {
@@ -2518,10 +2542,9 @@ export function PlansPage() {
       const fresh = runtimeCommentThreads.find(
         (annotation) => annotation.id === current.annotation.id,
       );
-      return fresh ? { ...current, annotation: fresh } : current;
+      return fresh ? { ...current, annotation: fresh } : null;
     });
   }, [runtimeCommentThreads]);
-  const convertPlanToPrototype = useConvertVisualPlanToPrototype();
   const updatePlan = useUpdatePlan();
   // Stable ref so closures (e.g. message-event handler) always call the latest
   // mutate without needing to be in a dependency array.
@@ -2632,12 +2655,16 @@ export function PlansPage() {
     ? "comment"
     : canvasMarkupMode;
   const hasOpenThreads = (bundle?.summary.openCommentCount ?? 0) > 0;
+  const resolvedCommentThreadCount = commentThreads.filter(
+    (thread) => commentThreadStatus(thread) === "resolved",
+  ).length;
+  const visibleCommentThreadCount = visibleCommentThreads.length;
   const commentMarkersVisible =
-    !commentsHidden &&
+    commentVisibility !== "hidden" &&
     (annotationsOpen ||
       annotateMode ||
       Boolean(activeAnnotation) ||
-      hasOpenThreads);
+      visibleCommentThreadCount > 0);
 
   useEffect(() => {
     if (!recapScreenshotTheme || !recapScreenshotBackground) return;
@@ -2750,14 +2777,20 @@ export function PlansPage() {
     const defaults = iframeRuntimeDefaultsRef.current;
     return injectAnnotationRuntime(
       documentHtml,
-      bundle.comments,
+      visiblePlanComments,
       false,
       defaults.planTheme,
       defaults.preferredEditor,
       commentAvatarUrls,
       currentCommentAuthor,
     );
-  }, [bundle, commentAvatarUrls, currentCommentAuthor, documentHtml]);
+  }, [
+    bundle,
+    commentAvatarUrls,
+    currentCommentAuthor,
+    documentHtml,
+    visiblePlanComments,
+  ]);
 
   const planAgentContext = useMemo(() => {
     if (!bundle) return "";
@@ -3115,14 +3148,6 @@ export function PlansPage() {
     );
   };
 
-  const convertCurrentPlanToPrototype = async () => {
-    if (!bundle?.plan.content) return;
-    await convertPlanToPrototype.mutateAsync({
-      planId: bundle.plan.id,
-    });
-    toast.success("Prototype plan ready");
-  };
-
   const readPlanExport = useCallback(async () => {
     const result = await exportPlan.refetch();
     const data = result.data ?? exportPlan.data;
@@ -3336,10 +3361,25 @@ export function PlansPage() {
     });
   };
 
+  const chooseCommentVisibility = (visibility: CommentVisibility) => {
+    preservePlanReaderScroll(() => {
+      setCommentVisibility(visibility);
+      closeInlineComment();
+      setActiveAnnotation(null);
+      if (visibility === "hidden") {
+        setAnnotationsOpen(false);
+        setAnnotateMode(false);
+        return;
+      }
+      setAnnotationsOpen(true);
+    });
+  };
+
   const startCommenting = () => {
     setCanvasMarkupMode("none");
     setActiveAnnotation(null);
     setAnnotationsOpen(false);
+    setCommentVisibility("open");
     setAnnotateMode(true);
   };
 
@@ -4268,17 +4308,14 @@ export function PlansPage() {
             />
           ) : showPlanLoadError ? (
             <PlanLoadError
-              planId={params.id}
               error={planQuery.error}
               accessStatus={planAccessStatus}
               onRetry={() => void planQuery.refetch()}
-              onCreate={requestCreatePlan}
               onSignIn={() => openSignIn()}
               onGoogleSignIn={startGoogleSignIn}
               onRequestAccess={requestPlanAccess}
               requestAccessPending={requestPlanAccessMutation.isPending}
               accessRequestSent={accessRequestSentPlanId === params.id}
-              canCreate={Boolean(session)}
               viewerEmail={session?.email ?? null}
             />
           ) : showInitialPlanSkeleton ? (
@@ -4464,52 +4501,39 @@ export function PlansPage() {
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end" className="w-56 rounded-xl">
                     <DropdownMenuGroup>
-                      <DropdownMenuItem
-                        onClick={() => {
-                          preservePlanReaderScroll(() => {
-                            setAnnotationsOpen((value) => {
-                              const next = !value;
-                              if (!next) {
-                                closeInlineComment();
-                                setActiveAnnotation(null);
-                              }
-                              return next;
-                            });
-                          });
-                        }}
-                        className="gap-2"
-                      >
-                        <IconMessageCircle className="size-4" />
-                        <span className="flex-1">
-                          {annotationsOpen ? "Close comment panel" : "Comments"}
-                        </span>
-                        {bundle.summary.openCommentCount > 0 && (
-                          <span className="text-xs text-muted-foreground">
-                            {bundle.summary.openCommentCount}
-                          </span>
-                        )}
-                      </DropdownMenuItem>
-                      {hasOpenThreads && (
-                        <DropdownMenuItem
-                          onClick={() => {
-                            preservePlanReaderScroll(() => {
-                              setCommentsHidden((value) => {
-                                const next = !value;
-                                // When showing markers again, close any stale
-                                // active popover so it doesn't re-appear without context.
-                                if (!next) setActiveAnnotation(null);
-                                return next;
-                              });
-                            });
-                          }}
-                          className="gap-2"
+                      <DropdownMenuLabel className="text-xs font-medium text-muted-foreground">
+                        Comments
+                      </DropdownMenuLabel>
+                      <DropdownMenuRadioGroup value={commentVisibility}>
+                        <DropdownMenuRadioItem
+                          value="hidden"
+                          onSelect={() => chooseCommentVisibility("hidden")}
                         >
-                          <IconMessageCircle className="size-4" />
-                          {commentsHidden
-                            ? "Show comment markers"
-                            : "Hide comment markers"}
-                        </DropdownMenuItem>
-                      )}
+                          Hide comments
+                        </DropdownMenuRadioItem>
+                        <DropdownMenuRadioItem
+                          value="open"
+                          onSelect={() => chooseCommentVisibility("open")}
+                        >
+                          <span className="flex-1">Show comments</span>
+                          {hasOpenThreads && (
+                            <span className="text-xs text-muted-foreground">
+                              {bundle.summary.openCommentCount}
+                            </span>
+                          )}
+                        </DropdownMenuRadioItem>
+                        <DropdownMenuRadioItem
+                          value="all"
+                          onSelect={() => chooseCommentVisibility("all")}
+                        >
+                          <span className="flex-1">Show all comments</span>
+                          {resolvedCommentThreadCount > 0 && (
+                            <span className="text-xs text-muted-foreground">
+                              {commentThreads.length}
+                            </span>
+                          )}
+                        </DropdownMenuRadioItem>
+                      </DropdownMenuRadioGroup>
                       <DropdownMenuItem
                         onClick={() => {
                           preservePlanReaderScroll(() => {
@@ -4584,23 +4608,6 @@ export function PlansPage() {
                         >
                           <IconExternalLink className="size-4" />
                           Open prototype window
-                        </DropdownMenuItem>
-                      ) : bundle.plan.content?.canvas && canEditPlanContent ? (
-                        <DropdownMenuItem
-                          onClick={() =>
-                            preservePlanReaderScroll(() => {
-                              void convertCurrentPlanToPrototype();
-                            })
-                          }
-                          className="gap-2"
-                          disabled={convertPlanToPrototype.isPending}
-                        >
-                          {convertPlanToPrototype.isPending ? (
-                            <IconLoader2 className="size-4 animate-spin" />
-                          ) : (
-                            <IconArrowRight className="size-4" />
-                          )}
-                          Convert to prototype
                         </DropdownMenuItem>
                       ) : null}
                     </DropdownMenuGroup>
@@ -4985,7 +4992,8 @@ export function PlansPage() {
               )}
               {annotationsOpen && (
                 <AnnotationsPanel
-                  threads={commentThreads}
+                  threads={visibleCommentThreads}
+                  showResolvedComments={commentVisibility === "all"}
                   avatarUrls={commentAvatarUrls}
                   currentUser={currentCommentAuthor}
                   pendingAuthor={pendingCommentAuthor}
@@ -5741,30 +5749,24 @@ function ReviewMarkupToolbar({
 }
 
 function PlanLoadError({
-  planId,
   error,
   accessStatus,
   onRetry,
-  onCreate,
   onSignIn,
   onGoogleSignIn,
   onRequestAccess,
   requestAccessPending,
   accessRequestSent,
-  canCreate,
   viewerEmail,
 }: {
-  planId?: string;
   error?: unknown;
   accessStatus?: PlanAccessStatusResponse | null;
   onRetry: () => void;
-  onCreate: () => void;
   onSignIn: () => void;
   onGoogleSignIn: () => Promise<void> | void;
   onRequestAccess: () => void;
   requestAccessPending?: boolean;
   accessRequestSent?: boolean;
-  canCreate: boolean;
   /** The signed-in identity for THIS origin, or null when anonymous. */
   viewerEmail?: string | null;
 }) {
@@ -5795,6 +5797,11 @@ function PlanLoadError({
     status === 403 &&
     /not found|no access|forbidden/i.test(message);
   const showAccessHelp = hasNoAccess || likelyPrivatePlan;
+  const orgName = accessStatus?.orgName?.trim() || null;
+  const orgAccessBody =
+    orgName && accessStatus?.visibility === "org"
+      ? `This plan belongs to ${orgName}. You need to be a member of ${orgName} to view it.`
+      : null;
 
   const returnPath = () =>
     window.location.pathname + window.location.search + window.location.hash;
@@ -5883,32 +5890,22 @@ function PlanLoadError({
   const body = planMissing
     ? "This link points to a plan that does not exist on this Plan app."
     : showAccessHelp
-      ? signedIn
-        ? planExists
-          ? "This plan exists, but this account is not on the access list."
-          : "This looks like a private plan link, and this account may not have access."
-        : "This plan is private, sign in to view it"
+      ? orgAccessBody
+        ? orgAccessBody
+        : signedIn
+          ? planExists
+            ? "This plan exists, but this account is not on the access list."
+            : "This looks like a private plan link, and this account may not have access."
+          : "This plan is private, sign in to view it"
       : message;
-  const icon = planMissing ? (
-    <IconSearch className="size-5" />
-  ) : (
-    <IconAlertTriangle className="size-5" />
-  );
 
   return (
     <div className="flex h-full flex-col items-center justify-center bg-background p-8">
       <div className="w-full max-w-md rounded-lg border border-border bg-background p-5 text-left shadow-sm">
         <div className={cn("flex items-start", !showAccessHelp && "gap-3")}>
-          {!showAccessHelp && (
-            <div
-              className={cn(
-                "flex size-10 shrink-0 items-center justify-center rounded-lg border",
-                planMissing
-                  ? "border-border bg-muted/40 text-muted-foreground"
-                  : "border-amber-500/25 bg-amber-500/10 text-amber-600 dark:text-amber-300",
-              )}
-            >
-              {icon}
+          {!showAccessHelp && !planMissing && (
+            <div className="flex size-10 shrink-0 items-center justify-center rounded-lg border border-amber-500/25 bg-amber-500/10 text-amber-600 dark:text-amber-300">
+              <IconAlertTriangle className="size-5" />
             </div>
           )}
           <div className="min-w-0">
@@ -5939,164 +5936,156 @@ function PlanLoadError({
                 private plan link.
               </p>
             ) : null}
-            {planId && !showAccessHelp && (
-              <p className="mt-3 break-all font-mono text-xs text-muted-foreground">
-                {planId}
-              </p>
-            )}
           </div>
         </div>
 
-        <div className="mt-5 flex flex-col gap-2">
-          {showAccessHelp ? (
-            <>
-              {signedIn ? (
-                <Button
-                  type="button"
-                  onClick={onRequestAccess}
-                  disabled={requestAccessPending || accessRequestSent}
-                >
-                  {requestAccessPending ? (
-                    <IconLoader2 className="size-4 animate-spin" />
-                  ) : (
-                    <IconUserPlus className="size-4" />
-                  )}
-                  {accessRequestSent ? "Request sent" : "Request access"}
-                </Button>
-              ) : (
-                <Button
-                  type="button"
-                  onClick={() => void startGoogle()}
-                  disabled={googlePending}
-                  className="h-9 w-full gap-2.5 rounded-md bg-white px-2 text-sm font-medium text-black shadow-none hover:bg-[#e5e5e5] hover:text-black dark:bg-white dark:text-black dark:hover:bg-[#e5e5e5]"
-                >
-                  {googlePending ? (
-                    <IconLoader2 className="size-[18px] animate-spin" />
-                  ) : (
-                    <GoogleLogoIcon className="size-[18px]" />
-                  )}
-                  Continue with Google
-                </Button>
-              )}
-              {signedIn ? (
-                <div className="flex flex-wrap gap-2">
+        {showAccessHelp || !planMissing ? (
+          <div className="mt-5 flex flex-col gap-2">
+            {showAccessHelp ? (
+              <>
+                {signedIn ? (
                   <Button
                     type="button"
-                    variant="outline"
+                    onClick={onRequestAccess}
+                    disabled={requestAccessPending || accessRequestSent}
+                  >
+                    {requestAccessPending ? (
+                      <IconLoader2 className="size-4 animate-spin" />
+                    ) : (
+                      <IconUserPlus className="size-4" />
+                    )}
+                    {accessRequestSent ? "Request sent" : "Request access"}
+                  </Button>
+                ) : (
+                  <Button
+                    type="button"
                     onClick={() => void startGoogle()}
                     disabled={googlePending}
+                    className="h-9 w-full gap-2.5 rounded-md bg-white px-2 text-sm font-medium text-black shadow-none hover:bg-[#e5e5e5] hover:text-black dark:bg-white dark:text-black dark:hover:bg-[#e5e5e5]"
                   >
-                    <IconLogin2 className="size-4" />
-                    Switch account
+                    {googlePending ? (
+                      <IconLoader2 className="size-[18px] animate-spin" />
+                    ) : (
+                      <GoogleLogoIcon className="size-[18px]" />
+                    )}
+                    Continue with Google
                   </Button>
-                </div>
-              ) : null}
-              <Collapsible open={emailOpen} onOpenChange={setEmailOpen}>
-                <CollapsibleTrigger asChild>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    className="w-full justify-between px-2 text-muted-foreground"
-                  >
-                    <span className="inline-flex items-center gap-2">
-                      <IconMail className="size-4" />
-                      Sign in with email
-                    </span>
-                    <IconChevronDown
-                      className={cn(
-                        "size-4 transition-transform",
-                        emailOpen ? "rotate-180" : "",
-                      )}
-                    />
-                  </Button>
-                </CollapsibleTrigger>
-                <CollapsibleContent className="pt-2">
-                  <form
-                    className="space-y-3 rounded-md border border-border bg-muted/20 p-3"
-                    onSubmit={submitEmailAuth}
-                  >
-                    <div className="space-y-1.5">
-                      <Label htmlFor="plan-access-email">Email</Label>
-                      <Input
-                        id="plan-access-email"
-                        type="email"
-                        autoComplete="email"
-                        value={email}
-                        onChange={(event) => setEmail(event.target.value)}
-                        required
-                      />
-                    </div>
-                    <div className="space-y-1.5">
-                      <Label htmlFor="plan-access-password">Password</Label>
-                      <Input
-                        id="plan-access-password"
-                        type="password"
-                        autoComplete={
-                          emailMode === "create"
-                            ? "new-password"
-                            : "current-password"
-                        }
-                        minLength={emailMode === "create" ? 8 : undefined}
-                        value={password}
-                        onChange={(event) => setPassword(event.target.value)}
-                        required
-                      />
-                    </div>
-                    {emailAuthError ? (
-                      <p className="text-sm text-destructive">
-                        {emailAuthError}
-                      </p>
-                    ) : null}
-                    {emailAuthNotice ? (
-                      <p className="text-sm text-muted-foreground">
-                        {emailAuthNotice}
-                      </p>
-                    ) : null}
-                    <div className="flex flex-wrap items-center gap-2">
-                      <Button type="submit" disabled={emailAuthPending}>
-                        {emailAuthPending ? (
-                          <IconLoader2 className="size-4 animate-spin" />
-                        ) : (
-                          <IconLock className="size-4" />
+                )}
+                {signedIn ? (
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => void startGoogle()}
+                      disabled={googlePending}
+                    >
+                      <IconLogin2 className="size-4" />
+                      Switch account
+                    </Button>
+                  </div>
+                ) : null}
+                <Collapsible open={emailOpen} onOpenChange={setEmailOpen}>
+                  <CollapsibleTrigger asChild>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      className="w-full justify-between px-2 text-muted-foreground"
+                    >
+                      <span className="inline-flex items-center gap-2">
+                        <IconMail className="size-4" />
+                        Sign in with email
+                      </span>
+                      <IconChevronDown
+                        className={cn(
+                          "size-4 transition-transform",
+                          emailOpen ? "rotate-180" : "",
                         )}
-                        {emailMode === "create" ? "Create account" : "Sign in"}
-                      </Button>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        onClick={() => {
-                          setEmailMode(
-                            emailMode === "create" ? "sign-in" : "create",
-                          );
-                          setEmailAuthError(null);
-                          setEmailAuthNotice(null);
-                        }}
-                      >
-                        {emailMode === "create"
-                          ? "I have an account"
-                          : "Create account"}
-                      </Button>
-                    </div>
-                  </form>
-                </CollapsibleContent>
-              </Collapsible>
-            </>
-          ) : planMissing ? (
-            <div className="flex flex-wrap gap-2">
-              <Button type="button" variant="outline" onClick={onCreate}>
-                <IconPlus className="size-4" />
-                {canCreate ? "New Plan" : "Sign in"}
-              </Button>
-            </div>
-          ) : (
-            <div className="flex flex-wrap gap-2">
-              <Button type="button" variant="outline" onClick={onSignIn}>
-                <IconExternalLink className="size-4" />
-                Sign in
-              </Button>
-            </div>
-          )}
-        </div>
+                      />
+                    </Button>
+                  </CollapsibleTrigger>
+                  <CollapsibleContent className="pt-2">
+                    <form
+                      className="space-y-3 rounded-md border border-border bg-muted/20 p-3"
+                      onSubmit={submitEmailAuth}
+                    >
+                      <div className="space-y-1.5">
+                        <Label htmlFor="plan-access-email">Email</Label>
+                        <Input
+                          id="plan-access-email"
+                          type="email"
+                          autoComplete="email"
+                          value={email}
+                          onChange={(event) => setEmail(event.target.value)}
+                          required
+                        />
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label htmlFor="plan-access-password">Password</Label>
+                        <Input
+                          id="plan-access-password"
+                          type="password"
+                          autoComplete={
+                            emailMode === "create"
+                              ? "new-password"
+                              : "current-password"
+                          }
+                          minLength={emailMode === "create" ? 8 : undefined}
+                          value={password}
+                          onChange={(event) => setPassword(event.target.value)}
+                          required
+                        />
+                      </div>
+                      {emailAuthError ? (
+                        <p className="text-sm text-destructive">
+                          {emailAuthError}
+                        </p>
+                      ) : null}
+                      {emailAuthNotice ? (
+                        <p className="text-sm text-muted-foreground">
+                          {emailAuthNotice}
+                        </p>
+                      ) : null}
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Button type="submit" disabled={emailAuthPending}>
+                          {emailAuthPending ? (
+                            <IconLoader2 className="size-4 animate-spin" />
+                          ) : (
+                            <IconLock className="size-4" />
+                          )}
+                          {emailMode === "create"
+                            ? "Create account"
+                            : "Sign in"}
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          onClick={() => {
+                            setEmailMode(
+                              emailMode === "create" ? "sign-in" : "create",
+                            );
+                            setEmailAuthError(null);
+                            setEmailAuthNotice(null);
+                          }}
+                        >
+                          {emailMode === "create"
+                            ? "I have an account"
+                            : "Create account"}
+                        </Button>
+                      </div>
+                    </form>
+                  </CollapsibleContent>
+                </Collapsible>
+              </>
+            ) : (
+              <div className="flex flex-wrap gap-2">
+                <Button type="button" variant="outline" onClick={onSignIn}>
+                  <IconExternalLink className="size-4" />
+                  Sign in
+                </Button>
+              </div>
+            )}
+          </div>
+        ) : null}
       </div>
       <Button
         type="button"
@@ -7969,6 +7958,7 @@ function AnnotationPopover({
 
 function AnnotationsPanel({
   threads,
+  showResolvedComments,
   avatarUrls,
   currentUser,
   pendingAuthor,
@@ -7983,6 +7973,7 @@ function AnnotationsPanel({
   onClose,
 }: {
   threads: CommentThread[];
+  showResolvedComments: boolean;
   avatarUrls: Record<string, string | null>;
   currentUser?: CurrentCommentAuthor | null;
   pendingAuthor: CommentAuthorPresentation;
@@ -8001,6 +7992,12 @@ function AnnotationsPanel({
 }) {
   const panelRef = useRef<HTMLElement>(null);
   const [filterTab, setFilterTab] = useState<"open" | "resolved">("open");
+
+  useEffect(() => {
+    if (!showResolvedComments && filterTab === "resolved") {
+      setFilterTab("open");
+    }
+  }, [filterTab, showResolvedComments]);
 
   // Move focus into the panel when it opens.
   useEffect(() => {
@@ -8033,11 +8030,13 @@ function AnnotationsPanel({
   const openThreads = threads.filter(
     (thread) => commentThreadStatus(thread) === "open",
   );
-  const resolvedThreads = threads.filter(
-    (thread) => commentThreadStatus(thread) === "resolved",
-  );
+  const resolvedThreads = showResolvedComments
+    ? threads.filter((thread) => commentThreadStatus(thread) === "resolved")
+    : [];
   const visibleThreads =
-    filterTab === "resolved" ? resolvedThreads : openThreads;
+    showResolvedComments && filterTab === "resolved"
+      ? resolvedThreads
+      : openThreads;
   return (
     <aside
       ref={panelRef}
@@ -8060,38 +8059,43 @@ function AnnotationsPanel({
           <IconX className="size-4" />
         </Button>
       </div>
-      <div className="shrink-0 border-b border-border/60 px-3 py-2">
-        <Tabs
-          value={filterTab}
-          onValueChange={(v) =>
-            setFilterTab(v === "resolved" ? "resolved" : "open")
-          }
-        >
-          <TabsList className="h-7 gap-0.5 rounded-lg p-0.5">
-            <TabsTrigger value="open" className="h-6 gap-1.5 px-2 text-xs">
-              Open
-              {openThreads.length > 0 && (
-                <span className="rounded-md bg-muted px-1 text-[10px] font-medium text-muted-foreground">
-                  {openThreads.length}
-                </span>
-              )}
-            </TabsTrigger>
-            <TabsTrigger value="resolved" className="h-6 gap-1.5 px-2 text-xs">
-              Resolved
-              {resolvedThreads.length > 0 && (
-                <span className="rounded-md bg-muted px-1 text-[10px] font-medium text-muted-foreground">
-                  {resolvedThreads.length}
-                </span>
-              )}
-            </TabsTrigger>
-          </TabsList>
-        </Tabs>
-      </div>
+      {showResolvedComments && (
+        <div className="shrink-0 border-b border-border/60 px-3 py-2">
+          <Tabs
+            value={filterTab}
+            onValueChange={(v) =>
+              setFilterTab(v === "resolved" ? "resolved" : "open")
+            }
+          >
+            <TabsList className="h-7 gap-0.5 rounded-lg p-0.5">
+              <TabsTrigger value="open" className="h-6 gap-1.5 px-2 text-xs">
+                Open
+                {openThreads.length > 0 && (
+                  <span className="rounded-md bg-muted px-1 text-[10px] font-medium text-muted-foreground">
+                    {openThreads.length}
+                  </span>
+                )}
+              </TabsTrigger>
+              <TabsTrigger
+                value="resolved"
+                className="h-6 gap-1.5 px-2 text-xs"
+              >
+                Resolved
+                {resolvedThreads.length > 0 && (
+                  <span className="rounded-md bg-muted px-1 text-[10px] font-medium text-muted-foreground">
+                    {resolvedThreads.length}
+                  </span>
+                )}
+              </TabsTrigger>
+            </TabsList>
+          </Tabs>
+        </div>
+      )}
       <ScrollArea className="min-h-0 flex-1">
         <div className="space-y-3 p-3">
           {visibleThreads.length === 0 ? (
             <p className="rounded-lg border border-dashed border-border p-4 text-sm leading-6 text-muted-foreground">
-              {filterTab === "resolved"
+              {showResolvedComments && filterTab === "resolved"
                 ? "No resolved comments."
                 : "No open comments. Click Comment, then click to place one."}
             </p>

@@ -1344,6 +1344,7 @@ export interface AgentLoopFinalResponseGuardContext {
   toolCalls: AgentLoopToolCallSummary[];
   toolResults: AgentLoopToolResultSummary[];
   retryCount: number;
+  executionMode: AgentExecutionMode;
 }
 
 export type AgentLoopFinalResponseGuardResult =
@@ -2055,6 +2056,7 @@ export async function runAgentLoop(opts: {
             toolCalls: [...toolCallHistory],
             toolResults: [...toolResultHistory],
             retryCount: finalGuardRetries,
+            executionMode: opts.executionMode ?? "act",
           })
         : null;
       let guardEmittedFallback = false;

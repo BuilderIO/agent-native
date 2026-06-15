@@ -123,7 +123,7 @@
 
   .dark .plan-content-surface {
     --plan-document: hsl(32 3% 13%);
-    --plan-canvas: color-mix(in srgb, var(--plan-document) 96%, black);
+    --plan-canvas: color-mix(in srgb, var(--plan-document) 80%, black);
     --plan-block: hsl(32 3% 15.5%);
     --plan-chrome: hsl(32 3% 15.5% / 0.92);
     --plan-line: hsl(34 4% 24%);

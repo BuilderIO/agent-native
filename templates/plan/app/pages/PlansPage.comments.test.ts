@@ -6,6 +6,7 @@ import {
   buildCommentThreads,
   canEditPlanContentRole,
   commentAuthorEmails,
+  commentThreadsForVisibility,
   mentionQueryAtCaret,
   runtimeAnnotationFromThread,
   nativePointForAnchor,
@@ -147,6 +148,41 @@ describe("plan comment thread UI model", () => {
       commentCount: 2,
       openCommentCount: 2,
     });
+  });
+
+  it("filters comment threads for the toolbar visibility modes", () => {
+    const openRoot = comment("open-root", {
+      createdAt: "2026-06-05T00:00:01.000Z",
+    });
+    const resolvedRoot = comment("resolved-root", {
+      status: "resolved",
+      createdAt: "2026-06-05T00:00:02.000Z",
+    });
+    const mixedRoot = comment("mixed-root", {
+      status: "resolved",
+      createdAt: "2026-06-05T00:00:03.000Z",
+    });
+    const mixedReply = comment("mixed-reply", {
+      parentCommentId: mixedRoot.id,
+      status: "open",
+      createdAt: "2026-06-05T00:00:04.000Z",
+    });
+    const threads = buildCommentThreads([
+      resolvedRoot,
+      mixedReply,
+      openRoot,
+      mixedRoot,
+    ]);
+
+    expect(
+      commentThreadsForVisibility(threads, "hidden").map((thread) => thread.id),
+    ).toEqual([]);
+    expect(
+      commentThreadsForVisibility(threads, "open").map((thread) => thread.id),
+    ).toEqual(["open-root", "mixed-root"]);
+    expect(
+      commentThreadsForVisibility(threads, "all").map((thread) => thread.id),
+    ).toEqual(["open-root", "resolved-root", "mixed-root"]);
   });
 
   it("groups replies and exposes participant avatars for Figma-style pins", () => {

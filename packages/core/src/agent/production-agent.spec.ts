@@ -2009,6 +2009,10 @@ describe("runAgentLoop", () => {
 
     expect(streamCalls).toBe(3);
     expect(guard).toHaveBeenCalledTimes(2);
+    expect(guard.mock.calls.map(([ctx]) => ctx.executionMode)).toEqual([
+      "act",
+      "act",
+    ]);
     expect(events).not.toContainEqual({
       type: "text",
       text: "Looks up and to the right.",
@@ -2026,6 +2030,47 @@ describe("runAgentLoop", () => {
     expect(JSON.stringify(seenMessages[1])).toContain(
       "This answer needs a real data-source query",
     );
+  });
+
+  it("passes plan execution mode to final-response guards", async () => {
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        yield { type: "text-delta", text: "Plan only." };
+        yield {
+          type: "assistant-content",
+          parts: [{ type: "text" as const, text: "Plan only." }],
+        };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+    const guard = vi.fn(() => null);
+
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "plan" }] }],
+      actions: {},
+      send: () => {},
+      signal: new AbortController().signal,
+      executionMode: "plan",
+      finalResponseGuard: guard,
+    });
+
+    expect(guard).toHaveBeenCalledTimes(1);
+    expect(guard.mock.calls[0]?.[0].executionMode).toBe("plan");
   });
 
   it("flushes guarded final-answer text after the guard accepts it", async () => {

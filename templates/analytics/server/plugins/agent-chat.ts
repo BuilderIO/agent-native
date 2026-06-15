@@ -34,6 +34,9 @@ function latestUserText(
 }
 
 function realDataFinalGuard(context: AgentLoopFinalResponseGuardContext) {
+  if ((context as { executionMode?: string }).executionMode === "plan") {
+    return null;
+  }
   const userText = latestUserText(context.messages ?? []);
   if (!looksLikeAnalyticsDataRequest(userText)) return null;
   if (hasDataQueryAttempt(context.toolResults)) return null;

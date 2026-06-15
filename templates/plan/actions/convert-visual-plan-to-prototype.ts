@@ -21,7 +21,7 @@ import {
 
 export default defineAction({
   description:
-    "Convert an existing visual plan's HTML canvas wireframes into a clickable prototype. Use this when the plan already has canvas wireframes; to create a prototype from scratch use create-prototype-plan. The prototype viewer appears above the document; canvas/mocks remain available unless removeCanvas is true. Publish via this tool; never reproduce the prototype as inline chat text.",
+    "Legacy conversion for existing visual plan HTML canvas wireframes. It creates a navigable review draft from static mocks; for a functional prototype with local state and realistic controls, use create-prototype-plan instead. The prototype viewer appears above the document; canvas/mocks remain available unless removeCanvas is true. Publish via this tool; never reproduce the prototype as inline chat text.",
   schema: z.object({
     planId: z.string().describe("Visual plan ID to convert"),
     title: z
@@ -45,9 +45,9 @@ export default defineAction({
     readOnly: false,
     requiresAuth: true,
     isConsequential: true,
-    title: "Convert To Prototype Plan",
+    title: "Create Navigable Wireframe Draft",
     description:
-      "Turn an existing visual plan's canvas mockups into a clickable prototype review surface.",
+      "Turn existing canvas mockups into a navigable draft; use create-prototype-plan for functional prototypes.",
   },
   mcpApp: {
     compactCatalog: true,

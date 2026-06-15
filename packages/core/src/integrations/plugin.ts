@@ -302,6 +302,7 @@ function remoteCodeCommandParams(
     return {
       runId: readString(command.runRef) ?? readString(command.runId),
       prompt: readString(command.text) ?? readString(command.prompt),
+      permissionMode: readString(command.permissionMode),
     };
   }
   if (type === "approve" || type === "deny") {
@@ -343,6 +344,7 @@ function enqueueBodyToRemoteCodeCommand(
       text: payload.prompt ?? payload.message,
       hostId: payload.hostId,
       deviceId: payload.deviceId,
+      permissionMode: payload.permissionMode,
     };
   }
   if (operation === "code-agent.pending-command.decide") {
