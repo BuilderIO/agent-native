@@ -231,7 +231,7 @@ function sourceMetadataLabel(
     : `mock-local.${sourceTable}`;
 }
 
-function serializeSourceField(
+export function serializeSourceField(
   row: ContentDatabaseSourceFieldRowDb,
   propertyName: string | null,
 ): ContentDatabaseSourceFieldMapping {

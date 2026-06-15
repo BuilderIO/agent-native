@@ -521,6 +521,13 @@ export interface ContentDatabaseResponse {
   duplicatedDocumentId?: string;
 }
 
+export interface ContentDatabaseSourceFieldPropertyResponse {
+  databaseId: string;
+  documentId: string;
+  property: DocumentProperty;
+  sourceField: ContentDatabaseSourceFieldMapping;
+}
+
 export interface CreateDatabaseRequest {
   documentId?: string;
   parentId?: string | null;

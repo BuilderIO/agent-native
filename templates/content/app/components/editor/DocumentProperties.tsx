@@ -82,6 +82,10 @@ import {
   useSetDocumentProperty,
 } from "@/hooks/use-document-properties";
 import {
+  applySourceFieldPropertyToDatabaseResponse,
+  contentDatabaseQueryKey,
+} from "@/hooks/use-content-database";
+import {
   CREATABLE_DOCUMENT_PROPERTY_TYPES,
   DOCUMENT_PROPERTY_TYPE_LABELS,
   DOCUMENT_PROPERTY_VISIBILITY_LABELS,
@@ -102,6 +106,7 @@ import {
 import type {
   AddContentDatabaseSourceFieldPropertyRequest,
   ContentDatabaseResponse,
+  ContentDatabaseSourceFieldPropertyResponse,
   ContentDatabaseSource,
   DocumentProperty,
 } from "@shared/api";
@@ -2307,13 +2312,14 @@ export function AddProperty({
   const configure = useConfigureDocumentProperty(documentId);
   const queryClient = useQueryClient();
   const addSourceFieldProperty = useActionMutation<
-    ContentDatabaseResponse,
+    ContentDatabaseSourceFieldPropertyResponse,
     AddContentDatabaseSourceFieldPropertyRequest
   >("add-content-database-source-field-property", {
-    onSuccess: () => {
-      queryClient.invalidateQueries({
-        queryKey: ["action", "get-content-database", { documentId }],
-      });
+    onSuccess: (data) => {
+      queryClient.setQueryData<ContentDatabaseResponse>(
+        contentDatabaseQueryKey(documentId),
+        (current) => applySourceFieldPropertyToDatabaseResponse(current, data),
+      );
       queryClient.invalidateQueries({
         queryKey: ["action", "list-document-properties", { documentId }],
       });
@@ -2336,14 +2342,14 @@ export function AddProperty({
                 .includes(typeQuery.trim().toLowerCase()),
           ),
         ].sort((a, b) => {
-            if (a.mappingType === "system" && b.mappingType !== "system") {
-              return 1;
-            }
-            if (a.mappingType !== "system" && b.mappingType === "system") {
-              return -1;
-            }
-            return a.sourceFieldLabel.localeCompare(b.sourceFieldLabel);
-          })
+          if (a.mappingType === "system" && b.mappingType !== "system") {
+            return 1;
+          }
+          if (a.mappingType !== "system" && b.mappingType === "system") {
+            return -1;
+          }
+          return a.sourceFieldLabel.localeCompare(b.sourceFieldLabel);
+        })
       : [];
   const addPropertyNameInputRef = useRef<HTMLInputElement>(null);
 

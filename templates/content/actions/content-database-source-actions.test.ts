@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import attachSource from "./attach-content-database-source";
-import addSourceFieldProperty from "./add-content-database-source-field-property";
+import addSourceFieldProperty, {
+  propertyTypeForSourceField,
+} from "./add-content-database-source-field-property";
 import disconnectSource from "./disconnect-content-database-source";
 import executeExecution from "./execute-builder-source-execution";
 import getSource from "./get-content-database-source";
@@ -75,6 +77,15 @@ describe("content database source actions", () => {
       documentId: "database-page",
       sourceFieldId: "source-field",
     });
+  });
+
+  it("maps Builder source field types to local property types", () => {
+    expect(propertyTypeForSourceField("number")).toBe("number");
+    expect(propertyTypeForSourceField("datetime")).toBe("date");
+    expect(propertyTypeForSourceField("date")).toBe("date");
+    expect(propertyTypeForSourceField("url")).toBe("url");
+    expect(propertyTypeForSourceField("boolean")).toBe("checkbox");
+    expect(propertyTypeForSourceField("text")).toBe("text");
   });
 
   it("accepts no-argument Builder model discovery requests", () => {

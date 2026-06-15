@@ -4,7 +4,7 @@ import { and, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 import type {
   AddContentDatabaseSourceFieldPropertyRequest,
-  ContentDatabaseResponse,
+  ContentDatabaseSourceFieldPropertyResponse,
 } from "../shared/api.js";
 import {
   defaultPropertyOptions,
@@ -13,10 +13,14 @@ import {
 } from "../shared/properties.js";
 import { getDb, schema } from "../server/db/index.js";
 import { nanoid } from "./_property-utils.js";
-import { resolveDatabaseForSourceMutation } from "./_database-source-utils.js";
-import { getContentDatabaseResponse } from "./_database-utils.js";
+import {
+  resolveDatabaseForSourceMutation,
+  serializeSourceField,
+} from "./_database-source-utils.js";
 
-function propertyTypeForSourceField(sourceFieldType: string): DocumentPropertyType {
+export function propertyTypeForSourceField(
+  sourceFieldType: string,
+): DocumentPropertyType {
   if (sourceFieldType === "number") return "number";
   if (sourceFieldType === "datetime" || sourceFieldType === "date") {
     return "date";
@@ -38,7 +42,7 @@ export default defineAction({
   }),
   run: async (
     args: AddContentDatabaseSourceFieldPropertyRequest,
-  ): Promise<ContentDatabaseResponse> => {
+  ): Promise<ContentDatabaseSourceFieldPropertyResponse> => {
     const database = await resolveDatabaseForSourceMutation(args);
     if (!database) throw new Error("Database not found.");
     await assertAccess("document", database.documentId, "editor");
@@ -59,7 +63,9 @@ export default defineAction({
           eq(schema.contentDatabaseSources.databaseId, database.id),
         ),
       );
-    if (!source) throw new Error("Source field does not belong to this database.");
+    if (!source) {
+      throw new Error("Source field does not belong to this database.");
+    }
     if (field.propertyId) {
       throw new Error("Source field is already mapped to a property.");
     }
@@ -69,6 +75,8 @@ export default defineAction({
 
     const now = new Date().toISOString();
     const type = propertyTypeForSourceField(field.sourceFieldType);
+    const visibility = normalizePropertyVisibility(undefined);
+    const options = defaultPropertyOptions(type);
     const [maxPos] = await db
       .select({
         max: sql<number>`COALESCE(MAX(position), -1)`,
@@ -76,7 +84,10 @@ export default defineAction({
       .from(schema.documentPropertyDefinitions)
       .where(
         and(
-          eq(schema.documentPropertyDefinitions.ownerEmail, database.ownerEmail),
+          eq(
+            schema.documentPropertyDefinitions.ownerEmail,
+            database.ownerEmail,
+          ),
           eq(schema.documentPropertyDefinitions.databaseId, database.id),
         ),
       );
@@ -89,8 +100,8 @@ export default defineAction({
       databaseId: database.id,
       name: field.sourceFieldLabel,
       type,
-      visibility: normalizePropertyVisibility(undefined),
-      optionsJson: JSON.stringify(defaultPropertyOptions(type)),
+      visibility,
+      optionsJson: JSON.stringify(options),
       position: (maxPos?.max ?? -1) + 1,
       createdAt: now,
       updatedAt: now,
@@ -111,6 +122,36 @@ export default defineAction({
       .set({ updatedAt: now })
       .where(eq(schema.contentDatabaseSources.id, source.id));
 
-    return getContentDatabaseResponse(database.id);
+    const sourceField = serializeSourceField(
+      {
+        ...field,
+        propertyId,
+        localFieldKey: propertyId,
+        mappingType: "property",
+        updatedAt: now,
+      },
+      field.sourceFieldLabel,
+    );
+
+    return {
+      databaseId: database.id,
+      documentId: database.documentId,
+      property: {
+        definition: {
+          id: propertyId,
+          databaseId: database.id,
+          name: field.sourceFieldLabel,
+          type,
+          visibility,
+          options,
+          position: (maxPos?.max ?? -1) + 1,
+          createdAt: now,
+          updatedAt: now,
+        },
+        value: null,
+        editable: true,
+      },
+      sourceField,
+    };
   },
 });

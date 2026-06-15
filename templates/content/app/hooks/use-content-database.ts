@@ -5,6 +5,7 @@ import type {
   AttachContentDatabaseSourceRequest,
   BuilderCmsModelsResponse,
   ContentDatabaseResponse,
+  ContentDatabaseSourceFieldPropertyResponse,
   ContentDatabaseSourceStatusResponse,
   CreateDatabaseRequest,
   DisconnectContentDatabaseSourceRequest,
@@ -22,6 +23,57 @@ import type {
   UpdateContentDatabaseViewRequest,
   ValidateBuilderSourceExecutionRequest,
 } from "@shared/api";
+
+export function contentDatabaseQueryKey(documentId: string) {
+  return ["action", "get-content-database", { documentId }] as const;
+}
+
+export function applySourceFieldPropertyToDatabaseResponse(
+  current: ContentDatabaseResponse | undefined,
+  patch: ContentDatabaseSourceFieldPropertyResponse,
+): ContentDatabaseResponse | undefined {
+  if (!current || current.database.id !== patch.databaseId) return current;
+
+  const hasProperty = current.properties.some(
+    (property) => property.definition.id === patch.property.definition.id,
+  );
+  const properties = hasProperty
+    ? current.properties.map((property) =>
+        property.definition.id === patch.property.definition.id
+          ? patch.property
+          : property,
+      )
+    : [...current.properties, patch.property].sort(
+        (a, b) => a.definition.position - b.definition.position,
+      );
+
+  return {
+    ...current,
+    properties,
+    items: current.items.map((item) => {
+      const itemHasProperty = item.properties.some(
+        (property) => property.definition.id === patch.property.definition.id,
+      );
+      return itemHasProperty
+        ? item
+        : {
+            ...item,
+            properties: [
+              ...item.properties,
+              { ...patch.property, value: null },
+            ],
+          };
+    }),
+    source: current.source
+      ? {
+          ...current.source,
+          fields: current.source.fields.map((field) =>
+            field.id === patch.sourceField.id ? patch.sourceField : field,
+          ),
+        }
+      : current.source,
+  };
+}
 
 export function useContentDatabase(documentId: string | null) {
   return useActionQuery<ContentDatabaseResponse>(
@@ -45,7 +97,7 @@ export function useCreateContentDatabase(documentId: string | null) {
             queryKey: ["action", "get-document", { id: documentId }],
           });
           queryClient.invalidateQueries({
-            queryKey: ["action", "get-content-database", { documentId }],
+            queryKey: contentDatabaseQueryKey(documentId),
           });
         }
         queryClient.invalidateQueries({
@@ -70,7 +122,7 @@ export function useAddDatabaseItem(documentId: string) {
     {
       onSuccess: () => {
         queryClient.invalidateQueries({
-          queryKey: ["action", "get-content-database", { documentId }],
+          queryKey: contentDatabaseQueryKey(documentId),
         });
         queryClient.invalidateQueries({
           queryKey: ["action", "list-documents"],
@@ -88,7 +140,7 @@ export function useDuplicateDatabaseItem(documentId: string) {
   >("duplicate-database-item", {
     onSuccess: () => {
       queryClient.invalidateQueries({
-        queryKey: ["action", "get-content-database", { documentId }],
+        queryKey: contentDatabaseQueryKey(documentId),
       });
       queryClient.invalidateQueries({
         queryKey: ["action", "list-documents"],
@@ -104,7 +156,7 @@ export function useMoveDatabaseItem(documentId: string) {
     {
       onSuccess: () => {
         queryClient.invalidateQueries({
-          queryKey: ["action", "get-content-database", { documentId }],
+          queryKey: contentDatabaseQueryKey(documentId),
         });
         queryClient.invalidateQueries({
           queryKey: ["action", "list-documents"],
@@ -122,7 +174,7 @@ export function useUpdateContentDatabaseView(documentId: string) {
   >("update-content-database-view", {
     onSuccess: () => {
       queryClient.invalidateQueries({
-        queryKey: ["action", "get-content-database", { documentId }],
+        queryKey: contentDatabaseQueryKey(documentId),
       });
       queryClient.invalidateQueries({
         queryKey: ["action", "get-content-database-source", { documentId }],
@@ -139,7 +191,7 @@ export function useAttachContentDatabaseSource(documentId: string) {
   >("attach-content-database-source", {
     onSuccess: () => {
       queryClient.invalidateQueries({
-        queryKey: ["action", "get-content-database", { documentId }],
+        queryKey: contentDatabaseQueryKey(documentId),
       });
     },
   });
@@ -164,7 +216,7 @@ export function useRefreshContentDatabaseSource(documentId: string) {
   >("refresh-content-database-source", {
     onSuccess: () => {
       queryClient.invalidateQueries({
-        queryKey: ["action", "get-content-database", { documentId }],
+        queryKey: contentDatabaseQueryKey(documentId),
       });
       queryClient.invalidateQueries({
         queryKey: ["action", "get-content-database-source", { documentId }],
@@ -181,7 +233,7 @@ export function useDisconnectContentDatabaseSource(documentId: string) {
   >("disconnect-content-database-source", {
     onSuccess: () => {
       queryClient.invalidateQueries({
-        queryKey: ["action", "get-content-database", { documentId }],
+        queryKey: contentDatabaseQueryKey(documentId),
       });
       queryClient.invalidateQueries({
         queryKey: ["action", "get-content-database-source", { documentId }],
@@ -198,7 +250,7 @@ export function useProposeContentDatabaseSourceChangeSet(documentId: string) {
   >("propose-content-database-source-change-set", {
     onSuccess: () => {
       queryClient.invalidateQueries({
-        queryKey: ["action", "get-content-database", { documentId }],
+        queryKey: contentDatabaseQueryKey(documentId),
       });
       queryClient.invalidateQueries({
         queryKey: ["action", "get-content-database-source", { documentId }],
@@ -215,7 +267,7 @@ export function useStageBuilderRevision(documentId: string) {
   >("stage-builder-revision", {
     onSuccess: () => {
       queryClient.invalidateQueries({
-        queryKey: ["action", "get-content-database", { documentId }],
+        queryKey: contentDatabaseQueryKey(documentId),
       });
       queryClient.invalidateQueries({
         queryKey: ["action", "get-content-database-source", { documentId }],
@@ -232,7 +284,7 @@ export function useReviewContentDatabaseSourceChangeSet(documentId: string) {
   >("review-content-database-source-change-set", {
     onSuccess: () => {
       queryClient.invalidateQueries({
-        queryKey: ["action", "get-content-database", { documentId }],
+        queryKey: contentDatabaseQueryKey(documentId),
       });
       queryClient.invalidateQueries({
         queryKey: ["action", "get-content-database-source", { documentId }],
@@ -249,7 +301,7 @@ export function usePrepareBuilderSourceExecution(documentId: string) {
   >("prepare-builder-source-execution", {
     onSuccess: () => {
       queryClient.invalidateQueries({
-        queryKey: ["action", "get-content-database", { documentId }],
+        queryKey: contentDatabaseQueryKey(documentId),
       });
       queryClient.invalidateQueries({
         queryKey: ["action", "get-content-database-source", { documentId }],
@@ -266,7 +318,7 @@ export function useValidateBuilderSourceExecution(documentId: string) {
   >("validate-builder-source-execution", {
     onSuccess: () => {
       queryClient.invalidateQueries({
-        queryKey: ["action", "get-content-database", { documentId }],
+        queryKey: contentDatabaseQueryKey(documentId),
       });
       queryClient.invalidateQueries({
         queryKey: ["action", "get-content-database-source", { documentId }],
@@ -283,7 +335,7 @@ export function useExecuteBuilderSourceExecution(documentId: string) {
   >("execute-builder-source-execution", {
     onSuccess: () => {
       queryClient.invalidateQueries({
-        queryKey: ["action", "get-content-database", { documentId }],
+        queryKey: contentDatabaseQueryKey(documentId),
       });
       queryClient.invalidateQueries({
         queryKey: ["action", "get-content-database-source", { documentId }],
@@ -300,7 +352,7 @@ export function useSetContentDatabaseSourceWriteMode(documentId: string) {
   >("set-content-database-source-write-mode", {
     onSuccess: () => {
       queryClient.invalidateQueries({
-        queryKey: ["action", "get-content-database", { documentId }],
+        queryKey: contentDatabaseQueryKey(documentId),
       });
       queryClient.invalidateQueries({
         queryKey: ["action", "get-content-database-source", { documentId }],
@@ -317,7 +369,7 @@ export function usePrepareBuilderSourceReview(documentId: string) {
   >("prepare-builder-source-review", {
     onSuccess: () => {
       queryClient.invalidateQueries({
-        queryKey: ["action", "get-content-database", { documentId }],
+        queryKey: contentDatabaseQueryKey(documentId),
       });
       queryClient.invalidateQueries({
         queryKey: ["action", "get-content-database-source", { documentId }],
