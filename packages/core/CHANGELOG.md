@@ -1,5 +1,21 @@
 # @agent-native/core
 
+## 0.49.23
+
+### Patch Changes
+
+- dc1e7a0: Serve compact MCP tool catalogs by default and require explicit full-catalog opt-in.
+- dc1e7a0: Improve agent-native analytics substrate: general provider staging detects single
+  array payloads, code execution can call agent-exposed read-only actions, and
+  providerFetch preserves structured request options.
+- dc1e7a0: Harden PR visual recap screenshots by installing browsers from the recap CLI's Playwright package, retrying oversized screenshots at CSS scale, surfacing screenshot/upload diagnostics, and restoring fork workflow MCP smoke-test parity.
+- dc1e7a0: Make MCP reconnect more resilient when OAuth metadata discovery is temporarily
+  unavailable by retrying discovery and falling back to bearer-token reconnect for
+  existing connectors.
+- dc1e7a0: Soften recap code annotation cards and limit screenshot capture mode to one expanded annotation per block.
+- dc1e7a0: Make PR visual recaps publish from an agent-authored source file through the
+  deterministic CLI, avoiding flaky MCP tool discovery inside CI agent runtimes.
+
 ## 0.49.22
 
 ### Patch Changes
