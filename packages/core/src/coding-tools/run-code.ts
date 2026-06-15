@@ -39,6 +39,22 @@ const MAX_OUTPUT_CHARS = 200_000;
 /** Hard cap on bridge request bodies so sandboxed code can't exhaust parent memory. */
 const BRIDGE_MAX_BODY_BYTES = 10 * 1024 * 1024;
 
+function sandboxReadAllowPaths(tmpDir: string): string[] {
+  const paths = new Set<string>([tmpDir]);
+  try {
+    paths.add(fs.realpathSync(tmpDir));
+  } catch {}
+  return [...paths];
+}
+
+function sandboxWriteAllowPaths(tmpDir: string): string[] {
+  const paths = new Set<string>([tmpDir]);
+  try {
+    paths.add(fs.realpathSync(tmpDir));
+  } catch {}
+  return [...paths];
+}
+
 /**
  * Resolve the Node permission-model flag supported by the current runtime,
  * probing once and caching. Returns null when the permission model is
@@ -215,8 +231,12 @@ export function createRunCodeEntry(
         const nodeArgs = permissionFlag
           ? [
               permissionFlag,
-              `--allow-fs-read=${tmpDir}`,
-              `--allow-fs-write=${tmpDir}`,
+              ...sandboxReadAllowPaths(tmpDir).map(
+                (allowedPath) => `--allow-fs-read=${allowedPath}`,
+              ),
+              ...sandboxWriteAllowPaths(tmpDir).map(
+                (allowedPath) => `--allow-fs-write=${allowedPath}`,
+              ),
               tmpFile,
             ]
           : [tmpFile];
