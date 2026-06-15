@@ -1,5 +1,11 @@
 # @agent-native/skills
 
+## 0.2.4
+
+### Patch Changes
+
+- dc1e7a0: Keep generated connect entries on the compact MCP catalog by default.
+
 ## 0.2.3
 
 ### Patch Changes
