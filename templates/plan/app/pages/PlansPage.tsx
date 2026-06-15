@@ -158,6 +158,7 @@ import type {
   CanvasMarkupMode,
 } from "@/components/plan/CanvasArea";
 import {
+  planBundleQueryKey,
   usePlan,
   usePlanAccessStatus,
   usePlans,
@@ -426,10 +427,6 @@ function shortDate(value: string) {
 
 function statusLabel(status: string) {
   return status.replace(/_/g, " ");
-}
-
-function planBundleQueryKey(planId: string) {
-  return ["action", "get-visual-plan", { id: planId }] as const;
 }
 
 function newCommentId() {
