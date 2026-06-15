@@ -1419,6 +1419,16 @@ type RecapMcpSmokeFailure = {
 
 export type RecapMcpSmokeResult = RecapMcpSmokeOk | RecapMcpSmokeFailure;
 
+/**
+ * Per-attempt timeout for the non-mutating MCP smoke probe. Short enough that
+ * the workflow's 3-attempt retry loop can recover from a cold-start hang within
+ * the job budget, long enough not to flake on a warm-but-slow response. The
+ * plan app is serverless and intermittently 404s / stalls during a cold start
+ * or mid-deploy; without a bound, undici's multi-minute default header/body
+ * timeout would burn the whole job on a single stuck attempt.
+ */
+const RECAP_MCP_SMOKE_TIMEOUT_MS = 15_000;
+
 function recapMcpUrl(appUrl: string): string {
   return appUrl.replace(/\/$/, "") + "/_agent-native/mcp";
 }
@@ -1492,6 +1502,10 @@ async function postRecapMcpRpc(input: {
       method: input.method,
       params: input.params ?? {},
     }),
+    // Bound each attempt so a cold-start hang fails fast and the workflow's
+    // smoke retry loop can re-probe a (by-then warm) endpoint, instead of
+    // blocking on undici's multi-minute default timeout.
+    signal: AbortSignal.timeout(RECAP_MCP_SMOKE_TIMEOUT_MS),
   });
 
   const raw = await response.text().catch((err) => String(err));

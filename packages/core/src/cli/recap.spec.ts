@@ -463,6 +463,51 @@ describe("recap mcp-smoke", () => {
     expect(calls[0].headers["mcp-protocol-version"]).toBe("2025-06-18");
   });
 
+  it("bounds each smoke probe with an abort timeout signal", async () => {
+    const signals: Array<unknown> = [];
+    const fetchFn: typeof fetch = (async (_input, init) => {
+      signals.push(init?.signal);
+      const body = JSON.parse(String(init?.body ?? "{}"));
+      if (body.method === "initialize") {
+        return jsonRpcResponse({ protocolVersion: "2025-06-18" });
+      }
+      return jsonRpcResponse({
+        tools: RECAP_MCP_REQUIRED_TOOLS.map((name) => ({ name })),
+      });
+    }) as typeof fetch;
+
+    const result = await smokeRecapMcpTools({
+      appUrl: "https://plan.agent-native.com",
+      token: "tok-123456789",
+      fetchFn,
+    });
+
+    expect(result.ok).toBe(true);
+    // initialize + tools/list each get their own abort-timeout signal so a
+    // single stuck attempt can't block the whole job past undici's default.
+    expect(signals.length).toBe(2);
+    for (const signal of signals) {
+      expect(signal).toBeInstanceOf(AbortSignal);
+    }
+  });
+
+  it("treats a timed-out probe as a retryable smoke failure", async () => {
+    const fetchFn: typeof fetch = (async () => {
+      const err = new Error("The operation timed out.");
+      err.name = "TimeoutError";
+      throw err;
+    }) as typeof fetch;
+
+    const result = await smokeRecapMcpTools({
+      appUrl: "https://plan.agent-native.com",
+      token: "tok-123456789",
+      fetchFn,
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.summary).toContain("Plan MCP smoke check");
+  });
+
   it("fails loudly when tools/list omits recap publishing tools", async () => {
     const fetchFn: typeof fetch = (async (_input, init) => {
       const body = JSON.parse(String(init?.body ?? "{}"));
