@@ -714,7 +714,10 @@ function runDoctor(args: Record<string, string | boolean>): void {
  */
 const HIGH_CONFIDENCE_SECRET_PATTERNS: RegExp[] = [
   // Common provider key prefixes.
-  /\bsk-[A-Za-z0-9]{24,}\b/,
+  /\bsk-(?:proj-)?[A-Za-z0-9_-]{24,}\b/,
+  /\b(?:sk|rk)_live_[A-Za-z0-9]{16,}\b/,
+  /\bSG\.[A-Za-z0-9_-]{16,}\.[A-Za-z0-9_-]{16,}\b/,
+  /\bGOCSPX-[A-Za-z0-9_-]{20,}\b/,
   /\bghp_[A-Za-z0-9]{20,}\b/,
   /\bgithub_pat_[A-Za-z0-9_]{20,}\b/,
   /\bxox[baprs]-[A-Za-z0-9-]{10,}\b/,

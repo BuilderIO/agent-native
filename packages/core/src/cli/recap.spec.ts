@@ -110,6 +110,19 @@ describe("recap secret scan", () => {
     expect(diffContainsSecret(diffText, [], "strict")).toBe(true);
   });
 
+  it("flags common provider-shaped credentials in default mode", () => {
+    const diffText = [
+      "diff --git a/.env b/.env",
+      "@@ -1,4 +1,4 @@",
+      `+SENDGRID_API_KEY=SG.${"a".repeat(22)}.${"b".repeat(43)}`,
+      `+GOOGLE_CLIENT_SECRET=GOCSPX-${"c".repeat(28)}`,
+      `+STRIPE_SECRET_KEY=sk_live_${"d".repeat(24)}`,
+      `+OPENAI_PROJECT_KEY=sk-proj-${"e".repeat(32)}`,
+    ].join("\n");
+
+    expect(diffContainsSecret(diffText)).toBe(true);
+  });
+
   it("allows the recap secret scan to be disabled explicitly", () => {
     const fakeOpenAiKey = `sk-${"a".repeat(24)}`;
     expect(normalizeRecapSecretScanMode("disabled")).toBe("off");
