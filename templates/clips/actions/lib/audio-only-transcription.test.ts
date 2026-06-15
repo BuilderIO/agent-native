@@ -80,6 +80,26 @@ describe("audio-only transcription media", () => {
     expect(Array.from(media.audioBytes)).toEqual([7, 8]);
   });
 
+  it("falls back to the original media when ffmpeg is unavailable", async () => {
+    const blob = new Blob([new Uint8Array([4, 5, 6])], { type: "video/webm" });
+
+    const media = await prepareAudioOnlyTranscriptionMedia({
+      blob,
+      recordingId: "rec-no-ffmpeg",
+      extractor: async () => {
+        throw new AudioOnlyExtractionError(
+          "FFMPEG_UNAVAILABLE",
+          "Audio-only transcription requires ffmpeg to extract the recording's audio track.",
+        );
+      },
+    });
+
+    expect(media.source).toBe("raw-media-fallback");
+    expect(media.mimeType).toBe("video/webm");
+    expect(media.filename).toBe("rec-no-ffmpeg.webm");
+    expect(Array.from(media.audioBytes)).toEqual([4, 5, 6]);
+  });
+
   it("preserves no-audio extraction errors", async () => {
     const blob = new Blob([new Uint8Array([9])], { type: "video/webm" });
 

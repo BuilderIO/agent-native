@@ -31,7 +31,7 @@ export interface AudioOnlyTranscriptionMedia {
   audioBytes: Uint8Array;
   mimeType: string;
   filename: string;
-  source: "audio-input" | "extracted-audio";
+  source: "audio-input" | "extracted-audio" | "raw-media-fallback";
 }
 
 export interface AudioExtractionInput {
@@ -72,6 +72,12 @@ export function isNoExtractableAudioError(err: unknown): boolean {
   return (
     err instanceof AudioOnlyExtractionError &&
     (err.code === "NO_AUDIO_TRACK" || err.code === "NO_SPEECH_DETECTED")
+  );
+}
+
+export function isFfmpegUnavailableError(err: unknown): boolean {
+  return (
+    err instanceof AudioOnlyExtractionError && err.code === "FFMPEG_UNAVAILABLE"
   );
 }
 
@@ -208,7 +214,7 @@ function isMissingAudioTrack(stderr: string): boolean {
 function mapFfmpegError(err: unknown): AudioOnlyExtractionError {
   const message = err instanceof Error ? err.message : String(err);
   const stderr = err instanceof FfmpegRunError ? err.stderr : "";
-  if (/enoent|not found/i.test(message)) {
+  if (/enoent|not found|eacces|enoexec/i.test(message)) {
     return new AudioOnlyExtractionError(
       "FFMPEG_UNAVAILABLE",
       "Audio-only transcription requires ffmpeg to extract the recording's audio track.",
@@ -338,7 +344,22 @@ export async function analyzeAudioSignal({
 export async function assertAudioHasAudibleSignal(
   media: AudioOnlyTranscriptionMedia,
 ): Promise<void> {
-  const signal = await analyzeAudioSignal(media);
+  let signal: { meanVolumeDb: number | null; maxVolumeDb: number | null };
+  try {
+    signal = await analyzeAudioSignal(media);
+  } catch (err) {
+    // The silence pre-check is a best-effort guard, not a hard requirement.
+    // When ffmpeg is unavailable (e.g. a serverless runtime without the
+    // bundled binary) skip it and let the transcription provider decide,
+    // rather than failing the whole request before it starts.
+    if (isFfmpegUnavailableError(err)) {
+      console.warn(
+        "[clips] ffmpeg unavailable; skipping silence detection and proceeding to transcription.",
+      );
+      return;
+    }
+    throw err;
+  }
   const maxVolumeDb = signal.maxVolumeDb;
   if (maxVolumeDb === null || maxVolumeDb <= SILENCE_MAX_VOLUME_DB) {
     throw new AudioOnlyExtractionError(
@@ -445,11 +466,31 @@ export async function prepareAudioOnlyTranscriptionMedia({
     };
   }
 
-  const extracted = await extractor({
-    mediaBytes,
-    mimeType,
-    recordingId,
-  });
+  let extracted: AudioExtractionOutput;
+  try {
+    extracted = await extractor({
+      mediaBytes,
+      mimeType,
+      recordingId,
+    });
+  } catch (err) {
+    // No ffmpeg to strip the audio track. Rather than fail outright, hand the
+    // original media to the transcription provider — Gemini/Builder accepts
+    // video containers directly. (Whisper-style providers may reject it, in
+    // which case the normal provider error path takes over.)
+    if (isFfmpegUnavailableError(err)) {
+      console.warn(
+        "[clips] ffmpeg unavailable; sending original media to the transcription provider without audio extraction.",
+      );
+      return {
+        audioBytes: mediaBytes,
+        mimeType,
+        filename: `${recordingId}.${mediaExtensionForMimeType(mimeType)}`,
+        source: "raw-media-fallback",
+      };
+    }
+    throw err;
+  }
   return {
     audioBytes: extracted.audioBytes,
     mimeType: extracted.mimeType,
