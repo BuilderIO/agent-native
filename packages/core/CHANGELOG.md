@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.49.25
+
+### Patch Changes
+
+- a984507: Broaden provider API integration access and preserve provider base paths.
+
 ## 0.49.24
 
 ### Patch Changes
