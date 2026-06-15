@@ -3674,6 +3674,8 @@ export function PlansPage() {
                 outline-color: #71717a !important;
                 text-decoration-color: #18181b !important;
                 caret-color: #18181b !important;
+                background: transparent !important;
+                background-color: transparent !important;
                 background-image: none !important;
                 box-shadow: none !important;
                 text-shadow: none !important;
