@@ -20,7 +20,7 @@ import {
   IconChevronLeft,
   IconChevronRight,
   IconClipboard,
-  IconPlus,
+  IconPhotoPlus,
   IconX,
 } from "@tabler/icons-react";
 import { toast } from "sonner";
@@ -1090,7 +1090,7 @@ export default function AssetPicker() {
             {showCreatePane ? (
               <IconX className="h-3.5 w-3.5" />
             ) : (
-              <IconPlus className="h-3.5 w-3.5" />
+              <IconPhotoPlus className="h-3.5 w-3.5" />
             )}
             {showCreatePane ? "Close" : "Create"}
           </Button>
