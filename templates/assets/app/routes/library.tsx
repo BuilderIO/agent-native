@@ -1080,40 +1080,38 @@ export default function AssetPicker() {
         <div className="min-w-0 truncate text-sm font-semibold">
           {embedded ? "Assets" : "Library"}
         </div>
-        {!embedded && (
-          <div className="flex shrink-0 items-center gap-2">
-            <Button
-              variant={showCreatePane ? "secondary" : "default"}
-              size="sm"
-              className="h-8 gap-1.5"
-              onClick={() => setShowCreatePane((open) => !open)}
-            >
-              {showCreatePane ? (
-                <IconX className="h-3.5 w-3.5" />
-              ) : (
-                <IconPhotoPlus className="h-3.5 w-3.5" />
-              )}
-              {showCreatePane ? "Close" : "Create"}
-            </Button>
-          </div>
-        )}
-        {embedded && (
-          <div className="flex shrink-0 items-center gap-2">
-            <Button asChild variant="ghost" size="icon" title="Open Assets">
-              <a href={absoluteAppUrl("/")} target="_blank" rel="noreferrer">
-                <IconArrowUpRight className="h-4 w-4" />
-              </a>
-            </Button>
-            <Button
-              variant="ghost"
-              size="icon"
-              title="Close"
-              onClick={() => bridgeRef.current?.close()}
-            >
-              <IconX className="h-4 w-4" />
-            </Button>
-          </div>
-        )}
+        <div className="flex shrink-0 items-center gap-2">
+          <Button
+            variant={showCreatePane ? "secondary" : "default"}
+            size="sm"
+            className="h-8 gap-1.5"
+            onClick={() => setShowCreatePane((open) => !open)}
+          >
+            {showCreatePane ? (
+              <IconX className="h-3.5 w-3.5" />
+            ) : (
+              <IconPhotoPlus className="h-3.5 w-3.5" />
+            )}
+            {showCreatePane ? "Close" : "Create"}
+          </Button>
+          {embedded && (
+            <>
+              <Button asChild variant="ghost" size="icon" title="Open Assets">
+                <a href={absoluteAppUrl("/")} target="_blank" rel="noreferrer">
+                  <IconArrowUpRight className="h-4 w-4" />
+                </a>
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon"
+                title="Close"
+                onClick={() => bridgeRef.current?.close()}
+              >
+                <IconX className="h-4 w-4" />
+              </Button>
+            </>
+          )}
+        </div>
       </header>
 
       {showCreatePane && (
