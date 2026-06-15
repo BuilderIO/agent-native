@@ -1115,161 +1115,161 @@ export default function AssetPicker() {
       </header>
 
       {showCreatePane && (
-      <section className="shrink-0 border-b border-border px-3 py-3">
-        <div className="grid gap-2">
-          <Select
-            value={selectedLibraryId}
-            onValueChange={setSelectedLibraryId}
-          >
-            <SelectTrigger className="h-9 border-border/70 bg-background">
-              <SelectValue placeholder="Library" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectGroup>
-                {displayLibraries.map((library) => (
-                  <SelectItem key={library.id} value={library.id}>
-                    {library.title}
-                  </SelectItem>
-                ))}
-              </SelectGroup>
-            </SelectContent>
-          </Select>
-        </div>
+        <section className="shrink-0 border-b border-border px-3 py-3">
+          <div className="grid gap-2">
+            <Select
+              value={selectedLibraryId}
+              onValueChange={setSelectedLibraryId}
+            >
+              <SelectTrigger className="h-9 border-border/70 bg-background">
+                <SelectValue placeholder="Library" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectGroup>
+                  {displayLibraries.map((library) => (
+                    <SelectItem key={library.id} value={library.id}>
+                      {library.title}
+                    </SelectItem>
+                  ))}
+                </SelectGroup>
+              </SelectContent>
+            </Select>
+          </div>
 
-        {mediaType === "image" ? (
-          <div className="mt-2 rounded-lg border border-border/80 bg-background focus-within:ring-1 focus-within:ring-ring">
-            <Textarea
-              autoGrow
-              rows={1}
-              value={prompt}
-              onChange={(event) => setPrompt(event.target.value)}
-              onKeyDown={(event) => {
-                if (
-                  event.key !== "Enter" ||
-                  event.shiftKey ||
-                  event.nativeEvent.isComposing
-                ) {
-                  return;
-                }
-                event.preventDefault();
-                if (canGenerate) runGenerate();
-              }}
-              placeholder="Generate an image asset"
-              className="min-h-11 max-h-40 border-0 bg-transparent px-3 py-2.5 leading-6 shadow-none focus-visible:ring-0 focus-visible:ring-offset-0"
-            />
-            <div className="flex items-center gap-1 px-2 pb-2">
-              <div className="flex min-w-0 flex-1 items-center justify-end gap-0.5 sm:gap-1">
-                <Select value={aspectRatio} onValueChange={setAspectRatio}>
-                  <SelectTrigger
-                    aria-label="Aspect ratio"
-                    className={`${PICKER_INLINE_SELECT_CLASS} shrink-0`}
-                  >
-                    <span>{aspectRatio}</span>
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectGroup>
-                      {ASPECT_RATIOS.map((ratio) => (
-                        <SelectItem key={ratio} value={ratio}>
-                          {ratio}
-                        </SelectItem>
-                      ))}
-                    </SelectGroup>
-                  </SelectContent>
-                </Select>
-                <Select
-                  value={String(count)}
-                  onValueChange={(value) => setCount(normalizeCount(value))}
-                >
-                  <SelectTrigger
-                    aria-label="Candidate count"
-                    className={`${PICKER_INLINE_SELECT_CLASS} shrink-0`}
-                  >
-                    <span>{count}x</span>
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectGroup>
-                      {GENERATION_COUNTS.map((option) => (
-                        <SelectItem key={option} value={String(option)}>
-                          {option}x
-                        </SelectItem>
-                      ))}
-                    </SelectGroup>
-                  </SelectContent>
-                </Select>
-                {generationPresets.length > 0 || presetId !== "none" ? (
-                  <Select
-                    value={presetId}
-                    onValueChange={(value) => setPresetId(value)}
-                  >
+          {mediaType === "image" ? (
+            <div className="mt-2 rounded-lg border border-border/80 bg-background focus-within:ring-1 focus-within:ring-ring">
+              <Textarea
+                autoGrow
+                rows={1}
+                value={prompt}
+                onChange={(event) => setPrompt(event.target.value)}
+                onKeyDown={(event) => {
+                  if (
+                    event.key !== "Enter" ||
+                    event.shiftKey ||
+                    event.nativeEvent.isComposing
+                  ) {
+                    return;
+                  }
+                  event.preventDefault();
+                  if (canGenerate) runGenerate();
+                }}
+                placeholder="Generate an image asset"
+                className="min-h-11 max-h-40 border-0 bg-transparent px-3 py-2.5 leading-6 shadow-none focus-visible:ring-0 focus-visible:ring-offset-0"
+              />
+              <div className="flex items-center gap-1 px-2 pb-2">
+                <div className="flex min-w-0 flex-1 items-center justify-end gap-0.5 sm:gap-1">
+                  <Select value={aspectRatio} onValueChange={setAspectRatio}>
                     <SelectTrigger
-                      aria-label="Preset"
-                      className={`${PICKER_INLINE_SELECT_CLASS} max-w-[7.5rem] sm:max-w-[10rem]`}
+                      aria-label="Aspect ratio"
+                      className={`${PICKER_INLINE_SELECT_CLASS} shrink-0`}
                     >
-                      <SelectValue placeholder="Preset" />
+                      <span>{aspectRatio}</span>
                     </SelectTrigger>
                     <SelectContent>
                       <SelectGroup>
-                        <SelectItem value="none">No preset</SelectItem>
-                        {generationPresets.map((preset) => (
-                          <SelectItem key={preset.id} value={preset.id}>
-                            {preset.title}
+                        {ASPECT_RATIOS.map((ratio) => (
+                          <SelectItem key={ratio} value={ratio}>
+                            {ratio}
                           </SelectItem>
                         ))}
                       </SelectGroup>
                     </SelectContent>
                   </Select>
-                ) : null}
+                  <Select
+                    value={String(count)}
+                    onValueChange={(value) => setCount(normalizeCount(value))}
+                  >
+                    <SelectTrigger
+                      aria-label="Candidate count"
+                      className={`${PICKER_INLINE_SELECT_CLASS} shrink-0`}
+                    >
+                      <span>{count}x</span>
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectGroup>
+                        {GENERATION_COUNTS.map((option) => (
+                          <SelectItem key={option} value={String(option)}>
+                            {option}x
+                          </SelectItem>
+                        ))}
+                      </SelectGroup>
+                    </SelectContent>
+                  </Select>
+                  {generationPresets.length > 0 || presetId !== "none" ? (
+                    <Select
+                      value={presetId}
+                      onValueChange={(value) => setPresetId(value)}
+                    >
+                      <SelectTrigger
+                        aria-label="Preset"
+                        className={`${PICKER_INLINE_SELECT_CLASS} max-w-[7.5rem] sm:max-w-[10rem]`}
+                      >
+                        <SelectValue placeholder="Preset" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectGroup>
+                          <SelectItem value="none">No preset</SelectItem>
+                          {generationPresets.map((preset) => (
+                            <SelectItem key={preset.id} value={preset.id}>
+                              {preset.title}
+                            </SelectItem>
+                          ))}
+                        </SelectGroup>
+                      </SelectContent>
+                    </Select>
+                  ) : null}
+                </div>
+                <Button
+                  className="h-7 shrink-0 px-3 text-xs"
+                  disabled={!canGenerate}
+                  onClick={runGenerate}
+                >
+                  {generateBatch.isPending ? "Generating..." : "Generate"}
+                </Button>
               </div>
+            </div>
+          ) : null}
+
+          {setupNeeded && (
+            <div className="mt-2 flex items-center justify-between gap-3 rounded-md border border-border/70 bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+              <span className="min-w-0 truncate">{setupMessage}</span>
               <Button
-                className="h-7 shrink-0 px-3 text-xs"
-                disabled={!canGenerate}
-                onClick={runGenerate}
+                asChild
+                variant="ghost"
+                size="sm"
+                className="h-7 shrink-0 px-2 text-xs"
               >
-                {generateBatch.isPending ? "Generating..." : "Generate"}
+                <a
+                  href={absoluteAppUrl("/settings")}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  Settings
+                </a>
               </Button>
             </div>
-          </div>
-        ) : null}
+          )}
 
-        {setupNeeded && (
-          <div className="mt-2 flex items-center justify-between gap-3 rounded-md border border-border/70 bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
-            <span className="min-w-0 truncate">{setupMessage}</span>
-            <Button
-              asChild
-              variant="ghost"
-              size="sm"
-              className="h-7 shrink-0 px-2 text-xs"
-            >
-              <a
-                href={absoluteAppUrl("/settings")}
-                target="_blank"
-                rel="noreferrer"
+          {!setupNeeded && needsGenerationLibrary && (
+            <div className="mt-2 flex items-center justify-between gap-3 rounded-md border border-border bg-muted/60 px-3 py-2 text-xs text-muted-foreground">
+              <span className="min-w-0 truncate">
+                {preparingGenerationLibrary
+                  ? "Preparing an image library for generated candidates..."
+                  : "Create an image library to generate new candidates."}
+              </span>
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-7"
+                onClick={prepareGenerationLibrary}
+                disabled={preparingGenerationLibrary}
               >
-                Settings
-              </a>
-            </Button>
-          </div>
-        )}
-
-        {!setupNeeded && needsGenerationLibrary && (
-          <div className="mt-2 flex items-center justify-between gap-3 rounded-md border border-border bg-muted/60 px-3 py-2 text-xs text-muted-foreground">
-            <span className="min-w-0 truncate">
-              {preparingGenerationLibrary
-                ? "Preparing an image library for generated candidates..."
-                : "Create an image library to generate new candidates."}
-            </span>
-            <Button
-              variant="outline"
-              size="sm"
-              className="h-7"
-              onClick={prepareGenerationLibrary}
-              disabled={preparingGenerationLibrary}
-            >
-              {preparingGenerationLibrary ? "Preparing..." : "Create library"}
-            </Button>
-          </div>
-        )}
-      </section>
+                {preparingGenerationLibrary ? "Preparing..." : "Create library"}
+              </Button>
+            </div>
+          )}
+        </section>
       )}
 
       {!embedded && standaloneSelection && (
