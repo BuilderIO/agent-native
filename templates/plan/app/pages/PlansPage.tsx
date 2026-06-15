@@ -1041,6 +1041,7 @@ function visualSurfaceModeForAnchor(
   anchor: PlanAnnotationAnchor | null,
 ): PlanVisualSurfaceMode | null {
   if (!anchor) return null;
+  const targetSelector = anchor.targetSelector ?? "";
   if (
     anchor.targetKind === "prototype" ||
     anchor.screenId ||
@@ -1054,6 +1055,8 @@ function visualSurfaceModeForAnchor(
     anchor.planAnnotationId ||
     anchor.canvasX !== undefined ||
     anchor.canvasY !== undefined ||
+    targetSelector.includes("data-plan-canvas-world") ||
+    targetSelector.includes("plan-canvas-world") ||
     anchor.targetNodeId
   ) {
     return "wireframes";
@@ -1418,12 +1421,37 @@ function elementIndexAmongType(element: Element) {
   );
 }
 
+function childPathSelectorWithin(scope: Element, element: Element) {
+  if (scope === element) return "";
+  if (!scope.contains(element)) return undefined;
+  const parts: string[] = [];
+  let current: Element | null = element;
+  while (current && current !== scope) {
+    const parent = current.parentElement;
+    if (!parent) return undefined;
+    const tag = current.tagName.toLowerCase();
+    parts.unshift(`${tag}:nth-of-type(${elementIndexAmongType(current)})`);
+    current = parent;
+  }
+  return current === scope ? parts.join(" > ") : undefined;
+}
+
 function dataSelector(name: string, value: string) {
   return `[${name}="${cssAttr(value)}"]`;
 }
 
 function scopedSelector(scope: string | undefined, selector: string) {
   return scope ? `${scope} ${selector}` : selector;
+}
+
+function selectorForElementInScope(
+  scopeElement: Element,
+  scopeSelector: string,
+  element: Element,
+) {
+  const path = childPathSelectorWithin(scopeElement, element);
+  if (path === undefined) return undefined;
+  return path ? `${scopeSelector} > ${path}` : scopeSelector;
 }
 
 function stableDataSelectorForElement(
@@ -1454,7 +1482,10 @@ function stableDataSelectorForElement(
   return undefined;
 }
 
-function selectorForElementWithin(root: HTMLElement, element: Element | null) {
+export function selectorForElementWithin(
+  root: HTMLElement,
+  element: Element | null,
+) {
   if (!element || !root.contains(element)) return undefined;
   const prototype = element.closest<HTMLElement>("[data-prototype-screen]");
   const prototypeScope = prototype?.dataset.prototypeScreen
@@ -1465,12 +1496,8 @@ function selectorForElementWithin(root: HTMLElement, element: Element | null) {
     prototypeScope,
   );
   if (prototypeStableSelector) return prototypeStableSelector;
-  if (prototype?.dataset.prototypeScreen) {
-    if (prototype === element) {
-      return prototypeScope;
-    }
-    const tag = element.tagName.toLowerCase();
-    return `${prototypeScope} ${tag}:nth-of-type(${elementIndexAmongType(element)})`;
+  if (prototype && prototypeScope) {
+    return selectorForElementInScope(prototype, prototypeScope, element);
   }
   const frame = element.closest<HTMLElement>("[data-canvas-frame]");
   const frameScope = frame?.dataset.canvasFrame
@@ -1478,12 +1505,8 @@ function selectorForElementWithin(root: HTMLElement, element: Element | null) {
     : undefined;
   const frameStableSelector = stableDataSelectorForElement(element, frameScope);
   if (frameStableSelector) return frameStableSelector;
-  if (frame?.dataset.canvasFrame) {
-    if (frame === element) {
-      return frameScope;
-    }
-    const tag = element.tagName.toLowerCase();
-    return `${frameScope} ${tag}:nth-of-type(${elementIndexAmongType(element)})`;
+  if (frame && frameScope) {
+    return selectorForElementInScope(frame, frameScope, element);
   }
   const canvasWorld = element.closest<HTMLElement>(
     "[data-plan-canvas-world], .plan-canvas-world",
@@ -1497,11 +1520,11 @@ function selectorForElementWithin(root: HTMLElement, element: Element | null) {
   if (stableSelector) return stableSelector;
   const block = element.closest<HTMLElement>("[data-block-id]");
   if (block?.dataset.blockId) {
-    if (block === element) {
-      return dataSelector("data-block-id", block.dataset.blockId);
-    }
-    const tag = element.tagName.toLowerCase();
-    return `${dataSelector("data-block-id", block.dataset.blockId)} ${tag}:nth-of-type(${elementIndexAmongType(element)})`;
+    return selectorForElementInScope(
+      block,
+      dataSelector("data-block-id", block.dataset.blockId),
+      element,
+    );
   }
   if (element.id) return `#${cssAttr(element.id)}`;
   return undefined;
@@ -3740,12 +3763,14 @@ export function PlansPage() {
       anchor,
       toolbarLeft,
       toolbarTop,
-      position: resolveInlineCommentPosition({
-        pointX,
-        pointY,
-        viewportWidth: readerRect.width,
-        viewportHeight: readerRect.height,
-      }),
+      position:
+        getPositionFromAnchor(anchor) ??
+        resolveInlineCommentPosition({
+          pointX,
+          pointY,
+          viewportWidth: readerRect.width,
+          viewportHeight: readerRect.height,
+        }),
     };
   };
 
@@ -3816,16 +3841,15 @@ export function PlansPage() {
       planTitle: bundle?.plan.title,
     });
     documentStateRef.current = readNativeDocumentState();
+    const fallbackPosition = resolveInlineCommentPosition({
+      pointX,
+      pointY,
+      viewportWidth: rect.width,
+      viewportHeight: rect.height,
+    });
     setActiveAnnotation(null);
     setPendingAnnotation(anchor);
-    setInlineCommentPosition(
-      resolveInlineCommentPosition({
-        pointX,
-        pointY,
-        viewportWidth: rect.width,
-        viewportHeight: rect.height,
-      }),
-    );
+    setInlineCommentPosition(getPositionFromAnchor(anchor) ?? fallbackPosition);
   };
 
   const updateStructuredContent = async (content: PlanContent) => {
@@ -4527,6 +4551,35 @@ export function PlansPage() {
     }
     return placement;
   };
+  const pendingMarkerPlacement =
+    pendingAnnotation && inlineCommentPosition
+      ? nativeMarkerPosition(pendingAnnotation)
+      : null;
+  const pendingVisualSurfaceMode =
+    visualSurfaceModeForAnchor(pendingAnnotation);
+  const pendingCommentPin =
+    pendingAnnotation && inlineCommentPosition ? (
+      pendingMarkerPlacement || !pendingVisualSurfaceMode ? (
+        <div
+          className={cn(
+            "pointer-events-none absolute flex -translate-x-1/2 -translate-y-1/2 items-center justify-center",
+            !pendingMarkerPlacement?.clip && "z-20",
+          )}
+          style={
+            pendingMarkerPlacement?.marker ?? {
+              left: inlineCommentPosition.pinLeft,
+              top: inlineCommentPosition.pinTop,
+            }
+          }
+        >
+          <CommentAvatar
+            author={pendingCommentAuthor}
+            size="pin"
+            className="shadow-2xl shadow-black/35"
+          />
+        </div>
+      ) : null
+    ) : null;
 
   return (
     <div
@@ -5170,19 +5223,16 @@ export function PlansPage() {
               )}
               {pendingAnnotation && inlineCommentPosition && (
                 <>
-                  <div
-                    className="pointer-events-none absolute z-20 flex -translate-x-1/2 -translate-y-1/2 items-center justify-center"
-                    style={{
-                      left: inlineCommentPosition.pinLeft,
-                      top: inlineCommentPosition.pinTop,
-                    }}
-                  >
-                    <CommentAvatar
-                      author={pendingCommentAuthor}
-                      size="pin"
-                      className="shadow-2xl shadow-black/35"
-                    />
-                  </div>
+                  {pendingMarkerPlacement?.clip ? (
+                    <div
+                      className="pointer-events-none absolute z-20 overflow-hidden"
+                      style={pendingMarkerPlacement.clip}
+                    >
+                      {pendingCommentPin}
+                    </div>
+                  ) : (
+                    pendingCommentPin
+                  )}
                   {!session ? (
                     <GuestCommentCta
                       position={inlineCommentPosition}

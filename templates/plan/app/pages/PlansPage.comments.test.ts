@@ -15,6 +15,7 @@ import {
   removePlanCommentFromBundle,
   removePlanCommentThreadFromBundle,
   resolveNativeAnchorTarget,
+  selectorForElementWithin,
   shouldKeepCommentPopoverOpenForTarget,
 } from "./PlansPage";
 import { planBundleQueryKey } from "@/hooks/use-plans";
@@ -580,6 +581,27 @@ describe("plan comment thread UI model", () => {
     reader.remove();
   });
 
+  it("stores a scoped child path for repeated nested block elements", () => {
+    const reader = document.createElement("div");
+    reader.innerHTML = `
+      <div data-block-id="scope">
+        <section><p id="wrong">Wrong first paragraph</p></section>
+        <section><p id="target">Second target paragraph</p></section>
+      </div>
+    `;
+    document.body.append(reader);
+
+    const target = reader.querySelector<HTMLElement>("#target")!;
+    const selector = selectorForElementWithin(reader, target);
+
+    expect(selector).toBe(
+      '[data-block-id="scope"] > section:nth-of-type(2) > p:nth-of-type(1)',
+    );
+    expect(reader.querySelector(selector!)).toBe(target);
+
+    reader.remove();
+  });
+
   it("prefers wireframe node identity over a stale block selector", () => {
     const reader = document.createElement("div");
     reader.innerHTML = `
@@ -667,6 +689,61 @@ describe("plan comment thread UI model", () => {
       visualY: 90,
       canvasX: 900,
       canvasY: 1260,
+    };
+
+    const placement = nativeMarkerPlacementForAnchor(anchor as any, reader);
+
+    expect(placement).toEqual({
+      clip: {
+        left: 0,
+        top: -240,
+        width: 1000,
+        height: 650,
+      },
+      marker: {
+        left: 900,
+        top: 1220,
+      },
+    });
+
+    reader.remove();
+  });
+
+  it("clips legacy canvas-world visual markers to the canvas viewport", () => {
+    const reader = document.createElement("div");
+    reader.innerHTML = `
+      <section class="plan-canvas">
+        <div data-plan-canvas-viewport>
+          <div data-plan-canvas-world></div>
+        </div>
+      </section>
+      <article><h1>Overview</h1></article>
+    `;
+    document.body.append(reader);
+
+    const viewport = reader.querySelector<HTMLElement>(
+      "[data-plan-canvas-viewport]",
+    )!;
+    const world = reader.querySelector<HTMLElement>(
+      "[data-plan-canvas-world]",
+    )!;
+    Object.defineProperty(reader, "getBoundingClientRect", {
+      value: () => rect(0, 0, 1000, 800),
+    });
+    Object.defineProperty(viewport, "getBoundingClientRect", {
+      value: () => rect(0, -240, 1000, 650),
+    });
+    Object.defineProperty(world, "getBoundingClientRect", {
+      value: () => rect(0, -280, 1800, 1400),
+    });
+
+    const anchor = {
+      x: 50,
+      y: 80,
+      anchorKind: "visual",
+      targetSelector: "[data-plan-canvas-world]",
+      visualX: 50,
+      visualY: 90,
     };
 
     const placement = nativeMarkerPlacementForAnchor(anchor as any, reader);
