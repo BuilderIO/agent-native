@@ -627,6 +627,22 @@ body[data-clips-route="recording-pill"] #root {
   background: var(--surface-hover);
 }
 
+/* System-audio toggle sits below the device list, separated by a divider. */
+.row-menu-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 4px;
+  padding: 10px 10px 8px 34px;
+  border-top: 1px solid var(--border, rgba(255, 255, 255, 0.08));
+}
+
+.row-menu-toggle-label {
+  font-size: 13px;
+  color: var(--fg);
+}
+
 .row-menu-check {
   width: 16px;
   display: inline-flex;

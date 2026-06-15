@@ -130,8 +130,8 @@ pub fn run() {
             system_audio::system_audio_request_permission,
             system_audio::system_audio_version_status,
             system_audio::system_audio_open_privacy_settings,
-            system_audio::meeting_audio_start,
-            system_audio::meeting_audio_stop,
+            system_audio::audio_transcription_start,
+            system_audio::audio_transcription_stop,
             // silence detector — Granola-style auto-stop heuristics
             silence_detector::silence_detector_start,
             silence_detector::silence_detector_stop,

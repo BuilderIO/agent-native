@@ -3,19 +3,20 @@ import { emit, listen } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/core";
 import { open as openExternal } from "@tauri-apps/plugin-shell";
 import { normalizeServerUrl } from "../lib/url";
+import {
+  appendFinalTranscript,
+  onFinalTranscript,
+  restartTranscriptionEngine,
+  speakerFor,
+  startTranscriptionEngine,
+  stopTranscriptionEngine,
+  type SourcedTranscriptSegment,
+  type TranscriptionEngine,
+} from "../lib/transcription-engine";
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
-
-type TranscriptSource = "mic" | "system";
-
-interface TranscriptSegment {
-  startMs: number;
-  endMs: number;
-  text: string;
-  source: "mic" | "system";
-}
 
 export interface MeetingTranscriptionPayload {
   meetingId: string;
@@ -27,12 +28,12 @@ interface MeetingTranscriptionSession {
   meetingId: string;
   recordingId: string;
   lines: string[];
-  segments: TranscriptSegment[];
+  segments: SourcedTranscriptSegment[];
   unlisten: Array<() => void>;
   flushTimer: ReturnType<typeof setTimeout> | null;
   stopping: boolean;
   paused: boolean;
-  audioMode: "mic-system" | "mic-only";
+  engine: TranscriptionEngine;
 }
 
 type CallClipsAction = <T>(
@@ -85,7 +86,7 @@ export function useMeetingTranscription({
       recordingId: session.recordingId,
       fullText: session.lines.join("\n\n"),
       segments: session.segments,
-      source: session.audioMode === "mic-system" ? "whisper" : "macos-native",
+      source: session.engine,
       overwriteReady: true,
     });
     emit("clips:meeting-saved", {
@@ -108,11 +109,7 @@ export function useMeetingTranscription({
         session.flushTimer = null;
       }
       try {
-        if (session.audioMode === "mic-system") {
-          await invoke("meeting_audio_stop");
-        } else {
-          await invoke("native_speech_stop");
-        }
+        await stopTranscriptionEngine(session.engine);
       } catch (err) {
         console.warn("[clips-popover] meeting audio stop failed:", err);
       }
@@ -193,7 +190,7 @@ export function useMeetingTranscription({
           flushTimer: null,
           stopping: false,
           paused: false,
-          audioMode: "mic-system",
+          engine: "whisper",
         };
         sessionRef.current = session;
         await invoke("set_recording_state", { active: true }).catch(() => {});
@@ -221,29 +218,11 @@ export function useMeetingTranscription({
         };
 
         addUnlisten(
-          listen<{
-            text?: string;
-            source?: TranscriptSource;
-            segments?: Array<{ startMs: number; endMs: number; text: string }>;
-          }>("voice:final-transcript", (event) => {
+          onFinalTranscript((event) => {
             if (sessionRef.current !== session) return;
-            const text = event.payload?.text?.trim();
-            if (!text) return;
-            const source: "mic" | "system" =
-              event.payload?.source === "system" ? "system" : "mic";
-            const speaker = source === "system" ? "Them" : "Me";
-            session.lines.push(`${speaker}: ${text}`);
-            for (const seg of event.payload?.segments ?? []) {
-              const segText = seg.text?.trim();
-              if (!segText) continue;
-              session.segments.push({
-                startMs: seg.startMs,
-                endMs: seg.endMs,
-                text: segText,
-                source,
-              });
+            if (appendFinalTranscript(event, session.lines, session.segments)) {
+              scheduleFlush();
             }
-            scheduleFlush();
           }),
         );
         addUnlisten(
@@ -278,21 +257,13 @@ export function useMeetingTranscription({
           watchCallEnded: true,
         };
 
+        // Resume the engine that initial start settled on (no fallback here —
+        // the engine choice was already made below).
         const startAudio = async () => {
-          if (session.audioMode === "mic-system") {
-            await invoke("meeting_audio_start", {
-              meetingId: resolvedMeetingId,
-              locale: navigator.language || "en-US",
-              micDeviceId: selectedMicId || null,
-              micDeviceLabel: selectedMicLabel || null,
-            });
-          } else {
-            await invoke("native_speech_start", {
-              locale: navigator.language || "en-US",
-              micDeviceId: selectedMicId || null,
-              micDeviceLabel: selectedMicLabel || null,
-            });
-          }
+          await restartTranscriptionEngine(session.engine, {
+            deviceId: selectedMicId,
+            label: selectedMicLabel,
+          });
         };
 
         // Pause/resume state machine — see app.tsx for full explanation.
@@ -312,11 +283,7 @@ export function useMeetingTranscription({
               }
               await invoke("silence_detector_stop").catch(() => {});
               try {
-                if (session.audioMode === "mic-system") {
-                  await invoke("meeting_audio_stop");
-                } else {
-                  await invoke("native_speech_stop");
-                }
+                await stopTranscriptionEngine(session.engine);
               } catch (err) {
                 console.warn(
                   "[clips-popover] meeting audio pause failed; staying live:",
@@ -419,10 +386,9 @@ export function useMeetingTranscription({
                   source?: "mic" | "system";
                 }>;
                 if (segs.length > 0) {
-                  const preloadedLineStrings = segs.map((s) => {
-                    const label = s.source === "system" ? "Them" : "Me";
-                    return `${label}: ${s.text}`;
-                  });
+                  const preloadedLineStrings = segs.map(
+                    (s) => `${speakerFor(s.source)}: ${s.text}`,
+                  );
                   const preloadedSegments = segs.map((s) => ({
                     startMs: s.startMs ?? 0,
                     endMs: s.endMs ?? 0,
@@ -460,20 +426,9 @@ export function useMeetingTranscription({
           })
           .catch(() => {});
 
-        try {
-          await startAudio();
-        } catch (err) {
-          console.warn(
-            "[clips-popover] mic + system meeting audio failed, falling back to mic-only:",
-            err,
-          );
-          session.audioMode = "mic-only";
-          await invoke("native_speech_start", {
-            locale: navigator.language || "en-US",
-            micDeviceId: selectedMicId || null,
-            micDeviceLabel: selectedMicLabel || null,
-          });
-        }
+        session.engine = await startTranscriptionEngine({
+          mic: { deviceId: selectedMicId, label: selectedMicLabel },
+        });
 
         await invoke("silence_detector_start", {
           config: silenceDetectorConfig,

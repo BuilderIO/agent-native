@@ -21,8 +21,8 @@
 //! | `system_audio_request_permission`  | Probe + request Screen Recording perm.   |
 //! | `system_audio_version_status`      | Report macOS SCK-audio support.          |
 //! | `system_audio_open_privacy_settings`| Open the Screen Recording privacy pane.  |
-//! | `meeting_audio_start`              | Start the Whisper mic + system capture.  |
-//! | `meeting_audio_stop`               | Stop meeting capture.                     |
+//! | `audio_transcription_start`        | Start the Whisper mic + system capture.  |
+//! | `audio_transcription_stop`         | Stop the capture.                         |
 //!
 //! `start_raw_system_capture` (in the `macos` submodule) is the capture entry
 //! point the Whisper engine calls directly.
@@ -106,20 +106,28 @@ pub fn system_audio_open_privacy_settings() -> Result<(), String> {
 }
 
 #[tauri::command]
-pub async fn meeting_audio_start(
+pub async fn audio_transcription_start(
     app: AppHandle,
     meeting_id: Option<String>,
     locale: Option<String>,
     mic_device_id: Option<String>,
     mic_device_label: Option<String>,
+    capture_system: Option<bool>,
 ) -> Result<(), String> {
     let _ = meeting_id;
-    crate::whisper_speech::meeting_whisper_start(app, locale, mic_device_id, mic_device_label).await
+    crate::whisper_speech::whisper_transcription_start(
+        app,
+        locale,
+        mic_device_id,
+        mic_device_label,
+        capture_system.unwrap_or(true),
+    )
+    .await
 }
 
 #[tauri::command]
-pub async fn meeting_audio_stop(app: AppHandle) -> Result<(), String> {
-    crate::whisper_speech::meeting_whisper_stop(app).await
+pub async fn audio_transcription_stop(app: AppHandle) -> Result<(), String> {
+    crate::whisper_speech::whisper_transcription_stop(app).await
 }
 
 #[cfg(target_os = "macos")]

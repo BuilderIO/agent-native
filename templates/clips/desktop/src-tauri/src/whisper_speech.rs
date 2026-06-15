@@ -15,28 +15,29 @@
 use tauri::AppHandle;
 
 #[tauri::command]
-pub async fn meeting_whisper_start(
+pub async fn whisper_transcription_start(
     app: AppHandle,
     language: Option<String>,
     mic_device_id: Option<String>,
     mic_device_label: Option<String>,
+    capture_system: bool,
 ) -> Result<(), String> {
     if !crate::config::feature_config(&app).whisper_model_enabled {
         return Err("whisper-model-disabled".into());
     }
     #[cfg(target_os = "macos")]
     {
-        macos::start(app, language, mic_device_id, mic_device_label).await
+        macos::start(app, language, mic_device_id, mic_device_label, capture_system).await
     }
     #[cfg(not(target_os = "macos"))]
     {
-        let _ = (app, language, mic_device_id, mic_device_label);
-        Err("Whisper meeting transcription is only supported on macOS.".into())
+        let _ = (app, language, mic_device_id, mic_device_label, capture_system);
+        Err("Whisper transcription is only supported on macOS.".into())
     }
 }
 
 #[tauri::command]
-pub async fn meeting_whisper_stop(app: AppHandle) -> Result<(), String> {
+pub async fn whisper_transcription_stop(app: AppHandle) -> Result<(), String> {
     #[cfg(target_os = "macos")]
     {
         macos::stop(&app);
@@ -451,9 +452,11 @@ mod macos {
 
     struct Session {
         mic_cap: RawMicCapture,
-        sys_cap: RawSystemCapture,
+        // System capture is optional — skipped when the user turns system
+        // audio off, so neither the recording nor the transcript include it.
+        sys_cap: Option<RawSystemCapture>,
         mic: Arc<WhisperStream>,
-        sys: Arc<WhisperStream>,
+        sys: Option<Arc<WhisperStream>>,
     }
 
     // SAFETY: the capture handles hold refcounted ObjC objects (already
@@ -471,6 +474,7 @@ mod macos {
         language: Option<String>,
         mic_device_id: Option<String>,
         mic_device_label: Option<String>,
+        capture_system: bool,
     ) -> Result<(), String> {
         // Tear down any prior session first.
         stop(&app);
@@ -537,28 +541,34 @@ mod macos {
         })?;
         mic_stream.set_src_rate(mic_cap.sample_rate());
 
-        // System stream + capture (SCK delivers 48 kHz).
-        let sys_stream = WhisperStream::new(
-            app.clone(),
-            "system",
-            48000.0,
-            lang.clone(),
-            ctx.clone(),
-            session_start,
-        );
-        let sys_for_cb = sys_stream.clone();
-        let sys_cap = match start_raw_system_capture(
-            app.clone(),
-            Arc::new(move |s: &[f32]| sys_for_cb.push(s)),
-        ) {
-            Ok(cap) => cap,
-            Err(e) => {
-                // Roll back the mic side so we don't leave a half-open meeting.
-                sys_stream.stop();
-                mic_stream.stop();
-                mic_cap.stop();
-                return Err(format!("system capture failed: {e}"));
-            }
+        // System stream + capture (SCK delivers 48 kHz). Skipped entirely when
+        // system audio is off.
+        let (sys_stream, sys_cap) = if capture_system {
+            let sys_stream = WhisperStream::new(
+                app.clone(),
+                "system",
+                48000.0,
+                lang.clone(),
+                ctx.clone(),
+                session_start,
+            );
+            let sys_for_cb = sys_stream.clone();
+            let sys_cap = match start_raw_system_capture(
+                app.clone(),
+                Arc::new(move |s: &[f32]| sys_for_cb.push(s)),
+            ) {
+                Ok(cap) => cap,
+                Err(e) => {
+                    // Roll back the mic side so we don't leave a half-open meeting.
+                    sys_stream.stop();
+                    mic_stream.stop();
+                    mic_cap.stop();
+                    return Err(format!("system capture failed: {e}"));
+                }
+            };
+            (Some(sys_stream), Some(sys_cap))
+        } else {
+            (None, None)
         };
 
         let mut slot = session_slot().lock().map_err(|e| e.to_string())?;
@@ -568,7 +578,10 @@ mod macos {
             mic: mic_stream,
             sys: sys_stream,
         });
-        eprintln!("[whisper] meeting transcription started (mic + system)");
+        eprintln!(
+            "[whisper] transcription started (mic{})",
+            if capture_system { " + system" } else { "" }
+        );
         Ok(())
     }
 
@@ -582,15 +595,23 @@ mod macos {
         };
         // Signal workers to stop. They flush a final transcript after the loop.
         session.mic.stop();
-        session.sys.stop();
+        if let Some(sys) = &session.sys {
+            sys.stop();
+        }
         // Stop captures so no more samples arrive while workers flush.
         session.mic_cap.stop();
-        session.sys_cap.stop();
+        if let Some(sys_cap) = session.sys_cap {
+            sys_cap.stop();
+        }
         // Wait up to 4 s for both workers to finish their final flush so
         // trailing speech is not lost when the frontend unregisters listeners.
         let deadline = Instant::now() + Duration::from_secs(4);
         while Instant::now() < deadline {
-            if session.mic.done.load(Ordering::SeqCst) && session.sys.done.load(Ordering::SeqCst) {
+            let sys_done = session
+                .sys
+                .as_ref()
+                .map_or(true, |s| s.done.load(Ordering::SeqCst));
+            if session.mic.done.load(Ordering::SeqCst) && sys_done {
                 break;
             }
             std::thread::sleep(Duration::from_millis(50));

@@ -90,6 +90,7 @@ struct NativeFullscreenSession {
 struct RestartInfo {
     safe_id: String,
     include_audio: bool,
+    capture_system_audio: bool,
     mic_device_id: Option<String>,
     mic_device_label: Option<String>,
     /// Monotonic counter feeding the per-segment filename suffix.
@@ -325,6 +326,7 @@ pub async fn native_fullscreen_recording_start(
     state: State<'_, NativeFullscreenRecordingState>,
     recording_id: String,
     include_audio: bool,
+    capture_system_audio: bool,
     mic_device_id: Option<String>,
     mic_device_label: Option<String>,
 ) -> Result<NativeFullscreenStartInfo, String> {
@@ -335,6 +337,7 @@ pub async fn native_fullscreen_recording_start(
             state,
             recording_id,
             include_audio,
+            capture_system_audio,
             mic_device_id,
             mic_device_label,
         );
@@ -354,6 +357,7 @@ pub async fn native_fullscreen_recording_start(
             &app,
             &safe_id,
             include_audio,
+            capture_system_audio,
             mic_device_id.as_deref(),
             mic_device_label.as_deref(),
         ) {
@@ -367,7 +371,7 @@ pub async fn native_fullscreen_recording_start(
                 eprintln!(
                     "[clips-tray] ScreenCaptureKit recording unavailable; falling back to screencapture: {sck_err}"
                 );
-                start_screencapture_recording(&app, &safe_id, include_audio).map_err(|fallback_err| {
+                start_screencapture_recording(&app, &safe_id, include_audio, capture_system_audio).map_err(|fallback_err| {
                     format!(
                         "ScreenCaptureKit recording failed ({sck_err}); screencapture fallback failed ({fallback_err})"
                     )
@@ -632,6 +636,7 @@ pub async fn native_fullscreen_recording_resume(
         &app,
         &restart.safe_id,
         restart.include_audio,
+        restart.capture_system_audio,
         restart.mic_device_id.as_deref(),
         restart.mic_device_label.as_deref(),
         &segment_path,
@@ -749,6 +754,7 @@ fn start_segment_backend(
     app: &AppHandle,
     safe_id: &str,
     include_audio: bool,
+    capture_system_audio: bool,
     mic_device_id: Option<&str>,
     mic_device_label: Option<&str>,
     segment_path: &Path,
@@ -763,6 +769,7 @@ fn start_segment_backend(
         match start_screencapturekit_backend_at(
             segment_path,
             include_audio,
+            capture_system_audio,
             mic_device_id,
             mic_device_label,
             target_display_id,
@@ -789,6 +796,7 @@ fn start_segment_backend(
             app,
             safe_id,
             include_audio,
+            capture_system_audio,
             mic_device_id,
             mic_device_label,
             segment_path,
@@ -803,6 +811,7 @@ fn start_segment_backend(
 fn start_screencapturekit_backend_at(
     output_path: &Path,
     include_audio: bool,
+    capture_system_audio: bool,
     mic_device_id: Option<&str>,
     mic_device_label: Option<&str>,
     target_display_id: Option<u32>,
@@ -834,7 +843,9 @@ fn start_screencapturekit_backend_at(
         .with_fps(NATIVE_CAPTURE_FPS)
         .with_queue_depth(8)
         .with_shows_cursor(true)
-        .with_captures_audio(false)
+        // Mic and system audio are independent toggles. SCK delivers them as
+        // separate inputs; SCRecordingOutput muxes them into the file.
+        .with_captures_audio(capture_system_audio)
         .with_captures_microphone(include_audio)
         .with_excludes_current_process_audio(true)
         .with_sample_rate(48000)
@@ -872,7 +883,7 @@ fn start_screencapturekit_backend_at(
         return Err(format!("capture start failed: {err:?}"));
     }
     eprintln!(
-        "[clips-tray] ScreenCaptureKit recording started: {width}x{height} @ {NATIVE_CAPTURE_FPS}fps from {source_width}x{source_height}, microphone={include_audio}"
+        "[clips-tray] ScreenCaptureKit recording started: {width}x{height} @ {NATIVE_CAPTURE_FPS}fps from {source_width}x{source_height}, mic={include_audio} system_audio={capture_system_audio}"
     );
     Ok((
         NativeFullscreenBackend::ScreenCaptureKit {
@@ -1530,6 +1541,7 @@ fn start_screencapturekit_recording(
     app: &AppHandle,
     safe_id: &str,
     include_audio: bool,
+    capture_system_audio: bool,
     mic_device_id: Option<&str>,
     mic_device_label: Option<&str>,
 ) -> Result<NativeFullscreenSession, String> {
@@ -1539,6 +1551,7 @@ fn start_screencapturekit_recording(
     let (backend, width, height) = start_screencapturekit_backend_at(
         &path,
         include_audio,
+        capture_system_audio,
         mic_device_id,
         mic_device_label,
         target_display_id,
@@ -1553,6 +1566,7 @@ fn start_screencapturekit_recording(
         RestartInfo {
             safe_id: safe_id.to_string(),
             include_audio,
+            capture_system_audio,
             mic_device_id: mic_device_id.map(str::to_string),
             mic_device_label: mic_device_label.map(str::to_string),
             segment_counter: 0,
@@ -1566,6 +1580,7 @@ fn start_screencapture_recording(
     app: &AppHandle,
     safe_id: &str,
     include_audio: bool,
+    capture_system_audio: bool,
 ) -> Result<NativeFullscreenSession, String> {
     let target_display_id = tray_display_id(app);
     let path = pending_recording_path(app, safe_id, "mov")?;
@@ -1582,6 +1597,9 @@ fn start_screencapture_recording(
         RestartInfo {
             safe_id: safe_id.to_string(),
             include_audio,
+            // screencapture (fallback) can't capture system audio; tracked
+            // for parity but only `-g` mic is honored by that backend.
+            capture_system_audio,
             mic_device_id: None,
             mic_device_label: None,
             segment_counter: 0,

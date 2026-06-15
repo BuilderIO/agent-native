@@ -1,23 +1,10 @@
 import { useEffect, useRef, useState } from "react";
-import { listen } from "@tauri-apps/api/event";
+import {
+  onFinalTranscript,
+  onPartialTranscript,
+} from "../lib/transcription-engine";
 
 type Source = "mic" | "system";
-
-interface Segment {
-  startMs: number;
-  endMs: number;
-  text: string;
-}
-
-interface PartialPayload {
-  text: string;
-  source?: Source;
-}
-interface FinalPayload {
-  text: string;
-  source?: Source;
-  segments?: Segment[];
-}
 
 export interface FinalLine {
   text: string;
@@ -103,19 +90,16 @@ export function LiveTranscript({
     };
 
     trackListen(
-      listen<PartialPayload>("voice:partial-transcript", (ev) => {
-        const text = ev.payload.text || "";
-        const source: Source = ev.payload.source ?? "mic";
+      onPartialTranscript(({ text, source }) => {
         if (source === "system") setSysPartial(text);
         else setMicPartial(text);
       }),
     );
     trackListen(
-      listen<FinalPayload>("voice:final-transcript", (ev) => {
-        const txt = (ev.payload.text || "").trim();
-        const source: Source = ev.payload.source ?? "mic";
+      onFinalTranscript(({ text, source, segments }) => {
+        const txt = text.trim();
         if (!txt) return;
-        const startMs = ev.payload.segments?.[0]?.startMs;
+        const startMs = segments[0]?.startMs;
         setFinals((prev) => [...prev, { text: txt, source, startMs }]);
         if (source === "system") setSysPartial("");
         else setMicPartial("");

@@ -21,7 +21,7 @@ import {
   listBrowserRecordingBackups,
   retryBrowserRecordingBackup,
   shouldUseNativeFullscreenRecording,
-  startNativeRecording,
+  startRecording,
   type LocalExportedFile,
   type PendingBrowserRecordingUpload,
   type RecorderHandle,
@@ -36,6 +36,19 @@ import {
 import { UpdateBanner } from "./components/UpdateBanner";
 import { FeedbackButton } from "./components/FeedbackButton";
 import { Tooltip, TooltipContent, TooltipTrigger } from "./components/Tooltip";
+import { SourceRow, type CaptureSource } from "./components/SourceRow";
+import { MediaDeviceRow } from "./components/MediaDeviceRow";
+import { Switch } from "./components/Switch";
+import {
+  CamIcon,
+  ClockIcon,
+  CloseIcon,
+  GoogleIcon,
+  LibraryIcon,
+  ScreenCamIcon,
+  ScreenIcon,
+  SettingsIcon,
+} from "./components/Icons";
 import { useFeatureConfig, type LocalRecordingMode } from "./shared/config";
 import { useMeetingTranscription } from "./hooks/useMeetingTranscription";
 import { normalizeServerUrl } from "./lib/url";
@@ -87,7 +100,6 @@ interface LocalRecordingNotice {
 type MeetingTranscriptionMode = "manual" | "ask" | "auto";
 
 type CaptureMode = "screen" | "screen-camera" | "camera";
-type CaptureSource = "full-screen" | "window";
 
 const STORAGE_KEY = "clips:server-url";
 const MODE_KEY = "clips:last-mode";
@@ -104,6 +116,7 @@ const CAM_KEY = "clips:last-camera-id";
 const MIC_KEY = "clips:last-mic-id";
 const CAM_ON_KEY = "clips:camera-on";
 const MIC_ON_KEY = "clips:mic-on";
+const SYSTEM_AUDIO_KEY = "clips:system-audio";
 const READINESS_REVIEWED_KEY = "clips:readiness-reviewed";
 
 // Sensible defaults so the user never has to type a URL on first launch.
@@ -558,6 +571,9 @@ export function App() {
     loadBool(CAM_ON_KEY, false),
   );
   const [micOn, setMicOn] = useState<boolean>(() => loadBool(MIC_ON_KEY, true));
+  const [systemAudioOn, setSystemAudioOn] = useState<boolean>(() =>
+    loadBool(SYSTEM_AUDIO_KEY, true),
+  );
   const [voiceShortcut, setVoiceShortcut] = useState<VoiceShortcutPreference>(
     () => {
       if (!loadBool(VOICE_SHORTCUT_CONFIGURED_KEY, false)) {
@@ -1287,8 +1303,8 @@ export function App() {
   //   - User switches camera / turns camera off / closes popover (not
   //     recording) → cleanup fires, bubble disappears.
   const bubbleStreamRef = useRef<MediaStream | null>(null);
-  // Set to true the instant startRecording hands `bubbleStreamRef.current`
-  // to `startNativeRecording` as `preAcquiredCameraStream`. The recorder
+  // Set to true the instant handleStartRecording hands `bubbleStreamRef.current`
+  // to `startRecording` as `preAcquiredCameraStream`. The recorder
   // then owns the track lifecycle — this effect's cleanup MUST NOT stop
   // the tracks or the MediaRecorder ends up with `readyState: "ended"`
   // tracks (which causes the laggy / black / silently-failing recording
@@ -1661,6 +1677,7 @@ export function App() {
   useEffect(() => saveString(MIC_KEY, micId), [micId]);
   useEffect(() => saveBool(CAM_ON_KEY, cameraOn), [cameraOn]);
   useEffect(() => saveBool(MIC_ON_KEY, micOn), [micOn]);
+  useEffect(() => saveBool(SYSTEM_AUDIO_KEY, systemAudioOn), [systemAudioOn]);
 
   // ---- actions -----------------------------------------------------------
 
@@ -1779,11 +1796,13 @@ export function App() {
     });
   }
 
-  async function startRecording(options?: { ignoreActiveRecorder?: boolean }) {
+  async function handleStartRecording(options?: {
+    ignoreActiveRecorder?: boolean;
+  }) {
     if (recorder && !options?.ignoreActiveRecorder) return;
     setRecError(null);
     setLocalRecordingNotice(null);
-    console.log("[clips-popover] startRecording clicked", {
+    console.log("[clips-popover] handleStartRecording clicked", {
       serverUrl,
       mode,
       source,
@@ -1860,7 +1879,7 @@ export function App() {
       //
       // USER ACTIVATION: WebKit requires `getDisplayMedia` to be called
       // from within a user gesture handler. The first `await` in a click
-      // handler consumes user activation. `startNativeRecording` kicks off
+      // handler consumes user activation. `startRecording` kicks off
       // `getDisplayMedia` SYNCHRONOUSLY before its first `await`, so we
       // start the recording promise FIRST (capturing the gesture), then
       // park the popover in parallel via a fire-and-forget `invoke`.
@@ -1874,7 +1893,7 @@ export function App() {
       (window as unknown as { clipsForceAlive?: boolean }).clipsForceAlive =
         true;
 
-      const recordingPromise = startNativeRecording({
+      const recordingPromise = startRecording({
         serverUrl,
         mode,
         source,
@@ -1885,6 +1904,7 @@ export function App() {
         cookie: typeof document !== "undefined" ? document.cookie || "" : "",
         cameraOn,
         micOn,
+        systemAudioOn,
         localRecordingMode,
         preAcquiredCameraStream,
       });
@@ -1926,7 +1946,7 @@ export function App() {
       // is flipped back to false and the popover is re-shown.
       if (!handle) {
         console.warn(
-          "[clips-popover] startRecording finally: no handle — running recovery",
+          "[clips-popover] handleStartRecording finally: no handle — running recovery",
         );
         // Clear the force-alive flag if it was latched before the failure.
         (window as unknown as { clipsForceAlive?: boolean }).clipsForceAlive =
@@ -1959,7 +1979,7 @@ export function App() {
     // Failure path — the recorder never came up. Side-effects (recording
     // flag + popover visibility) were already restored in the finally
     // block above. Now surface any non-cancel error to the UI.
-    console.error("[clips-popover] startRecording failed:", startError);
+    console.error("[clips-popover] handleStartRecording failed:", startError);
 
     // User cancelled the macOS screen-picker (or denied permission). WebKit
     // often reports both as NotAllowedError; only show the big permissions
@@ -2286,7 +2306,7 @@ export function App() {
         ) : null}
 
         {showCameraRow ? (
-          <DeviceRow
+          <MediaDeviceRow
             kind="camera"
             devices={cameras}
             selectedId={cameraId}
@@ -2297,7 +2317,7 @@ export function App() {
           />
         ) : null}
 
-        <DeviceRow
+        <MediaDeviceRow
           kind="mic"
           devices={mics}
           selectedId={selectedMicId}
@@ -2305,6 +2325,8 @@ export function App() {
           onRefresh={() => requestDeviceAccess("mic")}
           on={micOn}
           onToggle={setMicOn}
+          systemAudio={systemAudioOn}
+          onSystemAudioToggle={setSystemAudioOn}
         />
       </div>
 
@@ -2322,7 +2344,7 @@ export function App() {
       <button
         className="primary start"
         onClick={() => {
-          void startRecording();
+          void handleStartRecording();
         }}
       >
         {localRecordingMode === "off"
@@ -2335,14 +2357,14 @@ export function App() {
             kind="recording"
             message={recError}
             panes={permissionPanesForRecording(mode, cameraOn, micOn)}
-            onRetry={startRecording}
+            onRetry={handleStartRecording}
           />
         ) : recError === MACOS_SPEECH_PERMISSION_MESSAGE ? (
           <PermissionRecoveryBanner
             kind="speech"
             message={recError}
             panes={["speech", "microphone"]}
-            onRetry={startRecording}
+            onRetry={handleStartRecording}
           />
         ) : (
           <div className="error-banner">{recError}</div>
@@ -3039,284 +3061,6 @@ function SignInForm({
   );
 }
 
-function GoogleIcon() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 18 18" aria-hidden>
-      <path
-        fill="#4285F4"
-        d="M17.64 9.2c0-.63-.06-1.25-.17-1.84H9v3.48h4.84a4.14 4.14 0 0 1-1.8 2.72v2.26h2.92c1.71-1.57 2.68-3.89 2.68-6.62z"
-      />
-      <path
-        fill="#34A853"
-        d="M9 18c2.43 0 4.47-.8 5.96-2.18l-2.92-2.26c-.81.54-1.84.86-3.04.86-2.34 0-4.32-1.58-5.03-3.71H.96v2.34A9 9 0 0 0 9 18z"
-      />
-      <path
-        fill="#FBBC05"
-        d="M3.97 10.71A5.41 5.41 0 0 1 3.68 9c0-.59.1-1.17.29-1.71V4.96H.96A9 9 0 0 0 0 9c0 1.45.35 2.82.96 4.04l3.01-2.33z"
-      />
-      <path
-        fill="#EA4335"
-        d="M9 3.58c1.32 0 2.51.45 3.44 1.35l2.58-2.58A9 9 0 0 0 9 0 9 9 0 0 0 .96 4.96L3.97 7.3C4.68 5.16 6.66 3.58 9 3.58z"
-      />
-    </svg>
-  );
-}
-
-function SourceRow({
-  value,
-  onChange,
-}: {
-  value: CaptureSource;
-  onChange: (v: CaptureSource) => void;
-}) {
-  const labels: Record<CaptureSource, string> = {
-    "full-screen": "Full screen",
-    window: "Window",
-  };
-  return (
-    <label className="row">
-      <span className="row-icon">
-        <MonitorIcon />
-      </span>
-      <select
-        className="row-select"
-        value={value}
-        onChange={(e) => onChange(e.target.value as CaptureSource)}
-      >
-        {Object.entries(labels).map(([k, label]) => (
-          <option key={k} value={k}>
-            {label}
-          </option>
-        ))}
-      </select>
-    </label>
-  );
-}
-
-function DeviceRow({
-  kind,
-  devices,
-  selectedId,
-  onSelect,
-  onRefresh,
-  on,
-  onToggle,
-}: {
-  kind: "camera" | "mic";
-  devices: MediaDeviceInfo[];
-  selectedId: string;
-  onSelect: (id: string) => void;
-  onRefresh: () => void;
-  on: boolean;
-  onToggle: (v: boolean) => void;
-}) {
-  const current = useMemo(
-    () =>
-      selectedId
-        ? (devices.find((d) => d.deviceId === selectedId) ?? null)
-        : null,
-    [devices, selectedId],
-  );
-  const label =
-    current?.label ||
-    (selectedId
-      ? kind === "camera"
-        ? "Selected camera unavailable"
-        : "Selected mic unavailable"
-      : kind === "camera"
-        ? "Default camera"
-        : "Default mic");
-  const Icon = kind === "camera" ? CameraIcon : MicIcon;
-
-  const [open, setOpen] = useState(false);
-  const rowRef = useRef<HTMLDivElement | null>(null);
-
-  // Close on outside click — native-feeling popover behavior.
-  useEffect(() => {
-    if (!open) return;
-    function onDoc(ev: MouseEvent) {
-      const el = rowRef.current;
-      if (!el) return;
-      if (!el.contains(ev.target as Node)) setOpen(false);
-    }
-    function onKey(ev: KeyboardEvent) {
-      if (ev.key === "Escape") setOpen(false);
-    }
-    document.addEventListener("mousedown", onDoc);
-    document.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("mousedown", onDoc);
-      document.removeEventListener("keydown", onKey);
-    };
-  }, [open]);
-
-  const disabled = !on;
-  const defaultLabel = kind === "camera" ? "Default camera" : "Default mic";
-  const accessLabel =
-    kind === "camera" ? "Allow camera access" : "Allow microphone access";
-  const refreshLabel =
-    kind === "camera" ? "Refresh cameras" : "Refresh microphones";
-
-  return (
-    <div className={`row ${on ? "row-on" : "row-off"}`} ref={rowRef}>
-      <span className="row-icon">
-        <Icon />
-      </span>
-      <button
-        type="button"
-        className="row-button"
-        onClick={() => {
-          if (!disabled) setOpen((v) => !v);
-        }}
-        disabled={disabled}
-        title={label}
-      >
-        <span className="row-label">{label}</span>
-        <span className="row-chev" aria-hidden>
-          <ChevronDown />
-        </span>
-      </button>
-      <Toggle
-        on={on}
-        onChange={onToggle}
-        label={kind === "camera" ? "Camera" : "Microphone"}
-      />
-      {kind === "mic" && on ? <MicWave /> : null}
-      {open ? (
-        <div className="row-menu" role="menu">
-          <button
-            type="button"
-            className={`row-menu-item ${!selectedId ? "selected" : ""}`}
-            role="menuitemradio"
-            aria-checked={!selectedId}
-            onClick={() => {
-              onSelect("");
-              setOpen(false);
-            }}
-          >
-            <span className="row-menu-check" aria-hidden>
-              {!selectedId ? <CheckIcon /> : null}
-            </span>
-            <span className="row-menu-label">{defaultLabel}</span>
-          </button>
-          {devices.length === 0 ? (
-            <button
-              type="button"
-              className="row-menu-item row-menu-action"
-              role="menuitem"
-              onClick={() => {
-                onRefresh();
-                setOpen(false);
-              }}
-            >
-              <span className="row-menu-check" aria-hidden />
-              <span className="row-menu-label">{accessLabel}</span>
-            </button>
-          ) : (
-            <>
-              {devices.map((d) => {
-                const isSelected = !!selectedId && d.deviceId === selectedId;
-                return (
-                  <button
-                    key={d.deviceId}
-                    type="button"
-                    className={`row-menu-item ${isSelected ? "selected" : ""}`}
-                    role="menuitemradio"
-                    aria-checked={isSelected}
-                    onClick={() => {
-                      onSelect(d.deviceId);
-                      setOpen(false);
-                    }}
-                  >
-                    <span className="row-menu-check" aria-hidden>
-                      {isSelected ? <CheckIcon /> : null}
-                    </span>
-                    <span className="row-menu-label">
-                      {d.label || (kind === "camera" ? "Camera" : "Microphone")}
-                    </span>
-                  </button>
-                );
-              })}
-              <button
-                type="button"
-                className="row-menu-item row-menu-action"
-                role="menuitem"
-                onClick={() => {
-                  onRefresh();
-                  setOpen(false);
-                }}
-              >
-                <span className="row-menu-check" aria-hidden />
-                <span className="row-menu-label">{refreshLabel}</span>
-              </button>
-            </>
-          )}
-        </div>
-      ) : null}
-    </div>
-  );
-}
-
-function Toggle({
-  on,
-  onChange,
-  label,
-}: {
-  on: boolean;
-  onChange: (v: boolean) => void;
-  label: string;
-}) {
-  return (
-    <button
-      className={`toggle ${on ? "toggle-on" : "toggle-off"}`}
-      role="switch"
-      aria-checked={on}
-      aria-label={label}
-      onClick={() => onChange(!on)}
-    >
-      {on ? "On" : "Off"}
-    </button>
-  );
-}
-
-// Slim track-with-thumb switch (shadcn-style). type="button" is required so
-// it doesn't submit any enclosing form.
-function Switch({
-  on,
-  onChange,
-  label,
-}: {
-  on: boolean;
-  onChange: (v: boolean) => void;
-  label: string;
-}) {
-  return (
-    <button
-      type="button"
-      className={`switch ${on ? "switch-on" : "switch-off"}`}
-      role="switch"
-      aria-checked={on}
-      aria-label={label}
-      onClick={() => onChange(!on)}
-    >
-      <span className="switch-thumb" aria-hidden />
-    </button>
-  );
-}
-
-function MicWave() {
-  // Purely decorative — animates four bars to suggest input level. For real
-  // input level we'd need a live stream, which Loom starts only on "Start".
-  return (
-    <span className="mic-wave" aria-hidden>
-      <span className="bar b1" />
-      <span className="bar b2" />
-      <span className="bar b3" />
-      <span className="bar b4" />
-    </span>
-  );
-}
-
 function BottomButton({
   icon,
   label,
@@ -3346,285 +3090,6 @@ function BottomButton({
 }
 
 // ---- inline icons (Tabler-style, monochrome, stroke=1.75) -----------------
-
-function ScreenIcon() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
-      <rect
-        x="3"
-        y="4"
-        width="18"
-        height="12"
-        rx="2"
-        stroke="currentColor"
-        strokeWidth="1.75"
-      />
-      <path
-        d="M8 20h8M12 16v4"
-        stroke="currentColor"
-        strokeWidth="1.75"
-        strokeLinecap="round"
-      />
-    </svg>
-  );
-}
-
-function ScreenCamIcon() {
-  return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
-      <rect
-        x="3"
-        y="4"
-        width="14"
-        height="10"
-        rx="2"
-        stroke="currentColor"
-        strokeWidth="1.75"
-      />
-      <circle
-        cx="17.5"
-        cy="15.5"
-        r="4.5"
-        stroke="currentColor"
-        strokeWidth="1.75"
-        fill="var(--bg)"
-      />
-      <circle cx="17.5" cy="15.5" r="1.5" fill="currentColor" />
-    </svg>
-  );
-}
-
-function CamIcon() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
-      <rect
-        x="3"
-        y="7"
-        width="14"
-        height="10"
-        rx="2"
-        stroke="currentColor"
-        strokeWidth="1.75"
-      />
-      <path
-        d="M17 10l4-2v8l-4-2z"
-        stroke="currentColor"
-        strokeWidth="1.75"
-        strokeLinejoin="round"
-      />
-    </svg>
-  );
-}
-
-function CloseIcon() {
-  return (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
-      <path
-        d="M6 6l12 12M18 6L6 18"
-        stroke="currentColor"
-        strokeWidth="1.75"
-        strokeLinecap="round"
-      />
-    </svg>
-  );
-}
-
-function MonitorIcon() {
-  return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
-      <rect
-        x="3"
-        y="4"
-        width="18"
-        height="13"
-        rx="2"
-        stroke="currentColor"
-        strokeWidth="1.75"
-      />
-      <path
-        d="M8 21h8M12 17v4"
-        stroke="currentColor"
-        strokeWidth="1.75"
-        strokeLinecap="round"
-      />
-    </svg>
-  );
-}
-
-function CameraIcon() {
-  return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
-      <rect
-        x="3"
-        y="7"
-        width="14"
-        height="10"
-        rx="2"
-        stroke="currentColor"
-        strokeWidth="1.75"
-      />
-      <path
-        d="M17 10l4-2v8l-4-2z"
-        stroke="currentColor"
-        strokeWidth="1.75"
-        strokeLinejoin="round"
-      />
-    </svg>
-  );
-}
-
-function MicIcon() {
-  return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
-      <rect
-        x="9"
-        y="3"
-        width="6"
-        height="12"
-        rx="3"
-        stroke="currentColor"
-        strokeWidth="1.75"
-      />
-      <path
-        d="M5 11a7 7 0 0014 0M12 18v3M9 21h6"
-        stroke="currentColor"
-        strokeWidth="1.75"
-        strokeLinecap="round"
-      />
-    </svg>
-  );
-}
-
-function ChevronDown() {
-  return (
-    <svg width="12" height="12" viewBox="0 0 24 24" fill="none">
-      <path
-        d="M6 9l6 6 6-6"
-        stroke="currentColor"
-        strokeWidth="2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
-  );
-}
-
-function CheckIcon() {
-  return (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
-      <path
-        d="M5 12l5 5 9-11"
-        stroke="currentColor"
-        strokeWidth="2.25"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
-  );
-}
-
-function LibraryIcon() {
-  // Four rounded tiles — "grid of clips" metaphor.
-  return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
-      <rect
-        x="3.5"
-        y="3.5"
-        width="7"
-        height="7"
-        rx="1.5"
-        stroke="currentColor"
-        strokeWidth="1.75"
-      />
-      <rect
-        x="13.5"
-        y="3.5"
-        width="7"
-        height="7"
-        rx="1.5"
-        stroke="currentColor"
-        strokeWidth="1.75"
-      />
-      <rect
-        x="3.5"
-        y="13.5"
-        width="7"
-        height="7"
-        rx="1.5"
-        stroke="currentColor"
-        strokeWidth="1.75"
-      />
-      <rect
-        x="13.5"
-        y="13.5"
-        width="7"
-        height="7"
-        rx="1.5"
-        stroke="currentColor"
-        strokeWidth="1.75"
-      />
-    </svg>
-  );
-}
-
-function SettingsIcon() {
-  // Horizontal sliders — reads cleaner at small sizes than a cogwheel.
-  return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
-      <path
-        d="M4 7h10M18 7h2M4 17h2M10 17h10"
-        stroke="currentColor"
-        strokeWidth="1.75"
-        strokeLinecap="round"
-      />
-      <circle
-        cx="16"
-        cy="7"
-        r="2.25"
-        stroke="currentColor"
-        strokeWidth="1.75"
-        fill="var(--bg, #000)"
-      />
-      <circle
-        cx="8"
-        cy="17"
-        r="2.25"
-        stroke="currentColor"
-        strokeWidth="1.75"
-        fill="var(--bg, #000)"
-      />
-    </svg>
-  );
-}
-
-function ClockIcon() {
-  // Counter-clockwise arrow — "history / recent" metaphor.
-  return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
-      <path
-        d="M4 9a8 8 0 1 1 .5 6"
-        stroke="currentColor"
-        strokeWidth="1.75"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-      <path
-        d="M4 4v5h5"
-        stroke="currentColor"
-        strokeWidth="1.75"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-      <path
-        d="M12 8v4l2.5 1.5"
-        stroke="currentColor"
-        strokeWidth="1.75"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
-  );
-}
 
 // ---------------------------------------------------------------------------
 
