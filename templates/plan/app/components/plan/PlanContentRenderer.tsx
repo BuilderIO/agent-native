@@ -161,7 +161,7 @@ export function PlanContentRenderer({
   const planLabel = isRecap
     ? "Visual Recap"
     : content.prototype
-      ? "Prototype Plan"
+      ? "Visual Plan"
       : content.canvas?.title === "UI Flow"
         ? "UI Plan"
         : "Visual Plan";

@@ -1843,6 +1843,69 @@ export function nativePointForAnchor(
   };
 }
 
+type NativeMarkerClip = {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+};
+
+export type NativeMarkerPlacement = {
+  marker: {
+    left: number;
+    top: number;
+  };
+  clip: NativeMarkerClip | null;
+};
+
+function rectForElementWithinReader(element: HTMLElement, reader: HTMLElement) {
+  const elementRect = element.getBoundingClientRect();
+  if (!elementRect.width && !elementRect.height) return null;
+  const readerRect = reader.getBoundingClientRect();
+  return {
+    left: elementRect.left - readerRect.left,
+    top: elementRect.top - readerRect.top,
+    width: elementRect.width,
+    height: elementRect.height,
+  } satisfies NativeMarkerClip;
+}
+
+function visualMarkerClipForAnchor(
+  anchor: PlanAnnotationAnchor,
+  reader: HTMLElement,
+): NativeMarkerClip | null {
+  const surfaceMode = visualSurfaceModeForAnchor(anchor);
+  if (!surfaceMode) return null;
+  const target = resolveNativeAnchorTarget(anchor, reader);
+  const visualRoot =
+    surfaceMode === "prototype"
+      ? (target?.closest<HTMLElement>("[data-plan-prototype-viewer]") ??
+        prototypeScopeForAnchor(anchor, reader)?.closest<HTMLElement>(
+          "[data-plan-prototype-viewer]",
+        ) ??
+        reader.querySelector<HTMLElement>("[data-plan-prototype-viewer]"))
+      : (target?.closest<HTMLElement>("[data-plan-canvas-viewport]") ??
+        reader.querySelector<HTMLElement>("[data-plan-canvas-viewport]"));
+  return visualRoot ? rectForElementWithinReader(visualRoot, reader) : null;
+}
+
+export function nativeMarkerPlacementForAnchor(
+  anchor: PlanAnnotationAnchor,
+  reader: HTMLElement,
+): NativeMarkerPlacement | null {
+  const point = nativePointForAnchor(anchor, reader);
+  if (!point) return null;
+  const clip = visualMarkerClipForAnchor(anchor, reader);
+  if (!clip) return { marker: point, clip: null };
+  return {
+    clip,
+    marker: {
+      left: point.left - clip.left,
+      top: point.top - clip.top,
+    },
+  };
+}
+
 function resolveInlineCommentPosition(input: {
   pointX: number;
   pointY: number;
@@ -2021,7 +2084,7 @@ function buildPlanAgentContext(input: {
 }
 
 function buildApplyFeedbackMessage(openCommentCount: number) {
-  return `Apply the ${openCommentCount} open comment${openCommentCount === 1 ? "" : "s"} on this visual or prototype plan. Read the plan with get-visual-plan, read feedback with get-plan-feedback, use any attached focused screenshots to understand visual comments, then update structured content blocks, prototype screens, and related implementation details as needed. Use HTML only for legacy imported artifacts.`;
+  return `Apply the ${openCommentCount} open comment${openCommentCount === 1 ? "" : "s"} on this visual plan. Read the plan with get-visual-plan, read feedback with get-plan-feedback, use any attached focused screenshots to understand visual comments, then update structured content blocks, prototype screens, and related implementation details as needed. Use HTML only for legacy imported artifacts.`;
 }
 
 function buildQuestionFormRevisionMessage(summary: string) {
@@ -4446,9 +4509,14 @@ export function PlansPage() {
     void nativeMarkerVersion;
     const reader = nativeReaderRef.current;
     if (!reader) return null;
-    const point = nativePointForAnchor(anchor, reader);
-    if (!point) return null;
-    const { left, top } = point;
+    const placement = nativeMarkerPlacementForAnchor(anchor, reader);
+    if (!placement) return null;
+    const { left, top } = placement.clip
+      ? {
+          left: placement.clip.left + placement.marker.left,
+          top: placement.clip.top + placement.marker.top,
+        }
+      : placement.marker;
     if (
       left < -40 ||
       top < -40 ||
@@ -4457,7 +4525,7 @@ export function PlansPage() {
     ) {
       return null;
     }
-    return { left, top };
+    return placement;
   };
 
   return (
@@ -5043,21 +5111,20 @@ export function PlansPage() {
                   {commentMarkersVisible && (
                     <div className="pointer-events-none absolute inset-0 z-20 overflow-hidden">
                       {runtimeCommentThreads.map((annotation) => {
-                        const position = nativeMarkerPosition(
+                        const placement = nativeMarkerPosition(
                           annotation.anchor,
                         );
-                        if (!position) return null;
+                        if (!placement) return null;
                         const participants = annotation.participants.map(
                           runtimeParticipantPresentation,
                         );
-                        return (
+                        const marker = (
                           <CommentThreadMarker
-                            key={annotation.id}
                             participants={participants}
                             count={annotation.commentCount}
                             title={runtimeAnnotationMarkerTitle(annotation)}
                             className="absolute"
-                            style={position}
+                            style={placement.marker}
                             onClick={() => {
                               const popoverPosition = getPositionFromAnchor(
                                 annotation.anchor,
@@ -5071,6 +5138,18 @@ export function PlansPage() {
                               });
                             }}
                           />
+                        );
+                        if (!placement.clip) {
+                          return <div key={annotation.id}>{marker}</div>;
+                        }
+                        return (
+                          <div
+                            key={annotation.id}
+                            className="pointer-events-none absolute overflow-hidden"
+                            style={placement.clip}
+                          >
+                            {marker}
+                          </div>
                         );
                       })}
                     </div>

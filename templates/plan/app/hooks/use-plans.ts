@@ -311,7 +311,7 @@ export function useCreatePrototypePlan() {
     CreatePrototypePlanInput
   >("create-prototype-plan", {
     onSuccess: invalidate,
-    onError: showActionError("Failed to create prototype plan"),
+    onError: showActionError("Failed to create visual plan"),
   });
 }
 

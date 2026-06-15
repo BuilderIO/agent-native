@@ -1179,7 +1179,7 @@ export function createPrototypePlanContent(
     {
       id: createPlanBlockId("prototype-plan-overview"),
       type: "rich-text",
-      title: "Prototype Plan",
+      title: "Visual Plan",
       editable: true,
       data: {
         markdown: [
@@ -2424,7 +2424,7 @@ export function buildPlanContentHtml(input: {
   repoPath?: string | null;
 }) {
   const planLabel = input.content.prototype
-    ? "Prototype Plan"
+    ? "Visual Plan"
     : input.content.canvas?.title === "UI Flow"
       ? "UI Plan"
       : "Visual Plan";

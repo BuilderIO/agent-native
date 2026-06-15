@@ -64,7 +64,7 @@ export default defineAction({
             (comment) => comment.status === "open",
           ),
           agentWorkflow:
-            "For fast visual/prototype plan iteration, call get-visual-plan with this plan ID to read structured content, exported HTML, comments, and sections. Prefer update-visual-plan contentPatches for targeted edits by blockId, prototype screenId, or canvas id; use full content only for broad restructuring, and html only for legacy imported artifacts. For rollback, list-plan-versions and get-plan-version inspect saved snapshots; restore-plan-version only when the user asks to restore.",
+            "For fast visual plan prototype iteration, call get-visual-plan with this plan ID to read structured content, exported HTML, comments, and sections. Prefer update-visual-plan contentPatches for targeted edits by blockId, prototype screenId, or canvas id; use full content only for broad restructuring, and html only for legacy imported artifacts. For rollback, list-plan-versions and get-plan-version inspect saved snapshots; restore-plan-version only when the user asks to restore.",
         };
       } catch {
         screen.visualPlanError = `Could not load visual plan ${nav.planId}`;

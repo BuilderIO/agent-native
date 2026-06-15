@@ -9,6 +9,7 @@ import {
   commentThreadsForVisualSurfaceMode,
   commentThreadsForVisibility,
   mentionQueryAtCaret,
+  nativeMarkerPlacementForAnchor,
   runtimeAnnotationFromThread,
   nativePointForAnchor,
   removePlanCommentFromBundle,
@@ -624,6 +625,63 @@ describe("plan comment thread UI model", () => {
     expect(nativePointForAnchor(anchor as any, reader)).toEqual({
       left: 140,
       top: 256,
+    });
+
+    reader.remove();
+  });
+
+  it("clips canvas comment markers to the canvas viewport instead of the document", () => {
+    const reader = document.createElement("div");
+    reader.innerHTML = `
+      <section class="plan-canvas">
+        <div data-plan-canvas-viewport>
+          <div data-plan-canvas-world></div>
+        </div>
+      </section>
+      <article><h1>Overview</h1></article>
+    `;
+    document.body.append(reader);
+
+    const viewport = reader.querySelector<HTMLElement>(
+      "[data-plan-canvas-viewport]",
+    )!;
+    const world = reader.querySelector<HTMLElement>(
+      "[data-plan-canvas-world]",
+    )!;
+    Object.defineProperty(reader, "getBoundingClientRect", {
+      value: () => rect(0, 0, 1000, 800),
+    });
+    Object.defineProperty(viewport, "getBoundingClientRect", {
+      value: () => rect(0, -240, 1000, 650),
+    });
+    Object.defineProperty(world, "getBoundingClientRect", {
+      value: () => rect(0, -280, 1800, 1400),
+    });
+
+    const anchor = {
+      x: 50,
+      y: 80,
+      anchorKind: "visual",
+      targetKind: "canvas",
+      visualX: 50,
+      visualY: 90,
+      canvasX: 900,
+      canvasY: 1260,
+    };
+
+    const placement = nativeMarkerPlacementForAnchor(anchor as any, reader);
+
+    expect(placement).toEqual({
+      clip: {
+        left: 0,
+        top: -240,
+        width: 1000,
+        height: 650,
+      },
+      marker: {
+        left: 900,
+        top: 1220,
+      },
     });
 
     reader.remove();
