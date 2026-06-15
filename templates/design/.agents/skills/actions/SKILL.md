@@ -104,7 +104,9 @@ Do not build an umbrella REST API to make actions "easier" to call. Actions are 
 
 For provider integrations used in ad hoc analysis, querying, reporting, or
 cross-source research, do not hardcode every provider endpoint as a separate
-rigid action. Expose the shared provider API action trio instead:
+rigid action and do not encode one lookback window, filter shape, or pagination
+strategy as the only path the agent can take. Expose the shared provider API
+action trio instead:
 
 - `provider-api-catalog`: lists provider base URLs, auth style, credential keys,
   docs/spec URLs, placeholders, and examples without exposing secrets.
@@ -117,11 +119,25 @@ rigid action. Expose the shared provider API action trio instead:
 
 Use `@agent-native/core/provider-api` as the shared substrate. A template should
 only add a thin credential adapter when it has app-specific credential lookup
-rules. Keep `provider-api-request` `http: false` unless you have a separate UI
-permission model for arbitrary provider writes. Specific actions such as
-`hubspot-deals`, `search-emails`, or `sync-source` are convenience shortcuts,
-not capability limits; agents should fall back to the provider API trio when a
-question requires an endpoint or filter that the shortcut does not model.
+rules. If the app stores a built-in provider's OAuth grant under a narrower
+local provider id, use the runtime's `oauthProviderOverrides` instead of
+duplicating the provider config. If credentials are stored on shareable/resource
+rows rather than in the shared credential or OAuth-token stores, build a resolver
+that enforces those access checks before exposing raw provider requests. Keep
+`provider-api-request` `http: false` unless you have a separate UI permission
+model for arbitrary provider writes. Specific actions such as `hubspot-deals`,
+`search-emails`, or `sync-source` are convenience shortcuts, not capability
+limits; agents should fall back to the provider API trio when a question
+requires an endpoint or filter that the shortcut does not model.
+
+This is a framework tenet. The safety boundary should be provider host
+allow-listing, credential scoping, auth injection, private-network blocking,
+secret redaction, and user/org access checks, not an artificially small set of
+hand-authored read actions. If the upstream provider API supports a capability,
+the agent should normally be able to reach it through `provider-api-request`
+with the user's configured credentials. For large responses, expose staging
+(`stageAs`, `itemsPath`, pagination, and `query-staged-dataset`) or sandboxed
+code execution so the agent can reduce data without flooding context.
 
 ### The `http` Option
 
