@@ -1334,7 +1334,7 @@ export default function AssetPicker() {
       )}
 
       <main className="min-h-0 flex-1 overflow-y-auto p-3">
-        {selectedLibraryId && (
+        {displayLibraries.length > 0 && (
           <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
               <Select
@@ -1354,25 +1354,29 @@ export default function AssetPicker() {
                   </SelectGroup>
                 </SelectContent>
               </Select>
-              <Tabs
-                value={assetTab}
-                onValueChange={(value) => setAssetTab(value as AssetTab)}
-              >
-                <TabsList>
-                  <TabsTrigger value="all">All</TabsTrigger>
-                  <TabsTrigger value="generated">Generated</TabsTrigger>
-                  <TabsTrigger value="references">References</TabsTrigger>
-                </TabsList>
-              </Tabs>
+              {selectedLibraryId && (
+                <Tabs
+                  value={assetTab}
+                  onValueChange={(value) => setAssetTab(value as AssetTab)}
+                >
+                  <TabsList>
+                    <TabsTrigger value="all">All</TabsTrigger>
+                    <TabsTrigger value="generated">Generated</TabsTrigger>
+                    <TabsTrigger value="references">References</TabsTrigger>
+                  </TabsList>
+                </Tabs>
+              )}
             </div>
-            <Input
-              type="search"
-              value={query}
-              onInput={(event) => setQuery(event.currentTarget.value)}
-              onChange={(event) => setQuery(event.target.value)}
-              placeholder={`Search ${mediaLabel}s`}
-              className="h-9 border-border/70 bg-background sm:max-w-xs"
-            />
+            {selectedLibraryId && (
+              <Input
+                type="search"
+                value={query}
+                onInput={(event) => setQuery(event.currentTarget.value)}
+                onChange={(event) => setQuery(event.target.value)}
+                placeholder={`Search ${mediaLabel}s`}
+                className="h-9 border-border/70 bg-background sm:max-w-xs"
+              />
+            )}
           </div>
         )}
 
