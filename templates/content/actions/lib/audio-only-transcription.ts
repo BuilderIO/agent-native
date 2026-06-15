@@ -198,7 +198,7 @@ function isMissingAudioTrack(stderr: string): boolean {
 function mapFfmpegError(err: unknown): AudioOnlyExtractionError {
   const message = err instanceof Error ? err.message : String(err);
   const stderr = err instanceof FfmpegRunError ? err.stderr : "";
-  if (/enoent|not found/i.test(message)) {
+  if (/enoent|not found|eacces|enoexec/i.test(message)) {
     return new AudioOnlyExtractionError(
       "FFMPEG_UNAVAILABLE",
       "Audio transcription requires ffmpeg to extract the media's audio track.",
