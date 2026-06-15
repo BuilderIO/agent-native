@@ -36,11 +36,15 @@ export interface McpAppModelContextUpdate {
   structuredContent?: unknown;
 }
 
+export type McpAppHostRequestMode = "act" | "plan";
+
 export interface McpAppHostChatMessage {
   message: string;
   context?: string;
   content?: McpAppModelContextContentPart[];
   structuredContent?: unknown;
+  mode?: McpAppHostRequestMode;
+  requestMode?: McpAppHostRequestMode;
 }
 
 export interface McpAppHostCapabilities {
@@ -347,6 +351,9 @@ function postHostRequest(
 function postWrapperHostChat(chat: McpAppHostChatMessage): Promise<boolean> {
   ensureListener();
   const id = requestId();
+  const requestMode = normalizeMcpAppHostRequestMode(
+    chat.requestMode ?? chat.mode,
+  );
   return new Promise((resolve) => {
     const timeout = setTimeout(() => {
       pending.delete(id);
@@ -363,6 +370,7 @@ function postWrapperHostChat(chat: McpAppHostChatMessage): Promise<boolean> {
             message: chat.message,
             context: chat.context?.trim() || "",
             submit: true,
+            ...(requestMode ? { mode: requestMode, requestMode } : {}),
             ...(chat.content?.length ? { content: chat.content } : {}),
             ...(chat.structuredContent !== undefined
               ? { structuredContent: chat.structuredContent }
@@ -391,6 +399,8 @@ interface OpenAiAppBridge {
   sendFollowUpMessage?: (args: {
     prompt: string;
     scrollToBottom?: boolean;
+    mode?: McpAppHostRequestMode;
+    requestMode?: McpAppHostRequestMode;
   }) => unknown | Promise<unknown>;
   openExternal?: (args: {
     href: string;
@@ -411,6 +421,12 @@ function readOpenAiBridge(): OpenAiAppBridge | null {
 
 function objectValue(value: unknown): Record<string, unknown> {
   return isRecord(value) ? value : {};
+}
+
+function normalizeMcpAppHostRequestMode(
+  value: unknown,
+): McpAppHostRequestMode | undefined {
+  return value === "act" || value === "plan" ? value : undefined;
 }
 
 function postJsonRpcNotification(method: string, params?: unknown): void {
@@ -557,6 +573,12 @@ export function sendMcpAppHostMessage(
   return (async () => {
     const openAiBridge = readOpenAiBridge();
     const context = chat.context?.trim() || null;
+    const requestMode = normalizeMcpAppHostRequestMode(
+      chat.requestMode ?? chat.mode,
+    );
+    const requestModePayload = requestMode
+      ? { mode: requestMode, requestMode }
+      : {};
     const content = chat.content?.length
       ? chat.content
       : [{ type: "text", text: chat.message }];
@@ -577,6 +599,7 @@ export function sendMcpAppHostMessage(
           agentNativeChatContext: context,
           agentNativeModelContext: {
             content: contextContent,
+            ...requestModePayload,
             ...(chat.structuredContent !== undefined
               ? { structuredContent: chat.structuredContent }
               : {}),
@@ -586,6 +609,7 @@ export function sendMcpAppHostMessage(
       await openAiBridge.sendFollowUpMessage({
         prompt: chat.message,
         scrollToBottom: true,
+        ...requestModePayload,
       });
       return true;
     }
@@ -594,6 +618,7 @@ export function sendMcpAppHostMessage(
     try {
       await postJsonRpcRequest("ui/update-model-context", {
         content: contextContent,
+        ...requestModePayload,
         ...(chat.structuredContent !== undefined
           ? { structuredContent: chat.structuredContent }
           : {}),
@@ -605,6 +630,7 @@ export function sendMcpAppHostMessage(
     await postJsonRpcRequest("ui/message", {
       role: "user",
       content,
+      ...requestModePayload,
     });
     return true;
   })().catch(() => false);

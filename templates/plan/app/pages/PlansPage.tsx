@@ -1491,10 +1491,9 @@ export function selectorForElementWithin(
   const prototypeScope = prototype?.dataset.prototypeScreen
     ? dataSelector("data-prototype-screen", prototype.dataset.prototypeScreen)
     : undefined;
-  const prototypeStableSelector = stableDataSelectorForElement(
-    element,
-    prototypeScope,
-  );
+  const prototypeStableSelector = prototypeScope
+    ? stableDataSelectorForElement(element, prototypeScope)
+    : undefined;
   if (prototypeStableSelector) return prototypeStableSelector;
   if (prototype && prototypeScope) {
     return selectorForElementInScope(prototype, prototypeScope, element);
@@ -1503,7 +1502,9 @@ export function selectorForElementWithin(
   const frameScope = frame?.dataset.canvasFrame
     ? dataSelector("data-canvas-frame", frame.dataset.canvasFrame)
     : undefined;
-  const frameStableSelector = stableDataSelectorForElement(element, frameScope);
+  const frameStableSelector = frameScope
+    ? stableDataSelectorForElement(element, frameScope)
+    : undefined;
   if (frameStableSelector) return frameStableSelector;
   if (frame && frameScope) {
     return selectorForElementInScope(frame, frameScope, element);
@@ -1643,7 +1644,7 @@ function targetKindForElement(
   return "unknown";
 }
 
-function buildNativeAnchorFromElement(input: {
+export function buildNativeAnchorFromElement(input: {
   reader: HTMLElement;
   target: HTMLElement;
   pointX: number;
@@ -1665,10 +1666,15 @@ function buildNativeAnchorFromElement(input: {
   const visualElement = target.closest<HTMLElement>(
     PLAN_VISUAL_TARGET_SELECTOR,
   );
+  const wireNodeEl = target.closest<HTMLElement>("[data-wire-node-id]");
+  const designNodeEl = target.closest<HTMLElement>("[data-design-id]");
+  const planDesignNodeEl = target.closest<HTMLElement>("[data-plan-design-id]");
+  const stableVisualElement = wireNodeEl ?? designNodeEl ?? planDesignNodeEl;
   const anchorElement =
-    textElement && textSnippetFromElement(textElement)
+    stableVisualElement ??
+    (textElement && textSnippetFromElement(textElement)
       ? textElement
-      : (visualElement ?? target);
+      : (visualElement ?? target));
   const rect = anchorElement.getBoundingClientRect();
   const readerRect = reader.getBoundingClientRect();
   const localX = pointX + readerRect.left;
@@ -1704,13 +1710,10 @@ function buildNativeAnchorFromElement(input: {
             ? `Inside canvas frame ${frame.dataset.canvasFrame}`
             : undefined;
 
-  // Capture wireframe/design node identity from data attributes.
-  const wireNodeEl = target.closest<HTMLElement>("[data-wire-node-id]");
   const targetNodeId =
     wireNodeEl?.dataset.wireNodeId ||
-    target.closest<HTMLElement>("[data-design-id]")?.dataset.designId ||
-    target.closest<HTMLElement>("[data-plan-design-id]")?.dataset
-      .planDesignId ||
+    designNodeEl?.dataset.designId ||
+    planDesignNodeEl?.dataset.planDesignId ||
     undefined;
 
   // Build a short human-readable node path from the frame root down to the
@@ -1746,9 +1749,9 @@ function buildNativeAnchorFromElement(input: {
   return {
     ...base,
     sectionId:
-      block?.dataset.blockId ??
       prototype?.dataset.prototypeScreen ??
-      frame?.dataset.canvasFrame,
+      frame?.dataset.canvasFrame ??
+      block?.dataset.blockId,
     screenId: prototype?.dataset.prototypeScreen,
     sectionTitle,
     targetSelector: selectorForElementWithin(reader, anchorElement),

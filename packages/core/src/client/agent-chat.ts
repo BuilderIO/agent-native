@@ -412,12 +412,32 @@ function normalizeAgentChatRequestMode(
   return value === "act" || value === "plan" ? value : undefined;
 }
 
+function normalizeStoredAgentChatExecMode(
+  value: string | null,
+): AgentChatRequestMode | undefined {
+  if (value === "plan") return "plan";
+  if (value === "build" || value === "act") return "act";
+  return undefined;
+}
+
 function readStoredAgentChatRequestMode(): AgentChatRequestMode | undefined {
   if (typeof window === "undefined") return undefined;
   try {
-    const saved = window.localStorage.getItem(AGENT_CHAT_EXEC_MODE_KEY);
-    if (saved === "plan") return "plan";
-    if (saved === "build") return "act";
+    const storage = window.localStorage;
+    const saved = normalizeStoredAgentChatExecMode(
+      storage.getItem(AGENT_CHAT_EXEC_MODE_KEY),
+    );
+    if (saved) return saved;
+    const scopedModes: AgentChatRequestMode[] = [];
+    for (let index = 0; index < storage.length; index += 1) {
+      const key = storage.key(index);
+      if (!key?.startsWith(`${AGENT_CHAT_EXEC_MODE_KEY}:`)) continue;
+      const scopedSaved = normalizeStoredAgentChatExecMode(
+        storage.getItem(key),
+      );
+      if (scopedSaved) scopedModes.push(scopedSaved);
+    }
+    if (scopedModes.length === 1) return scopedModes[0];
   } catch {}
   return undefined;
 }
@@ -429,17 +449,18 @@ function readStoredAgentChatRequestMode(): AgentChatRequestMode | undefined {
 export function sendToAgentChat(opts: AgentChatMessage): string {
   const tabId = opts.tabId ?? generateTabId();
   const isCodeRequest = opts.type === "code" || opts.requiresCode === true;
+  const requestMode =
+    normalizeAgentChatRequestMode(opts.requestMode ?? opts.mode) ??
+    readStoredAgentChatRequestMode();
   if (isCodeRequest && isInBuilderFrame()) {
     sendToBuilderChat({
       message: opts.message,
       context: opts.context,
       submit: opts.submit,
+      ...(requestMode ? { mode: requestMode, requestMode } : {}),
     });
     return tabId;
   }
-  const requestMode =
-    normalizeAgentChatRequestMode(opts.requestMode ?? opts.mode) ??
-    readStoredAgentChatRequestMode();
 
   const payload = {
     type: AGENT_CHAT_MESSAGE_TYPE,
@@ -454,6 +475,7 @@ export function sendToAgentChat(opts: AgentChatMessage): string {
     const directHostMessage = sendMcpAppHostMessage({
       message: opts.message,
       context: opts.context,
+      ...(requestMode ? { mode: requestMode, requestMode } : {}),
     });
     if (directHostMessage) {
       void Promise.resolve(directHostMessage)

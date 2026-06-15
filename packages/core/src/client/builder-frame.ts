@@ -115,6 +115,8 @@ export interface BuilderChatMessage {
   message: string;
   context?: string;
   submit?: boolean;
+  mode?: "act" | "plan";
+  requestMode?: "act" | "plan";
 }
 
 export function sendToBuilderChat(opts: BuilderChatMessage): boolean {
@@ -127,6 +129,8 @@ export function sendToBuilderChat(opts: BuilderChatMessage): boolean {
       message: opts.message,
       context: opts.context,
       submit: opts.submit,
+      ...(opts.mode ? { mode: opts.mode } : {}),
+      ...(opts.requestMode ? { requestMode: opts.requestMode } : {}),
     },
   };
 

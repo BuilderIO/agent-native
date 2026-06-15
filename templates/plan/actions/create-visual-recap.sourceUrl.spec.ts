@@ -119,7 +119,7 @@ beforeAll(async () => {
       usage_input_tokens INTEGER, usage_output_tokens INTEGER,
       usage_cache_read_tokens INTEGER, usage_cache_write_tokens INTEGER,
       usage_cost_cents_x100 INTEGER, usage_cost_source TEXT, usage_recorded_at TEXT,
-      source_url TEXT,
+      source_url TEXT, recap_idempotency_key TEXT,
       owner_email TEXT NOT NULL, org_id TEXT, visibility TEXT NOT NULL DEFAULT 'private'
     );
     CREATE TABLE plan_sections (id TEXT PRIMARY KEY, plan_id TEXT NOT NULL, type TEXT NOT NULL DEFAULT 'custom', title TEXT NOT NULL, body TEXT NOT NULL DEFAULT '', html TEXT, sort_order INTEGER NOT NULL DEFAULT 0, created_by TEXT NOT NULL DEFAULT 'agent', created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
@@ -127,6 +127,9 @@ beforeAll(async () => {
     CREATE TABLE plan_events (id TEXT PRIMARY KEY, plan_id TEXT NOT NULL, type TEXT NOT NULL, message TEXT NOT NULL, payload TEXT, created_by TEXT NOT NULL DEFAULT 'agent', created_at TEXT NOT NULL);
     CREATE TABLE plan_versions (id TEXT PRIMARY KEY, owner_email TEXT NOT NULL DEFAULT 'local@localhost', plan_id TEXT NOT NULL, title TEXT NOT NULL, snapshot_json TEXT NOT NULL, change_label TEXT, created_by TEXT NOT NULL DEFAULT 'agent', created_at TEXT NOT NULL);
     CREATE TABLE plan_shares (id TEXT PRIMARY KEY, resource_id TEXT NOT NULL, principal_type TEXT NOT NULL, principal_id TEXT NOT NULL, role TEXT NOT NULL DEFAULT 'viewer', created_by TEXT NOT NULL, created_at TEXT NOT NULL);
+    CREATE UNIQUE INDEX plans_recap_idempotency_key_unique_idx
+      ON plans(owner_email, COALESCE(org_id, ''), recap_idempotency_key)
+      WHERE kind = 'recap' AND recap_idempotency_key IS NOT NULL;
   `);
 
   registerShareableResource({
@@ -168,6 +171,73 @@ describe("create-visual-recap: sourceUrl", () => {
     expect(result.planId).toBeTruthy();
     const row = await rawPlan(result.planId as string);
     expect(row?.sourceUrl).toBe(PR_URL);
+  });
+
+  it("reuses a recap with the same idempotency key", async () => {
+    const idempotencyKey = "visual-recap-test-key";
+    const first = await asOwner(() =>
+      createVisualRecap.run({
+        mdx: MINIMAL_MDX,
+        visibility: "org",
+        sourceUrl: PR_URL,
+        idempotencyKey,
+      }),
+    );
+    const planId = first.planId as string;
+
+    const second = await asOwner(() =>
+      createVisualRecap.run({
+        mdx: {
+          "plan.mdx":
+            "---\ntitle: Retried Recap\nbrief: Reused by idempotency.\n---\n\n# Retried\n",
+        },
+        visibility: "org",
+        sourceUrl: PR_URL,
+        idempotencyKey,
+      }),
+    );
+
+    expect(second.planId).toBe(planId);
+    const rows = await db
+      .select({
+        id: planSchema.plans.id,
+        title: planSchema.plans.title,
+        recapIdempotencyKey: planSchema.plans.recapIdempotencyKey,
+      })
+      .from(planSchema.plans);
+    expect(rows).toEqual([
+      {
+        id: planId,
+        title: "Retried Recap",
+        recapIdempotencyKey: idempotencyKey,
+      },
+    ]);
+
+    await expect(
+      client.execute({
+        sql: `
+          INSERT INTO plans (
+            id, title, brief, kind, status, source, created_at, updated_at,
+            owner_email, org_id, visibility, recap_idempotency_key
+          )
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `,
+        args: [
+          "duplicate-recap",
+          "Duplicate Recap",
+          "Duplicate key should be rejected.",
+          "recap",
+          "review",
+          "imported",
+          new Date().toISOString(),
+          new Date().toISOString(),
+          OWNER,
+          ORG,
+          "private",
+          idempotencyKey,
+        ],
+      }),
+    ).rejects.toThrow();
   });
 
   it("leaves sourceUrl null when not provided on create", async () => {

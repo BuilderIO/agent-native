@@ -425,13 +425,18 @@ describe("recap direct publish", () => {
       );
 
       const bodies: any[] = [];
+      const idempotencyKeys: string[] = [];
       const fetchFn: typeof fetch = (async (input, init) => {
         expect(String(input)).toBe(
           "https://plan.agent-native.com/_agent-native/actions/create-visual-recap",
         );
-        expect((init?.headers as Record<string, string>).authorization).toBe(
-          "Bearer plan-token",
+        const headers = init?.headers as Record<string, string>;
+        expect(headers.authorization).toBe("Bearer plan-token");
+        expect(headers["Idempotency-Key"]).toMatch(
+          /^visual-recap-[a-f0-9]{64}$/,
         );
+        expect(headers["X-Idempotency-Key"]).toBe(headers["Idempotency-Key"]);
+        idempotencyKeys.push(headers["Idempotency-Key"]);
         bodies.push(JSON.parse(String(init?.body ?? "{}")));
         return jsonResponse({
           planId: "recap-abc123",
@@ -457,6 +462,7 @@ describe("recap direct publish", () => {
       expect(fs.readFileSync(out, "utf8").trim()).toBe(result.url);
       expect(bodies[0]).toMatchObject({
         planId: "recap-prev",
+        idempotencyKey: idempotencyKeys[0],
         title: "Visual recap - auth changes",
         brief: "Shows the API and UI changes.",
         visibility: "org",
@@ -467,6 +473,58 @@ describe("recap direct publish", () => {
         status: "review",
       });
       expect(bodies[0].mdx["plan.mdx"]).toContain("Auth recap");
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("reuses the same idempotency key across publish retries", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "an-recap-retry-"));
+    try {
+      const source = path.join(dir, "recap-source.json");
+      const out = path.join(dir, "recap-url.txt");
+      fs.writeFileSync(
+        source,
+        JSON.stringify({
+          mdx: {
+            "plan.mdx": "---\ntitle: Retry recap\n---\n\n# Retry\n",
+          },
+        }),
+      );
+
+      const bodies: any[] = [];
+      const keys: string[] = [];
+      const fetchFn: typeof fetch = (async (_input, init) => {
+        const headers = init?.headers as Record<string, string>;
+        keys.push(headers["Idempotency-Key"]);
+        bodies.push(JSON.parse(String(init?.body ?? "{}")));
+        if (keys.length === 1) return textResponse("try again", 500);
+        return jsonResponse({
+          planId: "recap-retry",
+          url: "/recaps/recap-retry",
+        });
+      }) as typeof fetch;
+
+      const result = await publishRecapSource({
+        appUrl: "https://plan.agent-native.com",
+        token: "plan-token",
+        sourcePath: source,
+        out,
+        repo: "BuilderIO/agent-native",
+        pr: "1209",
+        fetchFn,
+        cwd: dir,
+      });
+
+      expect(result.url).toBe(
+        "https://plan.agent-native.com/recaps/recap-retry",
+      );
+      expect(keys).toHaveLength(2);
+      expect(new Set(keys).size).toBe(1);
+      expect(bodies.map((body) => body.idempotencyKey)).toEqual([
+        keys[0],
+        keys[0],
+      ]);
     } finally {
       fs.rmSync(dir, { recursive: true, force: true });
     }

@@ -64,6 +64,12 @@ export default defineAction({
       .optional()
       .describe("Current plan focus for the review surface."),
     status: planStatusSchema.optional().default("review"),
+    recapIdempotencyKey: z
+      .string()
+      .optional()
+      .describe(
+        "Stable recap retry key. Only used when kind='recap' so create-visual-recap can reserve the key during initial insert.",
+      ),
     mdx: planMdxFileSchema.describe(
       "Plan source files. plan.mdx holds frontmatter plus markdown/document blocks; canvas.mdx holds optional DesignBoard/Section/Artboard/Screen/Annotation/Connector components. Optional assets/ holds base64-encoded image assets keyed by filename (png, jpg, gif, webp, svg). Size caps: 2 MB per asset, 10 MB total per plan.",
     ),
@@ -149,6 +155,9 @@ export default defineAction({
           source: args.source,
           repoPath: args.repoPath ?? null,
           currentFocus: args.currentFocus ?? "source review",
+          ...(args.kind === "recap" && args.recapIdempotencyKey
+            ? { recapIdempotencyKey: args.recapIdempotencyKey }
+            : {}),
           status: args.status,
           markdown: args.mdx["plan.mdx"],
           content: serializePlanContent(content),
@@ -217,6 +226,9 @@ export default defineAction({
       ownerEmail,
       orgId: ownerOrgId,
       visibility: "private",
+      ...(kind === "recap" && args.recapIdempotencyKey
+        ? { recapIdempotencyKey: args.recapIdempotencyKey }
+        : {}),
     });
 
     // Import assets now that the plan row exists (FK on plan_assets.plan_id).
