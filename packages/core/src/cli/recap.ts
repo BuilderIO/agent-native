@@ -2063,7 +2063,11 @@ export function buildRecapPrompt(input: {
   lines.push("");
   lines.push("---");
   lines.push("");
-  lines.push("# visual-recap skill (follow this exactly)");
+  lines.push("# visual-recap skill — use for recap CONTENT and structure");
+  lines.push("");
+  lines.push(
+    "Follow the skill below for WHAT makes a good recap: which blocks to use, grounding, house style, and review depth. IGNORE its publishing and hand-off instructions — in this run you have NO Plan MCP tools and must NOT publish the recap yourself. Publishing is handled exactly as described above (write the source file; CI publishes it deterministically).",
+  );
   lines.push("");
   lines.push(input.skillMd.trim());
   lines.push("");
