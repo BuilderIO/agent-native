@@ -4876,6 +4876,9 @@ export function PlansPage() {
                       canvasMarkupMode={reviewMode}
                       onCanvasMarkupCreate={appendCanvasMarkup}
                       onCanvasViewportChange={scheduleNativeMarkerUpdate}
+                      onCanvasCommentShortcut={() =>
+                        preservePlanReaderScroll(startCommenting)
+                      }
                       planId={bundle.plan.id}
                       collabUser={collabUser}
                       prototypeOnly={prototypeOnly}

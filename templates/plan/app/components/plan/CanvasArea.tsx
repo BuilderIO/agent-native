@@ -100,6 +100,7 @@ export function CanvasArea({
   markupMode = "none",
   onCanvasMarkupCreate,
   onViewportChange,
+  onCommentShortcut,
   selectedDesignElementKey,
   onDesignElementSelect,
 }: {
@@ -111,6 +112,7 @@ export function CanvasArea({
     context: CanvasMarkupCreateContext,
   ) => Promise<void> | void;
   onViewportChange?: (view: CanvasViewport) => void;
+  onCommentShortcut?: () => void;
   selectedDesignElementKey?: string | null;
   onDesignElementSelect?: (selection: DesignElementSelection) => void;
 }) {
@@ -605,6 +607,21 @@ export function CanvasArea({
     });
   };
   const onViewportKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+    if (
+      event.target === event.currentTarget &&
+      event.key.toLowerCase() === "c" &&
+      !event.metaKey &&
+      !event.ctrlKey &&
+      !event.altKey &&
+      !event.shiftKey &&
+      !event.defaultPrevented &&
+      onCommentShortcut
+    ) {
+      event.preventDefault();
+      event.stopPropagation();
+      onCommentShortcut();
+      return;
+    }
     if (
       event.key !== "0" ||
       !(event.metaKey || event.ctrlKey) ||

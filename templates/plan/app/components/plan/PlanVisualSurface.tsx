@@ -33,6 +33,7 @@ type PlanVisualSurfaceProps = {
     context: CanvasMarkupCreateContext,
   ) => Promise<void> | void;
   onCanvasViewportChange?: (view: CanvasViewport) => void;
+  onCanvasCommentShortcut?: () => void;
   prototypeOnly?: boolean;
   visualMode?: PlanVisualSurfaceMode;
   onVisualModeChange?: (mode: PlanVisualSurfaceMode) => void;
@@ -49,6 +50,7 @@ export function PlanVisualSurface({
   canvasMarkupMode = "none",
   onCanvasMarkupCreate,
   onCanvasViewportChange,
+  onCanvasCommentShortcut,
   prototypeOnly = false,
   visualMode: requestedVisualMode,
   onVisualModeChange,
@@ -169,6 +171,7 @@ export function PlanVisualSurface({
             markupMode={canvasMarkupMode}
             onCanvasMarkupCreate={onCanvasMarkupCreate}
             onViewportChange={onCanvasViewportChange}
+            onCommentShortcut={onCanvasCommentShortcut}
             selectedDesignElementKey={selectedDesignElementKey}
             onDesignElementSelect={
               designCanvas ? setSelectedDesignElement : undefined
@@ -197,6 +200,7 @@ export function PlanVisualSurface({
           markupMode={canvasMarkupMode}
           onCanvasMarkupCreate={onCanvasMarkupCreate}
           onViewportChange={onCanvasViewportChange}
+          onCommentShortcut={onCanvasCommentShortcut}
           selectedDesignElementKey={selectedDesignElementKey}
           onDesignElementSelect={
             designCanvas ? setSelectedDesignElement : undefined

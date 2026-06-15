@@ -415,6 +415,36 @@ test("focused canvas resets to 100% on Command/Ctrl+0", async ({ page }) => {
   await expect(page.locator(ZOOM_PCT)).toHaveText("100%");
 });
 
+test("focused canvas enters comment mode on c", async ({ page }) => {
+  const planId = await createPlan(
+    page,
+    richBoard(`keyboard-comment-${Date.now()}`),
+    "keyboard-comment-mode",
+  );
+  await openCanvas(page, planId, ["ab-dash", "ab-detail", "ab-pop"]);
+
+  await expect(
+    page.getByRole("radio", { name: "Comment", exact: true }),
+  ).toBeVisible({ timeout: 15_000 });
+
+  const focusPoint = await findEmptyCanvasPoint(page);
+  expect(
+    focusPoint,
+    "could not find an empty grid point to focus the canvas",
+  ).not.toBeNull();
+  await page.mouse.click(focusPoint!.x, focusPoint!.y);
+  await expect
+    .poll(() =>
+      page.locator(VIEWPORT).evaluate((el) => document.activeElement === el),
+    )
+    .toBeTruthy();
+
+  await page.keyboard.press("c");
+  await expect(
+    page.getByRole("radio", { name: "Stop commenting", exact: true }),
+  ).toBeVisible({ timeout: 10_000 });
+});
+
 test("canvas comment pins preserve zoom and follow later pan", async ({
   page,
 }) => {
