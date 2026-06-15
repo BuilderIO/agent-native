@@ -80,6 +80,8 @@ export default defineAction({
       planId,
       resolvePlanAccessContext(currentAccess()),
     );
+    const visibility = plan.visibility ?? "private";
+    const canRevealOrg = Boolean(access) || visibility === "org";
 
     return {
       exists: true as const,
@@ -88,9 +90,9 @@ export default defineAction({
       viewerEmail,
       viewerName,
       role: access?.role ?? null,
-      orgId: plan.orgId ?? null,
-      orgName: await getOrgName(plan.orgId),
-      visibility: plan.visibility ?? "private",
+      orgId: canRevealOrg ? (plan.orgId ?? null) : null,
+      orgName: canRevealOrg ? await getOrgName(plan.orgId) : null,
+      visibility,
     };
   },
 });

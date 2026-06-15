@@ -5888,15 +5888,15 @@ function PlanLoadError({
         : "Sign in to view this plan"
       : "Plan did not load";
   const body = planMissing
-    ? "This link points to a plan that does not exist on this Plan app."
+    ? "This plan does not exist, or it belongs to another organization and you need access."
     : showAccessHelp
       ? orgAccessBody
         ? orgAccessBody
         : signedIn
           ? planExists
-            ? "This plan exists, but this account is not on the access list."
-            : "This looks like a private plan link, and this account may not have access."
-          : "This plan is private, sign in to view it"
+            ? "This plan exists, but this account does not have access to view it."
+            : "This plan may belong to another organization, or this account may not have access."
+          : "This plan is private. Sign in with an account that has access."
       : message;
 
   return (

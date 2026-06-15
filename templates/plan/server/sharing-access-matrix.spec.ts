@@ -462,7 +462,8 @@ describe("non-owner on a private plan (deny)", () => {
 // ===========================================================================
 describe("private plan access status and requests", () => {
   it("reveals a real private plan URL without revealing the plan content", async () => {
-    const planId = await createPlanAs(OWNER, undefined, {
+    await seedOrg(ORG, "Acme Planning");
+    const planId = await createPlanAs(OWNER, ORG, {
       brief: "PRIVATE-PLAN-SECRET",
     });
 
@@ -475,9 +476,12 @@ describe("private plan access status and requests", () => {
       signedIn: true,
       viewerEmail: OTHER,
       role: null,
+      orgId: null,
+      orgName: null,
       visibility: "private",
     });
     expect(JSON.stringify(status)).not.toContain("PRIVATE-PLAN-SECRET");
+    expect(JSON.stringify(status)).not.toContain("Acme Planning");
 
     await expect(
       asUser({ userEmail: OTHER }, () => getVisualPlan.run({ id: planId })),
