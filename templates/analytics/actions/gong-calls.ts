@@ -225,6 +225,9 @@ async function loadTranscriptEvidence(
 }
 
 export default defineAction({
+  // Read-only provider query: safe to call from run-code `appAction` and
+  // reusable across continuation retries (no re-fetch on resume).
+  readOnly: true,
   description:
     "Query Gong sales calls, transcripts, and users. Pass --users for user list, --transcript for one transcript, --company to search by company/domain/person/email. For deal, customer, objection, next-step, or deep-dive analysis, set includeTranscripts=true so the answer uses transcript evidence instead of call metadata alone.",
   schema: z.object({

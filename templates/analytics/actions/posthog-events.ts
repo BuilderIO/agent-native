@@ -3,6 +3,9 @@ import { z } from "zod";
 import { queryEvents } from "../server/lib/posthog";
 
 export default defineAction({
+  // Read-only provider query: safe to call from run-code `appAction` and
+  // reusable across continuation retries (no re-fetch on resume).
+  readOnly: true,
   description:
     "Query PostHog analytics event data. Returns raw event records for a given event name. " +
     "For advanced PostHog queries (trends, funnels, retention, cohorts, feature flags, persons), " +

@@ -14,6 +14,9 @@ import { tryRequestCredentialContext } from "../server/lib/credentials-context";
 import { providerError } from "./_provider-action-utils";
 
 export default defineAction({
+  // Read-only provider query: safe to call from run-code `appAction` and
+  // reusable across continuation retries (no re-fetch on resume).
+  readOnly: true,
   description:
     "Query GitHub PRs and issues. Use --pr, --issue, --search, --repo, or --graphql for different modes. Default: search org PRs.",
   schema: z.object({

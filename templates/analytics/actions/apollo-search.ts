@@ -8,6 +8,9 @@ import {
 } from "../server/lib/apollo";
 
 export default defineAction({
+  // Read-only provider query: safe to call from run-code `appAction` and
+  // reusable across continuation retries (no re-fetch on resume).
+  readOnly: true,
   description:
     "Search and enrich contacts/companies via Apollo.io. Pass email, domain, company, name, or title.",
   schema: z.object({

@@ -5,6 +5,9 @@ import { resolveCredential } from "../server/lib/credentials";
 import { requireRequestCredentialContext } from "../server/lib/credentials-context";
 
 export default defineAction({
+  // Read-only provider query: safe to call from run-code `appAction` and
+  // reusable across continuation retries (no re-fetch on resume).
+  readOnly: true,
   description:
     "Get recent tweets for one or more Twitter/X users. Use userName for one account or userNames for a comma-separated multi-user query.",
   schema: z.object({

@@ -3,6 +3,9 @@ import { z } from "zod";
 import { queryEvents, getUserSegmentation } from "../server/lib/amplitude";
 
 export default defineAction({
+  // Read-only provider query: safe to call from run-code `appAction` and
+  // reusable across continuation retries (no re-fetch on resume).
+  readOnly: true,
   description:
     "Query Amplitude analytics event data. Returns daily event counts segmented over time. " +
     "For more advanced Amplitude queries (user segmentation, funnels, retention, property filters, cohorts), " +

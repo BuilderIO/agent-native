@@ -7,6 +7,9 @@ import {
 } from "./_provider-action-utils";
 
 export default defineAction({
+  // Read-only provider query: safe to call from run-code `appAction` and
+  // reusable across continuation retries (no re-fetch on resume).
+  readOnly: true,
   description:
     "Read a Notion page by page ID using the analytics app's configured Notion integration.",
   schema: z.object({

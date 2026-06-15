@@ -6,6 +6,9 @@ import {
 } from "../server/lib/hubspot";
 
 export default defineAction({
+  // Read-only provider query: safe to call from run-code `appAction` and
+  // reusable across continuation retries (no re-fetch on resume).
+  readOnly: true,
   description:
     "List HubSpot CRM property metadata for contacts, companies, deals, or tickets so agents can request the right fields before querying records.",
   schema: z.object({

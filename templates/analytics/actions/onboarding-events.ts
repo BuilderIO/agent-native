@@ -3,6 +3,9 @@ import { z } from "zod";
 import { runQuery } from "../server/lib/bigquery";
 
 export default defineAction({
+  // Read-only provider query: safe to call from run-code `appAction` and
+  // reusable across continuation retries (no re-fetch on resume).
+  readOnly: true,
   description:
     "Query onboarding-related product analytics events from BigQuery.",
   schema: z.object({

@@ -3,6 +3,9 @@ import { z } from "zod";
 import { queryEvents, getTopEvents } from "../server/lib/mixpanel";
 
 export default defineAction({
+  // Read-only provider query: safe to call from run-code `appAction` and
+  // reusable across continuation retries (no re-fetch on resume).
+  readOnly: true,
   description:
     "Query Mixpanel event data. Supports date-range event export and top-events lookup. " +
     "For advanced Mixpanel queries (funnels, segmentation, retention, insights, cohorts), " +

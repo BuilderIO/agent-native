@@ -15,6 +15,9 @@ const modeSchema = z
   .optional();
 
 export default defineAction({
+  // Read-only provider query: safe to call from run-code `appAction` and
+  // reusable across continuation retries (no re-fetch on resume).
+  readOnly: true,
   description:
     "Search and read code from GitHub repositories. Use this to list accessible repos, search code for exact strings like trackI(), and fetch source files for inspection.",
   schema: z.object({

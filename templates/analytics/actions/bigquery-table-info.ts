@@ -39,6 +39,9 @@ ORDER BY ordinal_position
 `;
 
 export default defineAction({
+  // Read-only provider query: safe to call from run-code `appAction` and
+  // reusable across continuation retries (no re-fetch on resume).
+  readOnly: true,
   description:
     "Explain how to find configured BigQuery table and column metadata without relying on a bundled workspace-specific dictionary.",
   schema: z.object({}),

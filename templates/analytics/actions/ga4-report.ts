@@ -3,6 +3,9 @@ import { z } from "zod";
 import { runReport } from "../server/lib/google-analytics";
 
 export default defineAction({
+  // Read-only provider query: safe to call from run-code `appAction` and
+  // reusable across continuation retries (no re-fetch on resume).
+  readOnly: true,
   description: "Query Google Analytics 4 report data.",
   schema: z.object({
     metrics: z

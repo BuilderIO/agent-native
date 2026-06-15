@@ -8,6 +8,9 @@ import {
 import { cliBoolean } from "./schema-helpers";
 
 export default defineAction({
+  // Read-only provider query: safe to call from run-code `appAction` and
+  // reusable across continuation retries (no re-fetch on resume).
+  readOnly: true,
   description:
     "Query Common Room community members by email, query, or list segments.",
   schema: z.object({

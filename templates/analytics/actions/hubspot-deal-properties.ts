@@ -3,6 +3,9 @@ import { z } from "zod";
 import { getDealProperties } from "../server/lib/hubspot";
 
 export default defineAction({
+  // Read-only provider query: safe to call from run-code `appAction` and
+  // reusable across continuation retries (no re-fetch on resume).
+  readOnly: true,
   description:
     "List searchable HubSpot deal property metadata so agents can request custom deal fields.",
   schema: z.object({
