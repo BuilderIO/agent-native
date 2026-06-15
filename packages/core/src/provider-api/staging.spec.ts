@@ -305,18 +305,18 @@ describe("extractItemsArray", () => {
     expect(extractItemsArray({ records: [{ x: "a" }] })).toEqual([{ x: "a" }]);
   });
 
-  it("detects Gong response arrays", () => {
+  it("detects a single top-level array field alongside metadata", () => {
     expect(
       extractItemsArray({
-        calls: [{ id: "call-1" }],
+        providerSpecificRecords: [{ id: "record-1" }],
         records: { cursor: "next" },
       }),
-    ).toEqual([{ id: "call-1" }]);
+    ).toEqual([{ id: "record-1" }]);
     expect(
       extractItemsArray({
-        callTranscripts: [{ callId: "call-1" }],
+        providerSpecificEvents: [{ eventId: "event-1" }],
       }),
-    ).toEqual([{ callId: "call-1" }]);
+    ).toEqual([{ eventId: "event-1" }]);
   });
 
   it("detects single-key object wrapping an array", () => {
