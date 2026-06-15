@@ -116,6 +116,7 @@ describe("recap secret scan", () => {
       "@@ -1,4 +1,4 @@",
       `+SENDGRID_API_KEY=SG.${"a".repeat(22)}.${"b".repeat(43)}`,
       `+GOOGLE_CLIENT_SECRET=GOCSPX-${"c".repeat(28)}`,
+      `+BUILDER_PRIVATE_KEY=bpk-${"f".repeat(32)}`,
       `+STRIPE_SECRET_KEY=sk_live_${"d".repeat(24)}`,
       `+OPENAI_PROJECT_KEY=sk-proj-${"e".repeat(32)}`,
     ].join("\n");
