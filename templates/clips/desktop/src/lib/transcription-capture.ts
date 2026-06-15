@@ -16,6 +16,7 @@ import {
   onFinalTranscript,
   startTranscriptionEngine,
   stopTranscriptionEngine,
+  TranscriptionEngine,
   type SourcedTranscriptSegment,
 } from "./transcription-engine";
 
@@ -66,6 +67,7 @@ export async function startTranscriptionCapture(
     segments,
   });
 
+  let engine: TranscriptionEngine;
   try {
     unlistens.push(
       await onFinalTranscript((event) => {
@@ -74,10 +76,9 @@ export async function startTranscriptionCapture(
       }),
     );
 
-    // Clip recordings stay whisper-only today (no mic-only fallback).
-    await startTranscriptionEngine({ mic, captureSystem });
+    engine = await startTranscriptionEngine({ mic, captureSystem });
     console.log(
-      `[clips-recorder] transcription started (whisper mic${captureSystem ? "+system" : ""})`,
+      `[clips-recorder] transcription started (${engine} mic${captureSystem ? "+system" : ""})`,
     );
   } catch (err) {
     cleanup();
@@ -88,7 +89,7 @@ export async function startTranscriptionCapture(
   return {
     async stop() {
       try {
-        await stopTranscriptionEngine("whisper");
+        await stopTranscriptionEngine(engine);
       } catch (err) {
         console.warn("[clips-recorder] transcription stop failed:", err);
         cleanup();
@@ -101,7 +102,7 @@ export async function startTranscriptionCapture(
     },
     async cancel() {
       try {
-        await stopTranscriptionEngine("whisper");
+        await stopTranscriptionEngine(engine);
       } catch {
         // ignore
       }

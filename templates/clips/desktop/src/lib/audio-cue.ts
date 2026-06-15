@@ -135,7 +135,9 @@ export function createAudioCue(): AudioCue {
     };
 
     // Unlock eagerly inside the gesture; drop the context if never played.
-    ctx.resume().catch(() => {});
+    ctx.resume().catch((err) => {
+      console.warn("[clips-recorder] AudioContext resume failed:", err);
+    });
     idleTimer = window.setTimeout(cleanup, CUE_IDLE_CLEANUP_MS);
 
     return {

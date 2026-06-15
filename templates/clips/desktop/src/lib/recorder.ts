@@ -1495,7 +1495,7 @@ async function startNativeFullscreenRecording(
     }
 
     await audioCue.playBeforeCapture();
-    const wantsSystemAudio = params.systemAudioOn !== false;
+    const wantsSystemAudio = wantsAudio && params.systemAudioOn !== false;
     await invoke("native_fullscreen_recording_start", {
       recordingId: id,
       includeAudio: wantsAudio,
@@ -1929,7 +1929,7 @@ async function startRecordingInner(
   const wantsScreen = params.mode !== "camera";
   const wantsCamera = params.mode !== "screen" && params.cameraOn;
   const wantsAudio = params.micOn;
-  const wantsSystemAudio = params.systemAudioOn !== false;
+  const wantsSystemAudio = wantsAudio && params.systemAudioOn !== false;
   const audioCue = createAudioCue();
   const captureSource = params.source ?? "window";
   const localRecordingMode = params.localRecordingMode ?? "off";
