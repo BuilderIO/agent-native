@@ -579,6 +579,56 @@ describe("plan comment thread UI model", () => {
     reader.remove();
   });
 
+  it("prefers wireframe node identity over a stale block selector", () => {
+    const reader = document.createElement("div");
+    reader.innerHTML = `
+      <div data-block-id="wire-block">
+        <div id="wrong">Earlier block div</div>
+        <div data-canvas-frame="frame_1">
+          <div>
+            <button id="target" data-wire-node-id="cta">Review CTA</button>
+          </div>
+        </div>
+      </div>
+    `;
+    document.body.append(reader);
+
+    const wrong = reader.querySelector<HTMLElement>("#wrong")!;
+    const frame = reader.querySelector<HTMLElement>("[data-canvas-frame]")!;
+    const target = reader.querySelector<HTMLElement>("#target")!;
+    Object.defineProperty(reader, "getBoundingClientRect", {
+      value: () => rect(0, 0, 500, 500),
+    });
+    Object.defineProperty(wrong, "getBoundingClientRect", {
+      value: () => rect(20, 30, 120, 40),
+    });
+    Object.defineProperty(frame, "getBoundingClientRect", {
+      value: () => rect(60, 180, 260, 160),
+    });
+    Object.defineProperty(target, "getBoundingClientRect", {
+      value: () => rect(100, 240, 80, 32),
+    });
+
+    const anchor = {
+      x: 40,
+      y: 50,
+      sectionId: "frame_1",
+      targetKind: "wireframe",
+      targetNodeId: "cta",
+      targetSelector: '[data-block-id="wire-block"] div:nth-of-type(1)',
+      targetX: 50,
+      targetY: 50,
+    };
+
+    expect(resolveNativeAnchorTarget(anchor as any, reader)).toBe(target);
+    expect(nativePointForAnchor(anchor as any, reader)).toEqual({
+      left: 140,
+      top: 256,
+    });
+
+    reader.remove();
+  });
+
   it("limits canvas markup content edits to editor-capable roles", () => {
     expect(canEditPlanContentRole("owner")).toBe(true);
     expect(canEditPlanContentRole("admin")).toBe(true);

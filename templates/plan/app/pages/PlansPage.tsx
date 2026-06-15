@@ -1418,37 +1418,90 @@ function elementIndexAmongType(element: Element) {
   );
 }
 
+function dataSelector(name: string, value: string) {
+  return `[${name}="${cssAttr(value)}"]`;
+}
+
+function scopedSelector(scope: string | undefined, selector: string) {
+  return scope ? `${scope} ${selector}` : selector;
+}
+
+function stableDataSelectorForElement(
+  element: Element,
+  scope?: string,
+): string | undefined {
+  const wireNode = element.closest<HTMLElement>("[data-wire-node-id]");
+  if (wireNode?.dataset.wireNodeId) {
+    return scopedSelector(
+      scope,
+      dataSelector("data-wire-node-id", wireNode.dataset.wireNodeId),
+    );
+  }
+  const designNode = element.closest<HTMLElement>("[data-design-id]");
+  if (designNode?.dataset.designId) {
+    return scopedSelector(
+      scope,
+      dataSelector("data-design-id", designNode.dataset.designId),
+    );
+  }
+  const planDesignNode = element.closest<HTMLElement>("[data-plan-design-id]");
+  if (planDesignNode?.dataset.planDesignId) {
+    return scopedSelector(
+      scope,
+      dataSelector("data-plan-design-id", planDesignNode.dataset.planDesignId),
+    );
+  }
+  return undefined;
+}
+
 function selectorForElementWithin(root: HTMLElement, element: Element | null) {
   if (!element || !root.contains(element)) return undefined;
   const prototype = element.closest<HTMLElement>("[data-prototype-screen]");
+  const prototypeScope = prototype?.dataset.prototypeScreen
+    ? dataSelector("data-prototype-screen", prototype.dataset.prototypeScreen)
+    : undefined;
+  const prototypeStableSelector = stableDataSelectorForElement(
+    element,
+    prototypeScope,
+  );
+  if (prototypeStableSelector) return prototypeStableSelector;
   if (prototype?.dataset.prototypeScreen) {
     if (prototype === element) {
-      return `[data-prototype-screen="${cssAttr(prototype.dataset.prototypeScreen)}"]`;
+      return prototypeScope;
     }
     const tag = element.tagName.toLowerCase();
-    return `[data-prototype-screen="${cssAttr(
-      prototype.dataset.prototypeScreen,
-    )}"] ${tag}:nth-of-type(${elementIndexAmongType(element)})`;
+    return `${prototypeScope} ${tag}:nth-of-type(${elementIndexAmongType(element)})`;
   }
+  const frame = element.closest<HTMLElement>("[data-canvas-frame]");
+  const frameScope = frame?.dataset.canvasFrame
+    ? dataSelector("data-canvas-frame", frame.dataset.canvasFrame)
+    : undefined;
+  const frameStableSelector = stableDataSelectorForElement(element, frameScope);
+  if (frameStableSelector) return frameStableSelector;
+  if (frame?.dataset.canvasFrame) {
+    if (frame === element) {
+      return frameScope;
+    }
+    const tag = element.tagName.toLowerCase();
+    return `${frameScope} ${tag}:nth-of-type(${elementIndexAmongType(element)})`;
+  }
+  const canvasWorld = element.closest<HTMLElement>(
+    "[data-plan-canvas-world], .plan-canvas-world",
+  );
+  if (canvasWorld) {
+    return canvasWorld.hasAttribute("data-plan-canvas-world")
+      ? "[data-plan-canvas-world]"
+      : ".plan-canvas-world";
+  }
+  const stableSelector = stableDataSelectorForElement(element);
+  if (stableSelector) return stableSelector;
   const block = element.closest<HTMLElement>("[data-block-id]");
   if (block?.dataset.blockId) {
     if (block === element) {
-      return `[data-block-id="${cssAttr(block.dataset.blockId)}"]`;
+      return dataSelector("data-block-id", block.dataset.blockId);
     }
     const tag = element.tagName.toLowerCase();
-    return `[data-block-id="${cssAttr(
-      block.dataset.blockId,
-    )}"] ${tag}:nth-of-type(${elementIndexAmongType(element)})`;
-  }
-  const frame = element.closest<HTMLElement>("[data-canvas-frame]");
-  if (frame?.dataset.canvasFrame) {
-    if (frame === element) {
-      return `[data-canvas-frame="${cssAttr(frame.dataset.canvasFrame)}"]`;
-    }
-    const tag = element.tagName.toLowerCase();
-    return `[data-canvas-frame="${cssAttr(
-      frame.dataset.canvasFrame,
-    )}"] ${tag}:nth-of-type(${elementIndexAmongType(element)})`;
+    return `${dataSelector("data-block-id", block.dataset.blockId)} ${tag}:nth-of-type(${elementIndexAmongType(element)})`;
   }
   if (element.id) return `#${cssAttr(element.id)}`;
   return undefined;
@@ -1479,6 +1532,47 @@ function prototypeScopeForAnchor(
       `[data-prototype-screen="${cssAttr(screenId)}"]`,
     ) ?? null
   );
+}
+
+function queryFirstElement(
+  scopes: Array<Element | null | undefined>,
+  selector: string,
+) {
+  const seen = new Set<Element>();
+  for (const scope of scopes) {
+    if (!scope || seen.has(scope)) continue;
+    seen.add(scope);
+    const target = scope.matches(selector)
+      ? scope
+      : scope.querySelector<HTMLElement>(selector);
+    if (target) return target;
+  }
+  return null;
+}
+
+function resolveStableVisualAnchorTarget(
+  anchor: PlanAnnotationAnchor,
+  reader: HTMLElement,
+  queryRoot: Element,
+) {
+  const frame = anchor.sectionId
+    ? reader.querySelector<HTMLElement>(
+        dataSelector("data-canvas-frame", anchor.sectionId),
+      )
+    : null;
+  if (anchor.targetNodeId) {
+    const nodeSelectors = [
+      dataSelector("data-wire-node-id", anchor.targetNodeId),
+      dataSelector("data-design-id", anchor.targetNodeId),
+      dataSelector("data-plan-design-id", anchor.targetNodeId),
+    ];
+    for (const selector of nodeSelectors) {
+      const target = queryFirstElement([frame, queryRoot, reader], selector);
+      if (target) return target;
+    }
+  }
+  if (frame && anchor.targetKind === "wireframe") return frame;
+  return null;
 }
 
 function sectionTitleForElement(element: Element | null, fallback?: string) {
@@ -1669,6 +1763,22 @@ export function resolveNativeAnchorTarget(
   if (prototypeScope === null) return null;
   const queryRoot = prototypeScope ?? reader;
   const needle = textNeedleForAnchor(anchor);
+  const stableVisualTarget = resolveStableVisualAnchorTarget(
+    anchor,
+    reader,
+    queryRoot,
+  );
+  if (stableVisualTarget) return stableVisualTarget;
+  if (
+    anchor.planAnnotationId ||
+    anchor.canvasX !== undefined ||
+    anchor.targetKind === "canvas"
+  ) {
+    const canvasWorld = reader.querySelector<HTMLElement>(
+      "[data-plan-canvas-world], .plan-canvas-world",
+    );
+    if (canvasWorld) return canvasWorld;
+  }
   if (anchor.targetSelector) {
     try {
       const target = queryRoot.matches(anchor.targetSelector)
@@ -1682,16 +1792,6 @@ export function resolveNativeAnchorTarget(
     } catch {
       // Fall back to quote matching below.
     }
-  }
-  if (
-    anchor.planAnnotationId ||
-    anchor.canvasX !== undefined ||
-    anchor.targetKind === "canvas"
-  ) {
-    const canvasWorld = reader.querySelector<HTMLElement>(
-      "[data-plan-canvas-world], .plan-canvas-world",
-    );
-    if (canvasWorld) return canvasWorld;
   }
   if (!needle) return null;
   const scopes: Element[] = [];
