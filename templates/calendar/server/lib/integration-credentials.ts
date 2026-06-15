@@ -43,7 +43,7 @@ export function credentialKeys(provider: IntegrationProvider): string[] {
         "HUBSPOT_API_KEY",
       ];
     case "gong":
-      return ["GONG_API_KEY", "GONG_ACCESS_KEY"];
+      return ["GONG_API_KEY", "GONG_ACCESS_KEY", "GONG_ACCESS_SECRET"];
     case "pylon":
       return ["PYLON_API_KEY"];
   }
@@ -74,6 +74,15 @@ export async function getIntegrationKey(
 ): Promise<string | undefined> {
   const ctx = await getIntegrationContext(event);
   if (!ctx) return undefined;
+  if (provider === "gong") {
+    const legacyValue = await resolveCredential("GONG_API_KEY", ctx);
+    if (legacyValue) return legacyValue;
+    const accessKey = await resolveCredential("GONG_ACCESS_KEY", ctx);
+    const accessSecret = await resolveCredential("GONG_ACCESS_SECRET", ctx);
+    return accessKey && accessSecret
+      ? `${accessKey}:${accessSecret}`
+      : undefined;
+  }
   for (const key of credentialKeys(provider)) {
     const value = await resolveCredential(key, ctx);
     if (value) return value;

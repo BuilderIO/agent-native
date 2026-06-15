@@ -3,6 +3,7 @@ import { getRequestUserEmail } from "@agent-native/core/server";
 import { z } from "zod";
 import * as googleCalendar from "../server/lib/google-calendar.js";
 import { calendarEventMatchesQuery } from "./event-search.js";
+import { resolveCalendarEventRange } from "./list-events.js";
 
 export default defineAction({
   description:
@@ -14,6 +15,12 @@ export default defineAction({
       .describe("Search term (case-insensitive token/substr match)"),
     from: z.string().describe("Start date/time filter (ISO date or datetime)"),
     to: z.string().describe("End date/time filter (ISO date or datetime)"),
+    timezone: z
+      .string()
+      .optional()
+      .describe(
+        "IANA timezone for date-only bounds, e.g. America/Los_Angeles. Defaults to the request timezone.",
+      ),
   }),
   http: false,
   readOnly: true,
@@ -22,8 +29,12 @@ export default defineAction({
     if (!email) throw new Error("no authenticated user");
 
     const query = args.query;
-    const from = new Date(args.from).toISOString();
-    const to = new Date(args.to).toISOString();
+    const range = resolveCalendarEventRange({
+      from: args.from,
+      to: args.to,
+      timezone: args.timezone,
+    });
+    const { from, to } = range;
 
     if (!(await googleCalendar.isConnected(email))) {
       return "Google Calendar is not connected. Connect via the Settings page first.";

@@ -5,6 +5,7 @@ const isBlockedExtensionUrlWithDns = vi.fn();
 const createSsrfSafeDispatcher = vi.fn();
 const listOAuthAccountsByOwner = vi.fn();
 const saveOAuthTokens = vi.fn();
+const deleteOAuthTokens = vi.fn();
 
 vi.mock("../credentials/index.js", () => ({
   resolveCredential,
@@ -16,6 +17,7 @@ vi.mock("../extensions/url-safety.js", () => ({
 }));
 
 vi.mock("../oauth-tokens/index.js", () => ({
+  deleteOAuthTokens,
   listOAuthAccountsByOwner,
   saveOAuthTokens,
 }));
@@ -35,6 +37,8 @@ describe("provider API runtime", () => {
     createSsrfSafeDispatcher.mockReset();
     listOAuthAccountsByOwner.mockReset();
     saveOAuthTokens.mockReset();
+    deleteOAuthTokens.mockReset();
+    vi.unstubAllEnvs();
     isBlockedExtensionUrlWithDns.mockResolvedValue(false);
     createSsrfSafeDispatcher.mockResolvedValue(null);
     resolveCredential.mockResolvedValue(null);
@@ -117,5 +121,48 @@ describe("provider API runtime", () => {
         }),
       }),
     );
+  });
+
+  it("deletes stale Google OAuth grants after permanent refresh failures", async () => {
+    vi.stubEnv("GOOGLE_CLIENT_ID", "google-client-id");
+    vi.stubEnv("GOOGLE_CLIENT_SECRET", "google-client-secret");
+    listOAuthAccountsByOwner.mockResolvedValue([
+      {
+        accountId: "docs@example.com",
+        displayName: "Docs Account",
+        tokens: {
+          access_token: "expired-docs-access-token",
+          refresh_token: "dead-refresh-token",
+          expiry_date: Date.now() - 60_000,
+        },
+      },
+    ]);
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ error: "invalid_grant" }), {
+        status: 400,
+        headers: { "content-type": "application/json" },
+      }),
+    );
+    const runtime = createProviderApiRuntime({
+      appId: "slides",
+      providerIds: ["google_drive"],
+      getCredentialContext: () => credentialContext,
+      oauthProviderOverrides: {
+        google_drive: "google-docs",
+      },
+    });
+
+    await expect(
+      runtime.executeRequest({
+        provider: "google_drive",
+        path: "/files",
+      }),
+    ).rejects.toThrow(/Google OAuth refresh failed: invalid_grant/);
+
+    expect(deleteOAuthTokens).toHaveBeenCalledWith(
+      "google-docs",
+      "docs@example.com",
+    );
+    expect(saveOAuthTokens).not.toHaveBeenCalled();
   });
 });

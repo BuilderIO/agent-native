@@ -8,6 +8,7 @@ import {
   isBlockedExtensionUrlWithDns,
 } from "../extensions/url-safety.js";
 import {
+  deleteOAuthTokens,
   listOAuthAccountsByOwner,
   saveOAuthTokens,
 } from "../oauth-tokens/index.js";
@@ -263,6 +264,12 @@ interface OAuthTokens {
   token_type?: string;
   scope?: string;
 }
+
+const PERMANENT_GOOGLE_OAUTH_REFRESH_ERRORS = new Set([
+  "invalid_grant",
+  "unauthorized_client",
+  "invalid_client",
+]);
 
 const DEFAULT_TIMEOUT_MS = 30_000;
 const MAX_TIMEOUT_MS = 120_000;
@@ -2327,6 +2334,9 @@ async function refreshGoogleOAuthToken(
     error_description?: string;
   };
   if (!res.ok || !data.access_token) {
+    if (data.error && PERMANENT_GOOGLE_OAUTH_REFRESH_ERRORS.has(data.error)) {
+      await deleteOAuthTokens(options.oauthProvider, options.accountId);
+    }
     const detail = data.error_description ?? data.error ?? res.statusText;
     throw new Error(`Google OAuth refresh failed: ${detail}`);
   }
