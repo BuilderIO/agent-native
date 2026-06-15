@@ -20,6 +20,7 @@ import {
   IconChevronLeft,
   IconChevronRight,
   IconClipboard,
+  IconPlus,
   IconX,
 } from "@tabler/icons-react";
 import { toast } from "sonner";
@@ -841,6 +842,7 @@ export default function AssetPicker() {
     typeof assetPayload
   > | null>(null);
   const [standaloneCopyOk, setStandaloneCopyOk] = useState(false);
+  const [showCreatePane, setShowCreatePane] = useState(false);
   const standaloneSelectionText = useMemo(
     () =>
       standaloneSelection
@@ -1078,6 +1080,21 @@ export default function AssetPicker() {
         <div className="min-w-0 truncate text-sm font-semibold">
           {embedded ? "Assets" : "Library"}
         </div>
+        <div className="flex shrink-0 items-center gap-2">
+          <Button
+            variant={showCreatePane ? "secondary" : "default"}
+            size="sm"
+            className="h-8 gap-1.5"
+            onClick={() => setShowCreatePane((open) => !open)}
+          >
+            {showCreatePane ? (
+              <IconX className="h-3.5 w-3.5" />
+            ) : (
+              <IconPlus className="h-3.5 w-3.5" />
+            )}
+            {showCreatePane ? "Close" : "Create"}
+          </Button>
+        </div>
         {embedded && (
           <div className="flex shrink-0 items-center gap-2">
             <Button asChild variant="ghost" size="icon" title="Open Assets">
@@ -1097,6 +1114,7 @@ export default function AssetPicker() {
         )}
       </header>
 
+      {showCreatePane && (
       <section className="shrink-0 border-b border-border px-3 py-3">
         <div className="grid gap-2 sm:grid-cols-[minmax(0,12rem)_1fr]">
           <Select
@@ -1260,6 +1278,7 @@ export default function AssetPicker() {
           </div>
         )}
       </section>
+      )}
 
       {!embedded && standaloneSelection && (
         <section className="shrink-0 border-b border-border bg-muted/30 px-3 py-3">
