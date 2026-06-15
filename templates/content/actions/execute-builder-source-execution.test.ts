@@ -240,6 +240,56 @@ describe("execute Builder source execution", () => {
     expect(deps.executeWrite).not.toHaveBeenCalled();
   });
 
+  it("blocks synthetic fixture rows before any live write", async () => {
+    const approvedChangeSet = changeSet();
+    const builderSource = source({
+      liveWritesEnabled: true,
+      rows: [
+        row({
+          documentId: "doc-1",
+          sourceRowId: "builder-doc-1",
+          sourceQualifiedId: `builder-cms://${BUILDER_CMS_SAFE_WRITE_MODEL}/builder-doc-1`,
+          provenance: "Builder CMS fixture adapter",
+        }),
+      ],
+      changeSets: [approvedChangeSet],
+    });
+    const execution = executionFor({
+      source: builderSource,
+      changeSet: approvedChangeSet,
+    });
+    const deps = depsFor({ source: builderSource, execution });
+
+    await expect(
+      executeBuilderSourceExecutionWithDeps(
+        {
+          databaseId: "database-1",
+          changeSetId: approvedChangeSet.id,
+          pushModeConfirmation: "autosave",
+        },
+        deps,
+      ),
+    ).rejects.toThrow(
+      "This row is not matched to a Builder entry yet. Refresh or match a Builder row before pushing.",
+    );
+
+    expect(deps.updateExecutionState).toHaveBeenCalledWith(
+      expect.objectContaining({
+        executionId: execution.id,
+        state: "blocked",
+        lastError:
+          "This row is not matched to a Builder entry yet. Refresh or match a Builder row before pushing.",
+        payload: expect.objectContaining({
+          target: expect.objectContaining({
+            entryId: null,
+            sourceQualifiedId: null,
+          }),
+        }),
+      }),
+    );
+    expect(deps.executeWrite).not.toHaveBeenCalled();
+  });
+
   it("blocks non-test Builder models before any write", async () => {
     const approvedChangeSet = changeSet();
     const builderSource = source({
