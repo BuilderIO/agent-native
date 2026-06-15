@@ -842,7 +842,7 @@ export default function AssetPicker() {
     typeof assetPayload
   > | null>(null);
   const [standaloneCopyOk, setStandaloneCopyOk] = useState(false);
-  const [showCreatePane, setShowCreatePane] = useState(false);
+  const [showCreatePane, setShowCreatePane] = useState(embedded);
   const standaloneSelectionText = useMemo(
     () =>
       standaloneSelection
@@ -1080,21 +1080,23 @@ export default function AssetPicker() {
         <div className="min-w-0 truncate text-sm font-semibold">
           {embedded ? "Assets" : "Library"}
         </div>
-        <div className="flex shrink-0 items-center gap-2">
-          <Button
-            variant={showCreatePane ? "secondary" : "default"}
-            size="sm"
-            className="h-8 gap-1.5"
-            onClick={() => setShowCreatePane((open) => !open)}
-          >
-            {showCreatePane ? (
-              <IconX className="h-3.5 w-3.5" />
-            ) : (
-              <IconPhotoPlus className="h-3.5 w-3.5" />
-            )}
-            {showCreatePane ? "Close" : "Create"}
-          </Button>
-        </div>
+        {!embedded && (
+          <div className="flex shrink-0 items-center gap-2">
+            <Button
+              variant={showCreatePane ? "secondary" : "default"}
+              size="sm"
+              className="h-8 gap-1.5"
+              onClick={() => setShowCreatePane((open) => !open)}
+            >
+              {showCreatePane ? (
+                <IconX className="h-3.5 w-3.5" />
+              ) : (
+                <IconPhotoPlus className="h-3.5 w-3.5" />
+              )}
+              {showCreatePane ? "Close" : "Create"}
+            </Button>
+          </div>
+        )}
         {embedded && (
           <div className="flex shrink-0 items-center gap-2">
             <Button asChild variant="ghost" size="icon" title="Open Assets">
@@ -1116,26 +1118,6 @@ export default function AssetPicker() {
 
       {showCreatePane && (
         <section className="shrink-0 border-b border-border px-3 py-3">
-          <div className="grid gap-2">
-            <Select
-              value={selectedLibraryId}
-              onValueChange={setSelectedLibraryId}
-            >
-              <SelectTrigger className="h-9 border-border/70 bg-background">
-                <SelectValue placeholder="Library" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectGroup>
-                  {displayLibraries.map((library) => (
-                    <SelectItem key={library.id} value={library.id}>
-                      {library.title}
-                    </SelectItem>
-                  ))}
-                </SelectGroup>
-              </SelectContent>
-            </Select>
-          </div>
-
           {mediaType === "image" ? (
             <div className="mt-2 rounded-lg border border-border/80 bg-background focus-within:ring-1 focus-within:ring-ring">
               <Textarea
@@ -1354,16 +1336,35 @@ export default function AssetPicker() {
       <main className="min-h-0 flex-1 overflow-y-auto p-3">
         {selectedLibraryId && (
           <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-            <Tabs
-              value={assetTab}
-              onValueChange={(value) => setAssetTab(value as AssetTab)}
-            >
-              <TabsList>
-                <TabsTrigger value="all">All</TabsTrigger>
-                <TabsTrigger value="generated">Generated</TabsTrigger>
-                <TabsTrigger value="references">References</TabsTrigger>
-              </TabsList>
-            </Tabs>
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+              <Select
+                value={selectedLibraryId}
+                onValueChange={setSelectedLibraryId}
+              >
+                <SelectTrigger className="h-9 w-full border-border/70 bg-background sm:w-48">
+                  <SelectValue placeholder="Library" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectGroup>
+                    {displayLibraries.map((library) => (
+                      <SelectItem key={library.id} value={library.id}>
+                        {library.title}
+                      </SelectItem>
+                    ))}
+                  </SelectGroup>
+                </SelectContent>
+              </Select>
+              <Tabs
+                value={assetTab}
+                onValueChange={(value) => setAssetTab(value as AssetTab)}
+              >
+                <TabsList>
+                  <TabsTrigger value="all">All</TabsTrigger>
+                  <TabsTrigger value="generated">Generated</TabsTrigger>
+                  <TabsTrigger value="references">References</TabsTrigger>
+                </TabsList>
+              </Tabs>
+            </div>
             <Input
               type="search"
               value={query}
