@@ -52,10 +52,10 @@ describe("real data action classification", () => {
     expect(
       hasDataQueryAttempt([
         {
-          name: "pylon-issues",
+          name: "gong-calls",
           content: JSON.stringify({
             error: "missing_api_key",
-            message: "Connect your Pylon account.",
+            message: "Connect your Gong account.",
           }),
         },
       ]),

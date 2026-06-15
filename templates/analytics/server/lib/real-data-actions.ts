@@ -12,16 +12,10 @@ const INJECTED_CONTEXT_BLOCKS = [
 
 export const DATA_QUERY_ACTIONS = new Set([
   "account-deep-dive",
-  "amplitude-events",
-  "apollo-search",
   "bigquery",
-  "commonroom-members",
   "content-calendar",
   "content-calendar-schema",
-  "ga4-report",
   "gcloud",
-  "github-code",
-  "github-prs",
   "gong-calls",
   "grafana",
   "hubspot-deals",
@@ -29,14 +23,8 @@ export const DATA_QUERY_ACTIONS = new Set([
   "hubspot-pipelines",
   "hubspot-records",
   "jira",
-  "jira-analytics",
   "jira-search",
-  "mixpanel-events",
-  "notion-page",
-  "onboarding-events",
-  "posthog-events",
   "provider-api-request",
-  "pylon-issues",
   "query-agent-native-analytics",
   "query-inbound-forms",
   "sentry",
@@ -45,8 +33,6 @@ export const DATA_QUERY_ACTIONS = new Set([
   "seo-top-keywords",
   "slack-messages",
   "stripe",
-  "top-amplitude-events",
-  "twitter-tweets",
 ]);
 
 const MCP_DATA_SOURCE_TOKENS = [
