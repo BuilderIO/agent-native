@@ -373,6 +373,11 @@ const PLAN_MODE_ALLOWED_ACTIONS: Record<string, readonly string[]> = {
 };
 
 const PLAN_MODE_WEB_REQUEST_METHODS = new Set(["GET", "HEAD"]);
+const SOURCE_SWEEP_AGENT_TEAM_ALLOWED_ACTIONS = [
+  "status",
+  "read-result",
+  "list",
+] as const;
 
 function getToolAction(name: string, args: unknown): string {
   const raw =
@@ -1771,6 +1776,88 @@ function isLikelySourceSweepTool(
   );
 }
 
+function hasExhaustedSourceSweepBudget(opts: {
+  priorToolCalls: readonly AgentLoopToolCallSummary[];
+  actions: Record<string, ActionEntry>;
+  threshold?: number;
+}): boolean {
+  const threshold = opts.threshold ?? SOURCE_SWEEP_TOOL_CALL_THRESHOLD;
+  const counts = new Map<string, number>();
+  for (const call of opts.priorToolCalls) {
+    if (!isLikelySourceSweepTool(call.name, opts.actions[call.name])) continue;
+    const next = (counts.get(call.name) ?? 0) + 1;
+    if (next >= threshold) return true;
+    counts.set(call.name, next);
+  }
+  return false;
+}
+
+function sourceSweepDelegationText(input: unknown): string {
+  if (!input || typeof input !== "object") return "";
+  const record = input as Record<string, unknown>;
+  return ["task", "instructions", "message", "name"]
+    .map((key) => record[key])
+    .filter((value): value is string => typeof value === "string")
+    .join("\n");
+}
+
+function isLikelySourceSweepDelegation(opts: {
+  toolName: string;
+  input: unknown;
+}): boolean {
+  if (opts.toolName !== "agent-teams") return false;
+  const action = getToolAction(opts.toolName, opts.input);
+  if (!["spawn", "send"].includes(action)) return false;
+  const normalized = normalizeToolNameForHeuristics(
+    sourceSweepDelegationText(opts.input).toLowerCase(),
+  );
+  if (!normalized) return false;
+  return (
+    SOURCE_SWEEP_PROVIDER_TOKEN.test(normalized) ||
+    SOURCE_SWEEP_TOOL_NAME.test(normalized)
+  );
+}
+
+function sourceSweepDelegationGuardMessage(action: string): string {
+  return (
+    `Skipped agent-teams ${action || "action"}: this turn already exhausted ` +
+    `a read-only source/search convergence budget. Do not move that same ` +
+    `provider/source sweep into agent teams, background sub-agents, or a ` +
+    `follow-up thread; delegation is not a bulk mechanism and does not remove ` +
+    `provider quota, timeout, or cost limits. Continue in the main turn with a ` +
+    `bulk/code/provider API path if one is available, or answer from gathered ` +
+    `evidence with explicit coverage gaps.`
+  );
+}
+
+function restrictAgentTeamsAfterSourceSweep(tools: EngineTool[]): EngineTool[] {
+  return tools.map((tool) => {
+    if (tool.name !== "agent-teams") return tool;
+    const actionParam = tool.inputSchema.properties?.action;
+    if (!actionParam || typeof actionParam !== "object") return tool;
+    return {
+      ...tool,
+      description:
+        `${tool.description}\n\nSource-sweep budget exhausted: only these ` +
+        `read-only coordination actions are available: ` +
+        SOURCE_SWEEP_AGENT_TEAM_ALLOWED_ACTIONS.map(
+          (action) => `"${action}"`,
+        ).join(", ") +
+        ". Do not spawn or message background sub-agents to continue the same provider/source sweep.",
+      inputSchema: {
+        ...tool.inputSchema,
+        properties: {
+          ...tool.inputSchema.properties,
+          action: {
+            ...actionParam,
+            enum: [...SOURCE_SWEEP_AGENT_TEAM_ALLOWED_ACTIONS],
+          },
+        },
+      },
+    };
+  });
+}
+
 export function repeatedSourceSweepGuardMessage(opts: {
   toolName: string;
   priorCalls: number;
@@ -1931,6 +2018,10 @@ export async function runAgentLoop(opts: {
     messages,
     actions,
   );
+  let sourceSweepDelegationGuardActive = hasExhaustedSourceSweepBudget({
+    priorToolCalls: sourceSweepToolCallHistory,
+    actions,
+  });
   const toolResultHistory: AgentLoopToolResultSummary[] = [];
   const runCtx = getRequestRunContext();
   if (runCtx) {
@@ -2014,7 +2105,9 @@ export async function runAgentLoop(opts: {
           model,
           systemPrompt,
           messages: contextMessages,
-          tools,
+          tools: sourceSweepDelegationGuardActive
+            ? restrictAgentTeamsAfterSourceSweep(tools)
+            : tools,
           abortSignal: signal,
           maxOutputTokens: resolveMaxOutputTokensForEngine(
             engine.name,
@@ -2267,6 +2360,16 @@ export async function runAgentLoop(opts: {
         entry: actionEntry,
         priorToolCalls: sourceSweepToolCallHistory,
       });
+      const sourceSweepDelegationGuard =
+        sourceSweepDelegationGuardActive &&
+        isLikelySourceSweepDelegation({
+          toolName: toolCall.name,
+          input: toolCall.input,
+        })
+          ? sourceSweepDelegationGuardMessage(
+              getToolAction(toolCall.name, toolCall.input),
+            )
+          : null;
       toolCallHistory.push({
         name: toolCall.name,
         input: normalizedToolInput,
@@ -2283,7 +2386,26 @@ export async function runAgentLoop(opts: {
         });
       };
       if (sourceSweepGuard) {
+        sourceSweepDelegationGuardActive = true;
         const result = sourceSweepGuard.message;
+        send({
+          type: "tool_start",
+          tool: toolCall.name,
+          input: toolCall.input as Record<string, string>,
+        });
+        send({ type: "tool_done", tool: toolCall.name, result });
+        recordToolResult(result, false);
+        return {
+          type: "tool-result" as const,
+          toolCallId: toolCall.id,
+          toolName: toolCall.name,
+          toolInput: wireToolInput,
+          content: result,
+        };
+      }
+
+      if (sourceSweepDelegationGuard) {
+        const result = sourceSweepDelegationGuard;
         send({
           type: "tool_start",
           tool: toolCall.name,
