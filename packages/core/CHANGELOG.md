@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.51.4
+
+### Patch Changes
+
+- 8b559ca: Tell agents not to bypass exhausted source-sweep budgets by delegating the same one-at-a-time provider fan-out to background agents or follow-up threads.
+
 ## 0.51.3
 
 ### Patch Changes
