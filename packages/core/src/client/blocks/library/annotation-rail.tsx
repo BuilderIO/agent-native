@@ -182,32 +182,32 @@ export function AnnotationCard<A extends RailAnnotation>({
       onMouseEnter={onMouseEnter}
       onMouseLeave={onMouseLeave}
       className={cn(
-        "rounded-lg border px-3.5 py-2.5 shadow-lg shadow-black/10 backdrop-blur-md transition-colors dark:shadow-black/40",
+        "rounded-lg border px-3.5 py-2.5 shadow-lg shadow-black/10 backdrop-blur-xl transition-colors dark:shadow-black/40",
         active
-          ? "border-yellow-300/80 bg-yellow-50/95 dark:border-yellow-200/35 dark:bg-yellow-300/16"
+          ? "border-yellow-300/55 bg-yellow-50/80 dark:border-yellow-200/25 dark:bg-yellow-300/[0.10]"
           : "border-plan-line bg-plan-block hover:border-yellow-300/45",
         className,
       )}
     >
       <div
         className={cn(
-          "flex flex-wrap gap-x-2 gap-y-0.5",
+          "flex min-w-0 flex-wrap gap-x-2 gap-y-1",
           showMarker ? "items-center" : "items-baseline",
         )}
       >
         {showMarker && (
           <AnnotationGutterMarker marker={item.marker} active={active} />
         )}
-        <span className="text-[11px] font-semibold uppercase tracking-wide text-plan-muted">
+        <span className="shrink-0 text-[11px] font-semibold uppercase tracking-wide text-plan-muted">
           {rangeLabel(item)}
         </span>
         {item.annotation.label && (
-          <span className="text-[13px] font-semibold text-plan-text">
+          <span className="min-w-0 max-w-full flex-1 break-words text-[13px] font-semibold leading-snug text-plan-text [overflow-wrap:anywhere]">
             {item.annotation.label}
           </span>
         )}
       </div>
-      <div className="plan-annotation-note mt-1 text-[13px] leading-relaxed text-plan-text/85">
+      <div className="plan-annotation-note mt-1 break-words text-[13px] leading-relaxed text-plan-text/85 [overflow-wrap:anywhere]">
         {ctx.renderMarkdown ? (
           ctx.renderMarkdown(item.annotation.note)
         ) : (
@@ -428,7 +428,7 @@ export function AnnotationInlineOverlayStack<A extends RailAnnotation>({
                 ctx={ctx}
                 active
                 showMarker={showMarker}
-                className="border-yellow-300/80 bg-yellow-50/95 shadow-lg shadow-black/10 backdrop-blur-md dark:border-yellow-200/35 dark:bg-yellow-300/16 dark:shadow-black/50"
+                className="border-yellow-300/55 bg-yellow-50/80 shadow-lg shadow-black/10 backdrop-blur-xl dark:border-yellow-200/25 dark:bg-yellow-300/[0.10] dark:shadow-black/50"
               />
             ))}
           </div>,

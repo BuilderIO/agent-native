@@ -98,19 +98,19 @@ Allows up to 20 MB per call.
 
 ```
 provider-api-request
-  provider=hubspot
+  provider=<provider-id>
   method=POST
-  path=/crm/v3/objects/deals/search
+  path=/records/search
   body={ filterGroups: [...], limit: 200 }
-  saveToFile="analysis/hubspot-deals-2026-q2.json"
+  saveToFile="analysis/provider-records-2026-q2.json"
 ```
 
 Returns: `{ savedToFile: true, savedTo, status, bytes, contentType, preview }`.
 
 Then use `run-code` to process the saved file:
 ```javascript
-const raw = await workspaceRead("analysis/hubspot-deals-2026-q2.json");
-const deals = JSON.parse(raw);
+const raw = await workspaceRead("analysis/provider-records-2026-q2.json");
+const records = JSON.parse(raw);
 // … aggregate, filter, join …
 ```
 

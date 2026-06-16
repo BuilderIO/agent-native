@@ -110,9 +110,9 @@ action trio instead:
 
 - `provider-api-catalog`: lists provider base URLs, auth style, credential keys,
   docs/spec URLs, placeholders, and examples without exposing secrets.
-- `provider-api-docs`: fetches registered provider docs/spec URLs when the
-  exact endpoint, filter operator, payload shape, or pagination contract is
-  uncertain.
+- `provider-api-docs`: fetches public provider docs/spec/changelog URLs when
+  the exact endpoint, filter operator, payload shape, or pagination contract is
+  uncertain. Registered docs URLs are curated starting points.
 - `provider-api-request`: makes a constrained authenticated HTTP request to the
   provider host, injects configured credentials, blocks private/internal URLs,
   and redacts secrets.
@@ -125,7 +125,7 @@ duplicating the provider config. If credentials are stored on shareable/resource
 rows rather than in the shared credential or OAuth-token stores, build a resolver
 that enforces those access checks before exposing raw provider requests. Keep
 `provider-api-request` `http: false` unless you have a separate UI permission
-model for arbitrary provider writes. Specific actions such as `hubspot-deals`,
+model for arbitrary provider writes. Specific actions such as `search-records`,
 `search-emails`, or `sync-source` are convenience shortcuts, not capability
 limits; agents should fall back to the provider API trio when a question
 requires an endpoint or filter that the shortcut does not model.

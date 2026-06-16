@@ -85,6 +85,7 @@ export default defineAction({
       .describe("Maximum rows to return (default all, max 10000)."),
   }),
   http: false,
+  readOnly: true,
   run: async (args) => {
     const ctx = getCredentialContext();
     if (!ctx) {

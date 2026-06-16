@@ -287,6 +287,7 @@ async function waitForA2ATask(
       // Transient status fetch failures should not turn a successfully
       // submitted durable task into a failed MCP call.
       if (Date.now() >= deadline) return current;
+      continue;
     }
   }
 

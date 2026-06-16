@@ -176,34 +176,50 @@ async function searchTranscriptEvidence(
   const errors: TranscriptSearchError[] = [];
   let truncatedTranscripts = 0;
   const callsToScan = calls.slice(0, scanLimit);
+  const matchBuckets: TranscriptSearchMatch[][] = callsToScan.map(() => []);
+  const errorBuckets: TranscriptSearchError[][] = callsToScan.map(() => []);
+  let nextIndex = 0;
 
-  for (const call of callsToScan) {
-    try {
-      const transcript = await getCallTranscript(call.id);
-      const extracted = extractTranscriptText(transcript, maxChars);
-      if (extracted.truncated) truncatedTranscripts += 1;
-      const matchCount = countMatches(extracted.text, query);
-      if (matchCount > 0) {
-        matches.push({
-          callId: call.id,
-          title: call.title,
-          started: call.started,
-          url: typeof call.url === "string" ? call.url : undefined,
-          matchCount,
-          snippets: snippetsForQuery(extracted.text, query),
-          transcriptTruncated: extracted.truncated,
-          sentenceCount: extracted.sentenceCount,
-        });
+  const workers = Array.from(
+    { length: Math.min(8, callsToScan.length) },
+    async () => {
+      while (nextIndex < callsToScan.length) {
+        const index = nextIndex;
+        nextIndex += 1;
+        const call = callsToScan[index];
+        try {
+          const transcript = await getCallTranscript(call.id);
+          const extracted = extractTranscriptText(transcript, maxChars);
+          if (extracted.truncated) truncatedTranscripts += 1;
+          const matchCount = countMatches(extracted.text, query);
+          if (matchCount > 0) {
+            matchBuckets[index].push({
+              callId: call.id,
+              title: call.title,
+              started: call.started,
+              url: typeof call.url === "string" ? call.url : undefined,
+              matchCount,
+              snippets: snippetsForQuery(extracted.text, query),
+              transcriptTruncated: extracted.truncated,
+              sentenceCount: extracted.sentenceCount,
+            });
+          }
+        } catch (err) {
+          errorBuckets[index].push({
+            callId: call.id,
+            title: call.title,
+            started: call.started,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
       }
-    } catch (err) {
-      errors.push({
-        callId: call.id,
-        title: call.title,
-        started: call.started,
-        error: err instanceof Error ? err.message : String(err),
-      });
-    }
-  }
+    },
+  );
+
+  await Promise.all(workers);
+
+  for (const bucket of matchBuckets) matches.push(...bucket);
+  for (const bucket of errorBuckets) errors.push(...bucket);
 
   return {
     inspectedCalls: callsToScan.length,
@@ -535,6 +551,7 @@ export default defineAction({
                 inspectedCalls: transcriptSearch.inspectedCalls,
                 availableCalls: result.calls.length,
                 coverageComplete:
+                  !result.truncated &&
                   transcriptSearch.inspectedCalls >= result.calls.length &&
                   transcriptSearch.errors.length === 0 &&
                   transcriptSearch.truncatedTranscripts === 0,

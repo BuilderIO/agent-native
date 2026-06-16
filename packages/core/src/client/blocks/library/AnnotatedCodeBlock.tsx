@@ -279,11 +279,11 @@ function AnnotatedCodeRead({
           "relative flex w-full",
           isAnnotated && "cursor-pointer",
           isActive
-            ? "bg-amber-400/20 dark:bg-amber-300/15"
+            ? "bg-amber-400/[0.12] dark:bg-amber-300/[0.10]"
             : isAnnotated && showAnnotationOverlays
-              ? "bg-amber-300/25 dark:bg-amber-300/15"
+              ? "bg-amber-300/[0.14] dark:bg-amber-300/[0.10]"
               : isAnnotated
-                ? "bg-amber-400/[0.07] dark:bg-amber-300/[0.07]"
+                ? "bg-amber-400/[0.045] dark:bg-amber-300/[0.045]"
                 : null,
         )}
         onMouseEnter={
@@ -329,10 +329,10 @@ function AnnotatedCodeRead({
             "w-[3px] shrink-0 self-stretch",
             isAnnotated
               ? isActive
-                ? "bg-amber-500 dark:bg-amber-400"
+                ? "bg-amber-500/80 dark:bg-amber-400/70"
                 : showAnnotationOverlays
-                  ? "bg-amber-500/90 dark:bg-amber-300/70"
-                  : "bg-amber-400/45 dark:bg-amber-300/35"
+                  ? "bg-amber-500/55 dark:bg-amber-300/45"
+                  : "bg-amber-400/30 dark:bg-amber-300/25"
               : null,
           )}
         />

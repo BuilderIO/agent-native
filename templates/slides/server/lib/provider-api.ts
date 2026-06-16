@@ -15,7 +15,7 @@ export const SLIDES_PROVIDER_API_IDS = listProviderApiIdsForTemplateUse(
 export type SlidesProviderApiId = (typeof SLIDES_PROVIDER_API_IDS)[number];
 export type { ProviderApiMethod, ProviderApiRequestArgs };
 
-const runtime = createProviderApiRuntime({
+const runtimeOptions = {
   appId: SLIDES_APP_ID,
   providerIds: SLIDES_PROVIDER_API_IDS,
   localCredentialSource: `${SLIDES_APP_ID}_local`,
@@ -31,7 +31,9 @@ const runtime = createProviderApiRuntime({
   oauthProviderOverrides: {
     google_drive: GOOGLE_DOCS_PROVIDER,
   },
-});
+};
+
+const runtime = createProviderApiRuntime(runtimeOptions);
 
 export function getSlidesProviderApiRuntime() {
   return runtime;
