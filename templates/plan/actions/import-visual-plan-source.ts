@@ -103,7 +103,12 @@ export default defineAction({
     // a deterministic authoring error 3×.
     let content: Awaited<ReturnType<typeof parsePlanMdxFolder>>;
     try {
-      content = await parsePlanMdxFolder(args.mdx);
+      content = await parsePlanMdxFolder(args.mdx, {
+        // Recaps are informational: salvage per-block (keep valid blocks, swap
+        // an "Unsupported block" placeholder for invalid ones) instead of
+        // failing the whole publish on one imperfectly-authored block.
+        salvageInvalidBlocks: args.kind === "recap",
+      });
       if (args.kind === "recap") {
         assertRecapWireframesHaveContent(content);
       }

@@ -248,7 +248,6 @@ function ArtboardFrame({
             height,
             borderRadius: preset.radius,
             background: paper,
-            boxShadow: "0 10px 34px hsl(var(--foreground) / 0.10)",
             ...(fitScale !== 1
               ? {
                   transform: `scale(${fitScale})`,

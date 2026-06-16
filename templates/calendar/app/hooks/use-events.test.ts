@@ -6,7 +6,7 @@ import {
   mergeCalendarEventIntoList,
   removeOptimisticCalendarEventFromList,
 } from "./event-list-cache";
-import { shouldShowEventsSkeleton } from "./use-events";
+import { mergeAttendeeLists, shouldShowEventsSkeleton } from "./use-events";
 
 function calendarEvent(overrides: Partial<CalendarEvent> = {}): CalendarEvent {
   return {
@@ -170,6 +170,42 @@ describe("calendar event list cache helpers", () => {
       responseStatus: "accepted",
       comment: undefined,
     });
+  });
+
+  it("merges added attendees without resetting existing RSVP metadata", () => {
+    const merged = mergeAttendeeLists(
+      [
+        {
+          email: "guest@example.com",
+          displayName: "Guest",
+          responseStatus: "accepted",
+          comment: "See you there",
+        },
+      ],
+      [
+        {
+          email: "new@example.com",
+          displayName: "New Guest",
+        },
+        {
+          email: "GUEST@example.com",
+          displayName: "Renamed Guest",
+        },
+      ],
+    );
+
+    expect(merged).toEqual([
+      {
+        email: "GUEST@example.com",
+        displayName: "Renamed Guest",
+        responseStatus: "accepted",
+        comment: "See you there",
+      },
+      {
+        email: "new@example.com",
+        displayName: "New Guest",
+      },
+    ]);
   });
 
   it("optimistically updates this and following recurring RSVP instances", () => {

@@ -21,6 +21,11 @@ const __dirname = path.dirname(__filename);
 const REPO = "BuilderIO/agent-native";
 const TEMPLATES_DIR = "templates";
 const POSTGRES_DEPENDENCY_VERSION = "^3.4.9";
+const STANDALONE_EXACT_DEPENDENCY_OVERRIDES: Record<string, string> = {
+  "@react-router/dev": "7.16.0",
+  "@react-router/fs-routes": "7.16.0",
+  "react-router": "7.16.0",
+};
 const FIRST_PARTY_TARBALL_SYMLINK_EXCLUDES = [
   "*/CLAUDE.md",
   "*/.claude/skills",
@@ -818,7 +823,10 @@ function postProcessStandalone(
         const deps = pkg[depType];
         if (!deps) continue;
         for (const [key, val] of Object.entries(deps)) {
-          if (key === "@agent-native/core") {
+          const exactOverride = STANDALONE_EXACT_DEPENDENCY_OVERRIDES[key];
+          if (exactOverride) {
+            deps[key] = exactOverride;
+          } else if (key === "@agent-native/core") {
             deps[key] = getCoreDependencyVersion();
           } else if (typeof val === "string" && val.startsWith("workspace:")) {
             deps[key] = "latest";

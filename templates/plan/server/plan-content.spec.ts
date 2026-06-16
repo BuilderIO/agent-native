@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   applyPlanContentPatches,
+  migratePlanContent,
   planContentSchema,
   type PlanContent,
   type PlanWireframeNode,
@@ -20,6 +21,49 @@ import {
 } from "./plan-content.js";
 
 describe("structured plan content", () => {
+  it("backfills missing column/child ids so attribute-form columns validate", () => {
+    // Mirrors the recap failure mode: a `columns` block authored as an
+    // attribute array (no `<Column>` markup) leaves column `id`s and child
+    // block `id`s unset. migrate must backfill them so the block validates
+    // instead of failing the whole document at parse time.
+    const raw = {
+      title: "Recap",
+      brief: "b",
+      blocks: [
+        { id: "b1", type: "rich-text", data: { markdown: "# Recap" } },
+        {
+          id: "b2",
+          type: "columns",
+          data: {
+            columns: [
+              {
+                label: "Before",
+                blocks: [{ type: "rich-text", data: { markdown: "old" } }],
+              },
+              {
+                label: "After",
+                blocks: [{ type: "rich-text", data: { markdown: "new" } }],
+              },
+            ],
+          },
+        },
+      ],
+    };
+
+    const parsed = planContentSchema.parse(migratePlanContent(raw));
+    const cols = (
+      parsed.blocks[1] as Extract<
+        PlanContent["blocks"][number],
+        { type: "columns" }
+      >
+    ).data.columns;
+    expect(typeof cols[0].id).toBe("string");
+    expect(cols[0].id.length).toBeGreaterThan(0);
+    expect(cols[1].id).not.toBe(cols[0].id);
+    expect(typeof cols[0].blocks[0].id).toBe("string");
+    expect(cols[0].blocks[0].data).toMatchObject({ markdown: "old" });
+  });
+
   it("builds UI plans as native content with a canvas and kit-tree wireframes", () => {
     const content = createUiPlanContent({
       title: "Checkout flow",

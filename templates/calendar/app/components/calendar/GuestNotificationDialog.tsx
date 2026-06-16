@@ -9,14 +9,16 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Textarea } from "@/components/ui/textarea";
-import type { CalendarEvent } from "@shared/api";
+import type { CalendarEvent, UpdateEventScope } from "@shared/api";
 
 type GuestNotificationAction = "update" | "cancellation";
 
 export interface GuestNotificationOptions {
   sendUpdates: "all" | "none";
   notificationMessage?: string;
+  scope?: UpdateEventScope;
 }
 
 type GuestPromptUpdates = Partial<CalendarEvent> & {
@@ -24,9 +26,16 @@ type GuestPromptUpdates = Partial<CalendarEvent> & {
   addZoom?: boolean;
 };
 
+interface RecurrenceScopeOptions {
+  enabled: boolean;
+  defaultScope?: UpdateEventScope;
+}
+
 interface PromptRequest {
   event: CalendarEvent;
   action: GuestNotificationAction;
+  updates?: GuestPromptUpdates;
+  recurrenceScope?: RecurrenceScopeOptions;
   resolve: (choice: GuestNotificationOptions | null) => void;
 }
 
@@ -78,15 +87,31 @@ function GuestNotificationDialog({
   onConfirm: (choice: GuestNotificationOptions) => void;
 }) {
   const [message, setMessage] = useState("");
+  const [scope, setScope] = useState<UpdateEventScope>("single");
   const copy = useMemo(
     () => actionText(request?.action ?? "update"),
     [request?.action],
   );
-  const guestCount = request ? getGuestAttendeeCount(request.event) : 0;
+  const guestCount = request
+    ? getGuestAttendeeCount(request.event, request.updates?.attendees)
+    : 0;
+  const showRecurrenceScope = Boolean(request?.recurrenceScope?.enabled);
 
   useEffect(() => {
-    if (request) setMessage("");
+    if (!request) return;
+    setMessage("");
+    setScope(request.recurrenceScope?.defaultScope ?? "single");
   }, [request]);
+
+  function buildChoice(sendUpdates: "all" | "none"): GuestNotificationOptions {
+    return {
+      sendUpdates,
+      ...(sendUpdates === "all" && message.trim()
+        ? { notificationMessage: message.trim() }
+        : {}),
+      ...(showRecurrenceScope ? { scope } : {}),
+    };
+  }
 
   return (
     <Dialog open={!!request} onOpenChange={(open) => !open && onCancel()}>
@@ -96,19 +121,44 @@ function GuestNotificationDialog({
           <DialogDescription>{copy.description}</DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-2">
-          <Label htmlFor="guest-notification-message">{copy.textarea}</Label>
-          <Textarea
-            id="guest-notification-message"
-            value={message}
-            onChange={(event) => setMessage(event.target.value)}
-            placeholder={copy.placeholder}
-            rows={4}
-            autoFocus
-          />
-          <p className="text-xs text-muted-foreground">
-            {guestCount} {guestCount === 1 ? "guest" : "guests"}
-          </p>
+        <div className="space-y-4">
+          {showRecurrenceScope && (
+            <div className="space-y-2">
+              <Label>Apply guest changes to</Label>
+              <RadioGroup
+                value={scope}
+                onValueChange={(value) => setScope(value as UpdateEventScope)}
+                className="gap-2"
+              >
+                <div className="flex items-center gap-2">
+                  <RadioGroupItem
+                    id="guest-update-scope-single"
+                    value="single"
+                  />
+                  <Label htmlFor="guest-update-scope-single">This event</Label>
+                </div>
+                <div className="flex items-center gap-2">
+                  <RadioGroupItem id="guest-update-scope-all" value="all" />
+                  <Label htmlFor="guest-update-scope-all">All events</Label>
+                </div>
+              </RadioGroup>
+            </div>
+          )}
+
+          <div className="space-y-2">
+            <Label htmlFor="guest-notification-message">{copy.textarea}</Label>
+            <Textarea
+              id="guest-notification-message"
+              value={message}
+              onChange={(event) => setMessage(event.target.value)}
+              placeholder={copy.placeholder}
+              rows={4}
+              autoFocus={!showRecurrenceScope}
+            />
+            <p className="text-xs text-muted-foreground">
+              {guestCount} {guestCount === 1 ? "guest" : "guests"}
+            </p>
+          </div>
         </div>
 
         <DialogFooter className="gap-2 sm:gap-0">
@@ -118,19 +168,11 @@ function GuestNotificationDialog({
           <Button
             type="button"
             variant="outline"
-            onClick={() => onConfirm({ sendUpdates: "none" })}
+            onClick={() => onConfirm(buildChoice("none"))}
           >
             {copy.skipLabel}
           </Button>
-          <Button
-            type="button"
-            onClick={() =>
-              onConfirm({
-                sendUpdates: "all",
-                notificationMessage: message.trim() || undefined,
-              })
-            }
-          >
+          <Button type="button" onClick={() => onConfirm(buildChoice("all"))}>
             {copy.sendLabel}
           </Button>
         </DialogFooter>
@@ -147,14 +189,28 @@ export function useGuestNotificationPrompt() {
       event: CalendarEvent;
       action: GuestNotificationAction;
       updates?: GuestPromptUpdates;
+      recurrenceScope?: boolean | RecurrenceScopeOptions;
     }) => {
+      const recurrenceScope =
+        args.recurrenceScope === true
+          ? { enabled: true }
+          : args.recurrenceScope || undefined;
       if (!shouldPromptGuests(args.event, args.updates)) {
         return Promise.resolve<GuestNotificationOptions | null>({
           sendUpdates: "none",
+          ...(recurrenceScope?.enabled
+            ? { scope: recurrenceScope.defaultScope ?? "single" }
+            : {}),
         });
       }
       return new Promise<GuestNotificationOptions | null>((resolve) => {
-        setRequest({ event: args.event, action: args.action, resolve });
+        setRequest({
+          event: args.event,
+          action: args.action,
+          updates: args.updates,
+          recurrenceScope,
+          resolve,
+        });
       });
     },
     [],

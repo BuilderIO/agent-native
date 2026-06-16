@@ -42,6 +42,10 @@ Detailed event, availability, booking, storage, and UI rules live in
 - Use `rsvp-event` for invitation responses. Pass `note` when the user wants a
   visible RSVP comment on a declined or tentative response; pass an empty note to
   clear an existing RSVP comment.
+- When adding guests to an existing event, prefer `update-event` with
+  `addAttendees` so existing RSVP notes/statuses are preserved. Use
+  `scope: "all"` only when the user wants a recurring-event guest change applied
+  to the whole series.
 
 ## Application State
 

@@ -211,8 +211,41 @@ type ReminderValue =
 type EventUpdatePatch = Partial<CalendarEvent> & {
   addGoogleMeet?: boolean;
   addZoom?: boolean;
+  addAttendees?: CalendarEvent["attendees"];
   scope?: UpdateEventScope;
 };
+
+function mergeAttendeesForPrompt(
+  existing: CalendarEvent["attendees"] | undefined,
+  additions: CalendarEvent["attendees"] | undefined,
+): CalendarEvent["attendees"] | undefined {
+  if (!additions || additions.length === 0) return existing;
+  const merged = new Map<
+    string,
+    NonNullable<CalendarEvent["attendees"]>[number]
+  >();
+
+  for (const attendee of existing ?? []) {
+    const email = attendee.email.trim();
+    if (!email) continue;
+    merged.set(email.toLowerCase(), attendee);
+  }
+
+  for (const attendee of additions) {
+    const email = attendee.email.trim();
+    if (!email) continue;
+    const key = email.toLowerCase();
+    const current = merged.get(key);
+    merged.set(key, {
+      ...current,
+      email,
+      displayName: attendee.displayName ?? current?.displayName,
+      photoUrl: attendee.photoUrl ?? current?.photoUrl,
+    });
+  }
+
+  return Array.from(merged.values());
+}
 
 function getReminderValue(event: CalendarEvent): ReminderValue {
   if (event.remindersUseDefault !== false) return "default";
@@ -488,11 +521,23 @@ export function EventDetailPopover({
         return true;
       }
       void (async () => {
-        const { scope: _scope, ...notificationUpdates } = updates;
+        const { scope: _scope, addAttendees, ...notificationUpdates } = updates;
+        const promptUpdates = addAttendees
+          ? {
+              ...notificationUpdates,
+              attendees: mergeAttendeesForPrompt(event.attendees, addAttendees),
+            }
+          : notificationUpdates;
+        const shouldChooseGuestScope =
+          isRecurringEvent &&
+          ("attendees" in updates || "addAttendees" in updates);
         const guestNotification = await promptGuestNotification({
           event,
           action: "update",
-          updates: notificationUpdates,
+          updates: promptUpdates,
+          recurrenceScope: shouldChooseGuestScope
+            ? { enabled: true, defaultScope: "single" }
+            : undefined,
         });
         if (!guestNotification) return;
         updateEvent.mutate({
@@ -504,7 +549,14 @@ export function EventDetailPopover({
       })();
       return true;
     },
-    [event, isDraft, onDraftUpdate, promptGuestNotification, updateEvent],
+    [
+      event,
+      isDraft,
+      isRecurringEvent,
+      onDraftUpdate,
+      promptGuestNotification,
+      updateEvent,
+    ],
   );
 
   const handleAvailabilityChange = useCallback(
@@ -848,17 +900,19 @@ Write a short, useful meeting description. If I ask you to apply it, update this
       const existing = event.attendees || [];
       if (existing.some((a) => a.email.toLowerCase() === email)) return;
 
-      const newAttendees = [
-        ...existing,
-        {
-          email,
-          displayName: attendee.displayName,
-          photoUrl: attendee.photoUrl,
-        },
-      ];
-      saveField({ attendees: newAttendees });
+      const attendeeUpdate = {
+        email,
+        displayName: attendee.displayName,
+        photoUrl: attendee.photoUrl,
+      };
+
+      if (isDraft) {
+        saveField({ attendees: [...existing, attendeeUpdate] });
+      } else {
+        saveField({ addAttendees: [attendeeUpdate] });
+      }
     },
-    [event.attendees, saveField],
+    [event.attendees, isDraft, saveField],
   );
 
   const handleSaveMeetingLink = useCallback(() => {

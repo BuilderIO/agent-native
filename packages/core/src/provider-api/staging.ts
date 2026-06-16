@@ -227,6 +227,16 @@ function getRetryAfterMs(
   return Math.min(1000 * Math.pow(2, attempt), 30_000);
 }
 
+function isProviderQuotaCooldown(response: Record<string, unknown>): boolean {
+  const headers = response.headers as Record<string, string> | undefined;
+  const quotaHeader =
+    headers?.["x-agent-native-provider-quota"] ??
+    headers?.["X-Agent-Native-Provider-Quota"];
+  if (quotaHeader === "exhausted") return true;
+  const json = response.json as Record<string, unknown> | undefined;
+  return json?.error === "provider_quota_exhausted";
+}
+
 // ---------------------------------------------------------------------------
 // Core staging executor
 // ---------------------------------------------------------------------------
@@ -334,6 +344,14 @@ export async function stagingExecuteRequest(
       const raw = (await execute(currentArgs)) as Record<string, unknown>;
       const response = raw.response as Record<string, unknown> | undefined;
       if (response?.status === 429) {
+        if (isProviderQuotaCooldown(response)) {
+          const json = response.json as Record<string, unknown> | undefined;
+          const retryAt =
+            typeof json?.retryAt === "string"
+              ? ` Retry after ${json.retryAt}.`
+              : "";
+          throw new Error(`Provider API quota exhausted (429).${retryAt}`);
+        }
         if (attempt >= 5) {
           throw new Error(
             `Provider returned 429 Too Many Requests after ${attempt + 1} attempts. ` +

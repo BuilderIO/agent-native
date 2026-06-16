@@ -2213,6 +2213,20 @@ function decisionBlockToCallout(
   return { ...rest, type: "callout", data: { tone: "decision", body } };
 }
 
+// Backfill the structural fields a nested child block needs to satisfy
+// planBlockSchema. A columns/tabs child authored via the `columns=`/`tabs=`
+// attribute form skips the id/data backfill the `<Column>`/`<Tab>` MDX path
+// does, so without this a single malformed nested block fails the WHOLE
+// document at parse time (surfaced to publishers as a 422). Degrade gracefully.
+function backfillNestedBlock(raw: unknown): unknown {
+  const migrated = migrateBlock(raw);
+  if (!migrated || typeof migrated !== "object") return migrated;
+  const b = migrated as Record<string, unknown>;
+  if (typeof b.id !== "string" || !b.id) b.id = createPlanBlockId("block");
+  if (!b.data || typeof b.data !== "object") b.data = {};
+  return b;
+}
+
 function migrateBlock(raw: unknown): unknown {
   if (!raw || typeof raw !== "object") return raw;
   const block = raw as Record<string, unknown>;
@@ -2224,21 +2238,27 @@ function migrateBlock(raw: unknown): unknown {
   if (block.type === "decision") {
     return decisionBlockToCallout(block);
   }
-  // Recurse into tabs children.
+  // Recurse into tabs children, backfilling tab/child ids + child data so a
+  // partially-authored or attribute-form tab degrades gracefully.
   if (block.type === "tabs" && block.data && typeof block.data === "object") {
     const data = block.data as Record<string, unknown>;
     if (Array.isArray(data.tabs)) {
       for (const tab of data.tabs) {
         if (tab && typeof tab === "object") {
           const tabObj = tab as Record<string, unknown>;
+          if (typeof tabObj.id !== "string" || !tabObj.id) {
+            tabObj.id = createPlanBlockId("tab");
+          }
           if (Array.isArray(tabObj.blocks)) {
-            tabObj.blocks = tabObj.blocks.map(migrateBlock);
+            tabObj.blocks = tabObj.blocks.map(backfillNestedBlock);
           }
         }
       }
     }
   }
-  // Recurse into columns children.
+  // Recurse into columns children, backfilling column/child ids + child data so
+  // an attribute-form `<Columns columns={[...]}/>` (which skips the `<Column>`
+  // id/data backfill) degrades gracefully instead of failing the whole document.
   if (
     block.type === "columns" &&
     block.data &&
@@ -2249,8 +2269,11 @@ function migrateBlock(raw: unknown): unknown {
       for (const column of data.columns) {
         if (column && typeof column === "object") {
           const columnObj = column as Record<string, unknown>;
+          if (typeof columnObj.id !== "string" || !columnObj.id) {
+            columnObj.id = createPlanBlockId("column");
+          }
           if (Array.isArray(columnObj.blocks)) {
-            columnObj.blocks = columnObj.blocks.map(migrateBlock);
+            columnObj.blocks = columnObj.blocks.map(backfillNestedBlock);
           }
         }
       }

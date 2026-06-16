@@ -28,6 +28,15 @@ interface SearchPeopleResponse {
   contactsLimited?: boolean;
 }
 
+interface ContactCacheEntry {
+  people: PersonResult[];
+  contactsLimited: boolean;
+  expiresAt: number;
+}
+
+const CONTACT_CACHE_TTL = 10 * 60 * 1000;
+const contactCache = new Map<string, ContactCacheEntry>();
+
 const GENERIC_EMAIL_DOMAINS = new Set([
   "gmail.com",
   "googlemail.com",
@@ -104,6 +113,46 @@ function sourceRank(source: PeopleResultSource) {
       return 1;
     case "otherContact":
       return 2;
+  }
+}
+
+function cacheKeyForClients(
+  currentEmail: string,
+  clients: Array<{ email: string }>,
+) {
+  const accounts = clients
+    .map((client) => client.email.toLowerCase())
+    .sort()
+    .join(",");
+  return `${currentEmail.toLowerCase()}:${accounts}`;
+}
+
+function mergeCachedContact(
+  people: Map<string, PersonResult>,
+  person: PersonResult,
+) {
+  const email = person.email.trim();
+  const key = email.toLowerCase();
+  if (!key || !key.includes("@")) return;
+
+  const existing = people.get(key);
+  if (!existing) {
+    people.set(key, { ...person, email });
+    return;
+  }
+
+  if (sourceRank(person.source) < sourceRank(existing.source)) {
+    existing.source = person.source;
+  }
+  if (
+    person.name &&
+    person.name !== person.email &&
+    (!existing.name || existing.name === existing.email)
+  ) {
+    existing.name = person.name;
+  }
+  if (!existing.photoUrl && person.photoUrl) {
+    existing.photoUrl = person.photoUrl;
   }
 }
 
@@ -196,6 +245,48 @@ async function listConnectionPages(
   return people;
 }
 
+async function loadCachedContactPeople(
+  currentEmail: string,
+  clients: Array<{ email: string; accessToken: string }>,
+) {
+  const cacheKey = cacheKeyForClients(currentEmail, clients);
+  const cached = contactCache.get(cacheKey);
+  if (cached && cached.expiresAt > Date.now()) {
+    return cached;
+  }
+
+  const people = new Map<string, PersonResult>();
+  let contactsLimited = false;
+
+  await Promise.all(
+    clients.map(async (client) => {
+      try {
+        const [connections, otherContacts] = await Promise.all([
+          listConnectionPages(client.accessToken, "connections"),
+          listConnectionPages(client.accessToken, "otherContacts"),
+        ]);
+
+        for (const person of extractPeople(connections, "contact")) {
+          mergeCachedContact(people, person);
+        }
+        for (const person of extractPeople(otherContacts, "otherContact")) {
+          mergeCachedContact(people, person);
+        }
+      } catch (error) {
+        if (permissionLimited(error)) contactsLimited = true;
+      }
+    }),
+  );
+
+  const entry: ContactCacheEntry = {
+    people: Array.from(people.values()),
+    contactsLimited,
+    expiresAt: Date.now() + CONTACT_CACHE_TTL,
+  };
+  contactCache.set(cacheKey, entry);
+  return entry;
+}
+
 export async function searchPeopleForUser(
   currentEmail: string,
   options: SearchPeopleOptions = {},
@@ -220,7 +311,6 @@ export async function searchPeopleForUser(
   );
   const people = new Map<string, PersonResult>();
   let directoryLimited = false;
-  let contactsLimited = false;
 
   const mergeOptions = {
     query,
@@ -229,6 +319,11 @@ export async function searchPeopleForUser(
     currentEmail,
     directoryOnly: scope === "directory",
   };
+
+  const cachedContacts = await loadCachedContactPeople(currentEmail, clients);
+  for (const person of cachedContacts.people) {
+    mergePerson(people, person, mergeOptions);
+  }
 
   if (query) {
     await Promise.all(
@@ -252,26 +347,6 @@ export async function searchPeopleForUser(
     );
   }
 
-  await Promise.all(
-    clients.map(async (client) => {
-      try {
-        const [connections, otherContacts] = await Promise.all([
-          listConnectionPages(client.accessToken, "connections"),
-          listConnectionPages(client.accessToken, "otherContacts"),
-        ]);
-
-        for (const person of extractPeople(connections, "contact")) {
-          mergePerson(people, person, mergeOptions);
-        }
-        for (const person of extractPeople(otherContacts, "otherContact")) {
-          mergePerson(people, person, mergeOptions);
-        }
-      } catch (error) {
-        if (permissionLimited(error)) contactsLimited = true;
-      }
-    }),
-  );
-
   const results = Array.from(people.values())
     .sort((a, b) => {
       const rank = matchRank(a, query) - matchRank(b, query);
@@ -285,10 +360,11 @@ export async function searchPeopleForUser(
   return {
     results,
     scopeRequired:
-      results.length === 0 && (directoryLimited || contactsLimited)
+      results.length === 0 &&
+      (directoryLimited || cachedContacts.contactsLimited)
         ? true
         : undefined,
     directoryLimited: directoryLimited || undefined,
-    contactsLimited: contactsLimited || undefined,
+    contactsLimited: cachedContacts.contactsLimited || undefined,
   };
 }

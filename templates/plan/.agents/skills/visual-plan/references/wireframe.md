@@ -35,6 +35,13 @@ are auto-themed — no classes needed. Helper classes carry the rest:
 - `button.primary` or any element with `[data-primary]` — the accent-filled
   primary button.
 
+**No decorative shadows around mockups.** Do not put `box-shadow`, `filter:
+drop-shadow(...)`, Tailwind `shadow-*` classes, or other fake depth effects on a
+wireframe frame, root container, `.wf-card` / `.wf-box`, or canvas artboard.
+Mockups should read as flat, bordered surfaces; use spacing, borders, labels,
+and annotations for separation. Only show a shadow when the real product UI
+already has that shadow and it is essential to the change being reviewed.
+
 **Use renderer icons, not visible icon words.** For icon-only buttons or leading
 icons inside fields, chips, menu items, and toolbars, write an empty marker such
 as `<span data-icon="mail" aria-label="Email"></span>` or
@@ -52,7 +59,7 @@ these on light/dark, so reading them is what keeps a mockup correct in both
 themes. For any inline border, background, or text color, reference a token:
 `style="border:1.4px solid var(--wf-line)"`. The tokens are `--wf-ink` (text),
 `--wf-muted` (secondary text), `--wf-line` (borders/dividers), `--wf-paper`
-(page background), `--wf-card` (raised surface), `--wf-accent` /
+(page background), `--wf-card` (container surface), `--wf-accent` /
 `--wf-accent-fg` / `--wf-accent-soft` (brand action), `--wf-warn`, `--wf-ok`,
 and `--wf-radius`. Never hard-code a hex color and never set `font-family` — the
 renderer owns the sketch/clean font.

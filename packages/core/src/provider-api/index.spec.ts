@@ -23,6 +23,7 @@ vi.mock("../oauth-tokens/index.js", () => ({
 }));
 
 const { createProviderApiRuntime } = await import("./index.js");
+const { resetProviderQuotaStateForTests } = await import("./quota-governor.js");
 
 const credentialContext = {
   userEmail: "ada@example.com",
@@ -38,7 +39,9 @@ describe("provider API runtime", () => {
     listOAuthAccountsByOwner.mockReset();
     saveOAuthTokens.mockReset();
     deleteOAuthTokens.mockReset();
+    resetProviderQuotaStateForTests();
     vi.unstubAllEnvs();
+    vi.stubEnv("AGENT_NATIVE_PROVIDER_API_PERSIST_COOLDOWNS", "0");
     isBlockedExtensionUrlWithDns.mockResolvedValue(false);
     createSsrfSafeDispatcher.mockResolvedValue(null);
     resolveCredential.mockResolvedValue(null);
@@ -279,6 +282,128 @@ describe("provider API runtime", () => {
     expect(globalThis.fetch).not.toHaveBeenCalled();
   });
 
+  it("retries provider 429s through the shared quota governor", async () => {
+    resolveCredential.mockResolvedValue("hubspot-token");
+    const fetchMock = vi.mocked(globalThis.fetch);
+    fetchMock.mockReset();
+    fetchMock
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ message: "rate limited" }), {
+          status: 429,
+          headers: {
+            "content-type": "application/json",
+            "retry-after": "0",
+          },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ results: [{ id: "deal-1" }] }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+      );
+    const runtime = createProviderApiRuntime({
+      appId: "analytics",
+      providerIds: ["hubspot"],
+      getCredentialContext: () => credentialContext,
+    });
+
+    const result = await runtime.executeRequest({
+      provider: "hubspot",
+      path: "/crm/v3/objects/deals",
+    });
+
+    expect(result).toMatchObject({
+      response: { status: 200, json: { results: [{ id: "deal-1" }] } },
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("deduplicates identical concurrent GET provider requests", async () => {
+    resolveCredential.mockResolvedValue("hubspot-token");
+    const fetchMock = vi.mocked(globalThis.fetch);
+    fetchMock.mockReset();
+    let resolveFetch: (response: Response) => void = () => {};
+    fetchMock.mockReturnValue(
+      new Promise<Response>((resolve) => {
+        resolveFetch = resolve;
+      }),
+    );
+    const runtime = createProviderApiRuntime({
+      appId: "analytics",
+      providerIds: ["hubspot"],
+      getCredentialContext: () => credentialContext,
+    });
+
+    const first = runtime.executeRequest({
+      provider: "hubspot",
+      path: "/crm/v3/objects/deals",
+      query: { limit: 10 },
+    });
+    const second = runtime.executeRequest({
+      provider: "hubspot",
+      path: "/crm/v3/objects/deals",
+      query: { limit: 10 },
+    });
+    resolveFetch(
+      new Response(JSON.stringify({ results: [{ id: "deal-1" }] }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }),
+    );
+
+    const [a, b] = await Promise.all([first, second]);
+
+    expect(a).toMatchObject({
+      response: { status: 200, json: { results: [{ id: "deal-1" }] } },
+    });
+    expect(b).toMatchObject({
+      response: { status: 200, json: { results: [{ id: "deal-1" }] } },
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("returns a structured cooldown result when Retry-After exceeds the wait budget", async () => {
+    resolveCredential.mockResolvedValue("hubspot-token");
+    const fetchMock = vi.mocked(globalThis.fetch);
+    fetchMock.mockReset();
+    fetchMock.mockResolvedValue(
+      new Response(JSON.stringify({ message: "daily limit" }), {
+        status: 429,
+        headers: {
+          "content-type": "application/json",
+          "retry-after": "120",
+        },
+      }),
+    );
+    const runtime = createProviderApiRuntime({
+      appId: "analytics",
+      providerIds: ["hubspot"],
+      getCredentialContext: () => credentialContext,
+    });
+
+    const first = (await runtime.executeRequest({
+      provider: "hubspot",
+      path: "/crm/v3/objects/deals",
+    })) as Record<string, any>;
+    const second = (await runtime.executeRequest({
+      provider: "hubspot",
+      path: "/crm/v3/objects/deals",
+    })) as Record<string, any>;
+
+    expect(first.response).toMatchObject({
+      status: 429,
+      json: { error: "provider_quota_exhausted", provider: "hubspot" },
+      quota: { exhausted: true, providerId: "hubspot" },
+    });
+    expect(second.response).toMatchObject({
+      status: 429,
+      json: { error: "provider_quota_exhausted", provider: "hubspot" },
+      quota: { exhausted: true, providerId: "hubspot" },
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
   it("stops paginated requests when a page returns an HTTP error", async () => {
     resolveCredential.mockResolvedValue("hubspot-token");
     const fetchMock = vi.mocked(globalThis.fetch);
@@ -297,8 +422,8 @@ describe("provider API runtime", () => {
         ),
       )
       .mockResolvedValueOnce(
-        new Response(JSON.stringify({ message: "rate limited" }), {
-          status: 429,
+        new Response(JSON.stringify({ message: "provider failed" }), {
+          status: 500,
           headers: { "content-type": "application/json" },
         }),
       );
@@ -318,7 +443,7 @@ describe("provider API runtime", () => {
           itemsPath: "results",
         },
       }),
-    ).rejects.toThrow(/HTTP 429.*rate limited/);
+    ).rejects.toThrow(/HTTP 500.*provider failed/);
 
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });

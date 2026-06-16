@@ -73,6 +73,7 @@ export default defineAction({
     "Use this as the flexible escape hatch when a canned integration action cannot express the needed endpoint, filters, pagination, payload, or API version. " +
     "Use it as the primary path for broad provider cohorts that feed cross-source joins, corpus searches, downstream code execution, or absence-sensitive/exhaustive analysis. " +
     "The request is constrained to the provider host, uses configured credentials automatically, blocks private/internal URLs, and redacts secrets from responses. " +
+    "Provider calls share a provider/key-aware quota governor with in-flight dedupe, Retry-After handling, and cooldown queuing, so prefer this general path over one-off throttling logic. " +
     "\n\nSTAGING MODE (preferred for large responses): Pass stageAs to write the response items into a scratch dataset instead of returning the raw body. " +
     "Returns { dataset, rowCount, columns, sampleRows } — only a compact summary flows into the context window. " +
     "Use query-staged-dataset to aggregate, filter, and project the data without re-fetching. " +
@@ -169,7 +170,7 @@ export default defineAction({
       .string()
       .optional()
       .describe(
-        "Workspace file path to save the full response body to instead of returning it in context (e.g. 'analysis/provider-response.json'). When set, returns only a compact summary {savedTo, status, bytes, preview} and allows up to 20MB response. Ideal for large datasets that would overflow context.",
+        "Workspace file path to save the full response body to instead of returning it in context (e.g. 'scratch/analysis/provider-response.json' for temporary staging). When set, returns only a compact summary {savedTo, status, bytes, preview} and allows up to 20MB response. Ideal for large datasets that would overflow context.",
       ),
     fetchAllPages: z
       .object({
@@ -208,7 +209,7 @@ export default defineAction({
       })
       .optional()
       .describe(
-        "Enable cursor-based pagination. After each response, reads cursorPath from the JSON body and re-issues the request with cursorParam or cursorBodyPath set, accumulating items from itemsPath (or whole bodies) until cursor is empty or maxPages is reached. Combine with saveToFile to write the full dataset to a workspace file.",
+        "Enable cursor-based pagination. After each response, reads cursorPath from the JSON body and re-issues the request with cursorParam or cursorBodyPath set, accumulating items from itemsPath (or whole bodies) until cursor is empty or maxPages is reached. Combine with saveToFile to write the full dataset to a workspace file; use scratch/... for temporary staging.",
       ),
   }),
   http: false,

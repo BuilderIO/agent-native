@@ -8,7 +8,6 @@ import {
   useState,
   type KeyboardEvent,
 } from "react";
-import { callAction } from "@agent-native/core/client";
 import {
   IconAddressBook,
   IconBuilding,
@@ -24,6 +23,11 @@ import {
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { isMcpEmbedSurface } from "@/lib/mcp-embed";
+import {
+  filterPeopleResults,
+  usePeopleContacts,
+  type PeopleSearchResult,
+} from "@/hooks/use-people";
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -31,18 +35,6 @@ export interface AttendeeRecipient {
   email: string;
   displayName?: string;
   photoUrl?: string;
-}
-
-interface PeopleSearchResult {
-  name: string;
-  email: string;
-  photoUrl?: string;
-  source?: "contact" | "otherContact" | "directory";
-}
-
-interface PeopleSearchResponse {
-  results?: PeopleSearchResult[];
-  scopeRequired?: boolean;
 }
 
 export interface AttendeeAutocompleteHandle {
@@ -131,13 +123,10 @@ export const AttendeeAutocomplete = forwardRef<
   ref,
 ) {
   const [inputValue, setInputValue] = useState("");
-  const [results, setResults] = useState<PeopleSearchResult[]>([]);
-  const [searching, setSearching] = useState(false);
-  const [scopeRequired, setScopeRequired] = useState(false);
   const [open, setOpen] = useState(false);
   const [activeIndex, setActiveIndex] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
-  const debounceRef = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const contacts = usePeopleContacts();
 
   const selectedEmailSet = useMemo(
     () =>
@@ -151,13 +140,17 @@ export const AttendeeAutocomplete = forwardRef<
 
   const visibleResults = useMemo(
     () =>
-      results.filter(
-        (person) => !selectedEmailSet.has(person.email.toLowerCase()),
+      filterPeopleResults(
+        contacts.data?.results ?? [],
+        inputValue,
+        selectedEmailSet,
       ),
-    [results, selectedEmailSet],
+    [contacts.data?.results, inputValue, selectedEmailSet],
   );
 
   const canAddManual = parseEmails(inputValue).length > 0;
+  const searching = contacts.isLoading || contacts.isFetching;
+  const scopeRequired = Boolean(contacts.data?.scopeRequired);
   const shouldShowPopover =
     open &&
     inputValue.trim().length > 0 &&
@@ -185,7 +178,6 @@ export const AttendeeAutocomplete = forwardRef<
         photoUrl: person.photoUrl,
       });
       setInputValue("");
-      setResults([]);
       setOpen(false);
       setActiveIndex(0);
     },
@@ -206,7 +198,6 @@ export const AttendeeAutocomplete = forwardRef<
 
     if (added.length > 0) {
       setInputValue("");
-      setResults([]);
       setOpen(false);
       setActiveIndex(0);
     }
@@ -231,40 +222,6 @@ export const AttendeeAutocomplete = forwardRef<
     }),
     [commitManualInput],
   );
-
-  useEffect(() => {
-    const query = inputValue.trim();
-    if (debounceRef.current) clearTimeout(debounceRef.current);
-
-    if (!query) {
-      setResults([]);
-      setSearching(false);
-      setScopeRequired(false);
-      return;
-    }
-
-    debounceRef.current = setTimeout(async () => {
-      setSearching(true);
-      try {
-        const data = await callAction<PeopleSearchResponse>(
-          "search-people",
-          { q: query, scope: "all" },
-          { method: "GET" },
-        );
-        setResults(data.results ?? []);
-        setScopeRequired(Boolean(data.scopeRequired));
-        setOpen(true);
-      } catch {
-        setResults([]);
-      } finally {
-        setSearching(false);
-      }
-    }, 250);
-
-    return () => {
-      if (debounceRef.current) clearTimeout(debounceRef.current);
-    };
-  }, [inputValue]);
 
   useEffect(() => {
     setActiveIndex((index) =>

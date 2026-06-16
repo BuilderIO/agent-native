@@ -1,10 +1,9 @@
 /**
- * `workspace-files` agent tool.
+ * `workspace-files` bridge tool.
  *
  * A single tool with an `action` discriminator covering write, append, read,
- * list, delete, and grep. Files persist across conversations; the agent uses
- * them to stage large intermediate results (fetched pages, per-item memos)
- * and then read back selectively for synthesis.
+ * list, delete, and grep. It is kept for `run-code` workspaceRead/workspaceWrite
+ * compatibility and delegates storage to the Resources table.
  *
  * Scope is automatically resolved from the active request context:
  *  - org scope when a request orgId is present (shared across users in the org)
@@ -41,10 +40,12 @@ function resolveScope(): WorkspaceFilesScope | null {
 export function createWorkspaceFilesTool(): Record<string, ActionEntry> {
   return {
     "workspace-files": {
+      agentTool: false,
       readOnly: false,
       tool: {
         description: [
-          "Durable scratch-file storage for the agent. Files persist across conversations and are scoped to the current org/user.",
+          "Bridge-only workspace file storage backed by Resources. Files are scoped to the current org/user and appear in the Resources workspace.",
+          "Use scratch/... for temporary intermediate results; scratch files are hidden from the Resources view by default and expire. Use durable folder names for files the user explicitly wants to keep/manage.",
           "Use this to stage large intermediate results (fetched pages, per-item analysis memos, API payloads) so they don't consume context window, then read them back selectively for synthesis.",
           "",
           "Typical fusion-style workflow:",
@@ -54,7 +55,7 @@ export function createWorkspaceFilesTool(): Record<string, ActionEntry> {
           "  4. `delete` temp files when no longer needed.",
           "",
           "Actions:",
-          "  write   — create or overwrite a file. Max 2 MB per file, 200 MB total.",
+          "  write   — create or overwrite a file. Max 2 MB per file.",
           "  append  — append text to a file (or create if absent).",
           "  read    — read content, optionally with offset/maxChars for paging large files.",
           "  list    — list files (with optional path prefix filter) showing name, size, updated.",
@@ -72,7 +73,7 @@ export function createWorkspaceFilesTool(): Record<string, ActionEntry> {
             path: {
               type: "string",
               description:
-                'File path relative to the scope root, e.g. "analysis/q2-memos/acme.md". Required for write/append/read/delete. Optional for list/grep (acts as prefix filter).',
+                'File path relative to the scope root, e.g. "scratch/analysis/q2-memos/acme.md". Required for write/append/read/delete. Optional for list/grep (acts as prefix filter).',
             },
             content: {
               type: "string",

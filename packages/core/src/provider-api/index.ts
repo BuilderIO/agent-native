@@ -19,6 +19,13 @@ import type {
   CustomProviderConfig,
   CustomProviderAuthKind,
 } from "./custom-registry.js";
+import {
+  createProviderQuotaIdentity,
+  createProviderRequestDedupeKey,
+  executeWithProviderQuota,
+  type ProviderQuotaIdentity,
+  type ProviderQuotaExhaustedDetail,
+} from "./quota-governor.js";
 
 export type {
   CustomProviderConfig,
@@ -256,6 +263,33 @@ interface ResolvedAuth {
   headers: Record<string, string>;
   credentialSources: Array<Omit<ProviderApiResolvedCredential, "value">>;
   secretValues: string[];
+}
+
+interface ProviderApiHttpResponse {
+  status: number;
+  statusText: string;
+  ok: boolean;
+  elapsedMs: number;
+  headers: Record<string, string>;
+  contentType: string | null;
+  size: number;
+  truncated: boolean;
+  text?: string;
+  json?: unknown;
+  quota?: {
+    exhausted: boolean;
+    providerId: string;
+    retryAfterMs: number;
+    retryAt: string;
+    reason: string;
+  };
+}
+
+interface ProviderApiFetchQuotaOptions {
+  identity: ProviderQuotaIdentity;
+  method: ProviderApiMethod;
+  target: string;
+  requestKey?: string;
 }
 
 interface OAuthTokens {
@@ -1138,6 +1172,14 @@ export async function executeProviderApiRequest(
   const effectiveMaxBytes = args.saveToFile
     ? SAVE_TO_FILE_MAX_BYTES
     : clampMaxBytes(args.maxBytes);
+  const quotaIdentity = createProviderQuotaIdentity({
+    appId: runtimeOptionsAppId(runtime),
+    providerId: config.id,
+    ctx,
+    credentialSources: auth.credentialSources,
+    connectionId: args.connectionId,
+    accountId: args.accountId,
+  });
 
   // --- fetchAllPages mode ---
   if (args.fetchAllPages) {
@@ -1164,6 +1206,12 @@ export async function executeProviderApiRequest(
             )
           : substituteUnknown(args.body, placeholders);
         const pageBody = prepareBody(bodyWithCursor, { ...headers });
+        const requestKey = createProviderRequestDedupeKey({
+          method,
+          url: pageUrl.href,
+          body: pageBody,
+          headers,
+        });
         const resp = await fetchWithTimeout(pageUrl.href, {
           method,
           headers,
@@ -1171,6 +1219,15 @@ export async function executeProviderApiRequest(
           maxBytes: effectiveMaxBytes,
           timeoutMs: clampTimeout(args.timeoutMs),
           secretValues: auth.secretValues,
+          quota: {
+            identity: quotaIdentity,
+            method,
+            target: describeProviderRequestTarget(
+              pageUrl.href,
+              auth.secretValues,
+            ),
+            requestKey,
+          },
         });
         return {
           text:
@@ -1205,6 +1262,12 @@ export async function executeProviderApiRequest(
 
   // --- Single request ---
   const body = prepareBody(substituteUnknown(args.body, placeholders), headers);
+  const requestKey = createProviderRequestDedupeKey({
+    method,
+    url: url.href,
+    body,
+    headers,
+  });
   const response = await fetchWithTimeout(url.href, {
     method,
     headers,
@@ -1212,6 +1275,12 @@ export async function executeProviderApiRequest(
     maxBytes: effectiveMaxBytes,
     timeoutMs: clampTimeout(args.timeoutMs),
     secretValues: auth.secretValues,
+    quota: {
+      identity: quotaIdentity,
+      method,
+      target: describeProviderRequestTarget(url.href, auth.secretValues),
+      requestKey,
+    },
   });
 
   // saveToFile: write full body to workspace file and return compact summary.
@@ -1317,6 +1386,14 @@ async function executeCustomProviderApiRequest(
   const effectiveMaxBytes = args.saveToFile
     ? SAVE_TO_FILE_MAX_BYTES
     : clampMaxBytes(args.maxBytes);
+  const quotaIdentity = createProviderQuotaIdentity({
+    appId: runtimeOptionsAppId(runtime),
+    providerId: customConfig.id,
+    ctx,
+    credentialSources: auth.credentialSources,
+    connectionId: args.connectionId,
+    accountId: args.accountId,
+  });
 
   // --- fetchAllPages mode (same cursor pagination as built-in providers) ---
   if (args.fetchAllPages) {
@@ -1340,6 +1417,12 @@ async function executeCustomProviderApiRequest(
             )
           : args.body;
         const pageBody = prepareBody(bodyWithCursor, { ...headers });
+        const requestKey = createProviderRequestDedupeKey({
+          method,
+          url: pageUrl.href,
+          body: pageBody,
+          headers,
+        });
         const resp = await fetchWithTimeout(pageUrl.href, {
           method,
           headers,
@@ -1347,6 +1430,15 @@ async function executeCustomProviderApiRequest(
           maxBytes: effectiveMaxBytes,
           timeoutMs: clampTimeout(args.timeoutMs),
           secretValues: auth.secretValues,
+          quota: {
+            identity: quotaIdentity,
+            method,
+            target: describeProviderRequestTarget(
+              pageUrl.href,
+              auth.secretValues,
+            ),
+            requestKey,
+          },
         });
         return {
           text:
@@ -1390,6 +1482,17 @@ async function executeCustomProviderApiRequest(
     maxBytes: effectiveMaxBytes,
     timeoutMs: clampTimeout(args.timeoutMs),
     secretValues: auth.secretValues,
+    quota: {
+      identity: quotaIdentity,
+      method,
+      target: describeProviderRequestTarget(url.href, auth.secretValues),
+      requestKey: createProviderRequestDedupeKey({
+        method,
+        url: url.href,
+        body,
+        headers,
+      }),
+    },
   });
 
   if (args.saveToFile) {
@@ -2445,6 +2548,10 @@ function prepareBody(
   return JSON.stringify(body);
 }
 
+function runtimeOptionsAppId(runtime: ProviderApiRuntimeOptions): string {
+  return runtime.appId || "app";
+}
+
 async function fetchWithTimeout(
   optionsUrl: string,
   options: {
@@ -2454,49 +2561,109 @@ async function fetchWithTimeout(
     timeoutMs?: number;
     maxBytes?: number;
     secretValues?: string[];
+    quota?: ProviderApiFetchQuotaOptions;
   },
-) {
-  const controller = new AbortController();
-  const timeoutMs = clampTimeout(options.timeoutMs);
-  const timeout = setTimeout(() => controller.abort(), timeoutMs);
-  const method = options.method ?? "GET";
-  const secretValues = options.secretValues ?? [];
-  try {
-    const dispatcher = (await createSsrfSafeDispatcher()) ?? undefined;
-    const fetchOptions: RequestInit & { dispatcher?: unknown } = {
-      method,
-      headers: options.headers,
-      body: options.body,
-      signal: controller.signal,
-      redirect: "manual",
-    };
-    if (dispatcher) fetchOptions.dispatcher = dispatcher;
+): Promise<ProviderApiHttpResponse> {
+  const runOnce = async (): Promise<ProviderApiHttpResponse> => {
+    const controller = new AbortController();
+    const timeoutMs = clampTimeout(options.timeoutMs);
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
+    const method = options.method ?? "GET";
+    const secretValues = options.secretValues ?? [];
     try {
-      return await fetchProviderResponse(optionsUrl, fetchOptions, {
-        maxBytes: options.maxBytes,
-        secretValues,
-      });
-    } catch (error) {
-      if (dispatcher && isDispatcherCompatibilityError(error)) {
-        const fallbackOptions = { ...fetchOptions };
-        delete fallbackOptions.dispatcher;
-        return await fetchProviderResponse(optionsUrl, fallbackOptions, {
+      const dispatcher = (await createSsrfSafeDispatcher()) ?? undefined;
+      const fetchOptions: RequestInit & { dispatcher?: unknown } = {
+        method,
+        headers: options.headers,
+        body: options.body,
+        signal: controller.signal,
+        redirect: "manual",
+      };
+      if (dispatcher) fetchOptions.dispatcher = dispatcher;
+      try {
+        return await fetchProviderResponse(optionsUrl, fetchOptions, {
           maxBytes: options.maxBytes,
           secretValues,
         });
+      } catch (error) {
+        if (dispatcher && isDispatcherCompatibilityError(error)) {
+          const fallbackOptions = { ...fetchOptions };
+          delete fallbackOptions.dispatcher;
+          return await fetchProviderResponse(optionsUrl, fallbackOptions, {
+            maxBytes: options.maxBytes,
+            secretValues,
+          });
+        }
+        throw error;
       }
-      throw error;
+    } catch (error) {
+      throw normalizeFetchError(error, {
+        method,
+        url: optionsUrl,
+        timeoutMs,
+        secretValues,
+      });
+    } finally {
+      clearTimeout(timeout);
     }
-  } catch (error) {
-    throw normalizeFetchError(error, {
-      method,
-      url: optionsUrl,
-      timeoutMs,
-      secretValues,
+  };
+
+  if (options.quota) {
+    return executeWithProviderQuota({
+      request: {
+        identity: options.quota.identity,
+        method: options.quota.method,
+        target: options.quota.target,
+        requestKey: options.quota.requestKey,
+      },
+      execute: runOnce,
+      inspect: (result) => ({
+        status: result.status,
+        headers: result.headers,
+      }),
+      buildQuotaExhaustedResult: providerQuotaExhaustedResponse,
     });
-  } finally {
-    clearTimeout(timeout);
   }
+
+  return runOnce();
+}
+
+function providerQuotaExhaustedResponse(
+  detail: ProviderQuotaExhaustedDetail,
+): ProviderApiHttpResponse {
+  const retryAfterSeconds = Math.max(0, Math.ceil(detail.retryAfterMs / 1000));
+  return {
+    status: 429,
+    statusText: "Provider quota cooldown",
+    ok: false,
+    elapsedMs: 0,
+    headers: {
+      "retry-after": String(retryAfterSeconds),
+      "x-agent-native-provider-quota": "exhausted",
+    },
+    contentType: "application/json",
+    size: 0,
+    truncated: false,
+    json: {
+      error: "provider_quota_exhausted",
+      provider: detail.providerId,
+      message:
+        `Provider API quota is cooling down for ${detail.providerId}. ` +
+        `Retry after ${detail.retryAt}.`,
+      retryAt: detail.retryAt,
+      retryAfterMs: detail.retryAfterMs,
+      reason: detail.reason,
+      method: detail.method,
+      target: detail.target,
+    },
+    quota: {
+      exhausted: true,
+      providerId: detail.providerId,
+      retryAfterMs: detail.retryAfterMs,
+      retryAt: detail.retryAt,
+      reason: detail.reason,
+    },
+  };
 }
 
 async function fetchProviderResponse(
@@ -2506,7 +2673,7 @@ async function fetchProviderResponse(
     maxBytes?: number;
     secretValues: string[];
   },
-) {
+): Promise<ProviderApiHttpResponse> {
   const startedAt = Date.now();
   const res = await fetch(url, fetchOptions);
   const elapsedMs = Date.now() - startedAt;

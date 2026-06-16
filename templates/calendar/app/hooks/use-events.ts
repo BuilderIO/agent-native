@@ -32,6 +32,7 @@ type UpdateEventInput = Partial<CalendarEvent> & {
   id: string;
   addGoogleMeet?: boolean;
   addZoom?: boolean;
+  addAttendees?: CalendarEvent["attendees"];
   sendUpdates?: "all" | "none";
   notificationMessage?: string;
   scope?: UpdateEventScope;
@@ -106,6 +107,38 @@ function buildOptimisticCalendarEvent(
     createdAt: now,
     updatedAt: now,
   };
+}
+
+export function mergeAttendeeLists(
+  existing: CalendarEvent["attendees"] | undefined,
+  additions: CalendarEvent["attendees"] | undefined,
+): CalendarEvent["attendees"] | undefined {
+  if (!additions || additions.length === 0) return existing;
+  const merged = new Map<
+    string,
+    NonNullable<CalendarEvent["attendees"]>[number]
+  >();
+
+  for (const attendee of existing ?? []) {
+    const email = attendee.email?.trim();
+    if (!email) continue;
+    merged.set(email.toLowerCase(), { ...attendee, email });
+  }
+
+  for (const attendee of additions) {
+    const email = attendee.email?.trim();
+    if (!email) continue;
+    const key = email.toLowerCase();
+    const current = merged.get(key);
+    merged.set(key, {
+      ...current,
+      email,
+      displayName: attendee.displayName ?? current?.displayName,
+      photoUrl: attendee.photoUrl ?? current?.photoUrl,
+    });
+  }
+
+  return Array.from(merged.values());
 }
 
 function updateListEventQueries(
@@ -270,6 +303,7 @@ export function useUpdateEvent() {
       const {
         addGoogleMeet,
         addZoom,
+        addAttendees,
         sendUpdates,
         notificationMessage,
         scope,
@@ -279,7 +313,20 @@ export function useUpdateEvent() {
         { queryKey: ["action", "list-events"] },
         (old) =>
           old?.map((e) =>
-            e.id === optimisticData.id ? { ...e, ...optimisticData } : e,
+            e.id === optimisticData.id
+              ? {
+                  ...e,
+                  ...optimisticData,
+                  ...(addAttendees
+                    ? {
+                        attendees: mergeAttendeeLists(
+                          e.attendees,
+                          addAttendees,
+                        ),
+                      }
+                    : {}),
+                }
+              : e,
           ),
       );
       return { previous };

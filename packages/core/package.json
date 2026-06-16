@@ -132,6 +132,7 @@
     "./tailwind": "./dist/tailwind.preset.js",
     "./styles/agent-native.css": "./dist/styles/agent-native.css",
     "./agent/engine": "./dist/agent/engine/index.js",
+    "./agent/harness": "./dist/agent/harness/index.js",
     "./tsconfig.base.json": "./tsconfig.base.json"
   },
   "sideEffects": [

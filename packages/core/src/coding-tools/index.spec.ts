@@ -54,6 +54,23 @@ describe("shared coding tools", () => {
     );
   });
 
+  it("omits bridge-only actions from engine tool lists", () => {
+    const registry = createCodingToolRegistry({
+      cwd: tempDir(),
+      restrictToCwd: true,
+    });
+
+    expect(
+      actionsToEngineTools({
+        ...registry,
+        bridgeOnly: {
+          ...registry.read,
+          agentTool: false,
+        },
+      }).map((tool) => tool.name),
+    ).toEqual(["bash", "read", "edit", "write"]);
+  });
+
   it("keeps sidebar dev mode on the shared tools and hides legacy aliases by default", async () => {
     const registry = await createDevScriptRegistry();
 

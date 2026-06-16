@@ -135,9 +135,9 @@ export function createRunCodeEntry(
         "  - `webFetch(url, init?)` — outbound HTTP request via the web-request action.",
         "    Returns `{ status, body }` where body is the response text.",
         "    Example: `const { body } = await webFetch('https://api.example.com/data');`",
-        "  - `workspaceRead(path, opts?)` — read a workspace file by path. Returns content string or null. opts: { offset?, maxChars? }.",
+        "  - `workspaceRead(path, opts?)` — read a Resources-backed workspace file by path. Returns content string or null. opts: { offset?, maxChars? }.",
         "  - `workspaceReadMeta(path, opts?)` — read a workspace file with metadata such as sizeBytes, truncated, and nextOffset.",
-        "  - `workspaceWrite(path, content, contentType?)` — create or overwrite a workspace file.",
+        "  - `workspaceWrite(path, content, contentType?)` — create or overwrite a workspace file. Use `scratch/...` for temporary staging; use durable folders only for files the user should keep.",
         "  - `workspaceAppend(path, content)` — append text to a workspace file.",
         "  - `workspaceList(prefix?)` — list workspace files, returns [{ path, sizeBytes, contentType, updatedAt }].",
         "Print results with `console.log()`; only stdout+stderr are returned.",
@@ -776,7 +776,8 @@ async function webFetch(url, init = {}) {
 }
 
 /**
- * Read a workspace file by path. Returns the file content as a string, or null if not found.
+ * Read a Resources-backed workspace file by path. Returns the file content as
+ * a string, or null if not found.
  * Supports optional offset and maxChars for paging large files.
  */
 async function workspaceRead(path, opts = {}) {
@@ -800,7 +801,8 @@ async function workspaceReadMeta(path, opts = {}) {
 }
 
 /**
- * Write (create or overwrite) a workspace file.
+ * Write (create or overwrite) a workspace file. Use \`scratch/...\` for
+ * temporary staging files.
  * \`content\` must be a string. Returns metadata { path, sizeBytes, updatedAt }.
  */
 async function workspaceWrite(path, content, contentType = "text/plain") {

@@ -1017,6 +1017,7 @@ export async function updateEvent(
   htmlLink?: string;
   meetLink?: string;
   conferenceData?: CalendarEvent["conferenceData"];
+  attendees?: CalendarEvent["attendees"];
 }> {
   const client = await getClient(event.accountEmail);
   if (!client) {
@@ -1113,6 +1114,14 @@ export async function updateEvent(
     htmlLink: response?.htmlLink || undefined,
     meetLink: response?.hangoutLink || undefined,
     conferenceData: mapConferenceData(response?.conferenceData),
+    attendees: response?.attendees?.map((a: any) => ({
+      email: a.email,
+      displayName: a.displayName || undefined,
+      comment: a.comment || undefined,
+      responseStatus: a.responseStatus || undefined,
+      organizer: a.organizer || undefined,
+      self: a.self || undefined,
+    })),
   };
 }
 
