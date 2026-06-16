@@ -1,5 +1,12 @@
 # @agent-native/core
 
+## 0.51.6
+
+### Patch Changes
+
+- ba3b10b: Add the `providerSearchAll` run-code helper and refresh Content template marketing around open-source Obsidian for MDX positioning.
+- ba3b10b: Block background agent-team delegation for provider/source sweeps after a read-only source/search tool has exhausted its convergence budget.
+
 ## 0.51.5
 
 ### Patch Changes
