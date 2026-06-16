@@ -32,7 +32,6 @@ import {
   IconArchive,
   IconHome,
   IconTemplate,
-  IconFilter,
   IconBuilding,
   IconLock,
   IconLink,
@@ -323,22 +322,6 @@ function SidebarSectionSettingsPopover({
         </div>
       </PopoverContent>
     </Popover>
-  );
-}
-        >
-          <DropdownMenuRadioItem value="most-used">
-            Most used
-          </DropdownMenuRadioItem>
-          <DropdownMenuRadioItem value="alphabetical">
-            Alphabetical
-          </DropdownMenuRadioItem>
-          <DropdownMenuSeparator />
-          <DropdownMenuRadioItem value="manual">
-            Manual order
-          </DropdownMenuRadioItem>
-        </DropdownMenuRadioGroup>
-      </DropdownMenuContent>
-    </DropdownMenu>
   );
 }
 
@@ -1969,39 +1952,15 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
               <IconChartBar className="h-4 w-4 shrink-0" />
               <span className="min-w-0 flex-1 truncate">Dashboards</span>
             </button>
-            <SidebarSectionSortMenu
+            <SidebarSectionSettingsPopover
               label="Dashboards"
-              value={dashboardSortMode}
-              onChange={setDashboardSortMode}
+              sortMode={dashboardSortMode}
+              onSortModeChange={setDashboardSortMode}
+              sharedOnly={dashFilter === "org"}
+              onSharedOnlyChange={(checked) =>
+                setDashFilter(checked ? "org" : "all")
+              }
             />
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <button
-                  type="button"
-                  onClick={() =>
-                    setDashFilter((f) => (f === "all" ? "org" : "all"))
-                  }
-                  className={cn(
-                    "flex h-7 w-7 shrink-0 items-center justify-center rounded-md transition-all focus:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring",
-                    dashFilter === "org"
-                      ? "text-blue-400"
-                      : "text-muted-foreground/45 opacity-0 hover:bg-sidebar-accent hover:text-foreground group-hover/section:opacity-100",
-                  )}
-                  aria-label={
-                    dashFilter === "org"
-                      ? "Showing org-shared only"
-                      : "Filter by org-shared"
-                  }
-                >
-                  <IconFilter className="h-3.5 w-3.5" />
-                </button>
-              </TooltipTrigger>
-              <TooltipContent side="right">
-                {dashFilter === "org"
-                  ? "Showing org-shared (click for all)"
-                  : "Show org-shared only"}
-              </TooltipContent>
-            </Tooltip>
             <button
               type="button"
               onClick={toggleDashOpen}
@@ -2094,69 +2053,19 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
               <IconReportAnalytics className="h-4 w-4 shrink-0" />
               <span className="min-w-0 flex-1 truncate">Analyses</span>
             </button>
-            <SidebarSectionSortMenu
+            <SidebarSectionSettingsPopover
               label="Analyses"
-              value={analysisSortMode}
-              onChange={setAnalysisSortMode}
+              sortMode={analysisSortMode}
+              onSortModeChange={setAnalysisSortMode}
+              sharedOnly={analysisFilter === "org"}
+              onSharedOnlyChange={(checked) =>
+                setAnalysisFilter(checked ? "org" : "all")
+              }
+              showHidden={analysisHiddenFilter === "hidden"}
+              onShowHiddenChange={(checked) =>
+                setAnalysisHiddenFilter(checked ? "hidden" : "visible")
+              }
             />
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <button
-                  type="button"
-                  onClick={() =>
-                    setAnalysisFilter((f) => (f === "all" ? "org" : "all"))
-                  }
-                  className={cn(
-                    "flex h-7 w-7 shrink-0 items-center justify-center rounded-md transition-all focus:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring",
-                    analysisFilter === "org"
-                      ? "text-blue-400"
-                      : "text-muted-foreground/45 opacity-0 hover:bg-sidebar-accent hover:text-foreground group-hover/section:opacity-100",
-                  )}
-                  aria-label={
-                    analysisFilter === "org"
-                      ? "Showing org-shared only"
-                      : "Filter by org-shared"
-                  }
-                >
-                  <IconFilter className="h-3.5 w-3.5" />
-                </button>
-              </TooltipTrigger>
-              <TooltipContent side="right">
-                {analysisFilter === "org"
-                  ? "Showing org-shared (click for all)"
-                  : "Show org-shared only"}
-              </TooltipContent>
-            </Tooltip>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <button
-                  type="button"
-                  onClick={() =>
-                    setAnalysisHiddenFilter((f) =>
-                      f === "hidden" ? "visible" : "hidden",
-                    )
-                  }
-                  className={cn(
-                    "flex h-7 w-7 shrink-0 items-center justify-center rounded-md transition-all focus:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring",
-                    analysisHiddenFilter === "hidden"
-                      ? "text-blue-400"
-                      : "text-muted-foreground/45 opacity-0 hover:bg-sidebar-accent hover:text-foreground group-hover/section:opacity-100",
-                  )}
-                  aria-label={
-                    analysisHiddenFilter === "hidden"
-                      ? "Showing hidden analyses"
-                      : "Show hidden analyses"
-                  }
-                >
-                  <IconEyeOff className="h-3.5 w-3.5" />
-                </button>
-              </TooltipTrigger>
-              <TooltipContent side="right">
-                {analysisHiddenFilter === "hidden"
-                  ? "Showing hidden (click for visible)"
-                  : "Show hidden analyses"}
-              </TooltipContent>
-            </Tooltip>
             <button
               type="button"
               onClick={toggleAnalysesOpen}
