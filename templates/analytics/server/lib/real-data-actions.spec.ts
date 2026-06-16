@@ -221,6 +221,24 @@ describe("coverage-sensitive analytics request classification", () => {
         {
           name: "run-code",
           content:
+            'bridgeToolsUsed: provider-api-request\n\nstdout:\n{"rows":10}',
+        },
+      ]),
+    ).toBe(true);
+    expect(
+      hasCorpusWorkflowAttempt([
+        {
+          name: "run-code",
+          content:
+            'const calls = await providerFetchAll("gong", "/calls", { pagination: { maxPages: 20 } });',
+        },
+      ]),
+    ).toBe(true);
+    expect(
+      hasCorpusWorkflowAttempt([
+        {
+          name: "run-code",
+          content:
             'const rows = await appAction("query-staged-dataset", { datasetId });',
         },
       ]),
@@ -292,7 +310,7 @@ describe("coverage-sensitive analytics request classification", () => {
           {
             name: "run-code",
             content:
-              'const calls = await providerFetch("gong", "/calls", { query: { limit: 1000 } });',
+              'bridgeToolsUsed: provider-api-request\n\nstdout:\n{"searched":1000}',
           },
         ],
       }),
@@ -394,6 +412,35 @@ describe("incomplete evidence detection", () => {
         },
       ]),
     ).toBe(true);
+    expect(
+      hasIncompleteDataEvidence([
+        {
+          name: "provider-api-request",
+          content: JSON.stringify({
+            response: {
+              json: {
+                calls: [{ id: 1 }],
+                records: { cursor: "page-2" },
+              },
+            },
+          }),
+        },
+      ]),
+    ).toBe(true);
+    expect(
+      hasIncompleteDataEvidence([
+        {
+          name: "provider-api-request",
+          content: JSON.stringify({
+            response: {
+              json: {
+                calls: [{ id: 1, cursor: "speaker-cursor" }],
+              },
+            },
+          }),
+        },
+      ]),
+    ).toBe(false);
   });
 
   it("detects structured truncation and pagination hints", () => {

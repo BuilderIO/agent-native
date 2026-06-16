@@ -44,7 +44,7 @@ export const CORPUS_SOURCE_ACTIONS = new Set([
 export const CORPUS_REDUCTION_ACTIONS = new Set(["run-code"]);
 
 const RUN_CODE_CORPUS_WORKFLOW_TEXT =
-  /\b(?:providerFetch|provider-api-request|query-staged-dataset|fetchAllPages|stageAs|saveToFile|appAction\(\s*["'](?:provider-api-request|query-staged-dataset)["'])\b/i;
+  /\b(?:providerFetch|providerFetchAll|providerRequest|provider-api-request|query-staged-dataset|fetchAllPages|stageAs|saveToFile|bridgeToolsUsed:\s*(?:[a-z0-9_-]+,\s*)*(?:provider-api-request|query-staged-dataset)|appAction\(\s*["'](?:provider-api-request|query-staged-dataset)["'])\b/i;
 
 const MCP_DATA_SOURCE_TOKENS = [
   "amplitude",
@@ -250,9 +250,11 @@ function isProviderErrorOnlyContent(content: string | undefined): boolean {
   return !hasEvidencePayload(record);
 }
 
-function valueHasIncompleteDataFlag(value: unknown): boolean {
+function valueHasIncompleteDataFlag(value: unknown, parentKey = ""): boolean {
   if (!value || typeof value !== "object") return false;
-  if (Array.isArray(value)) return value.some(valueHasIncompleteDataFlag);
+  if (Array.isArray(value)) {
+    return value.some((entry) => valueHasIncompleteDataFlag(entry, parentKey));
+  }
 
   return Object.entries(value as Record<string, unknown>).some(
     ([key, candidate]) => {
@@ -270,17 +272,30 @@ function valueHasIncompleteDataFlag(value: unknown): boolean {
         return true;
       }
       if (
-        ["nextoffset", "nextcursor", "nextpage", "nexttoken", "next"].includes(
-          normalizedKey,
-        ) &&
+        [
+          "nextoffset",
+          "nextcursor",
+          "cursor",
+          "nextpage",
+          "nexttoken",
+          "next",
+        ].includes(normalizedKey) &&
         candidate !== null &&
         candidate !== undefined &&
         candidate !== "" &&
         candidate !== false
       ) {
+        if (
+          normalizedKey === "cursor" &&
+          !["records", "paging", "pagination", "page", "meta"].includes(
+            parentKey,
+          )
+        ) {
+          return false;
+        }
         return true;
       }
-      return valueHasIncompleteDataFlag(candidate);
+      return valueHasIncompleteDataFlag(candidate, normalizedKey);
     },
   );
 }

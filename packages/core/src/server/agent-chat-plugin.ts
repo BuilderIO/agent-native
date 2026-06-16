@@ -3067,7 +3067,7 @@ function generateCorpusToolsPrompt(
 
 Available corpus-capable tools: ${available.join(", ")}.
 
-For broad provider searches, raw API access, multi-page cohorts, cross-source joins, classification/counting over records, or absence-sensitive answers, do not stop at a bounded shortcut action. Use the provider's broad API/search/list surface, fetch every relevant page or an explicit bounded cohort, stage/save large responses when needed, and reduce the corpus with staged-dataset queries or code execution. Report source, filters, row counts, pagination/truncation, failed pages, and remaining gaps.`;
+For broad provider searches, raw API access, multi-page cohorts, cross-source joins, classification/counting over records, or absence-sensitive answers, do not stop at a bounded shortcut action. Use the provider's broad API/search/list surface, fetch every relevant page or an explicit bounded cohort, stage/save large responses when needed, and reduce the corpus with staged-dataset queries or code execution. In run-code, prefer providerFetchAll() for cursor/page/offset pagination and providerRequest() when response status, headers, or truncation metadata matters. Report source, filters, row counts, pagination/truncation, failed pages, and remaining gaps.`;
 }
 
 /**

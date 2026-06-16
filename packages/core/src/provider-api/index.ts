@@ -2448,14 +2448,14 @@ async function fetchWithTimeout(
   },
 ) {
   const controller = new AbortController();
-  const timeout = setTimeout(
-    () => controller.abort(),
-    clampTimeout(options.timeoutMs),
-  );
+  const timeoutMs = clampTimeout(options.timeoutMs);
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  const method = options.method ?? "GET";
+  const secretValues = options.secretValues ?? [];
   try {
     const dispatcher = (await createSsrfSafeDispatcher()) ?? undefined;
     const fetchOptions: RequestInit & { dispatcher?: unknown } = {
-      method: options.method ?? "GET",
+      method,
       headers: options.headers,
       body: options.body,
       signal: controller.signal,
@@ -2469,7 +2469,6 @@ async function fetchWithTimeout(
       res,
       clampMaxBytes(options.maxBytes),
     );
-    const secretValues = options.secretValues ?? [];
     const redactedText = redactString(rawText.text, secretValues);
     const parsed = tryParseJson(redactedText);
     return {
@@ -2484,8 +2483,71 @@ async function fetchWithTimeout(
       text: parsed === undefined ? redactedText : undefined,
       json: parsed,
     };
+  } catch (error) {
+    throw normalizeFetchError(error, {
+      method,
+      url: optionsUrl,
+      timeoutMs,
+      secretValues,
+    });
   } finally {
     clearTimeout(timeout);
+  }
+}
+
+function normalizeFetchError(
+  error: unknown,
+  options: {
+    method: ProviderApiMethod;
+    url: string;
+    timeoutMs: number;
+    secretValues: string[];
+  },
+): Error {
+  const target = describeProviderRequestTarget(
+    options.url,
+    options.secretValues,
+  );
+  const err = error as {
+    name?: unknown;
+    message?: unknown;
+    cause?: { code?: unknown; message?: unknown };
+  };
+  if (err?.name === "AbortError") {
+    return new Error(
+      `Provider API request timed out after ${options.timeoutMs}ms: ${options.method} ${target}`,
+      { cause: error },
+    );
+  }
+
+  const causeCode =
+    typeof err?.cause?.code === "string" && err.cause.code
+      ? ` (${err.cause.code})`
+      : "";
+  const detail =
+    typeof err?.cause?.message === "string" && err.cause.message
+      ? err.cause.message
+      : typeof err?.message === "string" && err.message
+        ? err.message
+        : String(error);
+  return new Error(
+    `Provider API request failed${causeCode}: ${options.method} ${target}: ${redactString(detail, options.secretValues)}`,
+    { cause: error },
+  );
+}
+
+function describeProviderRequestTarget(
+  rawUrl: string,
+  secretValues: string[],
+): string {
+  try {
+    const url = new URL(rawUrl);
+    return redactString(
+      `${url.host}${url.pathname}${url.search}`,
+      secretValues,
+    );
+  } catch {
+    return redactString(rawUrl, secretValues);
   }
 }
 
