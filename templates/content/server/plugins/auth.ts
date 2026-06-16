@@ -4,11 +4,11 @@ export default createAuthPlugin({
   marketing: {
     appName: "Agent-Native Content",
     tagline:
-      "Your AI agent creates, edits, and organizes documents alongside you in a Notion-like workspace.",
+      "Open-source Obsidian for MDX: your AI agent edits local docs, creates custom blocks, and organizes everything alongside you.",
     features: [
-      "Create and restructure entire document trees from a single prompt",
-      "Surgical edits that sync live to your editor via real-time collaboration",
-      "Search, summarize, and cross-reference documents instantly",
+      "Edit local Markdown/MDX files directly, with hosted sync when you need it",
+      "Generate rich interactive custom MDX blocks and edit their props visually",
+      "Search, summarize, cross-reference, and restructure document trees instantly",
     ],
   },
   publicPaths: [

@@ -17,7 +17,7 @@ Each one is a real app you could use today, and the launching pad for your own v
 | ----------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
 | [**Mail**](/docs/template-mail)           | An agent-native Superhuman. Inbox, labels, AI triage, keyboard-first, drafts and sends through the agent.      |
 | [**Calendar**](/docs/template-calendar)   | An agent-native Google Calendar. Events, sync, public booking links, agent-driven scheduling.                  |
-| [**Content**](/docs/template-content)     | An agent-native Notion / Google Docs. Markdown + Tiptap editor, Notion sync, real-time multi-user collab.      |
+| [**Content**](/docs/template-content)     | Open-source Obsidian for MDX. Local Markdown/MDX, Tiptap editor, Notion sync, real-time multi-user collab.     |
 | [**Brain**](/docs/template-brain)         | Clean company chat backed by cited institutional memory, approved sources, review gates, and citations.        |
 | [**Assets**](/docs/template-assets)       | Digital asset manager for brand libraries, uploads, references, and on-brand image/video generation.           |
 | [**Slides**](/docs/template-slides)       | An agent-native Google Slides. React-based decks the agent generates and edits directly.                       |

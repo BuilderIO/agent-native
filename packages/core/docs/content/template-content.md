@@ -1,11 +1,15 @@
 ---
 title: "Content"
-description: "A Notion-style document editor with an AI agent that can read, write, reorganize, and publish your pages — all in plain English."
+description: "Open-source Obsidian for MDX: edit local Markdown/MDX files, generate rich interactive custom blocks, and write with an AI agent."
 ---
 
 # Content
 
-A Notion-style document workspace where the agent can read, write, reorganize, and publish pages for you. Open a doc, ask "rewrite this paragraph to be more concise" or "create a page called Q4 Planning with sub-pages for Goals, Metrics, and Risks" — same result whether you do it yourself or ask.
+Content is open-source Obsidian for MDX: a local-file-friendly document
+workspace where the agent can read, write, reorganize, and publish pages for
+you. Open a doc, ask "rewrite this paragraph to be more concise" or "create a
+page called Q4 Planning with sub-pages for Goals, Metrics, and Risks" - same
+result whether you do it yourself or ask.
 
 <!-- screenshot:
   app: content
@@ -24,9 +28,13 @@ When you open the app, you'll see a sidebar tree of pages on the left, the edito
 - **Write rich text** with headings, lists, tables, code blocks, images, and links. Slash commands (`/`) insert blocks; selecting text pops up a formatting toolbar.
 - **Organize pages in a tree** — nest infinitely, drag to reorder, favorite pages you use often.
 - **Search across everything** with full-text search across titles and content.
-- **Sync with local Markdown/MDX files.** Use the `/local-files` view to export
-  your workspace to files, edit them in your own tools, preview changes, and
-  import them back.
+- **Edit local Markdown/MDX files like Obsidian.** Use the `/local-files` view
+  to export your workspace to files, edit them in your own tools, preview
+  changes, and import them back. In Local File Mode, Content writes straight to
+  the selected `.md` or `.mdx` file.
+- **Generate rich interactive custom blocks.** Register local React components,
+  insert them as MDX, and let the agent create or update component files for
+  your docs.
 - **Sync with Notion.** Link a local doc to a Notion page and pull or push content in either direction. Comments sync both ways too.
 - **Collaborate in real time.** Multiple people (and the agent) can edit the same doc at the same time.
 - **Share docs** with teammates or make them public — private by default, with viewer / editor / admin roles.
@@ -46,11 +54,13 @@ When you open the app, click **+ New page** in the sidebar, give it a title, and
 
 Select text and hit Cmd+I to focus the agent with that selection pre-loaded — "make this punchier" then operates on exactly what you highlighted.
 
-## Local Markdown files {#local-files}
+## Local Markdown/MDX files {#local-files}
 
 Content can round-trip documents through local files without cloning or running
-the Content app locally. Open `/local-files`, choose a folder in your browser or
-Agent Native Desktop, and export the current document tree as Markdown/MDX under
+the Content app locally. It feels like Obsidian for MDX: files stay inspectable
+and editable, while the app gives you a rich editor, agent actions, sharing, and
+custom blocks. Open `/local-files`, choose a folder in your browser or Agent
+Native Desktop, and export the current document tree as Markdown/MDX under
 `content/`.
 
 Each exported file contains frontmatter for document metadata (`id`, `title`,
@@ -70,19 +80,25 @@ truth instead of SQL documents. Add `agent-native.json` to a repo, set
 `content/`, and `resources/`. The standard Content editor then populates its
 left sidebar from those local `.md`/`.mdx` files and writes edits back to the
 selected file through the normal document actions. Use this for repo-first docs,
-blogs, resource libraries, or Obsidian-style personal content; switch back to
-database mode when you want hosted collaboration and SQL-backed sharing. See
-[Local File Mode](/docs/local-file-mode) for the standalone repo layout,
-configuration, custom MDX components, local `extensions/` widgets, and
-production safety guide.
+blogs, resource libraries, or Obsidian-style personal content with MDX-powered
+components; switch back to database mode when you want hosted collaboration and
+SQL-backed sharing. See [Local File Mode](/docs/local-file-mode) for the
+standalone repo layout, configuration, custom MDX components, local
+`extensions/` widgets, and production safety guide.
 
 ## Why it's interesting
 
-Three things make Content a good showcase of the framework:
+Five things make Content a good showcase of the framework:
 
-1. **Agent and editor share one Yjs document.** The same CRDT that prevents conflicts between two simultaneous human typists is what the agent writes through via `edit-document`. There is no separate AI path — the diff appears live in every open browser tab.
-2. **Notion sync as a two-way bridge.** Rather than replacing Notion, the template treats it as a peer: pull, push, bidirectional comment sync, conflict detection, and content-hash deduplication are all first-class. It demonstrates how agent-native apps can round-trip with external systems without losing their SQL-backed canonical form.
-3. **Inline databases alongside prose.** The `content_databases` / `content_database_items` / `document_property_definitions` stack shows how structured tabular data can live inside an agent-native document without needing a separate app or a custom Airtable integration.
+1. **Local MDX can be the source of truth.** Content can operate directly on
+   repo files while keeping the same editor and action surface, which makes it
+   feel like open-source Obsidian for MDX rather than a hosted-only doc store.
+2. **Custom interactive blocks are just local code.** Docs can use workspace
+   components such as tabs, calculators, or product-specific demos, and the
+   agent can generate or edit those components alongside the MDX.
+3. **Agent and editor share one Yjs document.** The same CRDT that prevents conflicts between two simultaneous human typists is what the agent writes through via `edit-document`. There is no separate AI path — the diff appears live in every open browser tab.
+4. **Notion sync as a two-way bridge.** Rather than replacing Notion, the template treats it as a peer: pull, push, bidirectional comment sync, conflict detection, and content-hash deduplication are all first-class. It demonstrates how agent-native apps can round-trip with external systems without losing their SQL-backed canonical form.
+5. **Inline databases alongside prose.** The `content_databases` / `content_database_items` / `document_property_definitions` stack shows how structured tabular data can live inside an agent-native document without needing a separate app or a custom Airtable integration.
 
 ## For developers
 
@@ -172,8 +188,10 @@ Local file workspaces can also provide repo-local React components through the
 configured `components` folder. The Content dev server imports PascalCase
 exports from those files, renders matching MDX tags such as `<ImpactCounter />`
 inside the editor, and exposes them in the slash menu under Local components.
-This keeps custom MDX blocks local to the workspace without cloning the Content
-app. A minimal workspace component can be:
+This is the "Obsidian for MDX" layer: custom MDX blocks stay local to the
+workspace, but the editor can render them and the agent can generate or update
+their source without cloning the Content app. A minimal workspace component can
+be:
 
 ```tsx
 // components/ImpactCounter.tsx

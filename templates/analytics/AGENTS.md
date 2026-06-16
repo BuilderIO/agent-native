@@ -174,11 +174,14 @@ or questions where absence matters:
 2. Fetch the full relevant cohort, or an explicit bounded cohort, using
    `provider-api-request` with `fetchAllPages`, `stageAs`, or `saveToFile` when
    the payload is large.
-3. Use `run-code` with `providerFetch`, `appAction`, and Resources-backed
-   workspace helpers to join, grep, classify, count, and aggregate without
-   flooding chat context. Write temporary files under `scratch/`; write durable,
-   user-facing files under a descriptive Resources folder only when they should
-   remain visible after the analysis.
+3. Use `run-code` with `providerSearchAll` for broad mention/phrase/term/regex
+   searches across transcripts, messages, tickets, issues, notes, events, or
+   documents; it preserves provider item IDs, snippets, paths, page/item counts,
+   and pagination status. Use `providerFetch`, `appAction`, and
+   Resources-backed workspace helpers to join, classify, count, and aggregate
+   without flooding chat context. Write temporary files under `scratch/`; write
+   durable, user-facing files under a descriptive Resources folder only when
+   they should remain visible after the analysis.
 4. Report coverage: source, filters, time window, row/record counts, joins,
    failed/aborted pages, truncation, and any remaining gaps.
 

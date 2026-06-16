@@ -23,12 +23,12 @@ export const templates = [
   {
     name: "Content",
     slug: "content",
-    replaces: "Replaces or augments Notion, Google Docs",
+    replaces: "Replaces or augments Obsidian for MDX, Notion, Google Docs",
     cliCommand:
       "npx @agent-native/core@latest create my-content-app --template content",
     demoUrl: "https://content.agent-native.com",
     description:
-      "Write and organize documents with a rich editor, Notion import/export, and an AI agent that drafts, rewrites, and publishes to any CMS.",
+      "Edit local Markdown/MDX files like Obsidian, generate rich interactive custom blocks, and use an AI agent to draft, rewrite, and publish.",
     color: "#7928ca",
     screenshot:
       "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F89bcfc6106304bfbaf8ec8a7ccd721eb?format=webp&width=800",
