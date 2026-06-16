@@ -1,8 +1,11 @@
+// @vitest-environment happy-dom
+
 import { describe, expect, it } from "vitest";
 import type { PlanBlock } from "@shared/plan-content";
 import {
   collectPlanTocItems,
   getActivePlanTocId,
+  resolvePlanTocElements,
 } from "./PlanTableOfContents.utils";
 
 describe("PlanTableOfContents", () => {
@@ -97,5 +100,112 @@ describe("PlanTableOfContents", () => {
         { getBoundingClientRect: () => ({ top: 20 }) },
       ),
     ).toBe("second");
+  });
+
+  it("chooses the nearest measured section even if DOM positions are out of TOC order", () => {
+    const tops: Record<string, number> = {
+      first: 20,
+      second: 260,
+      third: 80,
+    };
+
+    expect(
+      getActivePlanTocId(
+        ["first", "second", "third"],
+        (id) => ({
+          getBoundingClientRect: () => ({ top: tops[id] }),
+        }),
+        100,
+      ),
+    ).toBe("third");
+  });
+
+  it("resolves read-only headings by their stable id instead of counting unrelated block headings", () => {
+    const root = document.createElement("div");
+    root.innerHTML = `
+      <section class="plan-block" data-block-id="intro">
+        <div class="plan-rich-markdown-editor">
+          <div class="an-rich-md-prose">
+            <h2 id="plan-heading-intro-0">Intro</h2>
+          </div>
+        </div>
+      </section>
+      <section class="plan-block plan-callout" data-block-id="callout">
+        <div class="plan-rich-markdown-editor">
+          <div class="an-rich-md-prose">
+            <h2>Nested callout heading</h2>
+          </div>
+        </div>
+      </section>
+      <section class="plan-block" data-block-id="details">
+        <div class="plan-rich-markdown-editor">
+          <div class="an-rich-md-prose">
+            <h2 id="plan-heading-details-0">Details</h2>
+          </div>
+        </div>
+      </section>
+    `;
+
+    const elements = resolvePlanTocElements(root, [
+      {
+        id: "plan-heading-intro-0",
+        blockId: "intro",
+        label: "Intro",
+        level: 0,
+        kind: "heading",
+        headingIndex: 0,
+      },
+      {
+        id: "plan-heading-details-0",
+        blockId: "details",
+        label: "Details",
+        level: 0,
+        kind: "heading",
+        headingIndex: 0,
+      },
+    ]);
+
+    expect(elements.get("plan-heading-intro-0")?.textContent).toBe("Intro");
+    expect(elements.get("plan-heading-details-0")?.textContent).toBe("Details");
+  });
+
+  it("resolves editable headings by rich-text run id and heading index", () => {
+    const root = document.createElement("div");
+    root.innerHTML = `
+      <div class="plan-document-editor">
+        <div class="an-rich-md-prose">
+          <p data-run-id="intro">Opening paragraph</p>
+          <h2>Context</h2>
+          <h3>Constraints</h3>
+          <div data-plan-block data-block-id="map"></div>
+          <h2 data-run-id="details">Details</h2>
+          <p>More details</p>
+        </div>
+      </div>
+    `;
+
+    const elements = resolvePlanTocElements(root, [
+      {
+        id: "plan-heading-intro-1",
+        blockId: "intro",
+        label: "Constraints",
+        level: 1,
+        kind: "heading",
+        headingIndex: 1,
+      },
+      {
+        id: "plan-heading-details-0",
+        blockId: "details",
+        label: "Details",
+        level: 0,
+        kind: "heading",
+        headingIndex: 0,
+      },
+    ]);
+
+    expect(elements.get("plan-heading-intro-1")?.textContent).toBe(
+      "Constraints",
+    );
+    expect(elements.get("plan-heading-details-0")?.textContent).toBe("Details");
   });
 });
