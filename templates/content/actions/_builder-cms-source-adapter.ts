@@ -195,6 +195,30 @@ function stringFromRecord(
   return null;
 }
 
+// Builder reference values look like
+// `{ "@type": "@builder.io/core:Reference", id, model, value? }`. Render a
+// readable label instead of raw JSON. When Builder inlines the referenced
+// entry (`value`), prefer its human field; otherwise fall back to a
+// `model:shortId` token. Fully resolving the referenced entry's name (e.g. the
+// blog-author's name) is tracked as follow-up work.
+function builderReferenceLabel(value: unknown): string | null {
+  if (!value || typeof value !== "object") return null;
+  const ref = value as Record<string, unknown>;
+  if (ref["@type"] !== "@builder.io/core:Reference") return null;
+  const inlined = ref.value as Record<string, unknown> | undefined;
+  const inlinedData =
+    inlined && typeof inlined === "object"
+      ? ((inlined.data as Record<string, unknown> | undefined) ?? inlined)
+      : undefined;
+  const name =
+    inlinedData &&
+    (inlinedData.title ?? inlinedData.name ?? inlinedData.handle);
+  if (typeof name === "string" && name.trim()) return name.trim();
+  const model = typeof ref.model === "string" ? ref.model : "ref";
+  const id = typeof ref.id === "string" ? ref.id : "";
+  return id ? `${model}:${id.slice(0, 8)}` : model;
+}
+
 function sourceValueFromUnknown(value: unknown): DocumentPropertyValue {
   if (
     value === null ||
@@ -206,16 +230,21 @@ function sourceValueFromUnknown(value: unknown): DocumentPropertyValue {
   }
   if (Array.isArray(value)) {
     return value
-      .map((entry) =>
-        typeof entry === "string" ||
-        typeof entry === "number" ||
-        typeof entry === "boolean"
-          ? String(entry)
-          : null,
-      )
+      .map((entry) => {
+        if (
+          typeof entry === "string" ||
+          typeof entry === "number" ||
+          typeof entry === "boolean"
+        ) {
+          return String(entry);
+        }
+        return builderReferenceLabel(entry);
+      })
       .filter((entry): entry is string => entry !== null);
   }
   if (value && typeof value === "object") {
+    const refLabel = builderReferenceLabel(value);
+    if (refLabel !== null) return refLabel;
     return JSON.stringify(value);
   }
   return null;

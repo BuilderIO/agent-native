@@ -204,4 +204,35 @@ describe("Builder CMS source adapter", () => {
       },
     });
   });
+
+  it("renders Builder reference fields as readable labels, not raw JSON", () => {
+    const result = normalizeBuilderCmsApiEntry(
+      {
+        id: "entry-ref",
+        lastUpdated: "2026-06-16T12:00:00.000Z",
+        data: {
+          title: "Has an author reference",
+          author: {
+            "@type": "@builder.io/core:Reference",
+            id: "724dd11feeb549f0b6fc12b6e4741c19",
+            model: "blog-author",
+          },
+          coAuthor: {
+            "@type": "@builder.io/core:Reference",
+            id: "abc12345",
+            model: "blog-author",
+            value: { data: { name: "Ada Lovelace" } },
+          },
+        },
+      },
+      "blog-article",
+    );
+    // Bare reference → readable model:shortId token, never raw reference JSON.
+    expect(result?.sourceValues["data.author"]).toBe("blog-author:724dd11f");
+    expect(String(result?.sourceValues["data.author"])).not.toContain(
+      "@builder.io/core:Reference",
+    );
+    // Inlined reference value → use the referenced entry's human name.
+    expect(result?.sourceValues["data.coAuthor"]).toBe("Ada Lovelace");
+  });
 });

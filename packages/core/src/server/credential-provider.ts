@@ -119,13 +119,33 @@ function isHostedWorkspaceRuntime(): boolean {
   );
 }
 
+/**
+ * Local dogfooding escape hatch. A developer can explicitly opt in (non-prod
+ * only) to let the env / root-`.env` Builder key back their signed-in user, so
+ * running the app locally does not require completing the Builder connect flow
+ * first. Default OFF — hosted/shared deployments are never affected, and the
+ * workspace-runtime safety block stays in force unless this is set.
+ */
+function allowLocalDevBuilderEnvCredentials(): boolean {
+  if (process.env.NODE_ENV === "production") return false;
+  return /^(1|true)$/i.test(
+    process.env.AGENT_NATIVE_LOCAL_BUILDER_ENV ?? "",
+  );
+}
+
 function canUseBuilderDeployCredentialFallbackForRequest(): boolean {
   const email = getRequestUserEmail();
   // Builder workspace previews can run with NODE_ENV=development and their DB
   // detection can look local during early startup. Once a real signed-in user
   // is present, hosted workspace flags are enough to make deployment-level
-  // Builder keys unsafe as an identity fallback.
-  if (email && isHostedWorkspaceRuntime()) return false;
+  // Builder keys unsafe as an identity fallback — UNLESS a developer has
+  // explicitly opted into the local dogfooding escape hatch.
+  if (
+    email &&
+    isHostedWorkspaceRuntime() &&
+    !allowLocalDevBuilderEnvCredentials()
+  )
+    return false;
   return canUseDeployCredentialFallbackForRequest();
 }
 

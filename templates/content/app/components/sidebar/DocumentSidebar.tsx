@@ -942,18 +942,6 @@ export function DocumentSidebar({
       {/* Footer */}
       <div className="shrink-0 space-y-2 border-t border-border px-3 py-2">
         <OrgSwitcher />
-        <button
-          className={cn(
-            "flex h-8 w-full items-center gap-2 rounded-md px-2 text-sm",
-            localFilesActive
-              ? "bg-accent text-accent-foreground"
-              : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
-          )}
-          onClick={() => navigate("/local-files")}
-        >
-          <IconFolderOpen size={15} className="shrink-0" />
-          <span className="min-w-0 flex-1 truncate text-left">Local files</span>
-        </button>
         {isCodeMode ? <DevDatabaseLink /> : null}
         <div className="flex items-center gap-1">
           <FeedbackButton className="h-8 min-w-0 flex-1 gap-2 rounded-md px-2 py-0" />

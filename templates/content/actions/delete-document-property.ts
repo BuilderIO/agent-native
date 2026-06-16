@@ -45,6 +45,31 @@ export default defineAction({
       .delete(schema.documentPropertyDefinitions)
       .where(eq(schema.documentPropertyDefinitions.id, propertyId));
 
+    // Free any source field that was mapped to this property so it returns to
+    // the "From source" picker immediately, instead of staying orphaned until
+    // the next source refresh reconciles it.
+    const mappedFields = await db
+      .select({
+        id: schema.contentDatabaseSourceFields.id,
+        sourceFieldKey: schema.contentDatabaseSourceFields.sourceFieldKey,
+      })
+      .from(schema.contentDatabaseSourceFields)
+      .where(eq(schema.contentDatabaseSourceFields.propertyId, propertyId));
+    if (mappedFields.length > 0) {
+      const now = new Date().toISOString();
+      for (const mapped of mappedFields) {
+        await db
+          .update(schema.contentDatabaseSourceFields)
+          .set({
+            propertyId: null,
+            localFieldKey: mapped.sourceFieldKey,
+            mappingType: "property",
+            updatedAt: now,
+          })
+          .where(eq(schema.contentDatabaseSourceFields.id, mapped.id));
+      }
+    }
+
     await writeAppState("refresh-signal", { ts: Date.now() });
 
     return {
