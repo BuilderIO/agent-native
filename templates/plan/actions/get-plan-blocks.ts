@@ -4,6 +4,7 @@ import {
   describePlanBlocksForAgent,
   renderPlanBlockVocabulary,
 } from "../shared/plan-block-registry.js";
+import { renderPlanBlockAuthoringExamples } from "../server/plan-block-examples.js";
 
 /**
  * Appended to the block vocabulary so the agent learns the heading convention
@@ -76,9 +77,16 @@ export default defineAction({
   },
   run: async (args) => {
     const blocks = describePlanBlocksForAgent();
+    // The authoring examples are generated at runtime from canonical blocks via
+    // the real source serializer, so the copy-able MDX can never drift from the
+    // schema (see plan-block-examples.ts + block-authoring-examples.spec.ts).
+    const authoringExamples = await renderPlanBlockAuthoringExamples();
     return {
       reference:
-        renderPlanBlockVocabulary() + BLOCK_HEADING_NOTE + AUTHORING_RULES_NOTE,
+        renderPlanBlockVocabulary() +
+        BLOCK_HEADING_NOTE +
+        AUTHORING_RULES_NOTE +
+        authoringExamples,
       ...(args.format === "schema" ? { blocks } : {}),
       count: blocks.length,
     };
