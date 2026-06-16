@@ -79,9 +79,11 @@ export function createAiSdkHarnessAdapter(
           `[agent-harness] AI SDK harness package "${runtime.packageName}" did not expose ${runtime.exportName}`,
         );
       }
+      const hasHarnessOptions =
+        options.harnessOptions && Object.keys(options.harnessOptions).length > 0;
       const harness =
-        typeof harnessFactory === "function"
-          ? harnessFactory(options.harnessOptions ?? {})
+        hasHarnessOptions && typeof harnessFactory === "function"
+          ? harnessFactory(options.harnessOptions)
           : harnessFactory;
       const agent = new HarnessAgent({
         ...(options.agentOptions ?? {}),

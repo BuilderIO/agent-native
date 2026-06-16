@@ -6401,8 +6401,8 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             callerOwnsThread(owner, threadId);
           const ownsRun = (runId: string) => callerOwnsRun(owner, runId);
 
-          // Route: GET /runs/list?goalId=agent-team
-          // Returns hosted Agent Teams in the Code hub-compatible run shape.
+          // Route: GET /runs/list?goalId=agent-team|agent-harness
+          // Returns background agents in the Code hub-compatible run shape.
           const listMatch =
             url.match(/\/runs\/list(?:[/?]|$)/) ||
             url.match(/^\/list(?:[/?]|$)/);
@@ -6412,10 +6412,23 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             const runs = await runWithRequestContext(
               { userEmail: owner },
               async () => {
-                if (goalId && goalId !== "agent-team") return [];
-                const { listAgentTeamBackgroundRuns } =
-                  await import("./agent-teams.js");
-                return listAgentTeamBackgroundRuns();
+                const runs: unknown[] = [];
+                if (!goalId || goalId === "agent-team") {
+                  const { listAgentTeamBackgroundRuns } =
+                    await import("./agent-teams.js");
+                  runs.push(...(await listAgentTeamBackgroundRuns()));
+                }
+                if (!goalId || goalId === "agent-harness") {
+                  const { listAgentHarnessBackgroundRuns } =
+                    await import("../agent/harness/background.js");
+                  runs.push(
+                    ...(await listAgentHarnessBackgroundRuns({
+                      goalId: "agent-harness",
+                      ownerEmail: owner,
+                    })),
+                  );
+                }
+                return runs;
               },
             );
             return { status: "ok", goalId, runs };
@@ -6431,14 +6444,23 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             const runId = decodeURIComponent(stopMatch[1]);
             const { stopAgentTeamBackgroundRun } =
               await import("./agent-teams.js");
-            const result = await runWithRequestContext(
-              { userEmail: owner },
-              () => stopAgentTeamBackgroundRun(runId),
+            let result = await runWithRequestContext({ userEmail: owner }, () =>
+              stopAgentTeamBackgroundRun(runId),
             );
+            if (!result.ok && result.error === "Task not found") {
+              const { stopAgentHarnessBackgroundRun } =
+                await import("../agent/harness/background.js");
+              result = await runWithRequestContext({ userEmail: owner }, () =>
+                stopAgentHarnessBackgroundRun(runId, { ownerEmail: owner }),
+              );
+            }
             if (!result.ok) {
               setResponseStatus(
                 event,
-                result.error === "Task not found" ? 404 : 400,
+                result.error === "Task not found" ||
+                  result.error === "Harness run not found"
+                  ? 404
+                  : 400,
               );
               return { ok: false, error: result.error };
             }
@@ -6484,13 +6506,31 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             const run = await runWithRequestContext({ userEmail: owner }, () =>
               getAgentTeamBackgroundRun(runId),
             );
-            if (!run) {
+            if (run) {
+              const events = await runWithRequestContext(
+                { userEmail: owner },
+                () => listAgentTeamBackgroundTranscriptEvents(runId),
+              );
+              return { status: "ok", runId, events };
+            }
+            const {
+              getAgentHarnessBackgroundRun,
+              listAgentHarnessBackgroundTranscriptEvents,
+            } = await import("../agent/harness/background.js");
+            const harnessRun = await runWithRequestContext(
+              { userEmail: owner },
+              () => getAgentHarnessBackgroundRun(runId, { ownerEmail: owner }),
+            );
+            if (!harnessRun) {
               setResponseStatus(event, 404);
               return { status: "unavailable", runId, events: [] };
             }
             const events = await runWithRequestContext(
               { userEmail: owner },
-              () => listAgentTeamBackgroundTranscriptEvents(runId),
+              () =>
+                listAgentHarnessBackgroundTranscriptEvents(runId, {
+                  ownerEmail: owner,
+                }),
             );
             return { status: "ok", runId, events };
           }
