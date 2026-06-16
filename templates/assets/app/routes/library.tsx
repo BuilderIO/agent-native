@@ -804,18 +804,23 @@ export default function AssetPicker() {
       },
     } as any,
   );
+  const viewingDrafts = assetTab === "drafts";
   const assetsParams = useMemo(
     () => ({
       libraryId: selectedLibraryId,
-      mediaType,
+      // Drafts can be images or videos, so don't constrain by media type there.
+      mediaType: viewingDrafts ? undefined : mediaType,
       query: query.trim() || undefined,
       includeCandidates:
-        assetTab === "drafts" ||
+        viewingDrafts ||
         (mediaType === "image" && visibleCandidateRunIds.length > 0),
+      // The Drafts tab shows every unsaved draft, not just the latest run batch.
       candidateRunIds:
-        visibleCandidateRunIds.length > 0 ? visibleCandidateRunIds : undefined,
+        !viewingDrafts && visibleCandidateRunIds.length > 0
+          ? visibleCandidateRunIds
+          : undefined,
     }),
-    [assetTab, mediaType, query, selectedLibraryId, visibleCandidateRunIds],
+    [viewingDrafts, mediaType, query, selectedLibraryId, visibleCandidateRunIds],
   );
   const { data: assetData, isLoading: assetsLoading } = useActionQuery(
     "list-assets",
