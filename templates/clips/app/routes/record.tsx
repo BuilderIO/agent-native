@@ -39,6 +39,7 @@ import {
 } from "@/lib/recording-title";
 import {
   COMPRESS_THRESHOLD_BYTES,
+  COMPRESSION_ENABLED,
   MAX_UPLOAD_BYTES,
   compressBlobIfTooLarge,
   formatMb,
@@ -582,11 +583,20 @@ function RecordingErrorCard({
       )}
 
       <div className="space-y-3 p-6">
-        {uploadFailure && canDownloadRecording && (
-          <Button onClick={onDownloadRecording} className="w-full gap-2">
-            <IconDownload className="h-4 w-4" />
-            Download recording
-          </Button>
+        {/* Offer the download whenever local recording data survives, no matter
+            why the upload failed — the user should never lose their video. They
+            can re-import the saved file later via "Upload a video file". */}
+        {canDownloadRecording && (
+          <>
+            <Button onClick={onDownloadRecording} className="w-full gap-2">
+              <IconDownload className="h-4 w-4" />
+              Download recording
+            </Button>
+            <p className="text-xs leading-relaxed text-muted-foreground">
+              Your recording is safe on this device. Download it now and upload
+              the file later from the recorder if it still won&apos;t save.
+            </p>
+          </>
         )}
         <Button variant="outline" onClick={onTryAgain} className="w-full gap-2">
           <IconRefresh className="h-4 w-4" />
@@ -1164,7 +1174,7 @@ export default function RecordRoute() {
         } | null = null;
         let uploadTooLargeDetail: string | undefined;
 
-        if (file.size > COMPRESS_THRESHOLD_BYTES) {
+        if (COMPRESSION_ENABLED && file.size > COMPRESS_THRESHOLD_BYTES) {
           setUiState("compressing");
           const compression = await compressBlobIfTooLarge(file, mimeType, {
             width: meta.width,
@@ -1216,7 +1226,7 @@ export default function RecordRoute() {
           }
           setCompressionProgress(null);
         }
-        if (uploadBlob.size > MAX_UPLOAD_BYTES) {
+        if (COMPRESSION_ENABLED && uploadBlob.size > MAX_UPLOAD_BYTES) {
           throw new Error(
             uploadTooLargeMessage(uploadBlob.size, uploadTooLargeDetail),
           );

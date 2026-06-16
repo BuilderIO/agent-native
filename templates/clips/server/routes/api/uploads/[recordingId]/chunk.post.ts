@@ -34,8 +34,7 @@ import {
   writeAppState,
 } from "@agent-native/core/application-state";
 import finalizeRecording from "../../../../../actions/finalize-recording.js";
-
-const MAX_RECORDING_UPLOAD_BYTES = 64 * 1024 * 1024;
+import { MAX_UPLOAD_BYTES as MAX_RECORDING_UPLOAD_BYTES } from "@shared/upload-limits.js";
 const RECORDING_TOO_LARGE_REASON =
   "Recording is too large to process after automatic compression. Please update the app and try again, or record a shorter clip.";
 
