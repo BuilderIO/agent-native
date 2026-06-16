@@ -773,8 +773,12 @@ function _makeSnippet(text, index, contextChars) {
 function _normalizeFlags(flags, caseSensitive) {
   const raw = typeof flags === "string" ? flags : "";
   const allowed = raw.replace(/[^dgimsuvy]/g, "");
-  const withoutGlobal = allowed.replace(/g/g, "");
-  return caseSensitive || /i/.test(withoutGlobal) ? withoutGlobal : withoutGlobal + "i";
+  const withoutGlobalOrSticky = allowed.replace(/[gy]/g, "");
+  const withCase =
+    caseSensitive || /i/.test(withoutGlobalOrSticky)
+      ? withoutGlobalOrSticky
+      : withoutGlobalOrSticky + "i";
+  return withCase + "g";
 }
 
 function _normalizedSearchTerms(options) {
@@ -829,6 +833,7 @@ function _findSearchMatches(text, options, includeTerms = true) {
   const source = String(text);
   const caseSensitive = Boolean(options.caseSensitive);
   const haystack = caseSensitive ? source : source.toLowerCase();
+  const maxMatchesPerField = _boundedNumber(options.maxMatchesPerField, 1000, 1, 100000);
   const matches = [];
 
   const addSubstring = (needle, label, kind) => {
@@ -842,16 +847,18 @@ function _findSearchMatches(text, options, includeTerms = true) {
       if (index < 0) break;
       matches.push({ kind, query: label ?? rawNeedle, index, match: source.slice(index, index + rawNeedle.length) });
       from = index + Math.max(1, searchNeedle.length);
-      if (matches.length >= 20) break;
+      if (matches.length >= maxMatchesPerField) break;
     }
   };
 
   if (options.regex) {
     try {
       const regex = new RegExp(String(options.regex), _normalizeFlags(options.regexFlags, caseSensitive));
-      const match = regex.exec(source);
-      if (match && typeof match.index === "number") {
+      let match;
+      while ((match = regex.exec(source)) && typeof match.index === "number") {
         matches.push({ kind: "regex", query: String(options.regex), index: match.index, match: match[0] });
+        if (matches.length >= maxMatchesPerField) break;
+        if (match[0] === "") regex.lastIndex += 1;
       }
     } catch (err) {
       throw new Error("providerSearchAll invalid regex: " + (err?.message || err));
@@ -888,7 +895,11 @@ function _boundedNumber(value, defaultValue, min, max) {
 }
 
 function _hitKey(identity, path, query, index, pageIndex, pageItemIndex) {
-  return [identity.id ?? "", String(pageIndex), String(pageItemIndex), path ?? "", query ?? "", String(index ?? "")].join("\\n");
+  const itemKey =
+    identity.id !== null && identity.id !== undefined
+      ? "id:" + identity.id
+      : "page:" + String(pageIndex) + ":" + String(pageItemIndex);
+  return [itemKey, path ?? "", query ?? "", String(index ?? "")].join("\\n");
 }
 
 /**
@@ -929,6 +940,14 @@ async function providerSearchAll(provider, apiPath, init = {}, options = {}) {
       query,
       ...(body !== undefined ? { body } : {}),
     });
+    const nextCursor = cursorPath ? _getByPath(page, cursorPath) : undefined;
+    const hasNextCursor =
+      nextCursor !== undefined && nextCursor !== null && String(nextCursor) !== "";
+    if (hasNextCursor && lastCursor !== null && String(nextCursor) === String(lastCursor)) {
+      stoppedReason = "repeated-cursor";
+      break;
+    }
+
     const pageItems = _extractItems(page, itemsPath);
     itemCount += pageItems.length;
 
@@ -937,7 +956,7 @@ async function providerSearchAll(provider, apiPath, init = {}, options = {}) {
       const identity = _extractItemIdentity(item, options.idPaths);
       const metadata = _extractMetadata(item, options.metadataPaths);
       const fields = _collectSearchStrings(item, options.textPaths, maxFieldsPerItem);
-      let itemHitCount = 0;
+      let storedItemHitCount = 0;
       let itemMatched = false;
 
       const addHit = (field, match) => {
@@ -945,12 +964,12 @@ async function providerSearchAll(provider, apiPath, init = {}, options = {}) {
         if (seenHitKeys.has(key)) return false;
         seenHitKeys.add(key);
         totalHitCount += 1;
-        itemHitCount += 1;
         if (!itemMatched) {
           matchedItemCount += 1;
           itemMatched = true;
         }
-        if (hits.length < maxHits) {
+        if (hits.length < maxHits && storedItemHitCount < maxHitsPerItem) {
+          storedItemHitCount += 1;
           hits.push({
             id: identity.id,
             idPath: identity.idPath,
@@ -974,22 +993,14 @@ async function providerSearchAll(provider, apiPath, init = {}, options = {}) {
       }
 
       for (const field of fields) {
-        if (itemHitCount >= maxHitsPerItem) break;
         const fieldMatches = _findSearchMatches(field.text, options, !itemWideTermMatch);
         for (const match of fieldMatches) {
           addHit(field, match);
-          if (itemHitCount >= maxHitsPerItem) break;
         }
-        if (itemHitCount >= maxHitsPerItem) break;
       }
     }
 
-    const nextCursor = cursorPath ? _getByPath(page, cursorPath) : undefined;
-    if (nextCursor !== undefined && nextCursor !== null && String(nextCursor) !== "") {
-      if (lastCursor !== null && String(nextCursor) === String(lastCursor)) {
-        stoppedReason = "repeated-cursor";
-        break;
-      }
+    if (hasNextCursor) {
       lastCursor = nextCursor;
       if (pagination.cursorBodyPath) {
         body = _setByPath(body || {}, pagination.cursorBodyPath, nextCursor);
@@ -1038,8 +1049,9 @@ async function providerSearchAll(provider, apiPath, init = {}, options = {}) {
     stoppedReason === "completed" &&
     pageCount >= maxPages;
   const hasMore =
+    stoppedReason === "cursor-found-without-destination" ||
     (lastCursor !== null && pageCount >= maxPages) || hitPageOrOffsetLimit;
-  if (hasMore) stoppedReason = "max-pages";
+  if (hasMore && stoppedReason === "completed") stoppedReason = "max-pages";
 
   return {
     hits,

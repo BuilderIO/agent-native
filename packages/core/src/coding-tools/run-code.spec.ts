@@ -301,6 +301,278 @@ describe("run-code bridge", () => {
     expect(calls[1]?.body).toMatchObject({ cursor: "next-2" });
   });
 
+  it("keeps provider search total counts honest when display hits are capped", async () => {
+    const actions: Record<string, ActionEntry> = {
+      "provider-api-request": {
+        tool,
+        readOnly: true,
+        run: async () =>
+          JSON.stringify({
+            response: {
+              status: 200,
+              json: {
+                data: [
+                  {
+                    id: "record-1",
+                    text: "figma ".repeat(25).trim(),
+                  },
+                ],
+              },
+            },
+          }),
+      },
+    };
+    const entry = createRunCodeEntry(() => actions);
+
+    const result = await entry.run({
+      code: `
+        const result = await providerSearchAll("crm", "/records", {}, {
+          query: "figma",
+          maxHits: 10,
+          maxHitsPerItem: 1,
+        });
+        console.log(JSON.stringify({
+          hitCount: result.hitCount,
+          totalHitCount: result.totalHitCount,
+          truncatedHits: result.truncatedHits,
+          matchedItemCount: result.matchedItemCount,
+        }));
+      `,
+      timeoutMs: 30_000,
+    });
+
+    expect(result).toContain('"hitCount":1');
+    expect(result).toContain('"totalHitCount":25');
+    expect(result).toContain('"truncatedHits":true');
+    expect(result).toContain('"matchedItemCount":1');
+  });
+
+  it("dedupes provider search hits by source id across overlapping pages", async () => {
+    const calls: Record<string, any>[] = [];
+    const actions: Record<string, ActionEntry> = {
+      "provider-api-request": {
+        tool,
+        readOnly: true,
+        run: async (args) => {
+          calls.push(args);
+          const cursor = (args.body as any)?.cursor;
+          return JSON.stringify({
+            response: {
+              status: 200,
+              json:
+                cursor === "next-2"
+                  ? {
+                      records: { cursor: "" },
+                      callTranscripts: [
+                        {
+                          callId: "call-1",
+                          transcript: "Figma duplicate from overlap.",
+                        },
+                      ],
+                    }
+                  : {
+                      records: { cursor: "next-2" },
+                      callTranscripts: [
+                        {
+                          callId: "call-1",
+                          transcript: "Figma duplicate from overlap.",
+                        },
+                      ],
+                    },
+            },
+          });
+        },
+      },
+    };
+    const entry = createRunCodeEntry(() => actions);
+
+    const result = await entry.run({
+      code: `
+        const result = await providerSearchAll("gong", "/calls/transcript", {
+          method: "POST",
+          pagination: {
+            itemsPath: "callTranscripts",
+            nextCursorPath: "records.cursor",
+            cursorBodyPath: "cursor",
+          },
+        }, {
+          query: "figma",
+          idPaths: ["callId"],
+          textPaths: ["transcript"],
+        });
+        console.log(JSON.stringify({
+          ids: result.hits.map((hit) => hit.id),
+          hitCount: result.hitCount,
+          totalHitCount: result.totalHitCount,
+          matchedItemCount: result.matchedItemCount,
+          itemCount: result.itemCount,
+          pageCount: result.pageCount,
+          stoppedReason: result.stoppedReason,
+        }));
+      `,
+      timeoutMs: 30_000,
+    });
+
+    expect(result).toContain('"ids":["call-1"]');
+    expect(result).toContain('"hitCount":1');
+    expect(result).toContain('"totalHitCount":1');
+    expect(result).toContain('"matchedItemCount":1');
+    expect(result).toContain('"itemCount":2');
+    expect(result).toContain('"pageCount":2');
+    expect(result).toContain('"stoppedReason":"completed"');
+    expect(calls).toHaveLength(2);
+  });
+
+  it("does not process duplicate provider search pages when cursors repeat", async () => {
+    const calls: Record<string, any>[] = [];
+    const actions: Record<string, ActionEntry> = {
+      "provider-api-request": {
+        tool,
+        readOnly: true,
+        run: async (args) => {
+          calls.push(args);
+          return JSON.stringify({
+            response: {
+              status: 200,
+              json: {
+                records: { cursor: "same-cursor" },
+                callTranscripts: [
+                  {
+                    callId: "call-1",
+                    transcript: `Figma mention from page ${calls.length}.`,
+                  },
+                ],
+              },
+            },
+          });
+        },
+      },
+    };
+    const entry = createRunCodeEntry(() => actions);
+
+    const result = await entry.run({
+      code: `
+        const result = await providerSearchAll("gong", "/calls/transcript", {
+          method: "POST",
+          pagination: {
+            itemsPath: "callTranscripts",
+            nextCursorPath: "records.cursor",
+            cursorBodyPath: "cursor",
+            maxPages: 5,
+          },
+        }, {
+          query: "figma",
+          idPaths: ["callId"],
+          textPaths: ["transcript"],
+        });
+        console.log(JSON.stringify({
+          snippets: result.hits.map((hit) => hit.snippet),
+          itemCount: result.itemCount,
+          pageCount: result.pageCount,
+          totalHitCount: result.totalHitCount,
+          hasMore: result.hasMore,
+          stoppedReason: result.stoppedReason,
+        }));
+      `,
+      timeoutMs: 30_000,
+    });
+
+    expect(result).toContain("page 1");
+    expect(result).not.toContain("page 2");
+    expect(result).toContain('"itemCount":1');
+    expect(result).toContain('"pageCount":2');
+    expect(result).toContain('"totalHitCount":1');
+    expect(result).toContain('"hasMore":false');
+    expect(result).toContain('"stoppedReason":"repeated-cursor"');
+    expect(calls).toHaveLength(2);
+  });
+
+  it("finds every provider search regex match without sticky anchoring", async () => {
+    const actions: Record<string, ActionEntry> = {
+      "provider-api-request": {
+        tool,
+        readOnly: true,
+        run: async () =>
+          JSON.stringify({
+            response: {
+              status: 200,
+              json: {
+                data: [
+                  { id: "record-1", text: "prefix figma and figma again" },
+                ],
+              },
+            },
+          }),
+      },
+    };
+    const entry = createRunCodeEntry(() => actions);
+
+    const result = await entry.run({
+      code: `
+        const result = await providerSearchAll("crm", "/records", {}, {
+          regex: "figma",
+          regexFlags: "y",
+          textPaths: ["text"],
+          maxHitsPerItem: 10,
+        });
+        console.log(JSON.stringify({
+          matches: result.hits.map((hit) => hit.match),
+          totalHitCount: result.totalHitCount,
+        }));
+      `,
+      timeoutMs: 30_000,
+    });
+
+    expect(result).toContain('"matches":["figma","figma"]');
+    expect(result).toContain('"totalHitCount":2');
+  });
+
+  it("reports more provider search coverage when cursor destination is missing", async () => {
+    const actions: Record<string, ActionEntry> = {
+      "provider-api-request": {
+        tool,
+        readOnly: true,
+        run: async () =>
+          JSON.stringify({
+            response: {
+              status: 200,
+              json: {
+                records: { cursor: "next-2" },
+                data: [{ id: "record-1", text: "figma" }],
+              },
+            },
+          }),
+      },
+    };
+    const entry = createRunCodeEntry(() => actions);
+
+    const result = await entry.run({
+      code: `
+        const result = await providerSearchAll("crm", "/records", {
+          pagination: {
+            itemsPath: "data",
+            nextCursorPath: "records.cursor",
+          },
+        }, {
+          query: "figma",
+          textPaths: ["text"],
+        });
+        console.log(JSON.stringify({
+          hasMore: result.hasMore,
+          stoppedReason: result.stoppedReason,
+          totalHitCount: result.totalHitCount,
+        }));
+      `,
+      timeoutMs: 30_000,
+    });
+
+    expect(result).toContain('"hasMore":true');
+    expect(result).toContain(
+      '"stoppedReason":"cursor-found-without-destination"',
+    );
+    expect(result).toContain('"totalHitCount":1');
+  });
+
   it("stops provider pagination when a cursor repeats", async () => {
     const calls: Record<string, any>[] = [];
     const actions: Record<string, ActionEntry> = {
