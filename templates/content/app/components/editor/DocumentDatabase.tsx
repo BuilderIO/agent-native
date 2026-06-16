@@ -13,6 +13,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import {
   agentNativePath,
   useBuilderConnectFlow,
+  useBuilderStatus,
   useCodeMode,
 } from "@agent-native/core/client";
 import {
@@ -3910,6 +3911,9 @@ function DatabaseSettingsSourcePanel({
     ) ?? [];
   const { isCodeMode } = useCodeMode();
   const isBuilderSource = source?.sourceType === "builder-cms";
+  const builderStatus = useBuilderStatus();
+  const builderConfigured = builderStatus.status?.configured === true;
+  const builderOrgName = builderStatus.status?.orgName ?? null;
   const liveWriteControl = builderSourceLiveWriteControlState(source);
   const showMockSourceControls = isCodeMode;
   const showAttentionCard =
@@ -4011,6 +4015,12 @@ function DatabaseSettingsSourcePanel({
                     : "Builder CMS is connected as a local review target. Add Builder credentials to read live CMS entries; live Builder writes are disabled."
                 : "This source snapshot is rebuilt from the current local database when resynced. No provider writes run from this panel."}
             </div>
+            {isBuilderSource && builderConfigured ? (
+              <SourceMetadataRow
+                label="Builder account"
+                value={builderOrgName ?? "Connected"}
+              />
+            ) : null}
             <SourceMetadataRow
               label="Freshness"
               value={`${source.freshness}${
