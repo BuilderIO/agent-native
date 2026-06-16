@@ -1726,6 +1726,11 @@ describe("createAgentChatAdapter", () => {
     );
     const secondBody = JSON.parse(chatPosts[1][1].body);
     expect(secondBody.message).toContain(
+      "If it already gives a coherent answer",
+    );
+    expect(secondBody.message).toContain("do not call tools");
+    expect(secondBody.message).toContain("expand the search");
+    expect(secondBody.message).toContain(
       "preparing the `create-extension` action input",
     );
     expect(secondBody.message).toContain("compact working v1");

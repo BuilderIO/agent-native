@@ -65,6 +65,8 @@ const TEXT_ATTACHMENT_CONTENT_TYPES = new Set([
 
 const AUTO_CONTINUE_PROMPT =
   "Continue from where you left off and finish the user's original request. Do not repeat completed work, do not mention internal reconnects, time limits, or step limits, and continue as if this is the same uninterrupted run.";
+const AUTO_CONTINUE_COMPLETION_GUARD =
+  "Before doing more work, inspect the prior partial assistant output in history. If it already gives a coherent answer, summary, artifact, coverage note, or next-step recommendation, finish with at most one short closing sentence and do not call tools, scan more data, or expand the search. Continue only genuinely unfinished work.";
 const MAX_RECONNECT_ATTEMPTS = 5;
 const MAX_STARTUP_RECOVERY_ATTEMPTS = 8;
 const MAX_STALE_RUN_CONTINUATIONS = 3;
@@ -786,7 +788,7 @@ function autoContinueMessage(signal: AgentAutoContinueSignal): string {
     cutoffPreparingAction && tool
       ? `\n\nThe previous run was cut off while preparing the \`${tool}\` action input before the action could finish. Avoid spending another whole run assembling one large tool payload. If this is \`create-extension\`, create a compact working v1 first, then use focused \`update-extension\` edits for refinements.`
       : "";
-  return `${AUTO_CONTINUE_PROMPT}\n\nInternal note: ${reason}${actionInputNote}`;
+  return `${AUTO_CONTINUE_PROMPT}\n\n${AUTO_CONTINUE_COMPLETION_GUARD}\n\nInternal note: ${reason}${actionInputNote}`;
 }
 
 function delay(ms: number, abortSignal: AbortSignal): Promise<void> {
