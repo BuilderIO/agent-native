@@ -132,6 +132,7 @@ export function createRunCodeEntry(
         "    Example: `const data = await providerFetch('<provider-id>', '/records', { query: { limit: 100 } });`",
         "  - `providerRequest(provider, path, init?)` — same authenticated call, but returns the full provider-api envelope with request, response status/headers, truncation, and body metadata.",
         "  - `providerFetchAll(provider, path, init?)` — generic pagination helper for cursor, page, and offset APIs. Pass `pagination: { itemsPath, cursorPath or nextCursorPath, cursorParam or cursorBodyPath, pageParam, offsetParam, pageSize, maxPages }`. Returns `{ items, pages, pageCount, itemCount, hasMore, lastCursor, stoppedReason }`.",
+        "  - `providerSearchAll(provider, path, init?, options?)` — streaming search helper for broad provider corpora such as transcripts, messages, tickets, issues, notes, events, or documents. Use this before hand-written loops when searching many provider records for terms/phrases/regexes or proving absence. Pass the same `pagination` config as `providerFetchAll`, plus options like `{ query, queries, terms, regex, textPaths, idPaths, metadataPaths, maxHits }`. Returns structured hits with item ids, paths, snippets, page/item indexes, and coverage fields (`pageCount`, `itemCount`, `hasMore`, `stoppedReason`).",
         "  - `webFetch(url, init?)` — outbound HTTP request via the web-request action.",
         "    Returns `{ status, body }` where body is the response text.",
         "    Example: `const { body } = await webFetch('https://api.example.com/data');`",
@@ -478,8 +479,8 @@ function handleBridgeRequest(
 
 /**
  * Wrap the user's code in an ESM module that:
- *  1. Defines `providerFetch`, `providerRequest`, `providerFetchAll`, and
- *     `webFetch` helpers via the bridge.
+ *  1. Defines `providerFetch`, `providerRequest`, `providerFetchAll`,
+ *     `providerSearchAll`, and `webFetch` helpers via the bridge.
  *  2. Runs the user's code as top-level await in an async IIFE.
  */
 function buildSandboxModule(
@@ -630,7 +631,7 @@ function _extractItems(page, itemsPath) {
   }
   if (Array.isArray(page)) return page;
   if (!page || typeof page !== "object") return [];
-  for (const key of ["data", "results", "items", "records", "rows", "calls", "messages", "tickets", "issues", "deals"]) {
+  for (const key of ["data", "results", "items", "records", "rows", "calls", "callTranscripts", "transcripts", "messages", "tickets", "issues", "deals", "events", "notes", "documents", "entries", "objects"]) {
     if (Array.isArray(page[key])) return page[key];
   }
   return [];
@@ -646,6 +647,425 @@ function _withoutProviderFetchAllOptions(init) {
     ...rest
   } = init || {};
   return rest;
+}
+
+function _asArray(value) {
+  if (value === undefined || value === null) return [];
+  return Array.isArray(value) ? value : [value];
+}
+
+function _stringifySearchValue(value) {
+  if (typeof value === "string") return value;
+  if (value === undefined || value === null) return "";
+  if (typeof value === "number" || typeof value === "boolean" || typeof value === "bigint") {
+    return String(value);
+  }
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
+}
+
+function _collectStrings(value, basePath = "", out = [], limit = 5000) {
+  if (out.length >= limit || value === undefined || value === null) return out;
+  if (typeof value === "string" || typeof value === "number" || typeof value === "boolean" || typeof value === "bigint") {
+    out.push({ path: basePath || "$", text: String(value) });
+    return out;
+  }
+  if (Array.isArray(value)) {
+    for (let i = 0; i < value.length && out.length < limit; i++) {
+      _collectStrings(value[i], basePath ? basePath + "[" + i + "]" : "[" + i + "]", out, limit);
+    }
+    return out;
+  }
+  if (typeof value === "object") {
+    for (const key of Object.keys(value)) {
+      if (out.length >= limit) break;
+      _collectStrings(value[key], basePath ? basePath + "." + key : key, out, limit);
+    }
+  }
+  return out;
+}
+
+function _collectSearchStrings(item, textPaths, maxFieldsPerItem) {
+  const paths = _asArray(textPaths).filter((path) => typeof path === "string" && path.trim());
+  if (!paths.length) return _collectStrings(item, "", [], maxFieldsPerItem);
+  const out = [];
+  for (const path of paths) {
+    const value = _getByPath(item, path);
+    if (value !== undefined) _collectStrings(value, path, out, maxFieldsPerItem);
+    if (out.length >= maxFieldsPerItem) break;
+  }
+  return out;
+}
+
+function _firstValueByPath(value, paths) {
+  for (const path of paths) {
+    const found = _getByPath(value, path);
+    if (found !== undefined && found !== null && String(found) !== "") {
+      return { path, value: found };
+    }
+  }
+  return null;
+}
+
+const _DEFAULT_ID_PATHS = [
+  "id",
+  "callId",
+  "callID",
+  "call_id",
+  "call.id",
+  "call.metaData.id",
+  "metaData.id",
+  "metadata.id",
+  "recordId",
+  "record_id",
+  "objectId",
+  "object_id",
+  "ticketId",
+  "ticket_id",
+  "issueId",
+  "issue_id",
+  "messageId",
+  "message_id",
+  "conversationId",
+  "conversation_id",
+  "eventId",
+  "event_id",
+  "documentId",
+  "document_id",
+  "url",
+  "webUrl",
+  "permalink",
+];
+
+function _extractItemIdentity(item, idPaths) {
+  const paths = [
+    ..._asArray(idPaths).filter((path) => typeof path === "string" && path.trim()),
+    ..._DEFAULT_ID_PATHS,
+  ];
+  const found = _firstValueByPath(item, paths);
+  if (!found) return { id: null, idPath: null };
+  return { id: _stringifySearchValue(found.value), idPath: found.path };
+}
+
+function _extractMetadata(item, metadataPaths) {
+  const metadata = {};
+  for (const path of _asArray(metadataPaths)) {
+    if (typeof path !== "string" || !path.trim()) continue;
+    const value = _getByPath(item, path);
+    if (value !== undefined) metadata[path] = value;
+  }
+  return metadata;
+}
+
+function _makeSnippet(text, index, contextChars) {
+  const source = String(text);
+  const context = Math.max(20, Math.min(Number(contextChars) || 180, 1000));
+  const start = Math.max(0, index - context);
+  const end = Math.min(source.length, Math.max(index, 0) + context);
+  const prefix = start > 0 ? "..." : "";
+  const suffix = end < source.length ? "..." : "";
+  return (prefix + source.slice(start, end) + suffix).replace(/\\s+/g, " ").trim();
+}
+
+function _normalizeFlags(flags, caseSensitive) {
+  const raw = typeof flags === "string" ? flags : "";
+  const allowed = raw.replace(/[^dgimsuvy]/g, "");
+  const withoutGlobal = allowed.replace(/g/g, "");
+  return caseSensitive || /i/.test(withoutGlobal) ? withoutGlobal : withoutGlobal + "i";
+}
+
+function _normalizedSearchTerms(options) {
+  const explicitTerms = _asArray(options.terms)
+    .map((term) => String(term).trim())
+    .filter(Boolean);
+  if (explicitTerms.length) return explicitTerms;
+  if (options.matchMode === "allTerms" && typeof options.query === "string") {
+    return options.query
+      .split(/\\s+/)
+      .map((term) => term.trim())
+      .filter(Boolean);
+  }
+  return [];
+}
+
+function _findItemWideTermMatch(fields, options) {
+  const terms = _normalizedSearchTerms(options);
+  if (!terms.length || options.matchMode === "anyTerm") return null;
+  const caseSensitive = Boolean(options.caseSensitive);
+  const normalizedFields = fields.map((field) => ({
+    field,
+    haystack: caseSensitive ? String(field.text) : String(field.text).toLowerCase(),
+  }));
+  const termHits = terms.map((term) => {
+    const searchTerm = caseSensitive ? term : term.toLowerCase();
+    for (const entry of normalizedFields) {
+      const index = entry.haystack.indexOf(searchTerm);
+      if (index >= 0) return { term, field: entry.field, index };
+    }
+    return { term, field: null, index: -1 };
+  });
+  if (termHits.some((hit) => hit.index < 0 || !hit.field)) return null;
+  const first = termHits
+    .filter((hit) => hit.field)
+    .sort((a, b) => {
+      const fieldOrder = fields.indexOf(a.field) - fields.indexOf(b.field);
+      return fieldOrder || a.index - b.index;
+    })[0];
+  return {
+    field: first.field,
+    match: {
+      kind: "allTerms",
+      query: terms.join(" "),
+      index: first.index,
+      match: first.term,
+    },
+  };
+}
+
+function _findSearchMatches(text, options, includeTerms = true) {
+  const source = String(text);
+  const caseSensitive = Boolean(options.caseSensitive);
+  const haystack = caseSensitive ? source : source.toLowerCase();
+  const matches = [];
+
+  const addSubstring = (needle, label, kind) => {
+    if (needle === undefined || needle === null) return;
+    const rawNeedle = String(needle);
+    if (!rawNeedle) return;
+    const searchNeedle = caseSensitive ? rawNeedle : rawNeedle.toLowerCase();
+    let from = 0;
+    while (from <= haystack.length) {
+      const index = haystack.indexOf(searchNeedle, from);
+      if (index < 0) break;
+      matches.push({ kind, query: label ?? rawNeedle, index, match: source.slice(index, index + rawNeedle.length) });
+      from = index + Math.max(1, searchNeedle.length);
+      if (matches.length >= 20) break;
+    }
+  };
+
+  if (options.regex) {
+    try {
+      const regex = new RegExp(String(options.regex), _normalizeFlags(options.regexFlags, caseSensitive));
+      const match = regex.exec(source);
+      if (match && typeof match.index === "number") {
+        matches.push({ kind: "regex", query: String(options.regex), index: match.index, match: match[0] });
+      }
+    } catch (err) {
+      throw new Error("providerSearchAll invalid regex: " + (err?.message || err));
+    }
+  }
+
+  for (const query of _asArray(options.query).concat(_asArray(options.queries))) {
+    addSubstring(query, String(query), "query");
+  }
+
+  const terms = includeTerms ? _normalizedSearchTerms(options) : [];
+  if (terms.length) {
+    const termHits = terms
+      .map((term) => {
+        const searchTerm = caseSensitive ? term : term.toLowerCase();
+        const index = haystack.indexOf(searchTerm);
+        return { term, index };
+      })
+      .filter((hit) => hit.index >= 0);
+    const mode = options.matchMode === "anyTerm" ? "anyTerm" : "allTerms";
+    if ((mode === "allTerms" && termHits.length === terms.length) || (mode === "anyTerm" && termHits.length > 0)) {
+      const first = termHits.sort((a, b) => a.index - b.index)[0];
+      matches.push({ kind: mode, query: terms.join(" "), index: first.index, match: first.term });
+    }
+  }
+
+  return matches.sort((a, b) => a.index - b.index);
+}
+
+function _boundedNumber(value, defaultValue, min, max) {
+  const parsed = Number(value);
+  const finite = Number.isFinite(parsed) ? parsed : defaultValue;
+  return Math.max(min, Math.min(finite, max));
+}
+
+function _hitKey(identity, path, query, index, pageIndex, pageItemIndex) {
+  return [identity.id ?? "", String(pageIndex), String(pageItemIndex), path ?? "", query ?? "", String(index ?? "")].join("\\n");
+}
+
+/**
+ * Stream pages from a provider API and search item text structurally. This is
+ * for broad mention searches and absence checks where keeping every raw page
+ * in memory or hand-parsing JSON strings is brittle.
+ */
+async function providerSearchAll(provider, apiPath, init = {}, options = {}) {
+  const pagination = init.pagination || init.fetchAllPages || {};
+  const itemsPath = pagination.itemsPath || init.itemsPath || options.itemsPath;
+  const cursorPath = pagination.nextCursorPath || pagination.cursorPath;
+  const maxPagesRaw = Number(pagination.maxPages || init.maxPages || options.maxPages || 100);
+  const maxPages = Math.max(1, Math.min(Number.isFinite(maxPagesRaw) ? maxPagesRaw : 100, 500));
+  const maxHits = _boundedNumber(options.maxHits, 100, 1, 5000);
+  const maxHitsPerItem = _boundedNumber(options.maxHitsPerItem, 3, 1, 100);
+  const maxFieldsPerItem = _boundedNumber(options.maxFieldsPerItem, 5000, 1, 50000);
+  const contextChars = options.contextChars ?? options.snippetChars ?? 180;
+  const baseInit = _withoutProviderFetchAllOptions(init);
+  let query = _cloneJson(init.query || {});
+  let body = _cloneJson(init.body);
+  let pageNumber = Number(pagination.startPage || 1);
+  let offset = Number(pagination.startOffset || 0);
+  let lastCursor = null;
+  let stoppedReason = "completed";
+  let itemCount = 0;
+  let matchedItemCount = 0;
+  let totalHitCount = 0;
+  const hits = [];
+  const seenHitKeys = new Set();
+  let pageIndex = 0;
+
+  for (; pageIndex < maxPages; pageIndex++) {
+    if (pagination.pageParam) query = { ...(query || {}), [pagination.pageParam]: pageNumber };
+    if (pagination.offsetParam) query = { ...(query || {}), [pagination.offsetParam]: offset };
+
+    const page = await providerFetch(provider, apiPath, {
+      ...baseInit,
+      query,
+      ...(body !== undefined ? { body } : {}),
+    });
+    const pageItems = _extractItems(page, itemsPath);
+    itemCount += pageItems.length;
+
+    for (let pageItemIndex = 0; pageItemIndex < pageItems.length; pageItemIndex++) {
+      const item = pageItems[pageItemIndex];
+      const identity = _extractItemIdentity(item, options.idPaths);
+      const metadata = _extractMetadata(item, options.metadataPaths);
+      const fields = _collectSearchStrings(item, options.textPaths, maxFieldsPerItem);
+      let itemHitCount = 0;
+      let itemMatched = false;
+
+      const addHit = (field, match) => {
+        const key = _hitKey(identity, field.path, match.query, match.index, pageIndex, pageItemIndex);
+        if (seenHitKeys.has(key)) return false;
+        seenHitKeys.add(key);
+        totalHitCount += 1;
+        itemHitCount += 1;
+        if (!itemMatched) {
+          matchedItemCount += 1;
+          itemMatched = true;
+        }
+        if (hits.length < maxHits) {
+          hits.push({
+            id: identity.id,
+            idPath: identity.idPath,
+            pageIndex,
+            pageItemIndex,
+            itemIndex: itemCount - pageItems.length + pageItemIndex,
+            path: field.path,
+            kind: match.kind,
+            query: match.query,
+            match: match.match,
+            snippet: _makeSnippet(field.text, match.index, contextChars),
+            ...(Object.keys(metadata).length ? { metadata } : {}),
+          });
+        }
+        return true;
+      };
+
+      const itemWideTermMatch = _findItemWideTermMatch(fields, options);
+      if (itemWideTermMatch) {
+        addHit(itemWideTermMatch.field, itemWideTermMatch.match);
+      }
+
+      for (const field of fields) {
+        if (itemHitCount >= maxHitsPerItem) break;
+        const fieldMatches = _findSearchMatches(field.text, options, !itemWideTermMatch);
+        for (const match of fieldMatches) {
+          addHit(field, match);
+          if (itemHitCount >= maxHitsPerItem) break;
+        }
+        if (itemHitCount >= maxHitsPerItem) break;
+      }
+    }
+
+    const nextCursor = cursorPath ? _getByPath(page, cursorPath) : undefined;
+    if (nextCursor !== undefined && nextCursor !== null && String(nextCursor) !== "") {
+      if (lastCursor !== null && String(nextCursor) === String(lastCursor)) {
+        stoppedReason = "repeated-cursor";
+        break;
+      }
+      lastCursor = nextCursor;
+      if (pagination.cursorBodyPath) {
+        body = _setByPath(body || {}, pagination.cursorBodyPath, nextCursor);
+      } else if (pagination.cursorParam) {
+        query = { ...(query || {}), [pagination.cursorParam]: nextCursor };
+      } else {
+        stoppedReason = "cursor-found-without-destination";
+        break;
+      }
+      continue;
+    }
+
+    lastCursor = null;
+    if (pagination.pageParam) {
+      if (pageItems.length === 0) {
+        stoppedReason = "empty-page";
+        break;
+      }
+      pageNumber += 1;
+      continue;
+    }
+    if (pagination.offsetParam) {
+      if (pageItems.length === 0) {
+        stoppedReason = "empty-page";
+        break;
+      }
+      const step = Number(pagination.pageSize || pageItems.length);
+      if (!Number.isFinite(step) || step <= 0) {
+        stoppedReason = "invalid-page-size";
+        break;
+      }
+      offset += step;
+      if (pagination.pageSize && pageItems.length < Number(pagination.pageSize)) {
+        stoppedReason = "short-page";
+        break;
+      }
+      continue;
+    }
+
+    break;
+  }
+
+  const pageCount = pageIndex + (pageIndex < maxPages ? 1 : 0);
+  const hitPageOrOffsetLimit =
+    Boolean(pagination.pageParam || pagination.offsetParam) &&
+    stoppedReason === "completed" &&
+    pageCount >= maxPages;
+  const hasMore =
+    (lastCursor !== null && pageCount >= maxPages) || hitPageOrOffsetLimit;
+  if (hasMore) stoppedReason = "max-pages";
+
+  return {
+    hits,
+    hitCount: hits.length,
+    totalHitCount,
+    truncatedHits: totalHitCount > hits.length,
+    matchedItemCount,
+    itemCount,
+    pageCount,
+    hasMore,
+    lastCursor,
+    stoppedReason,
+    searched: {
+      provider,
+      path: apiPath,
+      itemsPath: itemsPath || null,
+      textPaths: _asArray(options.textPaths),
+      idPaths: _asArray(options.idPaths),
+      query: options.query ?? null,
+      queries: _asArray(options.queries),
+      terms: _asArray(options.terms),
+      regex: options.regex ?? null,
+      matchMode: options.matchMode || (options.terms ? "allTerms" : "query"),
+      caseSensitive: Boolean(options.caseSensitive),
+    },
+  };
 }
 
 /**

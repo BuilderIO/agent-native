@@ -184,6 +184,123 @@ describe("run-code bridge", () => {
     expect(calls[1]?.body).toMatchObject({ cursor: "next-2" });
   });
 
+  it("searches paginated provider records structurally with ids and coverage", async () => {
+    const calls: Record<string, any>[] = [];
+    const actions: Record<string, ActionEntry> = {
+      "provider-api-request": {
+        tool,
+        readOnly: true,
+        run: async (args) => {
+          calls.push(args);
+          const cursor = (args.body as any)?.cursor;
+          return JSON.stringify({
+            response: {
+              status: 200,
+              json:
+                cursor === "next-2"
+                  ? {
+                      records: { cursor: "" },
+                      callTranscripts: [
+                        {
+                          callId: "call-3",
+                          transcript: [
+                            {
+                              speaker: "Rep",
+                              sentences: [{ text: "No relevant topic here." }],
+                            },
+                          ],
+                        },
+                      ],
+                    }
+                  : {
+                      records: { cursor: "next-2" },
+                      callTranscripts: [
+                        {
+                          callId: "call-1",
+                          title: "Design tooling follow-up",
+                          transcript: [
+                            {
+                              speaker: "Customer",
+                              sentences: [
+                                {
+                                  text: "We should revisit the Figma prototype path next quarter.",
+                                },
+                                {
+                                  text: "The MCP server integration is the part to validate.",
+                                },
+                              ],
+                            },
+                          ],
+                        },
+                        {
+                          callId: "call-2",
+                          title: "Unrelated call",
+                          transcript: [
+                            {
+                              speaker: "Rep",
+                              sentences: [
+                                { text: "Just implementation timing." },
+                              ],
+                            },
+                          ],
+                        },
+                      ],
+                    },
+            },
+          });
+        },
+      },
+    };
+    const entry = createRunCodeEntry(() => actions);
+
+    const result = await entry.run({
+      code: `
+        const result = await providerSearchAll("gong", "/calls/transcript", {
+          method: "POST",
+          body: { filter: { callIds: ["call-1", "call-2", "call-3"] } },
+          pagination: {
+            itemsPath: "callTranscripts",
+            nextCursorPath: "records.cursor",
+            cursorBodyPath: "cursor",
+            maxPages: 5,
+          },
+        }, {
+          terms: ["figma", "mcp"],
+          idPaths: ["callId"],
+          textPaths: ["transcript"],
+          metadataPaths: ["title"],
+          maxHits: 10,
+        });
+        console.log(JSON.stringify({
+          ids: result.hits.map((hit) => hit.id),
+          snippets: result.hits.map((hit) => hit.snippet),
+          paths: result.hits.map((hit) => hit.path),
+          metadata: result.hits.map((hit) => hit.metadata),
+          itemCount: result.itemCount,
+          pageCount: result.pageCount,
+          matchedItemCount: result.matchedItemCount,
+          hasMore: result.hasMore,
+          stoppedReason: result.stoppedReason,
+        }));
+      `,
+      timeoutMs: 30_000,
+    });
+
+    expect(result).toContain('"ids":["call-1"]');
+    expect(result).toContain("Figma prototype");
+    expect(result).toContain('"paths":["transcript[0].sentences[0].text"]');
+    expect(result).toContain(
+      '"metadata":[{"title":"Design tooling follow-up"}]',
+    );
+    expect(result).toContain('"itemCount":3');
+    expect(result).toContain('"pageCount":2');
+    expect(result).toContain('"matchedItemCount":1');
+    expect(result).toContain('"hasMore":false');
+    expect(result).toContain('"stoppedReason":"completed"');
+    expect(calls).toHaveLength(2);
+    expect(calls[1]?.body).toMatchObject({ cursor: "next-2" });
+  });
+
   it("stops provider pagination when a cursor repeats", async () => {
     const calls: Record<string, any>[] = [];
     const actions: Record<string, ActionEntry> = {

@@ -1,6 +1,6 @@
 ---
 title: "Local File Mode"
-description: "Run agent-native apps with local Markdown, MDX, and other repo files as the source of truth instead of SQL-backed records."
+description: "Run agent-native apps with local Markdown, MDX, and other repo files as the source of truth - including Obsidian-style MDX docs with custom components."
 ---
 
 # Local File Mode
@@ -16,12 +16,17 @@ Content editor, and saving writes back to the selected file. The same files can
 also be edited by Codex, Claude Code, the Agent-Native sidebar agent, or a normal
 editor.
 
+For Content, this makes the product feel like open-source Obsidian for MDX:
+your docs live as files, while the app adds a visual editor, agent actions,
+shareable copies, and rich interactive MDX components.
+
 Use Local File Mode when you want a repo-first workflow:
 
 - a docs repo with `docs/*.mdx`
 - a blog with `blog/*.mdx`
 - resources such as positioning, messaging, or team notes in `resources/*.md`
 - a personal Obsidian-style knowledge base with a richer MDX editor
+- docs that need interactive custom MDX blocks generated from local React code
 - app artifacts that should be easy for coding agents to inspect and patch
 
 Use database mode when you want the hosted collaborative app experience:

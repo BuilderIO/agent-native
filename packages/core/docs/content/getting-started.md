@@ -52,7 +52,7 @@ Each template is a complete app with UI, agent actions, database schema, and AI 
 | Template                              | What it is                                                            |
 | ------------------------------------- | --------------------------------------------------------------------- |
 | [Calendar](/docs/template-calendar)   | Agent-native Google Calendar + Calendly-style booking                 |
-| [Content](/docs/template-content)     | Agent-native Notion / Google Docs                                     |
+| [Content](/docs/template-content)     | Open-source Obsidian for MDX                                          |
 | [Brain](/docs/template-brain)         | Company chat with cited institutional memory                          |
 | [Assets](/docs/template-assets)       | Brand asset libraries and generated media                             |
 | [Slides](/docs/template-slides)       | Agent-native Google Slides / Pitch                                    |
