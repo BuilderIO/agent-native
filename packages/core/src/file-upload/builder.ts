@@ -71,16 +71,19 @@ async function uploadLargeFileViaSignedUrl(
   );
   await assertOk(step1Res, "Builder.io signed-URL request failed");
 
-  const { uploadUrl, assetId, expiresAt, requiredHeaders } =
-    (await step1Res.json()) as {
-      uploadUrl: string;
-      assetId: string;
-      expiresAt: string;
-      requiredHeaders: Record<string, string>;
-    };
-  console.log(
-    `[builder-upload] step 1 ok: assetId=${assetId} expiresAt=${expiresAt}`,
-  );
+  const step1Json = (await step1Res.json()) as {
+    uploadUrl?: string;
+    assetId?: string;
+    expiresAt?: string;
+    requiredHeaders?: Record<string, string>;
+  };
+  const { uploadUrl, assetId, requiredHeaders } = step1Json;
+  if (!uploadUrl || !assetId || !requiredHeaders) {
+    throw new Error(
+      `Builder.io signed-URL response missing required fields: ${JSON.stringify(Object.keys(step1Json))}`,
+    );
+  }
+  console.log(`[builder-upload] step 1 ok: assetId=${assetId}`);
 
   // Step 2 — PUT bytes directly to GCS. Only requiredHeaders; no Authorization
   // (signed URL carries its own auth — extra signed headers break the signature).
