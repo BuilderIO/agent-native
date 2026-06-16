@@ -323,14 +323,21 @@ describe("create-visual-recap: sourceUrl", () => {
   });
 
   it("rejects nested recap wireframes that would render as empty frames", async () => {
-    await expect(
-      asOwner(() =>
-        createVisualRecap.run({
-          mdx: EMPTY_WIREFRAME_RECAP_MDX,
-          visibility: "org",
-        }),
-      ),
-    ).rejects.toThrow(/empty wireframes[\s\S]*empty-before/i);
+    const error = await asOwner(() =>
+      createVisualRecap.run({
+        mdx: EMPTY_WIREFRAME_RECAP_MDX,
+        visibility: "org",
+      }),
+    ).then(
+      () => null,
+      (err) => err,
+    );
+    expect(error).toBeInstanceOf(Error);
+    expect(error.message).toMatch(/empty wireframes[\s\S]*empty-before/i);
+    // Malformed source is a CLIENT error: it must surface as a 422 (so the
+    // action route echoes the real message and the recap publisher does not
+    // retry a deterministic authoring error), NOT a generic 500.
+    expect(error.statusCode).toBe(422);
 
     // guard:allow-unscoped -- test-only assertion reads the isolated temp DB.
     const rows = await db

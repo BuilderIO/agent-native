@@ -407,6 +407,35 @@ describe("recap direct publish", () => {
     }
   });
 
+  it("retries the block reference through a transient 404 (deploy propagation)", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "an-recap-blocks-404-"));
+    try {
+      let calls = 0;
+      const fetchFn: typeof fetch = (async () => {
+        calls += 1;
+        // First call hits a cold/old server instance without the route yet.
+        if (calls === 1) return textResponse("not found", 404);
+        return jsonResponse({
+          reference: "## Blocks\n\n| type | tag |",
+          count: 7,
+        });
+      }) as typeof fetch;
+
+      const out = path.join(dir, "recap-blocks.md");
+      const result = await fetchRecapBlockReference({
+        appUrl: "https://plan.agent-native.com",
+        out,
+        fetchFn,
+      });
+
+      expect(calls).toBe(2);
+      expect(result.ok).toBe(true);
+      expect(fs.readFileSync(out, "utf8")).toContain("## Blocks");
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it("validates and publishes recap-source.json with CI-owned metadata", async () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "an-recap-publish-"));
     try {

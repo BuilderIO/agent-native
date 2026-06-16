@@ -139,6 +139,18 @@ with the user's configured credentials. For large responses, expose staging
 (`stageAs`, `itemsPath`, pagination, and `query-staged-dataset`) or sandboxed
 code execution so the agent can reduce data without flooding context.
 
+For broad provider questions, cross-source joins, corpus-wide mention/search
+work, classification, or any answer where absence matters, design the action
+surface for full coverage instead of convenience-only samples. The agent should
+be able to fetch every relevant page or an explicitly bounded cohort, stage or
+save the raw provider response outside chat, and then use
+`query-staged-dataset`, `run-code`, or provider-side search to count, join,
+grep, classify, and aggregate. Tool descriptions and AGENTS.md guidance should
+teach agents to report source, filters, time window, row/record counts,
+pagination status, truncation, failed pages, and uncovered gaps. They must not
+turn default limits, sampled rows, truncated excerpts, or aborted calls into a
+confident "none found", "all records", or exhaustive conclusion.
+
 ### The `http` Option
 
 Controls how the action is exposed as an HTTP endpoint:
