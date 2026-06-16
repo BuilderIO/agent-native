@@ -1108,7 +1108,7 @@ describe("runAgentLoop", () => {
           yield { type: "stop", reason: "end_turn" };
           return;
         }
-        if (serializedMessages.includes("convergence budget")) {
+        if (serializedMessages.includes("Skipped agent-teams spawn")) {
           yield {
             type: "assistant-content",
             parts: [
@@ -1117,6 +1117,24 @@ describe("runAgentLoop", () => {
                 id: "bulk-code",
                 name: "run-code",
                 input: { script: "bulk corpus search" },
+              },
+            ],
+          };
+          yield { type: "stop", reason: "tool_use" };
+          return;
+        }
+        if (serializedMessages.includes("convergence budget")) {
+          yield {
+            type: "assistant-content",
+            parts: [
+              {
+                type: "tool-call" as const,
+                id: "delegate-sweep",
+                name: "agent-teams",
+                input: {
+                  action: "spawn",
+                  task: "Scan Gong call transcripts for Figma MCP across the closed-won Fusion account cohort",
+                },
               },
             ],
           };
@@ -1142,6 +1160,7 @@ describe("runAgentLoop", () => {
       transcriptSearch: { matchingCalls: 0, inspectedCalls: 5 },
     }));
     const runCode = vi.fn(async () => "bulk coverage complete");
+    const agentTeams = vi.fn(async () => "spawned");
     const events: any[] = [];
 
     await runAgentLoop({
@@ -1164,6 +1183,12 @@ describe("runAgentLoop", () => {
           ...actionEntry({ readOnly: true }),
           run: runCode,
         },
+        "agent-teams": {
+          ...actionEntry({
+            actions: ["spawn", "status", "read-result", "send", "list"],
+          }),
+          run: agentTeams,
+        },
       },
       send: (event) => events.push(event),
       signal: new AbortController().signal,
@@ -1177,6 +1202,14 @@ describe("runAgentLoop", () => {
         result: expect.stringContaining("convergence budget"),
       }),
     );
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "tool_done",
+        tool: "agent-teams",
+        result: expect.stringContaining("Skipped agent-teams spawn"),
+      }),
+    );
+    expect(agentTeams).not.toHaveBeenCalled();
     expect(runCode).toHaveBeenCalledTimes(1);
     expect(events).toContainEqual({
       type: "text",
