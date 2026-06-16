@@ -1788,8 +1788,12 @@ export function repeatedSourceSweepGuardMessage(opts: {
     `tool that can join, grep, classify, count, or aggregate without flooding ` +
     `the chat context. Do not ask the user whether to run the obvious bulk/code ` +
     `workflow when it is read-only and needed to satisfy their request; either ` +
-    `do it in this turn or state exactly why it is unavailable. If no broader ` +
-    `path exists or quota/timeouts block it, answer from the evidence already ` +
+    `do it in this turn or state exactly why it is unavailable. Do not delegate ` +
+    `this same one-item-at-a-time source sweep to agent teams, background ` +
+    `sub-agents, or a follow-up thread; delegation is not a bulk mechanism and ` +
+    `does not remove provider quota, timeout, or cost limits. Do not leave the ` +
+    `user with a "come back later" answer for this turn. If no broader path ` +
+    `exists or quota/timeouts block it, answer from the evidence already ` +
     `gathered: state the source filters, count what was inspected, list ` +
     `confirmed hits, and explicitly name remaining gaps or uninspected records.`
   );
