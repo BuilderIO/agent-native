@@ -208,6 +208,32 @@ describe("coverage-sensitive analytics request classification", () => {
     );
     expect(hasCorpusWorkflowAttempt([{ name: "run-code" }])).toBe(false);
     expect(
+      hasCorpusWorkflowAttempt([
+        {
+          name: "run-code",
+          content:
+            'const calls = await providerFetch("gong", "/calls", { query: { limit: 1000 } });',
+        },
+      ]),
+    ).toBe(true);
+    expect(
+      hasCorpusWorkflowAttempt([
+        {
+          name: "run-code",
+          content:
+            'const rows = await appAction("query-staged-dataset", { datasetId });',
+        },
+      ]),
+    ).toBe(true);
+    expect(
+      hasCorpusWorkflowAttempt([
+        {
+          name: "run-code",
+          content: "Processed rows from hubspot-deals and gong-calls.",
+        },
+      ]),
+    ).toBe(false);
+    expect(
       hasCorpusWorkflowAttempt([{ name: "mcp__gong__search_transcripts" }]),
     ).toBe(true);
   });
@@ -256,6 +282,21 @@ describe("coverage-sensitive analytics request classification", () => {
         ],
       }),
     ).toBe(true);
+
+    expect(
+      needsCorpusWorkflowForCoverageSensitiveRequest({
+        userText: broadProviderQuestion,
+        finalText: "I fetched provider pages in code and found one mention.",
+        toolResults: [
+          { name: "hubspot-deals" },
+          {
+            name: "run-code",
+            content:
+              'const calls = await providerFetch("gong", "/calls", { query: { limit: 1000 } });',
+          },
+        ],
+      }),
+    ).toBe(false);
   });
 });
 
@@ -402,6 +443,16 @@ describe("incomplete evidence detection", () => {
         "I reviewed 10 of 25 accounts; the remaining accounts are not covered.",
       ),
     ).toBe(true);
+    expect(
+      hasExplicitPartialDisclosure(
+        "I limited the query to closed won Fusion deals and found zero mentions.",
+      ),
+    ).toBe(false);
+    expect(
+      hasExplicitPartialDisclosure(
+        "The coverage is limited to the first 20 calls.",
+      ),
+    ).toBe(true);
   });
 
   it("detects failed corpus workflows and overstated full-coverage confidence", () => {
@@ -430,6 +481,11 @@ describe("incomplete evidence detection", () => {
     expect(
       hasOverstatedCoverageConfidenceClaim(
         "Partial coverage: I found 0 matches in the 200 calls inspected; this is not exhaustive.",
+      ),
+    ).toBe(false);
+    expect(
+      hasOverstatedCoverageConfidenceClaim(
+        "Partial coverage: I found 0 matches in the 200 calls inspected; this is a defensible interim read.",
       ),
     ).toBe(false);
   });

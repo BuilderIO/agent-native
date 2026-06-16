@@ -43,6 +43,9 @@ export const CORPUS_SOURCE_ACTIONS = new Set([
 
 export const CORPUS_REDUCTION_ACTIONS = new Set(["run-code"]);
 
+const RUN_CODE_CORPUS_WORKFLOW_TEXT =
+  /\b(?:providerFetch|provider-api-request|query-staged-dataset|fetchAllPages|stageAs|saveToFile|appAction\(\s*["'](?:provider-api-request|query-staged-dataset)["'])\b/i;
+
 const MCP_DATA_SOURCE_TOKENS = [
   "amplitude",
   "apollo",
@@ -319,7 +322,7 @@ const EXPLICIT_FULL_COVERAGE_CONFIDENCE_CLAIM =
 const GENERIC_FULL_COVERAGE_CLAIM = /\b(?:exhaustive|complete)\b/i;
 
 const EXPLICIT_PARTIAL_DISCLOSURE =
-  /\b(?:partial|partially|sample|sampled|subset|bounded|limited|not exhaustive|non-exhaustive|incomplete|truncated|aborted|timed out|coverage gap|could not inspect|only inspected|first \d+|top \d+|returned \d+|remaining|unsearched|uninspected|unreviewed|not covered|uncovered|missing coverage)\b|\b(?:inspected|searched|reviewed|analy[sz]ed)\s+\d+\s+(?:of|out of)\s+\d+\b/i;
+  /\b(?:partial|partially|sample|sampled|subset|not exhaustive|non-exhaustive|incomplete|truncated|aborted|timed out|coverage gap|could not inspect|only inspected|only searched|only reviewed|first \d+|top \d+|returned \d+|remaining|unsearched|uninspected|unreviewed|not covered|uncovered|missing coverage)\b|\b(?:bounded|limited)\s+(?:coverage|sample|results?|records?|calls?|transcripts?|cohort|dataset|evidence|inspection|search|review)\b|\b(?:coverage|inspection|search|review|sample)\s+(?:was|is|remains|looks)?\s*(?:bounded|limited)\b|\b(?:inspected|searched|reviewed|analy[sz]ed)\s+\d+\s+(?:of|out of)\s+\d+\b/i;
 
 const COVERAGE_SENSITIVE_ANALYTICS_REQUEST =
   /\b(?:all|every|each|entire|complete|full|exhaustive)\b[^.?!]{0,220}\b(?:calls?|records?|transcripts?|deals?|accounts?|customers?|tickets?|issues?|messages?|source records?|cohort|dataset|results?)\b|\b(?:find|surface|search|scan|grep|review|inspect|check|look through)\b[^.?!]{0,220}\b(?:any|all|every|each|mentions?|matches?|examples?|source records?|calls?|records?|transcripts?|deals?|accounts?|customers?|tickets?|issues?|messages?)\b|\b(?:let me know if you surface anything|surface anything|anything around|absence matters|where (?:the )?lack thereof|lack thereof is impacting|no mentions?|zero mentions?)\b/i;
@@ -334,11 +337,9 @@ export function hasExplicitPartialDisclosure(text: string): boolean {
 
 export function hasOverstatedCoverageConfidenceClaim(text: string): boolean {
   if (!looksLikeStrongCoverageClaim(text)) return false;
+  if (hasExplicitPartialDisclosure(text)) return false;
   if (EXPLICIT_FULL_COVERAGE_CONFIDENCE_CLAIM.test(text)) return true;
-  return (
-    GENERIC_FULL_COVERAGE_CLAIM.test(text) &&
-    !hasExplicitPartialDisclosure(text)
-  );
+  return GENERIC_FULL_COVERAGE_CLAIM.test(text);
 }
 
 export function looksLikeCoverageSensitiveAnalyticsRequest(
@@ -372,6 +373,9 @@ export function hasCorpusWorkflowAttempt(
     if (isProviderErrorOnlyContent(result.content)) return false;
     const name = String(result.name ?? "");
     if (CORPUS_SOURCE_ACTIONS.has(name)) return true;
+    if (name === "run-code") {
+      return RUN_CODE_CORPUS_WORKFLOW_TEXT.test(String(result.content ?? ""));
+    }
 
     // Connected provider MCP tools can expose broad search/list/request
     // primitives directly. Treat those as corpus-capable when they succeed so
