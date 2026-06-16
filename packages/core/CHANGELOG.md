@@ -1,5 +1,26 @@
 # @agent-native/core
 
+## 0.50.0
+
+### Minor Changes
+
+- 29349c5: Add an AgentHarness substrate for running full agent runtimes through Agent
+  Native, including durable harness session storage, AI SDK harness adapter
+  support, run-manager integration, and background-run projection.
+- 29349c5: Add a shared provider API quota governor with request dedupe, Retry-After handling, and cooldown persistence.
+
+### Patch Changes
+
+- 29349c5: Remove decorative box shadows from visual plan and recap wireframe frames.
+- 29349c5: Make the PR Visual Recap workflow easier to debug and safer against deploy
+  gaps: upload the agent-authored `recap-source.json` as a CI artifact when the
+  publish fails (previously only the screenshot was kept, so failures were
+  opaque), and add a pre-publish route-health probe that fails with a clear
+  "plan app routes return 404 - deploy not yet propagated" diagnostic instead of
+  letting the agent run and fail confusingly when the plan server is behind.
+- 29349c5: Back workspace file helpers with the existing Resources table and keep the
+  legacy workspace-files bridge hidden from normal agent tool lists.
+
 ## 0.49.27
 
 ### Patch Changes
