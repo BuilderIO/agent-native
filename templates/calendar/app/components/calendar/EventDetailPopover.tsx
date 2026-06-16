@@ -489,10 +489,15 @@ export function EventDetailPopover({
       }
       void (async () => {
         const { scope: _scope, ...notificationUpdates } = updates;
+        const shouldChooseGuestScope =
+          isRecurringEvent && "attendees" in updates;
         const guestNotification = await promptGuestNotification({
           event,
           action: "update",
           updates: notificationUpdates,
+          recurrenceScope: shouldChooseGuestScope
+            ? { enabled: true, defaultScope: "single" }
+            : undefined,
         });
         if (!guestNotification) return;
         updateEvent.mutate({
@@ -504,7 +509,14 @@ export function EventDetailPopover({
       })();
       return true;
     },
-    [event, isDraft, onDraftUpdate, promptGuestNotification, updateEvent],
+    [
+      event,
+      isDraft,
+      isRecurringEvent,
+      onDraftUpdate,
+      promptGuestNotification,
+      updateEvent,
+    ],
   );
 
   const handleAvailabilityChange = useCallback(
