@@ -693,7 +693,7 @@ function DiffRead({
   const annotationLayout = ctx.codeAnnotationLayout;
   const annotationHoverSide = annotationLayout?.hoverSide ?? "right";
   const annotationHoverFallbackSide =
-    annotationLayout?.hoverFallbackSide ?? "below";
+    annotationLayout?.hoverFallbackSide ?? "right";
   const annotationMarginSide = annotationLayout?.marginSide ?? "auto";
   const resolved = useMemo(
     () =>
@@ -1076,8 +1076,8 @@ function rowMarkerInfo(
 function annotatedRowBg(info: { isActive: boolean } | null): string | null {
   if (!info) return null;
   return info.isActive
-    ? "bg-amber-400/20 dark:bg-amber-300/15"
-    : "bg-amber-400/[0.07] dark:bg-amber-300/[0.07]";
+    ? "bg-amber-400/[0.12] dark:bg-amber-300/[0.10]"
+    : "bg-amber-400/[0.045] dark:bg-amber-300/[0.045]";
 }
 
 /**

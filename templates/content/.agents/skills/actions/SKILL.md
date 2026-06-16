@@ -110,9 +110,9 @@ action trio instead:
 
 - `provider-api-catalog`: lists provider base URLs, auth style, credential keys,
   docs/spec URLs, placeholders, and examples without exposing secrets.
-- `provider-api-docs`: fetches registered provider docs/spec URLs when the
-  exact endpoint, filter operator, payload shape, or pagination contract is
-  uncertain.
+- `provider-api-docs`: fetches public provider docs/spec/changelog URLs when
+  the exact endpoint, filter operator, payload shape, or pagination contract is
+  uncertain. Registered docs URLs are curated starting points.
 - `provider-api-request`: makes a constrained authenticated HTTP request to the
   provider host, injects configured credentials, blocks private/internal URLs,
   and redacts secrets.
@@ -125,7 +125,7 @@ duplicating the provider config. If credentials are stored on shareable/resource
 rows rather than in the shared credential or OAuth-token stores, build a resolver
 that enforces those access checks before exposing raw provider requests. Keep
 `provider-api-request` `http: false` unless you have a separate UI permission
-model for arbitrary provider writes. Specific actions such as `hubspot-deals`,
+model for arbitrary provider writes. Specific actions such as `search-records`,
 `search-emails`, or `sync-source` are convenience shortcuts, not capability
 limits; agents should fall back to the provider API trio when a question
 requires an endpoint or filter that the shortcut does not model.
@@ -138,6 +138,18 @@ the agent should normally be able to reach it through `provider-api-request`
 with the user's configured credentials. For large responses, expose staging
 (`stageAs`, `itemsPath`, pagination, and `query-staged-dataset`) or sandboxed
 code execution so the agent can reduce data without flooding context.
+
+For broad provider questions, cross-source joins, corpus-wide mention/search
+work, classification, or any answer where absence matters, design the action
+surface for full coverage instead of convenience-only samples. The agent should
+be able to fetch every relevant page or an explicitly bounded cohort, stage or
+save the raw provider response outside chat, and then use
+`query-staged-dataset`, `run-code`, or provider-side search to count, join,
+grep, classify, and aggregate. Tool descriptions and AGENTS.md guidance should
+teach agents to report source, filters, time window, row/record counts,
+pagination status, truncation, failed pages, and uncovered gaps. They must not
+turn default limits, sampled rows, truncated excerpts, or aborted calls into a
+confident "none found", "all records", or exhaustive conclusion.
 
 ### The `http` Option
 

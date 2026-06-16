@@ -83,7 +83,12 @@ export interface FetchAllPagesConfig {
    * Query parameter name to pass the cursor on the next request,
    * e.g. "cursor" or "page_token".
    */
-  cursorParam: string;
+  cursorParam?: string;
+  /**
+   * Dot-path in the JSON request body to set to the cursor on the next request.
+   * Use this for POST-body pagination, e.g. Gong's top-level `cursor`.
+   */
+  cursorBodyPath?: string;
   /**
    * Dot-path to the items array in each response body.
    * When omitted, the whole response body is appended to the items array.
@@ -568,6 +573,24 @@ const PROVIDER_CONFIGS: Record<ProviderApiId, ProviderApiConfig> = {
         path: "/calls/transcript",
         body: { filter: { callIds: ["<call-id>"] } },
       },
+      {
+        label: "Calls with parties/content",
+        method: "POST",
+        path: "/calls/extensive",
+        body: {
+          filter: { fromDateTime: "<iso-date-time>" },
+          contentSelector: {
+            exposedFields: {
+              parties: true,
+              content: { brief: true, keyPoints: true },
+            },
+          },
+        },
+      },
+    ],
+    notes: [
+      "For broad corpus work, call /calls/extensive with provider-api-request and stageAs/saveToFile. Gong returns the next cursor at records.cursor and expects the next cursor in the POST body at cursor, so use pagination { nextCursorPath: 'records.cursor', cursorBodyPath: 'cursor' } for stageAs or fetchAllPages { cursorPath: 'records.cursor', cursorBodyPath: 'cursor' } for saveToFile.",
+      "Batch transcripts with POST /calls/transcript and body { filter: { callIds: [...] } } after narrowing or staging call ids.",
     ],
   },
   google_calendar: {
@@ -1120,11 +1143,11 @@ export async function executeProviderApiRequest(
   if (args.fetchAllPages) {
     const pageCfg = args.fetchAllPages;
     const { items, pageCount, lastStatus, lastContentType } =
-      await fetchAllPages(pageCfg, async (extraQuery) => {
-        const queryWithCursor = extraQuery
+      await fetchAllPages(pageCfg, async (extra) => {
+        const queryWithCursor = extra?.query
           ? mergeQueryObjects(
               substituteUnknown(args.query, placeholders),
-              extraQuery,
+              extra.query,
             )
           : substituteUnknown(args.query, placeholders);
         const pageUrl = buildProviderUrl({
@@ -1133,10 +1156,14 @@ export async function executeProviderApiRequest(
           rawPath: substituteString(args.path, placeholders),
           query: queryWithCursor,
         });
-        const pageBody = prepareBody(
-          substituteUnknown(args.body, placeholders),
-          { ...headers },
-        );
+        const bodyWithCursor = extra?.bodyCursor
+          ? setValueAtPath(
+              substituteUnknown(args.body, placeholders),
+              extra.bodyCursor.path,
+              extra.bodyCursor.value,
+            )
+          : substituteUnknown(args.body, placeholders);
+        const pageBody = prepareBody(bodyWithCursor, { ...headers });
         const resp = await fetchWithTimeout(pageUrl.href, {
           method,
           headers,
@@ -1295,9 +1322,9 @@ async function executeCustomProviderApiRequest(
   if (args.fetchAllPages) {
     const pageCfg = args.fetchAllPages;
     const { items, pageCount, lastStatus, lastContentType } =
-      await fetchAllPages(pageCfg, async (extraQuery) => {
-        const queryWithCursor = extraQuery
-          ? mergeQueryObjects(args.query, extraQuery)
+      await fetchAllPages(pageCfg, async (extra) => {
+        const queryWithCursor = extra?.query
+          ? mergeQueryObjects(args.query, extra.query)
           : args.query;
         const pageUrl = buildProviderUrl({
           config: syntheticConfig,
@@ -1305,7 +1332,14 @@ async function executeCustomProviderApiRequest(
           rawPath: args.path,
           query: queryWithCursor,
         });
-        const pageBody = prepareBody(args.body, { ...headers });
+        const bodyWithCursor = extra?.bodyCursor
+          ? setValueAtPath(
+              args.body,
+              extra.bodyCursor.path,
+              extra.bodyCursor.value,
+            )
+          : args.body;
+        const pageBody = prepareBody(bodyWithCursor, { ...headers });
         const resp = await fetchWithTimeout(pageUrl.href, {
           method,
           headers,
@@ -2542,6 +2576,28 @@ function mergeQueryObjects(
   return extra;
 }
 
+function setValueAtPath(base: unknown, path: string, value: unknown): unknown {
+  const root =
+    base && typeof base === "object" && !Array.isArray(base)
+      ? { ...(base as Record<string, unknown>) }
+      : {};
+  const parts = path.split(".").filter(Boolean);
+  if (!parts.length) return root;
+
+  let current: Record<string, unknown> = root;
+  for (const part of parts.slice(0, -1)) {
+    const existing = current[part];
+    const next =
+      existing && typeof existing === "object" && !Array.isArray(existing)
+        ? { ...(existing as Record<string, unknown>) }
+        : {};
+    current[part] = next;
+    current = next;
+  }
+  current[parts[parts.length - 1]!] = value;
+  return root;
+}
+
 function clampTimeout(timeoutMs: number | undefined): number {
   if (!Number.isFinite(timeoutMs)) return DEFAULT_TIMEOUT_MS;
   return Math.max(1_000, Math.min(MAX_TIMEOUT_MS, Math.floor(timeoutMs!)));
@@ -2614,7 +2670,10 @@ async function handleSaveToFile(
  */
 async function fetchAllPages(
   config: FetchAllPagesConfig,
-  executeOnePage: (extraQuery?: Record<string, string>) => Promise<{
+  executeOnePage: (extra?: {
+    query?: Record<string, string>;
+    bodyCursor?: { path: string; value: string };
+  }) => Promise<{
     text: string;
     contentType: string | null;
     status: number;
@@ -2639,14 +2698,42 @@ async function fetchAllPages(
   let lastStatus = 0;
   let lastContentType: string | null = null;
 
-  while (pageCount < maxPages) {
-    const extraQuery: Record<string, string> = {};
-    if (cursor) extraQuery[config.cursorParam] = cursor;
+  if (!config.cursorParam && !config.cursorBodyPath) {
+    throw new Error(
+      "fetchAllPages requires cursorParam or cursorBodyPath to send the next cursor.",
+    );
+  }
+  if (config.cursorParam && config.cursorBodyPath) {
+    throw new Error(
+      "fetchAllPages accepts exactly one cursor method: cursorParam or cursorBodyPath.",
+    );
+  }
 
-    const page = await executeOnePage(pageCount > 0 ? extraQuery : undefined);
+  while (pageCount < maxPages) {
+    const extra: {
+      query?: Record<string, string>;
+      bodyCursor?: { path: string; value: string };
+    } = {};
+    if (cursor) {
+      if (config.cursorParam) extra.query = { [config.cursorParam]: cursor };
+      if (config.cursorBodyPath) {
+        extra.bodyCursor = { path: config.cursorBodyPath, value: cursor };
+      }
+    }
+
+    const page = await executeOnePage(pageCount > 0 ? extra : undefined);
     lastStatus = page.status;
     lastContentType = page.contentType;
     pageCount++;
+
+    if (!page.ok) {
+      const preview = page.text.replace(/\s+/g, " ").trim().slice(0, 500);
+      throw new Error(
+        `fetchAllPages request failed with HTTP ${page.status}${
+          preview ? `: ${preview}` : ""
+        }`,
+      );
+    }
 
     let body: unknown;
     try {

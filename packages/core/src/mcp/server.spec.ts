@@ -63,6 +63,21 @@ vi.mock("./builtin-tools.js", () => ({
       },
       run: async () => ({ response: "agent answer" }),
     },
+    ask_app_status: {
+      tool: {
+        description: "Poll an ask_app task",
+        parameters: {
+          type: "object",
+          properties: {
+            app: { type: "string" },
+            taskId: { type: "string" },
+          },
+          required: ["taskId"],
+        },
+      },
+      readOnly: true,
+      run: async () => ({ status: "completed", response: "agent answer" }),
+    },
     create_embed_session: {
       tool: {
         description: "Create an embed session",
@@ -629,6 +644,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       "list_apps",
       "open_app",
       "ask_app",
+      "ask_app_status",
       "create_embed_session",
     ]);
     expect(names).not.toContain("echo-thing");
@@ -827,6 +843,13 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
           },
           run: async () => ({ response: "ok" }),
         },
+        ask_app_status: {
+          tool: {
+            description: "Poll a granted workspace app ask",
+          },
+          readOnly: true,
+          run: async () => ({ status: "completed", response: "ok" }),
+        },
         create_embed_session: {
           tool: {
             description: "Create an embed session",
@@ -856,6 +879,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       "list_apps",
       "open_app",
       "ask_app",
+      "ask_app_status",
       "create_embed_session",
     ]);
     expect(names).not.toContain("bloated-widget");
@@ -1214,6 +1238,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       "list_apps",
       "open_app",
       "ask_app",
+      "ask_app_status",
       "create_embed_session",
     ]);
     expect(names).not.toContain("internal-heavy");
@@ -1291,6 +1316,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
         "list_apps",
         "open_app",
         "ask_app",
+        "ask_app_status",
         "create_embed_session",
         "tool-search",
       ]),

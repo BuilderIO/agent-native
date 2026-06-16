@@ -9,7 +9,7 @@ const ProviderSchema = z.enum(DISPATCH_PROVIDER_API_IDS);
 
 export default defineAction({
   description:
-    "Inspect provider API docs/spec metadata, or fetch a registered provider docs/spec URL. Use this before arbitrary provider-api-request calls when the exact endpoint, filter operator, payload shape, pagination, or API version is uncertain.",
+    "Inspect provider API docs/spec metadata, or fetch a public provider docs/spec/changelog URL. Use this before arbitrary provider-api-request calls when the exact endpoint, filter operator, payload shape, pagination, or API version is uncertain.",
   schema: z.object({
     provider: ProviderSchema.describe(
       "Provider whose API docs/spec to inspect.",
@@ -19,7 +19,7 @@ export default defineAction({
       .url()
       .optional()
       .describe(
-        "Optional docs/spec URL from provider-api-catalog to fetch. Only registered docs/spec origins are allowed.",
+        "Optional public docs/spec/changelog URL to fetch. provider-api-catalog returns curated starting URLs, but other public provider documentation URLs are allowed by the provider runtime.",
       ),
     maxBytes: z.coerce
       .number()

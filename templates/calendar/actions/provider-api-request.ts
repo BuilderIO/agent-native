@@ -24,7 +24,13 @@ const PaginationSchema = z
       .string()
       .optional()
       .describe(
-        "Query parameter name to inject the cursor into the next request. Required when nextCursorPath is set.",
+        "Query parameter name to inject the cursor into the next request. Use cursorBodyPath for APIs that page through POST bodies.",
+      ),
+    cursorBodyPath: z
+      .string()
+      .optional()
+      .describe(
+        "Dot-path in the JSON request body to set to the next cursor. Use this for POST-body pagination.",
       ),
     pageParam: z
       .string()
@@ -148,7 +154,7 @@ export default defineAction({
         "Dot-path to the items array in the response JSON, e.g. 'items' for Google Calendar events.list or 'results' for CRM searches. Omit for auto-detection.",
       ),
     pagination: PaginationSchema.describe(
-      "Pagination config for server-side fetchAll when stageAs is set. Supports cursor, page, and offset modes.",
+      "Pagination config for server-side fetchAll when stageAs is set. Supports cursor (nextCursorPath + cursorParam or cursorBodyPath), page, and offset modes.",
     ),
     saveToFile: z
       .string()
@@ -165,8 +171,15 @@ export default defineAction({
           ),
         cursorParam: z
           .string()
+          .optional()
           .describe(
-            "Query parameter name to pass the cursor on subsequent pages, e.g. 'pageToken'.",
+            "Query parameter name to pass the cursor on subsequent pages, e.g. 'pageToken'. Use cursorBodyPath instead for APIs that put cursors in POST bodies.",
+          ),
+        cursorBodyPath: z
+          .string()
+          .optional()
+          .describe(
+            "Dot-path in the JSON request body to set to the next cursor. Use for POST-body pagination.",
           ),
         itemsPath: z
           .string()
@@ -186,7 +199,7 @@ export default defineAction({
       })
       .optional()
       .describe(
-        "Enable cursor-based pagination. For Google Calendar events.list, use { cursorPath: 'nextPageToken', cursorParam: 'pageToken', itemsPath: 'items' }.",
+        "Enable cursor-based pagination. For Google Calendar events.list, use { cursorPath: 'nextPageToken', cursorParam: 'pageToken', itemsPath: 'items' }. For APIs that page through POST bodies, use cursorBodyPath instead of cursorParam.",
       ),
   }),
   http: false,
@@ -218,6 +231,8 @@ export default defineAction({
         { appId: CALENDAR_APP_ID, ownerEmail: ctx.userEmail },
       );
     }
-    return executeProviderApiRequest(args);
+    return executeProviderApiRequest(
+      args as unknown as Parameters<typeof executeProviderApiRequest>[0],
+    );
   },
 });

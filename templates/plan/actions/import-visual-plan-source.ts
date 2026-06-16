@@ -94,9 +94,24 @@ export default defineAction({
     }),
   },
   run: async (args) => {
-    let content = await parsePlanMdxFolder(args.mdx);
-    if (args.kind === "recap") {
-      assertRecapWireframesHaveContent(content);
+    // MDX parse + recap-validation failures are CLIENT errors: the supplied
+    // source is malformed (an unknown block tag, a malformed wireframe, empty
+    // recap wireframes, …). Re-classify them as a 422 carrying the real message
+    // so callers — especially the PR Visual Recap publisher — get an actionable
+    // reason instead of an opaque 500 "Internal server error". Without this the
+    // action route hides the message as a generic 500 AND the recap CLI retries
+    // a deterministic authoring error 3×.
+    let content: Awaited<ReturnType<typeof parsePlanMdxFolder>>;
+    try {
+      content = await parsePlanMdxFolder(args.mdx);
+      if (args.kind === "recap") {
+        assertRecapWireframesHaveContent(content);
+      }
+    } catch (err) {
+      throw Object.assign(
+        new Error(err instanceof Error ? err.message : String(err)),
+        { statusCode: 422 },
+      );
     }
     const title = args.title ?? content.title ?? "Imported visual plan";
     const brief = args.brief ?? content.brief ?? "Imported from MDX source.";

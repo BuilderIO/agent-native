@@ -1,7 +1,7 @@
 ---
 name: analysis-workspace
 description: >-
-  How to use durable workspace files for large-scale fusion analyses: chunked
+  How to use durable workspace files for large-scale multi-source analyses: chunked
   batch processing with per-item memos, run-code aggregation, saveToFile for
   big API pulls, and synthesizing across files that exceed one context window.
 ---
@@ -15,7 +15,8 @@ window, then read them back selectively for synthesis.
 
 ## When to Use
 
-- **Batch fan-out** with 30+ items (accounts, calls, deals, tickets): write a
+- **Batch fan-out** with 30+ items (accounts, calls, deals, tickets, messages,
+  documents, events): write a
   per-item memo file after each item, then synthesize across all memos in a
   final pass.
 - **Large API payloads**: use `saveToFile` on `provider-api-request` or
@@ -97,19 +98,19 @@ Allows up to 20 MB per call.
 
 ```
 provider-api-request
-  provider=hubspot
+  provider=<provider-id>
   method=POST
-  path=/crm/v3/objects/deals/search
+  path=/records/search
   body={ filterGroups: [...], limit: 200 }
-  saveToFile="analysis/hubspot-deals-2026-q2.json"
+  saveToFile="analysis/provider-records-2026-q2.json"
 ```
 
 Returns: `{ savedToFile: true, savedTo, status, bytes, contentType, preview }`.
 
 Then use `run-code` to process the saved file:
 ```javascript
-const raw = await workspaceRead("analysis/hubspot-deals-2026-q2.json");
-const deals = JSON.parse(raw);
+const raw = await workspaceRead("analysis/provider-records-2026-q2.json");
+const records = JSON.parse(raw);
 // … aggregate, filter, join …
 ```
 

@@ -13,6 +13,7 @@ export default createAgentChatPlugin({
   appId: "brain",
   actions: loadActionsFromStaticRegistry(actionsRegistry),
   resolveOrgId: async (event) => (await getOrgContext(event)).orgId,
+  codeExecution: { production: "sandboxed" },
   systemPrompt: `You are the Brain institutional-knowledge agent.
 
 Use actions as the source of truth. Import raw material with import-capture or import-transcript, queue distillation with enqueue-distillation, and write durable knowledge with write-knowledge.
@@ -24,7 +25,8 @@ Important rules:
 - Source policy matters: strict means answer from reviewed knowledge only; balanced means raw captures are fallback context when reviewed knowledge is thin; exploratory means raw captures and sources may be surfaced as clearly labeled leads.
 - Company-tier knowledge may create a proposal instead of publishing immediately, depending on settings.
 - Slack and Granola sources are configurable v1 connectors. Generic transcript import is always available.
-- Source/read actions are convenience readers, not provider capability limits. For ad hoc provider analysis that needs an endpoint, filter, payload, pagination mode, or API version not modeled by a Brain action, call provider-api-catalog/provider-api-docs, then provider-api-request against the provider's real HTTP API. Use connectionId for a specific shared grant and accountId for a specific OAuth account.`,
+- Source/read actions are convenience readers, not provider capability limits. For ad hoc provider analysis that needs an endpoint, filter, payload, pagination mode, or API version not modeled by a Brain action, call provider-api-catalog/provider-api-docs, then provider-api-request against the provider's real HTTP API. Use connectionId for a specific shared grant and accountId for a specific OAuth account.
+- For broad searches, joins, classification, source-corpus counts, or absence claims across provider records, fetch every relevant page or an explicitly bounded cohort, stage/save large responses with stageAs/saveToFile/fetchAllPages, then use query-staged-dataset or run-code to reduce the corpus. Report source, filters, row counts, pagination, truncation, and gaps.`,
   a2aMessageFallback: async ({ text }) => tryAnswerBrainA2AQuestion(text),
   mentionProviders: async () => {
     const { getDb, schema } = await import("../db/index.js");

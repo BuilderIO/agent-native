@@ -9,6 +9,7 @@ import {
 import { getCredentialContext } from "@agent-native/core/server";
 import { resolveSourceCredential } from "./source-credentials.js";
 
+export const BRAIN_APP_ID = "brain";
 export const BRAIN_PROVIDER_API_IDS = PROVIDER_API_IDS;
 export type BrainProviderApiId = ProviderApiId;
 export type { ProviderApiMethod, ProviderApiRequestArgs };
@@ -38,7 +39,7 @@ const resolveBrainCredential: ProviderApiCredentialResolver = async ({
 };
 
 const runtime = createProviderApiRuntime({
-  appId: "brain",
+  appId: BRAIN_APP_ID,
   localCredentialSource: "brain_local",
   getCredentialContext: () => {
     const ctx = getCredentialContext();
@@ -66,4 +67,8 @@ export function fetchProviderApiDocs(options: {
 
 export function executeProviderApiRequest(args: ProviderApiRequestArgs) {
   return runtime.executeRequest(args);
+}
+
+export function getBrainProviderApiRuntime() {
+  return runtime;
 }

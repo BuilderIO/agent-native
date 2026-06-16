@@ -8,6 +8,11 @@ type NativeUploadProgress = {
   progress?: number | null;
 };
 
+type ProcessingProgress = {
+  stage?: string;
+  progress?: number | null;
+};
+
 /**
  * Full-screen transparent feedback overlay. Rendered the moment the user
  * clicks Stop on the recording toolbar and kept visible until the browser
@@ -23,20 +28,10 @@ type NativeUploadProgress = {
  * right after `openExternal` to close this window.
  */
 export function Finalizing() {
-  // After ~3s we show a secondary "Opening in browser…" line so the user
-  // sees we're still making progress if the finalize takes a while.
-  const [showSecondary, setShowSecondary] = useState(false);
-  const [progress, setProgress] = useState<NativeUploadProgress>({
+  const [progress, setProgress] = useState<ProcessingProgress>({
     stage: "finalizing",
-    message: "Finishing up your clip...",
-    detail: null,
     progress: null,
   });
-
-  useEffect(() => {
-    const t = setTimeout(() => setShowSecondary(true), 3000);
-    return () => clearTimeout(t);
-  }, []);
 
   useEffect(() => {
     let disposed = false;
@@ -45,15 +40,12 @@ export function Finalizing() {
       const payload = event.payload ?? {};
       setProgress({
         stage: payload.stage,
-        message: payload.message || "Finishing up your clip...",
-        detail: payload.detail ?? null,
         progress:
           typeof payload.progress === "number" &&
           Number.isFinite(payload.progress)
             ? Math.min(1, Math.max(0, payload.progress))
             : null,
       });
-      setShowSecondary(true);
     })
       .then((u) => {
         if (disposed) {
@@ -73,35 +65,39 @@ export function Finalizing() {
     typeof progress.progress === "number"
       ? Math.round(progress.progress * 100)
       : null;
-  const detail =
-    progress.detail ||
-    (showSecondary
-      ? progress.stage === "compressing"
-        ? "Large recordings are re-encoded before upload."
-        : progress.stage === "uploading"
-          ? "Uploading to Clips now."
-          : "Opening in browser..."
-      : null);
+  const caption =
+    progress.stage === "uploading" ||
+    progress.stage === "processing" ||
+    progress.stage === "opening"
+      ? "Uploading clip..."
+      : progress.stage === "failed"
+        ? "Upload paused"
+        : "Optimizing clip...";
 
   return (
     <div className="finalizing-root">
       <div className="finalizing-card">
         <div className="finalizing-spinner" aria-hidden="true" />
-        <div className="finalizing-caption">{progress.message}</div>
-        {percent !== null ? (
-          <div className="finalizing-progress" aria-hidden="true">
-            <div
-              className="finalizing-progress-fill"
-              style={{ width: `${percent}%` }}
-            />
-          </div>
-        ) : null}
-        {detail ? (
-          <div className="finalizing-sub">
-            {detail}
-            {percent !== null ? ` ${percent}%` : ""}
-          </div>
-        ) : null}
+        <div className="finalizing-caption">{caption}</div>
+        <div
+          className="finalizing-progress"
+          aria-label={
+            percent === null ? caption : `${caption} ${percent}% complete`
+          }
+          role="progressbar"
+          aria-valuemin={0}
+          aria-valuemax={100}
+          aria-valuenow={percent ?? undefined}
+        >
+          <div
+            className={
+              percent === null
+                ? "finalizing-progress-fill finalizing-progress-fill-indeterminate"
+                : "finalizing-progress-fill"
+            }
+            style={percent === null ? undefined : { width: `${percent}%` }}
+          />
+        </div>
       </div>
     </div>
   );

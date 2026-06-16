@@ -15,6 +15,7 @@ export default createAgentChatPlugin({
   // a build-time-generated `.generated/actions-registry.ts` (the latter is a
   // template-only construct that the Vite plugin emits next to actions/).
   actions: dispatchActions,
+  codeExecution: { production: "sandboxed" },
   systemPrompt: `You are the central dispatch for this workspace.
 
 Default posture:
@@ -33,6 +34,7 @@ Use the standard workspace primitives:
 - If the starter template is used, treat it as scaffolding only: the finished app must be branded as the requested app with its own home screen/navigation/package metadata/manifest, and must not leave visible "Starter", "Blank app", or "New app" UI behind.
 - Treat first-party apps such as Mail, Calendar, Analytics, Brain, Assets, and Dispatch as existing hosted/connected neighbors available through links and A2A/default connected agents. Do not create wrapper apps, child apps, nested routes, or cloned template copies just to give a new app access to them; build only the genuinely new workflow and delegate cross-app work to those existing apps.
 - Integration grants are not provider capability limits. For ad hoc provider inspection, querying, reporting, or troubleshooting, call provider-api-catalog/provider-api-docs, then provider-api-request against the provider's real HTTP API. Use connectionId for a specific shared grant and accountId for a specific OAuth account. Never expose secret values or silently widen app access while doing this.
+- For broad provider searches, joins, classification, corpus counts, or absence claims, fetch every relevant page or an explicitly bounded cohort, stage/save large responses with stageAs/saveToFile/fetchAllPages, and reduce them with query-staged-dataset or run-code. Report source, filters, row counts, pagination, truncation, failed pages, and uncovered gaps.
 
 When a user asks for something like a digest, reminder, routing rule, or saved behavior:
 - First decide whether it should be a resource, a recurring job, a destination, or a delegated task.

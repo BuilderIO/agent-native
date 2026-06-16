@@ -20,7 +20,7 @@ export default defineAction({
     return {
       providers,
       guidance:
-        "Workspace integrations and grants are not capability limits. When a provider can answer a question through its HTTP API, inspect docs/spec URLs here and call provider-api-request with the exact provider API method/path/query/body instead of adding a rigid one-off action. Custom providers registered via provider-api-register also appear here.",
+        "Workspace integrations and grants are not capability limits. When a provider can answer a question through its HTTP API, inspect docs/spec URLs here and call provider-api-request with the exact provider API method/path/query/body instead of adding a rigid one-off action. For broad searches, joins, classification, or absence claims, stage or save the full bounded corpus and reduce it with query-staged-dataset or run-code. Custom providers registered via provider-api-register also appear here.",
     };
   },
 });

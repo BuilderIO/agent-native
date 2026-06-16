@@ -24,7 +24,13 @@ const PaginationSchema = z
       .string()
       .optional()
       .describe(
-        "Query parameter name to inject the cursor into the next request. Required when nextCursorPath is set.",
+        "Query parameter name to inject the cursor into the next request. Use cursorBodyPath for APIs that page through POST bodies.",
+      ),
+    cursorBodyPath: z
+      .string()
+      .optional()
+      .describe(
+        "Dot-path in the JSON request body to set to the next cursor. Use this for POST-body pagination.",
       ),
     pageParam: z
       .string()
@@ -139,7 +145,7 @@ export default defineAction({
         "Dot-path to the items array in the response JSON, e.g. 'items' for GitHub search results. Omit for auto-detection.",
       ),
     pagination: PaginationSchema.describe(
-      "Pagination config for server-side fetchAll when stageAs is set. Supports cursor, page, and offset modes.",
+      "Pagination config for server-side fetchAll when stageAs is set. Supports cursor (nextCursorPath + cursorParam or cursorBodyPath), page, and offset modes.",
     ),
     saveToFile: z
       .string()
@@ -156,8 +162,15 @@ export default defineAction({
           ),
         cursorParam: z
           .string()
+          .optional()
           .describe(
-            "Query parameter name to pass the cursor on subsequent pages.",
+            "Query parameter name to pass the cursor on subsequent pages. Use cursorBodyPath instead for APIs that put cursors in POST bodies.",
+          ),
+        cursorBodyPath: z
+          .string()
+          .optional()
+          .describe(
+            "Dot-path in the JSON request body to set to the next cursor. Use for POST-body pagination.",
           ),
         itemsPath: z
           .string()
@@ -176,7 +189,9 @@ export default defineAction({
           ),
       })
       .optional()
-      .describe("Enable cursor-based pagination for APIs that expose cursors."),
+      .describe(
+        "Enable cursor-based pagination for APIs that expose cursors. After each response, reads cursorPath and re-issues the request with cursorParam or cursorBodyPath set.",
+      ),
   }),
   http: false,
   run: async (args) => {
@@ -207,6 +222,8 @@ export default defineAction({
         { appId: DESIGN_APP_ID, ownerEmail: ctx.userEmail },
       );
     }
-    return executeProviderApiRequest(args);
+    return executeProviderApiRequest(
+      args as unknown as Parameters<typeof executeProviderApiRequest>[0],
+    );
   },
 });

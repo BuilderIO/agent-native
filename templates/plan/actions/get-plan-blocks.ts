@@ -61,6 +61,7 @@ export default defineAction({
       ),
   }),
   http: { method: "GET" },
+  requiresAuth: false,
   readOnly: true,
   publicAgent: {
     expose: true,

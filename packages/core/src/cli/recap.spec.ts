@@ -407,6 +407,35 @@ describe("recap direct publish", () => {
     }
   });
 
+  it("retries the block reference through a transient 404 (deploy propagation)", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "an-recap-blocks-404-"));
+    try {
+      let calls = 0;
+      const fetchFn: typeof fetch = (async () => {
+        calls += 1;
+        // First call hits a cold/old server instance without the route yet.
+        if (calls === 1) return textResponse("not found", 404);
+        return jsonResponse({
+          reference: "## Blocks\n\n| type | tag |",
+          count: 7,
+        });
+      }) as typeof fetch;
+
+      const out = path.join(dir, "recap-blocks.md");
+      const result = await fetchRecapBlockReference({
+        appUrl: "https://plan.agent-native.com",
+        out,
+        fetchFn,
+      });
+
+      expect(calls).toBe(2);
+      expect(result.ok).toBe(true);
+      expect(fs.readFileSync(out, "utf8")).toContain("## Blocks");
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it("validates and publishes recap-source.json with CI-owned metadata", async () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "an-recap-publish-"));
     try {
@@ -525,6 +554,56 @@ describe("recap direct publish", () => {
         keys[0],
         keys[0],
       ]);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("retries a transient 404 from create-visual-recap (deploy propagation window)", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "an-recap-404-"));
+    try {
+      const source = path.join(dir, "recap-source.json");
+      const out = path.join(dir, "recap-url.txt");
+      fs.writeFileSync(
+        source,
+        JSON.stringify({ mdx: { "plan.mdx": "---\ntitle: A\n---\n\n# A\n" } }),
+      );
+
+      let calls = 0;
+      const fetchFn: typeof fetch = (async () => {
+        calls += 1;
+        // First attempt hits a cold/old server instance that doesn't yet have
+        // the route deployed; the retry hits a warm instance and succeeds.
+        if (calls === 1) {
+          return jsonResponse(
+            {
+              error: true,
+              status: 404,
+              message:
+                "Cannot find any route matching [POST] https://plan.agent-native.com/_agent-native/actions/create-visual-recap",
+            },
+            404,
+          );
+        }
+        return jsonResponse({ planId: "recap-404", url: "/recaps/recap-404" });
+      }) as typeof fetch;
+
+      const result = await publishRecapSource({
+        appUrl: "https://plan.agent-native.com",
+        token: "plan-token",
+        sourcePath: source,
+        out,
+        repo: "example-org/example-repo",
+        pr: "42",
+        fetchFn,
+        cwd: dir,
+      });
+
+      expect(calls).toBe(2);
+      expect(result.url).toBe("https://plan.agent-native.com/recaps/recap-404");
+      expect(fs.readFileSync(out, "utf8").trim()).toBe(
+        "https://plan.agent-native.com/recaps/recap-404",
+      );
     } finally {
       fs.rmSync(dir, { recursive: true, force: true });
     }

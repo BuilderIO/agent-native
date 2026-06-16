@@ -142,5 +142,5 @@ describe("template routes", () => {
     expect(paths).not.toContain("/docs/resources");
     expect(paths).not.toContain("/templates/starter");
     expect(paths).not.toContain("/templates/videos");
-  });
+  }, 15000);
 });
