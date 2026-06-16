@@ -2,7 +2,7 @@ import { useParams, redirect, type LoaderFunctionArgs } from "react-router";
 import DocsLayout from "../components/DocsLayout";
 import MarkdownRenderer from "../components/MarkdownRenderer";
 import { getDoc } from "../components/docs-content";
-import { withDefaultSocialImage } from "../seo";
+import { withDefaultSocialImage, withDocsSocialImage } from "../seo";
 
 /** Legacy slug → current slug. Keep in sync with any renames in content/. */
 const SLUG_REDIRECTS: Record<string, string> = {
@@ -28,13 +28,16 @@ export const meta = ({ params }: { params: { slug: string } }) => {
   const doc = getDoc(params.slug);
   if (!doc)
     return withDefaultSocialImage([{ title: "Not Found — Agent-Native" }]);
-  return withDefaultSocialImage([
-    { title: `${doc.title} — Agent-Native` },
-    { name: "description", content: doc.description },
-    { property: "og:title", content: `${doc.title} — Agent-Native` },
-    { property: "og:description", content: doc.description },
-    { property: "og:type", content: "article" },
-  ]);
+  return withDocsSocialImage(
+    [
+      { title: `${doc.title} — Agent-Native` },
+      { name: "description", content: doc.description },
+      { property: "og:title", content: `${doc.title} — Agent-Native` },
+      { property: "og:description", content: doc.description },
+      { property: "og:type", content: "article" },
+    ],
+    doc.title,
+  );
 };
 
 export default function DocPage() {
