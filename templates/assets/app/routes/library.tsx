@@ -67,7 +67,8 @@ function isDraftAsset(asset: Asset) {
 function assetMatchesTab(asset: Asset, tab: AssetTab) {
   if (tab === "all") return true;
   if (tab === "drafts") return isDraftAsset(asset);
-  if (tab === "generated") return isGeneratedAsset(asset) && !isDraftAsset(asset);
+  if (tab === "generated")
+    return isGeneratedAsset(asset) && !isDraftAsset(asset);
   return !isGeneratedAsset(asset);
 }
 
@@ -820,7 +821,13 @@ export default function AssetPicker() {
           ? visibleCandidateRunIds
           : undefined,
     }),
-    [viewingDrafts, mediaType, query, selectedLibraryId, visibleCandidateRunIds],
+    [
+      viewingDrafts,
+      mediaType,
+      query,
+      selectedLibraryId,
+      visibleCandidateRunIds,
+    ],
   );
   const { data: assetData, isLoading: assetsLoading } = useActionQuery(
     "list-assets",

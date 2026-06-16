@@ -42,6 +42,9 @@ export default defineAction({
       .orderBy(desc(schema.assets.createdAt))
       .limit(limit ?? 50);
 
-    return { count: rows.length, assets: rows.map((row) => serializeAsset(row)) };
+    return {
+      count: rows.length,
+      assets: rows.map((row) => serializeAsset(row)),
+    };
   },
 });
