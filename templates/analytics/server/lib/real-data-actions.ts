@@ -44,7 +44,7 @@ export const CORPUS_SOURCE_ACTIONS = new Set([
 export const CORPUS_REDUCTION_ACTIONS = new Set(["run-code"]);
 
 const RUN_CODE_CORPUS_WORKFLOW_TEXT =
-  /\b(?:providerFetch|providerFetchAll|providerRequest|provider-api-request|query-staged-dataset|fetchAllPages|stageAs|saveToFile|bridgeToolsUsed:\s*(?:[a-z0-9_-]+,\s*)*(?:provider-api-request|query-staged-dataset)|appAction\(\s*["'](?:provider-api-request|query-staged-dataset)["'])\b/i;
+  /^bridgeToolsUsed:\s*(?:[a-z0-9_-]+,\s*)*(?:provider-api-request|query-staged-dataset)\b|(?:providerFetch(?:All)?\s*\(|appAction\s*\(\s*["'](?:provider-api-request|query-staged-dataset)["'])/im;
 
 const MCP_DATA_SOURCE_TOKENS = [
   "amplitude",

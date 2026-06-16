@@ -1899,6 +1899,15 @@ function joinProviderUrlPath(base: URL, rawPath: string): string {
   const basePath = base.pathname.replace(/\/+$/, "");
   const providerPath = rawPath.replace(/^\/+/, "");
   if (!providerPath) return basePath || "/";
+  const baseSegments = basePath.split("/").filter(Boolean);
+  const providerSegments = providerPath.split("/").filter(Boolean);
+  if (
+    baseSegments.length > 0 &&
+    providerSegments.length >= baseSegments.length &&
+    baseSegments.every((segment, index) => segment === providerSegments[index])
+  ) {
+    return `/${providerPath}`;
+  }
   return `${basePath}/${providerPath}`;
 }
 

@@ -3744,10 +3744,12 @@ export function createAgentChatPlugin(
       // Forward-declaration for the production run-code bridge supplier.
       // Must come before createRunCodeEntry so the closure can capture it.
       let prodRunCodeToolActions: Record<string, ActionEntry> = {};
+      let leanRunCodeToolActions: Record<string, ActionEntry> = {};
 
       // Sandboxed run-code tool: available in "sandboxed" or "trusted" prod
       // modes and always in dev mode.
       const runCodeTool: Record<string, ActionEntry> = {};
+      const leanRunCodeTool: Record<string, ActionEntry> = {};
       try {
         const { createRunCodeEntry } =
           await import("../coding-tools/run-code.js");
@@ -3755,6 +3757,12 @@ export function createAgentChatPlugin(
           // Supplier is evaluated at invocation time so runtime additions to
           // prodActions (e.g. MCP sync) are visible to the bridge.
           () => prodRunCodeToolActions,
+          { bridgeTools: options?.codeExecution?.bridgeTools },
+        );
+        leanRunCodeTool["run-code"] = createRunCodeEntry(
+          // Lean prompt mode intentionally exposes a much smaller action
+          // surface; keep sandbox appAction() calls scoped to that same surface.
+          () => leanRunCodeToolActions,
           { bridgeTools: options?.codeExecution?.bridgeTools },
         );
       } catch {
@@ -4936,12 +4944,9 @@ export function createAgentChatPlugin(
         // Otherwise templates with a minimal prompt can advertise sandboxed
         // execution in the system prompt while the actual tool registry omits
         // it.
-        ...(canToggle
-          ? devRunCodeTool
-          : resolvedProdCodeExec !== "off"
-            ? runCodeTool
-            : {}),
+        ...(canToggle || resolvedProdCodeExec !== "off" ? leanRunCodeTool : {}),
       });
+      leanRunCodeToolActions = leanActions;
 
       // Keep the prod action dict's MCP entries in sync when the manager's
       // server set changes at runtime (e.g. a user adds a remote MCP server
@@ -5061,7 +5066,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
         !canToggle && resolvedProdCodeExec !== "off"
           ? resolvedProdCodeExec === "trusted"
             ? "\n\n<code-execution-mode>Full shell access is enabled (trusted mode). You have bash, read, edit, write, and run-code tools available. Use bash for file discovery, running tests and builds, and project CLIs. Use run-code for sandboxed JavaScript data processing: provider/API pagination, joins, classification, aggregation, and large-response reduction. Use `pnpm action <name>` in bash to invoke registered app actions from the shell.</code-execution-mode>"
-            : "\n\n<code-execution-mode>Sandboxed code execution is enabled. The run-code tool lets you execute isolated JavaScript (ESM, top-level await) to fetch, aggregate, and reduce data. Use providerFetch() and webFetch() inside run-code for authenticated provider calls.</code-execution-mode>"
+            : "\n\n<code-execution-mode>Sandboxed code execution is enabled. The run-code tool lets you execute isolated JavaScript (ESM, top-level await) to fetch, aggregate, and reduce data. Use providerFetch(), providerFetchAll(), providerRequest(), and webFetch() inside run-code for authenticated provider calls.</code-execution-mode>"
           : "";
 
       const prodHandler = createProductionAgentHandler({

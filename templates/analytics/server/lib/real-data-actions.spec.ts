@@ -212,7 +212,7 @@ describe("coverage-sensitive analytics request classification", () => {
         {
           name: "run-code",
           content:
-            'const calls = await providerFetch("gong", "/calls", { query: { limit: 1000 } });',
+            'bridgeToolsUsed: provider-api-request\n\nstdout:\n{"rows":10}',
         },
       ]),
     ).toBe(true);
@@ -221,7 +221,7 @@ describe("coverage-sensitive analytics request classification", () => {
         {
           name: "run-code",
           content:
-            'bridgeToolsUsed: provider-api-request\n\nstdout:\n{"rows":10}',
+            'bridgeToolsUsed: query-staged-dataset\n\nstdout:\n{"rows":10}',
         },
       ]),
     ).toBe(true);
