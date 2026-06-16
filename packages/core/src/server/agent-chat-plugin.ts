@@ -3048,17 +3048,20 @@ function generateCorpusToolsPrompt(
   registry: Record<string, ActionEntry>,
 ): string {
   const hasProviderApi = "provider-api-request" in registry;
+  const hasProviderCorpusJob = "provider-corpus-job" in registry;
   const providerDiscoveryTools = [
     "provider-api-catalog" in registry ? "`provider-api-catalog`" : null,
     "provider-api-docs" in registry ? "`provider-api-docs`" : null,
   ].filter(Boolean);
   const hasRunCode = "run-code" in registry;
   const hasStagedDataset = "query-staged-dataset" in registry;
-  if (!hasProviderApi && !hasRunCode && !hasStagedDataset) return "";
+  if (!hasProviderApi && !hasProviderCorpusJob && !hasRunCode && !hasStagedDataset)
+    return "";
 
   const available = [
     ...providerDiscoveryTools,
     hasProviderApi ? "`provider-api-request`" : null,
+    hasProviderCorpusJob ? "`provider-corpus-job`" : null,
     hasStagedDataset ? "`query-staged-dataset`" : null,
     hasRunCode ? "`run-code`" : null,
   ].filter(Boolean);
@@ -3067,7 +3070,9 @@ function generateCorpusToolsPrompt(
 
 Available corpus-capable tools: ${available.join(", ")}.
 
-For broad provider searches, raw API access, multi-page cohorts, cross-source joins, classification/counting over records, or absence-sensitive answers, do not stop at a bounded shortcut action. Use the provider's broad API/search/list surface, fetch every relevant page or an explicit bounded cohort, stage/save large responses when needed, and reduce the corpus with staged-dataset queries or code execution. In run-code, prefer providerFetchAll() for cursor/page/offset pagination and providerRequest() when response status, headers, or truncation metadata matters. Report source, filters, row counts, pagination/truncation, failed pages, and remaining gaps.`;
+For broad provider searches, raw API access, multi-page cohorts, cross-source joins, classification/counting over records, or absence-sensitive answers, do not stop at a bounded shortcut action. Use the provider's broad API/search/list surface, fetch every relevant page or an explicit bounded cohort, stage/save large responses when needed, and reduce the corpus with durable corpus jobs, staged-dataset queries, or code execution.
+
+When \`provider-corpus-job\` is available, prefer it for transcript/message/ticket/issue/document scans that may exceed one turn, need provider-side backoff, or need a defensible "not found" conclusion. Use operation="start" with mode="paginated-search" for any paginated provider endpoint, or mode="batch-search" when a prior cohort of ids/records must feed a second provider endpoint. Continue paused jobs with operation="continue" until status is completed or quota_wait, then read operation="results". In run-code, prefer providerFetchAll() for short cursor/page/offset pagination and providerRequest() when response status, headers, or truncation metadata matters. Report source, filters, row counts, pagination/truncation, failed pages, quota_wait times, and remaining gaps.`;
 }
 
 /**
