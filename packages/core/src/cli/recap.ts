@@ -2150,29 +2150,49 @@ export async function fetchRecapBlockReference(input: {
     recapActionEndpoint(input.appUrl, "get-plan-blocks"),
   );
   endpoint.searchParams.set("format", "reference");
-  const response = await fetchJsonWithTimeout(
-    endpoint.toString(),
-    { method: "GET", headers: { accept: "application/json" } },
-    fetchFn,
-  );
-  if (!response.ok) {
-    const detail = await response.text().catch(() => "");
-    throw new Error(
-      `get-plan-blocks failed ${response.status} ${response.statusText}: ${sanitizeAgentFailureSummary(
-        detail,
-        500,
-      )}`,
-    );
+  // The get-plan-blocks route can transiently 404/timeout while a plan-app
+  // deploy is still propagating to cold-start instances. Retry a few times so
+  // the recap authors against the LIVE block reference instead of silently
+  // falling back to bundled (possibly-stale) block tags — stale tags are what
+  // make create-visual-recap reject the authored MDX downstream.
+  let lastError = "";
+  for (let attempt = 1; attempt <= 4; attempt += 1) {
+    try {
+      const response = await fetchJsonWithTimeout(
+        endpoint.toString(),
+        { method: "GET", headers: { accept: "application/json" } },
+        fetchFn,
+      );
+      if (!response.ok) {
+        const detail = await response.text().catch(() => "");
+        lastError = `get-plan-blocks failed ${response.status} ${
+          response.statusText
+        }: ${sanitizeAgentFailureSummary(detail, 500)}`;
+        if (attempt < 4 && shouldRetryRecapPublish(response.status)) {
+          await delay(attempt * 1500);
+          continue;
+        }
+        throw new Error(lastError);
+      }
+      const json = (await response.json().catch(() => null)) as {
+        reference?: string;
+        count?: number;
+      } | null;
+      if (!json?.reference) {
+        throw new Error("get-plan-blocks returned no reference text.");
+      }
+      fs.writeFileSync(path.resolve(out), json.reference);
+      return { ok: true, out, count: json.count };
+    } catch (err) {
+      lastError = err instanceof Error ? err.message : String(err);
+      if (attempt < 4) {
+        await delay(attempt * 1500);
+        continue;
+      }
+      throw new Error(lastError);
+    }
   }
-  const json = (await response.json().catch(() => null)) as {
-    reference?: string;
-    count?: number;
-  } | null;
-  if (!json?.reference) {
-    throw new Error("get-plan-blocks returned no reference text.");
-  }
-  fs.writeFileSync(path.resolve(out), json.reference);
-  return { ok: true, out, count: json.count };
+  throw new Error(lastError || "get-plan-blocks failed.");
 }
 
 function recapUrlFromPublishResult(result: unknown, appUrl: string): string {
