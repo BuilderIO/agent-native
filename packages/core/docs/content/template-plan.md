@@ -305,9 +305,10 @@ components. A custom MDX tag must be registered as a Plan block so the server ca
 parse and serialize it, the browser can render and edit it, and the agent can
 see it in the block vocabulary returned by `get-plan-blocks`.
 
-A registered block has two halves:
+A registered block has three surfaces:
 
 - A React-free schema and MDX config, safe for server and agent code.
+- A normalized runtime type/schema entry in `shared/plan-content.ts`.
 - A browser block spec with `Read` and optional `Edit` React components.
 
 Keep the block `type` and MDX `tag` stable. The `type` is stored in normalized
@@ -358,20 +359,29 @@ export const riskCardMdx: BlockMdxConfig<RiskCardData> = {
 };
 ```
 
-2. Register the React-free server spec in
+2. Extend the normalized Plan content model in
+   `templates/plan/shared/plan-content.ts`.
+
+Add the new `type` to `PlanBlockType`, add a matching block interface to the
+`PlanBlock` union, and add the same data shape to `planBlockSchema`. This keeps
+database saves, source imports, and `update-block` patches validating the custom
+block instead of rejecting it as an unknown type.
+
+3. Register the React-free server spec in
    `templates/plan/shared/plan-block-registry.ts`.
 
 ```ts
 import {
+  BlockRegistry,
   defineBlock,
+  registerLibraryBlockConfigs,
   registerBlocks,
-  type BlockSpec,
 } from "@agent-native/core/blocks/server";
 import {
   riskCardMdx,
   riskCardSchema,
   type RiskCardData,
-} from "./risk-card.config";
+} from "./risk-card.config.js";
 
 const ServerReadStub = () => null;
 
@@ -383,7 +393,7 @@ const riskCardServerBlock = defineBlock<RiskCardData>({
   placement: ["block"],
   label: "Risk card",
   description: "A markdown risk note with a low, medium, or high severity.",
-}) satisfies BlockSpec<RiskCardData>;
+});
 
 export function registerPlanBlocks(registry: BlockRegistry): void {
   registerLibraryBlockConfigs(registry, {
@@ -393,12 +403,13 @@ export function registerPlanBlocks(registry: BlockRegistry): void {
 }
 ```
 
-3. Register the browser spec in
+4. Register the browser spec in
    `templates/plan/app/components/plan/planBlocks.tsx`.
 
 ```tsx
 import {
   defineBlock,
+  registerLibraryBlocks,
   registerBlocks,
   type BlockReadProps,
 } from "@agent-native/core/blocks";
@@ -408,11 +419,7 @@ import {
   type RiskCardData,
 } from "@shared/risk-card.config";
 
-function RiskCardBlock({
-  data,
-  blockId,
-  ctx,
-}: BlockReadProps<RiskCardData>) {
+function RiskCardBlock({ data, blockId, ctx }: BlockReadProps<RiskCardData>) {
   return (
     <section
       className="rounded-md border border-border bg-card p-4"

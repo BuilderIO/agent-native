@@ -103,6 +103,8 @@ Use this shape:
 
 - Put the React-free data schema and `BlockMdxConfig` in `shared/*.config.ts`.
   Import server-safe helpers from `@agent-native/core/blocks/server`.
+- Extend `PlanBlockType`, the `PlanBlock` union, and `planBlockSchema` in
+  `shared/plan-content.ts` so saves/imports/patches accept the custom type.
 - Register a server spec in `shared/plan-block-registry.ts` with
   `defineBlock`, `Read: () => null`, a stable `type`, stable `mdx.tag`, clear
   `label`, `description`, and `placement`.
