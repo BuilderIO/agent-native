@@ -1032,7 +1032,7 @@ describe("runAgentLoop", () => {
     ).toMatchObject({
       toolName: "gong-calls",
       priorCalls: 12,
-      message: expect.stringContaining("Finaliz"),
+      message: expect.stringContaining("change strategy"),
     });
 
     expect(
@@ -1072,7 +1072,7 @@ describe("runAgentLoop", () => {
     ).toBeNull();
   });
 
-  it("forces a final coverage summary instead of continuing a repeated source sweep", async () => {
+  it("allows a bulk strategy change instead of continuing a repeated source sweep", async () => {
     let streamCalls = 0;
     const seenMessages: unknown[] = [];
     const engine: AgentEngine = {
@@ -1091,21 +1091,36 @@ describe("runAgentLoop", () => {
         streamCalls += 1;
         seenMessages.push(opts.messages);
         const serializedMessages = JSON.stringify(opts.messages);
-        if (serializedMessages.includes("convergence budget")) {
+        if (serializedMessages.includes("bulk coverage complete")) {
           yield {
             type: "text-delta",
-            text: "Partial coverage: report the hits and gaps.",
+            text: "Bulk coverage complete.",
           };
           yield {
             type: "assistant-content",
             parts: [
               {
                 type: "text" as const,
-                text: "Partial coverage: report the hits and gaps.",
+                text: "Bulk coverage complete.",
               },
             ],
           };
           yield { type: "stop", reason: "end_turn" };
+          return;
+        }
+        if (serializedMessages.includes("convergence budget")) {
+          yield {
+            type: "assistant-content",
+            parts: [
+              {
+                type: "tool-call" as const,
+                id: "bulk-code",
+                name: "run-code",
+                input: { script: "bulk corpus search" },
+              },
+            ],
+          };
+          yield { type: "stop", reason: "tool_use" };
           return;
         }
         yield {
@@ -1126,6 +1141,7 @@ describe("runAgentLoop", () => {
       company: args.company,
       transcriptSearch: { matchingCalls: 0, inspectedCalls: 5 },
     }));
+    const runCode = vi.fn(async () => "bulk coverage complete");
     const events: any[] = [];
 
     await runAgentLoop({
@@ -1144,6 +1160,10 @@ describe("runAgentLoop", () => {
           ...actionEntry({ readOnly: true }),
           run: gongCalls,
         },
+        "run-code": {
+          ...actionEntry({ readOnly: true }),
+          run: runCode,
+        },
       },
       send: (event) => events.push(event),
       signal: new AbortController().signal,
@@ -1157,13 +1177,12 @@ describe("runAgentLoop", () => {
         result: expect.stringContaining("convergence budget"),
       }),
     );
+    expect(runCode).toHaveBeenCalledTimes(1);
     expect(events).toContainEqual({
       type: "text",
-      text: "Partial coverage: report the hits and gaps.",
+      text: "Bulk coverage complete.",
     });
-    expect(JSON.stringify(seenMessages.at(-1))).toContain(
-      "Do not call more tools",
-    );
+    expect(JSON.stringify(seenMessages.at(-1))).toContain("change strategy");
   });
 
   it("counts repeated source sweeps from internal continuation history", async () => {

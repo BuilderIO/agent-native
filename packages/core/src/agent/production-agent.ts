@@ -1780,12 +1780,18 @@ export function repeatedSourceSweepGuardMessage(opts: {
   return (
     `Skipped ${opts.toolName}: this turn already made ${opts.priorCalls} ` +
     `call(s) to the same read-only source/search tool, which exceeds the ` +
-    `${threshold}-call convergence budget. Do not call more tools for this ` +
-    `sweep. Finalize now from the evidence already gathered: answer the user, ` +
-    `state the source filters, count what was inspected, list confirmed hits, ` +
-    `and explicitly name remaining gaps, timeouts, quotas, or uninspected ` +
-    `records. If complete coverage is still required, recommend a bulk/corpus ` +
-    `workflow or a follow-up retry instead of continuing one source call at a time.`
+    `${threshold}-call convergence budget. Stop calling ${opts.toolName} ` +
+    `one item at a time and change strategy before answering. If a broader ` +
+    `read-only bulk/source mechanism is available, use it now: provider API ` +
+    `catalog/docs/request tools with pagination or staging, code execution ` +
+    `against staged/provider data, workspace files, or another batch-capable ` +
+    `tool that can join, grep, classify, count, or aggregate without flooding ` +
+    `the chat context. Do not ask the user whether to run the obvious bulk/code ` +
+    `workflow when it is read-only and needed to satisfy their request; either ` +
+    `do it in this turn or state exactly why it is unavailable. If no broader ` +
+    `path exists or quota/timeouts block it, answer from the evidence already ` +
+    `gathered: state the source filters, count what was inspected, list ` +
+    `confirmed hits, and explicitly name remaining gaps or uninspected records.`
   );
 }
 
