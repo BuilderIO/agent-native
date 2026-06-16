@@ -1,5 +1,12 @@
 # @agent-native/core
 
+## 0.51.3
+
+### Patch Changes
+
+- 789b9ca: Clarify visual-plan ownership guidance so agents keep using structured Plans while choosing hosted, local-files, or self-hosted mode based on privacy and brand-control needs.
+- 789b9ca: Tell agents to switch to bulk/code/provider API workflows when repeated source sweeps hit the convergence budget, instead of asking users to approve the obvious next read-only step.
+
 ## 0.51.2
 
 ### Patch Changes
