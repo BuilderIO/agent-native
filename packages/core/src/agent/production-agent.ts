@@ -1658,6 +1658,7 @@ export function actionsToEngineTools(
 ): EngineTool[] {
   const tools: EngineTool[] = [];
   for (const [name, entry] of Object.entries(actions)) {
+    if (entry.agentTool === false) continue;
     const inputSchema = normalizeToolInputSchema(entry.tool.parameters);
     if (!inputSchema) {
       console.warn(

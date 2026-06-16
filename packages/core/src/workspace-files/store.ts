@@ -1,44 +1,39 @@
 /**
- * Workspace-files store.
+ * Compatibility wrapper for the old `workspace-files` API.
  *
- * Provides read/write/append/list/delete/grep operations over the
- * `workspace_files` table. All writes enforce per-file (2 MB) and per-scope
- * (200 MB) caps. The table is lazily migrated on first use.
+ * Storage now goes through the core Resources table so agent files live in the
+ * same workspace the user manages in the Resources panel. Paths under
+ * `scratch/` are hidden agent scratch; every other path is a normal visible
+ * resource in the current personal or organization scope.
  */
 
-import crypto from "node:crypto";
-import { getDbExec } from "../db/client.js";
 import {
-  WORKSPACE_FILES_CREATE_SQL,
-  WORKSPACE_FILES_INDEX_SQL,
-} from "./schema.js";
+  SHARED_OWNER,
+  resourceDeleteByPath,
+  resourceGetByPath,
+  resourceList,
+  resourcePut,
+  type Resource,
+  type ResourceMeta,
+  type ResourceVisibility,
+} from "../resources/store.js";
 
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
 
-/** Max content size per file (bytes). */
+/** Max content size per file (bytes) for direct workspaceWrite calls. */
 export const MAX_FILE_BYTES = 2 * 1024 * 1024; // 2 MB
 
-/** Max total content size across all files in one scope (bytes). */
+/**
+ * Legacy export retained for API compatibility. The Resources store is the
+ * canonical quota surface now, so the compatibility wrapper does not maintain a
+ * separate per-scope total.
+ */
 export const MAX_SCOPE_BYTES = 200 * 1024 * 1024; // 200 MB
 
-/** Max content size when saving via saveToFile from provider-api / fetch tool (bytes). */
+/** Max content size when saving via saveToFile from provider-api / fetch tool. */
 export const SAVE_TO_FILE_MAX_BYTES = 20 * 1024 * 1024; // 20 MB
-
-// ---------------------------------------------------------------------------
-// Lazy table init
-// ---------------------------------------------------------------------------
-
-let _tableReady = false;
-
-async function ensureTable(): Promise<void> {
-  if (_tableReady) return;
-  const db = getDbExec();
-  await db.execute(WORKSPACE_FILES_CREATE_SQL);
-  await db.execute(WORKSPACE_FILES_INDEX_SQL);
-  _tableReady = true;
-}
 
 // ---------------------------------------------------------------------------
 // Scope helpers
@@ -47,6 +42,24 @@ async function ensureTable(): Promise<void> {
 export interface WorkspaceFilesScope {
   scope: "user" | "org";
   scopeId: string;
+}
+
+function ownerForScope(scope: WorkspaceFilesScope): string {
+  return scope.scope === "org" ? SHARED_OWNER : scope.scopeId;
+}
+
+function visibilityForPath(path: string): ResourceVisibility {
+  return path === "scratch" || path.startsWith("scratch/")
+    ? "agent_scratch"
+    : "workspace";
+}
+
+function workspaceFileMetadata(scope: WorkspaceFilesScope) {
+  return {
+    source: "workspace-files",
+    scope: scope.scope,
+    scopeId: scope.scopeId,
+  };
 }
 
 /**
@@ -97,8 +110,8 @@ export interface WorkspaceFileMeta {
 
 /**
  * Write (create or overwrite) a workspace file.
- * Enforces per-file (2 MB default; `saveToFile` callers may raise it up to
- * 20 MB via `opts.maxFileBytes`) and per-scope (200 MB) caps.
+ * Enforces per-file limits for the compatibility API; persistence is handled by
+ * Resources. Use `scratch/...` for temporary hidden agent files.
  */
 export async function writeWorkspaceFile(
   scope: WorkspaceFilesScope,
@@ -121,67 +134,19 @@ export async function writeWorkspaceFile(
     );
   }
 
-  await ensureTable();
-  const db = getDbExec();
-
-  // Check scope total (excluding current file's existing bytes).
-  const existing = await getWorkspaceFileMeta(scope, path);
-  const existingBytes = existing?.sizeBytes ?? 0;
-  const scopeTotal = await getScopeTotalBytes(scope);
-  const newTotal = scopeTotal - existingBytes + bytes;
-  if (newTotal > MAX_SCOPE_BYTES) {
-    throw new Error(
-      `Writing "${path}" would bring the workspace total to ${(newTotal / 1024 / 1024).toFixed(1)} MB, exceeding the 200 MB limit.`,
-    );
-  }
-
-  const now = new Date().toISOString();
-
-  if (existing) {
-    await db.execute({
-      sql: `UPDATE workspace_files SET content = ?, content_type = ?, size_bytes = ?, updated_at = ? WHERE scope = ? AND scope_id = ? AND path = ?`,
-      args: [
-        content,
-        contentType,
-        bytes,
-        now,
-        scope.scope,
-        scope.scopeId,
-        path,
-      ],
-    });
-    return {
-      ...existing,
-      content: undefined as any,
-      contentType,
-      sizeBytes: bytes,
-      updatedAt: now,
-    } as unknown as WorkspaceFileMeta;
-  }
-
-  const id = crypto.randomUUID();
-  await db.execute({
-    sql: `INSERT INTO workspace_files (id, scope, scope_id, path, content, content_type, size_bytes, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    args: [
-      id,
-      scope.scope,
-      scope.scopeId,
-      path,
-      content,
-      contentType,
-      bytes,
-      now,
-      now,
-    ],
-  });
-  return {
-    id,
+  const resource = await resourcePut(
+    ownerForScope(scope),
     path,
+    content,
     contentType,
-    sizeBytes: bytes,
-    createdAt: now,
-    updatedAt: now,
-  };
+    {
+      createdBy: "agent",
+      visibility: visibilityForPath(path),
+      metadata: workspaceFileMetadata(scope),
+    },
+  );
+
+  return resourceToMeta(resource);
 }
 
 /**
@@ -196,8 +161,7 @@ export async function appendWorkspaceFile(
   const pathErr = validatePath(path);
   if (pathErr) throw new Error(`Invalid path: ${pathErr}`);
 
-  await ensureTable();
-  const existing = await readWorkspaceFile(scope, path);
+  const existing = await resourceGetByPath(ownerForScope(scope), path);
   const newContent = existing ? existing.content + text : text;
   return writeWorkspaceFile(scope, path, newContent, contentType);
 }
@@ -214,17 +178,10 @@ export async function readWorkspaceFile(
   const pathErr = validatePath(path);
   if (pathErr) throw new Error(`Invalid path: ${pathErr}`);
 
-  await ensureTable();
-  const db = getDbExec();
-  const result = await db.execute({
-    sql: `SELECT id, scope, scope_id, path, content, content_type, size_bytes, created_at, updated_at FROM workspace_files WHERE scope = ? AND scope_id = ? AND path = ?`,
-    args: [scope.scope, scope.scopeId, path],
-  });
+  const resource = await resourceGetByPath(ownerForScope(scope), path);
+  if (!resource) return null;
 
-  const row = result.rows[0];
-  if (!row) return null;
-
-  let content = String(row[4] ?? "");
+  let content = resource.content;
   if (opts?.offset || opts?.maxChars) {
     const off = opts.offset ?? 0;
     content = content.slice(
@@ -233,17 +190,7 @@ export async function readWorkspaceFile(
     );
   }
 
-  return {
-    id: String(row[0]),
-    scope: String(row[1]),
-    scopeId: String(row[2]),
-    path: String(row[3]),
-    content,
-    contentType: String(row[5] ?? "text/plain"),
-    sizeBytes: Number(row[6] ?? 0),
-    createdAt: String(row[7]),
-    updatedAt: String(row[8]),
-  };
+  return resourceToFile(resource, scope, content);
 }
 
 /**
@@ -253,24 +200,11 @@ export async function getWorkspaceFileMeta(
   scope: WorkspaceFilesScope,
   path: string,
 ): Promise<WorkspaceFileMeta | null> {
-  await ensureTable();
-  const db = getDbExec();
-  const result = await db.execute({
-    sql: `SELECT id, path, content_type, size_bytes, created_at, updated_at FROM workspace_files WHERE scope = ? AND scope_id = ? AND path = ?`,
-    args: [scope.scope, scope.scopeId, path],
-  });
+  const pathErr = validatePath(path);
+  if (pathErr) throw new Error(`Invalid path: ${pathErr}`);
 
-  const row = result.rows[0];
-  if (!row) return null;
-
-  return {
-    id: String(row[0]),
-    path: String(row[1]),
-    contentType: String(row[2] ?? "text/plain"),
-    sizeBytes: Number(row[3] ?? 0),
-    createdAt: String(row[4]),
-    updatedAt: String(row[5]),
-  };
+  const resource = await resourceGetByPath(ownerForScope(scope), path);
+  return resource ? resourceToMeta(resource) : null;
 }
 
 /**
@@ -281,36 +215,22 @@ export async function listWorkspaceFiles(
   scope: WorkspaceFilesScope,
   prefix?: string,
 ): Promise<WorkspaceFileMeta[]> {
-  await ensureTable();
-  const db = getDbExec();
-
-  if (prefix) {
-    // Allow a trailing slash on list prefixes, but reject traversal and
-    // other invalid path shapes before they reach the LIKE pattern.
-    const normalizedPrefix = prefix.endsWith("/")
-      ? prefix.slice(0, -1)
-      : prefix;
-    const pathErr = validatePath(normalizedPrefix);
-    if (pathErr) {
-      throw new Error(pathErr);
-    }
-    const result = await db.execute({
-      sql: `SELECT id, path, content_type, size_bytes, created_at, updated_at FROM workspace_files WHERE scope = ? AND scope_id = ? AND (path = ? OR path LIKE ? ESCAPE '\\') ORDER BY path ASC`,
-      args: [
-        scope.scope,
-        scope.scopeId,
-        normalizedPrefix,
-        `${normalizedPrefix.replace(/\\/g, "\\\\").replace(/%/g, "\\%").replace(/_/g, "\\_")}/%`,
-      ],
-    });
-    return result.rows.map(rowToMeta);
-  }
-
-  const result = await db.execute({
-    sql: `SELECT id, path, content_type, size_bytes, created_at, updated_at FROM workspace_files WHERE scope = ? AND scope_id = ? ORDER BY path ASC`,
-    args: [scope.scope, scope.scopeId],
+  const owner = ownerForScope(scope);
+  const normalizedPrefix = normalizePrefix(prefix);
+  const resources = await resourceList(owner, normalizedPrefix, {
+    includeAgentScratch: true,
   });
-  return result.rows.map(rowToMeta);
+  const filtered = normalizedPrefix
+    ? resources.filter(
+        (resource) =>
+          resource.path === normalizedPrefix ||
+          resource.path.startsWith(`${normalizedPrefix}/`),
+      )
+    : resources;
+
+  return filtered
+    .map(resourceToMeta)
+    .sort((a, b) => a.path.localeCompare(b.path));
 }
 
 /**
@@ -323,13 +243,7 @@ export async function deleteWorkspaceFile(
   const pathErr = validatePath(path);
   if (pathErr) throw new Error(`Invalid path: ${pathErr}`);
 
-  await ensureTable();
-  const db = getDbExec();
-  const result = await db.execute({
-    sql: `DELETE FROM workspace_files WHERE scope = ? AND scope_id = ? AND path = ?`,
-    args: [scope.scope, scope.scopeId, path],
-  });
-  return result.rowsAffected > 0;
+  return resourceDeleteByPath(ownerForScope(scope), path);
 }
 
 /**
@@ -382,22 +296,44 @@ export async function grepWorkspaceFiles(
 // Internal helpers
 // ---------------------------------------------------------------------------
 
-async function getScopeTotalBytes(scope: WorkspaceFilesScope): Promise<number> {
-  const db = getDbExec();
-  const result = await db.execute({
-    sql: `SELECT COALESCE(SUM(size_bytes), 0) as total FROM workspace_files WHERE scope = ? AND scope_id = ?`,
-    args: [scope.scope, scope.scopeId],
-  });
-  return Number(result.rows[0]?.[0] ?? 0);
+function normalizePrefix(prefix?: string): string | undefined {
+  if (!prefix) return undefined;
+  const normalized = prefix.replace(/\/+$/, "");
+  if (!normalized) return undefined;
+  const pathErr = validatePath(normalized);
+  if (pathErr) throw new Error(pathErr);
+  return normalized;
 }
 
-function rowToMeta(row: any[]): WorkspaceFileMeta {
+function isoTime(value: number): string {
+  return new Date(value).toISOString();
+}
+
+function resourceToMeta(resource: ResourceMeta): WorkspaceFileMeta {
   return {
-    id: String(row[0]),
-    path: String(row[1]),
-    contentType: String(row[2] ?? "text/plain"),
-    sizeBytes: Number(row[3] ?? 0),
-    createdAt: String(row[4]),
-    updatedAt: String(row[5]),
+    id: resource.id,
+    path: resource.path,
+    contentType: resource.mimeType,
+    sizeBytes: resource.size,
+    createdAt: isoTime(resource.createdAt),
+    updatedAt: isoTime(resource.updatedAt),
+  };
+}
+
+function resourceToFile(
+  resource: Resource,
+  scope: WorkspaceFilesScope,
+  content: string,
+): WorkspaceFile {
+  return {
+    id: resource.id,
+    scope: scope.scope,
+    scopeId: scope.scopeId,
+    path: resource.path,
+    content,
+    contentType: resource.mimeType,
+    sizeBytes: resource.size,
+    createdAt: isoTime(resource.createdAt),
+    updatedAt: isoTime(resource.updatedAt),
   };
 }

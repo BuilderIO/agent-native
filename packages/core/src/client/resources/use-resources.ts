@@ -233,7 +233,9 @@ function isTopLevelAgentScratchNode(node: TreeNode): boolean {
   return (
     node.resource?.visibility === "agent_scratch" ||
     (node.type === "folder" &&
-      (node.name === "scripts" || node.name === "tasks"))
+      (node.name === "scratch" ||
+        node.name === "scripts" ||
+        node.name === "tasks"))
   );
 }
 
