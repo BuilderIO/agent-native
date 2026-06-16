@@ -2471,27 +2471,22 @@ async function fetchWithTimeout(
       redirect: "manual",
     };
     if (dispatcher) fetchOptions.dispatcher = dispatcher;
-    const startedAt = Date.now();
-    const res = await fetch(optionsUrl, fetchOptions);
-    const elapsedMs = Date.now() - startedAt;
-    const rawText = await readResponseTextWithLimit(
-      res,
-      clampMaxBytes(options.maxBytes),
-    );
-    const redactedText = redactString(rawText.text, secretValues);
-    const parsed = tryParseJson(redactedText);
-    return {
-      status: res.status,
-      statusText: res.statusText,
-      ok: res.ok,
-      elapsedMs,
-      headers: redactSecrets(headersToObject(res.headers), secretValues),
-      contentType: res.headers.get("content-type") ?? null,
-      size: rawText.size,
-      truncated: rawText.truncated,
-      text: parsed === undefined ? redactedText : undefined,
-      json: parsed,
-    };
+    try {
+      return await fetchProviderResponse(optionsUrl, fetchOptions, {
+        maxBytes: options.maxBytes,
+        secretValues,
+      });
+    } catch (error) {
+      if (dispatcher && isDispatcherCompatibilityError(error)) {
+        const fallbackOptions = { ...fetchOptions };
+        delete fallbackOptions.dispatcher;
+        return await fetchProviderResponse(optionsUrl, fallbackOptions, {
+          maxBytes: options.maxBytes,
+          secretValues,
+        });
+      }
+      throw error;
+    }
   } catch (error) {
     throw normalizeFetchError(error, {
       method,
@@ -2502,6 +2497,55 @@ async function fetchWithTimeout(
   } finally {
     clearTimeout(timeout);
   }
+}
+
+async function fetchProviderResponse(
+  url: string,
+  fetchOptions: RequestInit & { dispatcher?: unknown },
+  options: {
+    maxBytes?: number;
+    secretValues: string[];
+  },
+) {
+  const startedAt = Date.now();
+  const res = await fetch(url, fetchOptions);
+  const elapsedMs = Date.now() - startedAt;
+  const rawText = await readResponseTextWithLimit(
+    res,
+    clampMaxBytes(options.maxBytes),
+  );
+  const redactedText = redactString(rawText.text, options.secretValues);
+  const parsed = tryParseJson(redactedText);
+  return {
+    status: res.status,
+    statusText: res.statusText,
+    ok: res.ok,
+    elapsedMs,
+    headers: redactSecrets(headersToObject(res.headers), options.secretValues),
+    contentType: res.headers.get("content-type") ?? null,
+    size: rawText.size,
+    truncated: rawText.truncated,
+    text: parsed === undefined ? redactedText : undefined,
+    json: parsed,
+  };
+}
+
+function isDispatcherCompatibilityError(error: unknown): boolean {
+  const err = error as {
+    message?: unknown;
+    cause?: { code?: unknown; message?: unknown };
+  };
+  const code = typeof err?.cause?.code === "string" ? err.cause.code : "";
+  const detail = [
+    typeof err?.message === "string" ? err.message : "",
+    typeof err?.cause?.message === "string" ? err.cause.message : "",
+  ]
+    .join(" ")
+    .toLowerCase();
+  return (
+    code === "UND_ERR_INVALID_ARG" &&
+    detail.includes("invalid onrequeststart method")
+  );
 }
 
 function normalizeFetchError(

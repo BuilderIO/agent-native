@@ -109,6 +109,44 @@ describe("provider API runtime", () => {
     );
   });
 
+  it("retries without the SSRF dispatcher when Node rejects the dispatcher implementation", async () => {
+    resolveCredential.mockResolvedValue("hubspot-token");
+    createSsrfSafeDispatcher.mockResolvedValue({ dispatch: vi.fn() });
+    const err = new TypeError("fetch failed") as TypeError & {
+      cause?: { code: string; message: string };
+    };
+    err.cause = {
+      code: "UND_ERR_INVALID_ARG",
+      message: "invalid onRequestStart method",
+    };
+    const fetchMock = vi.spyOn(globalThis, "fetch");
+    fetchMock.mockRejectedValueOnce(err).mockResolvedValueOnce(
+      new Response(JSON.stringify({ results: [{ id: "deal-1" }] }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }),
+    );
+    const runtime = createProviderApiRuntime({
+      appId: "analytics",
+      providerIds: ["hubspot"],
+      getCredentialContext: () => credentialContext,
+    });
+
+    const result = await runtime.executeRequest({
+      provider: "hubspot",
+      path: "/crm/v3/objects/deals",
+    });
+
+    expect(result).toMatchObject({
+      response: { status: 200, json: { results: [{ id: "deal-1" }] } },
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock.mock.calls[0]?.[1]).toMatchObject({
+      dispatcher: expect.anything(),
+    });
+    expect(fetchMock.mock.calls[1]?.[1]).not.toHaveProperty("dispatcher");
+  });
+
   it("allows templates to override the OAuth provider for built-in provider APIs", async () => {
     listOAuthAccountsByOwner.mockResolvedValue([
       {
