@@ -195,6 +195,8 @@ export async function createProviderCorpusJob(
           error = NULL,
           next_resume_at = NULL,
           updated_at = EXCLUDED.updated_at
+        WHERE provider_corpus_jobs.app_id = EXCLUDED.app_id
+          AND provider_corpus_jobs.owner_email = EXCLUDED.owner_email
       `
       : `
         INSERT INTO provider_corpus_jobs
@@ -222,6 +224,8 @@ export async function createProviderCorpusJob(
           error = NULL,
           next_resume_at = NULL,
           updated_at = excluded.updated_at
+        WHERE provider_corpus_jobs.app_id = excluded.app_id
+          AND provider_corpus_jobs.owner_email = excluded.owner_email
       `,
     args: [
       options.id,
@@ -250,7 +254,16 @@ export async function createProviderCorpusJob(
     appId: options.appId,
     ownerEmail: options.ownerEmail,
   });
-  if (!job) throw new Error(`Failed to create provider corpus job ${options.id}`);
+  if (!job) {
+    // The scoped upsert above only updates a row that already belongs to this
+    // (app_id, owner_email). A null read here means a job with this id exists
+    // under a different owner, so the conflicting insert was skipped rather
+    // than clobbering the other tenant's job.
+    throw new Error(
+      `Failed to create provider corpus job ${options.id}: a job with this id ` +
+        `already exists for a different owner. Use a different jobId.`,
+    );
+  }
   return job;
 }
 
@@ -357,14 +370,26 @@ export async function appendProviderCorpusJobHits(options: {
   if (options.hits.length === 0) return;
   await ensureTables();
   const db = getDbExec();
-  for (let i = 0; i < options.hits.length; i++) {
-    await db.execute({
-      sql: `INSERT INTO provider_corpus_job_hits (job_id, hit_index, hit_data) VALUES (?, ?, ?)`,
-      args: [
+  // Insert in chunked multi-row statements rather than one round-trip per hit,
+  // and ignore conflicts on (job_id, hit_index). The runner writes hits before
+  // it advances the stored-hits counter and checkpoint, so a crash between the
+  // two means resume re-fetches the same page and re-appends the same indices;
+  // DO NOTHING makes that retry idempotent instead of a primary-key violation.
+  const CHUNK = 100;
+  for (let start = 0; start < options.hits.length; start += CHUNK) {
+    const chunk = options.hits.slice(start, start + CHUNK);
+    const placeholders = chunk.map(() => "(?, ?, ?)").join(", ");
+    const args: unknown[] = [];
+    for (let j = 0; j < chunk.length; j++) {
+      args.push(
         options.jobId,
-        options.startIndex + i,
-        JSON.stringify(options.hits[i]),
-      ],
+        options.startIndex + start + j,
+        JSON.stringify(chunk[j]),
+      );
+    }
+    await db.execute({
+      sql: `INSERT INTO provider_corpus_job_hits (job_id, hit_index, hit_data) VALUES ${placeholders} ON CONFLICT (job_id, hit_index) DO NOTHING`,
+      args,
     });
   }
 }

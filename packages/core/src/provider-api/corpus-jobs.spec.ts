@@ -38,6 +38,16 @@ vi.mock("../db/client.js", () => ({
           createdAt,
           updatedAt,
         ] = args;
+        // Emulate `ON CONFLICT (id) DO UPDATE ... WHERE app_id/owner_email
+        // match`: a conflicting insert from a different owner is skipped rather
+        // than clobbering the existing tenant's row.
+        const existing = jobs.get(String(id));
+        if (
+          existing &&
+          (existing.app_id !== appId || existing.owner_email !== ownerEmail)
+        ) {
+          return { rows: [], rowsAffected: 0 };
+        }
         jobs.set(String(id), {
           id,
           app_id: appId,
@@ -139,13 +149,21 @@ vi.mock("../db/client.js", () => ({
       }
 
       if (/INSERT INTO provider_corpus_job_hits/i.test(rawSql)) {
-        const [jobId, index, data] = args;
-        const rows = hits.get(String(jobId)) ?? [];
-        rows[Number(index)] = JSON.parse(String(data)) as Record<
-          string,
-          unknown
-        >;
-        hits.set(String(jobId), rows);
+        // Multi-row insert: args arrive in (job_id, hit_index, hit_data)
+        // triples. Emulate `ON CONFLICT (job_id, hit_index) DO NOTHING` so a
+        // resume that re-appends already-stored indices is idempotent.
+        const ignoreConflicts = /DO NOTHING/i.test(rawSql);
+        const jobId = String(args[0]);
+        const rows = hits.get(jobId) ?? [];
+        for (let k = 0; k + 2 < args.length; k += 3) {
+          const index = Number(args[k + 1]);
+          if (ignoreConflicts && rows[index] !== undefined) continue;
+          rows[index] = JSON.parse(String(args[k + 2])) as Record<
+            string,
+            unknown
+          >;
+        }
+        hits.set(jobId, rows);
         return { rows: [], rowsAffected: 1 };
       }
 
@@ -181,8 +199,13 @@ vi.mock("../server/request-context.js", () => ({
 }));
 
 const { createProviderCorpusJobAction } = await import("./corpus-jobs.js");
-const { _resetProviderCorpusJobsStoreForTests } =
-  await import("./corpus-jobs-store.js");
+const {
+  _resetProviderCorpusJobsStoreForTests,
+  createProviderCorpusJob,
+  getProviderCorpusJob,
+  appendProviderCorpusJobHits,
+  getProviderCorpusJobHits,
+} = await import("./corpus-jobs-store.js");
 
 function providerEnvelope(json: unknown, status = 200) {
   return {
@@ -364,5 +387,76 @@ describe("provider corpus jobs", () => {
 
     expect(second.job.status).toBe("completed");
     expect(second.coverage.totalHits).toBe(1);
+  });
+});
+
+describe("provider corpus job store guards", () => {
+  beforeEach(() => {
+    jobs.clear();
+    hits.clear();
+    _resetProviderCorpusJobsStoreForTests();
+  });
+
+  const baseJob = {
+    name: "scan",
+    mode: "paginated-search",
+    status: "paused" as const,
+    provider: "fake",
+    request: { provider: "fake" },
+    search: {},
+    limits: {},
+    checkpoint: {},
+  };
+
+  it("never lets a caller-supplied id clobber another owner's job", async () => {
+    await createProviderCorpusJob({
+      id: "shared-id",
+      appId: "analytics",
+      ownerEmail: "ada@example.com",
+      ...baseJob,
+    });
+
+    await expect(
+      createProviderCorpusJob({
+        id: "shared-id",
+        appId: "analytics",
+        ownerEmail: "grace@example.com",
+        ...baseJob,
+      }),
+    ).rejects.toThrow(/different owner/);
+
+    const adaJob = await getProviderCorpusJob({
+      id: "shared-id",
+      appId: "analytics",
+      ownerEmail: "ada@example.com",
+    });
+    expect(adaJob?.ownerEmail).toBe("ada@example.com");
+
+    const graceJob = await getProviderCorpusJob({
+      id: "shared-id",
+      appId: "analytics",
+      ownerEmail: "grace@example.com",
+    });
+    expect(graceJob).toBeNull();
+  });
+
+  it("re-appends the same hit indices idempotently", async () => {
+    await createProviderCorpusJob({
+      id: "job-1",
+      appId: "analytics",
+      ownerEmail: "ada@example.com",
+      ...baseJob,
+    });
+
+    const batch = [{ id: "h0" }, { id: "h1" }];
+    await appendProviderCorpusJobHits({ jobId: "job-1", startIndex: 0, hits: batch });
+    await appendProviderCorpusJobHits({ jobId: "job-1", startIndex: 0, hits: batch });
+
+    const stored = await getProviderCorpusJobHits({
+      jobId: "job-1",
+      appId: "analytics",
+      ownerEmail: "ada@example.com",
+    });
+    expect(stored.map((hit) => hit.id)).toEqual(["h0", "h1"]);
   });
 });
