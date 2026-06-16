@@ -28,6 +28,7 @@ import {
 } from "../server/lib/faststart.js";
 import { debugLog } from "../server/lib/debug.js";
 import requestTranscript from "./request-transcript.js";
+import { MAX_UPLOAD_BYTES as MAX_RECORDING_UPLOAD_BYTES } from "@shared/upload-limits.js";
 
 /**
  * Decode a base64 string back into a Uint8Array.
@@ -74,7 +75,6 @@ function chunkIndexFromKey(key: string): number {
 
 const STORAGE_SETUP_REQUIRED_REASON =
   "Video storage is not connected yet. Connect Builder.io or configure S3-compatible storage to upload and finish saving this clip.";
-const MAX_RECORDING_UPLOAD_BYTES = 64 * 1024 * 1024;
 const RECORDING_TOO_LARGE_REASON =
   "Recording is too large to process after automatic compression. Please update the app and try again, or record a shorter clip.";
 

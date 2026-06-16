@@ -46,16 +46,29 @@ import {
   resetFfmpegInstance,
 } from "./ffmpeg-export";
 
+/**
+ * Master switch for browser-side compression.
+ *
+ * Builder's upload provider now handles large files directly (>30 MB go
+ * through the GCS signed-URL flow in `packages/core/src/file-upload/builder.ts`),
+ * so we no longer need to shrink recordings client-side. ffmpeg.wasm transcode
+ * is slow, so it stays off.
+ *
+ * Flip to `true` to re-enable the threshold-based compression path. When off,
+ * `compressBlobIfTooLarge` is a pass-through and the `MAX_UPLOAD_BYTES`
+ * hard-stop is skipped so large recordings upload as-is.
+ */
+export const COMPRESSION_ENABLED = false;
+
 /** Start compressing at 24 MB. Below this, the upload clears Builder's ~32 MB
  * Cloud Run edge cap and we don't pay for ffmpeg.wasm load + transcode. */
 export const COMPRESS_THRESHOLD_BYTES = 24 * 1024 * 1024;
 
-/** Clips' effective per-recording upload limit. Builder's upload endpoint is
- * fronted by a Gen-2 Cloud Function (Cloud Run) with a hard ~32 MB inbound
- * request cap that the app config can't raise, so we hard-stop just under it.
- * Anything larger needs an S3-compatible provider or a resumable Builder flow
- * (separate work) — failing fast here beats an opaque Builder 500. */
-export const MAX_UPLOAD_BYTES = 30 * 1024 * 1024;
+// The per-recording upload ceiling lives in `@shared/upload-limits`
+// (MAX_UPLOAD_BYTES) — it's shared with the server routes and actions and is
+// env-overridable. Re-exported here so existing `@/lib/compress` importers
+// keep working.
+export { MAX_UPLOAD_BYTES } from "@shared/upload-limits";
 
 /** Preferred compressed output size. The hard cap above leaves room for
  * encoder variance and container overhead. */
@@ -346,7 +359,7 @@ export async function compressBlobIfTooLarge(
   const threshold = opts.thresholdBytes ?? COMPRESS_THRESHOLD_BYTES;
   const originalBytes = input.size;
 
-  if (originalBytes <= threshold) {
+  if (!COMPRESSION_ENABLED || originalBytes <= threshold) {
     return {
       blob: input,
       compressed: false,

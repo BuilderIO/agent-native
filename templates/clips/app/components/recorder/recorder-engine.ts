@@ -9,6 +9,7 @@
 import { appBasePath, captureClientException } from "@agent-native/core/client";
 import {
   COMPRESS_THRESHOLD_BYTES,
+  COMPRESSION_ENABLED,
   MAX_UPLOAD_BYTES,
   compressBlobIfTooLarge,
   formatMb,
@@ -930,7 +931,10 @@ export class RecorderEngine {
     let result: Record<string, unknown> | undefined;
     let completed = false;
     try {
-      if (this.totalRecordedBytes > COMPRESS_THRESHOLD_BYTES) {
+      if (
+        COMPRESSION_ENABLED &&
+        this.totalRecordedBytes > COMPRESS_THRESHOLD_BYTES
+      ) {
         // Compress before the first server upload so large recordings don't
         // stage their uncompressed source in SQL.
         result = await this.compressAndReupload(finalizeMeta);
@@ -1044,7 +1048,10 @@ export class RecorderEngine {
     meta: RecordingFinalizeMeta,
     signal?: AbortSignal,
   ): Promise<Record<string, unknown> | undefined> {
-    if (this.totalRecordedBytes > COMPRESS_THRESHOLD_BYTES) {
+    if (
+      COMPRESSION_ENABLED &&
+      this.totalRecordedBytes > COMPRESS_THRESHOLD_BYTES
+    ) {
       return this.compressAndReupload(meta);
     }
 

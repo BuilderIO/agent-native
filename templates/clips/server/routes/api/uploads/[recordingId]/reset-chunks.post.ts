@@ -39,8 +39,7 @@ import {
   writeAppState,
   deleteAppStateByPrefix,
 } from "@agent-native/core/application-state";
-
-const MAX_RECORDING_UPLOAD_BYTES = 64 * 1024 * 1024;
+import { MAX_UPLOAD_BYTES as MAX_RECORDING_UPLOAD_BYTES } from "@shared/upload-limits.js";
 
 interface CompressionMeta {
   originalBytes?: number;
