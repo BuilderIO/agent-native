@@ -688,6 +688,10 @@ async function providerFetchAll(provider, apiPath, init = {}) {
 
     const nextCursor = cursorPath ? _getByPath(page, cursorPath) : undefined;
     if (nextCursor !== undefined && nextCursor !== null && String(nextCursor) !== "") {
+      if (lastCursor !== null && String(nextCursor) === String(lastCursor)) {
+        stoppedReason = "repeated-cursor";
+        break;
+      }
       lastCursor = nextCursor;
       if (pagination.cursorBodyPath) {
         body = _setByPath(body || {}, pagination.cursorBodyPath, nextCursor);

@@ -34,6 +34,22 @@ describe("real data action classification", () => {
         { name: "mcp__codex_apps__hubspot__legacy.__search" },
       ]),
     ).toBe(true);
+    expect(
+      hasDataQueryAttempt([
+        {
+          name: "run-code",
+          content: "bridgeToolsUsed: mcp__codex_apps__hubspot__legacy.__search",
+        },
+      ]),
+    ).toBe(true);
+    expect(
+      hasDataQueryAttempt([
+        {
+          name: "run-code",
+          content: "bridgeToolsUsed: provider-api-request",
+        },
+      ]),
+    ).toBe(true);
   });
 
   it("does not count setup or artifact-only actions as source evidence", () => {
@@ -233,7 +249,7 @@ describe("coverage-sensitive analytics request classification", () => {
             'const calls = await providerFetchAll("gong", "/calls", { pagination: { maxPages: 20 } });',
         },
       ]),
-    ).toBe(true);
+    ).toBe(false);
     expect(
       hasCorpusWorkflowAttempt([
         {
@@ -242,7 +258,7 @@ describe("coverage-sensitive analytics request classification", () => {
             'const rows = await appAction("query-staged-dataset", { datasetId });',
         },
       ]),
-    ).toBe(true);
+    ).toBe(false);
     expect(
       hasCorpusWorkflowAttempt([
         {
@@ -253,6 +269,14 @@ describe("coverage-sensitive analytics request classification", () => {
     ).toBe(false);
     expect(
       hasCorpusWorkflowAttempt([{ name: "mcp__gong__search_transcripts" }]),
+    ).toBe(true);
+    expect(
+      hasCorpusWorkflowAttempt([
+        {
+          name: "run-code",
+          content: "bridgeToolsUsed: mcp__gong__search_transcripts",
+        },
+      ]),
     ).toBe(true);
   });
 

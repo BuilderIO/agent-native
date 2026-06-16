@@ -43,8 +43,7 @@ export const CORPUS_SOURCE_ACTIONS = new Set([
 
 export const CORPUS_REDUCTION_ACTIONS = new Set(["run-code"]);
 
-const RUN_CODE_CORPUS_WORKFLOW_TEXT =
-  /^bridgeToolsUsed:\s*(?:[a-z0-9_-]+,\s*)*(?:provider-api-request|query-staged-dataset)\b|(?:providerFetch(?:All)?\s*\(|appAction\s*\(\s*["'](?:provider-api-request|query-staged-dataset)["'])/im;
+const RUN_CODE_BRIDGE_TOOLS_USED = /^bridgeToolsUsed:\s*(.+)$/im;
 
 const MCP_DATA_SOURCE_TOKENS = [
   "amplitude",
@@ -72,6 +71,35 @@ function isMcpDataSourceTool(name: string): boolean {
   if (!name.startsWith("mcp__")) return false;
   const normalized = name.toLowerCase();
   return MCP_DATA_SOURCE_TOKENS.some((token) => normalized.includes(token));
+}
+
+function isCorpusCapableMcpTool(name: string): boolean {
+  if (!isMcpDataSourceTool(name)) return false;
+  const normalizedMcpName = name.replace(/[^a-z0-9]+/gi, " ");
+  return /\b(?:api|request|fetch|list|search|query|read|calls?|records?|messages?|tickets?|issues?|transcripts?)\b/i.test(
+    normalizedMcpName,
+  );
+}
+
+function getRunCodeBridgeToolNames(content: string | undefined): string[] {
+  const match = RUN_CODE_BRIDGE_TOOLS_USED.exec(String(content ?? ""));
+  if (!match?.[1]) return [];
+  return match[1]
+    .split(",")
+    .map((name) => name.trim())
+    .filter(Boolean);
+}
+
+function hasRunCodeDataQueryAttempt(content: string | undefined): boolean {
+  return getRunCodeBridgeToolNames(content).some(
+    (name) => DATA_QUERY_ACTIONS.has(name) || isMcpDataSourceTool(name),
+  );
+}
+
+function hasRunCodeCorpusWorkflowAttempt(content: string | undefined): boolean {
+  return getRunCodeBridgeToolNames(content).some(
+    (name) => CORPUS_SOURCE_ACTIONS.has(name) || isCorpusCapableMcpTool(name),
+  );
 }
 
 export function stripInjectedAnalyticsGuardContext(text: string): string {
@@ -389,6 +417,7 @@ export function hasDataQueryAttempt(
     if (result.isError) return false;
     if (isProviderErrorOnlyContent(result.content)) return false;
     const name = String(result.name ?? "");
+    if (name === "run-code") return hasRunCodeDataQueryAttempt(result.content);
     return DATA_QUERY_ACTIONS.has(name) || isMcpDataSourceTool(name);
   });
 }
@@ -404,20 +433,14 @@ export function hasCorpusWorkflowAttempt(
     const name = String(result.name ?? "");
     if (CORPUS_SOURCE_ACTIONS.has(name)) return true;
     if (name === "run-code") {
-      return RUN_CODE_CORPUS_WORKFLOW_TEXT.test(String(result.content ?? ""));
+      return hasRunCodeCorpusWorkflowAttempt(result.content);
     }
 
     // Connected provider MCP tools can expose broad search/list/request
     // primitives directly. Treat those as corpus-capable when they succeed so
     // apps are not forced through provider-api-request if a native MCP source
     // already provides the right general API surface.
-    const normalizedMcpName = name.replace(/[^a-z0-9]+/gi, " ");
-    return (
-      isMcpDataSourceTool(name) &&
-      /\b(?:api|request|fetch|list|search|query|read|calls?|records?|messages?|tickets?|issues?|transcripts?)\b/i.test(
-        normalizedMcpName,
-      )
-    );
+    return isCorpusCapableMcpTool(name);
   });
 }
 

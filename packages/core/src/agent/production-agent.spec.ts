@@ -945,6 +945,77 @@ describe("runAgentLoop", () => {
     });
   });
 
+  it("adds stop-and-report guidance to provider rate-limit tool errors", async () => {
+    let streamCalls = 0;
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: true,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        streamCalls += 1;
+        if (streamCalls === 1) {
+          yield {
+            type: "assistant-content",
+            parts: [
+              {
+                type: "tool-call" as const,
+                id: "tool-rate-limit",
+                name: "provider-api-request",
+                input: {},
+              },
+            ],
+          };
+          yield { type: "stop", reason: "tool_use" };
+          return;
+        }
+        yield { type: "text-delta", text: "reported the gap" };
+        yield {
+          type: "assistant-content",
+          parts: [{ type: "text" as const, text: "reported the gap" }],
+        };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+    const events: any[] = [];
+
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions: {
+        "provider-api-request": {
+          ...actionEntry({ readOnly: true }),
+          run: async () => {
+            throw new Error("Provider request failed (429): quota exceeded");
+          },
+        },
+      },
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+    });
+
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "tool_done",
+        tool: "provider-api-request",
+        result: expect.stringContaining(
+          "Provider rate-limit guidance: stop retrying this provider",
+        ),
+      }),
+    );
+    expect(events).toContainEqual({ type: "text", text: "reported the gap" });
+  });
+
   it("retries identical read-only tools when the continuation history result was aborted", async () => {
     let streamCalls = 0;
     const engine: AgentEngine = {
