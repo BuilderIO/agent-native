@@ -63,6 +63,13 @@ describe("document properties", () => {
       end: "2026-05-29T16:00",
       includeTime: true,
     });
+    // Builder CMS date fields arrive as epoch-millis numbers.
+    const epochResult = normalizePropertyValue(
+      "date",
+      Date.parse("2026-05-28T15:30:00.000Z"),
+    );
+    expect(epochResult).not.toBeNull();
+    expect((epochResult as { start: string }).start).toContain("2026-05-28");
   });
 
   it("reads date keys and include-time state from legacy and range values", () => {

@@ -156,6 +156,25 @@ describe("content database source actions", () => {
     ]);
   });
 
+  it("maps epoch-millis Builder date values into populated date property values", () => {
+    // Builder CMS date fields come back as milliseconds-since-epoch numbers;
+    // they must still populate a `date` property rather than being dropped.
+    const result = sourceFieldPropertyValuesFromRows(
+      [
+        {
+          databaseItemId: "item-1",
+          documentId: "doc-1",
+          sourceValuesJson: JSON.stringify({ "data.date": 1781546400000 }),
+        },
+      ],
+      "data.date",
+      "date",
+    );
+    expect(result).toHaveLength(1);
+    expect(result[0]?.itemId).toBe("item-1");
+    expect(result[0]?.value).not.toBeNull();
+  });
+
   it("accepts no-argument Builder model discovery requests", () => {
     expect(listBuilderModels.schema.parse({})).toEqual({});
   });

@@ -346,6 +346,14 @@ export function normalizeDatePropertyValue(
 ): DocumentPropertyDateValue | null {
   if (value === undefined || value === null || value === "") return null;
 
+  // Accept epoch timestamps (e.g. Builder CMS date fields come back as
+  // milliseconds-since-epoch numbers) by coercing to an ISO string first.
+  if (typeof value === "number" && Number.isFinite(value)) {
+    const epoch = new Date(value);
+    if (Number.isNaN(epoch.getTime())) return null;
+    value = epoch.toISOString();
+  }
+
   const includeTime = documentPropertyDateIncludesTime(value);
   const start = documentPropertyDatePart(value, "start");
   const end = documentPropertyDatePart(value, "end");
