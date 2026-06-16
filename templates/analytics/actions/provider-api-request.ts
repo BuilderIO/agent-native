@@ -170,7 +170,7 @@ export default defineAction({
       .string()
       .optional()
       .describe(
-        "Workspace file path to save the full response body to instead of returning it in context (e.g. 'analysis/provider-response.json'). When set, returns only a compact summary {savedTo, status, bytes, preview} and allows up to 20MB response. Ideal for large datasets that would overflow context.",
+        "Workspace file path to save the full response body to instead of returning it in context (e.g. 'scratch/analysis/provider-response.json' for temporary staging). When set, returns only a compact summary {savedTo, status, bytes, preview} and allows up to 20MB response. Ideal for large datasets that would overflow context.",
       ),
     fetchAllPages: z
       .object({
@@ -209,7 +209,7 @@ export default defineAction({
       })
       .optional()
       .describe(
-        "Enable cursor-based pagination. After each response, reads cursorPath from the JSON body and re-issues the request with cursorParam or cursorBodyPath set, accumulating items from itemsPath (or whole bodies) until cursor is empty or maxPages is reached. Combine with saveToFile to write the full dataset to a workspace file.",
+        "Enable cursor-based pagination. After each response, reads cursorPath from the JSON body and re-issues the request with cursorParam or cursorBodyPath set, accumulating items from itemsPath (or whole bodies) until cursor is empty or maxPages is reached. Combine with saveToFile to write the full dataset to a workspace file; use scratch/... for temporary staging.",
       ),
   }),
   http: false,

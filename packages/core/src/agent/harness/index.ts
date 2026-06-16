@@ -47,3 +47,11 @@ export {
   type AiSdkHarnessRuntime,
 } from "./ai-sdk-adapter.js";
 export { registerBuiltinAgentHarnesses } from "./builtin.js";
+export {
+  agentHarnessBackgroundAgentController,
+  createAgentHarnessBackgroundAgentController,
+  getAgentHarnessBackgroundRun,
+  listAgentHarnessBackgroundRuns,
+  listAgentHarnessBackgroundTranscriptEvents,
+  stopAgentHarnessBackgroundRun,
+} from "./background.js";
