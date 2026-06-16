@@ -86,20 +86,6 @@ SQL-backed sharing. See [Local File Mode](/docs/local-file-mode) for the
 standalone repo layout, configuration, custom MDX components, local
 `extensions/` widgets, and production safety guide.
 
-## Why it's interesting
-
-Five things make Content a good showcase of the framework:
-
-1. **Local MDX can be the source of truth.** Content can operate directly on
-   repo files while keeping the same editor and action surface, which makes it
-   feel like open-source Obsidian for MDX rather than a hosted-only doc store.
-2. **Custom interactive blocks are just local code.** Docs can use workspace
-   components such as tabs, calculators, or product-specific demos, and the
-   agent can generate or edit those components alongside the MDX.
-3. **Agent and editor share one Yjs document.** The same CRDT that prevents conflicts between two simultaneous human typists is what the agent writes through via `edit-document`. There is no separate AI path — the diff appears live in every open browser tab.
-4. **Notion sync as a two-way bridge.** Rather than replacing Notion, the template treats it as a peer: pull, push, bidirectional comment sync, conflict detection, and content-hash deduplication are all first-class. It demonstrates how agent-native apps can round-trip with external systems without losing their SQL-backed canonical form.
-5. **Inline databases alongside prose.** The `content_databases` / `content_database_items` / `document_property_definitions` stack shows how structured tabular data can live inside an agent-native document without needing a separate app or a custom Airtable integration.
-
 ## For developers
 
 The rest of this doc is for anyone forking the Content template or extending it.

@@ -82,14 +82,6 @@ If you select text and hit Cmd+I, that selection travels with your next message 
 | `G A`     | Go to Archive               |
 | `Esc`     | Close thread / clear search |
 
-## Why it's interesting
-
-Three things make Mail a good showcase of the framework:
-
-1. **Gmail as a view, not a copy.** Email lives in Gmail; the app is a fast keyboard-first view on top. Actions like `list-emails` and `search-emails` query the Gmail API live rather than maintaining a local sync — demonstrating how agent-native apps can wrap external services without duplicating state.
-2. **Shared compose state between the agent and the UI.** Each draft tab is an `application_state` entry at `compose-{id}`. The agent can create, edit, or close drafts via `manage-draft`; the UI reads the same entry and renders it live. No separate draft format, no polling — same row.
-3. **Queued-draft review.** Teammates or Slack users can ask the agent to prepare an email on behalf of an org member. The draft sits in the `queued_email_drafts` SQL table until the owner reviews and explicitly sends — demonstrating how agent-native apps can keep humans in the loop for consequential, irreversible actions.
-
 ## For developers
 
 The rest of this doc is for anyone forking the Mail template or extending it.

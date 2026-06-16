@@ -51,14 +51,6 @@ Live demo: [clips.agent-native.com](https://clips.agent-native.com).
 - "Create action items from the last sales call."
 - "Clean up this dictation and turn it into a Linear ticket."
 
-## Why it's interesting
-
-Three things make Clips a good showcase of what agent-native enables:
-
-1. **The agent edits the transcript.** Fix a mis-transcribed word, generate chapter timestamps, pull quotes for a blog post — all in natural language, in the chat, with the UI updating live via polling.
-2. **Context awareness on recordings.** When you're viewing a clip, the agent knows the clip id, the current playhead, and the selected transcript range. Ask "summarize from here to the end" and it understands what "here" means.
-3. **Clips you own, not a vendor.** The recordings live in your storage, the transcripts live in your SQL, and the agent is yours. Fork the template, change how chapters get built, wire it to your own CDN — it's your code.
-
 ## For developers
 
 The rest of this doc is for anyone forking the Clips template or extending it.
