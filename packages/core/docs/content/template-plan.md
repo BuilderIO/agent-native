@@ -298,6 +298,186 @@ Actions in `templates/plan/actions/`:
 - **Prototype** — `convert-visual-plan-to-prototype`, `create-prototype-plan`
 - **Context & navigation** — `view-screen`, `navigate`
 
+### Custom MDX blocks {#custom-mdx-blocks}
+
+Plans source files are MDX, but the app does not render arbitrary imported JSX
+components. A custom MDX tag must be registered as a Plan block so the server can
+parse and serialize it, the browser can render and edit it, and the agent can
+see it in the block vocabulary returned by `get-plan-blocks`.
+
+A registered block has three surfaces:
+
+- A React-free schema and MDX config, safe for server and agent code.
+- A normalized runtime type/schema entry in `shared/plan-content.ts`.
+- A browser block spec with `Read` and optional `Edit` React components.
+
+Keep the block `type` and MDX `tag` stable. The `type` is stored in normalized
+plan JSON; the `tag` is the component name in `plan.mdx`. The registry handles
+the base MDX attributes `id`, `title`, `summary`, and `editable`, so do not
+repeat them in `toAttrs`.
+
+1. Add a shared config for the data shape and MDX round trip.
+
+```ts
+// templates/plan/shared/risk-card.config.ts
+import { z } from "zod";
+import {
+  markdown,
+  type BlockMdxConfig,
+} from "@agent-native/core/blocks/server";
+
+export type RiskCardSeverity = "low" | "medium" | "high";
+
+export interface RiskCardData {
+  severity?: RiskCardSeverity;
+  body: string;
+}
+
+const severities = new Set(["low", "medium", "high"]);
+
+export const riskCardSchema = z.object({
+  severity: z.enum(["low", "medium", "high"]).optional(),
+  body: markdown(z.string().trim().min(1).max(10_000)),
+}) as z.ZodType<RiskCardData>;
+
+export const riskCardMdx: BlockMdxConfig<RiskCardData> = {
+  tag: "RiskCard",
+  childrenField: "body",
+  toAttrs: (data) => ({
+    severity: data.severity,
+  }),
+  fromAttrs: (attrs, children) => {
+    const severity = attrs.string("severity");
+
+    return {
+      severity: severities.has(severity ?? "")
+        ? (severity as RiskCardSeverity)
+        : undefined,
+      body: children,
+    };
+  },
+};
+```
+
+2. Extend the normalized Plan content model in
+   `templates/plan/shared/plan-content.ts`.
+
+Add the new `type` to `PlanBlockType`, add a matching block interface to the
+`PlanBlock` union, and add the same data shape to `planBlockSchema`. This keeps
+database saves, source imports, and `update-block` patches validating the custom
+block instead of rejecting it as an unknown type.
+
+3. Register the React-free server spec in
+   `templates/plan/shared/plan-block-registry.ts`.
+
+```ts
+import {
+  BlockRegistry,
+  defineBlock,
+  registerLibraryBlockConfigs,
+  registerBlocks,
+} from "@agent-native/core/blocks/server";
+import {
+  riskCardMdx,
+  riskCardSchema,
+  type RiskCardData,
+} from "./risk-card.config.js";
+
+const ServerReadStub = () => null;
+
+const riskCardServerBlock = defineBlock<RiskCardData>({
+  type: "risk-card",
+  schema: riskCardSchema,
+  mdx: riskCardMdx,
+  Read: ServerReadStub,
+  placement: ["block"],
+  label: "Risk card",
+  description: "A markdown risk note with a low, medium, or high severity.",
+});
+
+export function registerPlanBlocks(registry: BlockRegistry): void {
+  registerLibraryBlockConfigs(registry, {
+    overrides: PLAN_SERVER_LIBRARY_OVERRIDES,
+  });
+  registerBlocks(registry, [riskCardServerBlock]);
+}
+```
+
+4. Register the browser spec in
+   `templates/plan/app/components/plan/planBlocks.tsx`.
+
+```tsx
+import {
+  defineBlock,
+  registerLibraryBlocks,
+  registerBlocks,
+  type BlockReadProps,
+} from "@agent-native/core/blocks";
+import {
+  riskCardMdx,
+  riskCardSchema,
+  type RiskCardData,
+} from "@shared/risk-card.config";
+
+function RiskCardBlock({ data, blockId, ctx }: BlockReadProps<RiskCardData>) {
+  return (
+    <section
+      className="rounded-md border border-border bg-card p-4"
+      data-block-id={blockId}
+      data-severity={data.severity}
+    >
+      <div className="mb-2 text-xs font-semibold uppercase text-muted-foreground">
+        {data.severity ?? "risk"}
+      </div>
+      {ctx.renderMarkdown?.(data.body) ?? (
+        <p className="whitespace-pre-wrap text-sm">{data.body}</p>
+      )}
+    </section>
+  );
+}
+
+const riskCardBlock = defineBlock<RiskCardData>({
+  type: "risk-card",
+  schema: riskCardSchema,
+  mdx: riskCardMdx,
+  Read: RiskCardBlock,
+  placement: ["block"],
+  editSurface: "panel",
+  label: "Risk card",
+  description: "A markdown risk note with a low, medium, or high severity.",
+  empty: () => ({ severity: "medium", body: "Describe the risk." }),
+});
+
+registerLibraryBlocks(planBlockRegistry, {
+  overrides: PLAN_LIBRARY_OVERRIDES,
+});
+registerBlocks(planBlockRegistry, [riskCardBlock]);
+```
+
+With that in place, Plan MDX can use:
+
+```mdx
+<RiskCard id="risk-auth" severity="high">
+
+Token refresh failures can strand active reviewer sessions.
+
+</RiskCard>
+```
+
+The server registry makes this source importable/exportable, and the client
+registry makes it render in `PlanBlockView`. If the block should be generated by
+agents, keep `label`, `description`, `placement`, and `empty` precise; those
+fields flow into the live block vocabulary.
+
+When overriding an existing block, register the override after the shared
+library registration. Last registration wins for both `type` and MDX `tag`.
+
+After adding a block, run focused Plan tests:
+
+```bash
+pnpm --filter plan test -- plan-mdx plan-block-registry
+```
+
 ### Route map
 
 - `app/routes/plans.$id.tsx` — plan editor / review surface

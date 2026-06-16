@@ -79,14 +79,6 @@ For a public demo, the seeded corpus demonstrates product-decision recall,
 citation links, supersede behavior, review gating, redaction, personal-content
 exclusion, and honest not-found behavior without connecting a real workspace.
 
-## Why it's interesting
-
-Three things make Brain a good showcase of the framework:
-
-1. **No vector database required.** Brain uses SQL text search with agentic query expansion, so it stays portable across SQLite, Postgres, Neon, D1, and Turso without an additional service dependency. This demonstrates that semantic-enough retrieval can be built without embedding infrastructure.
-2. **Human-in-the-loop distillation.** Raw captures don't become company knowledge automatically. High-confidence entries can auto-publish; sensitive or low-confidence ones queue as proposals for human review. The Review surface is a first-class part of the product, not a settings screen.
-3. **Shared workspace integrations.** Brain sources resolve credentials from workspace grants first, not duplicated env vars. It's a live example of the grant pattern — one Slack token at workspace level, per-app access requests.
-
 ## For developers
 
 The rest of this section is for anyone forking or extending the Brain template.

@@ -49,16 +49,6 @@ Live demo: [forms.agent-native.com](https://forms.agent-native.com).
 - "Summarize this week's submissions and group them by customer segment."
 - "Make this form shorter without losing the fields we need for routing."
 
-## Why it's interesting
-
-Three things make Forms a good showcase of the framework:
-
-1. **Single SQL record, two editors.** The form's `fields` JSON column is the source of truth for both the visual builder and the agent. Ask the agent to add a field and the builder re-renders — no sync step, no separate "AI draft" state.
-2. **Public and private surfaces from one schema.** The same form row serves authenticated editors (full field + settings access) and anonymous respondents (public fill page with secrets stripped). `toPublicFormSettings` handles the split at the action layer.
-3. **Integrations as settings, not infrastructure.** Slack, Discord, Google Sheets, and webhook destinations are stored as JSON in the form's settings column and executed server-side at submission time — adding a new integration type is an action-layer change, not a schema migration.
-
-See [What is agent-native?](/docs/what-is-agent-native) for the broader framework model.
-
 ## For developers
 
 ### Scaffolding

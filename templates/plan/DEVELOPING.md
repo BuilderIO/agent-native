@@ -93,6 +93,32 @@ export default function MyPageRoute() {
 
 Normal app data starts as an action, not a custom route. Add `actions/<verb>-<resource>.ts` with `defineAction`, mark reads with `http: { method: "GET" }`, and call reads/writes from React with `useActionQuery` / `useActionMutation` from `@agent-native/core/client`. This keeps the UI and agent on one contract and lets mutating actions refresh action-backed queries automatically.
 
+## Adding Custom MDX Blocks
+
+Plan MDX does not render arbitrary imported JSX. Register custom MDX tags as
+Plan blocks so the server can parse/serialize them, the browser can render/edit
+them, and agents can discover them through `get-plan-blocks`.
+
+Use this shape:
+
+- Put the React-free data schema and `BlockMdxConfig` in `shared/*.config.ts`.
+  Import server-safe helpers from `@agent-native/core/blocks/server`.
+- Extend `PlanBlockType`, the `PlanBlock` union, and `planBlockSchema` in
+  `shared/plan-content.ts` so saves/imports/patches accept the custom type.
+- Register a server spec in `shared/plan-block-registry.ts` with
+  `defineBlock`, `Read: () => null`, a stable `type`, stable `mdx.tag`, clear
+  `label`, `description`, and `placement`.
+- Register the browser spec in `app/components/plan/planBlocks.tsx` with the
+  same schema and MDX config, plus `Read` and optional `Edit` React components.
+- Do not include `id`, `title`, `summary`, or `editable` in `toAttrs`; the
+  registry serializes those base attributes.
+- Register overrides after `registerLibraryBlocks` /
+  `registerLibraryBlockConfigs`. Last registration wins for `type` and MDX
+  `tag`.
+
+For the full example, see the "Custom MDX blocks" section in the Visual Plans
+docs (`packages/core/docs/content/template-plan.md`).
+
 ## Adding a Route-Only Endpoint
 
 Use `server/routes/api/` only for protocols that cannot be modeled as JSON actions: multipart uploads, streaming/SSE/WebSocket, webhooks, OAuth callbacks/redirects, public SEO/OG endpoints, or binary/static asset serving. Do not add `/api/*` routes for normal CRUD, data queries, or pass-through wrappers around actions; the action endpoint already exists at `/_agent-native/actions/:name`.

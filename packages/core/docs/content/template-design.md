@@ -41,12 +41,6 @@ Live demo: [design.agent-native.com](https://design.agent-native.com).
 - "Export this prototype as a ZIP once the final variant is selected."
 - "Turn this HTML into a stronger pricing page without changing the brand colors."
 
-## Why it's interesting
-
-Design is useful because the agent edits an artifact that is already close to shippable web UI. There is no separate "AI mockup" format to translate later: the preview, the editable source, and the exported artifact all come from the same HTML.
-
-The template is also a good example of agent-native ownership. The app stores designs in SQL, exposes template operations as actions, and lets you fork the whole workflow when your team needs a different renderer, exporter, or design-system model.
-
 ## For developers
 
 The rest of this doc is for anyone forking the Design template or extending it.

@@ -134,6 +134,7 @@ jobs:
             // and skip — with an actionable hint — those that don't.
             const headRepo = pr && pr.head && pr.head.repo && pr.head.repo.full_name;
             const isFork = !!(pr && headRepo && headRepo !== process.env.GITHUB_REPOSITORY);
+            const isPrivate = !!(context.payload.repository && context.payload.repository.private);
             if (isFork && process.env.HAS_PLAN !== 'true') {
               reasons.push(`fork PR (${headRepo}) without secret access — enable "Send secrets to workflows from pull requests" (and write tokens) in the repo/org Actions settings to run recaps on forks`);
             }
@@ -171,7 +172,13 @@ jobs:
             // instructions or any agent config the runner loads. With the
             // default bundled skill source, visual skill and recap workflow
             // files are reviewed content, not instructions loaded by the runner.
-            if (pr) {
+            // Keep this guard for forks AND all public-repo PRs: a fork or a
+            // public same-repo author could rewrite loaded instruction files
+            // (AGENTS.md/CLAUDE.md/.claude/.mcp.json) and exfiltrate the
+            // secret-backed agent run. Skip it ONLY for private-repo same-repo
+            // PRs, where the author is a trusted org member — a deliberate owner
+            // risk acceptance so legit instruction edits don't false-skip recaps.
+            if (pr && (isFork || !isPrivate)) {
               try {
                 const files = await github.paginate(github.rest.pulls.listFiles, {
                   owner: context.repo.owner,
@@ -198,7 +205,13 @@ jobs:
             const run = reasons.length === 0;
             core.setOutput('run', run ? 'true' : 'false');
             core.setOutput('agent', agent);
-            core.info(run ? `Visual recap will run (${agent}).` : `Visual recap skipped: ${reasons.join('; ')}`);
+            if (run) {
+              core.info(`Visual recap will run (${agent}).`);
+            } else {
+              // Surface the skip reason as a run-summary annotation, not just a
+              // buried info log, so it's clear in the Actions UI why we skipped.
+              core.notice(`Visual recap skipped: ${reasons.join('; ')}`);
+            }
 
             // When skipping, upsert a sticky recap comment with a short skip
             // line so the PR always explains why the recap job did not run.
@@ -465,6 +478,14 @@ jobs:
             echo "$CLAUDE_STATUS" > claude-exit-code.txt
           }
           run_claude
+          # A clean agent exit WITHOUT recap-source.json is the strongest
+          # "retry me" signal — the deterministic publisher needs that file, and
+          # the agent occasionally finishes a turn without writing it. Retry once.
+          if [ ! -s recap-source.json ]; then
+            echo "::warning::recap-source.json missing after the agent run; retrying the agent once."
+            sleep 5
+            run_claude
+          fi
 
       - name: Run agent (Codex)
         id: codex
@@ -492,6 +513,13 @@ jobs:
             echo "$CODEX_STATUS" > codex-exit-code.txt
           }
           run_codex
+          # Retry once if the agent exited without writing recap-source.json
+          # (see the Claude step) — the publisher needs that file.
+          if [ ! -s recap-source.json ]; then
+            echo "::warning::recap-source.json missing after the agent run; retrying the agent once."
+            sleep 5
+            run_codex
+          fi
 
       - name: Publish recap source
         id: publish
@@ -677,12 +705,19 @@ jobs:
         if: always() && !cancelled()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          # The agent-authored recap-source.json is the only window into WHAT the
-          # agent emitted when a publish fails (no plan URL). The sticky comment
-          # only shows the screenshot, so without this artifact a failed recap is
-          # undebuggable. Uploaded on success and failure; tolerant when absent.
+          # recap-source.json + the agent transcript (claude-result.json /
+          # codex-events.jsonl + stderr) are the only window into WHAT the agent
+          # did when a publish fails (no plan URL) — INCLUDING the case where it
+          # finished without writing recap-source.json at all. The sticky comment
+          # only shows the screenshot, so without these a failed recap is
+          # undebuggable. Uploaded on success + failure; tolerant when absent.
           name: pr-visual-recap-source-${{ github.event.pull_request.number }}
-          path: recap-source.json
+          path: |
+            recap-source.json
+            claude-result.json
+            claude-stderr.log
+            codex-events.jsonl
+            codex-stderr.log
           if-no-files-found: ignore
           retention-days: 14
 

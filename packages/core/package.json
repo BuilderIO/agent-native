@@ -108,6 +108,8 @@
     "./usage": "./dist/usage/store.js",
     "./connections": "./dist/connections/index.js",
     "./provider-api": "./dist/provider-api/index.js",
+    "./provider-api/corpus-jobs": "./dist/provider-api/corpus-jobs.js",
+    "./provider-api/corpus-jobs-store": "./dist/provider-api/corpus-jobs-store.js",
     "./provider-api/staging": "./dist/provider-api/staging.js",
     "./provider-api/staged-datasets-store": "./dist/provider-api/staged-datasets-store.js",
     "./provider-api/staged-datasets-aggregate": "./dist/provider-api/staged-datasets-aggregate.js",

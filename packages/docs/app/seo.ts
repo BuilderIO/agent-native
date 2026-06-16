@@ -8,15 +8,22 @@ import {
 } from "@agent-native/core/shared";
 
 const SITE_URL = "https://www.agent-native.com";
+const DOCS_SOCIAL_IMAGE_ACCENT = "Agent-Native Docs";
 
 export const DEFAULT_SOCIAL_IMAGE = AGENT_NATIVE_DEFAULT_SOCIAL_IMAGE;
 
-export function agentNativeSocialImageUrl(title: string): string {
+export function agentNativeSocialImageUrl(
+  title: string,
+  accentText?: string,
+): string {
   const url = new URL(
     withAgentNativeSocialImageCacheBuster(AGENT_NATIVE_SOCIAL_IMAGE_PATH),
     SITE_URL,
   );
   url.searchParams.set("title", title);
+  if (accentText) {
+    url.searchParams.set("accentText", accentText);
+  }
   return url.toString();
 }
 
@@ -38,5 +45,15 @@ export function withTemplateSocialImage(
   return withDefaultSocialImage(
     meta,
     agentNativeSocialImageUrl(`Agent-Native ${templateName}`),
+  );
+}
+
+export function withDocsSocialImage(
+  meta: MetaDescriptor[],
+  docTitle: string,
+): MetaDescriptor[] {
+  return withDefaultSocialImage(
+    meta,
+    agentNativeSocialImageUrl(docTitle, DOCS_SOCIAL_IMAGE_ACCENT),
   );
 }
