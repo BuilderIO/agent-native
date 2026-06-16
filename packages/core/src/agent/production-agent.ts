@@ -1761,7 +1761,7 @@ function isLikelySourceSweepTool(
   name: string,
   entry: ActionEntry | undefined,
 ): boolean {
-  if (!entry || entry.readOnly !== true) return false;
+  if (!entry || entry.readOnly === false) return false;
   const lower = name.toLowerCase();
   if (SOURCE_SWEEP_EXCLUDED_TOOLS.has(lower)) return false;
   const normalized = normalizeToolNameForHeuristics(lower);
@@ -1810,6 +1810,28 @@ export function shouldGuardRepeatedSourceSweep(opts: {
       threshold,
     }),
   };
+}
+
+function seedSourceSweepToolCallsFromHistory(
+  messages: EngineMessage[],
+  actions: Record<string, ActionEntry>,
+): AgentLoopToolCallSummary[] {
+  if (!isInternalContinuationTurn(messages)) return [];
+
+  const seeded: AgentLoopToolCallSummary[] = [];
+  const turnStart = findCurrentTurnStartForContinuation(messages);
+  for (const message of messages.slice(turnStart)) {
+    if (message.role !== "assistant") continue;
+    for (const part of message.content) {
+      if (part.type !== "tool-call") continue;
+      if (!isLikelySourceSweepTool(part.name, actions[part.name])) continue;
+      seeded.push({
+        name: part.name,
+        input: normalizeToolCallInputForHistory(part.input),
+      });
+    }
+  }
+  return seeded;
 }
 
 function normalizeToolCallInputForHistory(
@@ -1895,6 +1917,10 @@ export async function runAgentLoop(opts: {
     getDefaultMaxIterations(),
   );
   const toolCallHistory: AgentLoopToolCallSummary[] = [];
+  const sourceSweepToolCallHistory = seedSourceSweepToolCallsFromHistory(
+    messages,
+    actions,
+  );
   const toolResultHistory: AgentLoopToolResultSummary[] = [];
   const runCtx = getRequestRunContext();
   if (runCtx) {
@@ -2229,9 +2255,13 @@ export async function runAgentLoop(opts: {
       const sourceSweepGuard = shouldGuardRepeatedSourceSweep({
         toolName: toolCall.name,
         entry: actionEntry,
-        priorToolCalls: toolCallHistory,
+        priorToolCalls: sourceSweepToolCallHistory,
       });
       toolCallHistory.push({
+        name: toolCall.name,
+        input: normalizedToolInput,
+      });
+      sourceSweepToolCallHistory.push({
         name: toolCall.name,
         input: normalizedToolInput,
       });

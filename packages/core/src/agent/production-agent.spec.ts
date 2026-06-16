@@ -1037,6 +1037,20 @@ describe("runAgentLoop", () => {
 
     expect(
       shouldGuardRepeatedSourceSweep({
+        toolName: "hubspot-records",
+        entry: actionEntry({}),
+        priorToolCalls: priorToolCalls.map((call) => ({
+          ...call,
+          name: "hubspot-records",
+        })),
+      }),
+    ).toMatchObject({
+      toolName: "hubspot-records",
+      priorCalls: 12,
+    });
+
+    expect(
+      shouldGuardRepeatedSourceSweep({
         toolName: "read-attachment",
         entry: actionEntry({ readOnly: true }),
         priorToolCalls: priorToolCalls.map((call) => ({
@@ -1150,6 +1164,122 @@ describe("runAgentLoop", () => {
     expect(JSON.stringify(seenMessages.at(-1))).toContain(
       "Do not call more tools",
     );
+  });
+
+  it("counts repeated source sweeps from internal continuation history", async () => {
+    let streamCalls = 0;
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(opts): AsyncIterable<EngineEvent> {
+        streamCalls += 1;
+        const serializedMessages = JSON.stringify(opts.messages);
+        if (serializedMessages.includes("convergence budget")) {
+          yield {
+            type: "text-delta",
+            text: "summarized coverage",
+          };
+          yield {
+            type: "assistant-content",
+            parts: [{ type: "text" as const, text: "summarized coverage" }],
+          };
+          yield { type: "stop", reason: "end_turn" };
+          return;
+        }
+        yield {
+          type: "assistant-content",
+          parts: [
+            {
+              type: "tool-call" as const,
+              id: "gong-next",
+              name: "gong-calls",
+              input: { company: "Next Account" },
+            },
+          ],
+        };
+        yield { type: "stop", reason: "tool_use" };
+      },
+    };
+    const gongCalls = vi.fn(async () => "should not run");
+    const events: any[] = [];
+    const priorToolMessages = Array.from({ length: 12 }, (_, i) => {
+      const input = { company: `Account ${i + 1}` };
+      const toolCallId = `gong-prior-${i + 1}`;
+      return [
+        {
+          role: "assistant" as const,
+          content: [
+            {
+              type: "tool-call" as const,
+              id: toolCallId,
+              name: "gong-calls",
+              input,
+            },
+          ],
+        },
+        {
+          role: "user" as const,
+          content: [
+            {
+              type: "tool-result" as const,
+              toolCallId,
+              toolName: "gong-calls",
+              toolInput: JSON.stringify(input),
+              content: "no Figma MCP hits",
+            },
+          ],
+        },
+      ];
+    }).flat();
+
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [
+        {
+          role: "user",
+          content: [{ type: "text", text: "scan this provider cohort" }],
+        },
+        ...priorToolMessages,
+        {
+          role: "user",
+          content: [{ type: "text", text: AGENT_INTERNAL_CONTINUE_PROMPT }],
+        },
+      ],
+      actions: {
+        "gong-calls": {
+          ...actionEntry({ readOnly: true }),
+          run: gongCalls,
+        },
+      },
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+    });
+
+    expect(gongCalls).not.toHaveBeenCalled();
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "tool_done",
+        tool: "gong-calls",
+        result: expect.stringContaining("convergence budget"),
+      }),
+    );
+    expect(events).toContainEqual({
+      type: "text",
+      text: "summarized coverage",
+    });
+    expect(streamCalls).toBe(2);
   });
 
   it("retries identical read-only tools when the continuation history result was aborted", async () => {
