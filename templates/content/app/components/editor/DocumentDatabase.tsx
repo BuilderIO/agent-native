@@ -10,7 +10,11 @@ import {
 } from "react";
 import { useNavigate } from "react-router";
 import { useQueryClient } from "@tanstack/react-query";
-import { agentNativePath, useCodeMode } from "@agent-native/core/client";
+import {
+  agentNativePath,
+  useBuilderConnectFlow,
+  useCodeMode,
+} from "@agent-native/core/client";
 import {
   IconArrowDown,
   IconArrowLeft,
@@ -4281,6 +4285,12 @@ function BuilderCmsModelAttachControl({
   onAttachBuilderSource: (model: BuilderCmsModelSummary) => void;
 }) {
   const modelsQuery = useBuilderCmsModels(true);
+  const connect = useBuilderConnectFlow({
+    trackingSource: "database_source_panel",
+    onConnected: () => {
+      void modelsQuery.refetch();
+    },
+  });
   const models = modelsQuery.data?.models ?? [];
   const [selectedModelName, setSelectedModelName] = useState("");
   const selectedModel =
@@ -4309,7 +4319,23 @@ function BuilderCmsModelAttachControl({
     return (
       <div className="grid min-w-0 gap-2">
         <div className="text-xs text-muted-foreground">
-          Builder credentials are not configured for this local build.
+          Connect your Builder account to read live CMS entries. Until you
+          connect, no Builder models are available here.
+        </div>
+        <div className="flex min-w-0 items-center gap-2">
+          <Button
+            type="button"
+            size="sm"
+            disabled={!canEdit || connect.connecting}
+            onClick={() => connect.start()}
+          >
+            {connect.connecting ? (
+              <Spinner className="mr-1.5 size-3.5" />
+            ) : (
+              <IconExternalLink className="mr-1.5 size-3.5" />
+            )}
+            Connect Builder
+          </Button>
         </div>
       </div>
     );
