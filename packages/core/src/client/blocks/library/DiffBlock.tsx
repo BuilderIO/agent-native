@@ -693,7 +693,7 @@ function DiffRead({
   const annotationLayout = ctx.codeAnnotationLayout;
   const annotationHoverSide = annotationLayout?.hoverSide ?? "right";
   const annotationHoverFallbackSide =
-    annotationLayout?.hoverFallbackSide ?? "below";
+    annotationLayout?.hoverFallbackSide ?? "right";
   const annotationMarginSide = annotationLayout?.marginSide ?? "auto";
   const resolved = useMemo(
     () =>

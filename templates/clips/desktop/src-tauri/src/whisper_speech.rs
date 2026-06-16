@@ -27,11 +27,24 @@ pub async fn whisper_transcription_start(
     }
     #[cfg(target_os = "macos")]
     {
-        macos::start(app, language, mic_device_id, mic_device_label, capture_system).await
+        macos::start(
+            app,
+            language,
+            mic_device_id,
+            mic_device_label,
+            capture_system,
+        )
+        .await
     }
     #[cfg(not(target_os = "macos"))]
     {
-        let _ = (app, language, mic_device_id, mic_device_label, capture_system);
+        let _ = (
+            app,
+            language,
+            mic_device_id,
+            mic_device_label,
+            capture_system,
+        );
         Err("Whisper transcription is only supported on macOS.".into())
     }
 }

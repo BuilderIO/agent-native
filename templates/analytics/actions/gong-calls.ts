@@ -18,6 +18,11 @@ const DEFAULT_GONG_TRANSCRIPT_LIMIT = 3;
 const MAX_GONG_TRANSCRIPT_LIMIT = 50;
 const DEFAULT_TRANSCRIPT_MAX_CHARS = 8_000;
 const MAX_TRANSCRIPT_MAX_CHARS = 100_000;
+const DEFAULT_TRANSCRIPT_SCAN_LIMIT = 50;
+const MAX_TRANSCRIPT_SCAN_LIMIT = 200;
+const DEFAULT_TRANSCRIPT_SEARCH_MAX_CHARS = MAX_TRANSCRIPT_MAX_CHARS;
+const MAX_TRANSCRIPT_MATCHES_PER_CALL = 5;
+const MATCH_SNIPPET_RADIUS = 240;
 
 interface TranscriptExtraction {
   text: string;
@@ -30,6 +35,24 @@ interface TranscriptEvidence extends TranscriptExtraction {
   title?: string;
   started?: string;
   error?: string;
+}
+
+interface TranscriptSearchMatch {
+  callId: string;
+  title?: string;
+  started?: string;
+  url?: string;
+  matchCount: number;
+  snippets: string[];
+  transcriptTruncated: boolean;
+  sentenceCount: number;
+}
+
+interface TranscriptSearchError {
+  callId: string;
+  title?: string;
+  started?: string;
+  error: string;
 }
 
 function callLimitGuidance(limit: number, truncated: boolean): string {
@@ -92,6 +115,102 @@ function sentenceText(record: Record<string, unknown>): string | null {
     stringValue(record.sentence) ??
     stringValue(record.content)
   );
+}
+
+function normalizeTranscriptQuery(query: string | undefined): string {
+  return typeof query === "string" ? query.replace(/\s+/g, " ").trim() : "";
+}
+
+function countMatches(haystack: string, needle: string): number {
+  if (!needle) return 0;
+  let count = 0;
+  let index = 0;
+  const lowerHaystack = haystack.toLowerCase();
+  const lowerNeedle = needle.toLowerCase();
+  while ((index = lowerHaystack.indexOf(lowerNeedle, index)) >= 0) {
+    count += 1;
+    index += Math.max(1, lowerNeedle.length);
+  }
+  return count;
+}
+
+function snippetsForQuery(text: string, query: string): string[] {
+  if (!query) return [];
+  const lowerText = text.toLowerCase();
+  const lowerQuery = query.toLowerCase();
+  const snippets: string[] = [];
+  let index = 0;
+
+  while (
+    snippets.length < MAX_TRANSCRIPT_MATCHES_PER_CALL &&
+    (index = lowerText.indexOf(lowerQuery, index)) >= 0
+  ) {
+    const start = Math.max(0, index - MATCH_SNIPPET_RADIUS);
+    const end = Math.min(
+      text.length,
+      index + query.length + MATCH_SNIPPET_RADIUS,
+    );
+    const prefix = start > 0 ? "..." : "";
+    const suffix = end < text.length ? "..." : "";
+    snippets.push(
+      `${prefix}${text.slice(start, end).replace(/\s+/g, " ").trim()}${suffix}`,
+    );
+    index += Math.max(1, lowerQuery.length);
+  }
+
+  return snippets;
+}
+
+async function searchTranscriptEvidence(
+  calls: GongCall[],
+  query: string,
+  scanLimit: number,
+  maxChars: number,
+): Promise<{
+  inspectedCalls: number;
+  matches: TranscriptSearchMatch[];
+  errors: TranscriptSearchError[];
+  truncatedTranscripts: number;
+}> {
+  const matches: TranscriptSearchMatch[] = [];
+  const errors: TranscriptSearchError[] = [];
+  let truncatedTranscripts = 0;
+  const callsToScan = calls.slice(0, scanLimit);
+
+  for (const call of callsToScan) {
+    try {
+      const transcript = await getCallTranscript(call.id);
+      const extracted = extractTranscriptText(transcript, maxChars);
+      if (extracted.truncated) truncatedTranscripts += 1;
+      const matchCount = countMatches(extracted.text, query);
+      if (matchCount > 0) {
+        matches.push({
+          callId: call.id,
+          title: call.title,
+          started: call.started,
+          url: typeof call.url === "string" ? call.url : undefined,
+          matchCount,
+          snippets: snippetsForQuery(extracted.text, query),
+          transcriptTruncated: extracted.truncated,
+          sentenceCount: extracted.sentenceCount,
+        });
+      }
+    } catch (err) {
+      errors.push({
+        callId: call.id,
+        title: call.title,
+        started: call.started,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
+  return {
+    inspectedCalls: callsToScan.length,
+    matches,
+    errors,
+    truncatedTranscripts,
+  };
 }
 
 export function extractTranscriptText(
@@ -241,7 +360,7 @@ export default defineAction({
   // reusable across continuation retries (no re-fetch on resume).
   readOnly: true,
   description:
-    "Query Gong sales calls, transcripts, and users. Pass --users for user list, --transcript for one transcript, --company to search by company/domain/person/email. For deal, customer, objection, next-step, or deep-dive analysis, set includeTranscripts=true so the answer uses transcript evidence instead of call metadata alone. For complete account/cohort coverage (call counts, or when 'no calls mention X' must be defensible), set exhaustive=true with a bounded window via after/before to enumerate every matching call (metadata only), then scan transcripts deliberately.",
+    "Query Gong sales calls, transcripts, and users. Pass --users for user list, --transcript for one transcript, --company to search by company/domain/person/email. For bounded account-level transcript mention/search questions, set transcriptQuery to search matching transcripts server-side and return coverage counts plus snippets instead of large transcript blobs. For deal, customer, objection, next-step, or deep-dive analysis, set includeTranscripts=true only when you need broad qualitative context rather than a specific term search. For complete account/cohort coverage (call counts, broad cohorts, or when 'no calls mention X' must be defensible), prefer provider-api-request/run-code corpus workflows; this action can still enumerate a bounded account/company window with exhaustive=true via after/before.",
   schema: z.object({
     users: cliBoolean.optional().describe("Set to true to list Gong users"),
     transcript: z.string().optional().describe("Call ID to get transcript"),
@@ -289,6 +408,21 @@ export default defineAction({
       .optional()
       .describe(
         "Maximum transcript characters to return per call (default 8000, max 100000). Use the default for analysis; raise it only when the user asks for more quoted detail.",
+      ),
+    transcriptQuery: z
+      .string()
+      .optional()
+      .describe(
+        "Case-insensitive phrase to search inside matching call transcripts. Use this for bounded account/call searches where the matching set is already small. For broad cohort or exhaustive absence research, stage Gong calls/transcripts through provider-api-request and run-code instead. Returns coverage counts and short snippets only, not full transcripts.",
+      ),
+    transcriptScanLimit: z.coerce
+      .number()
+      .int()
+      .min(1)
+      .max(MAX_TRANSCRIPT_SCAN_LIMIT)
+      .optional()
+      .describe(
+        "Maximum number of matching calls whose transcripts should be fetched and searched when transcriptQuery is set (default 50, max 200). Combine with exhaustive=true and after/before for defensible bounded coverage.",
       ),
     exhaustive: cliBoolean
       .optional()
@@ -353,25 +487,70 @@ export default defineAction({
         1,
         MAX_GONG_TRANSCRIPT_LIMIT,
       );
-      const transcriptMaxChars = normalizeBoundedInt(
+      const transcriptQuery = normalizeTranscriptQuery(args.transcriptQuery);
+      const transcriptExcerptMaxChars = normalizeBoundedInt(
         args.transcriptMaxChars,
         DEFAULT_TRANSCRIPT_MAX_CHARS,
         1_000,
         MAX_TRANSCRIPT_MAX_CHARS,
       );
+      const transcriptSearchMaxChars = normalizeBoundedInt(
+        args.transcriptMaxChars,
+        transcriptQuery
+          ? DEFAULT_TRANSCRIPT_SEARCH_MAX_CHARS
+          : DEFAULT_TRANSCRIPT_MAX_CHARS,
+        1_000,
+        MAX_TRANSCRIPT_MAX_CHARS,
+      );
+      const transcriptScanLimit = normalizeBoundedInt(
+        args.transcriptScanLimit,
+        DEFAULT_TRANSCRIPT_SCAN_LIMIT,
+        1,
+        MAX_TRANSCRIPT_SCAN_LIMIT,
+      );
+      const transcriptSearch = transcriptQuery
+        ? await searchTranscriptEvidence(
+            result.calls,
+            transcriptQuery,
+            transcriptScanLimit,
+            transcriptSearchMaxChars,
+          )
+        : undefined;
       const transcripts = shouldLoadTranscripts
         ? await loadTranscriptEvidence(
             result.calls,
             transcriptLimit,
-            transcriptMaxChars,
+            transcriptExcerptMaxChars,
           )
         : undefined;
 
       return {
         ...result,
         total: result.calls.length,
+        ...(transcriptSearch
+          ? {
+              transcriptSearch: {
+                query: transcriptQuery,
+                matchingCalls: transcriptSearch.matches.length,
+                inspectedCalls: transcriptSearch.inspectedCalls,
+                availableCalls: result.calls.length,
+                coverageComplete:
+                  transcriptSearch.inspectedCalls >= result.calls.length &&
+                  transcriptSearch.errors.length === 0 &&
+                  transcriptSearch.truncatedTranscripts === 0,
+                scanLimited:
+                  transcriptSearch.inspectedCalls < result.calls.length,
+                truncatedTranscripts: transcriptSearch.truncatedTranscripts,
+                matches: transcriptSearch.matches,
+                errors: transcriptSearch.errors,
+              },
+            }
+          : {}),
         ...(transcripts ? { transcripts } : {}),
         guidance: [
+          transcriptSearch
+            ? `Transcript search inspected ${transcriptSearch.inspectedCalls} of ${result.calls.length} matching call(s) for "${transcriptQuery}" and found ${transcriptSearch.matches.length} matching call(s). Use coverageComplete/errors before making absence claims; increase transcriptScanLimit or narrow the window if coverage is incomplete.`
+            : "",
           exhaustive
             ? `Exhaustive discovery: returned all ${result.calls.length} matching call(s) in the window (metadata only). To search transcript content for a term, pull transcripts with --transcript=<callId> or a run-code scan over these call IDs — do not conclude a term is absent from metadata alone.`
             : callLimitGuidance(result.limit, result.truncated),
@@ -401,25 +580,70 @@ export default defineAction({
         1,
         MAX_GONG_TRANSCRIPT_LIMIT,
       );
-      const transcriptMaxChars = normalizeBoundedInt(
+      const transcriptQuery = normalizeTranscriptQuery(args.transcriptQuery);
+      const transcriptExcerptMaxChars = normalizeBoundedInt(
         args.transcriptMaxChars,
         DEFAULT_TRANSCRIPT_MAX_CHARS,
         1_000,
         MAX_TRANSCRIPT_MAX_CHARS,
       );
+      const transcriptSearchMaxChars = normalizeBoundedInt(
+        args.transcriptMaxChars,
+        transcriptQuery
+          ? DEFAULT_TRANSCRIPT_SEARCH_MAX_CHARS
+          : DEFAULT_TRANSCRIPT_MAX_CHARS,
+        1_000,
+        MAX_TRANSCRIPT_MAX_CHARS,
+      );
+      const transcriptScanLimit = normalizeBoundedInt(
+        args.transcriptScanLimit,
+        DEFAULT_TRANSCRIPT_SCAN_LIMIT,
+        1,
+        MAX_TRANSCRIPT_SCAN_LIMIT,
+      );
+      const transcriptSearch = transcriptQuery
+        ? await searchTranscriptEvidence(
+            limited.calls,
+            transcriptQuery,
+            transcriptScanLimit,
+            transcriptSearchMaxChars,
+          )
+        : undefined;
       const transcripts = shouldLoadTranscripts
         ? await loadTranscriptEvidence(
             limited.calls,
             transcriptLimit,
-            transcriptMaxChars,
+            transcriptExcerptMaxChars,
           )
         : undefined;
 
       return {
         ...limited,
         total: limited.calls.length,
+        ...(transcriptSearch
+          ? {
+              transcriptSearch: {
+                query: transcriptQuery,
+                matchingCalls: transcriptSearch.matches.length,
+                inspectedCalls: transcriptSearch.inspectedCalls,
+                availableCalls: limited.calls.length,
+                coverageComplete:
+                  transcriptSearch.inspectedCalls >= limited.calls.length &&
+                  transcriptSearch.errors.length === 0 &&
+                  transcriptSearch.truncatedTranscripts === 0,
+                scanLimited:
+                  transcriptSearch.inspectedCalls < limited.calls.length,
+                truncatedTranscripts: transcriptSearch.truncatedTranscripts,
+                matches: transcriptSearch.matches,
+                errors: transcriptSearch.errors,
+              },
+            }
+          : {}),
         ...(transcripts ? { transcripts } : {}),
         guidance: [
+          transcriptSearch
+            ? `Transcript search inspected ${transcriptSearch.inspectedCalls} of ${limited.calls.length} returned call(s) for "${transcriptQuery}" and found ${transcriptSearch.matches.length} matching call(s). Use coverageComplete/errors before making absence claims; increase limit/transcriptScanLimit or narrow the window if coverage is incomplete.`
+            : "",
           callLimitGuidance(limited.limit, limited.truncated),
           shouldLoadTranscripts
             ? `Loaded transcript excerpts for ${transcripts?.length ?? 0} call(s). Ground qualitative claims in the transcript text and cite the inspected call count.`

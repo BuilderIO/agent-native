@@ -53,9 +53,14 @@ export interface PaginationConfig {
   nextCursorPath?: string;
   /**
    * Query parameter name to use for the cursor in the next request.
-   * Required when nextCursorPath is set.
+   * Use this for APIs that page with query params.
    */
   cursorParam?: string;
+  /**
+   * Dot-path in the JSON request body to set to the cursor value in the next
+   * request. Use this for APIs that page via POST body fields.
+   */
+  cursorBodyPath?: string;
   /**
    * Use page-number mode: send `pageParam=N` for each subsequent page.
    */
@@ -176,6 +181,28 @@ function extractNextCursor(body: unknown, path: string): string | null {
   return String(val);
 }
 
+function setAtPath(base: unknown, path: string, value: unknown): unknown {
+  const root =
+    base && typeof base === "object" && !Array.isArray(base)
+      ? { ...(base as Record<string, unknown>) }
+      : {};
+  const parts = path.split(".").filter(Boolean);
+  if (!parts.length) return root;
+
+  let current: Record<string, unknown> = root;
+  for (const part of parts.slice(0, -1)) {
+    const existing = current[part];
+    const next =
+      existing && typeof existing === "object" && !Array.isArray(existing)
+        ? { ...(existing as Record<string, unknown>) }
+        : {};
+    current[part] = next;
+    current = next;
+  }
+  current[parts[parts.length - 1]!] = value;
+  return root;
+}
+
 // ---------------------------------------------------------------------------
 // 429 / Retry-After handling
 // ---------------------------------------------------------------------------
@@ -221,6 +248,15 @@ export async function stagingExecuteRequest(
   const itemsPath = args.itemsPath ?? "auto";
   const pagination = args.pagination;
   const maxPages = Math.min(pagination?.maxPages ?? 50, 200);
+  if (
+    pagination?.nextCursorPath &&
+    !pagination.cursorParam &&
+    !pagination.cursorBodyPath
+  ) {
+    throw new Error(
+      "Pagination with nextCursorPath requires cursorParam or cursorBodyPath.",
+    );
+  }
 
   // Strip staging fields from the underlying request args
   const baseArgs: ProviderApiRequestArgs = {
@@ -261,21 +297,32 @@ export async function stagingExecuteRequest(
     // Inject pagination params for pages 2+
     if (pageIndex > 0 && pagination) {
       const extraQuery: Record<string, unknown> =
-        typeof currentArgs.query === "object" && currentArgs.query !== null
-          ? { ...(currentArgs.query as Record<string, unknown>) }
+        typeof baseArgs.query === "object" && baseArgs.query !== null
+          ? { ...(baseArgs.query as Record<string, unknown>) }
           : {};
+      let nextBody = baseArgs.body;
 
       if (pagination.cursorParam && lastCursor !== null) {
         extraQuery[pagination.cursorParam] = lastCursor;
-      } else if (pagination.pageParam) {
+      }
+      if (pagination.cursorBodyPath && lastCursor !== null) {
+        nextBody = setAtPath(
+          baseArgs.body,
+          pagination.cursorBodyPath,
+          lastCursor,
+        );
+      }
+      const hasCursorMode =
+        Boolean(pagination.cursorParam) || Boolean(pagination.cursorBodyPath);
+      if (pagination.pageParam && !hasCursorMode) {
         extraQuery[pagination.pageParam] = pageNum;
-      } else if (pagination.offsetParam) {
+      } else if (pagination.offsetParam && !hasCursorMode) {
         extraQuery[pagination.offsetParam] = offset;
-      } else {
+      } else if (!hasCursorMode) {
         // No pagination config for next page — stop
         break;
       }
-      currentArgs = { ...currentArgs, query: extraQuery };
+      currentArgs = { ...baseArgs, query: extraQuery, body: nextBody };
     }
 
     // -----------------------------------------------------------------------

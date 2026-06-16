@@ -47,6 +47,21 @@ vi.mock("./builtin-tools.js", () => ({
       },
       run: async () => ({ response: "ok" }),
     },
+    ask_app_status: {
+      tool: {
+        description: "Poll an ask_app task",
+        parameters: {
+          type: "object",
+          properties: {
+            app: { type: "string" },
+            taskId: { type: "string" },
+          },
+          required: ["taskId"],
+        },
+      },
+      readOnly: true,
+      run: async () => ({ status: "completed", response: "ok" }),
+    },
     create_embed_session: {
       tool: {
         description: "Create an embed session",
@@ -358,15 +373,16 @@ describe("connector-catalog tier", () => {
       });
       const names: string[] = out.result.tools.map((t: any) => t.name).sort();
 
-      // The exact set: catalog tools + the 4 core builtin cross-app tools.
+      // The exact set: catalog tools + the 5 core builtin cross-app tools.
       // create_workspace_app and list_templates are NOT in COMPACT_MCP_APP_CATALOG_BUILTINS
       // so they are excluded by isActionInConnectorCatalog unless explicitly listed in the
-      // connectorCatalog. Only the 4 core cross-app builtins are always included.
+      // connectorCatalog. Only the 5 core cross-app builtins are always included.
       const expected = [
         ...CONNECTOR_CATALOG,
         "list_apps",
         "open_app",
         "ask_app",
+        "ask_app_status",
         "create_embed_session",
       ].sort();
 
@@ -396,6 +412,7 @@ describe("connector-catalog tier", () => {
           "list_apps",
           "open_app",
           "ask_app",
+          "ask_app_status",
           "create_embed_session",
         ].sort(),
       );
@@ -581,6 +598,7 @@ describe("connector-catalog tier — env flag not required", () => {
         "list_apps",
         "open_app",
         "ask_app",
+        "ask_app_status",
         "create_embed_session",
       ].sort(),
     );
@@ -638,6 +656,7 @@ describe("connector-catalog tier — no connectorCatalog declared", () => {
       "list_apps",
       "open_app",
       "ask_app",
+      "ask_app_status",
       "create_embed_session",
     ]);
     expect(names).not.toContain("db-exec");

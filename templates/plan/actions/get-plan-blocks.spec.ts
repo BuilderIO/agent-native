@@ -7,6 +7,7 @@ describe("get-plan-blocks action", () => {
       expose: true,
       readOnly: true,
     });
+    expect(getPlanBlocksAction.requiresAuth).toBe(false);
     expect(getPlanBlocksAction.mcpApp).toMatchObject({
       compactCatalog: true,
     });

@@ -267,12 +267,15 @@ function makeExecutor(_appId = "testapp") {
       userEmail: "ada@example.com",
       orgId: "org-1",
     }),
-    resolveCredential: async () => ({
-      key: "TEST_TOKEN",
-      value: "test-token",
-      source: "local",
-      provider: "stripe",
-    }),
+    resolveCredential: async ({ key, provider }) => {
+      if (key === "GONG_API_BASE") return null;
+      return {
+        key,
+        value: "test-token",
+        source: "local",
+        provider,
+      };
+    },
   });
   return (args: ProviderApiRequestArgs) => runtime.executeRequest(args);
 }
@@ -439,6 +442,58 @@ describe("stagingExecuteRequest — cursor pagination + 429", () => {
     expect(result.pages).toBe(2);
     expect(result.truncated).toBe(false);
     expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("can send next cursors through a POST body path", async () => {
+    const requestBodies: Array<Record<string, unknown>> = [];
+    const fetchMock = vi
+      .spyOn(globalThis, "fetch")
+      .mockImplementation(async (_url, init) => {
+        requestBodies.push(JSON.parse(String(init?.body ?? "{}")));
+        const isFirstPage = requestBodies.length === 1;
+        return new Response(
+          JSON.stringify({
+            calls: [
+              {
+                id: isFirstPage ? "call-1" : "call-2",
+                title: isFirstPage ? "First call" : "Second call",
+              },
+            ],
+            records: { cursor: isFirstPage ? "cursor-2" : null },
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      });
+
+    const result = await stagingExecuteRequest(
+      {
+        provider: "gong",
+        method: "POST",
+        path: "/calls/extensive",
+        body: {
+          filter: { fromDateTime: "2026-01-01T00:00:00.000Z" },
+          contentSelector: { exposedFields: { parties: true } },
+        },
+        stageAs: "gong_calls",
+        itemsPath: "calls",
+        pagination: {
+          nextCursorPath: "records.cursor",
+          cursorBodyPath: "cursor",
+          maxPages: 10,
+        },
+      },
+      makeExecutor(),
+      { appId: "testapp", ownerEmail: "ada@example.com" },
+    );
+
+    expect(result.dataset.rowCount).toBe(2);
+    expect(result.pages).toBe(2);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(requestBodies[0]).not.toHaveProperty("cursor");
+    expect(requestBodies[1]).toMatchObject({
+      cursor: "cursor-2",
+      filter: { fromDateTime: "2026-01-01T00:00:00.000Z" },
+    });
   });
 
   it("handles 429 with Retry-After and retries successfully", async () => {

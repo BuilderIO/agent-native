@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router";
 import {
   IconArrowLeft,
@@ -10,6 +10,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 import { PlanContentRenderer } from "@/components/plan/PlanContentRenderer";
+import { planDocumentTitle } from "@/lib/plan-document-title";
 import type { PlanVisualSurfaceMode } from "@/components/plan/PlanVisualSurface";
 import type { PlanBundle } from "@shared/types";
 
@@ -64,6 +65,11 @@ export default function LocalPlanRoute() {
         : [],
     [query.data?.mdx],
   );
+
+  useEffect(() => {
+    const title = query.data?.plan.title;
+    if (title) document.title = planDocumentTitle(title, document.title);
+  }, [query.data?.plan.title]);
 
   if (query.isLoading) {
     return (

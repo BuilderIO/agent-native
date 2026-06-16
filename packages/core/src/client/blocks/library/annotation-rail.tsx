@@ -468,6 +468,7 @@ export type AnnotationMarginSide = AnnotationSide | "auto";
 const HOVER_CARD_WIDTH = 280;
 const INLINE_OVERLAY_WIDTH = 320;
 const HOVER_CARD_GAP = 12;
+const HOVER_CARD_OVERHANG = 40;
 const VIEWPORT_MARGIN = 8;
 const SCROLL_HOVER_SUPPRESS_MS = 260;
 
@@ -511,6 +512,16 @@ function hoverCardLeftForSide(
   return side === "right"
     ? anchor.codeRight + HOVER_CARD_GAP
     : anchor.codeLeft - HOVER_CARD_GAP - cardWidth;
+}
+
+function hoverCardOverlapLeftForSide(
+  side: AnnotationSide,
+  anchor: AnnotationAnchor,
+  cardWidth: number,
+): number {
+  return side === "right"
+    ? anchor.codeRight - cardWidth + HOVER_CARD_OVERHANG
+    : anchor.codeLeft - HOVER_CARD_OVERHANG;
 }
 
 function hoverCardFitsSide(
@@ -616,7 +627,7 @@ export function resolveAnnotationHoverCardPosition(
   } = {},
 ): { top: number; left: number } {
   const preferredSide = options.preferredSide ?? "right";
-  const hoverFallbackSide = options.hoverFallbackSide ?? "below";
+  const hoverFallbackSide = options.hoverFallbackSide ?? "right";
   const allowOppositeSideFallback = options.allowOppositeSideFallback ?? true;
   const opposite = oppositeSide(preferredSide);
 
@@ -632,7 +643,7 @@ export function resolveAnnotationHoverCardPosition(
     left = hoverCardLeftForSide(opposite, anchor, card.width);
     top = anchor.lineCenter - card.height / 2;
   } else if (hoverFallbackSide === "left" || hoverFallbackSide === "right") {
-    left = hoverCardLeftForSide(hoverFallbackSide, anchor, card.width);
+    left = hoverCardOverlapLeftForSide(hoverFallbackSide, anchor, card.width);
     top = anchor.lineCenter - card.height / 2;
   } else {
     // No clean side gutter → drop below the line, aligned to the code's left.
@@ -724,9 +735,10 @@ export function useAnnotationMarginNotesAvailable({
  * vertically centered on the hovered line — so it never overlaps the code text.
  * If there isn't room to the right, it uses the LEFT of the code block when the
  * card can fit there without covering code. Only when neither side fits does it
- * fall back to BELOW the hovered line (left-aligned to the code block). The card
- * keeps itself open while hovered (`onMouseEnter`/`onMouseLeave` forwarded) so
- * it stays readable; the caller adds the small hover-intent close delay.
+ * overlap the code from the RIGHT edge with a small overhang, so the hover still
+ * reads as an attached overlay instead of a left-aligned card. The card keeps
+ * itself open while hovered (`onMouseEnter`/`onMouseLeave` forwarded) so it stays
+ * readable; the caller adds the small hover-intent close delay.
  */
 export function AnnotationHoverCard<A extends RailAnnotation>({
   item,

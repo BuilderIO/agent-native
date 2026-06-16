@@ -105,9 +105,9 @@ describe("run-code bridge", () => {
           headers: { "X-Test": "yes" },
           stageAs: "charges",
           itemsPath: "data",
-          pagination: { cursorPath: "has_more", cursorParam: "starting_after" },
+          pagination: { cursorPath: "has_more", cursorParam: "starting_after", cursorBodyPath: "cursor" },
           saveToFile: "analysis/charges.json",
-          fetchAllPages: { cursorPath: "paging.next.after", cursorParam: "after", maxPages: 2 },
+          fetchAllPages: { cursorPath: "paging.next.after", cursorBodyPath: "cursor", maxPages: 2 },
           timeoutMs: 4000,
           maxBytes: 1000,
         });
@@ -122,6 +122,7 @@ describe("run-code bridge", () => {
     expect(result).toContain('"headers":{"X-Test":"yes"}');
     expect(result).toContain('"stageAs":"charges"');
     expect(result).toContain('"itemsPath":"data"');
+    expect(result).toContain('"cursorBodyPath":"cursor"');
     expect(result).toContain('"saveToFile":"analysis/charges.json"');
     expect(result).toContain('"maxBytes":1000');
   });

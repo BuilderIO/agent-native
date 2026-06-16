@@ -184,6 +184,7 @@ import {
   type DesktopPlanFilesFolder,
 } from "@/lib/desktop-plan-files";
 import { syncLocalControlResources } from "@/lib/local-control-resources";
+import { planDocumentTitle } from "@/lib/plan-document-title";
 import {
   type PlanBundle,
   type PlanKind,
@@ -2970,6 +2971,11 @@ export function PlansPage() {
       setCanvasMarkupMode("none");
     }
   }, [canvasMarkupMode, visualSurfaceMode]);
+
+  useEffect(() => {
+    const title = bundle?.plan.title;
+    if (title) document.title = planDocumentTitle(title, document.title);
+  }, [bundle?.plan.title]);
 
   useSetPageTitle(bundle?.plan.title || (isRecap ? "Recap" : "Plan"));
   useSetHeaderActions(

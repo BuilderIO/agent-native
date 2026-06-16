@@ -413,13 +413,7 @@ pub async fn native_fullscreen_recording_stop_and_upload(
     has_audio: bool,
     has_camera: bool,
 ) -> Result<NativeFullscreenUploadResult, String> {
-    emit_native_upload_progress(
-        &app,
-        "finalizing",
-        "Finalizing the recording",
-        Some("Clips is closing the screen capture and saving a local backup.".into()),
-        None,
-    );
+    emit_native_upload_progress(&app, "finalizing", "Optimizing clip", None, None);
     let StoppedSession {
         session,
         duration_ms,
@@ -450,13 +444,7 @@ pub async fn native_fullscreen_recording_stop_and_upload(
         saved.last_error = Some(merge_err.clone());
     }
     write_saved_recording_metadata(&app, &saved)?;
-    emit_native_upload_progress(
-        &app,
-        "preparing",
-        "Preparing the upload",
-        Some("A local copy is saved. Clips can retry from the menu if upload fails.".into()),
-        None,
-    );
+    emit_native_upload_progress(&app, "preparing", "Optimizing clip", None, None);
     if let Err(stop_err) = stop_outcome {
         return Err(format!(
             "{stop_err}. The clip was saved locally and can be retried from the Clips menu."
@@ -493,13 +481,7 @@ pub async fn native_fullscreen_recording_stop_and_upload(
             saved.last_error = Some(err.clone());
             saved.retry_count = saved.retry_count.saturating_add(1);
             let _ = write_saved_recording_metadata(&app, &saved);
-            emit_native_upload_progress(
-                &app,
-                "failed",
-                "Upload paused",
-                Some("The clip was saved locally and can be retried from the Clips menu.".into()),
-                None,
-            );
+            emit_native_upload_progress(&app, "failed", "Upload paused", None, None);
             Err(format!(
                 "{err}. The clip was saved locally and can be retried from the Clips menu."
             ))
@@ -1068,13 +1050,7 @@ pub async fn native_fullscreen_recording_retry_upload(
         }
         Err(err) => {
             persist_saved_recording_error(&app, &mut saved, &err);
-            emit_native_upload_progress(
-                &app,
-                "failed",
-                "Retry paused",
-                Some("The clip is still saved locally and can be retried again.".into()),
-                None,
-            );
+            emit_native_upload_progress(&app, "failed", "Retry paused", None, None);
             Err(format!(
                 "{err}. The local copy is still saved, so you can retry again."
             ))
@@ -1887,13 +1863,7 @@ async fn upload_prepared_recording_file(
     let total_bytes = prepared.bytes;
     let total_chunks = ((total_bytes as usize) + UPLOAD_CHUNK_BYTES - 1) / UPLOAD_CHUNK_BYTES;
     let total_posts = total_chunks + 1;
-    emit_native_upload_progress(
-        app,
-        "uploading",
-        "Uploading the recording",
-        Some(format!("{} prepared for upload.", format_mb(total_bytes))),
-        Some(0.0),
-    );
+    emit_native_upload_progress(app, "uploading", "Uploading clip", None, Some(0.0));
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(180))
         .build()
@@ -1928,16 +1898,11 @@ async fn upload_prepared_recording_file(
             buffer,
         )
         .await?;
-        let uploaded_bytes = std::cmp::min(total_bytes, ((index + 1) * UPLOAD_CHUNK_BYTES) as u64);
         emit_native_upload_progress(
             app,
             "uploading",
-            "Uploading the recording",
-            Some(format!(
-                "{} of {} uploaded.",
-                format_mb(uploaded_bytes),
-                format_mb(total_bytes)
-            )),
+            "Uploading clip",
+            None,
             Some((index + 1) as f32 / total_posts as f32),
         );
     }
@@ -1945,8 +1910,8 @@ async fn upload_prepared_recording_file(
     emit_native_upload_progress(
         app,
         "processing",
-        "Processing the clip",
-        Some("Upload complete. Clips is assembling and saving the recording.".into()),
+        "Uploading clip",
+        None,
         Some(total_chunks as f32 / total_posts as f32),
     );
     send_upload_post(
@@ -1968,13 +1933,7 @@ async fn upload_prepared_recording_file(
     )
     .await?;
 
-    emit_native_upload_progress(
-        app,
-        "opening",
-        "Opening the clip",
-        Some("Your browser will open as soon as Clips finishes the handoff.".into()),
-        Some(1.0),
-    );
+    emit_native_upload_progress(app, "opening", "Uploading clip", None, Some(1.0));
     Ok(NativeFullscreenUploadResult {
         recording_id,
         duration_ms,
@@ -2186,13 +2145,7 @@ fn prepare_recording_file(
     if source_bytes == 0 {
         return Err("Native recording produced an empty file.".into());
     }
-    emit_native_upload_progress(
-        app,
-        "preparing",
-        "Preparing the recording",
-        Some(format!("Source size is {}.", format_mb(source_bytes))),
-        None,
-    );
+    emit_native_upload_progress(app, "preparing", "Optimizing clip", None, None);
 
     let original = PreparedRecordingFile {
         path: path.to_path_buf(),
@@ -2213,16 +2166,8 @@ fn prepare_recording_file(
             emit_native_upload_progress(
                 app,
                 "compressing",
-                format!(
-                    "Compressing the recording ({}/{})",
-                    index + 1,
-                    presets.len()
-                ),
-                Some(format!(
-                    "Trying {} for a {} source. This can take a few minutes.",
-                    preset.label,
-                    format_mb(source_bytes)
-                )),
+                "Optimizing clip",
+                None,
                 Some(index as f32 / presets.len() as f32),
             );
             let compressed_path = compressed_recording_path(path);
@@ -2280,13 +2225,8 @@ fn prepare_recording_file(
                     emit_native_upload_progress(
                         app,
                         "compressing",
-                        "Compression finished",
-                        Some(format!(
-                            "{} -> {} using ffmpeg {}.",
-                            format_mb(source_bytes),
-                            format_mb(compressed_bytes),
-                            preset.label
-                        )),
+                        "Optimizing clip",
+                        None,
                         Some(1.0),
                     );
                     eprintln!(
@@ -2319,16 +2259,8 @@ fn prepare_recording_file(
             emit_native_upload_progress(
                 app,
                 "compressing",
-                format!(
-                    "Compressing the recording ({}/{})",
-                    index + 1,
-                    presets.len()
-                ),
-                Some(format!(
-                    "Trying {} for a {} source. This can take a few minutes.",
-                    native_preset_label(preset),
-                    format_mb(source_bytes)
-                )),
+                "Optimizing clip",
+                None,
                 Some(index as f32 / presets.len() as f32),
             );
             let compressed_path = compressed_recording_path(path);
@@ -2375,13 +2307,8 @@ fn prepare_recording_file(
                     emit_native_upload_progress(
                         app,
                         "compressing",
-                        "Compression finished",
-                        Some(format!(
-                            "{} -> {} using {}.",
-                            format_mb(source_bytes),
-                            format_mb(compressed_bytes),
-                            native_preset_label(preset)
-                        )),
+                        "Optimizing clip",
+                        None,
                         Some(1.0),
                     );
                     eprintln!(

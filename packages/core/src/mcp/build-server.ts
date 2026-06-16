@@ -201,6 +201,7 @@ const COMPACT_MCP_APP_CATALOG_BUILTINS = new Set([
   "list_apps",
   "open_app",
   "ask_app",
+  "ask_app_status",
   "create_embed_session",
   // `tool-search` MUST stay in every compact/connector surface: it is how a
   // compacted client discovers and loads any action on demand, which is what

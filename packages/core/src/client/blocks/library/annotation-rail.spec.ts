@@ -35,12 +35,23 @@ describe("annotation hover card placement", () => {
     ).toEqual({ left: 68, top: 140 });
   });
 
-  it("falls below the line when neither side has a clean gutter", () => {
+  it("overlaps from the right edge when neither side has a clean gutter", () => {
     expect(
       resolveAnnotationHoverCardPosition(
         { ...anchor, codeLeft: 100 },
         { width: 280, height: 120 },
         { width: 900, height: 600 },
+      ),
+    ).toEqual({ left: 612, top: 140 });
+  });
+
+  it("can fall below the line when requested explicitly", () => {
+    expect(
+      resolveAnnotationHoverCardPosition(
+        { ...anchor, codeLeft: 100 },
+        { width: 280, height: 120 },
+        { width: 900, height: 600 },
+        { hoverFallbackSide: "below" },
       ),
     ).toEqual({ left: 100, top: 223 });
   });
@@ -56,7 +67,7 @@ describe("annotation hover card placement", () => {
     ).toEqual({ left: 68, top: 140 });
   });
 
-  it("can clamp to the right side in tight plan-mode windows", () => {
+  it("can overlap from the right edge in tight plan-mode windows", () => {
     expect(
       resolveAnnotationHoverCardPosition(
         { ...anchor, codeLeft: 100, codeRight: 760 },
@@ -64,7 +75,7 @@ describe("annotation hover card placement", () => {
         { width: 900, height: 600 },
         { preferredSide: "left", hoverFallbackSide: "right" },
       ),
-    ).toEqual({ left: 612, top: 140 });
+    ).toEqual({ left: 520, top: 140 });
   });
 });
 

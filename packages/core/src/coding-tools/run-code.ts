@@ -128,6 +128,7 @@ export function createRunCodeEntry(
         "    Use this to loop over app data readers and compose multi-source analyses without forcing every intermediate result into chat.",
         "  - `providerFetch(provider, path, init?)` — authenticated call to a registered provider via the provider-api-request action.",
         "    Returns the parsed JSON result (or throws on error).",
+        "    Supports stageAs/saveToFile/fetchAllPages; use cursorBodyPath for POST-body pagination.",
         "    Example: `const data = await providerFetch('hubspot', '/crm/v3/objects/contacts');`",
         "  - `webFetch(url, init?)` — outbound HTTP request via the web-request action.",
         "    Returns `{ status, body }` where body is the response text.",

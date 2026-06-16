@@ -2213,6 +2213,13 @@ function recapUrlFromPublishResult(result: unknown, appUrl: string): string {
 
 function shouldRetryRecapPublish(status: number): boolean {
   return (
+    // The create-visual-recap route can transiently 404 during a plan-app
+    // deploy: the recap CLI ships to npm independently of the plan server, so a
+    // recap can run after the new CLI is live but before the matching action
+    // route has fully propagated to every (cold-start) server instance. A
+    // bounded retry rides through that propagation window instead of failing
+    // the whole recap.
+    status === 404 ||
     status === 408 ||
     status === 409 ||
     status === 425 ||

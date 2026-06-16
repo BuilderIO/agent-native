@@ -24,7 +24,13 @@ const PaginationSchema = z
       .string()
       .optional()
       .describe(
-        "Query parameter name to inject the cursor into the next request. Required when nextCursorPath is set.",
+        "Query parameter name to inject the cursor into the next request. Use this for query-string pagination.",
+      ),
+    cursorBodyPath: z
+      .string()
+      .optional()
+      .describe(
+        "Dot-path in the JSON request body to set to the next cursor. Use this for POST-body pagination, e.g. Gong uses cursorBodyPath='cursor' with nextCursorPath='records.cursor'.",
       ),
     pageParam: z
       .string()
@@ -70,7 +76,8 @@ export default defineAction({
     "Returns { dataset, rowCount, columns, sampleRows } — only a compact summary flows into the context window. " +
     "Use query-staged-dataset to aggregate, filter, and project the data without re-fetching. " +
     "\n\nPAGINATION: When stageAs is set, pass pagination config to fetch all pages server-side into the same dataset (cursor, page, or offset modes). " +
-    "Handles 429/Retry-After with exponential back-off. Returns { pages, rows, truncated, lastCursor } summary.",
+    "Handles 429/Retry-After with exponential back-off. Returns { pages, rows, truncated, lastCursor } summary. " +
+    "For APIs that page through POST bodies, pass cursorBodyPath instead of cursorParam.",
   schema: z.object({
     provider: ProviderSchema.describe(
       "Configured provider API to call, e.g. hubspot, gong, slack, stripe, jira, bigquery, ga4, gcloud, grafana, sentry.",
@@ -155,7 +162,7 @@ export default defineAction({
       ),
     pagination: PaginationSchema.describe(
       "Pagination config for server-side fetchAll (only used when stageAs is set). " +
-        "Supports cursor (nextCursorPath + cursorParam), page (pageParam), and offset (offsetParam) modes.",
+        "Supports cursor (nextCursorPath + cursorParam or cursorBodyPath), page (pageParam), and offset (offsetParam) modes.",
     ),
     saveToFile: z
       .string()
@@ -172,8 +179,15 @@ export default defineAction({
           ),
         cursorParam: z
           .string()
+          .optional()
           .describe(
-            "Query parameter name to pass the cursor on subsequent pages, e.g. 'cursor' or 'page_token'.",
+            "Query parameter name to pass the cursor on subsequent pages, e.g. 'cursor' or 'page_token'. Use cursorBodyPath instead for APIs that put cursors in POST bodies.",
+          ),
+        cursorBodyPath: z
+          .string()
+          .optional()
+          .describe(
+            "Dot-path in the JSON request body to set to the next cursor. Use for POST-body pagination such as Gong { cursor: ... }.",
           ),
         itemsPath: z
           .string()
@@ -193,7 +207,7 @@ export default defineAction({
       })
       .optional()
       .describe(
-        "Enable cursor-based pagination. After each response, reads cursorPath from the JSON body and re-issues the request with cursorParam set, accumulating items from itemsPath (or whole bodies) until cursor is empty or maxPages is reached. Combine with saveToFile to write the full dataset to a workspace file.",
+        "Enable cursor-based pagination. After each response, reads cursorPath from the JSON body and re-issues the request with cursorParam or cursorBodyPath set, accumulating items from itemsPath (or whole bodies) until cursor is empty or maxPages is reached. Combine with saveToFile to write the full dataset to a workspace file.",
       ),
   }),
   http: false,
@@ -222,6 +236,8 @@ export default defineAction({
         { appId: ANALYTICS_APP_ID, ownerEmail: ctx.userEmail },
       );
     }
-    return executeProviderApiRequest(args);
+    return executeProviderApiRequest(
+      args as unknown as Parameters<typeof executeProviderApiRequest>[0],
+    );
   },
 });

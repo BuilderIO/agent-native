@@ -92,6 +92,74 @@ describe("gong-calls action", () => {
     expect(result.guidance).toContain("Loaded transcript excerpts");
   });
 
+  it("searches matching transcripts server-side for phrase evidence", async () => {
+    searchCalls.mockResolvedValue({
+      calls: [
+        {
+          id: "call-1",
+          title: "Acme architecture review",
+          started: "2026-05-03T10:00:00Z",
+        },
+        {
+          id: "call-2",
+          title: "Acme kickoff",
+          started: "2026-05-01T10:00:00Z",
+        },
+        {
+          id: "call-3",
+          title: "Acme renewal",
+          started: "2026-04-28T10:00:00Z",
+        },
+      ],
+      limit: 8,
+      truncated: false,
+    });
+    getCallTranscript.mockImplementation(async (callId: string) => ({
+      callTranscripts: [
+        {
+          callId,
+          transcript: [
+            {
+              speakerId: "buyer",
+              sentences: [
+                {
+                  start: 0,
+                  text:
+                    callId === "call-1"
+                      ? `${"Context. ".repeat(1_000)}Figma MCP came up in the design workflow.`
+                      : "No product integration phrase here.",
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    }));
+
+    const result = (await gongCalls.run({
+      company: "Acme",
+      transcriptQuery: "Figma MCP",
+      transcriptScanLimit: 2,
+    })) as Record<string, any>;
+
+    expect(getCallTranscript).toHaveBeenCalledTimes(2);
+    expect(result.transcripts).toBeUndefined();
+    expect(result.transcriptSearch).toMatchObject({
+      query: "Figma MCP",
+      matchingCalls: 1,
+      inspectedCalls: 2,
+      availableCalls: 3,
+      coverageComplete: false,
+      scanLimited: true,
+      truncatedTranscripts: 0,
+      errors: [],
+    });
+    expect(result.transcriptSearch.matches[0].snippets[0]).toContain(
+      "Figma MCP came up",
+    );
+    expect(result.guidance).toContain("Transcript search inspected 2 of 3");
+  });
+
   it("exhaustive discovery passes the window, returns all calls, and skips transcripts", async () => {
     searchCalls.mockResolvedValue({
       calls: [
