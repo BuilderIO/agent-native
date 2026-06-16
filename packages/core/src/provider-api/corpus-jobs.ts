@@ -387,7 +387,7 @@ async function startJob(
     mode: args.mode,
     status: "paused",
     provider: request.provider,
-    request: request as Record<string, unknown>,
+    request: request as unknown as Record<string, unknown>,
     pagination: (args.pagination as Record<string, unknown> | undefined) ?? null,
     batch: (args.batch as Record<string, unknown> | undefined) ?? null,
     search: search as Record<string, unknown>,
