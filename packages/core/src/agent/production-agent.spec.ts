@@ -9,6 +9,7 @@ import {
   isRetryableError,
   resolveAgentOwnerEmail,
   runAgentLoop,
+  shouldGuardRepeatedSourceSweep,
   structuredHistoryToEngineMessages,
   trimOldToolResults,
   type ActionEntry,
@@ -1014,6 +1015,141 @@ describe("runAgentLoop", () => {
       }),
     );
     expect(events).toContainEqual({ type: "text", text: "reported the gap" });
+  });
+
+  it("detects repeated read-only source sweeps but ignores ordinary helpers", () => {
+    const priorToolCalls = Array.from({ length: 12 }, (_, i) => ({
+      name: "gong-calls",
+      input: { company: `Account ${i + 1}` },
+    }));
+
+    expect(
+      shouldGuardRepeatedSourceSweep({
+        toolName: "gong-calls",
+        entry: actionEntry({ readOnly: true }),
+        priorToolCalls,
+      }),
+    ).toMatchObject({
+      toolName: "gong-calls",
+      priorCalls: 12,
+      message: expect.stringContaining("Finaliz"),
+    });
+
+    expect(
+      shouldGuardRepeatedSourceSweep({
+        toolName: "read-attachment",
+        entry: actionEntry({ readOnly: true }),
+        priorToolCalls: priorToolCalls.map((call) => ({
+          ...call,
+          name: "read-attachment",
+        })),
+      }),
+    ).toBeNull();
+
+    expect(
+      shouldGuardRepeatedSourceSweep({
+        toolName: "search-records",
+        entry: actionEntry({ readOnly: false }),
+        priorToolCalls: priorToolCalls.map((call) => ({
+          ...call,
+          name: "search-records",
+        })),
+      }),
+    ).toBeNull();
+  });
+
+  it("forces a final coverage summary instead of continuing a repeated source sweep", async () => {
+    let streamCalls = 0;
+    const seenMessages: unknown[] = [];
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: true,
+      },
+      async *stream(opts): AsyncIterable<EngineEvent> {
+        streamCalls += 1;
+        seenMessages.push(opts.messages);
+        const serializedMessages = JSON.stringify(opts.messages);
+        if (serializedMessages.includes("convergence budget")) {
+          yield {
+            type: "text-delta",
+            text: "Partial coverage: report the hits and gaps.",
+          };
+          yield {
+            type: "assistant-content",
+            parts: [
+              {
+                type: "text" as const,
+                text: "Partial coverage: report the hits and gaps.",
+              },
+            ],
+          };
+          yield { type: "stop", reason: "end_turn" };
+          return;
+        }
+        yield {
+          type: "assistant-content",
+          parts: [
+            {
+              type: "tool-call" as const,
+              id: `gong-${streamCalls}`,
+              name: "gong-calls",
+              input: { company: `Account ${streamCalls}` },
+            },
+          ],
+        };
+        yield { type: "stop", reason: "tool_use" };
+      },
+    };
+    const gongCalls = vi.fn(async (args) => ({
+      company: args.company,
+      transcriptSearch: { matchingCalls: 0, inspectedCalls: 5 },
+    }));
+    const events: any[] = [];
+
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [
+        {
+          role: "user",
+          content: [{ type: "text", text: "scan this provider cohort" }],
+        },
+      ],
+      actions: {
+        "gong-calls": {
+          ...actionEntry({ readOnly: true }),
+          run: gongCalls,
+        },
+      },
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+    });
+
+    expect(gongCalls).toHaveBeenCalledTimes(12);
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "tool_done",
+        tool: "gong-calls",
+        result: expect.stringContaining("convergence budget"),
+      }),
+    );
+    expect(events).toContainEqual({
+      type: "text",
+      text: "Partial coverage: report the hits and gaps.",
+    });
+    expect(JSON.stringify(seenMessages.at(-1))).toContain(
+      "Do not call more tools",
+    );
   });
 
   it("retries identical read-only tools when the continuation history result was aborted", async () => {

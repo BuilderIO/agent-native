@@ -711,6 +711,7 @@ const MAX_SELECTION_CONTEXT_CHARS = 8_000;
 const MAX_RESOURCE_INVENTORY_ITEMS = 40;
 const MAX_RESOURCE_INVENTORY_DESCRIPTION_CHARS = 160;
 const MAX_INLINE_SKILL_REFERENCE_CHARS = 40_000;
+const SOURCE_SWEEP_TOOL_CALL_THRESHOLD = 12;
 
 /**
  * Hard cap on the `<current-screen>` block injected into EVERY user message.
@@ -1730,6 +1731,87 @@ function rateLimitRecoveryHint(message: string): string {
   return "\n\nProvider rate-limit guidance: stop retrying this provider in this turn. Report the rate limit as a coverage gap, include any evidence already gathered, and ask the user to retry after the provider quota resets if full coverage is required.";
 }
 
+const SOURCE_SWEEP_TOOL_NAME =
+  /\b(?:api|calls?|deals?|events?|issues?|messages?|metrics?|provider|query|records?|request|search|tickets?|transcripts?)\b/i;
+
+const SOURCE_SWEEP_PROVIDER_TOKEN =
+  /\b(?:amplitude|apollo|bigquery|commonroom|data-source|ga4|github|gong|grafana|hubspot|jira|mixpanel|notion|posthog|postgres|postgresql|pylon|sentry|slack|stripe)\b/i;
+
+const SOURCE_SWEEP_EXCLUDED_TOOLS = new Set([
+  "chat-history",
+  "list-staged-datasets",
+  "manage-agent-engine",
+  "manage-agent-loop-settings",
+  "manage-automations",
+  "manage-jobs",
+  "manage-notifications",
+  "manage-progress",
+  "read-attachment",
+  "refresh-screen",
+  "resources",
+  "tool-search",
+  "view-screen",
+]);
+
+function normalizeToolNameForHeuristics(name: string): string {
+  return name.replace(/[_-]+/g, " ");
+}
+
+function isLikelySourceSweepTool(
+  name: string,
+  entry: ActionEntry | undefined,
+): boolean {
+  if (!entry || entry.readOnly !== true) return false;
+  const lower = name.toLowerCase();
+  if (SOURCE_SWEEP_EXCLUDED_TOOLS.has(lower)) return false;
+  const normalized = normalizeToolNameForHeuristics(lower);
+  return (
+    SOURCE_SWEEP_PROVIDER_TOKEN.test(normalized) ||
+    SOURCE_SWEEP_TOOL_NAME.test(normalized)
+  );
+}
+
+export function repeatedSourceSweepGuardMessage(opts: {
+  toolName: string;
+  priorCalls: number;
+  threshold?: number;
+}): string {
+  const threshold = opts.threshold ?? SOURCE_SWEEP_TOOL_CALL_THRESHOLD;
+  return (
+    `Skipped ${opts.toolName}: this turn already made ${opts.priorCalls} ` +
+    `call(s) to the same read-only source/search tool, which exceeds the ` +
+    `${threshold}-call convergence budget. Do not call more tools for this ` +
+    `sweep. Finalize now from the evidence already gathered: answer the user, ` +
+    `state the source filters, count what was inspected, list confirmed hits, ` +
+    `and explicitly name remaining gaps, timeouts, quotas, or uninspected ` +
+    `records. If complete coverage is still required, recommend a bulk/corpus ` +
+    `workflow or a follow-up retry instead of continuing one source call at a time.`
+  );
+}
+
+export function shouldGuardRepeatedSourceSweep(opts: {
+  toolName: string;
+  entry: ActionEntry | undefined;
+  priorToolCalls: readonly AgentLoopToolCallSummary[];
+  threshold?: number;
+}): { toolName: string; priorCalls: number; message: string } | null {
+  if (!isLikelySourceSweepTool(opts.toolName, opts.entry)) return null;
+  const threshold = opts.threshold ?? SOURCE_SWEEP_TOOL_CALL_THRESHOLD;
+  const priorCalls = opts.priorToolCalls.filter(
+    (call) => call.name === opts.toolName,
+  ).length;
+  if (priorCalls < threshold) return null;
+  return {
+    toolName: opts.toolName,
+    priorCalls,
+    message: repeatedSourceSweepGuardMessage({
+      toolName: opts.toolName,
+      priorCalls,
+      threshold,
+    }),
+  };
+}
+
 function normalizeToolCallInputForHistory(
   input: unknown,
 ): Record<string, unknown> {
@@ -2140,9 +2222,18 @@ export async function runAgentLoop(opts: {
       toolCall: import("./engine/types.js").EngineToolCallPart,
     ): Promise<EngineContentPart> => {
       const wireToolInput = JSON.stringify(toolCall.input ?? {});
+      const normalizedToolInput = normalizeToolCallInputForHistory(
+        toolCall.input,
+      );
+      const actionEntry = actions[toolCall.name];
+      const sourceSweepGuard = shouldGuardRepeatedSourceSweep({
+        toolName: toolCall.name,
+        entry: actionEntry,
+        priorToolCalls: toolCallHistory,
+      });
       toolCallHistory.push({
         name: toolCall.name,
-        input: normalizeToolCallInputForHistory(toolCall.input),
+        input: normalizedToolInput,
       });
       const recordToolResult = (content: string, isError: boolean) => {
         toolResultHistory.push({
@@ -2151,7 +2242,24 @@ export async function runAgentLoop(opts: {
           isError,
         });
       };
-      const actionEntry = actions[toolCall.name];
+      if (sourceSweepGuard) {
+        const result = sourceSweepGuard.message;
+        send({
+          type: "tool_start",
+          tool: toolCall.name,
+          input: toolCall.input as Record<string, string>,
+        });
+        send({ type: "tool_done", tool: toolCall.name, result });
+        recordToolResult(result, false);
+        return {
+          type: "tool-result" as const,
+          toolCallId: toolCall.id,
+          toolName: toolCall.name,
+          toolInput: wireToolInput,
+          content: result,
+        };
+      }
+
       if (!actionEntry) {
         const result = `Error: Unknown tool "${toolCall.name}"`;
         send({
