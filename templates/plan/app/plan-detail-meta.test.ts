@@ -1,11 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
 
-vi.mock("../../server/lib/plan-meta.server", () => ({
+vi.mock("../server/lib/plan-meta.server", () => ({
   fetchPublicPlanMeta: vi.fn(),
 }));
 
-import { meta as planMeta } from "./plans.$id";
-import { meta as recapMeta } from "./recaps.$id";
+import { meta as planMeta } from "./routes/plans.$id";
+import { meta as recapMeta } from "./routes/recaps.$id";
 
 type MetaEntry = Record<string, string>;
 
