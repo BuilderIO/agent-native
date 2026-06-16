@@ -53,16 +53,21 @@ import {
 } from "@/components/ui/dialog";
 import { DEFAULT_LIBRARY_PRESETS } from "../../shared/library-presets";
 
-type AssetTab = "all" | "generated" | "references";
+type AssetTab = "all" | "generated" | "drafts" | "references";
 
 function isGeneratedAsset(asset: Asset) {
   const role = asset.role ?? "";
   return role === "generated" || role === "active" || role === "candidate";
 }
 
+function isDraftAsset(asset: Asset) {
+  return asset.role === "generated" && asset.status === "candidate";
+}
+
 function assetMatchesTab(asset: Asset, tab: AssetTab) {
   if (tab === "all") return true;
-  if (tab === "generated") return isGeneratedAsset(asset);
+  if (tab === "drafts") return isDraftAsset(asset);
+  if (tab === "generated") return isGeneratedAsset(asset) && !isDraftAsset(asset);
   return !isGeneratedAsset(asset);
 }
 
@@ -78,6 +83,7 @@ type Asset = {
   id: string;
   libraryId: string;
   role?: string | null;
+  status?: string | null;
   title?: string | null;
   description?: string | null;
   altText?: string | null;
@@ -618,6 +624,15 @@ function AssetOverlayImage({ asset }: { asset: Asset }) {
 export default function AssetPicker() {
   const [searchParams] = useSearchParams();
   const searchParamsKey = searchParams.toString();
+  const urlAssetTab = useMemo<AssetTab | null>(() => {
+    const tab = new URLSearchParams(searchParamsKey).get("tab");
+    return tab === "all" ||
+      tab === "generated" ||
+      tab === "drafts" ||
+      tab === "references"
+      ? tab
+      : null;
+  }, [searchParamsKey]);
   const urlHostConfig = useMemo(() => {
     const params = new URLSearchParams(searchParamsKey);
     return {
@@ -646,7 +661,7 @@ export default function AssetPicker() {
   );
   const [presetId, setPresetId] = useState(() => hostConfig.presetId ?? "none");
   const [count, setCount] = useState(() => hostConfig.count ?? 3);
-  const [assetTab, setAssetTab] = useState<AssetTab>("all");
+  const [assetTab, setAssetTab] = useState<AssetTab>(urlAssetTab ?? "all");
   const [selectedLibraryId, setSelectedLibraryId] = useState(
     () => hostConfig.libraryId ?? "",
   );
@@ -665,6 +680,10 @@ export default function AssetPicker() {
     setPresetId(urlHostConfig.presetId ?? "none");
     setCount(urlHostConfig.count ?? 3);
   }, [urlHostConfig]);
+
+  useEffect(() => {
+    if (urlAssetTab) setAssetTab(urlAssetTab);
+  }, [urlAssetTab]);
 
   const librariesQuery = useActionQuery("list-libraries", {
     compact: true,
@@ -791,11 +810,12 @@ export default function AssetPicker() {
       mediaType,
       query: query.trim() || undefined,
       includeCandidates:
-        mediaType === "image" && visibleCandidateRunIds.length > 0,
+        assetTab === "drafts" ||
+        (mediaType === "image" && visibleCandidateRunIds.length > 0),
       candidateRunIds:
         visibleCandidateRunIds.length > 0 ? visibleCandidateRunIds : undefined,
     }),
-    [mediaType, query, selectedLibraryId, visibleCandidateRunIds],
+    [assetTab, mediaType, query, selectedLibraryId, visibleCandidateRunIds],
   );
   const { data: assetData, isLoading: assetsLoading } = useActionQuery(
     "list-assets",
@@ -1362,6 +1382,7 @@ export default function AssetPicker() {
                   <TabsList>
                     <TabsTrigger value="all">All</TabsTrigger>
                     <TabsTrigger value="generated">Generated</TabsTrigger>
+                    <TabsTrigger value="drafts">Drafts</TabsTrigger>
                     <TabsTrigger value="references">References</TabsTrigger>
                   </TabsList>
                 </Tabs>

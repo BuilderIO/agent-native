@@ -55,6 +55,7 @@ import {
 import { CreateLibraryDialog } from "@/components/library/CreateLibraryDialog";
 import { LibraryCard } from "@/components/library/LibraryCard";
 import { LibraryPresetGrid } from "@/components/library/LibraryPresetGrid";
+import { RecentDraftsSection } from "@/components/create/RecentDraftsSection";
 import { PageShell } from "@/components/layout/PageShell";
 import {
   chunkAssetUploads,
@@ -841,6 +842,8 @@ function HomeGeneratePanel({
           </div>
         </div>
       </section>
+
+      <RecentDraftsSection />
 
       <section className="space-y-3">
         {librariesAreaLoading ? (
