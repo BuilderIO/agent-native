@@ -219,6 +219,9 @@ describe("coverage-sensitive analytics request classification", () => {
     expect(hasCorpusWorkflowAttempt([{ name: "provider-api-request" }])).toBe(
       true,
     );
+    expect(hasCorpusWorkflowAttempt([{ name: "provider-corpus-job" }])).toBe(
+      true,
+    );
     expect(hasCorpusWorkflowAttempt([{ name: "query-staged-dataset" }])).toBe(
       true,
     );
@@ -297,6 +300,17 @@ describe("coverage-sensitive analytics request classification", () => {
         finalText:
           "Partial coverage: I only inspected the first 19 calls and found zero mentions.",
         toolResults: shortcutOnly,
+      }),
+    ).toBe(false);
+
+    expect(
+      needsCorpusWorkflowForCoverageSensitiveRequest({
+        userText: broadProviderQuestion,
+        finalText: "I fetched the full cohort and found one mention.",
+        toolResults: [
+          { name: "hubspot-deals" },
+          { name: "provider-corpus-job" },
+        ],
       }),
     ).toBe(false);
 

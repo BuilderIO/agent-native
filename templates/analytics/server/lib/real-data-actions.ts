@@ -25,6 +25,7 @@ export const DATA_QUERY_ACTIONS = new Set([
   "jira",
   "jira-search",
   "provider-api-request",
+  "provider-corpus-job",
   "query-staged-dataset",
   "query-agent-native-analytics",
   "query-inbound-forms",
@@ -38,6 +39,7 @@ export const DATA_QUERY_ACTIONS = new Set([
 
 export const CORPUS_SOURCE_ACTIONS = new Set([
   "provider-api-request",
+  "provider-corpus-job",
   "query-staged-dataset",
 ]);
 
