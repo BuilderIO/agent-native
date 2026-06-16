@@ -193,6 +193,24 @@ describe("PlanContentRenderer recap files sidebar", () => {
     expect(frame?.getAttribute("data-style")).toBe("clean");
   });
 
+  it("renders recap wireframe artboards without decorative shadows", () => {
+    act(() => {
+      root.render(
+        <PlanContentRenderer
+          content={recapWireframeContent()}
+          isRecap
+          editingDisabled
+          fallbackTitle="Untitled plan"
+          fallbackBrief=""
+        />,
+      );
+    });
+
+    const artboard = container.querySelector<HTMLElement>(".plan-kit-artboard");
+    expect(artboard).not.toBeNull();
+    expect(artboard?.style.boxShadow).toBe("");
+  });
+
   it("links GitHub PR references in the read-only recap brief", () => {
     const content = {
       ...recapContent(),

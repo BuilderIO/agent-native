@@ -20,23 +20,28 @@ export interface AiSdkHarnessAdapterOptions {
 
 const RUNTIME_IMPORTS: Record<
   AiSdkHarnessRuntime,
-  { packageName: string; exportName: string; label: string; sandbox: boolean }
+  {
+    packageName: string;
+    exportNames: string[];
+    label: string;
+    sandbox: boolean;
+  }
 > = {
   "claude-code": {
     packageName: "@ai-sdk/harness-claude-code",
-    exportName: "claudeCode",
+    exportNames: ["claudeCode", "createClaudeCode"],
     label: "Claude Code",
     sandbox: true,
   },
   codex: {
     packageName: "@ai-sdk/harness-codex",
-    exportName: "codex",
+    exportNames: ["createCodex", "codex"],
     label: "Codex",
     sandbox: true,
   },
   pi: {
     packageName: "@ai-sdk/harness-pi",
-    exportName: "pi",
+    exportNames: ["pi", "createPi"],
     label: "Pi",
     sandbox: false,
   },
@@ -73,16 +78,21 @@ export function createAiSdkHarnessAdapter(
         dynamicImport("@ai-sdk/harness/agent"),
         dynamicImport(runtime.packageName),
       ]);
-      const harnessFactory = runtimeModule[runtime.exportName];
+      const exportName = runtime.exportNames.find(
+        (name) => runtimeModule[name],
+      );
+      const harnessFactory = exportName ? runtimeModule[exportName] : undefined;
       if (!HarnessAgent || !harnessFactory) {
         throw new Error(
-          `[agent-harness] AI SDK harness package "${runtime.packageName}" did not expose ${runtime.exportName}`,
+          `[agent-harness] AI SDK harness package "${runtime.packageName}" did not expose one of: ${runtime.exportNames.join(", ")}`,
         );
       }
       const hasHarnessOptions =
-        options.harnessOptions && Object.keys(options.harnessOptions).length > 0;
+        options.harnessOptions &&
+        Object.keys(options.harnessOptions).length > 0;
       const harness =
-        hasHarnessOptions && typeof harnessFactory === "function"
+        typeof harnessFactory === "function" &&
+        (hasHarnessOptions || exportName?.startsWith("create"))
           ? harnessFactory(options.harnessOptions)
           : harnessFactory;
       const agent = new HarnessAgent({

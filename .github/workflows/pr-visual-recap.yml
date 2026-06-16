@@ -303,6 +303,47 @@ jobs:
             echo "auth_failed=false" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Probe plan-app route health
+        id: route_health
+        if: steps.diff.outputs.tiny != 'true'
+        continue-on-error: true
+        run: |
+          set -uo pipefail
+          # Pre-publish health gate: confirm the plan app's recap action routes
+          # are actually deployed BEFORE the agent runs. A 404 from
+          # create-visual-recap (POST) or get-plan-blocks (GET) means the
+          # plan-app deploy has not propagated yet (the client is ahead of the
+          # deployed server). Say that plainly here instead of letting the agent
+          # run and then fail confusingly at publish time. A 401 or 200 is
+          # healthy — the route exists, it just rejected/accepted the probe.
+          probe_status() {
+            ROUTE="$1" METHOD="$2" node -e '
+              const https = require("https");
+              const base = process.env.PLAN_RECAP_APP_URL || "https://plan.agent-native.com";
+              const url = new URL(process.env.ROUTE, base);
+              if (process.env.METHOD === "GET") url.searchParams.set("format", "reference");
+              const req = https.request(url, { method: process.env.METHOD, headers: { "authorization": "Bearer " + (process.env.PLAN_RECAP_TOKEN || ""), "content-type": "application/json" }, timeout: 8000 }, (res) => { process.stdout.write(String(res.statusCode)); req.destroy(); });
+              req.on("error", () => process.stdout.write("0"));
+              req.on("timeout", () => { process.stdout.write("0"); req.destroy(); });
+              if (process.env.METHOD === "POST") { req.end(JSON.stringify({ __probe__: true })); } else { req.end(); }
+            ' 2>/dev/null || echo "0"
+          }
+          CREATE_STATUS="$(probe_status /_agent-native/actions/create-visual-recap POST)"
+          BLOCKS_STATUS="$(probe_status /_agent-native/actions/get-plan-blocks GET)"
+          REASON=""
+          if [ "$CREATE_STATUS" = "404" ] || [ "$BLOCKS_STATUS" = "404" ]; then
+            REASON="Plan app routes return 404 — deploy not yet propagated (create-visual-recap: $CREATE_STATUS, get-plan-blocks: $BLOCKS_STATUS). The plan-app client is ahead of the deployed server; re-run once the deploy finishes propagating."
+            echo "::error::$REASON"
+            echo "unhealthy=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "unhealthy=false" >> "$GITHUB_OUTPUT"
+          fi
+          {
+            echo 'reason<<__RECAP_ROUTE_HEALTH_EOF__'
+            echo "$REASON"
+            echo '__RECAP_ROUTE_HEALTH_EOF__'
+          } >> "$GITHUB_OUTPUT"
+
       - name: Secret scan
         id: scan
         if: steps.diff.outputs.tiny != 'true'
@@ -602,6 +643,19 @@ jobs:
           if-no-files-found: ignore
           retention-days: 14
 
+      - name: Upload recap source artifact
+        if: always() && !cancelled()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          # The agent-authored recap-source.json is the only window into WHAT the
+          # agent emitted when a publish fails (no plan URL). The sticky comment
+          # only shows the screenshot, so without this artifact a failed recap is
+          # undebuggable. Uploaded on success and failure; tolerant when absent.
+          name: pr-visual-recap-source-${{ github.event.pull_request.number }}
+          path: recap-source.json
+          if-no-files-found: ignore
+          retention-days: 14
+
       - name: Upsert sticky comment
         if: always() && !cancelled()
         continue-on-error: true
@@ -617,7 +671,10 @@ jobs:
           PREV_PLAN_ID: ${{ steps.prev.outputs.plan_id }}
           RECAP_AUTH_FAILED: ${{ steps.auth_probe.outputs.auth_failed }}
           RECAP_AGENT_SUMMARY: ${{ steps.agent_summary.outputs.summary }}
-          RECAP_URL_REASON: ${{ steps.url.outputs.reason }}
+          # Prefer the route-health diagnostic when the plan app routes are not
+          # yet deployed so the comment explains the 404 instead of a generic
+          # "recap-url.txt was not created" message.
+          RECAP_URL_REASON: ${{ steps.route_health.outputs.reason || steps.url.outputs.reason }}
         run: |
           set -euo pipefail
           $RECAP_CLI recap comment upsert --repo "$GITHUB_REPOSITORY" --issue "$PR_NUMBER" --token "$GH_TOKEN" --head-sha "$HEAD_SHA"
@@ -636,7 +693,7 @@ jobs:
           DIFF_HUGE: ${{ steps.diff.outputs.huge }}
           DIFF_TINY: ${{ steps.diff.outputs.tiny }}
           RECAP_AGENT_SUMMARY: ${{ steps.agent_summary.outputs.summary }}
-          RECAP_URL_REASON: ${{ steps.url.outputs.reason }}
+          RECAP_URL_REASON: ${{ steps.route_health.outputs.reason || steps.url.outputs.reason }}
         run: |
           set -uo pipefail
           $RECAP_CLI recap check complete \
