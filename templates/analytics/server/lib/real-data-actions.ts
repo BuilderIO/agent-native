@@ -272,6 +272,21 @@ function valueHasIncompleteDataFlag(value: unknown, parentKey = ""): boolean {
         return true;
       }
       if (
+        normalizedKey === "ok" &&
+        candidate === false &&
+        ["response", "result"].includes(parentKey)
+      ) {
+        return true;
+      }
+      if (
+        normalizedKey === "status" &&
+        typeof candidate === "number" &&
+        candidate >= 400 &&
+        ["response", "result"].includes(parentKey)
+      ) {
+        return true;
+      }
+      if (
         [
           "nextoffset",
           "nextcursor",
@@ -301,7 +316,7 @@ function valueHasIncompleteDataFlag(value: unknown, parentKey = ""): boolean {
 }
 
 const INCOMPLETE_DATA_TEXT =
-  /\b(?:error running|run aborted|tool call timed out|timed out|inactivity timeout|stale_run|connection_error|fetch failed|network error|unhandled error|exitcode:\s*[1-9]\d*|interrupted before this tool returned|truncated|coverage gap|provider page cap|hit the .* page cap|has more content|call again with offset|full result was|default limit|duplicate skipped|only first)\b/i;
+  /\b(?:error running|run aborted|tool call timed out|timed out|inactivity timeout|stale_run|connection_error|fetch failed|network error|rate limit|rate-limited|too many requests|http\s*429|\b429\b|unhandled error|exitcode:\s*[1-9]\d*|interrupted before this tool returned|truncated|coverage gap|provider page cap|hit the .* page cap|has more content|call again with offset|full result was|default limit|duplicate skipped|only first)\b/i;
 
 export function hasIncompleteDataEvidence(
   toolResults:
@@ -420,7 +435,10 @@ export function hasFailedCorpusWorkflowEvidence(
       return false;
     }
     if (result.isError) return true;
-    return INCOMPLETE_DATA_TEXT.test(String(result.content ?? ""));
+    const content = String(result.content ?? "");
+    if (INCOMPLETE_DATA_TEXT.test(content)) return true;
+    const parsed = tryParseJsonContent(content);
+    return valueHasIncompleteDataFlag(parsed);
   });
 }
 

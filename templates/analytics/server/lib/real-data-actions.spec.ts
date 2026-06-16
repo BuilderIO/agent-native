@@ -418,6 +418,21 @@ describe("incomplete evidence detection", () => {
           name: "provider-api-request",
           content: JSON.stringify({
             response: {
+              status: 429,
+              ok: false,
+              headers: { "retry-after": "3600" },
+              json: { errors: ["Access key API calls limit exceeded"] },
+            },
+          }),
+        },
+      ]),
+    ).toBe(true);
+    expect(
+      hasIncompleteDataEvidence([
+        {
+          name: "provider-api-request",
+          content: JSON.stringify({
+            response: {
               json: {
                 calls: [{ id: 1 }],
                 records: { cursor: "page-2" },
@@ -516,6 +531,20 @@ describe("incomplete evidence detection", () => {
         {
           name: "provider-api-request",
           content: "Error running provider-api-request: fetch failed",
+        },
+      ]),
+    ).toBe(true);
+    expect(
+      hasFailedCorpusWorkflowEvidence([
+        {
+          name: "provider-api-request",
+          content: JSON.stringify({
+            response: {
+              status: 429,
+              ok: false,
+              json: { errors: ["Too Many Requests"] },
+            },
+          }),
         },
       ]),
     ).toBe(true);
