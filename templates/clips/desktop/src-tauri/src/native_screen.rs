@@ -28,11 +28,8 @@ const QUICKTIME_RECORDING_MIME_TYPE: &str = "video/quicktime";
 const MP4_RECORDING_MIME_TYPE: &str = "video/mp4";
 // Keep native chunks comfortably under serverless request/event limits.
 const UPLOAD_CHUNK_BYTES: usize = 3 * 1024 * 1024;
-// Master switch for native transcoding/compression. Builder's upload provider
-// now handles large files directly (signed-URL flow), so we upload native
-// recordings as-is instead of paying the slow ffmpeg/avconvert transcode.
-// Flip to `true` to re-enable the threshold-based transcode path below.
-const COMPRESSION_ENABLED: bool = false;
+// Master switch for native transcoding/compression.
+const COMPRESSION_ENABLED: bool = true;
 const TRANSCODE_THRESHOLD_BYTES: u64 = 24 * 1024 * 1024;
 const TARGET_UPLOAD_BYTES: u64 = 18 * 1024 * 1024;
 // Mirror of the shared `MAX_UPLOAD_BYTES` limit (see
