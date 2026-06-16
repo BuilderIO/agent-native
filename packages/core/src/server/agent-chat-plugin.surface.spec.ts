@@ -159,9 +159,10 @@ describe("prompt content invariants", () => {
     }
   });
 
-  it("injectable examples default: full prompt contains default provider names", () => {
-    expect(full).toContain("bigquery");
-    expect(full).toContain("hubspot-deals");
+  it("injectable examples default: full prompt contains neutral provider names", () => {
+    expect(full).toContain("provider-search");
+    expect(full).toContain("warehouse-query");
+    expect(full).not.toContain("hubspot-deals");
   });
 
   it("injectable examples custom: custom providers appear, defaults do not", () => {

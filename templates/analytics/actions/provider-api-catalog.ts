@@ -21,7 +21,7 @@ export default defineAction({
     return {
       providers: await listProviderApiCatalog(provider),
       guidance:
-        "Specific actions like hubspot-deals or gong-calls are convenience shortcuts, not capability limits. When an action cannot express the needed endpoint/filter/body, inspect docs/spec URLs here and call provider-api-request with the exact provider API method/path/query/body.",
+        "First-class provider actions in this app are convenience shortcuts, not capability limits. When an action cannot express the needed endpoint, object type, filter, request body, pagination mode, or API version, inspect docs/spec URLs here and call provider-api-request with the exact provider API method/path/query/body.",
     };
   },
 });

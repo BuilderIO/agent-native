@@ -963,7 +963,7 @@ async function createDbScriptEntries(): Promise<Record<string, ActionEntry>> {
       "db-query": wrapCliScript(
         {
           description:
-            "Read from the app's own SQL database ONLY. Runs a SELECT against the app's internal tables (settings, application_state, template tables). Results are auto-scoped to the current user/org. IMPORTANT: This tool CANNOT access external data sources like BigQuery, HubSpot, Jira, Pylon, GA4, etc. For those, use the appropriate template action (e.g. `bigquery` for warehouse tables, `ga4-report` for Google Analytics, `jira`/`jira-search` for Jira, `pylon-issues` for Pylon). If the user names a provider, use that provider-specific action first; don't substitute BigQuery unless they ask for warehouse data. If a table isn't in the app schema, don't try db-query — use the data-source-specific action. For extension management, use list-extensions, update-extension, hide-extension, or delete-extension instead of querying the legacy tools table.",
+            "Read from the app's own SQL database ONLY. Runs a SELECT against the app's internal tables (settings, application_state, template tables). Results are auto-scoped to the current user/org. IMPORTANT: This tool CANNOT access external data sources like data warehouses, CRMs, issue trackers, analytics platforms, calendars, mail, docs, or other third-party services. For those, use the relevant template/provider action, MCP connector, or provider-api-catalog/provider-api-docs/provider-api-request when available. If the user names a provider, that named provider wins; do not substitute a warehouse or app database copy unless they explicitly ask for it. If a table isn't in the app schema, don't try db-query — use the data-source-specific action. For extension management, use list-extensions, update-extension, hide-extension, or delete-extension instead of querying the legacy tools table.",
           parameters: {
             type: "object",
             properties: {
@@ -2310,7 +2310,7 @@ export interface AgentChatPluginOptions {
    * prompt by default.
    *
    * - `providerActions`: external provider action names this template exposes
-   *   (e.g. `["bigquery", "ga4-report"]` for the analytics template).
+   *   (e.g. `["warehouse-query", "crm-records"]` for a template).
    * - `appActions`: representative template action names for rule 5's refresh
    *   examples (e.g. `["log-meal", "update-form"]` for a forms template).
    */
@@ -4979,7 +4979,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
       const prodCodeExecPromptNote =
         !canToggle && resolvedProdCodeExec !== "off"
           ? resolvedProdCodeExec === "trusted"
-            ? "\n\n<code-execution-mode>Full shell access is enabled (trusted mode). You have bash, read, edit, write, and run-code tools available. Use bash for file discovery, running tests and builds, and project CLIs. Use run-code for sandboxed JavaScript analytics. Use `pnpm action <name>` in bash to invoke registered app actions from the shell.</code-execution-mode>"
+            ? "\n\n<code-execution-mode>Full shell access is enabled (trusted mode). You have bash, read, edit, write, and run-code tools available. Use bash for file discovery, running tests and builds, and project CLIs. Use run-code for sandboxed JavaScript data processing: provider/API pagination, joins, classification, aggregation, and large-response reduction. Use `pnpm action <name>` in bash to invoke registered app actions from the shell.</code-execution-mode>"
             : "\n\n<code-execution-mode>Sandboxed code execution is enabled. The run-code tool lets you execute isolated JavaScript (ESM, top-level await) to fetch, aggregate, and reduce data. Use providerFetch() and webFetch() inside run-code for authenticated provider calls.</code-execution-mode>"
           : "";
 

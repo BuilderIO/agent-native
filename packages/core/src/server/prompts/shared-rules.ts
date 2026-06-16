@@ -12,19 +12,17 @@
  * have named providers pass their own list via AgentChatPluginOptions.promptExamples.
  */
 export interface PromptExamples {
-  /** Named external provider actions accessible from the agent (e.g. ["bigquery", "ga4-report"]). */
+  /** Named external provider actions accessible from the agent (e.g. ["provider-search", "warehouse-query"]). */
   providerActions?: string[];
   /** Named template-specific actions to cite as examples (e.g. ["log-meal", "update-form"]). */
   appActions?: string[];
 }
 
 const DEFAULT_PROVIDER_ACTIONS = [
-  "bigquery",
-  "ga4-report",
-  "hubspot-deals",
-  "jira",
-  "jira-search",
-  "pylon-issues",
+  "provider-search",
+  "provider-records",
+  "warehouse-query",
+  "provider-api-request",
 ];
 /** Rule 8 — db-* tools are internal only (shared between full and compact). */
 export function sharedRule8(examples?: PromptExamples): string {

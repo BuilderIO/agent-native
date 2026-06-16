@@ -69,7 +69,7 @@ const PaginationSchema = z
 
 export default defineAction({
   description:
-    "Make an arbitrary authenticated HTTP request to a configured Analytics provider API. " +
+    "Make an arbitrary authenticated HTTP request to a configured provider API available to this app. " +
     "Use this as the flexible escape hatch when a canned integration action cannot express the needed endpoint, filters, pagination, payload, or API version. " +
     "The request is constrained to the provider host, uses configured credentials automatically, blocks private/internal URLs, and redacts secrets from responses. " +
     "\n\nSTAGING MODE (preferred for large responses): Pass stageAs to write the response items into a scratch dataset instead of returning the raw body. " +
@@ -168,7 +168,7 @@ export default defineAction({
       .string()
       .optional()
       .describe(
-        "Workspace file path to save the full response body to instead of returning it in context (e.g. 'analysis/hubspot-deals.json'). When set, returns only a compact summary {savedTo, status, bytes, preview} and allows up to 20MB response. Ideal for large datasets that would overflow context.",
+        "Workspace file path to save the full response body to instead of returning it in context (e.g. 'analysis/provider-response.json'). When set, returns only a compact summary {savedTo, status, bytes, preview} and allows up to 20MB response. Ideal for large datasets that would overflow context.",
       ),
     fetchAllPages: z
       .object({

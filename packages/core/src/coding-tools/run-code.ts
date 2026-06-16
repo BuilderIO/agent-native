@@ -114,8 +114,8 @@ export function createRunCodeEntry(
 
   return {
     readOnly: true,
-    // Allow a generous per-call timeout so large analytics jobs don't hit the
-    // agent-loop's default 60 s cap.
+    // Allow a generous per-call timeout so large data-processing jobs don't hit
+    // the agent-loop's default 60 s cap.
     timeoutMs: MAX_TIMEOUT_MS,
     maxResultChars: MAX_OUTPUT_CHARS,
     tool: {
@@ -129,7 +129,7 @@ export function createRunCodeEntry(
         "  - `providerFetch(provider, path, init?)` — authenticated call to a registered provider via the provider-api-request action.",
         "    Returns the parsed JSON result (or throws on error).",
         "    Supports stageAs/saveToFile/fetchAllPages; use cursorBodyPath for POST-body pagination.",
-        "    Example: `const data = await providerFetch('hubspot', '/crm/v3/objects/contacts');`",
+        "    Example: `const data = await providerFetch('<provider-id>', '/records', { query: { limit: 100 } });`",
         "  - `webFetch(url, init?)` — outbound HTTP request via the web-request action.",
         "    Returns `{ status, body }` where body is the response text.",
         "    Example: `const { body } = await webFetch('https://api.example.com/data');`",

@@ -64,13 +64,14 @@ pnpm action gong-calls --company="The Knot" --days=180 --includeTranscripts=true
 The first-class actions above are convenience shortcuts for the common cases, not
 the limit of what you can do. Many providers (GitHub, Amplitude, PostHog,
 Mixpanel, Apollo, Common Room, Twitter/X, Notion, Pylon, GA4, plus any
-endpoint/filter a shortcut can't express) have **no bespoke action** — reach them
-the same way fusion-analytics does: `provider-api-catalog` / `provider-api-docs`
-to learn the endpoint, then `provider-api-request` (or `providerFetch` inside
-`run-code`) against the provider's real HTTP API. For broad/corpus-wide questions
-("how many", "which", "any/none across all …") prefer this raw-API + `run-code`
-path from the first step — fetch the full cohort with `fetchAllPages`/`saveToFile`
-and grep/aggregate locally — rather than stretching a capped shortcut action.
+endpoint/filter a shortcut can't express) have **no bespoke action** — reach
+them through the shared provider API escape-hatch pattern:
+`provider-api-catalog` / `provider-api-docs` to learn the endpoint, then
+`provider-api-request` (or `providerFetch` inside `run-code`) against the
+provider's real HTTP API. For broad/corpus-wide questions ("how many", "which",
+"any/none across all …") prefer this raw-API + `run-code` path from the first
+step — fetch the full cohort with `fetchAllPages`/`saveToFile` and
+grep/aggregate locally — rather than stretching a capped shortcut action.
 
 ### Writing Ad-Hoc Scripts
 

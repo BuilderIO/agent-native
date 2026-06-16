@@ -1,12 +1,71 @@
 import { defineAction } from "@agent-native/core";
+import { stagingExecuteRequest } from "@agent-native/core/provider-api/staging";
+import { getCredentialContext } from "@agent-native/core/server/request-context";
 import { z } from "zod";
 import {
+  BRAIN_APP_ID,
   BRAIN_PROVIDER_API_IDS,
   executeProviderApiRequest,
+  getBrainProviderApiRuntime,
 } from "../server/lib/provider-api.js";
 
 const ProviderSchema = z.enum(BRAIN_PROVIDER_API_IDS);
 const MethodSchema = z.enum(["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD"]);
+
+const PaginationSchema = z
+  .object({
+    nextCursorPath: z
+      .string()
+      .optional()
+      .describe(
+        "Dot-path in the response JSON where the next cursor/token lives, e.g. 'next_cursor', 'meta.next', or 'nextPageToken'.",
+      ),
+    cursorParam: z
+      .string()
+      .optional()
+      .describe(
+        "Query parameter name to inject the cursor into the next request. Use cursorBodyPath for APIs that page through POST bodies.",
+      ),
+    cursorBodyPath: z
+      .string()
+      .optional()
+      .describe(
+        "Dot-path in the JSON request body to set to the next cursor. Use this for POST-body pagination.",
+      ),
+    pageParam: z
+      .string()
+      .optional()
+      .describe(
+        "Use page-number mode: this query param is incremented on each page.",
+      ),
+    startPage: z.coerce
+      .number()
+      .int()
+      .optional()
+      .describe("Starting page number for pageParam mode (default 1)."),
+    offsetParam: z
+      .string()
+      .optional()
+      .describe(
+        "Use offset mode: this query param is incremented by pageSize on each request.",
+      ),
+    pageSize: z.coerce
+      .number()
+      .int()
+      .min(1)
+      .optional()
+      .describe(
+        "Expected page size for offset increments. Defaults to the actual item count of the first page.",
+      ),
+    maxPages: z.coerce
+      .number()
+      .int()
+      .min(1)
+      .max(200)
+      .optional()
+      .describe("Maximum pages to fetch server-side (default 50, max 200)."),
+  })
+  .optional();
 
 export default defineAction({
   description:
@@ -71,8 +130,102 @@ export default defineAction({
       .min(1_000)
       .max(4 * 1024 * 1024)
       .optional()
-      .describe("Maximum response bytes to read. Default 1MB, max 4MB."),
+      .describe(
+        "Maximum response bytes to read. Default 1MB, max 4MB. Ignored when saveToFile is set (allows up to 20MB).",
+      ),
+    stageAs: z
+      .string()
+      .min(1)
+      .optional()
+      .describe(
+        "When set, parse the response as an array of records and write them into a staged dataset with this name. Returns a compact summary instead of the raw body. Re-staging the same name replaces the previous dataset.",
+      ),
+    itemsPath: z
+      .string()
+      .optional()
+      .describe(
+        "Dot-path to the items array in the response JSON, e.g. 'items', 'results', or 'data'. Omit for auto-detection.",
+      ),
+    pagination: PaginationSchema.describe(
+      "Pagination config for server-side fetchAll when stageAs is set. Supports cursor (nextCursorPath + cursorParam or cursorBodyPath), page, and offset modes.",
+    ),
+    saveToFile: z
+      .string()
+      .optional()
+      .describe(
+        "Workspace file path to save the full response body to instead of returning it in context, e.g. 'analysis/provider-response.json'. When set, returns only a compact summary and allows up to 20MB response.",
+      ),
+    fetchAllPages: z
+      .object({
+        cursorPath: z
+          .string()
+          .describe(
+            "Dot-path in the JSON response body where the next-page cursor lives.",
+          ),
+        cursorParam: z
+          .string()
+          .optional()
+          .describe(
+            "Query parameter name to pass the cursor on subsequent pages. Use cursorBodyPath instead for APIs that put cursors in POST bodies.",
+          ),
+        cursorBodyPath: z
+          .string()
+          .optional()
+          .describe(
+            "Dot-path in the JSON request body to set to the next cursor. Use for POST-body pagination.",
+          ),
+        itemsPath: z
+          .string()
+          .optional()
+          .describe(
+            "Dot-path to the items array in each response. When omitted, the whole response body is appended per page.",
+          ),
+        maxPages: z.coerce
+          .number()
+          .int()
+          .min(1)
+          .max(50)
+          .optional()
+          .describe(
+            "Maximum pages to fetch. Default 10, max 50. Stops early when cursor is empty.",
+          ),
+      })
+      .optional()
+      .describe(
+        "Enable cursor-based pagination. After each response, reads cursorPath and re-issues the request with cursorParam or cursorBodyPath set. Combine with saveToFile to write the full dataset to a workspace file.",
+      ),
   }),
   http: false,
-  run: async (args) => executeProviderApiRequest(args),
+  run: async (args) => {
+    if (args.stageAs) {
+      const ctx = getCredentialContext();
+      if (!ctx) {
+        throw new Error("No authenticated context for provider API staging.");
+      }
+      const providerRuntime = getBrainProviderApiRuntime();
+      return stagingExecuteRequest(
+        {
+          provider: args.provider,
+          method: args.method,
+          path: args.path,
+          query: args.query,
+          headers: args.headers,
+          body: args.body,
+          auth: args.auth,
+          connectionId: args.connectionId,
+          accountId: args.accountId,
+          timeoutMs: args.timeoutMs,
+          maxBytes: args.maxBytes,
+          stageAs: args.stageAs,
+          itemsPath: args.itemsPath,
+          pagination: args.pagination,
+        },
+        (reqArgs) => providerRuntime.executeRequest(reqArgs),
+        { appId: BRAIN_APP_ID, ownerEmail: ctx.userEmail },
+      );
+    }
+    return executeProviderApiRequest(
+      args as unknown as Parameters<typeof executeProviderApiRequest>[0],
+    );
+  },
 });
