@@ -31,7 +31,7 @@ const AUTHORING_RULES_NOTE = `
 
 **Wireframes**: set \`data.html\` to a semantic HTML fragment; pick a surface (desktop/mobile/popover/panel/browser). The renderer owns theme, footprint/aspect, Excalifont, and rough.js sketch overlay. Use \`--wf-*\` CSS tokens for any custom color (never hex). Prototype screens use semantic HTML with \`data-goto\` attributes for navigation.
 
-**Before/After columns**: for UI state comparisons, put one \`wireframe\` block in each side of a \`columns\` block and set the column labels to \`Before\` and \`After\`; the renderer draws labels as headings and lays narrow surfaces side by side. Never bake Before/After labels inside the wireframe HTML or hand-stack the pair.
+**Before/After columns**: compose a \`columns\` block from \`<Column>\` CHILDREN — never a \`columns=\` attribute or inline JSON array. Author it as \`<Columns><Column label="Before">…child block(s)…</Column><Column label="After">…child block(s)…</Column></Columns>\`. Each \`<Column>\` wraps real nested blocks (e.g. a \`Wireframe\`); the parser fills in column ids and child-block \`data\` from that markup, whereas a \`columns=\` attribute array leaves them missing and FAILS schema validation. For UI state comparisons put one \`wireframe\` block in each side and label the columns \`Before\` and \`After\`; the renderer draws labels as headings and lays narrow surfaces side by side. Never bake Before/After labels inside the wireframe HTML or hand-stack the pair.
 
 **File maps**: prefer \`annotated-code\` blocks (real code + line-anchored notes) grouped in a vertical \`tabs\` block, one tab per key file. Drop to a plain \`code\` block only for throwaway snippets with nothing to call out.
 

@@ -73,6 +73,7 @@ export default defineAction({
     "Use this as the flexible escape hatch when a canned integration action cannot express the needed endpoint, filters, pagination, payload, or API version. " +
     "Use it as the primary path for broad provider cohorts that feed cross-source joins, corpus searches, downstream code execution, or absence-sensitive/exhaustive analysis. " +
     "The request is constrained to the provider host, uses configured credentials automatically, blocks private/internal URLs, and redacts secrets from responses. " +
+    "Provider calls share a provider/key-aware quota governor with in-flight dedupe, Retry-After handling, and cooldown queuing, so prefer this general path over one-off throttling logic. " +
     "\n\nSTAGING MODE (preferred for large responses): Pass stageAs to write the response items into a scratch dataset instead of returning the raw body. " +
     "Returns { dataset, rowCount, columns, sampleRows } — only a compact summary flows into the context window. " +
     "Use query-staged-dataset to aggregate, filter, and project the data without re-fetching. " +

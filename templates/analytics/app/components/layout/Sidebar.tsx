@@ -73,12 +73,11 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuRadioGroup,
-  DropdownMenuRadioItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { Switch } from "@/components/ui/switch";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -214,44 +213,118 @@ function applyOrder<T extends { id: string }>(
   return ordered;
 }
 
-function SidebarSectionSortMenu({
+function SidebarSectionSettingsPopover({
   label,
-  value,
-  onChange,
+  sortMode,
+  onSortModeChange,
+  sharedOnly,
+  onSharedOnlyChange,
+  showHidden,
+  onShowHiddenChange,
 }: {
   label: string;
-  value: SidebarSortMode;
-  onChange: (value: SidebarSortMode) => void;
+  sortMode: SidebarSortMode;
+  onSortModeChange: (value: SidebarSortMode) => void;
+  sharedOnly: boolean;
+  onSharedOnlyChange: (value: boolean) => void;
+  showHidden?: boolean;
+  onShowHiddenChange?: (value: boolean) => void;
 }) {
   return (
-    <DropdownMenu>
+    <Popover>
       <Tooltip>
         <TooltipTrigger asChild>
-          <DropdownMenuTrigger asChild>
+          <PopoverTrigger asChild>
             <button
               type="button"
-              className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground/45 opacity-0 transition-all hover:bg-sidebar-accent hover:text-foreground focus:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring group-hover/section:opacity-100"
-              aria-label={`${label} sort options`}
+              className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground/65 transition-all hover:bg-sidebar-accent hover:text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+              aria-label={`${label} settings`}
             >
               <IconSettings className="h-3.5 w-3.5" />
             </button>
-          </DropdownMenuTrigger>
+          </PopoverTrigger>
         </TooltipTrigger>
-        <TooltipContent side="right">{`${label} sort`}</TooltipContent>
+        <TooltipContent side="right">{`${label} settings`}</TooltipContent>
       </Tooltip>
-      <DropdownMenuContent side="right" align="start" className="w-44">
-        <DropdownMenuLabel className="text-xs">Sort by</DropdownMenuLabel>
-        <DropdownMenuRadioGroup
-          value={value}
-          onValueChange={(next) => {
-            if (
-              next === "most-used" ||
-              next === "alphabetical" ||
-              next === "manual"
-            ) {
-              onChange(next);
-            }
-          }}
+      <PopoverContent side="right" align="start" className="w-60 p-2">
+        <div className="px-2 pb-2">
+          <p className="text-xs font-medium text-foreground">{label}</p>
+        </div>
+        <div className="grid gap-3">
+          <div className="grid gap-1.5">
+            <p className="px-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+              Sort by
+            </p>
+            <ToggleGroup
+              type="single"
+              value={sortMode}
+              onValueChange={(next) => {
+                if (
+                  next === "most-used" ||
+                  next === "alphabetical" ||
+                  next === "manual"
+                ) {
+                  onSortModeChange(next);
+                }
+              }}
+              className="grid grid-cols-3 gap-1 rounded-md bg-muted/40 p-1"
+            >
+              <ToggleGroupItem
+                value="most-used"
+                aria-label="Sort by most used"
+                className="h-7 px-2 text-[11px]"
+              >
+                Used
+              </ToggleGroupItem>
+              <ToggleGroupItem
+                value="alphabetical"
+                aria-label="Sort alphabetically"
+                className="h-7 px-2 text-[11px]"
+              >
+                A-Z
+              </ToggleGroupItem>
+              <ToggleGroupItem
+                value="manual"
+                aria-label="Sort manually"
+                className="h-7 px-2 text-[11px]"
+              >
+                Manual
+              </ToggleGroupItem>
+            </ToggleGroup>
+          </div>
+          <div className="grid gap-1">
+            <label
+              htmlFor={`${label.toLowerCase()}-shared-filter`}
+              className="flex items-center justify-between gap-3 rounded-md px-2 py-1.5 text-xs text-foreground hover:bg-sidebar-accent/60"
+            >
+              <span className="min-w-0 truncate">Org shared only</span>
+              <Switch
+                id={`${label.toLowerCase()}-shared-filter`}
+                checked={sharedOnly}
+                onCheckedChange={onSharedOnlyChange}
+                aria-label={`${label} org shared only`}
+              />
+            </label>
+            {onShowHiddenChange && showHidden !== undefined && (
+              <label
+                htmlFor={`${label.toLowerCase()}-hidden-filter`}
+                className="flex items-center justify-between gap-3 rounded-md px-2 py-1.5 text-xs text-foreground hover:bg-sidebar-accent/60"
+              >
+                <span className="min-w-0 truncate">Hidden analyses</span>
+                <Switch
+                  id={`${label.toLowerCase()}-hidden-filter`}
+                  checked={showHidden}
+                  onCheckedChange={onShowHiddenChange}
+                  aria-label={`${label} hidden analyses`}
+                />
+              </label>
+            )}
+          </div>
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
+}
         >
           <DropdownMenuRadioItem value="most-used">
             Most used

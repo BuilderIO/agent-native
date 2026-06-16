@@ -72,6 +72,7 @@ export default defineAction({
     "Make an arbitrary authenticated HTTP request to a Mail-connected provider API. " +
     "Use this as the flexible escape hatch when a convenience action cannot express the needed Gmail endpoint, search query, filter setting, thread/message format, Google Calendar endpoint, CRM object, pagination mode, payload, or API version. " +
     "The request is constrained to the provider host, uses configured credentials automatically, blocks private/internal URLs, and redacts secrets from responses. " +
+    "Provider calls share a provider/key-aware quota governor with in-flight dedupe, Retry-After handling, and cooldown queuing, so prefer this general path over one-off throttling logic. " +
     "\n\nSTAGING MODE (preferred for large responses): Pass stageAs to write response items into a scratch dataset instead of returning the raw body. " +
     "Returns { dataset, rowCount, columns, sampleRows } so only a compact summary enters context. Use query-staged-dataset to aggregate, filter, and project the data without re-fetching. " +
     "\n\nPAGINATION: When stageAs is set, pass pagination config to fetch all pages server-side into the same dataset. For Gmail list endpoints and Google Calendar events.list, use nextCursorPath='nextPageToken', cursorParam='pageToken', and itemsPath='messages', 'threads', or 'items'.",
