@@ -195,25 +195,41 @@ function stringFromRecord(
   return null;
 }
 
+function pickStringField(
+  obj: Record<string, unknown>,
+  keys: string[],
+): string | null {
+  for (const key of keys) {
+    const v = obj[key];
+    if (typeof v === "string" && v.trim()) return v.trim();
+  }
+  return null;
+}
+
 // Builder reference values look like
-// `{ "@type": "@builder.io/core:Reference", id, model, value? }`. Render a
-// readable label instead of raw JSON. When Builder inlines the referenced
-// entry (`value`), prefer its human field; otherwise fall back to a
-// `model:shortId` token. Fully resolving the referenced entry's name (e.g. the
-// blog-author's name) is tracked as follow-up work.
+// `{ "@type": "@builder.io/core:Reference", id, model, value? }`. When the read
+// is enriched, the referenced entry is inlined on `value` (with its own `name`
+// and `data`) — prefer a human field from it (so e.g. a blog-article's author
+// shows the author's name). Without enrichment, fall back to a readable
+// `model:shortId` token instead of raw JSON.
 function builderReferenceLabel(value: unknown): string | null {
   if (!value || typeof value !== "object") return null;
   const ref = value as Record<string, unknown>;
   if (ref["@type"] !== "@builder.io/core:Reference") return null;
-  const inlined = ref.value as Record<string, unknown> | undefined;
-  const inlinedData =
-    inlined && typeof inlined === "object"
-      ? ((inlined.data as Record<string, unknown> | undefined) ?? inlined)
-      : undefined;
-  const name =
-    inlinedData &&
-    (inlinedData.title ?? inlinedData.name ?? inlinedData.handle);
-  if (typeof name === "string" && name.trim()) return name.trim();
+  const inlined =
+    ref.value && typeof ref.value === "object"
+      ? (ref.value as Record<string, unknown>)
+      : null;
+  if (inlined) {
+    const data =
+      inlined.data && typeof inlined.data === "object"
+        ? (inlined.data as Record<string, unknown>)
+        : {};
+    const candidate =
+      pickStringField(data, ["name", "fullName", "title", "label", "handle"]) ??
+      pickStringField(inlined, ["name", "title"]);
+    if (candidate) return candidate;
+  }
   const model = typeof ref.model === "string" ? ref.model : "ref";
   const id = typeof ref.id === "string" ? ref.id : "";
   return id ? `${model}:${id.slice(0, 8)}` : model;

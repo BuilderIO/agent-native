@@ -223,6 +223,12 @@ describe("Builder CMS source adapter", () => {
             model: "blog-author",
             value: { data: { name: "Ada Lovelace" } },
           },
+          editor: {
+            "@type": "@builder.io/core:Reference",
+            id: "def67890",
+            model: "blog-author",
+            value: { name: "Grace Hopper", data: {} },
+          },
         },
       },
       "blog-article",
@@ -232,7 +238,9 @@ describe("Builder CMS source adapter", () => {
     expect(String(result?.sourceValues["data.author"])).not.toContain(
       "@builder.io/core:Reference",
     );
-    // Inlined reference value → use the referenced entry's human name.
+    // Inlined reference value → use the referenced entry's human name,
+    // whether it lives in `value.data` or at the enriched entry's top level.
     expect(result?.sourceValues["data.coAuthor"]).toBe("Ada Lovelace");
+    expect(result?.sourceValues["data.editor"]).toBe("Grace Hopper");
   });
 });

@@ -289,6 +289,7 @@ async function readBuilderCmsContentEntriesViaMcp(args: {
             limit: pageLimit,
             offset,
             fields: BUILDER_CMS_ENTRY_FIELDS,
+            enrich: true,
           },
         },
       },
@@ -372,6 +373,7 @@ async function readBuilderCmsContentEntriesViaMcp(args: {
             limit: 1,
             query: { id: entry.id },
             fields: BUILDER_CMS_ENTRY_FIELDS,
+            enrich: true,
           },
         },
       },
@@ -403,7 +405,10 @@ async function readBuilderCmsContentEntriesViaContentApi(args: {
     builderContentApiHost(),
   );
   url.searchParams.set("apiKey", args.publicKey);
-  url.searchParams.set("enrich", "false");
+  // Enrich expands reference fields (e.g. blog-article -> blog-author) inline so
+  // mapped source columns can show the referenced entry's name instead of a
+  // bare reference id.
+  url.searchParams.set("enrich", "true");
   url.searchParams.set("noCache", "true");
 
   const limit = readLimit(args.limit);
