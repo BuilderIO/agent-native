@@ -4,10 +4,14 @@ import type { PlanContent } from "@shared/plan-content";
 import {
   collectPlanTocItems,
   getActivePlanTocId,
+  resolvePlanTocElements,
   type PlanTocItem,
 } from "./PlanTableOfContents.utils";
 
 function findScrollParent(el: HTMLElement | null): HTMLElement | Window {
+  const planReader = el?.closest<HTMLElement>("[data-plan-reader]");
+  if (planReader) return planReader;
+
   let node = el?.parentElement ?? null;
   while (node) {
     const { overflowY } = getComputedStyle(node);
@@ -22,60 +26,12 @@ function findScrollParent(el: HTMLElement | null): HTMLElement | Window {
   return window;
 }
 
-function escapeAttributeValue(value: string) {
-  if (typeof CSS !== "undefined" && CSS.escape) return CSS.escape(value);
-  return value.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
-}
-
 function findDocumentFlow(nav: HTMLElement | null) {
   return (
     nav
       ?.closest(".plan-document-shell")
       ?.querySelector<HTMLElement>(".plan-document-flow") ?? null
   );
-}
-
-function findBlockElement(root: HTMLElement, blockId: string) {
-  return root.querySelector<HTMLElement>(
-    `[data-block-id="${escapeAttributeValue(blockId)}"]`,
-  );
-}
-
-function documentHeadingElements(root: HTMLElement) {
-  // Section headings render as direct children of the document body prose. In
-  // editable mode that body is a single merged Tiptap editor; in read-only mode
-  // each rich-text block renders its own prose. In both cases the headings
-  // appear in document order, and headings nested inside a custom block NodeView
-  // (`.plan-block-node`) are block content, not document sections.
-  return Array.from(
-    root.querySelectorAll<HTMLElement>(
-      ".an-rich-md-prose > h1, .an-rich-md-prose > h2, .an-rich-md-prose > h3",
-    ),
-  ).filter((heading) => !heading.closest(".plan-block-node"));
-}
-
-function resolvePlanTocElements(root: HTMLElement, items: PlanTocItem[]) {
-  // Map each TOC item to its rendered element WITHOUT mutating the DOM. Heading
-  // items and document headings share document order, so they map positionally;
-  // block items map by their block id. We deliberately avoid writing ids onto
-  // editor-managed nodes — the document editor (Tiptap/ProseMirror) reconciles
-  // its own DOM and would fight any attributes we add, so anchoring is done
-  // against live element references instead.
-  const headings = documentHeadingElements(root);
-  let headingCursor = 0;
-  const map = new Map<string, HTMLElement>();
-
-  for (const item of items) {
-    let target: HTMLElement | null = null;
-    if (item.kind === "block") {
-      target = findBlockElement(root, item.blockId);
-    } else {
-      target = headings[headingCursor] ?? null;
-      headingCursor += 1;
-    }
-    if (target) map.set(item.id, target);
-  }
-  return map;
 }
 
 export function PlanTableOfContents({
