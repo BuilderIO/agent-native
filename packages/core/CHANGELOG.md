@@ -1,5 +1,24 @@
 # @agent-native/core
 
+## 0.49.26
+
+### Patch Changes
+
+- e63c360: Add durable hosted MCP ask_app tasks with ask_app_status polling.
+- 8726f38: Teach all app agents that provider shortcut actions are not capability limits and that broad provider searches, joins, classifications, and absence claims should use provider API staging, saved responses, staged-dataset queries, or sandboxed code with explicit coverage reporting. Ensure lean, A2A, and MCP ask-agent registries include run-code when code execution is enabled, and give sandboxed code generic providerRequest/providerFetchAll helpers for broad paginated provider corpus work.
+- e63c360: Support provider API pagination cursors sent through JSON request bodies.
+- e63c360: Make PR visual recap robust to plan-app deploy-propagation windows. The recap
+  CLI ships to npm independently of the plan-app server, so a recap can run after
+  the new CLI is live but before the matching action routes have propagated to
+  every cold-start server instance:
+  - `create-visual-recap` publish now retries a transient 404 (the route 404s on a
+    not-yet-updated instance) instead of failing the recap outright.
+  - The live block-reference fetch (`get-plan-blocks`) now retries transient
+    404s/timeouts before falling back to bundled instructions, so the agent
+    authors against the current block vocabulary instead of stale tags.
+
+- e63c360: Anchor overlapping code annotation hover cards to the right edge.
+
 ## 0.49.25
 
 ### Patch Changes
