@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.51.5
+
+### Patch Changes
+
+- 404f9d2: Block background agent-team delegation for provider/source sweeps after a read-only source/search tool has exhausted its convergence budget.
+
 ## 0.51.4
 
 ### Patch Changes
