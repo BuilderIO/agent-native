@@ -219,7 +219,7 @@ export function withMcpServersFolder(
 }
 
 /**
- * Group top-level `scripts/` and `tasks/` folders into a virtual
+ * Group top-level `scratch/`, `scripts/`, and `tasks/` folders into a virtual
  * `agent-scratch/` folder.
  *
  * The agent occasionally writes scratch scripts and task notes to the

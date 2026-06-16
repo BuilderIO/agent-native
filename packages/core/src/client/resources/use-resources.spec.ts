@@ -64,6 +64,26 @@ describe("withAgentScratchFolder", () => {
     ]);
     expect(result[0].children?.[0].name).toBe("analysis.tmp.md");
   });
+
+  it("groups top-level scratch folders with agent scratch when show is true", () => {
+    const tree: TreeNode[] = [
+      fileNode("AGENTS.md"),
+      {
+        name: "scratch",
+        path: "scratch",
+        type: "folder",
+        children: [fileNode("scratch/raw.json", "agent_scratch")],
+      },
+    ];
+
+    const result = withAgentScratchFolder(tree, { show: true });
+
+    expect(result.map((node) => node.name)).toEqual([
+      "agent-scratch",
+      "AGENTS.md",
+    ]);
+    expect(result[0].children?.[0].name).toBe("scratch");
+  });
 });
 
 describe("withMcpServersFolder", () => {

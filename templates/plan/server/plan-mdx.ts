@@ -1337,6 +1337,7 @@ function parseWireframeNode(
 
 export async function parsePlanMdxFolder(
   folder: PlanMdxFolder,
+  options: { salvageInvalidBlocks?: boolean } = {},
 ): Promise<PlanContent> {
   const files = planMdxFileSchema.parse(folder);
   const parsedMatter = matter(files["plan.mdx"]);
@@ -1370,7 +1371,7 @@ export async function parsePlanMdxFolder(
     canvas,
     blocks,
   };
-  const normalized = normalizePlanContent(content);
+  const normalized = normalizePlanContent(content, options);
   if (!normalized)
     throw new Error("MDX source did not parse into valid plan content.");
   return normalized;

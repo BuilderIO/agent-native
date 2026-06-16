@@ -174,8 +174,11 @@ or questions where absence matters:
 2. Fetch the full relevant cohort, or an explicit bounded cohort, using
    `provider-api-request` with `fetchAllPages`, `stageAs`, or `saveToFile` when
    the payload is large.
-3. Use `run-code` with `providerFetch`, `appAction`, and workspace files to
-   join, grep, classify, count, and aggregate without flooding chat context.
+3. Use `run-code` with `providerFetch`, `appAction`, and Resources-backed
+   workspace helpers to join, grep, classify, count, and aggregate without
+   flooding chat context. Write temporary files under `scratch/`; write durable,
+   user-facing files under a descriptive Resources folder only when they should
+   remain visible after the analysis.
 4. Report coverage: source, filters, time window, row/record counts, joins,
    failed/aborted pages, truncation, and any remaining gaps.
 
@@ -217,9 +220,10 @@ Read the relevant skill before deeper work:
   narrow for arbitrary authenticated provider HTTP calls and API docs lookup.
 - `dashboard-management` for dashboard/chart creation and layout.
 - `adhoc-analysis` for one-off analytical answers and batch fan-out pattern.
-- `analysis-workspace` for large-scale multi-source analyses: durable scratch files,
-  chunked batch processing with per-item memos, `run-code` aggregation,
-  `saveToFile`/`fetchAllPages` for large API pulls, and multi-turn synthesis.
+- `analysis-workspace` for large-scale multi-source analyses: Resources-backed
+  files, `scratch/` temporary staging, chunked batch processing with per-item
+  memos, `run-code` aggregation, `saveToFile`/`fetchAllPages` for large API
+  pulls, and multi-turn synthesis.
   Read this before any analysis spanning 30+ items or requiring data larger
   than one context window.
 - `storing-data`, `real-time-sync`, `security`, `actions`, and
