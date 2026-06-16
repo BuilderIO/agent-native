@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.51.1
+
+### Patch Changes
+
+- 1c752f4: Stop repeated read-only source sweeps from looping indefinitely by forcing a final coverage summary after the same provider/search tool is called many times in one turn.
+
 ## 0.51.0
 
 ### Minor Changes
