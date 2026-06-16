@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.49.27
+
+### Patch Changes
+
+- 1d466d6: Builder file upload provider now routes files over 30 MB through a signed-URL flow (request URL → direct storage PUT → register asset), so large uploads no longer hit the ~32 MB request cap. Smaller files keep the existing direct-POST path with retries.
+
 ## 0.49.26
 
 ### Patch Changes
