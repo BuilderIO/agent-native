@@ -411,14 +411,10 @@ describe("staged dataset DDL", () => {
     });
 
     expect(
-      _executedSql.some((sql) =>
-        /created_at\s+BIGINT\s+NOT NULL/i.test(sql),
-      ),
+      _executedSql.some((sql) => /created_at\s+BIGINT\s+NOT NULL/i.test(sql)),
     ).toBe(true);
     expect(
-      _executedSql.some((sql) =>
-        /updated_at\s+BIGINT\s+NOT NULL/i.test(sql),
-      ),
+      _executedSql.some((sql) => /updated_at\s+BIGINT\s+NOT NULL/i.test(sql)),
     ).toBe(true);
     expect(
       _executedSql.some((sql) =>
