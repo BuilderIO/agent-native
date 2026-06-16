@@ -25,6 +25,7 @@ export const DATA_QUERY_ACTIONS = new Set([
   "jira",
   "jira-search",
   "provider-api-request",
+  "query-staged-dataset",
   "query-agent-native-analytics",
   "query-inbound-forms",
   "sentry",
@@ -34,6 +35,13 @@ export const DATA_QUERY_ACTIONS = new Set([
   "slack-messages",
   "stripe",
 ]);
+
+export const CORPUS_SOURCE_ACTIONS = new Set([
+  "provider-api-request",
+  "query-staged-dataset",
+]);
+
+export const CORPUS_REDUCTION_ACTIONS = new Set(["run-code"]);
 
 const MCP_DATA_SOURCE_TOKENS = [
   "amplitude",
@@ -275,7 +283,7 @@ function valueHasIncompleteDataFlag(value: unknown): boolean {
 }
 
 const INCOMPLETE_DATA_TEXT =
-  /\b(?:error running|run aborted|tool call timed out|timed out|inactivity timeout|stale_run|connection_error|interrupted before this tool returned|truncated|coverage gap|provider page cap|hit the .* page cap|has more content|call again with offset|full result was|default limit|duplicate skipped|only first)\b/i;
+  /\b(?:error running|run aborted|tool call timed out|timed out|inactivity timeout|stale_run|connection_error|fetch failed|network error|unhandled error|exitcode:\s*[1-9]\d*|interrupted before this tool returned|truncated|coverage gap|provider page cap|hit the .* page cap|has more content|call again with offset|full result was|default limit|duplicate skipped|only first)\b/i;
 
 export function hasIncompleteDataEvidence(
   toolResults:
@@ -305,6 +313,11 @@ export function hasIncompleteDataEvidence(
 const STRONG_COVERAGE_OR_ABSENCE_CLAIM =
   /\b(?:no|zero|0)\s+(?:mentions?|matches?|results?|records?|calls?|tickets?|issues?|deals?|accounts?|customers?|transcripts?|examples?)\b|\b(?:none|nothing)\b[^.?!]*(?:found|matched|mentioned|returned|showed|surfaced)\b|\b(?:all|every|entire|complete|full|exhaustive)\b[^.?!]*(?:calls?|records?|transcripts?|deals?|accounts?|customers?|dataset|cohort|results?|search)\b|\b(?:did not|didn't|does not|doesn't)\s+(?:mention|include|contain|show|surface)\b/i;
 
+const EXPLICIT_FULL_COVERAGE_CONFIDENCE_CLAIM =
+  /\b(?:defensible|confident|confidence|full available|available corpus|full corpus|entire corpus|complete corpus|all available|any (?:available )?(?:calls?|records?|transcripts?|deals?|accounts?|customers?|tickets?|issues?|messages?)|every (?:available )?(?:calls?|records?|transcripts?|deals?|accounts?|customers?|tickets?|issues?|messages?))\b/i;
+
+const GENERIC_FULL_COVERAGE_CLAIM = /\b(?:exhaustive|complete)\b/i;
+
 const EXPLICIT_PARTIAL_DISCLOSURE =
   /\b(?:partial|partially|sample|sampled|subset|bounded|limited|not exhaustive|non-exhaustive|incomplete|truncated|aborted|timed out|coverage gap|could not inspect|only inspected|first \d+|top \d+|returned \d+|remaining|unsearched|uninspected|unreviewed|not covered|uncovered|missing coverage)\b|\b(?:inspected|searched|reviewed|analy[sz]ed)\s+\d+\s+(?:of|out of)\s+\d+\b/i;
 
@@ -317,6 +330,15 @@ export function looksLikeStrongCoverageClaim(text: string): boolean {
 
 export function hasExplicitPartialDisclosure(text: string): boolean {
   return EXPLICIT_PARTIAL_DISCLOSURE.test(text);
+}
+
+export function hasOverstatedCoverageConfidenceClaim(text: string): boolean {
+  if (!looksLikeStrongCoverageClaim(text)) return false;
+  if (EXPLICIT_FULL_COVERAGE_CONFIDENCE_CLAIM.test(text)) return true;
+  return (
+    GENERIC_FULL_COVERAGE_CLAIM.test(text) &&
+    !hasExplicitPartialDisclosure(text)
+  );
 }
 
 export function looksLikeCoverageSensitiveAnalyticsRequest(
@@ -338,4 +360,65 @@ export function hasDataQueryAttempt(
     const name = String(result.name ?? "");
     return DATA_QUERY_ACTIONS.has(name) || isMcpDataSourceTool(name);
   });
+}
+
+export function hasCorpusWorkflowAttempt(
+  toolResults:
+    | Array<{ name?: string; isError?: boolean; content?: string }>
+    | undefined,
+): boolean {
+  return (toolResults ?? []).some((result) => {
+    if (result.isError) return false;
+    if (isProviderErrorOnlyContent(result.content)) return false;
+    const name = String(result.name ?? "");
+    if (CORPUS_SOURCE_ACTIONS.has(name)) return true;
+
+    // Connected provider MCP tools can expose broad search/list/request
+    // primitives directly. Treat those as corpus-capable when they succeed so
+    // apps are not forced through provider-api-request if a native MCP source
+    // already provides the right general API surface.
+    const normalizedMcpName = name.replace(/[^a-z0-9]+/gi, " ");
+    return (
+      isMcpDataSourceTool(name) &&
+      /\b(?:api|request|fetch|list|search|query|read|calls?|records?|messages?|tickets?|issues?|transcripts?)\b/i.test(
+        normalizedMcpName,
+      )
+    );
+  });
+}
+
+export function hasFailedCorpusWorkflowEvidence(
+  toolResults:
+    | Array<{ name?: string; isError?: boolean; content?: string }>
+    | undefined,
+): boolean {
+  return (toolResults ?? []).some((result) => {
+    const name = String(result.name ?? "");
+    if (
+      !CORPUS_SOURCE_ACTIONS.has(name) &&
+      !CORPUS_REDUCTION_ACTIONS.has(name)
+    ) {
+      return false;
+    }
+    if (result.isError) return true;
+    return INCOMPLETE_DATA_TEXT.test(String(result.content ?? ""));
+  });
+}
+
+export function needsCorpusWorkflowForCoverageSensitiveRequest({
+  userText,
+  finalText,
+  toolResults,
+}: {
+  userText: string;
+  finalText: string;
+  toolResults:
+    | Array<{ name?: string; isError?: boolean; content?: string }>
+    | undefined;
+}): boolean {
+  if (!looksLikeCoverageSensitiveAnalyticsRequest(userText)) return false;
+  if (!hasDataQueryAttempt(toolResults)) return false;
+  if (hasCorpusWorkflowAttempt(toolResults)) return false;
+  if (hasExplicitPartialDisclosure(finalText)) return false;
+  return true;
 }

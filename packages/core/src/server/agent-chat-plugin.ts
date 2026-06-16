@@ -3044,6 +3044,32 @@ Do NOT try to call these by name as if they were tools — they will not exist i
 ${lines.join("\n")}`;
 }
 
+function generateCorpusToolsPrompt(
+  registry: Record<string, ActionEntry>,
+): string {
+  const hasProviderApi = "provider-api-request" in registry;
+  const providerDiscoveryTools = [
+    "provider-api-catalog" in registry ? "`provider-api-catalog`" : null,
+    "provider-api-docs" in registry ? "`provider-api-docs`" : null,
+  ].filter(Boolean);
+  const hasRunCode = "run-code" in registry;
+  const hasStagedDataset = "query-staged-dataset" in registry;
+  if (!hasProviderApi && !hasRunCode && !hasStagedDataset) return "";
+
+  const available = [
+    ...providerDiscoveryTools,
+    hasProviderApi ? "`provider-api-request`" : null,
+    hasStagedDataset ? "`query-staged-dataset`" : null,
+    hasRunCode ? "`run-code`" : null,
+  ].filter(Boolean);
+
+  return `\n\n## Broad Provider And Corpus Workflows
+
+Available corpus-capable tools: ${available.join(", ")}.
+
+For broad provider searches, raw API access, multi-page cohorts, cross-source joins, classification/counting over records, or absence-sensitive answers, do not stop at a bounded shortcut action. Use the provider's broad API/search/list surface, fetch every relevant page or an explicit bounded cohort, stage/save large responses when needed, and reduce the corpus with staged-dataset queries or code execution. Report source, filters, row counts, pagination/truncation, failed pages, and remaining gaps.`;
+}
+
 /**
  * Creates a Nitro plugin that mounts the agent chat endpoint.
  *
@@ -3691,6 +3717,91 @@ export function createAgentChatPlugin(
         coreAttachmentTools = createCoreAttachmentActionEntries();
       } catch {}
 
+      // -----------------------------------------------------------------------
+      // Production code-execution mode resolution.
+      //
+      // Priority (highest -> lowest):
+      //   1. AGENT_PROD_CODE_EXECUTION env var ("trusted" | "sandboxed" | "off")
+      //   2. options.codeExecution.production
+      //   3. Default: "off"
+      //
+      // Dev mode ignores this entirely: dev always gets the run-code sandbox.
+      // Build these tools before A2A/MCP registries so every agent-loop surface
+      // has the same code execution capability when enabled.
+      // -----------------------------------------------------------------------
+      const rawEnvCodeExec = (process.env.AGENT_PROD_CODE_EXECUTION ?? "")
+        .toLowerCase()
+        .trim();
+      const resolvedProdCodeExec: "off" | "sandboxed" | "trusted" =
+        rawEnvCodeExec === "trusted"
+          ? "trusted"
+          : rawEnvCodeExec === "sandboxed"
+            ? "sandboxed"
+            : rawEnvCodeExec === "off"
+              ? "off"
+              : (options?.codeExecution?.production ?? "off");
+
+      // Forward-declaration for the production run-code bridge supplier.
+      // Must come before createRunCodeEntry so the closure can capture it.
+      let prodRunCodeToolActions: Record<string, ActionEntry> = {};
+
+      // Sandboxed run-code tool: available in "sandboxed" or "trusted" prod
+      // modes and always in dev mode.
+      const runCodeTool: Record<string, ActionEntry> = {};
+      try {
+        const { createRunCodeEntry } =
+          await import("../coding-tools/run-code.js");
+        runCodeTool["run-code"] = createRunCodeEntry(
+          // Supplier is evaluated at invocation time so runtime additions to
+          // prodActions (e.g. MCP sync) are visible to the bridge.
+          () => prodRunCodeToolActions,
+          { bridgeTools: options?.codeExecution?.bridgeTools },
+        );
+      } catch {
+        // Module unavailable (e.g. bundled browser build) — skip silently.
+      }
+
+      // Full coding tool registry (bash/read/edit/write) for "trusted" prod.
+      // In dev mode this is handled separately via devHandler below.
+      const prodCodingTools: Record<string, ActionEntry> = {};
+      if (resolvedProdCodeExec === "trusted" && !canToggle) {
+        try {
+          const { createCodingToolRegistry } =
+            await import("../coding-tools/index.js");
+          const codingRegistry = createCodingToolRegistry({
+            cwd: process.cwd(),
+            beforeBash: async ({ command: _command }) => {
+              // In plan mode the agent loop blocks via isPlanModeToolCallAllowed;
+              // this hook is a belt-and-suspenders guard inside trusted production.
+              return null;
+            },
+          });
+          Object.assign(prodCodingTools, codingRegistry);
+        } catch {
+          // Coding tools unavailable — skip silently.
+        }
+      }
+
+      // Forward-declaration: populated after devActions is assembled below.
+      // Must be declared before devRunCodeTool so the closure can close over it.
+      let devRunCodeToolActions: Record<string, ActionEntry> = {};
+
+      // Always register run-code in dev mode (when the coding module loads).
+      const devRunCodeTool: Record<string, ActionEntry> = {};
+      if (canToggle) {
+        try {
+          const { createRunCodeEntry } =
+            await import("../coding-tools/run-code.js");
+          // devActions is not yet defined at this point; we use a late-binding
+          // supplier so devRunCodeTool can reference the devActions registry
+          // once it is built below (see devHandler block).
+          devRunCodeTool["run-code"] = createRunCodeEntry(
+            () => devRunCodeToolActions,
+            { bridgeTools: options?.codeExecution?.bridgeTools },
+          );
+        } catch {}
+      }
+
       const resolveExtraContext = async (
         event: any,
         owner: string,
@@ -3728,12 +3839,14 @@ export function createAgentChatPlugin(
               ...progressTools,
               ...fetchTool,
               ...webSearchTool,
+              ...workspaceFilesTool,
               ...toolActions,
               ...browserSessionTools,
               ...coreEmailTools,
               ...coreAttachmentTools,
               ...browserTools,
               ...devScriptsForA2A,
+              ...devRunCodeTool,
             }
           : {
               ...discoveredActions,
@@ -3751,12 +3864,15 @@ export function createAgentChatPlugin(
               ...progressTools,
               ...fetchTool,
               ...webSearchTool,
+              ...workspaceFilesTool,
               ...toolActions,
               ...browserSessionTools,
               ...coreEmailTools,
               ...coreAttachmentTools,
               ...browserTools,
               ...devScriptsForA2A,
+              ...(resolvedProdCodeExec !== "off" ? runCodeTool : {}),
+              ...prodCodingTools,
             },
       );
 
@@ -3787,12 +3903,14 @@ export function createAgentChatPlugin(
             ...progressTools,
             ...fetchTool,
             ...webSearchTool,
+            ...workspaceFilesTool,
             ...toolActions,
             ...browserSessionTools,
             ...coreEmailTools,
             ...coreAttachmentTools,
             ...browserTools,
             ...devScriptsForA2A,
+            ...devRunCodeTool,
           })
         : undefined;
 
@@ -3996,12 +4114,17 @@ export function createAgentChatPlugin(
                   ...(lazyContext ? frameworkContextTool : {}),
                   ...urlTools,
                   ...chatScripts,
+                  ...fetchTool,
+                  ...webSearchTool,
+                  ...workspaceFilesTool,
                   ...toolActions,
                   ...browserSessionTools,
                   ...coreEmailTools,
                   ...coreAttachmentTools,
                   ...browserTools,
+                  ...mcpActionEntries,
                   ...devScriptsForA2A,
+                  ...devRunCodeTool,
                 }
               : {
                   ...templateScripts,
@@ -4012,11 +4135,17 @@ export function createAgentChatPlugin(
                   ...(lazyContext ? frameworkContextTool : {}),
                   ...urlTools,
                   ...chatScripts,
+                  ...fetchTool,
+                  ...webSearchTool,
+                  ...workspaceFilesTool,
                   ...toolActions,
                   ...browserSessionTools,
                   ...coreEmailTools,
                   ...coreAttachmentTools,
                   ...browserTools,
+                  ...mcpActionEntries,
+                  ...(resolvedProdCodeExec !== "off" ? runCodeTool : {}),
+                  ...prodCodingTools,
                 },
           );
 
@@ -4120,11 +4249,21 @@ export function createAgentChatPlugin(
       // Dev: actions are invoked via bash — emit `pnpm action name --arg <type>`
       //      and include discoveredActions too, since those are also missing
       //      from the dev tool registry.
-      const prodActionsPrompt = generateActionsPrompt(templateScripts, "tool");
-      const devActionsPrompt = generateActionsPrompt(
-        { ...discoveredActions, ...templateScripts },
-        "cli",
-      );
+      const corpusToolsPrompt = generateCorpusToolsPrompt({
+        ...templateScripts,
+        ...(canToggle
+          ? devRunCodeTool
+          : resolvedProdCodeExec !== "off"
+            ? runCodeTool
+            : {}),
+      });
+      const prodActionsPrompt =
+        generateActionsPrompt(templateScripts, "tool") + corpusToolsPrompt;
+      const devActionsPrompt =
+        generateActionsPrompt(
+          { ...discoveredActions, ...templateScripts },
+          "cli",
+        ) + corpusToolsPrompt;
 
       // Build system prompts — dynamic functions that pre-load resources per-request.
       // Production gets PROD_FRAMEWORK_PROMPT, dev gets DEV_FRAMEWORK_PROMPT.
@@ -4196,8 +4335,13 @@ export function createAgentChatPlugin(
                   ...(lazyContext ? frameworkContextTool : {}),
                   ...urlTools,
                   ...chatScripts,
+                  ...fetchTool,
+                  ...webSearchTool,
+                  ...workspaceFilesTool,
                   ...toolActions,
+                  ...mcpActionEntries,
                   ...devScriptsForA2A,
+                  ...devRunCodeTool,
                 }
               : {
                   ...templateScripts,
@@ -4208,7 +4352,13 @@ export function createAgentChatPlugin(
                   ...(lazyContext ? frameworkContextTool : {}),
                   ...urlTools,
                   ...chatScripts,
+                  ...fetchTool,
+                  ...webSearchTool,
+                  ...workspaceFilesTool,
                   ...toolActions,
+                  ...mcpActionEntries,
+                  ...(resolvedProdCodeExec !== "off" ? runCodeTool : {}),
+                  ...prodCodingTools,
                 },
           );
 
@@ -4725,14 +4875,14 @@ export function createAgentChatPlugin(
       // progress, call-agent, and MCP entries to keep the tool list tight and
       // prevent the LLM from reaching for web-request instead of the
       // template's native actions (e.g. log-meal).
-      const leanActions = attachToolSearch({
+      const leanActionEntries: Record<string, ActionEntry> = {
         ...templateScripts,
         ...resourceScripts,
         ...refreshScreenTool,
         ...urlTools,
         ...chatScripts,
         ...toolActions,
-      });
+      };
       const anonymousReadOnlyActions = attachToolSearch(
         filterReadOnlyActions(templateScripts),
       );
@@ -4743,89 +4893,6 @@ export function createAgentChatPlugin(
       // does whenever it is available — true agent/UI parity, in App or Code mode.
       const dbAdminScripts =
         process.env.NODE_ENV === "development" ? createDbAdminAgentTools() : {};
-
-      // -----------------------------------------------------------------------
-      // Production code-execution mode resolution.
-      //
-      // Priority (highest → lowest):
-      //   1. AGENT_PROD_CODE_EXECUTION env var ("trusted" | "sandboxed" | "off")
-      //   2. options.codeExecution.production
-      //   3. Default: "off"
-      //
-      // Dev mode ignores this entirely — dev always gets the full coding surface.
-      // -----------------------------------------------------------------------
-      const rawEnvCodeExec = (process.env.AGENT_PROD_CODE_EXECUTION ?? "")
-        .toLowerCase()
-        .trim();
-      const resolvedProdCodeExec: "off" | "sandboxed" | "trusted" =
-        rawEnvCodeExec === "trusted"
-          ? "trusted"
-          : rawEnvCodeExec === "sandboxed"
-            ? "sandboxed"
-            : rawEnvCodeExec === "off"
-              ? "off"
-              : (options?.codeExecution?.production ?? "off");
-
-      // Forward-declaration for the production run-code bridge supplier.
-      // Must come before createRunCodeEntry so the closure can capture it.
-      let prodRunCodeToolActions: Record<string, ActionEntry> = {};
-
-      // Sandboxed run-code tool — available in "sandboxed" or "trusted" prod
-      // modes and always in dev mode.
-      const runCodeTool: Record<string, ActionEntry> = {};
-      try {
-        const { createRunCodeEntry } =
-          await import("../coding-tools/run-code.js");
-        runCodeTool["run-code"] = createRunCodeEntry(
-          // Supplier is evaluated at invocation time so runtime additions to
-          // prodActions (e.g. MCP sync) are visible to the bridge.
-          () => prodRunCodeToolActions,
-          { bridgeTools: options?.codeExecution?.bridgeTools },
-        );
-      } catch {
-        // Module unavailable (e.g. bundled browser build) — skip silently.
-      }
-
-      // Full coding tool registry (bash/read/edit/write) for "trusted" prod.
-      // In dev mode this is handled separately via devHandler below.
-      const prodCodingTools: Record<string, ActionEntry> = {};
-      if (resolvedProdCodeExec === "trusted" && !canToggle) {
-        try {
-          const { createCodingToolRegistry } =
-            await import("../coding-tools/index.js");
-          const codingRegistry = createCodingToolRegistry({
-            cwd: process.cwd(),
-            beforeBash: async ({ command: _command }) => {
-              // In plan mode the agent loop blocks via isPlanModeToolCallAllowed;
-              // this hook is a belt-and-suspenders guard inside "trusted" production.
-              return null;
-            },
-          });
-          Object.assign(prodCodingTools, codingRegistry);
-        } catch {
-          // Coding tools unavailable — skip silently.
-        }
-      }
-
-      // Forward-declaration: populated after devActions is assembled below.
-      // Must be declared BEFORE devRunCodeTool so the closure can close over it.
-      let devRunCodeToolActions: Record<string, ActionEntry> = {};
-
-      // Always register run-code in dev mode (when the coding module loads).
-      const devRunCodeTool: Record<string, ActionEntry> = {};
-      if (canToggle) {
-        try {
-          const { createRunCodeEntry } =
-            await import("../coding-tools/run-code.js");
-          // devActions is not yet defined at this point; we use a late-binding
-          // supplier so devRunCodeTool can reference the devActions registry
-          // once it is built below (see devHandler block).
-          devRunCodeTool["run-code"] = createRunCodeEntry(
-            () => devRunCodeToolActions,
-            { bridgeTools: options?.codeExecution?.bridgeTools },
-          );
-        } catch {}
-      }
 
       const prodActions = attachToolSearch({
         ...templateScripts,
@@ -4852,8 +4919,9 @@ export function createAgentChatPlugin(
         ...coreAttachmentTools,
         ...browserTools,
         ...mcpActionEntries,
-        // Sandboxed run-code tool in production when mode allows it.
-        ...(resolvedProdCodeExec !== "off" && !canToggle ? runCodeTool : {}),
+        // Sandboxed run-code for hosted production when enabled, and for the
+        // app-rendered production-style handler in local dev.
+        ...(canToggle || resolvedProdCodeExec !== "off" ? runCodeTool : {}),
         // Full coding tools in production when mode is "trusted".
         ...(!canToggle ? prodCodingTools : {}),
       });
@@ -4861,6 +4929,19 @@ export function createAgentChatPlugin(
       // Wire the prod run-code bridge supplier so it sees the fully-assembled
       // prodActions registry (including MCP entries added at runtime).
       prodRunCodeToolActions = prodActions;
+
+      const leanActions = attachToolSearch({
+        ...leanActionEntries,
+        // Lean mode still needs run-code when code execution is enabled.
+        // Otherwise templates with a minimal prompt can advertise sandboxed
+        // execution in the system prompt while the actual tool registry omits
+        // it.
+        ...(canToggle
+          ? devRunCodeTool
+          : resolvedProdCodeExec !== "off"
+            ? runCodeTool
+            : {}),
+      });
 
       // Keep the prod action dict's MCP entries in sync when the manager's
       // server set changes at runtime (e.g. a user adds a remote MCP server

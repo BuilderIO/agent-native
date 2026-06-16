@@ -1,12 +1,16 @@
 import { describe, expect, it } from "vitest";
 import {
   hasExplicitPartialDisclosure,
+  hasCorpusWorkflowAttempt,
   hasDataQueryAttempt,
+  hasFailedCorpusWorkflowEvidence,
   hasIncompleteDataEvidence,
+  hasOverstatedCoverageConfidenceClaim,
   isSafeNoDataAnalyticsResponse,
   looksLikeCoverageSensitiveAnalyticsRequest,
   looksLikeStrongCoverageClaim,
   looksLikeAnalyticsDataRequest,
+  needsCorpusWorkflowForCoverageSensitiveRequest,
   stripInjectedAnalyticsGuardContext,
 } from "./real-data-actions";
 
@@ -159,11 +163,12 @@ describe("analytics data request classification", () => {
 });
 
 describe("coverage-sensitive analytics request classification", () => {
+  const broadProviderQuestion =
+    'Find any closed won deal in HubSpot where products = "fusion", then for all those deals look through all Gong call transcripts after close and let me know if you surface anything around Figma MCP.';
+
   it("flags broad provider searches where absence matters", () => {
     expect(
-      looksLikeCoverageSensitiveAnalyticsRequest(
-        'Find any closed won deal in HubSpot where products = "fusion", then for all those deals look through all Gong call transcripts after close and let me know if you surface anything around Figma MCP.',
-      ),
+      looksLikeCoverageSensitiveAnalyticsRequest(broadProviderQuestion),
     ).toBe(true);
     expect(
       looksLikeCoverageSensitiveAnalyticsRequest(
@@ -186,6 +191,71 @@ describe("coverage-sensitive analytics request classification", () => {
         "What Gong and HubSpot tables are available?",
       ),
     ).toBe(false);
+  });
+
+  it("distinguishes bounded convenience reads from corpus-capable workflows", () => {
+    expect(
+      hasCorpusWorkflowAttempt([
+        { name: "hubspot-deals" },
+        { name: "gong-calls" },
+      ]),
+    ).toBe(false);
+    expect(hasCorpusWorkflowAttempt([{ name: "provider-api-request" }])).toBe(
+      true,
+    );
+    expect(hasCorpusWorkflowAttempt([{ name: "query-staged-dataset" }])).toBe(
+      true,
+    );
+    expect(hasCorpusWorkflowAttempt([{ name: "run-code" }])).toBe(false);
+    expect(
+      hasCorpusWorkflowAttempt([{ name: "mcp__gong__search_transcripts" }]),
+    ).toBe(true);
+  });
+
+  it("requires a corpus workflow for coverage-sensitive answers unless partial coverage is explicit", () => {
+    const shortcutOnly = [{ name: "hubspot-deals" }, { name: "gong-calls" }];
+
+    expect(
+      needsCorpusWorkflowForCoverageSensitiveRequest({
+        userText: broadProviderQuestion,
+        finalText: "I found zero mentions of Figma MCP in the transcripts.",
+        toolResults: shortcutOnly,
+      }),
+    ).toBe(true);
+
+    expect(
+      needsCorpusWorkflowForCoverageSensitiveRequest({
+        userText: broadProviderQuestion,
+        finalText:
+          "Partial coverage: I only inspected the first 19 calls and found zero mentions.",
+        toolResults: shortcutOnly,
+      }),
+    ).toBe(false);
+
+    expect(
+      needsCorpusWorkflowForCoverageSensitiveRequest({
+        userText: broadProviderQuestion,
+        finalText: "I fetched the full cohort and found one mention.",
+        toolResults: [
+          { name: "hubspot-deals" },
+          { name: "provider-api-request" },
+          { name: "run-code" },
+        ],
+      }),
+    ).toBe(false);
+
+    expect(
+      needsCorpusWorkflowForCoverageSensitiveRequest({
+        userText: broadProviderQuestion,
+        finalText:
+          "I checked the shortcut results with code and found nothing.",
+        toolResults: [
+          { name: "hubspot-deals" },
+          { name: "gong-calls" },
+          { name: "run-code" },
+        ],
+      }),
+    ).toBe(true);
   });
 });
 
@@ -332,5 +402,35 @@ describe("incomplete evidence detection", () => {
         "I reviewed 10 of 25 accounts; the remaining accounts are not covered.",
       ),
     ).toBe(true);
+  });
+
+  it("detects failed corpus workflows and overstated full-coverage confidence", () => {
+    expect(
+      hasFailedCorpusWorkflowEvidence([
+        {
+          name: "run-code",
+          content: "exitCode: 1\n\nstderr:\nUnhandled error: fetch failed",
+        },
+      ]),
+    ).toBe(true);
+    expect(
+      hasFailedCorpusWorkflowEvidence([
+        {
+          name: "provider-api-request",
+          content: "Error running provider-api-request: fetch failed",
+        },
+      ]),
+    ).toBe(true);
+
+    expect(
+      hasOverstatedCoverageConfidenceClaim(
+        "No mentions were found in any Gong transcripts across the full available corpus. This is a defensible absence claim.",
+      ),
+    ).toBe(true);
+    expect(
+      hasOverstatedCoverageConfidenceClaim(
+        "Partial coverage: I found 0 matches in the 200 calls inspected; this is not exhaustive.",
+      ),
+    ).toBe(false);
   });
 });
