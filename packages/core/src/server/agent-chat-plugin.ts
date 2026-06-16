@@ -3055,7 +3055,12 @@ function generateCorpusToolsPrompt(
   ].filter(Boolean);
   const hasRunCode = "run-code" in registry;
   const hasStagedDataset = "query-staged-dataset" in registry;
-  if (!hasProviderApi && !hasProviderCorpusJob && !hasRunCode && !hasStagedDataset)
+  if (
+    !hasProviderApi &&
+    !hasProviderCorpusJob &&
+    !hasRunCode &&
+    !hasStagedDataset
+  )
     return "";
 
   const available = [

@@ -438,7 +438,9 @@ export async function deleteProviderCorpusJob(options: {
   return result.rowsAffected > 0;
 }
 
-function jsonOrNull(value: Record<string, unknown> | null | undefined): string | null {
+function jsonOrNull(
+  value: Record<string, unknown> | null | undefined,
+): string | null {
   return value ? JSON.stringify(value) : null;
 }
 
@@ -454,7 +456,9 @@ function parseJsonRecord(value: unknown): Record<string, unknown> {
   }
 }
 
-function parseNullableJsonRecord(value: unknown): Record<string, unknown> | null {
+function parseNullableJsonRecord(
+  value: unknown,
+): Record<string, unknown> | null {
   if (typeof value !== "string" || !value) return null;
   return parseJsonRecord(value);
 }

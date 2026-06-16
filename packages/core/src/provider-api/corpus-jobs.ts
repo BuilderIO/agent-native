@@ -55,10 +55,7 @@ const PaginationSchema = z.object({
     .string()
     .optional()
     .describe("Dot-path to the next cursor in each response."),
-  cursorPath: z
-    .string()
-    .optional()
-    .describe("Alias for nextCursorPath."),
+  cursorPath: z.string().optional().describe("Alias for nextCursorPath."),
   cursorParam: z
     .string()
     .optional()
@@ -272,7 +269,8 @@ async function runProviderCorpusJobAction(
   options: CreateProviderCorpusJobActionOptions,
 ) {
   const ctx = getCredentialContext();
-  if (!ctx) throw new Error("No authenticated context for provider-corpus-job.");
+  if (!ctx)
+    throw new Error("No authenticated context for provider-corpus-job.");
 
   if (args.operation === "list") {
     const jobs = await listProviderCorpusJobs({
@@ -348,7 +346,9 @@ async function startJob(
   if (!args.request) throw new Error("start requires request.");
   const search = args.search ?? {};
   if (!hasSearchNeedle(search)) {
-    throw new Error("start requires search.query, search.queries, search.terms, or search.regex.");
+    throw new Error(
+      "start requires search.query, search.queries, search.terms, or search.regex.",
+    );
   }
   if (args.mode === "paginated-search" && !args.pagination) {
     throw new Error("paginated-search requires pagination.");
@@ -388,7 +388,8 @@ async function startJob(
     status: "paused",
     provider: request.provider,
     request: request as unknown as Record<string, unknown>,
-    pagination: (args.pagination as Record<string, unknown> | undefined) ?? null,
+    pagination:
+      (args.pagination as Record<string, unknown> | undefined) ?? null,
     batch: (args.batch as Record<string, unknown> | undefined) ?? null,
     search: search as Record<string, unknown>,
     limits: (args.limits as Record<string, unknown> | undefined) ?? {},
@@ -422,7 +423,8 @@ async function continueJob(
       appId: job.appId,
       ownerEmail: job.ownerEmail,
     });
-    if (!refreshed) throw new Error(`Provider corpus job ${job.id} disappeared.`);
+    if (!refreshed)
+      throw new Error(`Provider corpus job ${job.id} disappeared.`);
     const next =
       refreshed.mode === "batch-search"
         ? await runBatchSearch(refreshed, limits, runtime)
@@ -465,7 +467,10 @@ async function runPaginatedSearch(
   const maxPages = pagination.maxPages ?? DEFAULT_OVERALL_MAX_PAGES;
   let pageIndex = numberValue(checkpoint.pageIndex, 0);
   let cursor = valueOrNull(checkpoint.cursor);
-  let pageNumber = numberValue(checkpoint.pageNumber, pagination.startPage ?? 1);
+  let pageNumber = numberValue(
+    checkpoint.pageNumber,
+    pagination.startPage ?? 1,
+  );
   let offset = numberValue(checkpoint.offset, pagination.startOffset ?? 0);
   let pagesThisCall = 0;
   let itemsThisCall = 0;
@@ -485,13 +490,17 @@ async function runPaginatedSearch(
     });
     const provider = await callProvider(runtime, pageRequest);
     if (provider.quota) {
-      return pauseForQuota(current, {
-        ...checkpoint,
-        pageIndex,
-        cursor,
-        pageNumber,
-        offset,
-      }, provider.quota);
+      return pauseForQuota(
+        current,
+        {
+          ...checkpoint,
+          pageIndex,
+          cursor,
+          pageNumber,
+          offset,
+        },
+        provider.quota,
+      );
     }
 
     const items = extractItemsArray(provider.body, pagination.itemsPath, false);
@@ -626,11 +635,15 @@ async function runBatchSearch(
     const batchRequest = buildBatchRequest(request, batch, values);
     const provider = await callProvider(runtime, batchRequest);
     if (provider.quota) {
-      return pauseForQuota(current, {
-        ...job.checkpoint,
-        nextIndex,
-        sourceItemCount: totalSourceItems,
-      }, provider.quota);
+      return pauseForQuota(
+        current,
+        {
+          ...job.checkpoint,
+          nextIndex,
+          sourceItemCount: totalSourceItems,
+        },
+        provider.quota,
+      );
     }
 
     const items = extractItemsArray(
@@ -727,9 +740,10 @@ async function callProvider(
   runtime: ProviderCorpusRuntime,
   request: ProviderRequest,
 ): Promise<ProviderBodyResult> {
-  const raw = (await runtime.executeRequest(
-    cleanRequest(request),
-  )) as Record<string, unknown>;
+  const raw = (await runtime.executeRequest(cleanRequest(request))) as Record<
+    string,
+    unknown
+  >;
   const response = raw.response as Record<string, unknown> | undefined;
   if (!response) {
     return { body: raw };
@@ -837,14 +851,23 @@ function searchItems(
 ): SearchPageResult {
   const maxStoredHits = Math.max(0, options.maxStoredHits);
   const maxHitsPerItem = boundedNumber(search.maxHitsPerItem, 3, 1, 100);
-  const maxFieldsPerItem = boundedNumber(search.maxFieldsPerItem, 5_000, 1, 50_000);
+  const maxFieldsPerItem = boundedNumber(
+    search.maxFieldsPerItem,
+    5_000,
+    1,
+    50_000,
+  );
   let matchedItems = 0;
   let totalHits = 0;
   const storedHits: SearchHit[] = [];
 
   for (let itemOffset = 0; itemOffset < items.length; itemOffset++) {
     const item = items[itemOffset];
-    const fields = collectSearchStrings(item, search.textPaths, maxFieldsPerItem);
+    const fields = collectSearchStrings(
+      item,
+      search.textPaths,
+      maxFieldsPerItem,
+    );
     const identity = extractItemIdentity(item, search.idPaths);
     const metadata = extractMetadata(item, search.metadataPaths);
     let itemMatched = false;
@@ -857,10 +880,7 @@ function searchItems(
         matchedItems++;
         itemMatched = true;
       }
-      if (
-        storedHits.length < maxStoredHits &&
-        storedForItem < maxHitsPerItem
-      ) {
+      if (storedHits.length < maxStoredHits && storedForItem < maxHitsPerItem) {
         storedForItem++;
         storedHits.push({
           id: identity.id,
@@ -930,7 +950,9 @@ function normalizePagination(
   };
 }
 
-function normalizeBatch(input: Record<string, unknown> | null): Required<BatchConfig> {
+function normalizeBatch(
+  input: Record<string, unknown> | null,
+): Required<BatchConfig> {
   const parsed = BatchSchema.parse(input ?? {});
   return {
     items: parsed.items ?? [],
@@ -981,14 +1003,16 @@ function nextAction(job: ProviderCorpusJobRecord): string {
     return `Read all stored hits with operation="results", jobId="${job.id}".`;
   }
   if (job.status === "quota_wait") {
-    const at = job.nextResumeAt ? new Date(job.nextResumeAt).toISOString() : "later";
+    const at = job.nextResumeAt
+      ? new Date(job.nextResumeAt).toISOString()
+      : "later";
     return `Provider quota is cooling down. Continue this job after ${at} with operation="continue", jobId="${job.id}".`;
   }
   if (job.status === "paused") {
     return `Continue this job with operation="continue", jobId="${job.id}" until completed or quota_wait.`;
   }
   if (job.status === "failed") {
-    return "Fix the request/configuration or start a new job; progress and stored hits are still inspectable with operation=\"results\".";
+    return 'Fix the request/configuration or start a new job; progress and stored hits are still inspectable with operation="results".';
   }
   return `Check status with operation="status", jobId="${job.id}".`;
 }
@@ -1036,9 +1060,9 @@ function extractItemsArray(
 function hasSearchNeedle(search: SearchConfig): boolean {
   return Boolean(
     search.query ||
-      search.regex ||
-      search.queries?.length ||
-      search.terms?.length,
+    search.regex ||
+    search.queries?.length ||
+    search.terms?.length,
   );
 }
 
@@ -1052,7 +1076,10 @@ function readQuota(response: Record<string, unknown>) {
     };
   }
   const json = response.json as Record<string, unknown> | undefined;
-  if (json?.error === "provider_quota_exhausted" && typeof json.retryAt === "string") {
+  if (
+    json?.error === "provider_quota_exhausted" &&
+    typeof json.retryAt === "string"
+  ) {
     return {
       retryAt: json.retryAt,
       retryAfterMs: numberValue(json.retryAfterMs, 0),
@@ -1087,7 +1114,12 @@ function cloneRecord(value: unknown): Record<string, unknown> {
 }
 
 function valueOrNull(value: unknown): unknown | null {
-  if (value === undefined || value === null || value === "" || value === false) {
+  if (
+    value === undefined ||
+    value === null ||
+    value === "" ||
+    value === false
+  ) {
     return null;
   }
   return value;
@@ -1201,7 +1233,12 @@ function collectStrings(
   }
   if (Array.isArray(value)) {
     for (let i = 0; i < value.length && out.length < limit; i++) {
-      collectStrings(value[i], basePath ? `${basePath}[${i}]` : `[${i}]`, out, limit);
+      collectStrings(
+        value[i],
+        basePath ? `${basePath}[${i}]` : `[${i}]`,
+        out,
+        limit,
+      );
     }
     return out;
   }
@@ -1393,7 +1430,10 @@ function findSearchMatches(
       })
       .filter((hit) => hit.index >= 0);
     const mode = search.matchMode === "anyTerm" ? "anyTerm" : "allTerms";
-    if ((mode === "allTerms" && hits.length === terms.length) || (mode === "anyTerm" && hits.length > 0)) {
+    if (
+      (mode === "allTerms" && hits.length === terms.length) ||
+      (mode === "anyTerm" && hits.length > 0)
+    ) {
       const first = hits.sort((a, b) => a.index - b.index)[0];
       if (first) {
         matches.push({
@@ -1413,7 +1453,9 @@ function normalizeRegexFlags(
   flags: string | undefined,
   caseSensitive: boolean,
 ): string {
-  const allowed = (flags ?? "").replace(/[^dgimsuvy]/g, "").replace(/[gy]/g, "");
+  const allowed = (flags ?? "")
+    .replace(/[^dgimsuvy]/g, "")
+    .replace(/[gy]/g, "");
   const withCase = caseSensitive || /i/.test(allowed) ? allowed : `${allowed}i`;
   return `${withCase}g`;
 }

@@ -449,8 +449,16 @@ describe("provider corpus job store guards", () => {
     });
 
     const batch = [{ id: "h0" }, { id: "h1" }];
-    await appendProviderCorpusJobHits({ jobId: "job-1", startIndex: 0, hits: batch });
-    await appendProviderCorpusJobHits({ jobId: "job-1", startIndex: 0, hits: batch });
+    await appendProviderCorpusJobHits({
+      jobId: "job-1",
+      startIndex: 0,
+      hits: batch,
+    });
+    await appendProviderCorpusJobHits({
+      jobId: "job-1",
+      startIndex: 0,
+      hits: batch,
+    });
 
     const stored = await getProviderCorpusJobHits({
       jobId: "job-1",
