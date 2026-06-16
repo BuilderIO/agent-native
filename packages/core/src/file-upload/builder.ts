@@ -84,7 +84,7 @@ async function uploadLargeFileViaSignedUrl(
 
   // Step 2 — PUT bytes directly to GCS. Only requiredHeaders; no Authorization
   // (signed URL carries its own auth — extra signed headers break the signature).
-  console.log(`[builder-upload] step 2: PUT ${mb}MB to GCS`);
+  console.log(`[builder-upload] step 2 [${assetId}]: PUT ${mb}MB to GCS`);
   const step2Res = await fetchWithTimeout(uploadUrl, {
     method: "PUT",
     headers: requiredHeaders,
@@ -92,7 +92,7 @@ async function uploadLargeFileViaSignedUrl(
   });
   await assertOk(step2Res, "GCS upload failed");
   console.log(
-    `[builder-upload] step 2 ok: GCS ${step2Res.status} etag=${step2Res.headers.get("etag") ?? "none"}`,
+    `[builder-upload] step 2 ok [${assetId}]: GCS ${step2Res.status} etag=${step2Res.headers.get("etag") ?? "none"}`,
   );
 
   // Step 3 — register the asset and get the CDN URL.
@@ -112,7 +112,7 @@ async function uploadLargeFileViaSignedUrl(
   const { url, id } = (await step3Res.json()) as { url?: string; id?: string };
   if (!url) throw new Error("Builder.io upload/complete returned no URL");
 
-  console.log(`[builder-upload] done: ${url}`);
+  console.log(`[builder-upload] done [${assetId}]: ${url}`);
   return { url, id, provider: "builder" };
 }
 
