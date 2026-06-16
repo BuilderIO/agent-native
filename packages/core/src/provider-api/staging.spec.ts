@@ -16,15 +16,18 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const _metaStore = new Map<string, Record<string, unknown>>();
 const _rowStore = new Map<string, Record<string, unknown>[]>();
+const _executedSql: string[] = [];
+let _isPostgres = false;
 
 vi.mock("../db/client.js", () => ({
-  getDialect: () => "sqlite",
-  isPostgres: () => false,
-  intType: () => "INTEGER",
+  getDialect: () => (_isPostgres ? "postgres" : "sqlite"),
+  isPostgres: () => _isPostgres,
+  intType: () => (_isPostgres ? "BIGINT" : "INTEGER"),
   getDbExec: () => ({
     execute: async (sql: string | { sql: string; args: unknown[] }) => {
       const rawSql = typeof sql === "string" ? sql : sql.sql;
       const args = typeof sql === "string" ? [] : (sql.args as unknown[]);
+      _executedSql.push(rawSql);
 
       // CREATE TABLE — no-op
       if (/CREATE TABLE/i.test(rawSql)) return { rows: [], rowsAffected: 0 };
@@ -210,7 +213,6 @@ vi.mock("../db/client.js", () => ({
       return { rows: [], rowsAffected: 0 };
     },
   }),
-  isPostgres: () => false,
 }));
 
 // ---------------------------------------------------------------------------
@@ -255,6 +257,11 @@ const {
 } = await import("./staged-datasets-store.js");
 const { createProviderApiRuntime } = await import("./index.js");
 import type { ProviderApiRequestArgs } from "./index.js";
+
+beforeEach(() => {
+  _isPostgres = false;
+  _executedSql.length = 0;
+});
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -381,6 +388,48 @@ describe("staging caps", () => {
         columns: ["id"],
       }),
     ).rejects.toThrow(/cap exceeded/i);
+  });
+});
+
+describe("staged dataset DDL", () => {
+  beforeEach(() => {
+    _metaStore.clear();
+    _rowStore.clear();
+    _resetInitPromiseForTests();
+  });
+
+  it("uses 64-bit integer columns and widens existing Postgres tables", async () => {
+    _isPostgres = true;
+
+    await upsertStagedDataset({
+      id: "ds_postgres_ddl",
+      appId: "analytics",
+      ownerEmail: "ada@example.com",
+      name: "postgres-ddl",
+      rows: [{ id: "row-1" }],
+      columns: ["id"],
+    });
+
+    expect(
+      _executedSql.some((sql) => /created_at\s+BIGINT\s+NOT NULL/i.test(sql)),
+    ).toBe(true);
+    expect(
+      _executedSql.some((sql) => /updated_at\s+BIGINT\s+NOT NULL/i.test(sql)),
+    ).toBe(true);
+    expect(
+      _executedSql.some((sql) =>
+        /ALTER TABLE staged_datasets ALTER COLUMN created_at TYPE BIGINT/i.test(
+          sql,
+        ),
+      ),
+    ).toBe(true);
+    expect(
+      _executedSql.some((sql) =>
+        /ALTER TABLE staged_dataset_rows ALTER COLUMN row_index TYPE BIGINT/i.test(
+          sql,
+        ),
+      ),
+    ).toBe(true);
   });
 });
 

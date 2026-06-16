@@ -13,7 +13,7 @@
  * different users never share or cross-read each other's scratch data.
  */
 
-import { getDbExec, isPostgres, type DbExec } from "../db/client.js";
+import { getDbExec, intType, isPostgres, type DbExec } from "../db/client.js";
 
 // ---------------------------------------------------------------------------
 // Caps
@@ -31,6 +31,7 @@ async function ensureTables(): Promise<void> {
   if (!_initPromise) {
     _initPromise = (async () => {
       const db = getDbExec();
+      const integerType = intType();
       await db.execute(`
         CREATE TABLE IF NOT EXISTS staged_datasets (
           id TEXT NOT NULL,
@@ -38,21 +39,24 @@ async function ensureTables(): Promise<void> {
           owner_email TEXT NOT NULL,
           name TEXT NOT NULL,
           columns TEXT NOT NULL,
-          row_count INTEGER NOT NULL DEFAULT 0,
-          byte_size INTEGER NOT NULL DEFAULT 0,
-          created_at INTEGER NOT NULL,
-          updated_at INTEGER NOT NULL,
+          row_count ${integerType} NOT NULL DEFAULT 0,
+          byte_size ${integerType} NOT NULL DEFAULT 0,
+          created_at ${integerType} NOT NULL,
+          updated_at ${integerType} NOT NULL,
           PRIMARY KEY (id)
         )
       `);
       await db.execute(`
         CREATE TABLE IF NOT EXISTS staged_dataset_rows (
           dataset_id TEXT NOT NULL,
-          row_index INTEGER NOT NULL,
+          row_index ${integerType} NOT NULL,
           row_data TEXT NOT NULL,
           PRIMARY KEY (dataset_id, row_index)
         )
       `);
+      if (isPostgres()) {
+        await widenPostgresIntegerColumns(db);
+      }
       for (const ddl of [
         `CREATE INDEX IF NOT EXISTS staged_datasets_scope_idx ON staged_datasets (app_id, owner_email)`,
         `CREATE INDEX IF NOT EXISTS staged_dataset_rows_dataset_idx ON staged_dataset_rows (dataset_id)`,
@@ -69,6 +73,25 @@ async function ensureTables(): Promise<void> {
     });
   }
   return _initPromise;
+}
+
+async function widenPostgresIntegerColumns(db: DbExec): Promise<void> {
+  const statements = [
+    `ALTER TABLE staged_datasets ALTER COLUMN row_count TYPE BIGINT USING row_count::bigint`,
+    `ALTER TABLE staged_datasets ALTER COLUMN byte_size TYPE BIGINT USING byte_size::bigint`,
+    `ALTER TABLE staged_datasets ALTER COLUMN created_at TYPE BIGINT USING created_at::bigint`,
+    `ALTER TABLE staged_datasets ALTER COLUMN updated_at TYPE BIGINT USING updated_at::bigint`,
+    `ALTER TABLE staged_dataset_rows ALTER COLUMN row_index TYPE BIGINT USING row_index::bigint`,
+  ];
+  for (const sql of statements) {
+    try {
+      await db.execute(sql);
+    } catch {
+      // Best-effort compatibility for older deployments. Widening is
+      // non-destructive; if a database role cannot ALTER, the later write will
+      // still surface the real DB error.
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------

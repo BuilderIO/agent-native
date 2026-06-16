@@ -130,6 +130,8 @@ export function createRunCodeEntry(
         "    Returns the parsed JSON result (or throws on error).",
         "    Supports stageAs/saveToFile/fetchAllPages; use cursorBodyPath for POST-body pagination.",
         "    Example: `const data = await providerFetch('<provider-id>', '/records', { query: { limit: 100 } });`",
+        "  - `providerRequest(provider, path, init?)` — same authenticated call, but returns the full provider-api envelope with request, response status/headers, truncation, and body metadata.",
+        "  - `providerFetchAll(provider, path, init?)` — generic pagination helper for cursor, page, and offset APIs. Pass `pagination: { itemsPath, cursorPath or nextCursorPath, cursorParam or cursorBodyPath, pageParam, offsetParam, pageSize, maxPages }`. Returns `{ items, pages, pageCount, itemCount, hasMore, lastCursor, stoppedReason }`.",
         "  - `webFetch(url, init?)` — outbound HTTP request via the web-request action.",
         "    Returns `{ status, body }` where body is the response text.",
         "    Example: `const { body } = await webFetch('https://api.example.com/data');`",
@@ -184,6 +186,7 @@ export function createRunCodeEntry(
       const {
         server,
         bridgePort,
+        getUsedTools,
         cleanup: cleanupBridge,
       } = await startBridgeServer(
         bridgeToken,
@@ -287,6 +290,9 @@ export function createRunCodeEntry(
         if (timedOut) lines.push(`timedOut: true (${timeoutMs}ms)`);
         if (exitCode !== 0 && exitCode !== null)
           lines.push(`exitCode: ${exitCode}`);
+        const usedTools = getUsedTools();
+        if (usedTools.length)
+          lines.push(`bridgeToolsUsed: ${usedTools.join(", ")}`);
         lines.push(combined);
 
         const full = lines.join("\n\n");
@@ -315,6 +321,7 @@ export function createRunCodeEntry(
 interface BridgeResult {
   server: http.Server;
   bridgePort: number;
+  getUsedTools: () => string[];
   cleanup: () => void;
 }
 
@@ -325,6 +332,7 @@ async function startBridgeServer(
   defaultTools: Set<string>,
   extraTools: Set<string>,
 ): Promise<BridgeResult> {
+  const usedTools = new Set<string>();
   const server = http.createServer((req, res) => {
     if (req.method !== "POST" || req.url !== "/tool") {
       res.writeHead(404);
@@ -362,6 +370,7 @@ async function startBridgeServer(
         context,
         defaultTools,
         extraTools,
+        usedTools,
         res,
       );
     });
@@ -385,7 +394,12 @@ async function startBridgeServer(
     } catch {}
   };
 
-  return { server, bridgePort, cleanup };
+  return {
+    server,
+    bridgePort,
+    getUsedTools: () => Array.from(usedTools).sort(),
+    cleanup,
+  };
 }
 
 function handleBridgeRequest(
@@ -394,6 +408,7 @@ function handleBridgeRequest(
   context: ActionRunContext | undefined,
   defaultTools: Set<string>,
   extraTools: Set<string>,
+  usedTools: Set<string>,
   res: http.ServerResponse,
 ): void {
   let parsed: { tool?: string; args?: Record<string, string> };
@@ -439,6 +454,7 @@ function handleBridgeRequest(
   }
 
   const toolArgs = parsed.args ?? {};
+  usedTools.add(toolName);
   // Run the tool with the parent request context so auth/org/owner resolution
   // works exactly as it does in the normal agent loop.
   entry
@@ -462,7 +478,8 @@ function handleBridgeRequest(
 
 /**
  * Wrap the user's code in an ESM module that:
- *  1. Defines `providerFetch` and `webFetch` helpers via the bridge.
+ *  1. Defines `providerFetch`, `providerRequest`, `providerFetchAll`, and
+ *     `webFetch` helpers via the bridge.
  *  2. Runs the user's code as top-level await in an async IIFE.
  */
 function buildSandboxModule(
@@ -526,11 +543,7 @@ async function appAction(name, args = {}) {
   return _parseBridgeResult(await _bridgeCall(name, args));
 }
 
-/**
- * Call a provider API via the authenticated provider-api-request action.
- * Returns the parsed JSON response body (or throws on error).
- */
-async function providerFetch(provider, apiPath, init = {}) {
+async function providerRequest(provider, apiPath, init = {}) {
   const method = (init.method || "GET").toUpperCase();
   const rawResult = await _bridgeCall("provider-api-request", {
     provider,
@@ -550,8 +563,15 @@ async function providerFetch(provider, apiPath, init = {}) {
     ...(init.saveToFile ? { saveToFile: init.saveToFile } : {}),
     ...(init.fetchAllPages ? { fetchAllPages: init.fetchAllPages } : {}),
   });
-  // rawResult is the action's string output; parse it if it looks like JSON
-  let parsed = _parseBridgeResult(rawResult);
+  return _parseBridgeResult(rawResult);
+}
+
+/**
+ * Call a provider API via the authenticated provider-api-request action.
+ * Returns the parsed JSON response body (or throws on error).
+ */
+async function providerFetch(provider, apiPath, init = {}) {
+  const parsed = await providerRequest(provider, apiPath, init);
   // Unwrap the provider-api-request envelope ({ provider, request, response, guidance })
   // so callers get the actual response body. fetchAllPages / saveToFile results
   // (which have no \`response\` field) are returned as-is.
@@ -564,6 +584,172 @@ async function providerFetch(provider, apiPath, init = {}) {
     return r.json !== undefined ? r.json : r.text;
   }
   return parsed;
+}
+
+function _cloneJson(value) {
+  if (value === undefined || value === null) return value;
+  return JSON.parse(JSON.stringify(value));
+}
+
+function _pathParts(path) {
+  if (!path || typeof path !== "string") return [];
+  return path
+    .replace(/\\[(\\d+)\\]/g, ".$1")
+    .split(".")
+    .map((part) => part.trim())
+    .filter(Boolean);
+}
+
+function _getByPath(value, path) {
+  let current = value;
+  for (const part of _pathParts(path)) {
+    if (current === undefined || current === null) return undefined;
+    current = current[part];
+  }
+  return current;
+}
+
+function _setByPath(value, path, nextValue) {
+  const parts = _pathParts(path);
+  if (!parts.length) return value;
+  const root = value && typeof value === "object" ? _cloneJson(value) : {};
+  let current = root;
+  for (let i = 0; i < parts.length - 1; i++) {
+    const part = parts[i];
+    if (!current[part] || typeof current[part] !== "object") current[part] = {};
+    current = current[part];
+  }
+  current[parts[parts.length - 1]] = nextValue;
+  return root;
+}
+
+function _extractItems(page, itemsPath) {
+  if (itemsPath) {
+    const value = _getByPath(page, itemsPath);
+    return Array.isArray(value) ? value : [];
+  }
+  if (Array.isArray(page)) return page;
+  if (!page || typeof page !== "object") return [];
+  for (const key of ["data", "results", "items", "records", "rows", "calls", "messages", "tickets", "issues", "deals"]) {
+    if (Array.isArray(page[key])) return page[key];
+  }
+  return [];
+}
+
+function _withoutProviderFetchAllOptions(init) {
+  const {
+    pagination: _pagination,
+    fetchAllPages: _fetchAllPages,
+    stageAs: _stageAs,
+    itemsPath: _itemsPath,
+    saveToFile: _saveToFile,
+    ...rest
+  } = init || {};
+  return rest;
+}
+
+/**
+ * Fetch every page from a provider API using generic cursor, page-number, or
+ * offset pagination. Prefer this inside run-code when the answer depends on a
+ * broad provider corpus rather than a single bounded request.
+ */
+async function providerFetchAll(provider, apiPath, init = {}) {
+  const pagination = init.pagination || init.fetchAllPages || {};
+  const itemsPath = pagination.itemsPath || init.itemsPath;
+  const cursorPath = pagination.nextCursorPath || pagination.cursorPath;
+  const maxPagesRaw = Number(pagination.maxPages || init.maxPages || 50);
+  const maxPages = Math.max(1, Math.min(Number.isFinite(maxPagesRaw) ? maxPagesRaw : 50, 200));
+  const baseInit = _withoutProviderFetchAllOptions(init);
+  let query = _cloneJson(init.query || {});
+  let body = _cloneJson(init.body);
+  let pageNumber = Number(pagination.startPage || 1);
+  let offset = Number(pagination.startOffset || 0);
+  const pages = [];
+  const items = [];
+  let lastCursor = null;
+  let stoppedReason = "completed";
+
+  for (let pageIndex = 0; pageIndex < maxPages; pageIndex++) {
+    if (pagination.pageParam) {
+      query = { ...(query || {}), [pagination.pageParam]: pageNumber };
+    }
+    if (pagination.offsetParam) {
+      query = { ...(query || {}), [pagination.offsetParam]: offset };
+    }
+
+    const page = await providerFetch(provider, apiPath, {
+      ...baseInit,
+      query,
+      ...(body !== undefined ? { body } : {}),
+    });
+    pages.push(page);
+    const pageItems = _extractItems(page, itemsPath);
+    items.push(...pageItems);
+
+    const nextCursor = cursorPath ? _getByPath(page, cursorPath) : undefined;
+    if (nextCursor !== undefined && nextCursor !== null && String(nextCursor) !== "") {
+      if (lastCursor !== null && String(nextCursor) === String(lastCursor)) {
+        stoppedReason = "repeated-cursor";
+        break;
+      }
+      lastCursor = nextCursor;
+      if (pagination.cursorBodyPath) {
+        body = _setByPath(body || {}, pagination.cursorBodyPath, nextCursor);
+      } else if (pagination.cursorParam) {
+        query = { ...(query || {}), [pagination.cursorParam]: nextCursor };
+      } else {
+        stoppedReason = "cursor-found-without-destination";
+        break;
+      }
+      continue;
+    }
+
+    lastCursor = null;
+    if (pagination.pageParam) {
+      if (pageItems.length === 0) {
+        stoppedReason = "empty-page";
+        break;
+      }
+      pageNumber += 1;
+      continue;
+    }
+    if (pagination.offsetParam) {
+      if (pageItems.length === 0) {
+        stoppedReason = "empty-page";
+        break;
+      }
+      const step = Number(pagination.pageSize || pageItems.length);
+      if (!Number.isFinite(step) || step <= 0) {
+        stoppedReason = "invalid-page-size";
+        break;
+      }
+      offset += step;
+      if (pagination.pageSize && pageItems.length < Number(pagination.pageSize)) {
+        stoppedReason = "short-page";
+        break;
+      }
+      continue;
+    }
+
+    break;
+  }
+
+  const hitPageOrOffsetLimit =
+    Boolean(pagination.pageParam || pagination.offsetParam) &&
+    stoppedReason === "completed" &&
+    pages.length >= maxPages;
+  const hasMore =
+    (lastCursor !== null && pages.length >= maxPages) || hitPageOrOffsetLimit;
+  if (hasMore) stoppedReason = "max-pages";
+  return {
+    items,
+    pages,
+    pageCount: pages.length,
+    itemCount: items.length,
+    hasMore,
+    lastCursor,
+    stoppedReason,
+  };
 }
 
 /**

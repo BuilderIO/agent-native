@@ -1718,6 +1718,17 @@ function toolCallCacheKey(toolName: string, input: unknown): string {
   return `${toolName}:${stableStringify(normalizeToolCallInputForHistory(input))}`;
 }
 
+function rateLimitRecoveryHint(message: string): string {
+  if (
+    !/\b(?:429|rate[-\s]?limit|rate limited|quota exceeded|too many requests|calls limit exceeded)\b/i.test(
+      message,
+    )
+  ) {
+    return "";
+  }
+  return "\n\nProvider rate-limit guidance: stop retrying this provider in this turn. Report the rate limit as a coverage gap, include any evidence already gathered, and ask the user to retry after the provider quota resets if full coverage is required.";
+}
+
 function normalizeToolCallInputForHistory(
   input: unknown,
 ): Record<string, unknown> {
@@ -2444,7 +2455,8 @@ export async function runAgentLoop(opts: {
             ...(err.errorCode ? { errorCode: err.errorCode } : {}),
           };
         } else {
-          result = `Error running ${toolCall.name}: ${err?.message ?? String(err)}`;
+          const message = err?.message ?? String(err);
+          result = `Error running ${toolCall.name}: ${message}${rateLimitRecoveryHint(message)}`;
         }
         isError = true;
       }

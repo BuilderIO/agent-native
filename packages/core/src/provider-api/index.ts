@@ -1899,6 +1899,15 @@ function joinProviderUrlPath(base: URL, rawPath: string): string {
   const basePath = base.pathname.replace(/\/+$/, "");
   const providerPath = rawPath.replace(/^\/+/, "");
   if (!providerPath) return basePath || "/";
+  const baseSegments = basePath.split("/").filter(Boolean);
+  const providerSegments = providerPath.split("/").filter(Boolean);
+  if (
+    baseSegments.length > 0 &&
+    providerSegments.length >= baseSegments.length &&
+    baseSegments.every((segment, index) => segment === providerSegments[index])
+  ) {
+    return `/${providerPath}`;
+  }
   return `${basePath}/${providerPath}`;
 }
 
@@ -2448,44 +2457,150 @@ async function fetchWithTimeout(
   },
 ) {
   const controller = new AbortController();
-  const timeout = setTimeout(
-    () => controller.abort(),
-    clampTimeout(options.timeoutMs),
-  );
+  const timeoutMs = clampTimeout(options.timeoutMs);
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  const method = options.method ?? "GET";
+  const secretValues = options.secretValues ?? [];
   try {
     const dispatcher = (await createSsrfSafeDispatcher()) ?? undefined;
     const fetchOptions: RequestInit & { dispatcher?: unknown } = {
-      method: options.method ?? "GET",
+      method,
       headers: options.headers,
       body: options.body,
       signal: controller.signal,
       redirect: "manual",
     };
     if (dispatcher) fetchOptions.dispatcher = dispatcher;
-    const startedAt = Date.now();
-    const res = await fetch(optionsUrl, fetchOptions);
-    const elapsedMs = Date.now() - startedAt;
-    const rawText = await readResponseTextWithLimit(
-      res,
-      clampMaxBytes(options.maxBytes),
-    );
-    const secretValues = options.secretValues ?? [];
-    const redactedText = redactString(rawText.text, secretValues);
-    const parsed = tryParseJson(redactedText);
-    return {
-      status: res.status,
-      statusText: res.statusText,
-      ok: res.ok,
-      elapsedMs,
-      headers: redactSecrets(headersToObject(res.headers), secretValues),
-      contentType: res.headers.get("content-type") ?? null,
-      size: rawText.size,
-      truncated: rawText.truncated,
-      text: parsed === undefined ? redactedText : undefined,
-      json: parsed,
-    };
+    try {
+      return await fetchProviderResponse(optionsUrl, fetchOptions, {
+        maxBytes: options.maxBytes,
+        secretValues,
+      });
+    } catch (error) {
+      if (dispatcher && isDispatcherCompatibilityError(error)) {
+        const fallbackOptions = { ...fetchOptions };
+        delete fallbackOptions.dispatcher;
+        return await fetchProviderResponse(optionsUrl, fallbackOptions, {
+          maxBytes: options.maxBytes,
+          secretValues,
+        });
+      }
+      throw error;
+    }
+  } catch (error) {
+    throw normalizeFetchError(error, {
+      method,
+      url: optionsUrl,
+      timeoutMs,
+      secretValues,
+    });
   } finally {
     clearTimeout(timeout);
+  }
+}
+
+async function fetchProviderResponse(
+  url: string,
+  fetchOptions: RequestInit & { dispatcher?: unknown },
+  options: {
+    maxBytes?: number;
+    secretValues: string[];
+  },
+) {
+  const startedAt = Date.now();
+  const res = await fetch(url, fetchOptions);
+  const elapsedMs = Date.now() - startedAt;
+  const rawText = await readResponseTextWithLimit(
+    res,
+    clampMaxBytes(options.maxBytes),
+  );
+  const redactedText = redactString(rawText.text, options.secretValues);
+  const parsed = tryParseJson(redactedText);
+  return {
+    status: res.status,
+    statusText: res.statusText,
+    ok: res.ok,
+    elapsedMs,
+    headers: redactSecrets(headersToObject(res.headers), options.secretValues),
+    contentType: res.headers.get("content-type") ?? null,
+    size: rawText.size,
+    truncated: rawText.truncated,
+    text: parsed === undefined ? redactedText : undefined,
+    json: parsed,
+  };
+}
+
+function isDispatcherCompatibilityError(error: unknown): boolean {
+  const err = error as {
+    message?: unknown;
+    cause?: { code?: unknown; message?: unknown };
+  };
+  const code = typeof err?.cause?.code === "string" ? err.cause.code : "";
+  const detail = [
+    typeof err?.message === "string" ? err.message : "",
+    typeof err?.cause?.message === "string" ? err.cause.message : "",
+  ]
+    .join(" ")
+    .toLowerCase();
+  return (
+    code === "UND_ERR_INVALID_ARG" &&
+    detail.includes("invalid onrequeststart method")
+  );
+}
+
+function normalizeFetchError(
+  error: unknown,
+  options: {
+    method: ProviderApiMethod;
+    url: string;
+    timeoutMs: number;
+    secretValues: string[];
+  },
+): Error {
+  const target = describeProviderRequestTarget(
+    options.url,
+    options.secretValues,
+  );
+  const err = error as {
+    name?: unknown;
+    message?: unknown;
+    cause?: { code?: unknown; message?: unknown };
+  };
+  if (err?.name === "AbortError") {
+    return new Error(
+      `Provider API request timed out after ${options.timeoutMs}ms: ${options.method} ${target}`,
+      { cause: error },
+    );
+  }
+
+  const causeCode =
+    typeof err?.cause?.code === "string" && err.cause.code
+      ? ` (${err.cause.code})`
+      : "";
+  const detail =
+    typeof err?.cause?.message === "string" && err.cause.message
+      ? err.cause.message
+      : typeof err?.message === "string" && err.message
+        ? err.message
+        : String(error);
+  return new Error(
+    `Provider API request failed${causeCode}: ${options.method} ${target}: ${redactString(detail, options.secretValues)}`,
+    { cause: error },
+  );
+}
+
+function describeProviderRequestTarget(
+  rawUrl: string,
+  secretValues: string[],
+): string {
+  try {
+    const url = new URL(rawUrl);
+    return redactString(
+      `${url.host}${url.pathname}${url.search}`,
+      secretValues,
+    );
+  } catch {
+    return redactString(rawUrl, secretValues);
   }
 }
 

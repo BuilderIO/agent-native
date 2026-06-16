@@ -25,6 +25,7 @@ export const DATA_QUERY_ACTIONS = new Set([
   "jira",
   "jira-search",
   "provider-api-request",
+  "query-staged-dataset",
   "query-agent-native-analytics",
   "query-inbound-forms",
   "sentry",
@@ -34,6 +35,15 @@ export const DATA_QUERY_ACTIONS = new Set([
   "slack-messages",
   "stripe",
 ]);
+
+export const CORPUS_SOURCE_ACTIONS = new Set([
+  "provider-api-request",
+  "query-staged-dataset",
+]);
+
+export const CORPUS_REDUCTION_ACTIONS = new Set(["run-code"]);
+
+const RUN_CODE_BRIDGE_TOOLS_USED = /^bridgeToolsUsed:\s*(.+)$/im;
 
 const MCP_DATA_SOURCE_TOKENS = [
   "amplitude",
@@ -61,6 +71,35 @@ function isMcpDataSourceTool(name: string): boolean {
   if (!name.startsWith("mcp__")) return false;
   const normalized = name.toLowerCase();
   return MCP_DATA_SOURCE_TOKENS.some((token) => normalized.includes(token));
+}
+
+function isCorpusCapableMcpTool(name: string): boolean {
+  if (!isMcpDataSourceTool(name)) return false;
+  const normalizedMcpName = name.replace(/[^a-z0-9]+/gi, " ");
+  return /\b(?:api|request|fetch|list|search|query|read|calls?|records?|messages?|tickets?|issues?|transcripts?)\b/i.test(
+    normalizedMcpName,
+  );
+}
+
+function getRunCodeBridgeToolNames(content: string | undefined): string[] {
+  const match = RUN_CODE_BRIDGE_TOOLS_USED.exec(String(content ?? ""));
+  if (!match?.[1]) return [];
+  return match[1]
+    .split(",")
+    .map((name) => name.trim())
+    .filter(Boolean);
+}
+
+function hasRunCodeDataQueryAttempt(content: string | undefined): boolean {
+  return getRunCodeBridgeToolNames(content).some(
+    (name) => DATA_QUERY_ACTIONS.has(name) || isMcpDataSourceTool(name),
+  );
+}
+
+function hasRunCodeCorpusWorkflowAttempt(content: string | undefined): boolean {
+  return getRunCodeBridgeToolNames(content).some(
+    (name) => CORPUS_SOURCE_ACTIONS.has(name) || isCorpusCapableMcpTool(name),
+  );
 }
 
 export function stripInjectedAnalyticsGuardContext(text: string): string {
@@ -239,9 +278,11 @@ function isProviderErrorOnlyContent(content: string | undefined): boolean {
   return !hasEvidencePayload(record);
 }
 
-function valueHasIncompleteDataFlag(value: unknown): boolean {
+function valueHasIncompleteDataFlag(value: unknown, parentKey = ""): boolean {
   if (!value || typeof value !== "object") return false;
-  if (Array.isArray(value)) return value.some(valueHasIncompleteDataFlag);
+  if (Array.isArray(value)) {
+    return value.some((entry) => valueHasIncompleteDataFlag(entry, parentKey));
+  }
 
   return Object.entries(value as Record<string, unknown>).some(
     ([key, candidate]) => {
@@ -259,23 +300,51 @@ function valueHasIncompleteDataFlag(value: unknown): boolean {
         return true;
       }
       if (
-        ["nextoffset", "nextcursor", "nextpage", "nexttoken", "next"].includes(
-          normalizedKey,
-        ) &&
+        normalizedKey === "ok" &&
+        candidate === false &&
+        ["response", "result"].includes(parentKey)
+      ) {
+        return true;
+      }
+      if (
+        normalizedKey === "status" &&
+        typeof candidate === "number" &&
+        candidate >= 400 &&
+        ["response", "result"].includes(parentKey)
+      ) {
+        return true;
+      }
+      if (
+        [
+          "nextoffset",
+          "nextcursor",
+          "cursor",
+          "nextpage",
+          "nexttoken",
+          "next",
+        ].includes(normalizedKey) &&
         candidate !== null &&
         candidate !== undefined &&
         candidate !== "" &&
         candidate !== false
       ) {
+        if (
+          normalizedKey === "cursor" &&
+          !["records", "paging", "pagination", "page", "meta"].includes(
+            parentKey,
+          )
+        ) {
+          return false;
+        }
         return true;
       }
-      return valueHasIncompleteDataFlag(candidate);
+      return valueHasIncompleteDataFlag(candidate, normalizedKey);
     },
   );
 }
 
 const INCOMPLETE_DATA_TEXT =
-  /\b(?:error running|run aborted|tool call timed out|timed out|inactivity timeout|stale_run|connection_error|interrupted before this tool returned|truncated|coverage gap|provider page cap|hit the .* page cap|has more content|call again with offset|full result was|default limit|duplicate skipped|only first)\b/i;
+  /\b(?:error running|run aborted|tool call timed out|timed out|inactivity timeout|stale_run|connection_error|fetch failed|network error|rate limit|rate-limited|too many requests|http\s*429|\b429\b|unhandled error|exitcode:\s*[1-9]\d*|interrupted before this tool returned|truncated|coverage gap|provider page cap|hit the .* page cap|has more content|call again with offset|full result was|default limit|duplicate skipped|only first)\b/i;
 
 export function hasIncompleteDataEvidence(
   toolResults:
@@ -305,8 +374,13 @@ export function hasIncompleteDataEvidence(
 const STRONG_COVERAGE_OR_ABSENCE_CLAIM =
   /\b(?:no|zero|0)\s+(?:mentions?|matches?|results?|records?|calls?|tickets?|issues?|deals?|accounts?|customers?|transcripts?|examples?)\b|\b(?:none|nothing)\b[^.?!]*(?:found|matched|mentioned|returned|showed|surfaced)\b|\b(?:all|every|entire|complete|full|exhaustive)\b[^.?!]*(?:calls?|records?|transcripts?|deals?|accounts?|customers?|dataset|cohort|results?|search)\b|\b(?:did not|didn't|does not|doesn't)\s+(?:mention|include|contain|show|surface)\b/i;
 
+const EXPLICIT_FULL_COVERAGE_CONFIDENCE_CLAIM =
+  /\b(?:defensible|confident|confidence|full available|available corpus|full corpus|entire corpus|complete corpus|all available|any (?:available )?(?:calls?|records?|transcripts?|deals?|accounts?|customers?|tickets?|issues?|messages?)|every (?:available )?(?:calls?|records?|transcripts?|deals?|accounts?|customers?|tickets?|issues?|messages?))\b/i;
+
+const GENERIC_FULL_COVERAGE_CLAIM = /\b(?:exhaustive|complete)\b/i;
+
 const EXPLICIT_PARTIAL_DISCLOSURE =
-  /\b(?:partial|partially|sample|sampled|subset|bounded|limited|not exhaustive|non-exhaustive|incomplete|truncated|aborted|timed out|coverage gap|could not inspect|only inspected|first \d+|top \d+|returned \d+|remaining|unsearched|uninspected|unreviewed|not covered|uncovered|missing coverage)\b|\b(?:inspected|searched|reviewed|analy[sz]ed)\s+\d+\s+(?:of|out of)\s+\d+\b/i;
+  /\b(?:partial|partially|sample|sampled|subset|not exhaustive|non-exhaustive|incomplete|truncated|aborted|timed out|coverage gap|could not inspect|only inspected|only searched|only reviewed|first \d+|top \d+|returned \d+|remaining|unsearched|uninspected|unreviewed|not covered|uncovered|missing coverage)\b|\b(?:bounded|limited)\s+(?:coverage|sample|results?|records?|calls?|transcripts?|cohort|dataset|evidence|inspection|search|review)\b|\b(?:coverage|inspection|search|review|sample)\s+(?:was|is|remains|looks)?\s*(?:bounded|limited)\b|\b(?:inspected|searched|reviewed|analy[sz]ed)\s+\d+\s+(?:of|out of)\s+\d+\b/i;
 
 const COVERAGE_SENSITIVE_ANALYTICS_REQUEST =
   /\b(?:all|every|each|entire|complete|full|exhaustive)\b[^.?!]{0,220}\b(?:calls?|records?|transcripts?|deals?|accounts?|customers?|tickets?|issues?|messages?|source records?|cohort|dataset|results?)\b|\b(?:find|surface|search|scan|grep|review|inspect|check|look through)\b[^.?!]{0,220}\b(?:any|all|every|each|mentions?|matches?|examples?|source records?|calls?|records?|transcripts?|deals?|accounts?|customers?|tickets?|issues?|messages?)\b|\b(?:let me know if you surface anything|surface anything|anything around|absence matters|where (?:the )?lack thereof|lack thereof is impacting|no mentions?|zero mentions?)\b/i;
@@ -317,6 +391,13 @@ export function looksLikeStrongCoverageClaim(text: string): boolean {
 
 export function hasExplicitPartialDisclosure(text: string): boolean {
   return EXPLICIT_PARTIAL_DISCLOSURE.test(text);
+}
+
+export function hasOverstatedCoverageConfidenceClaim(text: string): boolean {
+  if (!looksLikeStrongCoverageClaim(text)) return false;
+  if (hasExplicitPartialDisclosure(text)) return false;
+  if (EXPLICIT_FULL_COVERAGE_CONFIDENCE_CLAIM.test(text)) return true;
+  return GENERIC_FULL_COVERAGE_CLAIM.test(text);
 }
 
 export function looksLikeCoverageSensitiveAnalyticsRequest(
@@ -336,6 +417,68 @@ export function hasDataQueryAttempt(
     if (result.isError) return false;
     if (isProviderErrorOnlyContent(result.content)) return false;
     const name = String(result.name ?? "");
+    if (name === "run-code") return hasRunCodeDataQueryAttempt(result.content);
     return DATA_QUERY_ACTIONS.has(name) || isMcpDataSourceTool(name);
   });
+}
+
+export function hasCorpusWorkflowAttempt(
+  toolResults:
+    | Array<{ name?: string; isError?: boolean; content?: string }>
+    | undefined,
+): boolean {
+  return (toolResults ?? []).some((result) => {
+    if (result.isError) return false;
+    if (isProviderErrorOnlyContent(result.content)) return false;
+    const name = String(result.name ?? "");
+    if (CORPUS_SOURCE_ACTIONS.has(name)) return true;
+    if (name === "run-code") {
+      return hasRunCodeCorpusWorkflowAttempt(result.content);
+    }
+
+    // Connected provider MCP tools can expose broad search/list/request
+    // primitives directly. Treat those as corpus-capable when they succeed so
+    // apps are not forced through provider-api-request if a native MCP source
+    // already provides the right general API surface.
+    return isCorpusCapableMcpTool(name);
+  });
+}
+
+export function hasFailedCorpusWorkflowEvidence(
+  toolResults:
+    | Array<{ name?: string; isError?: boolean; content?: string }>
+    | undefined,
+): boolean {
+  return (toolResults ?? []).some((result) => {
+    const name = String(result.name ?? "");
+    if (
+      !CORPUS_SOURCE_ACTIONS.has(name) &&
+      !CORPUS_REDUCTION_ACTIONS.has(name)
+    ) {
+      return false;
+    }
+    if (result.isError) return true;
+    const content = String(result.content ?? "");
+    if (INCOMPLETE_DATA_TEXT.test(content)) return true;
+    const parsed = tryParseJsonContent(content);
+    return valueHasIncompleteDataFlag(parsed);
+  });
+}
+
+export function needsCorpusWorkflowForCoverageSensitiveRequest({
+  userText,
+  finalText,
+  toolResults,
+}: {
+  userText: string;
+  finalText: string;
+  toolResults:
+    | Array<{ name?: string; isError?: boolean; content?: string }>
+    | undefined;
+}): boolean {
+  if (!looksLikeCoverageSensitiveAnalyticsRequest(userText)) return false;
+  if (!hasDataQueryAttempt(toolResults)) return false;
+  if (hasCorpusWorkflowAttempt(toolResults)) return false;
+  if (hasExplicitPartialDisclosure(finalText)) return false;
+  return true;
 }

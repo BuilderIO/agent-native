@@ -83,6 +83,70 @@ describe("provider API runtime", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it("wraps provider transport failures with a sanitized request target", async () => {
+    resolveCredential.mockResolvedValue("hubspot-token");
+    const err = new TypeError("fetch failed") as TypeError & {
+      cause?: { code: string; message: string };
+    };
+    err.cause = {
+      code: "ECONNRESET",
+      message: "socket closed while using hubspot-token",
+    };
+    vi.spyOn(globalThis, "fetch").mockRejectedValue(err);
+    const runtime = createProviderApiRuntime({
+      appId: "analytics",
+      providerIds: ["hubspot"],
+      getCredentialContext: () => credentialContext,
+    });
+
+    await expect(
+      runtime.executeRequest({
+        provider: "hubspot",
+        path: "/crm/v3/objects/deals",
+      }),
+    ).rejects.toThrow(
+      /Provider API request failed \(ECONNRESET\): GET api\.hubapi\.com\/crm\/v3\/objects\/deals: socket closed while using \[redacted\]/,
+    );
+  });
+
+  it("retries without the SSRF dispatcher when Node rejects the dispatcher implementation", async () => {
+    resolveCredential.mockResolvedValue("hubspot-token");
+    createSsrfSafeDispatcher.mockResolvedValue({ dispatch: vi.fn() });
+    const err = new TypeError("fetch failed") as TypeError & {
+      cause?: { code: string; message: string };
+    };
+    err.cause = {
+      code: "UND_ERR_INVALID_ARG",
+      message: "invalid onRequestStart method",
+    };
+    const fetchMock = vi.spyOn(globalThis, "fetch");
+    fetchMock.mockRejectedValueOnce(err).mockResolvedValueOnce(
+      new Response(JSON.stringify({ results: [{ id: "deal-1" }] }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }),
+    );
+    const runtime = createProviderApiRuntime({
+      appId: "analytics",
+      providerIds: ["hubspot"],
+      getCredentialContext: () => credentialContext,
+    });
+
+    const result = await runtime.executeRequest({
+      provider: "hubspot",
+      path: "/crm/v3/objects/deals",
+    });
+
+    expect(result).toMatchObject({
+      response: { status: 200, json: { results: [{ id: "deal-1" }] } },
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock.mock.calls[0]?.[1]).toMatchObject({
+      dispatcher: expect.anything(),
+    });
+    expect(fetchMock.mock.calls[1]?.[1]).not.toHaveProperty("dispatcher");
+  });
+
   it("allows templates to override the OAuth provider for built-in provider APIs", async () => {
     listOAuthAccountsByOwner.mockResolvedValue([
       {
@@ -118,6 +182,32 @@ describe("provider API runtime", () => {
       expect.objectContaining({
         headers: expect.objectContaining({
           Authorization: "Bearer docs-access-token",
+        }),
+      }),
+    );
+  });
+
+  it("does not duplicate provider base path segments when callers include them", async () => {
+    resolveCredential.mockImplementation(async (key: string) =>
+      key === "GONG_API_BASE" ? null : "gong-token",
+    );
+    const fetchMock = vi.spyOn(globalThis, "fetch");
+    const runtime = createProviderApiRuntime({
+      appId: "analytics",
+      providerIds: ["gong"],
+      getCredentialContext: () => credentialContext,
+    });
+
+    await runtime.executeRequest({
+      provider: "gong",
+      path: "/v2/users",
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://api.gong.io/v2/users",
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          Authorization: expect.stringMatching(/^Basic /),
         }),
       }),
     );
