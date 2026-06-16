@@ -1183,6 +1183,7 @@ describe("runAgentLoop", () => {
       text: "Bulk coverage complete.",
     });
     expect(JSON.stringify(seenMessages.at(-1))).toContain("change strategy");
+    expect(JSON.stringify(seenMessages.at(-1))).toContain("Do not delegate");
   });
 
   it("counts repeated source sweeps from internal continuation history", async () => {
