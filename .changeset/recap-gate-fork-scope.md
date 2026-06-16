@@ -4,10 +4,11 @@
 
 PR Visual Recap workflow reliability + clarity:
 
-- Scope the self-modifying-code skip guard to fork PRs only. A same-repo PR
-  comes from a write-access author who already holds the secrets, so skipping it
-  for merely touching `AGENTS.md`/`CLAUDE.md`/`.claude`/`.mcp.json` was a false
-  positive (it blocked legitimate recaps in private repos). Fork PRs stay guarded.
+- Narrow the self-modifying-code skip guard so it only false-skips legitimate
+  recaps: it still fires for fork PRs and for all public-repo PRs (where an
+  author could rewrite loaded `AGENTS.md`/`CLAUDE.md`/`.claude`/`.mcp.json` to
+  exfiltrate the secret-backed agent run), but is skipped for private-repo
+  same-repo PRs whose authors are trusted org members.
 - Surface the skip reason via `core.notice` so it appears as a run-summary
   annotation, not just a buried log line.
 - Retry the agent once when it exits without writing `recap-source.json` (a

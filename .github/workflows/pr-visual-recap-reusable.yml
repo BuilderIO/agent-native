@@ -134,6 +134,7 @@ jobs:
             // and skip — with an actionable hint — those that don't.
             const headRepo = pr && pr.head && pr.head.repo && pr.head.repo.full_name;
             const isFork = !!(pr && headRepo && headRepo !== process.env.GITHUB_REPOSITORY);
+            const isPrivate = !!(context.payload.repository && context.payload.repository.private);
             if (isFork && process.env.HAS_PLAN !== 'true') {
               reasons.push(`fork PR (${headRepo}) without secret access — enable "Send secrets to workflows from pull requests" (and write tokens) in the repo/org Actions settings to run recaps on forks`);
             }
@@ -171,11 +172,13 @@ jobs:
             // instructions or any agent config the runner loads. With the
             // default bundled skill source, visual skill and recap workflow
             // files are reviewed content, not instructions loaded by the runner.
-            // Only FORK PRs are untrusted here: a same-repo PR comes from a
-            // write-access author who already holds the secrets, so this guard
-            // there only causes false skips (e.g. legitimate AGENTS.md edits in
-            // private repos). Forks stay fully guarded.
-            if (pr && isFork) {
+            // Keep this guard for forks AND all public-repo PRs: a fork or a
+            // public same-repo author could rewrite loaded instruction files
+            // (AGENTS.md/CLAUDE.md/.claude/.mcp.json) and exfiltrate the
+            // secret-backed agent run. Skip it ONLY for private-repo same-repo
+            // PRs, where the author is a trusted org member — a deliberate owner
+            // risk acceptance so legit instruction edits don't false-skip recaps.
+            if (pr && (isFork || !isPrivate)) {
               try {
                 const files = await github.paginate(github.rest.pulls.listFiles, {
                   owner: context.repo.owner,
