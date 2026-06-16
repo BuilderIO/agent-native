@@ -2703,6 +2703,11 @@ async function fetchAllPages(
       "fetchAllPages requires cursorParam or cursorBodyPath to send the next cursor.",
     );
   }
+  if (config.cursorParam && config.cursorBodyPath) {
+    throw new Error(
+      "fetchAllPages accepts exactly one cursor method: cursorParam or cursorBodyPath.",
+    );
+  }
 
   while (pageCount < maxPages) {
     const extra: {
@@ -2720,6 +2725,15 @@ async function fetchAllPages(
     lastStatus = page.status;
     lastContentType = page.contentType;
     pageCount++;
+
+    if (!page.ok) {
+      const preview = page.text.replace(/\s+/g, " ").trim().slice(0, 500);
+      throw new Error(
+        `fetchAllPages request failed with HTTP ${page.status}${
+          preview ? `: ${preview}` : ""
+        }`,
+      );
+    }
 
     let body: unknown;
     try {

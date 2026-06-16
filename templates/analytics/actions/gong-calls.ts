@@ -645,6 +645,7 @@ export default defineAction({
                 inspectedCalls: transcriptSearch.inspectedCalls,
                 availableCalls: limited.calls.length,
                 coverageComplete:
+                  !limited.truncated &&
                   transcriptSearch.inspectedCalls >= limited.calls.length &&
                   transcriptSearch.errors.length === 0 &&
                   transcriptSearch.truncatedTranscripts === 0,

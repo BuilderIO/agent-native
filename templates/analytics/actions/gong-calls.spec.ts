@@ -206,6 +206,57 @@ describe("gong-calls action", () => {
     });
   });
 
+  it("does not mark date-window transcript search complete when the returned calls are capped", async () => {
+    getCalls.mockResolvedValue({
+      calls: [
+        {
+          id: "call-1",
+          title: "Acme architecture review",
+          started: "2026-05-03T10:00:00Z",
+        },
+        {
+          id: "call-2",
+          title: "Acme kickoff",
+          started: "2026-05-01T10:00:00Z",
+        },
+        {
+          id: "call-3",
+          title: "Acme renewal",
+          started: "2026-04-28T10:00:00Z",
+        },
+      ],
+    });
+    getCallTranscript.mockResolvedValue({
+      callTranscripts: [
+        {
+          transcript: [
+            {
+              speakerId: "buyer",
+              sentences: [{ start: 0, text: "No matching phrase here." }],
+            },
+          ],
+        },
+      ],
+    });
+
+    const result = (await gongCalls.run({
+      days: 30,
+      limit: 2,
+      transcriptQuery: "Figma MCP",
+      transcriptScanLimit: 2,
+    })) as Record<string, any>;
+
+    expect(getCallTranscript).toHaveBeenCalledTimes(2);
+    expect(result.truncated).toBe(true);
+    expect(result.transcriptSearch).toMatchObject({
+      inspectedCalls: 2,
+      availableCalls: 2,
+      coverageComplete: false,
+      scanLimited: false,
+      errors: [],
+    });
+  });
+
   it("exhaustive discovery passes the window, returns all calls, and skips transcripts", async () => {
     searchCalls.mockResolvedValue({
       calls: [

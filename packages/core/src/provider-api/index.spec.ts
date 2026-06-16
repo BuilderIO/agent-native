@@ -165,4 +165,71 @@ describe("provider API runtime", () => {
     );
     expect(saveOAuthTokens).not.toHaveBeenCalled();
   });
+
+  it("rejects paginated requests with both query and body cursor methods", async () => {
+    resolveCredential.mockResolvedValue("hubspot-token");
+    const runtime = createProviderApiRuntime({
+      appId: "analytics",
+      providerIds: ["hubspot"],
+      getCredentialContext: () => credentialContext,
+    });
+
+    await expect(
+      runtime.executeRequest({
+        provider: "hubspot",
+        path: "/crm/v3/objects/deals",
+        fetchAllPages: {
+          cursorPath: "paging.next.after",
+          cursorParam: "after",
+          cursorBodyPath: "after",
+        },
+      }),
+    ).rejects.toThrow(/exactly one cursor method/);
+
+    expect(globalThis.fetch).not.toHaveBeenCalled();
+  });
+
+  it("stops paginated requests when a page returns an HTTP error", async () => {
+    resolveCredential.mockResolvedValue("hubspot-token");
+    const fetchMock = vi.mocked(globalThis.fetch);
+    fetchMock.mockReset();
+    fetchMock
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            results: [{ id: "deal-1" }],
+            paging: { next: { after: "next-page" } },
+          }),
+          {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ message: "rate limited" }), {
+          status: 429,
+          headers: { "content-type": "application/json" },
+        }),
+      );
+    const runtime = createProviderApiRuntime({
+      appId: "analytics",
+      providerIds: ["hubspot"],
+      getCredentialContext: () => credentialContext,
+    });
+
+    await expect(
+      runtime.executeRequest({
+        provider: "hubspot",
+        path: "/crm/v3/objects/deals",
+        fetchAllPages: {
+          cursorPath: "paging.next.after",
+          cursorParam: "after",
+          itemsPath: "results",
+        },
+      }),
+    ).rejects.toThrow(/HTTP 429.*rate limited/);
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
 });
