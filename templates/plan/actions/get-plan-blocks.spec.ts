@@ -12,4 +12,17 @@ describe("get-plan-blocks action", () => {
       compactCatalog: true,
     });
   });
+
+  it("teaches valid MDX component closing syntax", async () => {
+    const result = (await (
+      getPlanBlocksAction.run as (args: {
+        format: "reference";
+      }) => Promise<unknown>
+    )({ format: "reference" })) as { reference: string };
+
+    expect(result.reference).toContain("MDX component syntax");
+    expect(result.reference).toContain(
+      "Never write a bare opening tag like `<RichText ...>`",
+    );
+  });
 });

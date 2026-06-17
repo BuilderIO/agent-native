@@ -550,29 +550,69 @@ async function runBlocks(
   args: Record<string, string | boolean>,
 ): Promise<void> {
   const format = normalizePlanBlockFormat(optionalArg(args, "format"));
-  const result = await fetchPlanBlockCatalog({
-    appUrl:
-      optionalArg(args, "app-url") ||
-      process.env.PLAN_BLOCKS_APP_URL ||
-      process.env.PLAN_RECAP_APP_URL ||
-      DEFAULT_PLAN_APP_URL,
-    format,
-    out: optionalArg(args, "out") || defaultPlanBlocksOut(format),
-  });
-  process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+  const appUrl =
+    optionalArg(args, "app-url") ||
+    process.env.PLAN_BLOCKS_APP_URL ||
+    process.env.PLAN_RECAP_APP_URL ||
+    DEFAULT_PLAN_APP_URL;
+  const out = optionalArg(args, "out") || defaultPlanBlocksOut(format);
+  const useClack = Boolean(process.stdout.isTTY) && !boolArg(args, "json");
+  let stopSpinner: ((message?: string) => void) | undefined;
+  let clack: typeof import("@clack/prompts") | undefined;
+
+  if (useClack) {
+    clack = await import("@clack/prompts");
+    const spinner = clack.spinner();
+    spinner.start("Fetching Plan block catalog");
+    stopSpinner = (message?: string) => spinner.stop(message);
+  }
+
+  try {
+    const result = await fetchPlanBlockCatalog({
+      appUrl,
+      format,
+      out,
+    });
+    if (!useClack || !clack) {
+      process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+      return;
+    }
+    stopSpinner?.("Fetched Plan block catalog");
+    clack.note(
+      [
+        `Output   ${path.resolve(result.out)}`,
+        `Format   ${result.format}`,
+        typeof result.count === "number" ? `Blocks   ${result.count}` : "",
+        "Privacy  No plan content sent",
+      ]
+        .filter(Boolean)
+        .join("\n"),
+      "Plan block catalog",
+    );
+    clack.outro(`Wrote ${result.out}`);
+  } catch (error) {
+    if (useClack && clack) {
+      stopSpinner?.("Plan block catalog fetch failed");
+      clack.cancel(error instanceof Error ? error.message : String(error));
+      process.exit(1);
+    }
+    throw error;
+  }
 }
 
 const HELP = `agent-native plan — local Agent-Native Plan helpers
 
 Usage:
-  agent-native plan blocks [--format reference|schema] [--app-url <url>] [--out <file>]
+  agent-native plan blocks [--format reference|schema] [--app-url <url>] [--out <file>] [--json]
   agent-native plan local init --title <title> [--brief <text>] [--kind plan|recap] [--dir <folder>] [--force]
   agent-native plan local check --dir <folder>
   agent-native plan local preview --dir <folder> [--out preview.html] [--kind plan|recap]
 
 The blocks command fetches the no-auth, read-only get-plan-blocks catalog from
 the Plan app and writes plan-blocks.md (or plan-blocks.schema.json). It sends no
-plan content and is safe for local-files authoring before writing MDX.
+plan content and is safe for local-files authoring before writing MDX. It uses a
+clack UI in interactive terminals and prints JSON for non-interactive shells or
+when --json is passed.
 
 The local subcommands are the privacy-focused no-DB path. They only read and
 write local files: plan.mdx, optional canvas.mdx, optional prototype.mdx, and

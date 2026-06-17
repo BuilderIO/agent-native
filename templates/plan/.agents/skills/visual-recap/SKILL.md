@@ -448,6 +448,10 @@ A few recap-specific authoring rules the registry table cannot encode:
   shared optional `summary` / `editable` envelope; give a block a heading by
   placing a `rich-text` block with a Markdown `###` heading directly above it
   (blocks no longer take a `title`).
+- Every capitalized block component must be self-closing (`<RichText ... />`) or
+  explicitly closed around children (`<RichText ...>...</RichText>`). Never
+  leave a bare opening tag like `<RichText ...>` in a paragraph; MDX treats it
+  as unclosed JSX and import fails before the recap can render.
 - `Endpoint`: prose `description` is the MDX **children** (body between the
   tags), not an attribute; for a WebSocket upgrade use `method="GET"`. Each
   request/response `example` is a JSON **string** (the renderer parses it into
