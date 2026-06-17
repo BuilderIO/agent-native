@@ -2,4 +2,4 @@
 "@agent-native/core": patch
 ---
 
-Add app and template properties to Better Auth signup tracking events.
+Add app/template and agent-native-specific app/template properties to Better Auth signup tracking events.

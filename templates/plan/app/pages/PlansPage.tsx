@@ -2681,14 +2681,13 @@ function LocalModeBadge() {
       </TooltipTrigger>
       <TooltipContent align="end" side="bottom" className="max-w-xs p-3">
         <div className="grid gap-1.5">
-          <p className="font-medium leading-5">Private local preview</p>
+          <p className="font-medium leading-5">100% private local mode</p>
           <p className="text-xs leading-5 text-muted-foreground">
-            Nothing is saved to the hosted Plan database. Your plan content
-            stays in local MDX files and this page reads it from your local
-            bridge or local Plan server.
+            Your data is never saved to our backend or seen by us. This page
+            only renders and edits your local MDX files.
           </p>
           <p className="text-xs font-medium leading-5 text-foreground">
-            Click to open the docs.
+            Open docs.
           </p>
         </div>
       </TooltipContent>

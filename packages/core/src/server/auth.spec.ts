@@ -83,12 +83,18 @@ describe("server/auth", () => {
     it("uses explicit app and template environment values", async () => {
       vi.stubEnv("AGENT_NATIVE_APP", "agent-native-mail");
       vi.stubEnv("AGENT_NATIVE_TEMPLATE", "mail");
-      const { resolveSignupTrackingIdentity } =
+      const { resolveSignupTrackingIdentity, resolveSignupTrackingProperties } =
         await import("./better-auth-instance.js");
 
       expect(resolveSignupTrackingIdentity()).toEqual({
         app: "agent-native-mail",
         template: "mail",
+      });
+      expect(resolveSignupTrackingProperties()).toEqual({
+        app: "agent-native-mail",
+        template: "mail",
+        agent_native_app: "agent-native-mail",
+        agent_native_template: "mail",
       });
     });
 

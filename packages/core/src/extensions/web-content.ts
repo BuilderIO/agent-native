@@ -1,5 +1,5 @@
 import { Readability } from "@mozilla/readability";
-import { parseHTML } from "linkedom";
+import { parseHTML } from "linkedom/worker";
 import safeRegex from "safe-regex2";
 import TurndownService from "turndown";
 
