@@ -5297,6 +5297,24 @@ export async function runSkills(
       `Installed ${installedNames} skill${results.length === 1 ? "" : "s"}`,
     );
 
+    // OAuth clients (Claude Code) can finish auth in-host via /mcp, not only by
+    // running the connect command — surface that on the no-connect/pending path
+    // so a hosted install isn't left looking "done but unauthenticated".
+    if (
+      !authConnected &&
+      mcpClients.some(
+        (client) =>
+          client === "claude-code" || client === "claude-code-cli",
+      )
+    ) {
+      clack.log.info(
+        "Claude Code: reload the client, then open /mcp and choose Authenticate to finish connecting" +
+          (pendingConnectCommands.length
+            ? " (or run the connect command above)."
+            : "."),
+      );
+    }
+
     // GitHub Action follow-ups — kept as exact, copy-pasteable command lines.
     for (const line of [githubActionLine, githubActionSuggestionLine].filter(
       Boolean,

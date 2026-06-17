@@ -1420,6 +1420,12 @@ export async function runPlan(argv: string[]): Promise<void> {
     process.exit(1);
   }
   const args = parseArgs(rest);
+  // `plan local <sub> --help` / `-h` shows help instead of running the
+  // subcommand (e.g. `plan local init --help` must not scaffold a folder).
+  if (args.help === true || args.h === true) {
+    process.stdout.write(HELP);
+    return;
+  }
   switch (sub) {
     case "init":
       runInit(args);
