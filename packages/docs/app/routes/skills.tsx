@@ -1,6 +1,7 @@
 import { Link } from "react-router";
 import { useState } from "react";
 import { trackEvent } from "@agent-native/core/client";
+import { AgentNativeDemoVideo } from "../components/AgentNativeDemoVideo";
 import { withDefaultSocialImage } from "../seo";
 
 export const meta = () =>
@@ -251,13 +252,7 @@ export default function SkillsPage() {
             <CliCopy command={INSTALL_COMMAND} location="skills_hero" />
           </div>
 
-          <div className="overflow-hidden rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)]">
-            <img
-              src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fb6f4213ac7cc42eeb10c12e8ccda8936?format=webp&width=1000"
-              alt="An Agent-Native visual plan with inline diagrams and structured blocks"
-              className="w-full object-cover object-top"
-            />
-          </div>
+          <AgentNativeDemoVideo className="aspect-square w-full" />
         </div>
       </section>
 

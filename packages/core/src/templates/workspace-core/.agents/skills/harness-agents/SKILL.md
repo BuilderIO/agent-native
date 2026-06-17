@@ -80,6 +80,26 @@ existing run routes as `goalId=agent-harness`.
   Preserve `defineAction` auth, request context, timeouts, truncation, and
   read-only metadata.
 
+## Code Execution Sandbox
+
+- The `run-code` tool executes through a pluggable `SandboxAdapter`
+  (`packages/core/src/coding-tools/sandbox/`). The default
+  `LocalChildProcessAdapter` spawns a locked-down local Node child process;
+  swap it via `AGENT_NATIVE_SANDBOX` or `registerSandboxAdapter()` for a
+  Docker/remote/durable backend (the lever to exceed the hosted ~40s code-exec
+  ceiling). An adapter only runs the already-prepared, non-secret module source
+  — it never sees app secrets. See the Sandbox Adapters doc; `agent-native add
+  sandbox docker` emits a full Docker-adapter recipe.
+
+## Sub-Agent Delegation Depth
+
+- Sub-agent spawning is capped server-side (default depth `2`) so delegation
+  chains can't fan out indefinitely. Override at deploy time with
+  `AGENT_NATIVE_MAX_SUBAGENT_DEPTH` (`0` disables sub-agents; clamped to `16`).
+  Enforcement is ambient via `evaluateSubagentDepth` in
+  `packages/core/src/server/agent-teams.ts` — independent of any tool-level
+  guard. See the Agent Teams doc for the depth model.
+
 ## Don't
 
 - Don't add Claude Code, Codex, Cursor, Mastra, or Pi as an `AgentEngine`.

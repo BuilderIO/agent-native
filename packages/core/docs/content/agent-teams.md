@@ -141,6 +141,38 @@ You are a meticulous code reviewer. Be terse and concrete — cite file:line whe
 
 Store at `agents/code-review.md` in the workspace. It appears in the `@mention` dropdown and is available to the main agent as a delegation target. See [Workspace — Custom Agents](/docs/workspace#custom-agents) for the full format including `tools`, `delegate-default`, and model overrides.
 
+## Delegation depth guard {#depth-guard}
+
+Sub-agents can spawn sub-agents, which is a runaway/cost risk: an unbounded chain of delegations could fan out indefinitely. The framework enforces a **hard cap on delegation depth**, server-side, independent of any tool-level guard.
+
+The top-level chat is depth `0`. A sub-agent it spawns is depth `1`; that sub-agent may spawn once more (depth `2`); a spawn that would create a depth-`3` sub-agent is **refused**. The default cap is **2**.
+
+```txt
+depth 0  top-level chat        (may spawn)
+depth 1  sub-agent             (may spawn)
+depth 2  sub-agent's sub-agent (at the cap — may NOT spawn)
+depth 3  refused
+```
+
+Enforcement is ambient: each sub-agent runs inside an `AsyncLocalStorage` that records its own depth, so any `spawnTask` reached transitively from that run reads its parent's depth and refuses once the cap is hit — even if the `agent-teams` tool was handed to a sub-agent that should not have had it. The decision is exposed as a pure, unit-testable `evaluateSubagentDepth(parentDepth)`. A refused spawn returns a clear error: _"Delegation depth limit reached (max N); cannot spawn another sub-agent."_
+
+### Configuring the cap {#depth-guard-config}
+
+Override the default at deploy time with `AGENT_NATIVE_MAX_SUBAGENT_DEPTH`:
+
+| Value           | Effect                                                                                                                                |
+| --------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| _(unset)_       | Default cap of `2`.                                                                                                                   |
+| `0`             | **No sub-agents may be spawned** — the top-level agent does all work.                                                                 |
+| `1`…`16`        | That many levels of delegation.                                                                                                       |
+| invalid / `>16` | A non-integer / negative / NaN value falls back to `2`; anything above `16` is clamped to `16` so a typo can never disable the guard. |
+
+```bash
+AGENT_NATIVE_MAX_SUBAGENT_DEPTH=1   # sub-agents allowed, but they can't sub-delegate
+```
+
+When a sub-agent is at or below the cap, the framework injects a line into its runtime context telling it how deep it sits and whether it may delegate further, so the model spends its budget appropriately.
+
 ## What's next
 
 - [**Workspace — Custom Agents**](/docs/workspace#custom-agents) — the profile format

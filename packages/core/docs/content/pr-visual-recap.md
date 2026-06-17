@@ -216,12 +216,15 @@ the prompt instructs the agent to write `plans/pr-123-visual-recap/plan.mdx`
 plus optional visual files and then run:
 
 ```bash
-npx @agent-native/core@latest plan local preview --dir plans/pr-123-visual-recap --kind recap --open
+npx @agent-native/core@latest plan local serve --dir plans/pr-123-visual-recap --kind recap --open
 ```
 
-The returned `file://` preview, or `/local-plans/pr-123-visual-recap` in a local
-Plan app using the same `PLAN_LOCAL_DIR`, is the review link. This mode disables
-the hosted sticky PR comment, inline screenshot upload, usage attachment, and
+The returned URL opens the hosted Plan UI while the browser reads the recap MDX
+from a localhost bridge. Recap content is not written to the hosted Plan
+database, and the URL only works on the machine running the bridge. If you run
+the Plan app locally with the same `PLAN_LOCAL_DIR`, the
+`/local-plans/pr-123-visual-recap` route is also valid. This mode disables the
+hosted sticky PR comment, inline screenshot upload, usage attachment, and
 browser comments until you explicitly publish.
 
 ## It's informational, not a gate

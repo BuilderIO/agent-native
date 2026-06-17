@@ -10,7 +10,7 @@ import {
   type ReactNode,
 } from "react";
 import { Link, useLocation, useNavigate, useParams } from "react-router";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   IconAt,
   IconArrowLeft,
@@ -182,6 +182,7 @@ import { cn } from "@/lib/utils";
 import {
   getDesktopPlanFiles,
   type DesktopPlanFilesFolder,
+  type PlanMdxFolder,
 } from "@/lib/desktop-plan-files";
 import { syncLocalControlResources } from "@/lib/local-control-resources";
 import { planDocumentTitle } from "@/lib/plan-document-title";
@@ -216,6 +217,8 @@ import type {
   PlanContent,
   PlanContentPatch,
 } from "@shared/plan-content";
+import { mimeTypeFromFilename } from "@shared/plan-assets";
+import { parsePlanMdxFolder } from "../../server/plan-mdx";
 
 function GoogleLogoIcon({ className }: { className?: string }) {
   return (
@@ -462,15 +465,196 @@ type LocalPlanBundle = PlanBundle & {
   path?: string;
   url?: string;
   html?: string;
-  mdx?: {
-    "plan.mdx": string;
-    "canvas.mdx"?: string;
-    "prototype.mdx"?: string;
-    ".plan-state.json"?: string;
-  };
+  mdx?: PlanMdxFolder;
 };
 type PlanBundleWithHtml = (PlanBundle & { html?: string }) | LocalPlanBundle;
 type PlanCommentItem = PlanBundle["comments"][number];
+
+type LocalPlanBridgePayload = {
+  ok?: boolean;
+  version?: number;
+  source?: string;
+  localOnly?: boolean;
+  slug?: string;
+  dir?: string;
+  title?: string;
+  brief?: string;
+  kind?: PlanKind;
+  updatedAt?: string;
+  files?: string[];
+  mdx?: PlanMdxFolder;
+  error?: string;
+};
+
+function assertLocalBridgeUrl(value: string): string {
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    throw new Error("Local plan bridge URL is invalid.");
+  }
+  const allowedHosts = new Set(["127.0.0.1", "localhost", "::1", "[::1]"]);
+  if (!["http:", "https:"].includes(url.protocol)) {
+    throw new Error("Local plan bridge must use HTTP on localhost.");
+  }
+  if (!allowedHosts.has(url.hostname)) {
+    throw new Error("Local plan bridge must point to localhost.");
+  }
+  return url.toString();
+}
+
+function localPlanAssetDataUrl(
+  url: string | undefined,
+  assets: Record<string, string> | undefined,
+): string | undefined {
+  if (!url || !assets) return url;
+  const match = url.match(/^(?:\.\/)?assets\/(.+)$/);
+  const filename = match?.[1];
+  if (!filename) return url;
+  const base64 = assets[filename];
+  if (!base64) return url;
+  const mime = mimeTypeFromFilename(filename);
+  if (!mime) return url;
+  return `data:${mime};base64,${base64}`;
+}
+
+function inlineLocalPlanAssets(
+  content: PlanContent,
+  assets: Record<string, string> | undefined,
+): PlanContent {
+  if (!assets || Object.keys(assets).length === 0) return content;
+  const rewriteBlocks = (blocks: PlanBlock[]): PlanBlock[] =>
+    blocks.map((block): PlanBlock => {
+      if (block.type === "image") {
+        return {
+          ...block,
+          data: {
+            ...block.data,
+            url: localPlanAssetDataUrl(block.data.url, assets),
+            assetId: undefined,
+          },
+        };
+      }
+      if (block.type === "tabs") {
+        return {
+          ...block,
+          data: {
+            ...block.data,
+            tabs: block.data.tabs.map((tab) => ({
+              ...tab,
+              blocks: rewriteBlocks(tab.blocks),
+            })),
+          },
+        };
+      }
+      if (block.type === "columns") {
+        return {
+          ...block,
+          data: {
+            ...block.data,
+            columns: block.data.columns.map((column) => ({
+              ...column,
+              blocks: rewriteBlocks(column.blocks),
+            })),
+          },
+        };
+      }
+      return block;
+    });
+  return { ...content, blocks: rewriteBlocks(content.blocks) };
+}
+
+function countLocalPlanBlocks(blocks: PlanBlock[]): Record<string, number> {
+  const counts: Record<string, number> = {};
+  const visitBlocks = (items: PlanBlock[]) => {
+    for (const block of items) {
+      counts[block.type] = (counts[block.type] ?? 0) + 1;
+      if (block.type === "tabs") {
+        for (const tab of block.data.tabs) visitBlocks(tab.blocks);
+      } else if (block.type === "columns") {
+        for (const column of block.data.columns) visitBlocks(column.blocks);
+      }
+    }
+  };
+  visitBlocks(blocks);
+  return counts;
+}
+
+async function fetchLocalPlanBridgeBundle(
+  bridgeUrl: string,
+  fallbackSlug: string,
+): Promise<LocalPlanBundle> {
+  const safeUrl = assertLocalBridgeUrl(bridgeUrl);
+  const response = await fetch(safeUrl, { cache: "no-store" });
+  const payload = (await response
+    .json()
+    .catch(() => null)) as LocalPlanBridgePayload | null;
+  if (!response.ok || !payload?.ok) {
+    throw new Error(
+      payload?.error ||
+        `Local plan bridge returned ${response.status || "an error"}.`,
+    );
+  }
+  if (
+    payload.source !== "agent-native-local-bridge" ||
+    !payload.mdx?.["plan.mdx"]
+  ) {
+    throw new Error("Local plan bridge response was not a Plan MDX folder.");
+  }
+
+  const rawContent = await parsePlanMdxFolder(payload.mdx, {
+    salvageInvalidBlocks: payload.kind === "recap",
+  });
+  const content = inlineLocalPlanAssets(rawContent, payload.mdx["assets/"]);
+  const now = payload.updatedAt || new Date().toISOString();
+  const slug = payload.slug || fallbackSlug || "local-plan";
+  const kind = payload.kind === "recap" ? "recap" : "plan";
+  const title = content.title || payload.title || slug;
+  const brief = content.brief || payload.brief || "Local files preview.";
+  const url =
+    typeof window === "undefined"
+      ? `/local-plans/${slug}`
+      : window.location.href;
+  const bundle: LocalPlanBundle = {
+    plan: {
+      id: `local-${slug}`,
+      title,
+      brief,
+      kind,
+      status: "review",
+      source: "imported",
+      repoPath: payload.dir ?? null,
+      currentFocus: "local-files preview",
+      html: null,
+      markdown: payload.mdx["plan.mdx"],
+      content,
+      createdAt: now,
+      updatedAt: now,
+      approvedAt: null,
+    },
+    access: {
+      role: "viewer",
+      ownerEmail: null,
+      orgId: null,
+      visibility: "private",
+    },
+    sections: [],
+    comments: [],
+    events: [],
+    summary: {
+      sectionCounts: countLocalPlanBlocks(content.blocks),
+      commentCount: 0,
+      openCommentCount: 0,
+    },
+    localOnly: true,
+    slug,
+    folder: payload.dir ?? slug,
+    path: `/local-plans/${encodeURIComponent(slug)}`,
+    url,
+    mdx: payload.mdx,
+  };
+  return bundle;
+}
 
 type CommentThread = {
   id: string;
@@ -2476,17 +2660,47 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
   const commentMutationPendingRef = useRef(false);
   const { session, isLoading: sessionLoading } = useSession();
   const localPlanMode = Boolean(localPlanSlug);
+  const routeSearchParams = useMemo(
+    () => new URLSearchParams(location.search),
+    [location.search],
+  );
+  const localPlanBridgeUrl = localPlanMode
+    ? routeSearchParams.get("bridge")
+    : null;
   const routeSelectedId = params.id;
+  const localPlanBridgeQuery = useQuery<LocalPlanBundle>({
+    queryKey: ["local-plan-bridge", localPlanSlug, localPlanBridgeUrl],
+    enabled: localPlanMode && Boolean(localPlanSlug && localPlanBridgeUrl),
+    refetchOnWindowFocus: false,
+    queryFn: () =>
+      fetchLocalPlanBridgeBundle(localPlanBridgeUrl ?? "", localPlanSlug ?? ""),
+  });
   const localPlanQuery = useActionQuery<LocalPlanBundle>(
     "get-local-plan-folder",
     { slug: localPlanSlug ?? "" },
     {
-      enabled: localPlanMode && Boolean(localPlanSlug),
+      enabled: localPlanMode && Boolean(localPlanSlug) && !localPlanBridgeUrl,
       refetchInterval: false,
     },
   );
+  const localPlanData = localPlanBridgeUrl
+    ? localPlanBridgeQuery.data
+    : localPlanQuery.data;
+  const localPlanError = localPlanBridgeUrl
+    ? localPlanBridgeQuery.error
+    : localPlanQuery.error;
+  const localPlanLoading = localPlanBridgeUrl
+    ? localPlanBridgeQuery.isLoading
+    : localPlanQuery.isLoading;
+  const localPlanFetching = localPlanBridgeUrl
+    ? localPlanBridgeQuery.isFetching
+    : localPlanQuery.isFetching;
+  const refetchLocalPlan = useCallback(() => {
+    if (localPlanBridgeUrl) return localPlanBridgeQuery.refetch();
+    return localPlanQuery.refetch();
+  }, [localPlanBridgeQuery, localPlanBridgeUrl, localPlanQuery]);
   const selectedId = localPlanMode
-    ? (localPlanQuery.data?.plan.id ??
+    ? (localPlanData?.plan.id ??
       (localPlanSlug ? `local-${localPlanSlug}` : undefined))
     : routeSelectedId;
   const plansQuery = usePlans({
@@ -2560,10 +2774,6 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
     session,
     sessionLoading,
   ]);
-  const routeSearchParams = useMemo(
-    () => new URLSearchParams(location.search),
-    [location.search],
-  );
   const prototypeOnly = useMemo(() => {
     return routeSearchParams.get("prototype") === "1";
   }, [routeSearchParams]);
@@ -2596,7 +2806,15 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
     localPlanMode ? undefined : selectedId,
     commentMutationPendingRef,
   );
-  const bundle = localPlanMode ? localPlanQuery.data : planQuery.data;
+  const bundle = localPlanMode ? localPlanData : planQuery.data;
+  const localPlanDisplayFolder =
+    localPlanMode &&
+    bundle &&
+    "folder" in bundle &&
+    typeof bundle.folder === "string" &&
+    bundle.folder
+      ? bundle.folder
+      : (localPlanSlug ?? "local plan files");
   const planAccessStatusQuery = usePlanAccessStatus(
     selectedId,
     Boolean(selectedId && !bundle && !localPlanMode),
@@ -2611,8 +2829,7 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
   const showLocalPlanLoadError = Boolean(
     localPlanMode &&
     !bundle &&
-    (localPlanQuery.isError ||
-      (!localPlanQuery.isLoading && !localPlanQuery.isFetching)),
+    (Boolean(localPlanError) || (!localPlanLoading && !localPlanFetching)),
   );
   const showInitialPlanSkeleton = Boolean(
     selectedId && !bundle && !showPlanLoadError && !showLocalPlanLoadError,
@@ -3116,9 +3333,11 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
         `/local-plans/${encodeURIComponent(localPlanSlug ?? "")}`,
       );
       const url =
-        typeof window === "undefined"
-          ? path
-          : `${window.location.origin}${path}`;
+        typeof window !== "undefined" && localPlanBridgeUrl
+          ? window.location.href
+          : typeof window === "undefined"
+            ? path
+            : `${window.location.origin}${path}`;
       return buildPlanAgentContext({ bundle, documentHtml, url });
     }
     const base = bundle.plan.kind === "recap" ? "recaps" : "plans";
@@ -3126,7 +3345,14 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
     const url =
       typeof window === "undefined" ? path : `${window.location.origin}${path}`;
     return buildPlanAgentContext({ bundle, documentHtml, url });
-  }, [bundle, documentHtml, localPlanMode, localPlanSlug, selectedId]);
+  }, [
+    bundle,
+    documentHtml,
+    localPlanBridgeUrl,
+    localPlanMode,
+    localPlanSlug,
+    selectedId,
+  ]);
 
   const planShareUrl = useMemo(() => {
     if (typeof window === "undefined") return undefined;
@@ -4694,9 +4920,9 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
             />
           ) : showLocalPlanLoadError ? (
             <LocalPlanLoadError
-              error={localPlanQuery.error}
+              error={localPlanError}
               slug={localPlanSlug ?? ""}
-              onRetry={() => void localPlanQuery.refetch()}
+              onRetry={() => void refetchLocalPlan()}
             />
           ) : showPlanLoadError ? (
             <PlanLoadError
@@ -5197,6 +5423,15 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
                     onPointerDown={handleNativeReaderPointerDown}
                     onPointerUp={handleNativeReaderPointerUp}
                   >
+                    {localPlanMode ? (
+                      <div className="mx-auto flex w-full max-w-6xl flex-wrap items-center gap-2 px-6 pt-6 text-sm text-muted-foreground">
+                        <Badge variant="secondary">Local-files mode</Badge>
+                        <span>
+                          Reading {localPlanDisplayFolder} through localhost. No
+                          hosted database writes or sharing.
+                        </span>
+                      </div>
+                    ) : null}
                     <PlanContentRenderer
                       key={bundle.plan.id}
                       content={bundle.plan.content}

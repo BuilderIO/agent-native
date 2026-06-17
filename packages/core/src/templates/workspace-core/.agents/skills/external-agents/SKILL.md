@@ -416,3 +416,13 @@ before telling the user they are unauthenticated.
 - **a2a-protocol** — the `ask-agent` meta-tool and JSON-RPC peer calls
 - **adding-a-feature** — the four-area checklist (add a `link` builder when a
   feature produces a navigable resource)
+
+## Blueprint installer
+
+To add a whole new integration the agent-native way, `agent-native add <kind>
+<name|url>` prints a curated Markdown blueprint to stdout — pipe it into the
+external coding agent you connected (`agent-native add provider stripe |
+claude`) and it applies the changes against the live repo. A URL emits a
+generic research-and-integrate blueprint instead. Seeded kinds:
+`provider` / `channel` / `sandbox` / `action`. Add your own by dropping a
+`.md` in `packages/core/blueprints/<kind>/`. See the Blueprint Installer doc.

@@ -1,6 +1,6 @@
 # Agent-Native
 
-### Agentic applications you own.
+### Open-source framework for agentic applications you own.
 
 Don't choose between rich user interfaces and autonomous agents. Every Agent-Native app is both.
 
@@ -20,15 +20,36 @@ The agent and the UI are equal citizens of the same system. Every action works b
 - **Any database, any host** — Any SQL database Drizzle supports. Any hosting target Nitro supports. No lock-in.
 - **Any AI agent** — Claude Code, Codex, Cursor, Pi, OpenCode, GitHub Copilot / VS Code, or Builder.io. Use whichever agent you prefer.
 
+## The framework for agent-native apps
+
+Templates and skills are the first products built on the open framework. Agent-Native gives you the primitives for apps where the UI and agent share actions, state, identity, and context.
+
+```ts
+// One action powers UI, agent, HTTP, MCP, A2A, and CLI.
+export default defineAction({
+  schema: z.object({
+    emailId: z.string(),
+    body: z.string(),
+  }),
+  run: async ({ emailId, body }) => {
+    await db.insert(replies).values({ emailId, body });
+  },
+});
+```
+
+- **Actions** — Define work once. Use it from UI, agent, API, MCP, A2A, and CLI.
+- **Agent runtime** — Chat, tools, skills, memory, jobs, observability, and handoffs ship together.
+- **Backend agnostic** — Plug in any Drizzle-supported SQL database and Nitro-compatible host.
+
 ## Try it with a skill
 
-Don't want to scaffold a whole app yet? Add agent-native superpowers to a coding agent you already use — Claude Code, Codex, Cursor, Pi, OpenCode, GitHub Copilot / VS Code, and similar agents — with one command:
+Don't want to scaffold a whole app yet? Add visual planning and PR recaps to Claude Code, Codex, Cursor, Pi, OpenCode, GitHub Copilot / VS Code, and similar agents with one command:
 
 ```bash
 npx @agent-native/core@latest skills add visual-plan
 ```
 
-It installs the skills, writes shared `.agents` skill folders for agents that support them, registers the hosted MCP connector for supported local clients, and signs in the selected client(s) in one step. You get two slash commands that upgrade how your agent plans and reports its work:
+You get two slash commands that upgrade how your agent plans and reports its work:
 
 - **`/visual-plan`** — before the agent writes code, it opens a structured, reviewable plan document instead of a wall of text: inline diagrams, UI wireframes and prototypes, file-by-file implementation maps, and annotations you can comment on and approve.
 - **`/visual-recap`** — after changes land, it turns a PR or git diff into a high-altitude visual recap: schema, API, and file changes rendered as grounded before/after blocks with a shareable review link, instead of scrolling a raw diff.
@@ -37,7 +58,7 @@ See the **[Skills Guide](https://agent-native.com/docs/skills-guide#app-backed-s
 
 ## Templates
 
-Start from a complete, production-grade SaaS app — cloneable, not scaffolded. Each one replaces tools you're paying for, except you own everything and can customize it however you want. Not demos; products.
+Start with a full featured template. Each one is a complete, 100% free and open-source SaaS app — cloneable, not scaffolded — except you own the code and can customize everything.
 
 <table>
 <tr>
@@ -82,9 +103,9 @@ Install `/visual-plan` and `/visual-recap` so your coding agent can plan before 
 
 <a href="https://agent-native.com/templates/content"><img src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F89bcfc6106304bfbaf8ec8a7ccd721eb?format=webp&width=800" alt="Content template" width="100%" /></a>
 
-**Agent-Native Notion, Google Docs**
+**Open-source Obsidian for MDX**
 
-Write and organize content with an agent that knows your brand and publishing workflow.
+Edit local Markdown/MDX files, generate rich interactive custom blocks, and draft, rewrite, or publish with an agent.
 
 </td>
 <td width="33%" align="center" valign="top">
@@ -198,6 +219,8 @@ Upload, organize, search, and generate on-brand image and video assets that othe
 Every template is a complete cloneable SaaS — fork it, customize it with the agent, own it. Try them with example data before connecting your own sources.
 
 ## Quick Start
+
+One command to fork a template and start building locally.
 
 ```bash
 npx @agent-native/core@latest create my-platform

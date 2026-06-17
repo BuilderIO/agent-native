@@ -28,6 +28,56 @@ import {
   continuationReasonForResumableError,
 } from "./production-agent.js";
 import { resolveRunSoftTimeoutMs } from "./run-manager.js";
+import { getCurrentTurnEventsForThread } from "./run-store.js";
+import {
+  classifyToolCallJournal,
+  buildResumeJournalNote,
+} from "./tool-call-journal.js";
+import type { EngineMessage } from "./engine/types.js";
+
+/**
+ * Derive the per-turn tool-call journal from the durable run-event ledger and,
+ * when there is anything to report, append a STRUCTURED note to the message
+ * prefix so the resumed model:
+ *   - does NOT re-execute tool calls that already completed (avoiding duplicate
+ *     side effects like re-sending an email or re-creating a ticket), and
+ *   - is explicitly told about any tool call that started but whose outcome was
+ *     never recorded ("interrupted, unknown outcome") so it can decide.
+ *
+ * This is additive to the existing "continue from where you left off" nudge —
+ * it is appended right after it. When the journal is empty (no completed or
+ * interrupted tool calls — e.g. a turn with no tool activity, or a clean
+ * continuation), nothing extra is appended and resume behavior is byte-for-byte
+ * what it was before. Best-effort: any ledger read/parse failure is swallowed so
+ * a journal hiccup can never block a recovery that would otherwise succeed.
+ *
+ * TODO(charlie-merge): optional hard-block — once CHARLIE's loop edits land,
+ * pair this prompt-level journal with tool-layer enforcement in
+ * production-agent.ts/runToolCall that refuses to re-execute a journaled-
+ * complete tool call (return the journaled result instead). See
+ * `tool-call-journal.ts` for the keying to use.
+ */
+async function appendToolCallJournalNote(
+  messages: EngineMessage[],
+  threadId: string | undefined,
+): Promise<void> {
+  if (!threadId) return;
+  try {
+    const events = await getCurrentTurnEventsForThread(threadId);
+    if (events.length === 0) return;
+    const journal = classifyToolCallJournal(events);
+    const note = buildResumeJournalNote(journal);
+    if (!note) return;
+    messages.push({
+      role: "user",
+      content: [{ type: "text", text: note }],
+    });
+  } catch {
+    // The journal is a hardening layer, never a gate. A failed ledger read or
+    // parse must not break the resume that the continuation nudge already set
+    // up — the model still continues, just without the structured journal.
+  }
+}
 
 /**
  * Cap on continuation iterations inside a single
@@ -102,6 +152,7 @@ export async function runAgentLoopDirectWithSoftTimeout(
       addUsage(nextUsage);
       if (softTimedOut && !upstreamSignal.aborted) {
         appendAgentLoopContinuation(opts.messages, "run_timeout");
+        await appendToolCallJournalNote(opts.messages, opts.threadId);
         continue;
       }
       return usage;
@@ -111,6 +162,7 @@ export async function runAgentLoopDirectWithSoftTimeout(
         // resumed model doesn't re-emit it and produce duplicated output.
         opts.send({ type: "clear" });
         appendAgentLoopContinuation(opts.messages, "run_timeout");
+        await appendToolCallJournalNote(opts.messages, opts.threadId);
         continue;
       }
       // Resumable transport / gateway interruptions: the LLM call was cut off
@@ -132,6 +184,7 @@ export async function runAgentLoopDirectWithSoftTimeout(
           opts.messages,
           continuationReasonForResumableError(err),
         );
+        await appendToolCallJournalNote(opts.messages, opts.threadId);
         continue;
       }
       throw err;

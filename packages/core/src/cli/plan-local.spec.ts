@@ -7,6 +7,7 @@ import {
   buildLocalPlanPreviewHtml,
   localPlanFolderName,
   readLocalPlanFiles,
+  startLocalPlanBridge,
   writeLocalPlanPreview,
 } from "./plan-local.js";
 import { fetchPlanBlockCatalog } from "./plan-blocks.js";
@@ -139,6 +140,48 @@ describe("local plan CLI helpers", () => {
     expect(openedUrl).toBe(result.url);
     expect(result.opened).toBe(true);
     expect(result.openCommand).toBe("test-open");
+  });
+
+  it("serves a tokened localhost bridge for the hosted local plan UI", async () => {
+    const dir = path.join(tmpDir(), "checkout");
+    writeSamplePlan(dir);
+
+    const bridge = await startLocalPlanBridge({
+      dir,
+      appUrl: "https://plan.example.com",
+      token: "test-token",
+    });
+
+    try {
+      expect(bridge.result.url).toBe(
+        `https://plan.example.com/local-plans/checkout?bridge=${encodeURIComponent(
+          bridge.result.bridgeUrl,
+        )}`,
+      );
+      expect(bridge.result.bridgeUrl).toContain("127.0.0.1");
+      expect(bridge.result.files).toContain("plan.mdx");
+
+      const response = await fetch(bridge.result.bridgeUrl);
+      expect(response.ok).toBe(true);
+      expect(response.headers.get("x-agent-native-local-bridge")).toBe("1");
+      const payload = (await response.json()) as {
+        ok: boolean;
+        source: string;
+        mdx: { "plan.mdx": string };
+      };
+      expect(payload.ok).toBe(true);
+      expect(payload.source).toBe("agent-native-local-bridge");
+      expect(payload.mdx["plan.mdx"]).toContain("Private Checkout Plan");
+
+      const denied = await fetch(
+        bridge.result.bridgeUrl.replace("test-token", "wrong-token"),
+      );
+      expect(denied.status).toBe(403);
+    } finally {
+      await new Promise<void>((resolve) =>
+        bridge.server.close(() => resolve()),
+      );
+    }
   });
 
   it("fetches the no-auth block catalog for local authoring", async () => {

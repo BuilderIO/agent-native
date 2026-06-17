@@ -2016,7 +2016,7 @@ export function createCoreRoutesPlugin(
             // write here lets one tenant overwrite Stripe / OpenAI / Sentry
             // keys for every other tenant. Disable the endpoint outside of
             // local-dev SQLite or an explicit single-tenant opt-in, and
-            // direct callers to the per-org credential store instead.
+            // direct callers to scoped secret/credential stores instead.
             if (!isEnvVarWriteAllowed()) {
               setResponseStatus(event, 403);
               return {

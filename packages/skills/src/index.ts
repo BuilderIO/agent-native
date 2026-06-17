@@ -13,6 +13,7 @@ import { createCliTelemetry, type CliTelemetry } from "./telemetry.js";
 export type SkillClient =
   | "codex"
   | "claude-code"
+  | "cowork"
   | "pi"
   | "cursor"
   | "opencode"
@@ -149,7 +150,7 @@ Usage:
 
 Options:
   --skill <name>              Install only this skill (repeatable)
-  --client, -a <client>       codex, claude-code, pi, cursor, opencode, github-copilot, or all
+  --client, -a <client>       codex, claude-code, cowork, pi, cursor, opencode, github-copilot, or all
                               (default: all; repeatable or comma-separated)
   --scope <user|project>      Install globally or into the current project (default: user)
   -g, --global                Alias for --scope user
@@ -182,6 +183,7 @@ Examples:
 const CLIENTS: SkillClient[] = [
   "codex",
   "claude-code",
+  "cowork",
   "pi",
   "cursor",
   "opencode",
@@ -618,6 +620,13 @@ export async function installSkills(
       options.mcp === false || planMode === "local-files"
         ? []
         : mcpAppsForSkills(skillNames, planMcpOverride);
+    const skillFileClients = clients.filter(supportsSkillFiles);
+    if (skillFileClients.length === 0 && mcpApps.length === 0) {
+      throw new Error(
+        "Claude Cowork is MCP-only for Agent Native skills. Choose Codex, Claude Code, Pi, Cursor, OpenCode, or GitHub Copilot for local skill files, or install an app-backed skill with MCP enabled.",
+      );
+    }
+
     const progress = await createInstallProgress(
       options,
       1 +
@@ -634,7 +643,9 @@ export async function installSkills(
     try {
       progress?.start("Installing skill files...");
       for (const root of unique(
-        clients.map((client) => installRootForClient(client, scope, baseDir)),
+        skillFileClients.map((client) =>
+          installRootForClient(client, scope, baseDir),
+        ),
       )) {
         for (const skill of selected) {
           const destination = path.join(root, skill.name);
@@ -661,7 +672,7 @@ export async function installSkills(
         instructionFiles = writeManagedInstructions(
           instructionBlocks,
           baseDir,
-          clients,
+          skillFileClients,
           scope,
           options,
         );
@@ -875,6 +886,9 @@ function normalizeClients(value: string): SkillClient[] {
     if (!client) return [];
     if (client === "all") return CLIENTS;
     if (client === "codex") return ["codex" as const];
+    if (client === "cowork" || client === "claude-cowork") {
+      return ["cowork" as const];
+    }
     if (client === "pi") return ["pi" as const];
     if (client === "cursor") return ["cursor" as const];
     if (client === "opencode" || client === "open-code") {
@@ -896,7 +910,7 @@ function normalizeClients(value: string): SkillClient[] {
       return ["claude-code" as const];
     }
     throw new Error(
-      `Unsupported client "${raw}". Use codex, claude-code, pi, cursor, opencode, github-copilot, or all.`,
+      `Unsupported client "${raw}". Use codex, claude-code, cowork, pi, cursor, opencode, github-copilot, or all.`,
     );
   });
 }
@@ -905,6 +919,10 @@ function skillClientToMcpClient(client: SkillClient): ClientId | null {
   if (client === "pi") return null;
   if (client === "claude-code") return "claude-code";
   return client;
+}
+
+function supportsSkillFiles(client: SkillClient): boolean {
+  return client !== "cowork";
 }
 
 function normalizeSkillName(value: string): string {
@@ -1412,14 +1430,16 @@ function resolveInstructionFiles(
   if (explicit && explicit.length > 0) {
     return explicit.map((file) => path.resolve(baseDir, file));
   }
+  const instructionClients = clients.filter(supportsSkillFiles);
+  if (instructionClients.length === 0) return [];
   if (scope === "user") {
     const home = process.env.HOME || os.homedir();
     const files: string[] = [];
-    if (clients.includes("codex")) {
+    if (instructionClients.includes("codex")) {
       const codexHome = process.env.CODEX_HOME || path.join(home, ".codex");
       files.push(path.join(codexHome, "AGENTS.md"));
     }
-    if (clients.includes("claude-code")) {
+    if (instructionClients.includes("claude-code")) {
       files.push(path.join(home, ".claude", "CLAUDE.md"));
     }
     return unique(files);
