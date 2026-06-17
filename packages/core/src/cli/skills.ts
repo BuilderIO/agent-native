@@ -62,16 +62,16 @@ Examples:
 The add command installs the SKILL.md instructions, registers the app-backed
 MCP connector, and then authenticates it in one step so you do not hit an OAuth
 wall on the first tool call. By default, add targets every supported local
-client this CLI can configure (Claude Code, Claude Code CLI, Codex, and Cowork);
+client this CLI can configure (Claude Code, Codex, and Cowork);
 pass --client to narrow it. Authentication reuses "npx @agent-native/core@latest connect":
 OAuth-capable clients (Claude Code) get a URL-only entry and a /mcp authenticate
 prompt, while Codex / Cowork run the browser device-code flow. In a
 non-interactive shell or CI the auth step is skipped and the exact
 "npx @agent-native/core@latest connect <url> --client all" command is printed instead.
 
-Running "npx @agent-native/skills@latest add ..." directly installs instructions only;
-use this Agent Native CLI path when you want MCP setup and auth too. Pass --no-connect to
-register the connector without authenticating (leave auth to the host or run
+Running "npx @agent-native/skills@latest add ..." uses this same shared install
+flow with the broader BuilderIO skills catalog enabled. Pass --no-connect to
+register MCP where possible without authenticating (leave auth to the host or run
 "npx @agent-native/core@latest connect" later). Pass --mcp-url to register that connector against
 a custom origin (an ngrok tunnel, a local dev server, or a self-hosted
 deployment) instead of the built-in hosted default — a bare origin gets the
@@ -3305,7 +3305,7 @@ async function promptForPlanMode(
       {
         value: "hosted",
         label: "Hosted Plans, shareable links",
-        hint: "Stores plans at plan.agent-native.com. Enables sharing, comments, browser editor. Requires one-time browser sign-in.",
+        hint: "100% free and open source. Stores plans at plan.agent-native.com with sharing, comments, and browser editor. Requires one-time browser sign-in.",
       },
       {
         value: "local-files",
@@ -5034,9 +5034,10 @@ export async function runSkills(
     const clientHint = configuredEveryClient
       ? ""
       : "\n   Add another client later with --client <client> (e.g. --client claude-code).";
+    const reloadTarget = mcpClients.length > 0 ? "skill + MCP server" : "skill";
     clack.outro(
       `✅ All set! Start using ${slashCommands || "your new skills"} in your agent client.` +
-        `\n   You may need to reload the client for the skill + MCP server to appear.` +
+        `\n   You may need to reload the client for the ${reloadTarget} to appear.` +
         clientHint,
     );
   } catch (error) {
