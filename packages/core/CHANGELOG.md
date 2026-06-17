@@ -1,5 +1,26 @@
 # @agent-native/core
 
+## 0.57.0
+
+### Minor Changes
+
+- 3446e34: Implement AgentChatRuntime factories and AssistantChat runtime mounting for BYO agent chat transports.
+
+### Patch Changes
+
+- 3446e34: Hide Pi from the interactive skill instruction picker because the shared `.agents` target already covers Pi-compatible skills.
+- 3446e34: Make `plan local check` catch every required `checklist`/`question-form` field
+  the Plan renderer enforces, not just per-item `id`. Previously a local plan
+  missing a checklist item `label`, or a question `title`/`mode`, or an option
+  `label`, passed `plan local check` with a false green and then got stuck on
+  "Loading plan" when the hosted renderer rejected it (`expected string`). The
+  lint now validates `id` + `label` on checklist items and options, and `id` +
+  `title` + a valid `mode` enum on questions, so authoring mistakes surface
+  locally before the browser handoff. The visual-plan/visual-recap skills now
+  spell out the full required-field set.
+- 3446e34: Accept `agent-native plan serve` as a compatibility alias for `agent-native plan local serve`.
+- 3446e34: Fix the plan plugin docs to teach the canonical `plan local serve` command for local-files preview (it previously taught `plan local preview`, which runs a different local dev-server route), and note the `plan serve` short alias.
+
 ## 0.56.1
 
 ### Patch Changes
