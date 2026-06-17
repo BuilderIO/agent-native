@@ -991,7 +991,7 @@ describe("agent-native skills", () => {
     }
   });
 
-  it("offers only the two plan skills, both selected by default", async () => {
+  it("offers all Agent Native skills while defaulting the two plan skills", async () => {
     const root = tmpDir();
     let context:
       | { initialTargets: string[]; options: { value: string }[] }
@@ -1014,8 +1014,11 @@ describe("agent-native skills", () => {
 
     expect(promptSkills).toHaveBeenCalledTimes(1);
     expect(context?.options.map((o) => o.value)).toEqual([
+      "assets",
+      "design-exploration",
       "visual-plan",
       "visual-recap",
+      "context-xray",
     ]);
     expect(context?.initialTargets).toEqual(["visual-plan", "visual-recap"]);
     // Both selected installs the whole plan bundle (one shared MCP connector).
@@ -1029,6 +1032,121 @@ describe("agent-native skills", () => {
         path.join(root, ".agents", "skills", "visual-recap", "SKILL.md"),
       ),
     ).toBe(true);
+  });
+
+  it("appends public skills only when the shared flow runs in all-catalog mode", async () => {
+    const root = tmpDir();
+    let coreContext:
+      | { initialTargets: string[]; options: { value: string }[] }
+      | undefined;
+    vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+
+    await runSkills(["add", "--client", "codex", "--scope", "project"], {
+      baseDir: root,
+      isInteractive: () => true,
+      promptSkills: async (ctx: typeof coreContext) => {
+        coreContext = ctx;
+        return ["visual-plan"];
+      },
+      promptPlanMode: async () => "local-files",
+      promptGithubAction: async () => false,
+      runConnect: async () => {},
+      runCommand: async () => 0,
+    });
+
+    expect(coreContext?.options.map((option) => option.value)).not.toContain(
+      "quick-recap",
+    );
+
+    let allContext:
+      | { initialTargets: string[]; options: { value: string }[] }
+      | undefined;
+    await runSkills(["add", "--client", "codex", "--scope", "project"], {
+      baseDir: root,
+      catalogMode: "all",
+      publicSkillSource: "BuilderIO/skills",
+      publicSkillEntries: [
+        {
+          name: "quick-recap",
+          description: "Use final response status blocks.",
+        },
+      ],
+      isInteractive: () => true,
+      promptSkills: async (ctx: typeof allContext) => {
+        allContext = ctx;
+        return ["quick-recap"];
+      },
+      promptUpdateInstructions: async () => false,
+      runCommand: async () => 0,
+    });
+
+    expect(allContext?.options.map((option) => option.value)).toEqual([
+      "assets",
+      "design-exploration",
+      "visual-plan",
+      "visual-recap",
+      "context-xray",
+      "quick-recap",
+    ]);
+    expect(allContext?.initialTargets).toEqual(["visual-plan", "visual-recap"]);
+  });
+
+  it("runs public skills through the same prompt flow before delegating the copy", async () => {
+    const root = tmpDir();
+    const calls: string[] = [];
+    const commands: { cmd: string; args: string[] }[] = [];
+    vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+
+    await runSkills(["add"], {
+      baseDir: root,
+      catalogMode: "all",
+      publicSkillSource: "BuilderIO/skills",
+      publicSkillEntries: [
+        {
+          name: "quick-recap",
+          description: "Use final response status blocks.",
+        },
+      ],
+      isInteractive: () => true,
+      promptSkills: async () => {
+        calls.push("skills");
+        return ["quick-recap"];
+      },
+      promptClients: async () => {
+        calls.push("clients");
+        return ["codex"];
+      },
+      promptScope: async () => {
+        calls.push("scope");
+        return "project";
+      },
+      promptUpdateInstructions: async () => {
+        calls.push("instructions");
+        return true;
+      },
+      runCommand: async (cmd, args) => {
+        commands.push({ cmd, args });
+        return 0;
+      },
+    });
+
+    expect(calls).toEqual(["skills", "clients", "scope", "instructions"]);
+    expect(commands).toHaveLength(1);
+    expect(commands[0]).toMatchObject({ cmd: "npx" });
+    expect(commands[0].args).toEqual(
+      expect.arrayContaining([
+        "@agent-native/skills@latest",
+        "add",
+        "BuilderIO/skills",
+        "--skill",
+        "quick-recap",
+        "--client",
+        "codex",
+        "--scope",
+        "project",
+        "--update-instructions",
+      ]),
+    );
   });
 
   it("installs only visual-recap when only it is selected", async () => {

@@ -82,6 +82,9 @@ wrangler.toml
 # Builder writing agent scratch (edit-plan.md, edit-state.json)
 **/.builder-writing/
 
+# Local scratch files from ad hoc repo/video tooling
+**/scratch/
+
 # Regenerable plan artifacts (plan.mdx/canvas.mdx are kept; these are not)
 plans/*/preview.html
 plans/*/.plan-state.json

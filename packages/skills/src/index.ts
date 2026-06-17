@@ -275,31 +275,60 @@ export function parseSkillsCliArgs(argv: string[]): ParsedArgs {
  */
 function toCoreSkillsArgv(parsed: ParsedArgs): string[] {
   const out: string[] = [parsed.command];
-  if (parsed.command !== "add") return out;
-  if (parsed.skillNames.length === 1) {
-    out.push(parsed.skillNames[0]);
-  } else if (parsed.skillNames.length > 1) {
-    const appIds = unique(
-      parsed.skillNames
-        .map((name) => resolveAppForSkill(name)?.appId)
-        .filter((appId): appId is string => Boolean(appId)),
-    );
-    if (appIds.length === 1) out.push(appIds[0]);
-  } else if (parsed.copySource && parsed.source) out.push(parsed.source);
-  if (parsed.clients.length) out.push("--client", parsed.clients.join(","));
-  if (parsed.scopeExplicit) out.push("--scope", parsed.scope);
-  if (parsed.yes) out.push("--yes");
+  if (parsed.command === "add") {
+    if (parsed.copySource && parsed.source && parsed.skillNames.length > 0) {
+      out.push(parsed.source);
+      for (const skill of parsed.skillNames) out.push("--skill", skill);
+    } else if (parsed.skillNames.length === 1) {
+      out.push(parsed.skillNames[0]);
+    } else if (parsed.skillNames.length > 1) {
+      const appIds = unique(
+        parsed.skillNames
+          .map((name) => resolveAppForSkill(name)?.appId)
+          .filter((appId): appId is string => Boolean(appId)),
+      );
+      if (
+        appIds.length === 1 &&
+        parsed.skillNames.every((name) => resolveAppForSkill(name))
+      ) {
+        out.push(appIds[0]);
+      } else {
+        for (const skill of parsed.skillNames) out.push("--skill", skill);
+      }
+    }
+  }
+  if (parsed.command === "add" && parsed.clients.length) {
+    out.push("--client", parsed.clients.join(","));
+  }
+  if (parsed.command === "add" && parsed.scopeExplicit) {
+    out.push("--scope", parsed.scope);
+  }
+  if (parsed.command === "add" && parsed.yes) out.push("--yes");
   if (parsed.dryRun) out.push("--dry-run");
   if (parsed.printJson) out.push("--json");
-  if (parsed.withGithubAction) out.push("--with-github-action");
-  if (parsed.planMode) out.push("--mode", parsed.planMode);
-  if (parsed.mcpUrl) out.push("--mcp-url", parsed.mcpUrl);
-  if (parsed.force) out.push("--force");
-  if (parsed.mcp === false) out.push("--no-mcp");
-  if (parsed.connect === false) out.push("--no-connect");
-  if (parsed.updateInstructions === true) out.push("--update-instructions");
-  if (parsed.updateInstructions === false) out.push("--no-update-instructions");
+  if (parsed.command === "add" && parsed.withGithubAction)
+    out.push("--with-github-action");
+  if (parsed.command === "add" && parsed.planMode)
+    out.push("--mode", parsed.planMode);
+  if (parsed.command === "add" && parsed.mcpUrl)
+    out.push("--mcp-url", parsed.mcpUrl);
+  if (parsed.command === "add" && parsed.force) out.push("--force");
+  if (parsed.command === "add" && parsed.mcp === false) out.push("--no-mcp");
+  if (parsed.command === "add" && parsed.connect === false)
+    out.push("--no-connect");
+  if (parsed.command === "add" && parsed.updateInstructions === true)
+    out.push("--update-instructions");
+  if (parsed.command === "add" && parsed.updateInstructions === false)
+    out.push("--no-update-instructions");
   return out;
+}
+
+function shouldLoadPublicCatalog(parsed: ParsedArgs): boolean {
+  if (parsed.command === "list") return true;
+  if (parsed.command !== "add") return false;
+  if (parsed.copySource && parsed.source) return true;
+  if (parsed.skillNames.length === 0) return true;
+  return parsed.skillNames.some((name) => !resolveAppForSkill(name));
 }
 
 export async function runSkillsCli(
@@ -320,33 +349,62 @@ export async function runSkillsCli(
 ): Promise<void> {
   const parsed = parseSkillsCliArgs(argv);
 
-  // PIVOT: `@agent-native/skills` delegates explicitly selected built-in
-  // app-backed installs to `@agent-native/core` when using the default source,
-  // so app-specific flows like Plan modes stay canonical. The default add/list
-  // flow and explicit copied/plain sources stay here so they can install live
-  // BuilderIO/skills content and arbitrary skill repos.
-  // AGENT_NATIVE_SKILLS_DIRECT=1 (set when core delegates a plain repo back to us)
-  // always forces the direct path and breaks the skills → core → skills loop.
+  // `@agent-native/skills` normally uses the exact same core flow as
+  // `agent-native skills`; it only passes a broader public skill catalog.
+  // AGENT_NATIVE_SKILLS_DIRECT=1 is set by core when it shells out to this
+  // package as a headless file-copy worker for public/plain skill repos. That
+  // direct mode is intentionally non-user-facing prompt plumbing.
   if (process.env.AGENT_NATIVE_SKILLS_DIRECT !== "1") {
-    const selectedAppIds = unique(
-      parsed.skillNames
-        .map((name) => resolveAppForSkill(name)?.appId)
-        .filter((appId): appId is string => Boolean(appId)),
-    );
-    const coreOnlyAppSkills =
-      parsed.skillNames.length > 0 &&
-      parsed.skillNames.every(
-        (name) => resolveAppForSkill(name) !== undefined,
-      ) &&
-      selectedAppIds.length === 1;
-    const defaultSource = !parsed.copySource && !parsed.source;
-    if (parsed.command === "add" && coreOnlyAppSkills && defaultSource) {
-      const { runSkills } = await import("@agent-native/core/cli/skills");
+    if (parsed.command === "help") {
+      process.stdout.write(`${HELP}\n`);
+      return;
+    }
+    const loadedSource = shouldLoadPublicCatalog(parsed)
+      ? await materializeSource(parsed.source ?? DEFAULT_SKILLS_SOURCE)
+      : null;
+    try {
+      const { runSkills } = (await import("@agent-native/core/cli/skills")) as {
+        runSkills: (
+          argv: string[],
+          options: Record<string, unknown>,
+        ) => Promise<void>;
+      };
+      const publicSkillEntries = loadedSource
+        ? discoverSkills(loadedSource.root).map((entry) => ({
+            name: entry.name,
+            description: entry.description,
+          }))
+        : [];
       await runSkills(toCoreSkillsArgv(parsed), {
+        log: options.log,
         isInteractive: options.isInteractive,
         baseDir: parsed.baseDir ?? options.baseDir,
+        catalogMode: "all",
+        publicSkillSource:
+          loadedSource?.root ?? parsed.source ?? DEFAULT_SKILLS_SOURCE,
+        publicSkillEntries,
+        promptSkills: options.promptSkills
+          ? async (context: any) =>
+              options.promptSkills?.({
+                initialSkills: context.initialTargets,
+                options: context.options,
+              }) ?? null
+          : undefined,
+        promptClients: options.promptClients as any,
+        promptScope: options.promptScope,
+        promptGithubAction: options.promptGithubAction
+          ? async (context: any) =>
+              options.promptGithubAction?.({
+                workflowPath: context.workflowPath,
+              }) ?? null
+          : undefined,
+        promptPlanMode: options.promptPlanMode,
+        promptPlanMcpUrl: options.promptPlanMcpUrl,
+        promptUpdateInstructions: options.promptUpdateInstructions,
       });
       return;
+    } finally {
+      loadedSource?.cleanup?.();
     }
   }
 
