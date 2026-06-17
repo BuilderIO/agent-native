@@ -1274,6 +1274,61 @@ describe("agent-native skills", () => {
     );
   });
 
+  it("does not forward local plan mode to non-plan public skill copies", async () => {
+    const root = tmpDir();
+    const commands: { cmd: string; args: string[] }[] = [];
+    vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+
+    await runSkills(["add"], {
+      baseDir: root,
+      catalogMode: "all",
+      publicSkillSource: "BuilderIO/skills",
+      publicSkillEntries: [
+        {
+          name: "efficient-frontier",
+          description: "Use efficient frontier for coding-agent budgets.",
+        },
+      ],
+      isInteractive: () => true,
+      promptSkills: async () => [
+        "visual-plan",
+        "visual-recap",
+        "efficient-frontier",
+      ],
+      promptPlanMode: async () => "local-files",
+      promptClients: async () => ["codex"],
+      promptScope: async () => "project",
+      promptGithubAction: async () => false,
+      promptUpdateInstructions: async () => false,
+      runCommand: async (cmd, args) => {
+        commands.push({ cmd, args });
+        return 0;
+      },
+    });
+
+    expect(commands).toHaveLength(1);
+    expect(commands[0]).toMatchObject({ cmd: "npx" });
+    expect(commands[0].args).toEqual(
+      expect.arrayContaining([
+        "@agent-native/skills@latest",
+        "add",
+        "--copy",
+        "BuilderIO/skills",
+        "--skill",
+        "efficient-frontier",
+        "--client",
+        "codex",
+        "--scope",
+        "project",
+        "--cwd",
+        root,
+        "--no-update-instructions",
+      ]),
+    );
+    expect(commands[0].args).not.toContain("--mode");
+    expect(commands[0].args).not.toContain("local-files");
+  });
+
   it("installs only visual-recap when only it is selected", async () => {
     const root = tmpDir();
     vi.spyOn(process.stdout, "write").mockImplementation(() => true);
