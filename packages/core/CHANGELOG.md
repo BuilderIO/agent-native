@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.54.1
+
+### Patch Changes
+
+- cc1e11c: Fix workspace dev gateway losing the app prefix on root-relative redirects (e.g. Google OAuth flows). Path-only redirect `Location` headers are now rewritten to include the `/{app.id}` mount prefix, matching the repo `dev-lazy` gateway.
+
 ## 0.54.0
 
 ### Minor Changes
