@@ -507,10 +507,14 @@ export {
   type ToolRendererProps,
   type ToolRendererRegistration,
 } from "./chat/tool-render-registry.js";
+export type * from "./chat/runtime.js";
 export {
   DATA_CHART_WIDGET,
   DATA_INSIGHTS_WIDGET,
   DATA_TABLE_WIDGET,
+  createDataChartWidgetResult,
+  createDataInsightsWidgetResult,
+  createDataTableWidgetResult,
   isDataChartWidget,
   isDataTableWidget,
   isDataWidgetResult,
@@ -518,10 +522,18 @@ export {
   normalizeDataWidgetResult,
   type DataChartSeriesDefinition,
   type DataChartWidget,
+  type DataChartWidgetResult,
+  type DataChartWidgetResultInput,
+  type DataInsightsWidgetResult,
+  type DataInsightsWidgetResultInput,
   type DataTableColumn,
   type DataTableWidget,
+  type DataTableWidgetResult,
+  type DataTableWidgetResultInput,
+  type DataWidgetDisplay,
   type DataWidgetKind,
   type DataWidgetResult,
+  type DataWidgetResultMetadata,
 } from "./chat/widgets/data-widget-types.js";
 export { AgentNativeIcon } from "./components/icons/AgentNativeIcon.js";
 export { SettingsPanel, type SettingsPanelProps } from "./settings/index.js";

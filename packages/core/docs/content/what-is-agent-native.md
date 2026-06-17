@@ -66,7 +66,7 @@ At minimum, "a UI for the agent" is an observability and management dashboard. A
 There are three useful shapes:
 
 - **Headless** — call the agent and actions from code, HTTP, CLI, MCP, or A2A.
-- **Rich chat** — give the agent a first-class chat UI with native tool widgets such as tables, charts, approvals, setup cards, and links into app views.
+- **Rich chat** — give the agent a first-class chat UI with native tool widgets such as tables, charts, approvals, setup cards, and links into app views. See [Native Chat UI](/docs/native-chat-ui).
 - **Whole app** — put a full application around the agent, with SQL state, context awareness, deep links, and live sync so humans and agents stay in the same workspace.
 
 Agent-native is designed so those are stages, not rewrites. You can start headless, add rich chat, and grow into a full app around the same action surface.
@@ -181,7 +181,7 @@ import { AgentSidebar } from "@agent-native/core/client";
 <AgentSidebar />;
 ```
 
-One action, many surfaces: the agent calls it as a tool, the UI calls it as a typesafe mutation, native chat can render explicit widget results, external agents reach it over [A2A](/docs/a2a-protocol), and MCP hosts call it through the app's [MCP server](/docs/mcp-protocol), optionally with MCP Apps UI resources and standard remote MCP OAuth handled by the framework. See [Actions](/docs/actions) for the full reference.
+One action, many surfaces: the agent calls it as a tool, the UI calls it as a typesafe mutation, [native chat](/docs/native-chat-ui) can render explicit widget results, external agents reach it over [A2A](/docs/a2a-protocol), and MCP hosts call it through the app's [MCP server](/docs/mcp-protocol), optionally with MCP Apps UI resources and standard remote MCP OAuth handled by the framework. See [Actions](/docs/actions) for the full reference.
 
 ## What's next {#whats-next}
 

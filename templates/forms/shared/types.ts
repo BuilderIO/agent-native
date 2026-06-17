@@ -1,3 +1,11 @@
+import type {
+  DataChartWidget,
+  DataInsightsWidgetResult,
+  DataTableColumn,
+  DataTableWidget,
+  DataWidgetDisplay,
+} from "@agent-native/core/data-widgets";
+
 // ---------------------------------------------------------------------------
 // Form field types
 // ---------------------------------------------------------------------------
@@ -145,33 +153,33 @@ export interface FormResponse {
 // Response insight widgets
 // ---------------------------------------------------------------------------
 
-export interface ResponseInsightsTableColumn {
-  key: string;
-  label: string;
-  align?: "left" | "right";
-}
+export type ResponseInsightsTableColumn = DataTableColumn;
 
-export interface ResponseInsightsTable {
+export type ResponseInsightsTable = DataTableWidget & {
   title: string;
   columns: ResponseInsightsTableColumn[];
   rows: Array<Record<string, string | number | boolean | null>>;
   totalRows: number;
   sampledRows: number;
   truncated: boolean;
-}
+};
 
-export interface ResponseInsightsChartSeries {
+export type ResponseInsightsChartSeries = DataChartWidget & {
   type: "bar";
   title: string;
   xKey: "date";
-  yKey: "submissions";
   series: Array<{ key: "submissions"; label: string }>;
   data: Array<{ date: string; submissions: number }>;
   sampled: boolean;
-}
+};
 
-export interface ResponseInsightsWidgetResult {
-  widget: "data-insights";
+export type ResponseInsightsDisplay = DataWidgetDisplay & {
+  title: string;
+  route: string;
+  primaryAction: { label: string; href: string };
+};
+
+export type ResponseInsightsWidgetResult = DataInsightsWidgetResult<{
   widgetId: "forms.responseInsights.v1";
   scope: {
     formId?: string;
@@ -199,9 +207,10 @@ export interface ResponseInsightsWidgetResult {
   }>;
   chartSeries: ResponseInsightsChartSeries;
   table: ResponseInsightsTable;
-  display: {
-    title: string;
-    route: string;
-    primaryAction: { label: string; href: string };
-  };
-}
+  display: ResponseInsightsDisplay;
+}> & {
+  widgetId: "forms.responseInsights.v1";
+  chartSeries: ResponseInsightsChartSeries;
+  table: ResponseInsightsTable;
+  display: ResponseInsightsDisplay;
+};

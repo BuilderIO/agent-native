@@ -46,6 +46,7 @@ export {
   type CodeAgentChatTranscriptEvent,
   type CreateCodeAgentChatAdapterOptions,
 } from "../code-agent-chat-adapter.js";
+export type * from "./runtime.js";
 export { sendToAgentChat, type AgentChatMessage } from "../agent-chat.js";
 export { useAgentChatGenerating } from "../use-agent-chat.js";
 export { useSendToAgentChat } from "../use-send-to-agent-chat.js";
@@ -73,6 +74,9 @@ export {
   DATA_CHART_WIDGET,
   DATA_INSIGHTS_WIDGET,
   DATA_TABLE_WIDGET,
+  createDataChartWidgetResult,
+  createDataInsightsWidgetResult,
+  createDataTableWidgetResult,
   isDataChartWidget,
   isDataTableWidget,
   isDataWidgetResult,
@@ -80,10 +84,18 @@ export {
   normalizeDataWidgetResult,
   type DataChartSeriesDefinition,
   type DataChartWidget,
+  type DataChartWidgetResult,
+  type DataChartWidgetResultInput,
+  type DataInsightsWidgetResult,
+  type DataInsightsWidgetResultInput,
   type DataTableColumn,
   type DataTableWidget,
+  type DataTableWidgetResult,
+  type DataTableWidgetResultInput,
+  type DataWidgetDisplay,
   type DataWidgetKind,
   type DataWidgetResult,
+  type DataWidgetResultMetadata,
 } from "./widgets/data-widget-types.js";
 export {
   useChatModels,

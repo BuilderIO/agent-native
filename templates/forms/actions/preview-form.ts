@@ -1,4 +1,5 @@
 import { defineAction } from "@agent-native/core";
+import { createDataInsightsWidgetResult } from "@agent-native/core/data-widgets";
 import { resolveAccess } from "@agent-native/core/sharing";
 import { eq, sql } from "drizzle-orm";
 import { z } from "zod";
@@ -44,8 +45,7 @@ export default defineAction({
     const responseCount = Number(count?.count) || 0;
     const publicPath = form.slug ? `/f/${form.slug}` : `/f/${form.id}`;
 
-    return {
-      widget: "data-insights",
+    return createDataInsightsWidgetResult({
       widgetId: "forms.formPreview.v1",
       title: form.title,
       summary: {
@@ -99,6 +99,6 @@ export default defineAction({
         createdAt: form.createdAt,
         updatedAt: form.updatedAt,
       },
-    };
+    });
   },
 });

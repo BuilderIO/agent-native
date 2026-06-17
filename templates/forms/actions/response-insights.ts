@@ -1,4 +1,5 @@
 import { defineAction } from "@agent-native/core";
+import { createDataInsightsWidgetResult } from "@agent-native/core/data-widgets";
 import { buildDeepLink } from "@agent-native/core/server";
 import { accessFilter, resolveAccess } from "@agent-native/core/sharing";
 import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
@@ -364,15 +365,13 @@ export default defineAction({
       type: "bar",
       title: "Submissions by day",
       xKey: "date",
-      yKey: "submissions",
       series: [{ key: "submissions", label: "Submissions" }],
       data: dailySubmissions,
       sampled: totalResponses > responses.length,
     };
     const title = targetForm?.title ?? "All forms";
 
-    const result: ResponseInsightsWidgetResult = {
-      widget: "data-insights",
+    const result: ResponseInsightsWidgetResult = createDataInsightsWidgetResult({
       widgetId: "forms.responseInsights.v1",
       scope: {
         ...(targetForm ? { formId: targetForm.id } : {}),
@@ -412,7 +411,7 @@ export default defineAction({
             : "/forms",
         },
       },
-    };
+    });
 
     return result;
   },
