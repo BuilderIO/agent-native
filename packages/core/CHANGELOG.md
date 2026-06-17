@@ -1,5 +1,30 @@
 # @agent-native/core
 
+## 0.55.0
+
+### Minor Changes
+
+- 364e4be: Add reusable chat-home and chat view-transition primitives for chat-first apps,
+  including centered empty-state layout, sidebar storage-key sharing, and opt-in
+  sidebar reopening while active chats continue across route handoffs.
+- 364e4be: Add an explicit native tool-render registry plus built-in chat data table and
+  chart widgets, with same-app widget action links that navigate through the
+  shared chat view-transition path. Add an app chat option for typed-action-only
+  agent surfaces that disables raw database tools while preserving rich native
+  widget rendering from action results.
+
+### Patch Changes
+
+- 364e4be: Chat: stop re-probing the server for a thread that already returned 404. The
+  mount-time restore effect now caches known-absent thread ids for the page
+  session, so navigating between routes no longer re-spams
+  `GET /_agent-native/agent-chat/threads/:id` with 404s for a freshly created,
+  not-yet-sent chat. Behavior is unchanged otherwise — a missing thread still
+  falls back to an empty chat.
+- 364e4be: Harden local Plan cold starts by validating checklist/question-form IDs, writing local serve URLs to `.plan-url`, adding headless bridge verification, and documenting Chromium/Safari guidance.
+- 364e4be: Polish the skills CLI auth transcript so embedded connect output renders as one Clack guide block and shows spinner feedback during slow auth startup.
+- 364e4be: Include tripwire abort text in processor result hooks and harden local plan repo-path containment against symlinks.
+
 ## 0.54.1
 
 ### Patch Changes

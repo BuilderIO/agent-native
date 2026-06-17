@@ -1,5 +1,18 @@
 # @agent-native/skills
 
+## 0.2.16
+
+### Patch Changes
+
+- 364e4be: Expose the updated framework skill bundle through the skills package entrypoint.
+- Updated dependencies [364e4be]
+- Updated dependencies [364e4be]
+- Updated dependencies [364e4be]
+- Updated dependencies [364e4be]
+- Updated dependencies [364e4be]
+- Updated dependencies [364e4be]
+  - @agent-native/core@0.55.0
+
 ## 0.2.15
 
 ### Patch Changes
