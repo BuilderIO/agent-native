@@ -19,7 +19,7 @@ Auth modes:
 | Better Auth         | Default. Email/password + Google / GitHub social + organizations.       |
 | `AUTH_MODE=local`   | Solo local dev. Forces `getSession()` → `{ email: "local@localhost" }`. |
 | `ACCESS_TOKEN(S)`   | Static MCP/connect bearer fallback only; not browser auth.              |
-| `AUTH_DISABLED=1`   | Apps behind infrastructure auth (Cloudflare Access, VPN, etc.).         |
+| `AGENT_NATIVE_SKIP_AUTH=1` | Skip login/signup; all requests run as one shared user (preview/demo only). |
 | Custom `getSession` | BYOA — Auth.js, Clerk, Lucia, WorkOS, etc.                              |
 
 See the canonical docs above for the full configuration reference, environment variables (`BETTER_AUTH_SECRET`, `GOOGLE_CLIENT_ID/SECRET`, `GITHUB_CLIENT_ID/SECRET`, `OAUTH_STATE_SECRET`, `A2A_SECRET`, …), the BYOA contract, organizations / orgs, the sign-in-with-return-URL flow, and access-control patterns (`ownableColumns`, `accessFilter`, `resolveAccess`, `assertAccess`).

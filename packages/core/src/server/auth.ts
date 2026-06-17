@@ -1783,6 +1783,29 @@ const AUTO_DEV_ACCOUNT_EMAIL = "dev@local.test";
 // permanently disable auto-create) and the post-logout guard still fires.
 const LEGACY_AUTO_DEV_ACCOUNT_EMAIL = "dev@local";
 
+let skipAuthWarningLogged = false;
+
+function isSkipAuthEnabled(): boolean {
+  return process.env.AGENT_NATIVE_SKIP_AUTH === "1";
+}
+
+function getSkipAuthEmail(): string {
+  return (
+    process.env.AGENT_NATIVE_SKIP_AUTH_EMAIL?.trim() || AUTO_DEV_ACCOUNT_EMAIL
+  );
+}
+
+function getSkipAuthSession(): AuthSession | null {
+  if (!isSkipAuthEnabled()) return null;
+  if (!skipAuthWarningLogged) {
+    skipAuthWarningLogged = true;
+    console.warn(
+      `[agent-native] AGENT_NATIVE_SKIP_AUTH=1 — login/signup disabled; all requests run as ${getSkipAuthEmail()}`,
+    );
+  }
+  return { email: getSkipAuthEmail() };
+}
+
 async function hasAutoDevAccountUser(
   db: ReturnType<typeof getDbExec>,
 ): Promise<boolean> {
@@ -2044,14 +2067,18 @@ async function resolveSessionUncached(
     };
   }
 
-  // 2. ACCESS_TOKEN check (programmatic/agent access)
+  // 2. Preview/demo bypass — opt-in via AGENT_NATIVE_SKIP_AUTH=1.
+  const skipAuthSession = getSkipAuthSession();
+  if (skipAuthSession) return skipAuthSession;
+
+  // 3. ACCESS_TOKEN check (programmatic/agent access)
   const accessTokens = getAccessTokens();
   if (accessTokens.length > 0) {
     const cookieSession = await getLegacyCookieSession(event);
     if (cookieSession) return cookieSession;
   }
 
-  // 3. BYOA custom getSession
+  // 4. BYOA custom getSession
   if (customGetSession) {
     const session = await customGetSession(event);
     if (session) return session;
@@ -2068,14 +2095,14 @@ async function resolveSessionUncached(
     if (sso?.email) return { email: sso.email, token: sso.token };
     // Fall through to mobile _session check
   } else {
-    // 4. Bearer session. Desktop/native clients can persist a legacy session
+    // 5. Bearer session. Desktop/native clients can persist a legacy session
     // token outside the WebView cookie jar and attach it to all app requests.
     // `agent-native connect` clients may present a connect-minted MCP OAuth
     // token, but only the framework action route accepts that fallback.
     const bearerSession = await getBearerSession(event);
     if (bearerSession) return bearerSession;
 
-    // 5. Better Auth session (cookie or Bearer token)
+    // 6. Better Auth session (cookie or Bearer token)
     try {
       const ba = getBetterAuthSync();
       if (ba) {
@@ -2090,11 +2117,11 @@ async function resolveSessionUncached(
       console.error("[auth] ba.api.getSession error:", e);
     }
 
-    // 6. Legacy cookie fallback (for sessions created before migration)
+    // 7. Legacy cookie fallback (for sessions created before migration)
     const cookieSession = await getLegacyCookieSession(event);
     if (cookieSession) return cookieSession;
 
-    // 7. Desktop SSO broker fallback.
+    // 8. Desktop SSO broker fallback.
     // Each template in the Electron desktop app has its own database, so
     // a session token created by one template doesn't resolve in another.
     // When an Electron request has no resolvable session, trust the
