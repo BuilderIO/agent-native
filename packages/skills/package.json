@@ -42,7 +42,7 @@
     "vitest": "catalog:"
   },
   "dependencies": {
-    "@agent-native/core": ">=0.51.12",
+    "@agent-native/core": ">=0.51.11",
     "@clack/prompts": "^1.5.1"
   }
 }
