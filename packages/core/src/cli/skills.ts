@@ -2320,6 +2320,7 @@ type PlanInstallMode = "hosted" | "local-files" | "self-hosted";
 export interface ParsedSkillsArgs {
   command: SkillsCommand;
   target?: string;
+  baseDir?: string;
   client: string;
   clientExplicit: boolean;
   clients?: ClientId[];
@@ -2465,8 +2466,31 @@ interface RunCommandOptions {
   stdio?: "inherit" | "stderr" | "silent";
 }
 
-interface RunSkillsOptions {
+export type SkillsCatalogMode = "agent-native" | "all";
+
+export interface PublicSkillCatalogEntry {
+  name: string;
+  description?: string;
+}
+
+export interface RunSkillsOptions {
   baseDir?: string;
+  /**
+   * Which skills appear in the shared add/list picker. `agent-native` is the
+   * core CLI surface; `all` is used by @agent-native/skills to append public
+   * skill-repo entries while keeping every prompt and install decision here.
+   */
+  catalogMode?: SkillsCatalogMode;
+  /**
+   * The plain skills repo/source to install when a public catalog entry is
+   * selected. @agent-native/skills usually passes the materialized source root.
+   */
+  publicSkillSource?: string;
+  /**
+   * Public skill-repo entries discovered by @agent-native/skills. Core owns the
+   * user-facing flow; the wrapper owns materializing the broader catalog.
+   */
+  publicSkillEntries?: PublicSkillCatalogEntry[];
   isInteractive?: () => boolean;
   log?: (message: string) => void;
   promptClients?: (
@@ -2485,6 +2509,7 @@ interface RunSkillsOptions {
     context: SkillsPlanModePromptContext,
   ) => Promise<PlanInstallMode | null>;
   promptPlanMcpUrl?: () => Promise<string | null>;
+  promptUpdateInstructions?: () => Promise<boolean | null>;
   runCommand?: (
     cmd: string,
     args: string[],
@@ -3038,12 +3063,20 @@ function clientPromptOptions(): SkillsClientPromptContext["options"] {
   }));
 }
 
-// For now the interactive installer offers only the two plan skills, each as
-// an independently selectable entry (uncheck one to install just the other).
-// The other built-in skills stay installable via `agent-native skills add
-// <name>` but are hidden from the default checklist. The values are the real
-// slash-command names so users see exactly what they are installing.
-const PLAN_SKILL_PROMPT_OPTIONS: SkillsTargetPromptContext["options"] = [
+const DEFAULT_PUBLIC_SKILLS_SOURCE = "BuilderIO/skills";
+const PUBLIC_SKILL_TARGET_PREFIX = "public-skills:";
+
+const BUILT_IN_SKILL_PROMPT_OPTIONS: SkillsTargetPromptContext["options"] = [
+  {
+    value: "assets",
+    label: "assets",
+    hint: BUILT_IN_APP_SKILLS.assets.manifest.description,
+  },
+  {
+    value: "design-exploration",
+    label: "design-exploration",
+    hint: BUILT_IN_APP_SKILLS.design.manifest.description,
+  },
   {
     value: "visual-plan",
     label: "visual-plan",
@@ -3054,10 +3087,70 @@ const PLAN_SKILL_PROMPT_OPTIONS: SkillsTargetPromptContext["options"] = [
     label: "visual-recap",
     hint: "Interactive visual recap that maps PRs/diffs with diagrams, annotated diffs, API/schema summaries, and review notes.",
   },
+  {
+    value: "context-xray",
+    label: "context-xray",
+    hint: BUILT_IN_APP_SKILLS["context-xray"].manifest.description,
+  },
 ];
 
-function skillPromptOptions(): SkillsTargetPromptContext["options"] {
-  return PLAN_SKILL_PROMPT_OPTIONS;
+const DEFAULT_SKILL_PROMPT_TARGETS = ["visual-plan", "visual-recap"];
+
+function publicSkillEntries(
+  options: RunSkillsOptions,
+): PublicSkillCatalogEntry[] {
+  if (options.catalogMode !== "all") return [];
+  const seen = new Set<string>();
+  return (options.publicSkillEntries ?? [])
+    .map((entry) => ({
+      name: entry.name.trim().toLowerCase(),
+      description: entry.description,
+    }))
+    .filter((entry) => {
+      if (!entry.name || isKnownSkill(entry.name) || seen.has(entry.name)) {
+        return false;
+      }
+      seen.add(entry.name);
+      return true;
+    })
+    .sort((a, b) => a.name.localeCompare(b.name));
+}
+
+function publicSkillNames(options: RunSkillsOptions): Set<string> {
+  return new Set(publicSkillEntries(options).map((entry) => entry.name));
+}
+
+function publicSkillPromptOptions(
+  options: RunSkillsOptions,
+): SkillsTargetPromptContext["options"] {
+  return publicSkillEntries(options).map((entry) => ({
+    value: entry.name,
+    label: entry.name,
+    hint:
+      entry.description ?? "Public skill from the BuilderIO skills catalog.",
+  }));
+}
+
+function skillPromptOptions(
+  options: RunSkillsOptions = {},
+): SkillsTargetPromptContext["options"] {
+  return [
+    ...BUILT_IN_SKILL_PROMPT_OPTIONS,
+    ...publicSkillPromptOptions(options),
+  ];
+}
+
+function publicSkillSelectionTarget(skillNames: string[]): string {
+  return `${PUBLIC_SKILL_TARGET_PREFIX}${skillNames.join(",")}`;
+}
+
+function publicSkillSelectionNames(target: string): string[] | null {
+  if (!target.startsWith(PUBLIC_SKILL_TARGET_PREFIX)) return null;
+  return target
+    .slice(PUBLIC_SKILL_TARGET_PREFIX.length)
+    .split(",")
+    .map((name) => name.trim().toLowerCase())
+    .filter(Boolean);
 }
 
 function prVisualRecapWorkflowPath(baseDir: string): string {
@@ -3203,6 +3296,20 @@ async function promptForPlanMcpUrl(): Promise<string | null> {
   return String(result).trim();
 }
 
+async function promptForUpdateInstructions(): Promise<boolean | null> {
+  const clack = await import("@clack/prompts");
+  const result = await clack.confirm({
+    message:
+      "Add managed AGENTS.md / CLAUDE.md instructions for always-on skill behavior?",
+    initialValue: true,
+  });
+  if (clack.isCancel(result)) {
+    clack.cancel("Skipped managed instruction updates.");
+    return null;
+  }
+  return Boolean(result);
+}
+
 async function promptForSkills(
   context: SkillsTargetPromptContext,
 ): Promise<string[] | null> {
@@ -3279,15 +3386,90 @@ function targetsIncludePlans(targets: string[]): boolean {
   return targets.some(targetIncludesPlans);
 }
 
+function planSkillNamesSelected(skillNames: string[] | undefined): boolean {
+  return Boolean(
+    skillNames?.some(
+      (name) => normalizeKnownSkillTarget(name) === "visual-plans",
+    ),
+  );
+}
+
+function recapSkillNamesSelected(skillNames: string[] | undefined): boolean {
+  return Boolean(
+    skillNames?.some((name) => {
+      const normalized = name.trim().toLowerCase();
+      return (
+        normalized === "visual-recap" ||
+        normalized === "visual-recaps" ||
+        normalizeKnownSkillTarget(normalized) === "visual-plans"
+      );
+    }),
+  );
+}
+
+function resolveSelectedSkillTargets(
+  selected: string[],
+  options: RunSkillsOptions,
+): string[] {
+  const publicNames = publicSkillNames(options);
+  const builtInSelections: string[] = [];
+  const publicSelections: string[] = [];
+
+  for (const raw of selected) {
+    const skill = raw.trim().toLowerCase();
+    if (!skill) continue;
+    if (isKnownSkill(skill)) {
+      builtInSelections.push(skill);
+      continue;
+    }
+    if (publicNames.has(skill)) {
+      publicSelections.push(skill);
+      continue;
+    }
+    throw new Error(
+      `Unknown skill: ${raw}. Run "npx @agent-native/core@latest skills list".`,
+    );
+  }
+
+  const out: string[] = [];
+  const planSubskills = ["visual-plan", "visual-recap"];
+  const selectedPlanSubskills = planSubskills.filter((skill) =>
+    builtInSelections.includes(skill),
+  );
+  if (selectedPlanSubskills.length === planSubskills.length) {
+    out.push("visual-plans");
+  } else {
+    out.push(...selectedPlanSubskills);
+  }
+  out.push(
+    ...builtInSelections.filter(
+      (skill) => !planSubskills.includes(skill) && !out.includes(skill),
+    ),
+  );
+  if (publicSelections.length > 0) {
+    out.push(publicSkillSelectionTarget([...new Set(publicSelections)]));
+  }
+  return out;
+}
+
 async function resolveSkillTargets(
   parsed: ParsedSkillsArgs,
   options: RunSkillsOptions,
 ): Promise<string[] | null> {
+  if (!parsed.target && parsed.plainSkillNames?.length) {
+    return resolveSelectedSkillTargets(parsed.plainSkillNames, options);
+  }
   if (parsed.target || !shouldPrompt(parsed, options)) {
-    return [parsed.target ?? "assets"];
+    const target = parsed.target ?? "assets";
+    if (!parsed.target) return [target];
+    const normalizedTarget = target.trim().toLowerCase();
+    if (publicSkillNames(options).has(normalizedTarget)) {
+      return [publicSkillSelectionTarget([normalizedTarget])];
+    }
+    return [target];
   }
   const prompt = options.promptSkills ?? promptForSkills;
-  const promptOptions = skillPromptOptions();
+  const promptOptions = skillPromptOptions(options);
   // The interactive multiselect skill picker is about to be shown (no --skill /
   // target passed and we are interactive) — record the funnel "prompted" step.
   options.telemetry?.track("skills_cli skills prompted", {
@@ -3295,21 +3477,11 @@ async function resolveSkillTargets(
     available: promptOptions.map((option) => option.value).join(","),
   });
   const selected = await prompt({
-    initialTargets: ["visual-plan", "visual-recap"],
+    initialTargets: DEFAULT_SKILL_PROMPT_TARGETS,
     options: promptOptions,
   });
   if (!selected || selected.length === 0) return null;
-  // Both plan skills share one MCP connector, so when both are selected install
-  // them through the bundle target — that registers/authenticates the connector
-  // once instead of twice.
-  const planSubskills = ["visual-plan", "visual-recap"];
-  if (planSubskills.every((skill) => selected.includes(skill))) {
-    return [
-      "visual-plans",
-      ...selected.filter((s) => !planSubskills.includes(s)),
-    ];
-  }
-  return selected;
+  return resolveSelectedSkillTargets(selected, options);
 }
 
 export function parseSkillsArgs(argv: string[]): ParsedSkillsArgs {
@@ -3366,6 +3538,12 @@ export function parseSkillsArgs(argv: string[]): ParsedSkillsArgs {
     if ((value = eat("--client")) !== undefined) {
       out.client = value;
       out.clientExplicit = true;
+    } else if ((value = eat("--agent")) !== undefined) {
+      out.client = value;
+      out.clientExplicit = true;
+    } else if ((value = eat("-a")) !== undefined) {
+      out.client = value;
+      out.clientExplicit = true;
     } else if ((value = eat("--skill")) !== undefined) {
       out.plainSkillNames = [...(out.plainSkillNames ?? []), value];
     } else if ((value = eat("-s")) !== undefined) {
@@ -3373,7 +3551,8 @@ export function parseSkillsArgs(argv: string[]): ParsedSkillsArgs {
     } else if ((value = eat("--scope")) !== undefined) {
       out.scope = value;
       out.scopeExplicit = true;
-    } else if ((value = eat("--mcp-url")) !== undefined) out.mcpUrl = value;
+    } else if ((value = eat("--cwd")) !== undefined) out.baseDir = value;
+    else if ((value = eat("--mcp-url")) !== undefined) out.mcpUrl = value;
     else if ((value = eat("--mode")) !== undefined)
       out.planMode = normalizePlanInstallMode(value);
     else if (arg === "--hosted") out.planMode = "hosted";
@@ -3384,7 +3563,16 @@ export function parseSkillsArgs(argv: string[]): ParsedSkillsArgs {
     else if (arg === "--yes" || arg === "-y") out.yes = true;
     else if (arg === "--dry-run") out.dryRun = true;
     else if (arg === "--json") out.printJson = true;
-    else if (arg === "--mcp-only") out.instructions = false;
+    else if (arg === "-g" || arg === "--global") {
+      out.scope = "user";
+      out.scopeExplicit = true;
+    } else if (arg === "--project") {
+      out.scope = "project";
+      out.scopeExplicit = true;
+    } else if (arg === "--copy") {
+      // Compatibility with @agent-native/skills. Core always copies skill
+      // instructions instead of linking to the source repo.
+    } else if (arg === "--mcp-only") out.instructions = false;
     else if (arg === "--instructions-only" || arg === "--no-mcp")
       out.mcp = false;
     else if (arg === "--no-connect" || arg === "--skip-connect")
@@ -3687,6 +3875,9 @@ function agentNativeSkillsInstallArgs(
   ];
   if (parsed.withGithubAction) args.push("--with-github-action");
   if (parsed.force) args.push("--force");
+  if (parsed.planMode) args.push("--mode", parsed.planMode);
+  if (parsed.mcpUrl) args.push("--mcp-url", parsed.mcpUrl);
+  if (!parsed.mcp) args.push("--no-mcp");
   if (!parsed.connect) args.push("--no-connect");
   for (const skill of parsed.plainSkillNames ?? []) {
     args.push("--skill", skill);
@@ -3695,6 +3886,7 @@ function agentNativeSkillsInstallArgs(
   if (parsed.updateInstructions === false)
     args.push("--no-update-instructions");
   if (parsed.yes) args.push("--yes");
+  if (parsed.dryRun) args.push("--dry-run");
   return args;
 }
 
@@ -3708,7 +3900,7 @@ async function addPlainSkillRepo(
       "Plain skill repositories only install skill instructions. Run without --mcp-only.",
     );
   }
-  if (parsed.mcpUrl) {
+  if (parsed.mcpUrl && !planSkillNamesSelected(parsed.plainSkillNames)) {
     throw new Error(
       "--mcp-url only applies to app-backed Agent Native skills.",
     );
@@ -3716,6 +3908,7 @@ async function addPlainSkillRepo(
 
   const clients = parsed.clients ?? resolveClients(parsed.client);
   const skillsAgents = skillsAgentsForClients(clients);
+  const selectedSkillNames = parsed.plainSkillNames ?? [];
   if (skillsAgents.length === 0) {
     throw new Error(
       "Plain skill repositories can only install instructions for Codex or Claude Code clients.",
@@ -3732,15 +3925,17 @@ async function addPlainSkillRepo(
       );
   }
   options.telemetry?.track("skills_cli install completed", {
-    skills: target,
+    skills: selectedSkillNames.length ? selectedSkillNames.join(",") : target,
     clients: clients.join(","),
     scope: parsed.scope,
     dryRun: Boolean(parsed.dryRun),
   });
   return {
     id: target,
-    displayName: target,
-    skillNames: [],
+    displayName: selectedSkillNames.length
+      ? selectedSkillNames.join(", ")
+      : target,
+    skillNames: selectedSkillNames,
     skillsAgents,
     mcpUrl: "",
     mcpClients: [],
@@ -3842,6 +4037,17 @@ export async function addAgentNativeSkill(
   options: RunSkillsOptions = {},
 ): Promise<SkillsAddResult> {
   const target = parsed.target ?? "assets";
+  const publicSelection = publicSkillSelectionNames(target);
+  if (publicSelection) {
+    return addPlainSkillRepo(
+      {
+        ...parsed,
+        target: options.publicSkillSource ?? DEFAULT_PUBLIC_SKILLS_SOURCE,
+        plainSkillNames: publicSelection,
+      },
+      options,
+    );
+  }
   const knownTarget = normalizeKnownSkillTarget(target);
   const planMode =
     knownTarget === "visual-plans"
@@ -4168,18 +4374,33 @@ export async function addAgentNativeSkill(
   }
 }
 
-function listSkills() {
-  return Object.values(BUILT_IN_APP_SKILLS).map((entry) => ({
-    id: entry.manifest.id,
-    aliases:
-      BUILT_IN_APP_SKILL_DISPLAY_ALIASES[
-        entry.manifest.id as BuiltInAppSkillId
-      ] ?? [],
-    name: entry.manifest.displayName,
-    description: entry.manifest.description,
-    mcpUrl: isLocalOnlyBuiltInSkill(entry) ? "" : entry.manifest.hosted.mcpUrl,
-    local: isLocalOnlyBuiltInSkill(entry),
-  }));
+function listSkills(options: RunSkillsOptions = {}) {
+  return [
+    ...Object.values(BUILT_IN_APP_SKILLS).map((entry) => ({
+      id: entry.manifest.id,
+      aliases:
+        BUILT_IN_APP_SKILL_DISPLAY_ALIASES[
+          entry.manifest.id as BuiltInAppSkillId
+        ] ?? [],
+      name: entry.manifest.displayName,
+      description: entry.manifest.description,
+      mcpUrl: isLocalOnlyBuiltInSkill(entry)
+        ? ""
+        : entry.manifest.hosted.mcpUrl,
+      local: isLocalOnlyBuiltInSkill(entry),
+      source: "agent-native",
+    })),
+    ...publicSkillEntries(options).map((entry) => ({
+      id: entry.name,
+      aliases: [] as string[],
+      name: entry.name,
+      description:
+        entry.description ?? "Public skill from the BuilderIO skills catalog.",
+      mcpUrl: "",
+      local: true,
+      source: options.publicSkillSource ?? DEFAULT_PUBLIC_SKILLS_SOURCE,
+    })),
+  ];
 }
 
 function skillStateJson(state: SkillInstallState) {
@@ -4213,6 +4434,45 @@ function planModeSummary(mode: PlanInstallMode): string {
   if (mode === "local-files") return "Local files - No sharing, all local.";
   if (mode === "self-hosted") return "Self-hosted/custom Plan app";
   return "Hosted Plans - shareable links and comments";
+}
+
+function instructionContentForSkill(skillName: string): string | null {
+  if (skillName === "quick-recap") {
+    return "When writing final response status indicators, use the /quick-recap skill always.";
+  }
+  if (skillName === "efficient-fable") {
+    return "When operating as Claude Fable, use the /efficient-fable skill always.";
+  }
+  if (skillName === "efficient-frontier") {
+    return "When using a high-cost frontier model for codebase-heavy work, use the /efficient-frontier skill always.";
+  }
+  if (skillName === "stay-within-limits") {
+    return "When long-running or parallel work needs usage-limit checks, use the /stay-within-limits skill always.";
+  }
+  if (skillName === "visual-plan") {
+    return "When work needs an interactive visual plan before implementation, use the /visual-plan skill always.";
+  }
+  if (skillName === "visual-recap") {
+    return "When a PR, branch, commit, or diff needs an interactive visual recap, use the /visual-recap skill always.";
+  }
+  return null;
+}
+
+function selectedPlainSkillNamesForInstructionPrompt(
+  targets: string[],
+  parsed: ParsedSkillsArgs,
+): string[] {
+  const names = new Set<string>(parsed.plainSkillNames ?? []);
+  for (const target of targets) {
+    for (const name of publicSkillSelectionNames(target) ?? []) {
+      names.add(name);
+    }
+  }
+  return [...names];
+}
+
+function hasManagedInstructionBlock(skillNames: string[]): boolean {
+  return skillNames.some((name) => Boolean(instructionContentForSkill(name)));
 }
 
 function runSkillsStatusOrUpdate(
@@ -4297,6 +4557,9 @@ export async function runSkills(
   options: RunSkillsOptions = {},
 ): Promise<void> {
   const parsed = parseSkillsArgs(argv);
+  if (parsed.baseDir) {
+    options = { ...options, baseDir: path.resolve(parsed.baseDir) };
+  }
   const log = parsed.printJson
     ? undefined
     : (message: string) => process.stdout.write(`${message}\n`);
@@ -4311,6 +4574,7 @@ export async function runSkills(
   // `npx @agent-native/skills@latest add …`; this env guard tells that child process
   // to run its OWN headless installer instead of bouncing back into core,
   // which would otherwise be an infinite skills → core → skills loop.
+  const previousDirect = process.env.AGENT_NATIVE_SKILLS_DIRECT;
   process.env.AGENT_NATIVE_SKILLS_DIRECT = "1";
 
   // Best-effort install-funnel telemetry. Created once per run and flushed in a
@@ -4331,7 +4595,7 @@ export async function runSkills(
     telemetry.track("skills_cli started");
 
     if (parsed.command === "list") {
-      const skills = listSkills();
+      const skills = listSkills(optionsWithTelemetry);
       telemetry.track("skills_cli skills listed", {
         availableCount: skills.length,
         available: skills.map((skill) => skill.id).join(","),
@@ -4370,11 +4634,13 @@ export async function runSkills(
       // Best-effort "took everything offered" signal: compare against the
       // interactive picker's option count (the plan sub-skills collapse into a
       // single bundle target, so this is approximate, like the standalone CLI).
-      selectedAll: targets.length === skillPromptOptions().length,
+      selectedAll: targets.length === skillPromptOptions(options).length,
       preselected,
     });
 
-    const includesPlans = targetsIncludePlans(targets);
+    const includesPlans =
+      targetsIncludePlans(targets) ||
+      planSkillNamesSelected(parsed.plainSkillNames);
     if (parsed.planMode && !includesPlans) {
       throw new Error("--mode only applies to visual-plan / visual-recap.");
     }
@@ -4437,16 +4703,38 @@ export async function runSkills(
     }
     telemetry.track("skills_cli scope selected", { scope: parsed.scope });
 
+    const instructionSkillNames = selectedPlainSkillNamesForInstructionPrompt(
+      targets,
+      parsed,
+    );
+    if (
+      parsed.updateInstructions === undefined &&
+      hasManagedInstructionBlock(instructionSkillNames) &&
+      shouldPrompt(parsed, options)
+    ) {
+      const prompt =
+        options.promptUpdateInstructions ?? promptForUpdateInstructions;
+      const choice = await prompt();
+      if (choice === null) {
+        telemetry.track("skills_cli cancelled", {
+          step: "managed-instructions",
+        });
+        return;
+      }
+      parsed.updateInstructions = choice === true;
+    }
+
     // Decide the optional PR Visual Recap GitHub Action UP FRONT — before any
     // install or MCP registration — so every prompt is answered before we touch
     // disk. The choice is threaded into each install via `withGithubAction` +
     // `githubActionResolved` (so addAgentNativeSkill doesn't re-prompt mid-flow).
     const recapBaseDir = options.baseDir ?? process.cwd();
-    const anyRecapTarget = targets.some((target) => {
-      if (normalizeKnownSkillTarget(target) !== "visual-plans") return false;
-      const only = builtInOnlySkillNames(target);
-      return !only || only.includes("visual-recap");
-    });
+    const anyRecapTarget =
+      targets.some((target) => {
+        if (normalizeKnownSkillTarget(target) !== "visual-plans") return false;
+        const only = builtInOnlySkillNames(target);
+        return !only || only.includes("visual-recap");
+      }) || recapSkillNamesSelected(parsed.plainSkillNames);
     if (
       anyRecapTarget &&
       !parsed.withGithubAction &&
@@ -4627,5 +4915,10 @@ export async function runSkills(
     throw error;
   } finally {
     await telemetry.flush();
+    if (previousDirect === undefined) {
+      delete process.env.AGENT_NATIVE_SKILLS_DIRECT;
+    } else {
+      process.env.AGENT_NATIVE_SKILLS_DIRECT = previousDirect;
+    }
   }
 }
