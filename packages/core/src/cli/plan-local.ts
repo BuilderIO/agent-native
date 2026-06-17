@@ -1008,6 +1008,8 @@ function sendBridgeJson(
     "access-control-allow-origin": "*",
     "access-control-allow-methods": "GET, OPTIONS",
     "access-control-allow-headers": "content-type",
+    // Required when the hosted HTTPS Plan UI fetches this localhost bridge.
+    "access-control-allow-private-network": "true",
     "cache-control": "no-store",
     "content-type": "application/json; charset=utf-8",
     "x-agent-native-local-bridge": "1",

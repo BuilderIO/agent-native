@@ -3508,8 +3508,8 @@ async function promptForPlanMode(
     options: [
       {
         value: "hosted",
-        label: "Hosted Plans, shareable links (recommended)",
-        hint: "100% free and open source. Stores plans at plan.agent-native.com with sharing, comments, and browser editor. Requires one-time browser sign-in.",
+        label: "Hosted plans, shareable links",
+        hint: "Recommended. 100% free and open source. Stores plans at plan.agent-native.com with sharing, comments, and browser editor. Requires one-time browser sign-in.",
       },
       {
         value: "local-files",

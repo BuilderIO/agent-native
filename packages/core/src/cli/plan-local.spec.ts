@@ -218,6 +218,20 @@ describe("local plan CLI helpers", () => {
       expect(payload.source).toBe("agent-native-local-bridge");
       expect(payload.mdx["plan.mdx"]).toContain("Private Checkout Plan");
 
+      const preflight = await fetch(bridge.result.bridgeUrl, {
+        method: "OPTIONS",
+        headers: {
+          origin: "https://plan.example.com",
+          "access-control-request-method": "GET",
+          "access-control-request-private-network": "true",
+        },
+      });
+      expect(preflight.status).toBe(204);
+      expect(preflight.headers.get("access-control-allow-origin")).toBe("*");
+      expect(
+        preflight.headers.get("access-control-allow-private-network"),
+      ).toBe("true");
+
       const denied = await fetch(
         bridge.result.bridgeUrl.replace("test-token", "wrong-token"),
       );
