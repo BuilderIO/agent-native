@@ -3,6 +3,19 @@
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+const analyticsMock = vi.hoisted(() => ({
+  captureError: vi.fn(),
+}));
+
+vi.mock("./analytics.js", () => ({
+  captureError: analyticsMock.captureError,
+  configureTracking: vi.fn(),
+  setSentryUser: vi.fn(),
+  trackEvent: vi.fn(),
+  trackSessionStatus: vi.fn(),
+}));
+
 import {
   AssistantMessageListErrorBoundary,
   AssistantUiStaleIndexErrorBoundary,
@@ -136,6 +149,7 @@ describe("AssistantMessageListErrorBoundary", () => {
   beforeEach(() => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     vi.useFakeTimers();
+    analyticsMock.captureError.mockClear();
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -175,6 +189,7 @@ describe("AssistantMessageListErrorBoundary", () => {
     });
 
     expect(container.textContent).toContain("Recovered messages");
+    expect(analyticsMock.captureError).not.toHaveBeenCalled();
   });
 });
 
@@ -214,6 +229,7 @@ describe("AssistantUiStaleIndexErrorBoundary", () => {
   beforeEach(() => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     vi.useFakeTimers();
+    analyticsMock.captureError.mockClear();
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -253,6 +269,7 @@ describe("AssistantUiStaleIndexErrorBoundary", () => {
     });
 
     expect(container.textContent).toContain("Recovered composer");
+    expect(analyticsMock.captureError).not.toHaveBeenCalled();
   });
 
   it("remounts any assistant-ui subtree after a React fiber unmount error", async () => {
@@ -341,6 +358,22 @@ describe("AssistantUiStaleIndexErrorBoundary", () => {
     expect(caught[0].message).toContain("Duplicate key");
     expect(container.textContent).toContain("Parent caught");
     expect(vi.getTimerCount()).toBe(0);
+    expect(analyticsMock.captureError).toHaveBeenCalledTimes(1);
+    expect(analyticsMock.captureError).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: "Duplicate key toolCallId-tc_1 in tapResources",
+      }),
+      expect.objectContaining({
+        tags: expect.objectContaining({
+          component: "PromptComposer",
+          recoverable: "assistant-ui-duplicate-resource-key",
+        }),
+        extra: expect.objectContaining({
+          resetKey: "thread-1",
+          retryCount: 3,
+        }),
+      }),
+    );
   });
 
   it("resets the recoverable retry budget after a successful remount", async () => {

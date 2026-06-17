@@ -269,7 +269,10 @@ describe("Plans skills install — materialized output", () => {
    * must read them while the npx invocation is still pending — mirroring the
    * existing skills.spec.ts pattern.
    */
-  async function materializeViaAlias(alias: string): Promise<{
+  async function materializeViaAlias(
+    alias: string,
+    extraArgs: string[] = [],
+  ): Promise<{
     result: Awaited<ReturnType<typeof addAgentNativeSkill>>;
     captured: Record<string, string>;
     capturedReferences: Record<string, string>;
@@ -291,6 +294,7 @@ describe("Plans skills install — materialized output", () => {
           "codex",
           "--scope",
           "project",
+          ...extraArgs,
         ]),
         { baseDir: root, runCommand: async () => 0 },
       );
@@ -367,6 +371,60 @@ describe("Plans skills install — materialized output", () => {
           `materialized ${name}/${rel}`,
         ).toBe(constant);
       }
+    }
+  });
+
+  it("parses explicit Plans install modes", () => {
+    expect(
+      parseSkillsArgs(["add", "visual-plan", "--mode", "local-files"]).planMode,
+    ).toBe("local-files");
+    expect(
+      parseSkillsArgs([
+        "add",
+        "visual-plan",
+        "--mode",
+        "self-hosted",
+        "--mcp-url",
+        "https://plans.example.com",
+      ]).planMode,
+    ).toBe("self-hosted");
+    expect(() =>
+      parseSkillsArgs([
+        "add",
+        "visual-plan",
+        "--mode",
+        "local-files",
+        "--mcp-url",
+        "https://plans.example.com",
+      ]),
+    ).toThrow("--mode local-files cannot be combined with --mcp-url");
+  });
+
+  it("local-files mode installs mode-aware instructions without MCP/auth", async () => {
+    const { result, captured, codexConfigExists } = await materializeViaAlias(
+      "visual-plans",
+      ["--mode", "local-files"],
+    );
+    expect(result.planMode).toBe("local-files");
+    expect(result.mcpUrl).toBe("");
+    expect(result.mcpClients).toEqual([]);
+    expect(result.connected).toBe(false);
+    expect(result.connectCommand).toBeUndefined();
+    expect(codexConfigExists).toBe(false);
+    expect(result.commands).not.toContain(
+      "npx @agent-native/core@latest connect https://plan.agent-native.com --client codex --scope project",
+    );
+
+    for (const name of PLANS_INSTALL_SKILL_NAMES) {
+      expect(captured[name], `materialized ${name}/SKILL.md`).toContain(
+        "Default storage for this installation: local files.",
+      );
+      expect(captured[name], `materialized ${name}/SKILL.md`).toContain(
+        "No sharing, all local.",
+      );
+      expect(captured[name], `materialized ${name}/SKILL.md`).toContain(
+        "plan local preview",
+      );
     }
   });
 
