@@ -4065,36 +4065,6 @@ function DatabaseSettingsSourcePanel({
           {isCodeMode ? (
             <>
               <div className="grid min-w-0 gap-2 rounded-lg border border-border bg-background p-3 text-sm">
-                <div className="font-medium">Row identity</div>
-                <div className="grid min-w-0 gap-2">
-                  {source.rows.slice(0, 6).map((row) => (
-                    <div
-                      key={row.id}
-                      className="min-w-0 rounded-md border border-border/70 px-2 py-1.5"
-                    >
-                      <div
-                        className="truncate font-medium"
-                        title={row.sourceDisplayKey}
-                      >
-                        {row.sourceDisplayKey}
-                      </div>
-                      <div
-                        className="mt-1 break-all text-xs text-muted-foreground"
-                        title={row.sourceQualifiedId}
-                      >
-                        {row.sourceQualifiedId}
-                      </div>
-                    </div>
-                  ))}
-                  {source.rows.length === 0 ? (
-                    <div className="text-xs text-muted-foreground">
-                      No rows are bound yet.
-                    </div>
-                  ) : null}
-                </div>
-              </div>
-
-              <div className="grid min-w-0 gap-2 rounded-lg border border-border bg-background p-3 text-sm">
                 <div className="font-medium">Incoming source proposals</div>
                 <div className="grid min-w-0 gap-2">
                   {incomingChangeSets.slice(0, 6).map((changeSet) => (
