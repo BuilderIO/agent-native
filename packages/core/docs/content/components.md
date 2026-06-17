@@ -27,23 +27,26 @@ so bundlers choose the browser-safe entry.
 
 ## Agent And Chat UI {#agent-chat-ui}
 
-| API                        | Import path                                   | Use when                                                                                         |
-| -------------------------- | --------------------------------------------- | ------------------------------------------------------------------------------------------------ |
-| `<AgentSidebar>`           | `@agent-native/core/client` or `/client/chat` | You want the complete sidebar around your app.                                                   |
-| `<AgentToggleButton>`      | `@agent-native/core/client` or `/client/chat` | You render your own header button for the sidebar.                                               |
-| `<AgentPanel>`             | `@agent-native/core/client` or `/client/chat` | You want the full panel in your own layout, route, dialog, or side column.                       |
-| `<AgentChatSurface>`       | `@agent-native/core/client` or `/client/chat` | You want chat in panel or page mode without the sidebar wrapper.                                 |
-| `<AssistantChat>`          | `@agent-native/core/client` or `/client/chat` | You want to own surrounding chrome while keeping the standard conversation and composer runtime. |
-| `<MultiTabAssistantChat>`  | `@agent-native/core/client` or `/client/chat` | You want the framework's thread tabs without `AgentPanel` chrome.                                |
-| `createAgentChatAdapter()` | `@agent-native/core/client` or `/client/chat` | You are adapting a BYO assistant-ui transport into the Agent-Native chat runtime.                |
-| `useChatThreads()`         | `@agent-native/core/client` or `/client/chat` | You need a custom thread list, history picker, or scoped chat UI.                                |
-| `sendToAgentChat()`        | `@agent-native/core/client` or `/client/chat` | A product action should hand work to the agent chat.                                             |
+| API                               | Import path                                   | Use when                                                                                         |
+| --------------------------------- | --------------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| `<AgentSidebar>`                  | `@agent-native/core/client` or `/client/chat` | You want the complete sidebar around your app.                                                   |
+| `<AgentToggleButton>`             | `@agent-native/core/client` or `/client/chat` | You render your own header button for the sidebar.                                               |
+| `<AgentPanel>`                    | `@agent-native/core/client` or `/client/chat` | You want the full panel in your own layout, route, dialog, or side column.                       |
+| `<AgentChatSurface>`              | `@agent-native/core/client` or `/client/chat` | You want chat in panel or page mode without the sidebar wrapper.                                 |
+| `<AssistantChat>`                 | `@agent-native/core/client` or `/client/chat` | You want to own surrounding chrome while keeping the standard conversation and composer runtime. |
+| `<MultiTabAssistantChat>`         | `@agent-native/core/client` or `/client/chat` | You want the framework's thread tabs without `AgentPanel` chrome.                                |
+| `createHttpAgentChatRuntime()`    | `@agent-native/core/client` or `/client/chat` | You have a BYO agent endpoint that streams normalized chat events.                               |
+| `createAgentChatRuntimeAdapter()` | `@agent-native/core/client` or `/client/chat` | You need to adapt an `AgentChatRuntime` into assistant-ui yourself.                              |
+| `createAgentChatAdapter()`        | `@agent-native/core/client` or `/client/chat` | You need the built-in Agent-Native SSE transport as a low-level assistant-ui adapter.            |
+| `useChatThreads()`                | `@agent-native/core/client` or `/client/chat` | You need a custom thread list, history picker, or scoped chat UI.                                |
+| `sendToAgentChat()`               | `@agent-native/core/client` or `/client/chat` | A product action should hand work to the agent chat.                                             |
 
-In docs, `AgentChatRuntime` means this standard runtime posture: assistant-ui
-thread state, Agent-Native streaming, run recovery, attachments, model
-selection, approvals, native tool widgets, and SQL-backed sync. It is not a
-separate protocol replacement. BYO agents should adapt into this runtime with
-`createAgentChatAdapter()` when they want the normal app chat experience.
+`AgentChatRuntime` is the BYO-agent contract for the standard chat shell. Pass
+`runtime` to `<AssistantChat>` when an external agent should power the
+conversation while Agent-Native keeps the composer, transcript, tool cards, and
+native widget rendering. If you are choosing between headless actions, rich
+chat, embedded sidecar, and full app shapes, see
+[Agent Surfaces](/docs/agent-surfaces).
 
 The shortest custom route is still a pre-wired surface:
 
@@ -74,6 +77,24 @@ function CustomChat({ projectSlug }: { projectSlug: string }) {
       <AssistantChat threadId={threadId} />
     </section>
   );
+}
+```
+
+For a bring-your-own agent endpoint:
+
+```tsx
+import {
+  AssistantChat,
+  createHttpAgentChatRuntime,
+} from "@agent-native/core/client/chat";
+
+const runtime = createHttpAgentChatRuntime({
+  endpoint: "/api/my-agent/chat",
+  label: "My agent",
+});
+
+export function MyAgentChat() {
+  return <AssistantChat runtime={runtime} />;
 }
 ```
 

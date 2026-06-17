@@ -5,6 +5,10 @@ import {
   type Page,
 } from "@playwright/test";
 import { readFileSync } from "node:fs";
+import {
+  expectedPlanCommentAuthorEmail,
+  planE2eAuthEmailPath,
+} from "./auth-state";
 
 /*
  * COMMENTING + REVIEW MODE — deep, adversarial E2E.
@@ -25,11 +29,13 @@ const REVIEWER_EMAIL =
   (() => {
     try {
       // global-setup writes the actual per-run authed identity here.
-      return readFileSync("e2e/.auth/email.txt", "utf8").trim();
+      return readFileSync(planE2eAuthEmailPath(), "utf8").trim();
     } catch {
       return "e2e-tester@plan.test";
     }
   })();
+const EXPECTED_COMMENT_AUTHOR_EMAIL =
+  expectedPlanCommentAuthorEmail(REVIEWER_EMAIL);
 
 type ActionResult = Record<string, any>;
 
@@ -68,6 +74,10 @@ async function getPlan(
     `/_agent-native/actions/get-visual-plan?id=${encodeURIComponent(planId)}`,
   );
   return (await res.json().catch(() => ({}))) as ActionResult;
+}
+
+function commentsByMessage(comments: any[], message: string): any | undefined {
+  return comments.find((comment) => comment.message === message);
 }
 
 /** Create a fixture plan with a rich-text block (text-quote anchor target) and
@@ -191,8 +201,8 @@ test("each comment kind persists with real reviewer identity and survives reload
     // Identity must be the real reviewer, never the spoofed value.
     expect(
       found.authorEmail,
-      `comment kind "${kind}" must be stamped with the real reviewer email`,
-    ).toBe(REVIEWER_EMAIL);
+      `comment kind "${kind}" must be stamped with the expected plan author email`,
+    ).toBe(EXPECTED_COMMENT_AUTHOR_EMAIL);
     expect(
       String(found.authorEmail).toLowerCase(),
       `comment kind "${kind}" must not accept a spoofed authorEmail`,
@@ -350,7 +360,143 @@ test("replying to a comment thread nests correctly under the root", async ({
 });
 
 /* ------------------------------------------------------------------ */
-/* 4. Resolving a thread removes it from open agent feedback           */
+/* 4. resolve-plan-comment handles replies and resolution notes        */
+/* ------------------------------------------------------------------ */
+test("resolve-plan-comment resolves a replied-to thread and posts its resolution note", async ({
+  page,
+}) => {
+  const req = page.request;
+  const planId = await createFixturePlan(req, "resolve-action");
+  const rootMessage = "Root agent-action comment to resolve.";
+  const replyMessage = "Reviewer reply before resolution.";
+  const resolutionNote = "Fixed the checkout copy and verified the thread.";
+
+  const root = await action(req, "update-visual-plan", {
+    planId,
+    comments: [
+      {
+        kind: "correction",
+        status: "open",
+        message: rootMessage,
+        anchor: visualAnchor("Pay now button"),
+        createdBy: "human",
+      },
+    ],
+  });
+  expect(
+    root.ok,
+    `root comment must succeed (status ${root.status}: ${root.raw.slice(0, 200)})`,
+  ).toBeTruthy();
+  const rootComment = commentsByMessage(root.body.comments ?? [], rootMessage);
+  expect(rootComment?.id, "root comment id").toBeTruthy();
+  const rootId = rootComment.id;
+
+  const reply = await action(req, "update-visual-plan", {
+    planId,
+    comments: [
+      {
+        parentCommentId: rootId,
+        kind: "correction",
+        status: "open",
+        message: replyMessage,
+        createdBy: "human",
+      },
+    ],
+  });
+  expect(
+    reply.ok,
+    `reply must succeed (status ${reply.status}: ${reply.raw.slice(0, 200)})`,
+  ).toBeTruthy();
+  const replyComment = commentsByMessage(
+    reply.body.comments ?? [],
+    replyMessage,
+  );
+  expect(replyComment?.id, "reply comment id").toBeTruthy();
+
+  const resolved = await action(req, "resolve-plan-comment", {
+    planId,
+    // Exercise the server action's root-walking path: callers can pass a reply
+    // id from get-plan-feedback and still resolve the whole thread.
+    commentId: replyComment.id,
+    status: "resolved",
+    resolutionNote,
+  });
+  expect(
+    resolved.ok,
+    `resolve-plan-comment must succeed (status ${resolved.status}: ${resolved.raw.slice(0, 200)})`,
+  ).toBeTruthy();
+  expect(
+    resolved.body.resolutionNoteId,
+    "resolve-plan-comment should return the inserted resolution note id",
+  ).toBeTruthy();
+
+  const plan = await getPlan(req, planId);
+  const comments: any[] = plan.comments ?? [];
+  const note = comments.find(
+    (comment) => comment.id === resolved.body.resolutionNoteId,
+  );
+  expect(note, "resolution note reply must persist").toBeTruthy();
+  expect(note.message).toBe(resolutionNote);
+  expect(note.parentCommentId, "resolution note should reply to the root").toBe(
+    rootId,
+  );
+  expect(note.createdBy, "resolution note should be an agent reply").toBe(
+    "agent",
+  );
+
+  for (const id of [rootId, replyComment.id, note.id]) {
+    const comment = comments.find((item) => item.id === id);
+    expect(comment?.status, `comment ${id} should be resolved`).toBe(
+      "resolved",
+    );
+    expect(
+      comment?.resolvedAt,
+      `comment ${id} should have resolvedAt`,
+    ).toBeTruthy();
+    expect(
+      comment?.resolvedBy,
+      `comment ${id} should have resolvedBy`,
+    ).toBeTruthy();
+  }
+
+  const fb = await getFeedback(req, planId);
+  expect(fb.status, "get-plan-feedback after resolving should return 200").toBe(
+    200,
+  );
+  const thread = (fb.body.threads ?? []).find(
+    (item: any) => item.id === rootId,
+  );
+  expect(
+    thread,
+    "resolved thread should remain visible until consumed",
+  ).toBeTruthy();
+  expect(thread.status, "thread should no longer be open").toBe("resolved");
+  expect(
+    thread.commentCount,
+    "thread should include root, reply, and note",
+  ).toBe(3);
+  const threadMessages = (thread.comments ?? []).map(
+    (comment: any) => comment.message,
+  );
+  expect(threadMessages).toEqual(
+    expect.arrayContaining([rootMessage, replyMessage, resolutionNote]),
+  );
+  expect(
+    fb.body.feedbackSummary?.openThreadCount,
+    "resolved thread should not count as open feedback",
+  ).toBe(0);
+  expect(
+    fb.body.feedbackSummary?.resolvedThreadCount,
+    "resolved thread should count as resolved feedback",
+  ).toBe(1);
+  expect(
+    fb.body.actionableThreads ?? [],
+    "resolved agent-targeted feedback should leave no actionable open threads",
+  ).toHaveLength(0);
+});
+
+/* ------------------------------------------------------------------ */
+/* 5. Resolving a thread removes it from open agent feedback           */
 /* ------------------------------------------------------------------ */
 test("resolving a thread stops it appearing as open feedback", async ({
   page,
@@ -423,7 +569,7 @@ test("resolving a thread stops it appearing as open feedback", async ({
 });
 
 /* ------------------------------------------------------------------ */
-/* 5. EDGE: empty comment is rejected                                  */
+/* 6. EDGE: empty comment is rejected                                  */
 /* ------------------------------------------------------------------ */
 test("empty comment body is rejected (validation), not silently stored", async ({
   page,
@@ -464,7 +610,7 @@ test("empty comment body is rejected (validation), not silently stored", async (
 });
 
 /* ------------------------------------------------------------------ */
-/* 6. EDGE: huge comment body persists intact                          */
+/* 7. EDGE: huge comment body persists intact                          */
 /* ------------------------------------------------------------------ */
 test("a huge comment body persists and round-trips intact", async ({
   page,
@@ -503,7 +649,7 @@ test("a huge comment body persists and round-trips intact", async ({
 });
 
 /* ------------------------------------------------------------------ */
-/* 7. EDGE: comment anchored to a since-removed block stays readable   */
+/* 8. EDGE: comment anchored to a since-removed block stays readable   */
 /* ------------------------------------------------------------------ */
 test("a comment anchored to a removed block remains readable feedback", async ({
   page,
@@ -564,7 +710,7 @@ test("a comment anchored to a removed block remains readable feedback", async ({
 });
 
 /* ------------------------------------------------------------------ */
-/* 8. EDGE: many comments persist collision-free (unique ids)          */
+/* 9. EDGE: many comments persist collision-free (unique ids)          */
 /* ------------------------------------------------------------------ */
 test("many comments persist with unique ids (collision-free pins)", async ({
   page,
@@ -604,7 +750,7 @@ test("many comments persist with unique ids (collision-free pins)", async ({
 });
 
 /* ------------------------------------------------------------------ */
-/* 9. UI: review mode pin → comment composer → persisted thread        */
+/* 10. UI: review mode pin → comment composer → persisted thread       */
 /*    Drives the real browser flow a reviewer would use.               */
 /* ------------------------------------------------------------------ */
 test("UI: enter review mode, pin a comment on the document, and see it persist", async ({
@@ -616,6 +762,7 @@ test("UI: enter review mode, pin a comment on the document, and see it persist",
   // Capture the status of the UI's own update-visual-plan call so the test
   // catches a server error even if the optimistic UI hides it.
   const updateStatuses: number[] = [];
+  const planReadStatuses: number[] = [];
   page.on("requestfinished", async (r) => {
     if (
       r.url().includes("update-visual-plan") &&
@@ -624,6 +771,15 @@ test("UI: enter review mode, pin a comment on the document, and see it persist",
       const resp = await r.response();
       const status = resp?.status();
       if (typeof status === "number") updateStatuses.push(status);
+    }
+  });
+  page.on("response", (resp) => {
+    const url = resp.url();
+    if (
+      url.includes("/_agent-native/actions/get-visual-plan") &&
+      url.includes(planId)
+    ) {
+      planReadStatuses.push(resp.status());
     }
   });
 
@@ -688,7 +844,7 @@ test("UI: enter review mode, pin a comment on the document, and see it persist",
       (c: any) => c.createdBy === "human",
     );
     expect(human.length).toBeGreaterThanOrEqual(1);
-    expect(human[0].authorEmail).toBe(REVIEWER_EMAIL);
+    expect(human[0].authorEmail).toBe(EXPECTED_COMMENT_AUTHOR_EMAIL);
   }).toPass({ timeout: 15000 });
 
   // And the "Send to agent" feedback control should surface once an open
@@ -697,4 +853,41 @@ test("UI: enter review mode, pin a comment on the document, and see it persist",
     page.getByRole("button", { name: /Send to agent/i }),
     "Send to agent control should appear once an open comment exists",
   ).toBeVisible({ timeout: 15000 });
+
+  // A hard browser refresh after adding comments should reload the same plan
+  // cleanly, not flash into an error state or lose the freshly saved thread.
+  await page.reload({ waitUntil: "domcontentloaded" });
+  await expect(
+    page.getByText("quick brown fox", { exact: false }).first(),
+    "plan content should render after hard refresh",
+  ).toBeVisible({ timeout: 15000 });
+  await expect(
+    page.getByRole("button", { name: /Send to agent/i }),
+    "open comment feedback should still be visible after hard refresh",
+  ).toBeVisible({ timeout: 15000 });
+  await expect(
+    page.getByText(/Plan (did not load|not found)|Internal server error/i),
+    "hard refresh after adding a comment must not surface a plan load error",
+  ).toHaveCount(0);
+  expect(
+    planReadStatuses.every((status) => status < 400),
+    `hard refresh should not make get-visual-plan fail (statuses seen: ${planReadStatuses.join(", ")})`,
+  ).toBeTruthy();
+
+  const reloadedPlan = await getPlan(req, planId);
+  const persisted = commentsByMessage(
+    reloadedPlan.comments ?? [],
+    "UI-pinned review comment.",
+  );
+  expect(
+    persisted,
+    "UI-pinned comment should still exist after a hard browser refresh",
+  ).toBeTruthy();
+  expect(persisted.status, "reloaded UI comment should remain open").toBe(
+    "open",
+  );
+  expect(
+    persisted.authorEmail,
+    "reloaded UI comment keeps the expected plan author identity",
+  ).toBe(EXPECTED_COMMENT_AUTHOR_EMAIL);
 });

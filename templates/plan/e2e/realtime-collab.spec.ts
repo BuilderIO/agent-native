@@ -5,6 +5,7 @@ import {
   type BrowserContext,
   type Page,
 } from "@playwright/test";
+import { planE2eAuthStatePath } from "./auth-state";
 
 function makeE2ePassword(label: string): string {
   return ["example", label, Date.now().toString(36), "pw"].join("-");
@@ -52,7 +53,7 @@ const CREATE_ACTION = "/_agent-native/actions/create-visual-plan";
 const GET_ACTION = "/_agent-native/actions/get-visual-plan";
 const UPDATE_ACTION = "/_agent-native/actions/update-visual-plan";
 const RICH_BLOCK_ID = "rt-collab";
-const STATE_FILE = "e2e/.auth/state.json";
+const STATE_FILE = planE2eAuthStatePath();
 
 type PlanContentInput = {
   version: number;

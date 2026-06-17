@@ -194,7 +194,7 @@ Agent-native supports a lot of agent-facing protocols because different hosts st
 | ----------------------- | ------------------- | ------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------- |
 | Agent tool calling      | Shipping            | The in-app agent sees actions as function tools with zod-derived JSON Schema.                                                   | `defineAction()`                        |
 | UI actions              | Shipping            | React calls the same action through `useActionMutation()` / `useActionQuery()`.                                                 | The same action                         |
-| Native chat widgets     | Shipping            | Tool results with explicit widget discriminants can render native tables, charts, approvals, and setup cards in chat.           | Structured action results               |
+| Native chat widgets     | Shipping            | Tool results with explicit widget discriminants can render native tables, charts, and typed app results in chat.                | Structured action results               |
 | HTTP and CLI            | Shipping            | Actions auto-mount at `/_agent-native/actions/:name` and run via `pnpm action <name>`.                                          | The same action                         |
 | MCP server              | Shipping            | External MCP hosts get Streamable HTTP tools, the `ask-agent` meta-tool, and optional MCP Apps resources.                       | The same action, plus optional `mcpApp` |
 | MCP OAuth               | Shipping            | Standard remote MCP OAuth, PKCE, dynamic client registration, refresh tokens, and `mcp:read` / `mcp:write` / `mcp:apps` scopes. | Nothing per action                      |
@@ -222,7 +222,7 @@ Those protocol adapters let the same app grow across three product shapes:
 | **Rich chat agent**   | A standalone or embedded chat can guide setup, call tools, request approvals, and render native tables/charts/results. | Agent-first workflows that still need inspectable output       |
 | **Whole application** | Chat starts central when helpful, then becomes a sidebar next to forms, dashboards, editors, calendars, or documents.  | Durable products where humans and agents share state over time |
 
-You should be able to start with the headless contract, add rich chat, and then grow a full app around the same actions and SQL state instead of rebuilding.
+You should be able to start with the headless contract, add rich chat, and then grow a full app around the same actions and SQL state instead of rebuilding. See [Agent Surfaces](/docs/agent-surfaces) for the concrete choice guide and APIs.
 
 ## Agent modifies code {#agent-modifies-code}
 
@@ -320,5 +320,6 @@ For detailed guidance on specific patterns:
 - [Context Awareness](/docs/context-awareness) — navigation state, view-screen, navigate commands
 - [Skills Guide](/docs/skills-guide) — framework skills, domain skills, creating custom skills
 - [Native Chat UI](/docs/native-chat-ui) — action-declared tables, charts, and BYO runtime posture
+- [Agent Surfaces](/docs/agent-surfaces) — headless, rich chat, embedded sidecar, and full-app paths
 - [A2A Protocol](/docs/a2a-protocol) — agent-to-agent communication
 - [Multi-App Workspace](/docs/multi-app-workspace) — host many apps in one monorepo with shared auth, skills, components, and credentials

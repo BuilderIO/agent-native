@@ -5,7 +5,7 @@ description: "Apps where the agent is the whole product — open it, ask for wha
 
 # Pure-Agent Apps
 
-This is the minimal end of agent-native — for the full-UI end, start from a [template](/docs/cloneable-saas).
+This is the minimal end of agent-native — for the full-UI end, start from a [template](/docs/cloneable-saas). If you are choosing between headless, chat-first, embedded, and full-app shapes, start with [Agent Surfaces](/docs/agent-surfaces).
 
 Imagine opening an app and seeing… just a chat. No dashboard. No sidebar full of menus. No forms. You ask for what you want — "summarize my unread emails," "post the daily metrics to Slack," "find the candidates who replied last week" — and the agent goes off and does it. The output shows up in chat, in Slack, in your inbox, wherever it belongs.
 
@@ -90,6 +90,7 @@ Most pure-agent apps eventually want a little custom UI — not a dashboard, but
 ## What's next
 
 - [**Getting Started**](/docs/getting-started) — clone the Starter template
+- [**Agent Surfaces**](/docs/agent-surfaces) — choose headless, rich chat, embedded sidecar, or full app
 - [**Messaging the agent**](/docs/messaging) — how users talk to the agent across web, Slack, Telegram, email
 - [**Recurring Jobs**](/docs/recurring-jobs) — scheduled prompts the agent runs on its own
 - [**Dispatch**](/docs/template-dispatch) — the workspace template that's a great starting point for pure-agent apps

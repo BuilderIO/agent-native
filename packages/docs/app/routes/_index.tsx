@@ -517,10 +517,10 @@ export default function Home() {
                     ))}
                   </div>
                   <Link
-                    to="/docs/external-agents"
+                    to="/docs/agent-surfaces"
                     className="mt-4 inline-flex items-center rounded-full border border-[var(--docs-border)] bg-[var(--bg)] px-3 py-1.5 text-sm font-medium text-[var(--fg)] no-underline transition-colors hover:border-[var(--docs-accent)]"
                   >
-                    Connect your existing agent
+                    Choose your agent surface
                     <span className="ml-1" aria-hidden="true">
                       →
                     </span>

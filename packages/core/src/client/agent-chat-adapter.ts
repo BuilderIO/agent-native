@@ -416,8 +416,39 @@ function isToolCallContentPart(
   );
 }
 
-function toolResultContent(result: unknown): string {
+function isSuccessOnlyToolResult(value: Record<string, unknown>): boolean {
+  const keys = Object.keys(value);
+  if (keys.length === 0) return true;
+  return keys.every((key) => {
+    const item = value[key];
+    if (key === "ok" || key === "success") return item === true;
+    if (key === "status") {
+      return item === "ok" || item === "success" || item === "completed";
+    }
+    return false;
+  });
+}
+
+function toolResultContent(result: unknown, toolName?: string): string {
   if (typeof result === "string") return result;
+  const completed = toolName?.trim()
+    ? `${toolName.trim()} completed.`
+    : "Tool completed.";
+  if (result === true || result == null) return completed;
+  if (result && typeof result === "object" && !Array.isArray(result)) {
+    const record = result as Record<string, unknown>;
+    const message = record.message ?? record.summary;
+    if (typeof message === "string" && message.trim()) return message.trim();
+    const title = record.title ?? record.name;
+    if (typeof title === "string" && title.trim()) {
+      return `${title.trim()} is ready.`;
+    }
+    const id = record.id ?? record.planId ?? record.commentId;
+    if (typeof id === "string" && id.trim() && toolName?.trim()) {
+      return `${toolName.trim()} completed for ${id.trim()}.`;
+    }
+    if (isSuccessOnlyToolResult(record)) return completed;
+  }
   try {
     return JSON.stringify(result);
   } catch {
@@ -482,11 +513,11 @@ function contentToStructuredMessages(
           toolInput: JSON.stringify(part.args ?? {}),
           content: truncate
             ? truncateForHistory(
-                toolResultContent(part.result),
+                toolResultContent(part.result, part.toolName),
                 MAX_HISTORY_TOOL_RESULT_CHARS,
                 "Tool result",
               )
-            : toolResultContent(part.result),
+            : toolResultContent(part.result, part.toolName),
         });
       } else {
         pendingToolResults.push({
@@ -563,7 +594,7 @@ function assistantUiMessagesToStructuredHistory(
               ? part.args
               : {},
           ...(part.result !== undefined
-            ? { result: toolResultContent(part.result) }
+            ? { result: toolResultContent(part.result, toolName) }
             : {}),
         });
       }

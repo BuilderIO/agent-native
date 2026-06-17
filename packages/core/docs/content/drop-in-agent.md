@@ -184,20 +184,25 @@ framework own the agent runtime:
 - **`@agent-native/core/client/conversation`** — use this for transcript
   rendering without the full chat runtime.
 - **`createAgentChatAdapter()`** — use this only when building a custom
-  assistant-ui transport for the standard Agent-Native chat runtime. It
+  assistant-ui transport for the built-in Agent-Native chat endpoint. It
   connects to the same `/_agent-native/agent-chat` stream and preserves
   run-manager recovery, attachments, model selection, native widgets, and
   thread metadata.
+- **`createHttpAgentChatRuntime()`** — use this when a BYO agent exposes a
+  POST endpoint that streams `AgentChatRuntime` events. Pass the runtime to
+  `<AssistantChat runtime={runtime} />`.
 
 Avoid posting directly to `/_agent-native/agent-chat` from product UI. If a
 lower-level helper is missing for a real custom surface, add that named helper
 first so client code does not learn a second, ad hoc transport.
 
 For BYO agent runtimes, keep actions and SQL-backed app state as the contract.
-Adapt the runtime into `<AssistantChat createAdapter={...} />` when you want
-Agent-Native chat behavior, or use `PromptComposer` by itself only when the
-external runtime owns the transcript and loop. See
-[Native Chat UI](/docs/native-chat-ui#byo-agent-runtimes).
+Adapt the runtime into `<AssistantChat runtime={...} />` when you want
+Agent-Native chat behavior. Use `<AssistantChat createAdapter={...} />` only
+for lower-level assistant-ui transports, or `PromptComposer` by itself only
+when the external runtime owns the transcript and loop. See
+[Native Chat UI](/docs/native-chat-ui#byo-agent-runtimes) and
+[Agent Surfaces](/docs/agent-surfaces#byo-agent).
 
 ### Build your own sidebar from pieces {#build-your-own-sidebar}
 

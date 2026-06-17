@@ -512,7 +512,7 @@ export {
   type ToolRendererProps,
   type ToolRendererRegistration,
 } from "./chat/tool-render-registry.js";
-export type * from "./chat/runtime.js";
+export * from "./chat/runtime.js";
 export {
   ACTION_CHAT_UI_DATA_CHART_RENDERER,
   ACTION_CHAT_UI_DATA_INSIGHTS_RENDERER,

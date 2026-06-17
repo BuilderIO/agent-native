@@ -1255,7 +1255,7 @@ describe("agent-native skills", () => {
     expect(runConnect).not.toHaveBeenCalled();
     expect(
       promptClients.mock.calls[0]?.[0].options.map((o) => o.value),
-    ).toEqual(["codex", "claude-code", "pi"]);
+    ).toEqual(["codex", "claude-code"]);
     expect(fs.existsSync(path.join(root, ".codex", "config.toml"))).toBe(false);
     expect(
       fs.existsSync(

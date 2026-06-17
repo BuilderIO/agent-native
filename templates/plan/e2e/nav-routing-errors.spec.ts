@@ -1,4 +1,5 @@
 import { test, expect, type Page } from "@playwright/test";
+import { planE2eUsesLocalPlanOwner } from "./auth-state";
 
 function makeE2ePassword(label: string): string {
   return ["example", label, Date.now().toString(36), "pw"].join("-");
@@ -271,7 +272,7 @@ test.describe("nav / routing / error+loading", () => {
     // It must resolve to a graceful error card within a bounded time — not crash
     // to a blank boundary and not spin on a skeleton forever.
     await expect(
-      page.getByText(/Private plan access needed/i),
+      page.getByText(/Plan not found/i),
       "a non-existent or inaccessible plan must resolve to a graceful access card (no infinite skeleton, no crash)",
     ).toBeVisible({ timeout: 25_000 });
 
@@ -518,6 +519,11 @@ test.describe("nav / routing — plan you don't own", () => {
     page,
     browser,
   }) => {
+    test.skip(
+      planE2eUsesLocalPlanOwner(),
+      "default local Plan runtime deliberately maps all browser users to one synthetic local owner; run with PLAN_LOCAL_MODE=0 or AUTH_MODE!=local to test hosted cross-owner isolation",
+    );
+
     const otherCtx = await browser.newContext();
     const otherPage = await otherCtx.newPage();
     const email = `other-${Date.now()}-${Math.random()

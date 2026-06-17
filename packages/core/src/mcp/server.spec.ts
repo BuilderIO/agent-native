@@ -1603,6 +1603,12 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
             },
           },
         },
+        "plain-success": {
+          tool: {
+            description: "Plain success",
+          },
+          run: async () => true,
+        },
       },
     };
 
@@ -1644,10 +1650,29 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
         },
       );
       expect(brokenCall.error).toBeUndefined();
-      expect(brokenCall.result.content[0].text).toBe('{"ok":true}');
+      expect(brokenCall.result.content[0].text).toBe(
+        "broken-review completed.",
+      );
       expect(
         brokenCall.result._meta?.["openai/outputTemplate"],
       ).toBeUndefined();
+
+      const plainSuccessCall = await callWeb(
+        {
+          jsonrpc: "2.0",
+          id: 401,
+          method: "tools/call",
+          params: { name: "plain-success", arguments: {} },
+        },
+        {
+          headers: await mcpAppsFullCatalogHeaders(),
+          config: failingCspConfig,
+        },
+      );
+      expect(plainSuccessCall.error).toBeUndefined();
+      expect(plainSuccessCall.result.content[0].text).toBe(
+        "plain-success completed.",
+      );
 
       const resources = await callWeb(
         {

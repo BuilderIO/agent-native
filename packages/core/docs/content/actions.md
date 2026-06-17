@@ -16,6 +16,8 @@ Actions are the single source of truth for anything your app does. Define an act
 - **A CLI command** — `pnpm action <name>` for scripting and dev loops.
 
 One definition, seven consumers. This is rung 3 of the [ladder](/docs/what-is-agent-native#the-ladder).
+If you are deciding whether to expose an operation headlessly, in chat, in an
+embedded sidecar, or as a full app screen, see [Agent Surfaces](/docs/agent-surfaces).
 
 ## Defining an action {#defining}
 
@@ -355,7 +357,9 @@ The built-in discriminants are `"data-table"`, `"data-chart"`, and
 `"data-insights"`. Their server-safe builders and schemas are exported from
 `@agent-native/core/data-widgets`, and native renderer ids are exported from
 `@agent-native/core`. See [Native Chat UI](/docs/native-chat-ui) for the full
-result contract and BYO runtime guidance.
+result contract and BYO runtime guidance, or [Agent Surfaces](/docs/agent-surfaces)
+for how this same action can stay headless, render in chat, or grow into a full
+screen.
 
 ## Calling it from the CLI {#cli}
 

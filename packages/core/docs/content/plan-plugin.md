@@ -37,8 +37,34 @@ the Plan MCP connector. They write `plans/<slug>/plan.mdx` plus optional
 `canvas.mdx`, `prototype.mdx`, and `.plan-state.json`, then preview locally with:
 
 ```bash
-npx @agent-native/core@latest plan local preview --dir plans/<slug> --kind plan --open
+npx @agent-native/core@latest plan local serve --dir plans/<slug> --kind plan --open
 ```
+
+This starts a tiny localhost bridge and opens the Plan UI against the local
+folder. (`plan local preview` runs a local Plan dev-server route instead, and
+`plan local preview --out preview.html` is a legacy escape hatch that writes a
+standalone static HTML file. `plan serve` is accepted as a short alias for
+`plan local serve`.)
+
+A few local-files-mode gotchas worth knowing:
+
+- **Use a Chromium browser.** Safari blocks the hosted HTTPS Plan page from
+  reading the `http://127.0.0.1` localhost bridge (mixed-content / private
+  network), so the page hangs on "Loading plan." On macOS `--open` already
+  prefers Chrome/Chromium/Edge/Brave; if Safari opens anyway, reopen the printed
+  URL in a Chromium browser.
+- **The served URL is written to `plans/<slug>/.plan-url`** (override with
+  `--url-file`). A backgrounded or headless agent can read that file instead of
+  scraping the long-running `serve` stdout. Treat it as a local token file and
+  do not commit it.
+- **Verify headlessly** when no browser is available:
+  `npx @agent-native/core@latest plan local verify --dir plans/<slug>` starts the
+  bridge, checks the private-network preflight and JSON payload, prints
+  diagnostics, and exits non-zero on failure — no human eyes required.
+- **Run `plan local check` first.** It validates the MDX against the Plan
+  renderer's block schema (including required fields like `checklist` item
+  `id`/`label` and `question-form` question `id`/`title`/`mode`), so authoring
+  mistakes surface before the browser handoff instead of as a stuck loader.
 
 For folders in the current repo, the direct local route includes `?path=...` so
 the local Plan app can keep browser edits saving to the repo folder. The Plan

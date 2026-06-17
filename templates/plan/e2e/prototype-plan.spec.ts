@@ -6,6 +6,10 @@ import {
   type Locator,
 } from "@playwright/test";
 import { readFileSync } from "node:fs";
+import {
+  expectedPlanCommentAuthorEmail,
+  planE2eAuthEmailPath,
+} from "./auth-state";
 
 /*
  * PROTOTYPE PLAN — deep, adversarial E2E for the prototype-first plan feature
@@ -61,11 +65,13 @@ const REVIEWER_EMAIL =
   (() => {
     try {
       // global-setup writes the actual per-run authed identity here.
-      return readFileSync("e2e/.auth/email.txt", "utf8").trim();
+      return readFileSync(planE2eAuthEmailPath(), "utf8").trim();
     } catch {
       return "e2e-tester@plan.test";
     }
   })();
+const EXPECTED_COMMENT_AUTHOR_EMAIL =
+  expectedPlanCommentAuthorEmail(REVIEWER_EMAIL);
 
 type ActionResult = Record<string, any>;
 
@@ -771,7 +777,7 @@ test("comments work in prototype mode: a UI pin on a live screen persists with t
       (c: any) => c.createdBy === "human",
     );
     expect(human.length).toBeGreaterThanOrEqual(1);
-    expect(human[0].authorEmail).toBe(REVIEWER_EMAIL);
+    expect(human[0].authorEmail).toBe(EXPECTED_COMMENT_AUTHOR_EMAIL);
     expect(
       String(human[0].anchor ?? ""),
       "the persisted pin anchors to the prototype surface",
@@ -818,7 +824,7 @@ test("prototype comments route to the agent or a human by resolutionTarget and s
     ).toBeGreaterThanOrEqual(2);
     // Reviewer identity stamped on every human pin.
     for (const c of comments) {
-      expect(c.authorEmail).toBe(REVIEWER_EMAIL);
+      expect(c.authorEmail).toBe(EXPECTED_COMMENT_AUTHOR_EMAIL);
       expect(
         String(c.anchor ?? ""),
         "every prototype pin keeps a prototype anchor",

@@ -10,6 +10,7 @@ import {
   commentThreadsForVisualSurfaceMode,
   commentThreadsForVisibility,
   mentionQueryAtCaret,
+  localPlanBridgeRetryDelay,
   nativeMarkerPlacementForAnchor,
   runtimeAnnotationFromThread,
   nativePointForAnchor,
@@ -17,6 +18,8 @@ import {
   removePlanCommentThreadFromBundle,
   resolveNativeAnchorTarget,
   selectorForElementWithin,
+  shouldRetryLocalPlanBridgeBundle,
+  shouldShowPlanLoadError,
   shouldKeepCommentPopoverOpenForTarget,
 } from "./PlansPage";
 import { planBundleQueryKey } from "@/hooks/use-plans";
@@ -887,6 +890,90 @@ describe("plan comment thread UI model", () => {
     expect(canEditPlanContentRole("viewer")).toBe(false);
     expect(canEditPlanContentRole(null)).toBe(false);
     expect(canEditPlanContentRole(undefined)).toBe(false);
+  });
+
+  it("retries transient local plan bridge startup failures only", () => {
+    expect(
+      shouldRetryLocalPlanBridgeBundle(0, new TypeError("fetch failed")),
+    ).toBe(true);
+    expect(
+      shouldRetryLocalPlanBridgeBundle(
+        1,
+        new Error("Local plan bridge returned 503."),
+      ),
+    ).toBe(true);
+    expect(
+      shouldRetryLocalPlanBridgeBundle(
+        5,
+        new Error("Local plan bridge returned 503."),
+      ),
+    ).toBe(false);
+    expect(
+      shouldRetryLocalPlanBridgeBundle(
+        0,
+        new Error("Local plan bridge must point to localhost."),
+      ),
+    ).toBe(false);
+    expect(
+      shouldRetryLocalPlanBridgeBundle(
+        0,
+        new Error("Local plan bridge response was not a Plan MDX folder."),
+      ),
+    ).toBe(false);
+    expect(localPlanBridgeRetryDelay(0)).toBe(500);
+    expect(localPlanBridgeRetryDelay(4)).toBe(2_500);
+  });
+
+  it("surfaces the retry card instead of an endless skeleton for a stalled read", () => {
+    const base = {
+      hasSelectedId: true,
+      localPlanMode: false,
+      hasBundle: false,
+      planQueryPending: false,
+      planQueryError: false,
+      planQueryPaused: false,
+      accessStatusPending: false,
+      accessStatusPaused: false,
+      accessDenied: false,
+    };
+    // A paused read (offline at mount, or tab blurred mid-retry) never errors
+    // and never resolves — must show the retryable card, not the skeleton.
+    expect(shouldShowPlanLoadError({ ...base, planQueryPaused: true })).toBe(
+      true,
+    );
+    expect(shouldShowPlanLoadError({ ...base, accessStatusPaused: true })).toBe(
+      true,
+    );
+    // A genuinely in-flight initial load keeps the skeleton (no regression).
+    expect(
+      shouldShowPlanLoadError({
+        ...base,
+        planQueryPending: true,
+        planQueryPaused: true,
+      }),
+    ).toBe(false);
+    // Real errors and access denials still show the card.
+    expect(shouldShowPlanLoadError({ ...base, planQueryError: true })).toBe(
+      true,
+    );
+    expect(shouldShowPlanLoadError({ ...base, accessDenied: true })).toBe(true);
+    // An access denial that hasn't settled yet should not flash the card.
+    expect(
+      shouldShowPlanLoadError({
+        ...base,
+        accessDenied: true,
+        accessStatusPending: true,
+      }),
+    ).toBe(false);
+    // Healthy / local / already-loaded states never show the card.
+    expect(shouldShowPlanLoadError(base)).toBe(false);
+    expect(shouldShowPlanLoadError({ ...base, hasBundle: true })).toBe(false);
+    expect(shouldShowPlanLoadError({ ...base, localPlanMode: true })).toBe(
+      false,
+    );
+    expect(shouldShowPlanLoadError({ ...base, hasSelectedId: false })).toBe(
+      false,
+    );
   });
 
   it("detects mention queries when Chrome splits typed content into text nodes", () => {

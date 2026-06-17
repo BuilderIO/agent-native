@@ -496,6 +496,57 @@ describe("createAgentChatAdapter", () => {
     });
   });
 
+  it("summarizes bare successful tool results in structured history", async () => {
+    const fetchSpy = vi.fn().mockResolvedValue(sseResponse([{ type: "done" }]));
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const adapter = createAgentChatAdapter({
+      apiUrl: "/_agent-native/agent-chat",
+      tabId: "chat-success-tool-results",
+    });
+
+    await drain(
+      adapter.run({
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: "Sign me up" }],
+          },
+          {
+            role: "assistant",
+            content: [
+              {
+                type: "tool-call",
+                toolName: "signup",
+                args: {},
+                result: true,
+              },
+            ],
+          },
+          {
+            role: "user",
+            content: [{ type: "text", text: "continue" }],
+          },
+        ],
+        abortSignal: new AbortController().signal,
+      } as any),
+    );
+
+    const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
+    const serialized = JSON.stringify(body.structuredHistory);
+    expect(serialized).not.toContain('"true"');
+    expect(body.structuredHistory).toContainEqual({
+      role: "user",
+      content: [
+        expect.objectContaining({
+          type: "tool-result",
+          toolName: "signup",
+          content: "signup completed.",
+        }),
+      ],
+    });
+  });
+
   it("sends the explicit dev-frame surface for outer frame-hosted chat", async () => {
     const fetchSpy = vi.fn().mockResolvedValue(sseResponse([{ type: "done" }]));
     vi.stubGlobal("fetch", fetchSpy);
