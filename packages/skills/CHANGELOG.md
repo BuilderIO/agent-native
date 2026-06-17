@@ -1,5 +1,17 @@
 # @agent-native/skills
 
+## 0.2.8
+
+### Patch Changes
+
+- 49685d9: Fix the shared skills CLI picker so the standalone skills package installs with
+  its matching core runtime, defaults public skills visibly, asks the Plan storage
+  mode before client setup, and avoids duplicate Claude Code client choices.
+  The hosted Plans option now also calls out that it is 100% free and open
+  source.
+- Updated dependencies [49685d9]
+  - @agent-native/core@0.51.13
+
 ## 0.2.7
 
 ### Patch Changes
