@@ -38,7 +38,7 @@ Usage:
   npx @agent-native/core@latest skills list
   npx @agent-native/core@latest skills status [assets|design-exploration|visual-plan|visual-recap|context-xray] [--client codex|claude-code|all] [--scope user|project] [--json]
   npx @agent-native/core@latest skills update [assets|design-exploration|visual-plan|visual-recap|context-xray] [--client codex|claude-code|all] [--scope user|project] [--dry-run] [--json]
-  npx @agent-native/core@latest skills add assets|design-exploration|visual-plan|visual-recap|context-xray [--client codex|claude-code|claude-code-cli|cowork|all] [--scope user|project] [--mcp-url <url>] [--no-connect] [--with-github-action] [--yes] [--dry-run] [--json]
+  npx @agent-native/core@latest skills add assets|design-exploration|visual-plan|visual-recap|context-xray [--client codex|claude-code|claude-code-cli|cowork|all] [--scope user|project] [--mode hosted|local-files|self-hosted] [--mcp-url <url>] [--no-connect] [--with-github-action] [--yes] [--dry-run] [--json]
   npx @agent-native/core@latest skills add <manifest-or-app-dir|skill-repo> [--skill <name>] [--client ...] [--yes]
 
 Examples:
@@ -47,6 +47,8 @@ Examples:
   npx @agent-native/core@latest skills add visual-plan
   npx @agent-native/core@latest skills add visual-recap
   npx @agent-native/core@latest skills add visual-recap --with-github-action
+  npx @agent-native/core@latest skills add visual-plan --mode local-files
+  npx @agent-native/core@latest skills add visual-plan --mode self-hosted --mcp-url https://my-plan-app.example.com
   npx @agent-native/core@latest skills status visual-plan
   npx @agent-native/core@latest skills update visual-plan
   npx @agent-native/core@latest skills add visual-plan --no-connect
@@ -75,6 +77,12 @@ a custom origin (an ngrok tunnel, a local dev server, or a self-hosted
 deployment) instead of the built-in hosted default — a bare origin gets the
 standard /_agent-native/mcp path appended. Use app-skill pack for marketplace
 bundles and custom adapter output.
+
+When installing visual-plan or visual-recap interactively, the CLI asks where
+plans and recaps should live: hosted Plans for shareable links/comments, local
+files for "No sharing, all local.", or a self-hosted/custom Plan app URL.
+Pass --mode to choose directly. Local-files mode skips MCP registration and
+auth and installs instructions that default to MDX folders plus local preview.
 
 When installing visual-recap interactively, the CLI offers to add the optional PR
 Visual Recap GitHub Action. Pass --with-github-action to write it directly, then
@@ -2261,6 +2269,7 @@ const CLIENT_HINTS: Record<ClientId, string> = {
 };
 
 type SkillsCommand = "list" | "add" | "status" | "update" | "help";
+type PlanInstallMode = "hosted" | "local-files" | "self-hosted";
 
 export interface ParsedSkillsArgs {
   command: SkillsCommand;
@@ -2289,6 +2298,12 @@ export interface ParsedSkillsArgs {
    * an ngrok tunnel, a local dev origin, or a self-hosted deployment.
    */
   mcpUrl?: string;
+  /**
+   * Storage/backend mode for the Plans skills. Hosted is the existing default;
+   * local-files installs instructions that default to DB-free MDX + local
+   * preview and skips MCP registration/auth.
+   */
+  planMode?: PlanInstallMode;
   /**
    * When installing the visual-plan skill, also write the PR Visual Recap
    * GitHub Action workflow into `.github/workflows/` so PRs get automatic
@@ -2348,6 +2363,7 @@ export interface SkillsAddResult {
   githubActionPath?: string;
   githubActionExisted?: boolean;
   githubActionSuggestedCommand?: string;
+  planMode?: PlanInstallMode;
 }
 
 interface SkillInstallMetadata {
@@ -2360,6 +2376,7 @@ interface SkillInstallMetadata {
   mcpUrl: string;
   installedAt: string;
   updateCommand: string;
+  planMode?: PlanInstallMode;
 }
 
 interface SkillFolderBundle {
@@ -2369,6 +2386,7 @@ interface SkillFolderBundle {
   mcpUrl: string;
   files: Record<string, string>;
   contentHash: string;
+  planMode?: PlanInstallMode;
 }
 
 interface SkillInstallState {
@@ -2382,6 +2400,8 @@ interface SkillInstallState {
   latestHash: string;
   installedHash: string | null;
   metadataHash?: string;
+  planMode?: PlanInstallMode;
+  mcpUrl?: string;
   current: boolean;
   managed: boolean;
 }
@@ -2415,6 +2435,10 @@ interface RunSkillsOptions {
   promptScope?: (
     context: SkillsScopePromptContext,
   ) => Promise<"project" | "user" | null>;
+  promptPlanMode?: (
+    context: SkillsPlanModePromptContext,
+  ) => Promise<PlanInstallMode | null>;
+  promptPlanMcpUrl?: () => Promise<string | null>;
   runCommand?: (
     cmd: string,
     args: string[],
@@ -2452,6 +2476,10 @@ interface SkillsGithubActionPromptContext {
 
 interface SkillsScopePromptContext {
   initialScope: "project" | "user";
+}
+
+interface SkillsPlanModePromptContext {
+  initialMode: PlanInstallMode;
 }
 
 function normalizeKnownSkillTarget(
@@ -2521,14 +2549,75 @@ function stableSkillHash(files: Record<string, string>): string {
   return hash.digest("hex").slice(0, 16);
 }
 
+function insertAfterFrontmatter(markdown: string, block: string): string {
+  if (!block.trim()) return markdown;
+  const match = markdown.match(/^---\n[\s\S]*?\n---\n/);
+  if (!match) return `${block}\n\n${markdown}`;
+  return `${match[0]}\n${block.trim()}\n\n${markdown.slice(match[0].length)}`;
+}
+
+function planModeInstructionBlock(input: {
+  mode: PlanInstallMode | undefined;
+  mcpUrl?: string;
+}): string {
+  if (input.mode === "local-files") {
+    return `## Installed Mode
+
+Default storage for this installation: local files. Create and update plans and
+recaps as MDX folders under \`plans/<slug>/\`, run
+\`npx @agent-native/core@latest plan local preview --dir plans/<slug> --kind plan|recap\`,
+and report the local preview URL or path. No sharing, all local. Use a hosted
+or self-hosted Plan MCP connector only if the user explicitly asks to publish or
+share.`;
+  }
+  if (input.mode === "self-hosted") {
+    return `## Installed Mode
+
+Default storage for this installation: the configured self-hosted/custom Plan
+app${input.mcpUrl ? ` at \`${input.mcpUrl}\`` : ""}. Use that Plan MCP connector
+for plans and recaps instead of assuming \`https://plan.agent-native.com\`.`;
+  }
+  return "";
+}
+
+function applyPlanModeToSkillMarkdown(
+  markdown: string,
+  input: {
+    appSkillId: BuiltInAppSkillId;
+    mode?: PlanInstallMode;
+    mcpUrl?: string;
+  },
+): string {
+  if (input.appSkillId !== "visual-plans") return markdown;
+  const block = planModeInstructionBlock({
+    mode: input.mode,
+    mcpUrl: input.mcpUrl,
+  });
+  return insertAfterFrontmatter(markdown, block);
+}
+
 function skillFilesForBuiltIn(
   appSkillId: BuiltInAppSkillId,
+  options: { planMode?: PlanInstallMode; mcpUrl?: string } = {},
 ): Record<string, SkillFolderBundle> {
   const entry = BUILT_IN_APP_SKILLS[appSkillId];
   const skills: Record<string, string> = {
-    [entry.skillName]: entry.skillMarkdown,
+    [entry.skillName]: applyPlanModeToSkillMarkdown(entry.skillMarkdown, {
+      appSkillId,
+      mode: options.planMode,
+      mcpUrl: options.mcpUrl,
+    }),
     ...builtInExtraSkills(entry),
   };
+  for (const [skillName, skillMarkdown] of Object.entries(
+    builtInExtraSkills(entry),
+  )) {
+    skills[skillName] = applyPlanModeToSkillMarkdown(skillMarkdown, {
+      appSkillId,
+      mode: options.planMode,
+      mcpUrl: options.mcpUrl,
+    });
+  }
   const extraFiles = builtInExtraFiles(entry);
   const out: Record<string, SkillFolderBundle> = {};
   for (const [skillName, skillMarkdown] of Object.entries(skills)) {
@@ -2540,11 +2629,13 @@ function skillFilesForBuiltIn(
       appSkillId,
       displayName: entry.manifest.displayName,
       skillName,
-      mcpUrl: isLocalOnlyBuiltInSkill(entry)
-        ? ""
-        : entry.manifest.hosted.mcpUrl,
+      mcpUrl:
+        isLocalOnlyBuiltInSkill(entry) || options.planMode === "local-files"
+          ? ""
+          : (options.mcpUrl ?? entry.manifest.hosted.mcpUrl),
       files,
       contentHash: stableSkillHash(files),
+      planMode: options.planMode,
     };
   }
   return out;
@@ -2582,6 +2673,7 @@ function writeSkillFolder(
     mcpUrl: bundle.mcpUrl,
     installedAt,
     updateCommand: `npx @agent-native/core@latest skills update ${bundle.skillName}`,
+    ...(bundle.planMode ? { planMode: bundle.planMode } : {}),
   };
   fs.writeFileSync(
     path.join(dir, AGENT_NATIVE_SKILL_METADATA_FILE),
@@ -2627,8 +2719,15 @@ function installBuiltInInstructions(input: {
   scope: "project" | "user";
   baseDir: string;
   dryRun?: boolean;
+  planMode?: PlanInstallMode;
+  mcpUrl?: string;
 }): string[] {
-  const bundles = Object.values(skillFilesForBuiltIn(input.appSkillId)).filter(
+  const bundles = Object.values(
+    skillFilesForBuiltIn(input.appSkillId, {
+      planMode: input.planMode,
+      mcpUrl: input.mcpUrl,
+    }),
+  ).filter(
     (bundle) =>
       !input.onlySkillNames || input.onlySkillNames.includes(bundle.skillName),
   );
@@ -2795,7 +2894,7 @@ function collectSkillInstallStates(
   options: RunSkillsOptions,
 ): SkillInstallState[] {
   const appSkillIds = targetIdsForStatus(parsed);
-  const latest = latestSkillBundlesForTargets(appSkillIds);
+  const defaultLatest = latestSkillBundlesForTargets(appSkillIds);
   const roots = skillSearchRoots({
     baseDir: options.baseDir ?? process.cwd(),
     clients: clientFilterForStatus(parsed),
@@ -2805,29 +2904,36 @@ function collectSkillInstallStates(
   const seenDirs = new Set<string>();
 
   for (const root of roots) {
-    for (const bundle of Object.values(latest)) {
+    for (const bundle of Object.values(defaultLatest)) {
       const dir = path.join(root.root, bundle.skillName);
       const resolvedDir = path.resolve(dir);
       if (seenDirs.has(resolvedDir) || !fs.existsSync(dir)) continue;
       if (!fs.existsSync(path.join(dir, "SKILL.md"))) continue;
       seenDirs.add(resolvedDir);
       const files = listSkillFolderFiles(dir);
+      const metadata = readSkillInstallMetadata(dir);
+      const stateBundle =
+        skillFilesForBuiltIn(bundle.appSkillId, {
+          planMode: metadata?.planMode,
+          mcpUrl: metadata?.mcpUrl,
+        })[bundle.skillName] ?? bundle;
       const installedHash =
         Object.keys(files).length > 0 ? stableSkillHash(files) : null;
-      const metadata = readSkillInstallMetadata(dir);
       states.push({
-        appSkillId: bundle.appSkillId,
-        displayName: bundle.displayName,
-        skillName: bundle.skillName,
+        appSkillId: stateBundle.appSkillId,
+        displayName: stateBundle.displayName,
+        skillName: stateBundle.skillName,
         path: dir,
         root: root.root,
         scope: root.scope,
         client: root.client,
-        latestHash: bundle.contentHash,
+        latestHash: stateBundle.contentHash,
         installedHash,
         metadataHash: metadata?.contentHash,
-        current: installedHash === bundle.contentHash,
+        current: installedHash === stateBundle.contentHash,
         managed: metadata?.source === "agent-native",
+        planMode: metadata?.planMode,
+        mcpUrl: metadata?.mcpUrl,
       });
     }
   }
@@ -2841,13 +2947,13 @@ function updateSkillInstallStates(
   states: SkillInstallState[],
   dryRun: boolean,
 ): SkillInstallState[] {
-  const latest = latestSkillBundlesForTargets([
-    ...new Set(states.map((state) => state.appSkillId)),
-  ]);
   const updated: SkillInstallState[] = [];
   for (const state of states) {
     if (state.current && state.managed) continue;
-    const bundle = latest[state.skillName];
+    const bundle = skillFilesForBuiltIn(state.appSkillId, {
+      planMode: state.planMode,
+      mcpUrl: state.mcpUrl,
+    })[state.skillName];
     if (!bundle) continue;
     if (!dryRun) writeSkillFolder(state.path, bundle);
     updated.push({
@@ -2996,6 +3102,59 @@ async function promptForScope(
   return result === "project" ? "project" : "user";
 }
 
+async function promptForPlanMode(
+  context: SkillsPlanModePromptContext,
+): Promise<PlanInstallMode | null> {
+  const clack = await import("@clack/prompts");
+  const result = await clack.select({
+    message: "Where should visual plans and recaps live?",
+    options: [
+      {
+        value: "hosted",
+        label: "Hosted Plans, shareable links",
+        hint: "Stores plans at plan.agent-native.com. Enables sharing, comments, browser editor. Requires one-time browser sign-in.",
+      },
+      {
+        value: "local-files",
+        label: "Local files only",
+        hint: "Writes plans/<name>/plan.mdx in this repo and opens a local preview. No sharing, all local.",
+      },
+      {
+        value: "self-hosted",
+        label: "Self-hosted/custom URL",
+        hint: "Connect to your own Plan app or local dev tunnel.",
+      },
+    ],
+    initialValue: context.initialMode,
+  });
+  if (clack.isCancel(result)) {
+    clack.cancel("Cancelled.");
+    return null;
+  }
+  return normalizePlanInstallMode(String(result));
+}
+
+async function promptForPlanMcpUrl(): Promise<string | null> {
+  const clack = await import("@clack/prompts");
+  const result = await clack.text({
+    message: "Plan app URL or MCP URL",
+    placeholder: "https://my-plan-app.example.com",
+    validate(value) {
+      try {
+        resolveMcpUrlOverride(value);
+        return undefined;
+      } catch (err: any) {
+        return err?.message ?? "Enter a valid http:// or https:// URL.";
+      }
+    },
+  });
+  if (clack.isCancel(result)) {
+    clack.cancel("Cancelled.");
+    return null;
+  }
+  return String(result).trim();
+}
+
 async function promptForSkills(
   context: SkillsTargetPromptContext,
 ): Promise<string[] | null> {
@@ -3038,6 +3197,38 @@ async function resolveSkillsClients(
     } catch {}
   }
   return selected;
+}
+
+function normalizePlanInstallMode(value: string | undefined): PlanInstallMode {
+  const normalized = value?.trim().toLowerCase();
+  if (!normalized || normalized === "hosted") return "hosted";
+  if (
+    normalized === "local" ||
+    normalized === "local-file" ||
+    normalized === "local-files" ||
+    normalized === "files"
+  ) {
+    return "local-files";
+  }
+  if (
+    normalized === "self-hosted" ||
+    normalized === "selfhosted" ||
+    normalized === "custom" ||
+    normalized === "custom-url"
+  ) {
+    return "self-hosted";
+  }
+  throw new Error(
+    '--mode must be one of "hosted", "local-files", or "self-hosted".',
+  );
+}
+
+function targetIncludesPlans(target: string): boolean {
+  return normalizeKnownSkillTarget(target) === "visual-plans";
+}
+
+function targetsIncludePlans(targets: string[]): boolean {
+  return targets.some(targetIncludesPlans);
 }
 
 async function resolveSkillTargets(
@@ -3135,6 +3326,13 @@ export function parseSkillsArgs(argv: string[]): ParsedSkillsArgs {
       out.scope = value;
       out.scopeExplicit = true;
     } else if ((value = eat("--mcp-url")) !== undefined) out.mcpUrl = value;
+    else if ((value = eat("--mode")) !== undefined)
+      out.planMode = normalizePlanInstallMode(value);
+    else if (arg === "--hosted") out.planMode = "hosted";
+    else if (arg === "--local" || arg === "--local-files")
+      out.planMode = "local-files";
+    else if (arg === "--self-hosted" || arg === "--custom-url")
+      out.planMode = "self-hosted";
     else if (arg === "--yes" || arg === "-y") out.yes = true;
     else if (arg === "--dry-run") out.dryRun = true;
     else if (arg === "--json") out.printJson = true;
@@ -3155,6 +3353,9 @@ export function parseSkillsArgs(argv: string[]): ParsedSkillsArgs {
 
   if (out.scope !== "user" && out.scope !== "project") {
     throw new Error("--scope must be either user or project.");
+  }
+  if (out.planMode === "local-files" && out.mcpUrl) {
+    throw new Error("--mode local-files cannot be combined with --mcp-url.");
   }
   return out;
 }
@@ -3291,6 +3492,7 @@ function dryRunInstallCommand(
     "--scope",
     parsed.scope,
   ];
+  if (parsed.planMode) args.push("--mode", parsed.planMode);
   if (parsed.mcpUrl) args.push("--mcp-url", parsed.mcpUrl);
   if (parsed.instructions && !parsed.mcp) args.push("--instructions-only");
   if (!parsed.instructions && parsed.mcp) args.push("--mcp-only");
@@ -3593,6 +3795,22 @@ export async function addAgentNativeSkill(
 ): Promise<SkillsAddResult> {
   const target = parsed.target ?? "assets";
   const knownTarget = normalizeKnownSkillTarget(target);
+  const planMode =
+    knownTarget === "visual-plans"
+      ? (parsed.planMode ?? (parsed.mcpUrl ? "self-hosted" : "hosted"))
+      : undefined;
+  if (parsed.planMode && knownTarget !== "visual-plans") {
+    throw new Error("--mode only applies to visual-plan / visual-recap.");
+  }
+  if (planMode === "local-files" && parsed.mcpUrl) {
+    throw new Error("--mode local-files cannot be combined with --mcp-url.");
+  }
+  if (planMode === "self-hosted" && !parsed.mcpUrl) {
+    throw new Error("--mode self-hosted requires --mcp-url <url>.");
+  }
+  const shouldRegisterMcp =
+    parsed.mcp &&
+    !(knownTarget === "visual-plans" && planMode === "local-files");
   // For multi-skill bundles (the plan bundle), a single-skill target installs
   // only that skill. `installsRecap` controls the PR Visual Recap github-action
   // offer, which is only relevant when the recap skill is part of the install.
@@ -3702,12 +3920,16 @@ export async function addAgentNativeSkill(
         displayName: installTarget.displayName,
         skillNames: installTarget.skillNames,
         skillsAgents,
-        mcpUrl: installTarget.loaded.manifest.hosted.mcpUrl,
-        mcpClients: clients,
+        mcpUrl:
+          knownTarget === "visual-plans" && planMode === "local-files"
+            ? ""
+            : installTarget.loaded.manifest.hosted.mcpUrl,
+        mcpClients: shouldRegisterMcp ? clients : [],
         dryRun: true,
         commands: [dryRunInstallCommand(parsed, target)],
         githubActionPath,
         githubActionSuggestedCommand,
+        planMode,
       };
     } finally {
       installTarget.cleanup?.();
@@ -3723,7 +3945,7 @@ export async function addAgentNativeSkill(
   try {
     if (parsed.instructions) {
       if (skillsAgents.length === 0) {
-        if (!parsed.mcp) {
+        if (!shouldRegisterMcp) {
           throw new Error(
             "Skill instructions can only be installed for Codex or Claude Code clients. Use an MCP-capable client or omit --instructions-only.",
           );
@@ -3740,6 +3962,8 @@ export async function addAgentNativeSkill(
           scope: parsed.scope as "project" | "user",
           baseDir: options.baseDir ?? process.cwd(),
           dryRun: parsed.dryRun,
+          planMode,
+          mcpUrl: installTarget.loaded.manifest.hosted.mcpUrl,
         });
         instructionSource = instructionsWritten[0];
         commands.push(...instructionsWritten.map((dir) => `write ${dir}`));
@@ -3781,7 +4005,7 @@ export async function addAgentNativeSkill(
       dryRun: Boolean(parsed.dryRun),
     });
 
-    if (parsed.mcp) {
+    if (shouldRegisterMcp) {
       commands.push(
         `npx @agent-native/core@latest app-skill ensure --manifest ${installTarget.loaded.file} --client ${parsed.client} --scope ${parsed.scope} --yes`,
       );
@@ -3875,13 +4099,17 @@ export async function addAgentNativeSkill(
       instructionSource,
       skillNames: installTarget.skillNames,
       skillsAgents,
-      mcpUrl: installTarget.loaded.manifest.hosted.mcpUrl,
-      mcpClients: clients,
+      mcpUrl:
+        knownTarget === "visual-plans" && planMode === "local-files"
+          ? ""
+          : installTarget.loaded.manifest.hosted.mcpUrl,
+      mcpClients: shouldRegisterMcp ? clients : [],
       dryRun: parsed.dryRun,
       commands,
       written: instructionsWritten,
       connected,
       connectCommand,
+      planMode,
       githubActionPath,
       githubActionExisted,
       githubActionSuggestedCommand,
@@ -3919,6 +4147,7 @@ function skillStateJson(state: SkillInstallState) {
     installedHash: state.installedHash,
     latestHash: state.latestHash,
     metadataHash: state.metadataHash,
+    planMode: state.planMode,
   };
 }
 
@@ -3930,6 +4159,12 @@ function formatSkillState(state: SkillInstallState): string {
       ? ` (${state.installedHash} -> ${state.latestHash})`
       : "";
   return `${state.skillName.padEnd(22)} ${status.padEnd(7)} ${state.scope}/${state.client} ${managed}${hashes}\n  ${state.path}`;
+}
+
+function planModeSummary(mode: PlanInstallMode): string {
+  if (mode === "local-files") return "Local files - No sharing, all local.";
+  if (mode === "self-hosted") return "Self-hosted/custom Plan app";
+  return "Hosted Plans - shareable links and comments";
 }
 
 function runSkillsStatusOrUpdate(
@@ -4091,6 +4326,46 @@ export async function runSkills(
       preselected,
     });
 
+    const includesPlans = targetsIncludePlans(targets);
+    if (parsed.planMode && !includesPlans) {
+      throw new Error("--mode only applies to visual-plan / visual-recap.");
+    }
+    if (includesPlans) {
+      if (!parsed.planMode && parsed.mcpUrl) {
+        parsed.planMode = "self-hosted";
+      }
+      if (!parsed.planMode && shouldPrompt(parsed, options)) {
+        const prompt = options.promptPlanMode ?? promptForPlanMode;
+        const mode = await prompt({ initialMode: "hosted" });
+        if (!mode) {
+          telemetry.track("skills_cli cancelled", { step: "plan-mode" });
+          return;
+        }
+        parsed.planMode = mode;
+      }
+      if (!parsed.planMode) parsed.planMode = "hosted";
+      if (parsed.planMode === "self-hosted" && !parsed.mcpUrl) {
+        if (shouldPrompt(parsed, options)) {
+          const prompt = options.promptPlanMcpUrl ?? promptForPlanMcpUrl;
+          const mcpUrl = await prompt();
+          if (!mcpUrl) {
+            telemetry.track("skills_cli cancelled", {
+              step: "plan-mcp-url",
+            });
+            return;
+          }
+          parsed.mcpUrl = mcpUrl;
+        } else {
+          throw new Error(
+            "--mode self-hosted requires --mcp-url <url> in non-interactive mode.",
+          );
+        }
+      }
+      telemetry.track("skills_cli plan mode selected", {
+        mode: parsed.planMode,
+      });
+    }
+
     const clients = await resolveSkillsClients(parsed, optionsWithTelemetry);
     if (!clients) {
       telemetry.track("skills_cli cancelled", { step: "clients" });
@@ -4208,6 +4483,13 @@ export async function runSkills(
           .flatMap((result) => result.commands),
       ),
     ];
+    const planModes = [
+      ...new Set(
+        results
+          .map((result) => result.planMode)
+          .filter((mode): mode is PlanInstallMode => Boolean(mode)),
+      ),
+    ];
     const authConnected = results.some((result) => result.connected);
     const pendingConnectCommands = [
       ...new Set(
@@ -4252,6 +4534,9 @@ export async function runSkills(
         ? `MCP config           ${mcpClients.join(", ")}`
         : "MCP config           not required",
       mcpUrls.length ? `MCP URL              ${mcpUrls.join(", ")}` : "",
+      planModes.length
+        ? `Plan mode            ${planModes.map(planModeSummary).join(", ")}`
+        : "",
       authConnected
         ? "Authentication       completed"
         : pendingConnectCommands.length

@@ -859,6 +859,7 @@ describe("agent-native skills", () => {
       {
         baseDir: root,
         isInteractive: () => true,
+        promptPlanMode: async () => "hosted",
         promptGithubAction,
         runCommand: async () => 0,
       },
@@ -901,6 +902,7 @@ describe("agent-native skills", () => {
       {
         baseDir: root,
         isInteractive: () => true,
+        promptPlanMode: async () => "hosted",
         promptGithubAction,
         runCommand: async () => 0,
       },
@@ -932,6 +934,7 @@ describe("agent-native skills", () => {
       {
         baseDir: root,
         isInteractive: () => true,
+        promptPlanMode: async () => "hosted",
         promptGithubAction,
         runCommand: async () => 0,
       },
@@ -1003,6 +1006,7 @@ describe("agent-native skills", () => {
       baseDir: root,
       isInteractive: () => true,
       promptSkills,
+      promptPlanMode: async () => "hosted",
       promptGithubAction: async () => false,
       runConnect: async () => {},
       runCommand: async () => 0,
@@ -1035,6 +1039,7 @@ describe("agent-native skills", () => {
       baseDir: root,
       isInteractive: () => true,
       promptSkills: async () => ["visual-recap"],
+      promptPlanMode: async () => "hosted",
       promptGithubAction: async () => false,
       runConnect: async () => {},
       runCommand: async () => 0,
@@ -1058,6 +1063,7 @@ describe("agent-native skills", () => {
     await runSkills(["add", "visual-recap", "--client", "codex"], {
       baseDir: root,
       isInteractive: () => true,
+      promptPlanMode: async () => "hosted",
       promptScope,
       promptGithubAction: async () => false,
       runConnect: async () => {},
@@ -1086,6 +1092,7 @@ describe("agent-native skills", () => {
       {
         baseDir: root,
         isInteractive: () => true,
+        promptPlanMode: async () => "hosted",
         promptScope,
         promptGithubAction: async () => false,
         runConnect: async () => {},
