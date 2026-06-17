@@ -682,8 +682,8 @@ switch (command) {
   }
 
   case "plan": {
-    // DB-free local plan helpers. These never call the Plan app action surface;
-    // they only read/write MDX folders and static preview HTML.
+    // Plan authoring helpers: local MDX preview plus a no-auth block catalog
+    // fetcher for text-only/local installs.
     import("./plan-local.js")
       .then((m) => m.runPlan(args))
       .catch((err) => {

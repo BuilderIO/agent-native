@@ -423,6 +423,9 @@ describe("Plans skills install — materialized output", () => {
         "No sharing, all local.",
       );
       expect(captured[name], `materialized ${name}/SKILL.md`).toContain(
+        "plan blocks --out plan-blocks.md",
+      );
+      expect(captured[name], `materialized ${name}/SKILL.md`).toContain(
         "plan local preview",
       );
     }

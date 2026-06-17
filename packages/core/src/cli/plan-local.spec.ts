@@ -9,6 +9,7 @@ import {
   readLocalPlanFiles,
   writeLocalPlanPreview,
 } from "./plan-local.js";
+import { fetchPlanBlockCatalog } from "./plan-blocks.js";
 
 const tmpRoots: string[] = [];
 
@@ -85,5 +86,69 @@ describe("local plan CLI helpers", () => {
     expect(result.files).toContain("plan.mdx");
     expect(result.url).toMatch(/^file:\/\//);
     expect(fs.readFileSync(result.out, "utf-8")).toContain("Local-files mode");
+  });
+
+  it("fetches the no-auth block catalog for local authoring", async () => {
+    const dir = tmpDir();
+    const calls: Array<{ url: string; method: string }> = [];
+    const fetchFn: typeof fetch = (async (input, init) => {
+      calls.push({
+        url: String(input),
+        method: String(init?.method ?? "GET"),
+      });
+      return new Response(
+        JSON.stringify({
+          reference: "## Blocks\n\n| type | tag |",
+          count: 12,
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    }) as typeof fetch;
+
+    const out = path.join(dir, "plan-blocks.md");
+    const result = await fetchPlanBlockCatalog({
+      appUrl: "https://plan.agent-native.com/",
+      out,
+      fetchFn,
+    });
+
+    expect(result).toEqual({
+      ok: true,
+      out,
+      count: 12,
+      format: "reference",
+    });
+    expect(calls[0].url).toBe(
+      "https://plan.agent-native.com/_agent-native/actions/get-plan-blocks?format=reference",
+    );
+    expect(calls[0].method).toBe("GET");
+    expect(fs.readFileSync(out, "utf8")).toContain("## Blocks");
+  });
+
+  it("writes schema catalog output when requested", async () => {
+    const dir = tmpDir();
+    const fetchFn: typeof fetch = (async () =>
+      new Response(
+        JSON.stringify({
+          reference: "## Blocks",
+          blocks: [{ type: "rich-text", tag: "RichText" }],
+          count: 1,
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      )) as typeof fetch;
+
+    const out = path.join(dir, "plan-blocks.schema.json");
+    const result = await fetchPlanBlockCatalog({
+      appUrl: "https://plans.example.com",
+      format: "schema",
+      out,
+      fetchFn,
+    });
+
+    expect(result.format).toBe("schema");
+    expect(JSON.parse(fs.readFileSync(out, "utf8"))).toEqual({
+      count: 1,
+      blocks: [{ type: "rich-text", tag: "RichText" }],
+    });
   });
 });
