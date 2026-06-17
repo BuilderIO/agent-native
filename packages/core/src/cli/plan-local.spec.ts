@@ -122,6 +122,25 @@ describe("local plan CLI helpers", () => {
     expect(result.openCommand).toBe("test-open");
   });
 
+  it("can open the generated preview when requested", () => {
+    const dir = path.join(tmpDir(), "checkout");
+    writeSamplePlan(dir);
+    let openedUrl = "";
+
+    const result = writeLocalPlanPreview({
+      dir,
+      open: true,
+      openUrl: (url) => {
+        openedUrl = url;
+        return { ok: true, command: "test-open" };
+      },
+    });
+
+    expect(openedUrl).toBe(result.url);
+    expect(result.opened).toBe(true);
+    expect(result.openCommand).toBe("test-open");
+  });
+
   it("fetches the no-auth block catalog for local authoring", async () => {
     const dir = tmpDir();
     const calls: Array<{ url: string; method: string }> = [];
