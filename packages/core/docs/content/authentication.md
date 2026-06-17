@@ -15,7 +15,7 @@ Auth is configured automatically via `autoMountAuth(app)` in the auth server plu
 - **Remote MCP OAuth:** Standard OAuth 2.1 for MCP hosts such as Claude Code and ChatGPT connectors.
 - **Custom:** Bring your own auth via `getSession` callback.
 
-Local development uses the same Better Auth flow as production — there is no dev auth bypass, and `getSession()` never falls back to a `local@localhost` sentinel. The first time you load a template the framework auto-creates a throwaway dev account and signs you in, so you are not stuck at a login wall (disable with `AGENT_NATIVE_DISABLE_AUTO_DEV_ACCOUNT=1` to use the normal signup page). `AUTH_MODE=local` only affects CLI/agent identity resolution (which signed-in dev user `pnpm action` runs as) — it is not a browser login bypass. Email verification is skipped by default in development (and when no email provider is configured), so signup is just an email + password.
+Local development uses the same Better Auth flow as production — there is no dev auth bypass, and `getSession()` never falls back to a `local@localhost` sentinel. The first time you load a template the framework auto-creates a throwaway dev account and signs you in, so you are not stuck at a login wall (disable with `AGENT_NATIVE_DISABLE_AUTO_DEV_ACCOUNT=1` to use the normal signup page). Set `AGENT_NATIVE_SKIP_AUTH=1` to skip login/signup entirely and run every request as a shared user — for cloud previews and internal demos only, not production with real users. `AUTH_MODE=local` only affects CLI/agent identity resolution (which signed-in dev user `pnpm action` runs as) — it is not a browser login bypass. Email verification is skipped by default in development (and when no email provider is configured), so signup is just an email + password.
 
 ## Better Auth (Default) {#better-auth}
 
@@ -270,6 +270,9 @@ The default `/_agent-native/google/auth-url` route does this automatically — o
 | ------------------------------ | --------------------------------------------------------------------------------------------------------------------------------- |
 | `BETTER_AUTH_SECRET`           | Signing key for Better Auth (auto-generated if not set)                                                                           |
 | `AUTH_SKIP_EMAIL_VERIFICATION` | Set to `1` in QA/preview environments to let email/password signups proceed without verification; local dev/test skips by default |
+| `AGENT_NATIVE_SKIP_AUTH`       | Set to `1` to skip login/signup; all requests run as one shared user (preview/demo only — not for production with real users)     |
+| `AGENT_NATIVE_SKIP_AUTH_EMAIL` | Email for the shared user when `AGENT_NATIVE_SKIP_AUTH=1` (default: `dev@local.test`)                                            |
+| `AGENT_NATIVE_DISABLE_AUTO_DEV_ACCOUNT` | Set to `1` to disable localhost auto-sign-in on a fresh dev database                                                    |
 | `GOOGLE_CLIENT_ID`             | Enable Google OAuth                                                                                                               |
 | `GOOGLE_CLIENT_SECRET`         | Google OAuth secret                                                                                                               |
 | `GITHUB_CLIENT_ID`             | Enable GitHub OAuth                                                                                                               |
