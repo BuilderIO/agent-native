@@ -2867,7 +2867,12 @@ export async function runAgentLoop(opts: {
               tool: toolCall.name,
               input: toolCall.input as Record<string, string>,
             });
-            send({ type: "tool_done", tool: toolCall.name, result });
+            send({
+              type: "tool_done",
+              tool: toolCall.name,
+              result,
+              ...(actionEntry.chatUI ? { chatUI: actionEntry.chatUI } : {}),
+            });
             recordToolResult(result, false);
             return {
               type: "tool-result" as const,
