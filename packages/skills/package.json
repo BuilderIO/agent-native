@@ -42,11 +42,7 @@
     "vitest": "catalog:"
   },
   "dependencies": {
-<<<<<<< HEAD
     "@agent-native/core": "workspace:*",
-=======
-    "@agent-native/core": ">=0.51.13",
->>>>>>> origin/main
     "@clack/prompts": "^1.5.1"
   }
 }
