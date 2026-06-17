@@ -112,7 +112,10 @@ action trio instead:
   docs/spec URLs, placeholders, and examples without exposing secrets.
 - `provider-api-docs`: fetches public provider docs/spec/changelog URLs when
   the exact endpoint, filter operator, payload shape, or pagination contract is
-  uncertain. Registered docs URLs are curated starting points.
+  uncertain. Registered docs URLs are curated starting points. Use
+  `responseMode: "markdown"` for clean readable docs, or
+  `responseMode: "matches"` with `search: { query | terms | regex }` for
+  compact snippets instead of flooding context with raw HTML.
 - `provider-api-request`: makes a constrained authenticated HTTP request to the
   provider host, injects configured credentials, blocks private/internal URLs,
   and redacts secrets.
@@ -150,6 +153,12 @@ teach agents to report source, filters, time window, row/record counts,
 pagination status, truncation, failed pages, and uncovered gaps. They must not
 turn default limits, sampled rows, truncated excerpts, or aborted calls into a
 confident "none found", "all records", or exhaustive conclusion.
+
+For public web pages and docs, prefer the token-efficient path: `web-search`
+to find likely URLs, `web-request` or `provider-api-docs` with clean
+`responseMode` output to read a page, and `run-code` with `webRead()` /
+`webFetch()` when you need to grep, aggregate, or compare many pages before
+returning a small result.
 
 ### The `http` Option
 

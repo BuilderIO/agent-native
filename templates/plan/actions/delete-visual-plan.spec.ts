@@ -189,6 +189,15 @@ async function countRows(table: string, column = "plan_id") {
   return Number((rows[0] as { n?: number })?.n ?? 0);
 }
 
+async function readPlan() {
+  // guard:allow-unscoped -- test-only fixture assertion reads the seeded row in an isolated temp DB.
+  const [plan] = await db
+    .select()
+    .from(planSchema.plans)
+    .where(eq(planSchema.plans.id, PLAN_ID));
+  return plan;
+}
+
 beforeAll(async () => {
   process.env.PLAN_LOCAL_MODE = "0";
 
@@ -282,10 +291,7 @@ describe("delete-visual-plan", () => {
     );
 
     expect(result).toMatchObject({ planId: PLAN_ID, mode: "soft" });
-    const [plan] = await db
-      .select()
-      .from(planSchema.plans)
-      .where(eq(planSchema.plans.id, PLAN_ID));
+    const plan = await readPlan();
     expect(plan.deletedAt).toBeTruthy();
     expect(plan.deletedBy).toBe(OWNER);
     expect(plan.visibility).toBe("private");
@@ -303,10 +309,7 @@ describe("delete-visual-plan", () => {
     );
 
     expect(result).toMatchObject({ planId: PLAN_ID, mode: "restore" });
-    const [plan] = await db
-      .select()
-      .from(planSchema.plans)
-      .where(eq(planSchema.plans.id, PLAN_ID));
+    const plan = await readPlan();
     expect(plan.deletedAt).toBeNull();
     expect(plan.deletedBy).toBeNull();
     expect(plan.visibility).toBe("private");
@@ -325,10 +328,7 @@ describe("delete-visual-plan", () => {
       ),
     ).rejects.toThrow(`DELETE ${PLAN_ID}`);
 
-    const [plan] = await db
-      .select()
-      .from(planSchema.plans)
-      .where(eq(planSchema.plans.id, PLAN_ID));
+    const plan = await readPlan();
     expect(plan).toBeTruthy();
   });
 

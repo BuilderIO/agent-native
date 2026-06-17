@@ -1,9 +1,6 @@
 import { defineAction, embedApp } from "@agent-native/core";
 import { buildDeepLink } from "@agent-native/core/server";
-import {
-  accessFilter,
-  resolveAccess,
-} from "@agent-native/core/sharing";
+import { accessFilter, resolveAccess } from "@agent-native/core/sharing";
 import { desc, eq, inArray, sql } from "drizzle-orm";
 import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
@@ -54,7 +51,10 @@ function safeJson<T>(value: string, fallback: T): T {
 function cleanText(value: unknown, maxLength = 180): string {
   if (value === undefined || value === null || value === "") return "";
   const text = Array.isArray(value)
-    ? value.map((item) => cleanText(item, 80)).filter(Boolean).join(", ")
+    ? value
+        .map((item) => cleanText(item, 80))
+        .filter(Boolean)
+        .join(", ")
     : typeof value === "object"
       ? JSON.stringify(value)
       : String(value);
@@ -86,7 +86,9 @@ function buildDateBuckets(days: number) {
 }
 
 function insightsPath(formId?: string): string {
-  return formId ? `/response-insights?formId=${encodeURIComponent(formId)}` : "/response-insights";
+  return formId
+    ? `/response-insights?formId=${encodeURIComponent(formId)}`
+    : "/response-insights";
 }
 
 function insightsLink(formId?: string) {
@@ -287,10 +289,7 @@ export default defineAction({
     );
     const formsById = new Map(forms.map((form) => [form.id, form]));
     const fieldsByForm = new Map(
-      forms.map((form) => [
-        form.id,
-        safeJson<FormField[]>(form.fields, []),
-      ]),
+      forms.map((form) => [form.id, safeJson<FormField[]>(form.fields, [])]),
     );
 
     const { start, end, buckets } = buildDateBuckets(args.days);
@@ -305,12 +304,7 @@ export default defineAction({
     const targetForm = formId ? forms[0] : undefined;
     const table = targetForm
       ? buildSpecificFormTable(targetForm, responses, args.tableLimit)
-      : buildAllFormsTable(
-          formsById,
-          fieldsByForm,
-          responses,
-          args.tableLimit,
-        );
+      : buildAllFormsTable(formsById, fieldsByForm, responses, args.tableLimit);
 
     return {
       scope: {

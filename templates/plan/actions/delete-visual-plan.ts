@@ -89,7 +89,10 @@ type HardDeleteCounts = {
   plans: number;
 };
 
-async function countPlanRows(planId: string): Promise<HardDeleteCounts> {
+async function countPlanRows(
+  planId: string,
+  ownerEmail: string,
+): Promise<HardDeleteCounts> {
   const db = getDb();
   const [comments, sections, events, reports, versions, shares, assets, plans] =
     await Promise.all([
@@ -124,7 +127,12 @@ async function countPlanRows(planId: string): Promise<HardDeleteCounts> {
       db
         .select({ id: schema.plans.id })
         .from(schema.plans)
-        .where(eq(schema.plans.id, planId)),
+        .where(
+          and(
+            eq(schema.plans.id, planId),
+            eq(schema.plans.ownerEmail, ownerEmail),
+          ),
+        ),
     ]);
   return {
     comments: comments.length,
@@ -138,7 +146,7 @@ async function countPlanRows(planId: string): Promise<HardDeleteCounts> {
   };
 }
 
-async function hardDeletePlanRows(planId: string) {
+async function hardDeletePlanRows(planId: string, ownerEmail: string) {
   const db = getDb();
   await db
     .delete(schema.planComments)
@@ -161,7 +169,11 @@ async function hardDeletePlanRows(planId: string) {
   await db
     .delete(schema.planAssets)
     .where(eq(schema.planAssets.planId, planId));
-  await db.delete(schema.plans).where(eq(schema.plans.id, planId));
+  await db
+    .delete(schema.plans)
+    .where(
+      and(eq(schema.plans.id, planId), eq(schema.plans.ownerEmail, ownerEmail)),
+    );
   await deletePlanCollabState(planId);
 }
 
@@ -241,8 +253,8 @@ export default defineAction({
         );
       }
 
-      const deletedCounts = await countPlanRows(args.planId);
-      await hardDeletePlanRows(args.planId);
+      const deletedCounts = await countPlanRows(args.planId, plan.ownerEmail);
+      await hardDeletePlanRows(args.planId, plan.ownerEmail);
 
       return {
         planId: args.planId,
