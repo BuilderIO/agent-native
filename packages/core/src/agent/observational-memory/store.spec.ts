@@ -129,6 +129,68 @@ describe("observational-memory store", () => {
     expect(bobRows.map((e) => e.text)).toEqual(["bob secret"]);
   });
 
+  it("scopes reads by org as well as owner", async () => {
+    await insertObservationalMemory({
+      threadId: "t1",
+      tier: "observation",
+      text: "alice org a",
+      tokenEstimate: 10,
+      sourceEndIndex: 10,
+      ownerEmail: "alice@example.com",
+      orgId: "org-a",
+    });
+    await insertObservationalMemory({
+      threadId: "t1",
+      tier: "observation",
+      text: "alice org b",
+      tokenEstimate: 20,
+      sourceEndIndex: 20,
+      ownerEmail: "alice@example.com",
+      orgId: "org-b",
+    });
+    await insertObservationalMemory({
+      threadId: "t1",
+      tier: "observation",
+      text: "alice personal",
+      tokenEstimate: 30,
+      sourceEndIndex: 30,
+      ownerEmail: "alice@example.com",
+    });
+
+    const orgARows = await listObservationalMemory({
+      threadId: "t1",
+      ownerEmail: "alice@example.com",
+      orgId: "org-a",
+    });
+    const orgBRows = await listObservationalMemory({
+      threadId: "t1",
+      ownerEmail: "alice@example.com",
+      orgId: "org-b",
+    });
+    const personalRows = await listObservationalMemory({
+      threadId: "t1",
+      ownerEmail: "alice@example.com",
+    });
+
+    expect(orgARows.map((e) => e.text)).toEqual(["alice org a"]);
+    expect(orgBRows.map((e) => e.text)).toEqual(["alice org b"]);
+    expect(personalRows.map((e) => e.text)).toEqual(["alice personal"]);
+    expect(
+      await getObservedThroughIndex({
+        threadId: "t1",
+        ownerEmail: "alice@example.com",
+        orgId: "org-a",
+      }),
+    ).toBe(10);
+    expect(
+      await getObservationLogTokens({
+        threadId: "t1",
+        ownerEmail: "alice@example.com",
+        orgId: "org-a",
+      }),
+    ).toBe(10);
+  });
+
   it("reports the observed-through index and observation log token total per owner", async () => {
     expect(
       await getObservedThroughIndex({

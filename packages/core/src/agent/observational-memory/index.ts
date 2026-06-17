@@ -59,6 +59,8 @@ export {
 
 export {
   buildObservationalContext,
+  hasObservationalMemory,
+  serializeObservationalMemoryBlock,
   type BuildObservationalContextOptions,
 } from "./read.js";
 

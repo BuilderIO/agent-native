@@ -101,6 +101,12 @@ import {
   writeContextManifest,
 } from "./context-xray/manifest.js";
 import { computeProtectedSegmentIds } from "./context-xray/segments.js";
+import {
+  maybeCompactThread,
+  buildObservationalContext,
+  hasObservationalMemory,
+  serializeObservationalMemoryBlock,
+} from "./observational-memory/index.js";
 
 // Register built-in engines on first import
 registerBuiltinEngines();
@@ -1571,6 +1577,99 @@ function findCurrentTurnStartForContinuation(
   return 0;
 }
 
+/**
+ * First message index that is safe to start a trimmed window on. A window must
+ * not begin with a tool-result-only user message — that would orphan it from
+ * the assistant tool-call turn it answers and break Anthropic's tool_use /
+ * tool_result pairing. We walk forward from `desiredStart` to the first
+ * non-orphaned boundary; if none exists we refuse to trim (return -1).
+ */
+function findSafeWindowStart(
+  messages: EngineMessage[],
+  desiredStart: number,
+): number {
+  for (let i = Math.max(0, desiredStart); i < messages.length; i++) {
+    if (!isToolResultOnlyUserMessage(messages[i])) return i;
+  }
+  return -1;
+}
+
+/**
+ * Observational Memory consumer (threshold-gated, conservative).
+ *
+ * Builds the three-tier OM context for a thread and, ONLY when the thread has
+ * already crossed the compaction threshold (i.e. it has at least one persisted
+ * observation/reflection), returns a rewritten message list that:
+ *   - prepends a single system-role "Observational Memory" block holding the
+ *     reflections + observations, and
+ *   - replaces the raw older history with just the recent-raw-message window,
+ *     keeping the current user turn and any pending tool results intact.
+ *
+ * For threads with NO OM entries (every short thread) it returns the input
+ * array unchanged by reference, so the common path is byte-for-byte identical.
+ *
+ * Best-effort: any failure returns the input unchanged so OM can never break a
+ * normal turn.
+ */
+async function applyObservationalMemoryToContext(
+  messages: EngineMessage[],
+  opts: {
+    threadId: string;
+    ownerEmail?: string | null;
+    orgId?: string | null;
+  },
+): Promise<EngineMessage[]> {
+  if (!opts.ownerEmail) return messages;
+
+  try {
+    const context = await buildObservationalContext({
+      threadId: opts.threadId,
+      ownerEmail: opts.ownerEmail,
+      orgId: opts.orgId ?? null,
+      messages,
+    });
+
+    // No compacted memory yet → short thread, leave context untouched.
+    if (!hasObservationalMemory(context)) return messages;
+
+    const block = serializeObservationalMemoryBlock(context);
+    if (!block.trim()) return messages;
+
+    // EngineMessage has no "system" role; the framework injects auxiliary
+    // context as leading user messages (same convention as the continuation
+    // nudge and the resume journal note), and the serialized block is clearly
+    // self-labeled "[Observational Memory]".
+    const omMessage: EngineMessage = {
+      role: "user",
+      content: [{ type: "text", text: block }],
+    };
+
+    // Trim the raw prefix to only the recent-raw window. The window is the tail
+    // of `messages`, so it always contains the latest user turn and any pending
+    // tool results. Guard the boundary so we never start mid tool_use/result
+    // pair; if a safe boundary can't be found, additively inject the memory
+    // block WITHOUT trimming (the conservative fallback) so we never drop a
+    // pending tool result.
+    const recentCount = context.recentMessages.length;
+    if (recentCount === 0 || recentCount >= messages.length) {
+      return [omMessage, ...messages];
+    }
+    const desiredStart = messages.length - recentCount;
+    const safeStart = findSafeWindowStart(messages, desiredStart);
+    if (safeStart < 0) {
+      // Whole tail is tool-result-only (degenerate) — don't trim.
+      return [omMessage, ...messages];
+    }
+    return [omMessage, ...messages.slice(safeStart)];
+  } catch (err) {
+    console.warn(
+      "[observational-memory] context injection skipped:",
+      err instanceof Error ? err.message : String(err),
+    );
+    return messages;
+  }
+}
+
 function seedReadOnlyToolResultsFromHistory(
   messages: EngineMessage[],
   actions: Record<string, ActionEntry>,
@@ -2111,6 +2210,25 @@ export async function runAgentLoop(opts: {
         console.warn(
           "[context-xray] context transform skipped:",
           err instanceof Error ? err.message : String(err),
+        );
+      }
+
+      // Observational Memory (consumer): for long threads that have already been
+      // compacted, fold the reflections+observations in as a leading context
+      // block and prefer the recent-raw-message window over the full raw
+      // history. No-op (returns the same array) for short threads with no OM
+      // entries, so the common path is unchanged. Runs after the context-xray
+      // transform so the two compose; best-effort inside the helper. Gated on an
+      // authenticated owner so anonymous threads never read OM scoped to a
+      // shared default identity.
+      if (opts.ownerEmail) {
+        contextMessages = await applyObservationalMemoryToContext(
+          contextMessages,
+          {
+            threadId: opts.threadId,
+            ownerEmail: opts.ownerEmail,
+            orgId: opts.orgId ?? null,
+          },
         );
       }
     }
@@ -2927,6 +3045,27 @@ export async function runAgentLoop(opts: {
     // intact so the next continuation chunk can still recover from it.
     if (opts.threadId) {
       void clearLedgerForThread(opts.threadId).catch(() => {});
+
+      // Observational Memory (producer): after a clean turn, run a best-effort
+      // compaction pass so long threads accrue observations/reflections that the
+      // consumer above will surface on later turns. Both the Observer and the
+      // Reflector no-op below their token thresholds, so this is cheap for short
+      // threads. Fire-and-forget; any failure is swallowed so OM never affects
+      // the user-visible turn.
+      if (opts.ownerEmail) {
+        const compactThreadId = opts.threadId;
+        void maybeCompactThread({
+          threadId: compactThreadId,
+          ownerEmail: opts.ownerEmail,
+          orgId: opts.orgId ?? null,
+          messages,
+        }).catch((err) => {
+          console.warn(
+            "[observational-memory] post-turn compaction skipped:",
+            err instanceof Error ? err.message : String(err),
+          );
+        });
+      }
     }
   }
   return usage;

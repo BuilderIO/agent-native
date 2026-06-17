@@ -494,13 +494,41 @@ function assertLocalBridgeUrl(value: string): string {
     throw new Error("Local plan bridge URL is invalid.");
   }
   const allowedHosts = new Set(["127.0.0.1", "localhost", "::1", "[::1]"]);
-  if (!["http:", "https:"].includes(url.protocol)) {
+  if (url.protocol !== "http:") {
     throw new Error("Local plan bridge must use HTTP on localhost.");
   }
   if (!allowedHosts.has(url.hostname)) {
     throw new Error("Local plan bridge must point to localhost.");
   }
+  if (!url.port) {
+    throw new Error("Local plan bridge must use an explicit localhost port.");
+  }
+  if (url.username || url.password || url.hash) {
+    throw new Error("Local plan bridge URL contains unsupported credentials.");
+  }
+  if (url.pathname !== "/local-plan.json") {
+    throw new Error("Local plan bridge must point to /local-plan.json.");
+  }
+  const params = Array.from(url.searchParams.keys());
+  if (
+    params.length !== 1 ||
+    params[0] !== "token" ||
+    !url.searchParams.get("token")?.trim()
+  ) {
+    throw new Error("Local plan bridge URL is missing its access token.");
+  }
   return url.toString();
+}
+
+function localPlanRoutePath(slug: string): string {
+  return appPath(`/local-plans/${encodeURIComponent(slug)}`);
+}
+
+function localPlanRouteUrl(slug: string): string {
+  const path = localPlanRoutePath(slug);
+  return typeof window === "undefined"
+    ? path
+    : `${window.location.origin}${path}`;
 }
 
 function localPlanAssetDataUrl(
@@ -611,10 +639,7 @@ async function fetchLocalPlanBridgeBundle(
   const kind = payload.kind === "recap" ? "recap" : "plan";
   const title = content.title || payload.title || slug;
   const brief = content.brief || payload.brief || "Local files preview.";
-  const url =
-    typeof window === "undefined"
-      ? `/local-plans/${slug}`
-      : window.location.href;
+  const url = localPlanRouteUrl(slug);
   const bundle: LocalPlanBundle = {
     plan: {
       id: `local-${slug}`,
@@ -3329,15 +3354,7 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
   const planAgentContext = useMemo(() => {
     if (!bundle) return "";
     if (localPlanMode) {
-      const path = appPath(
-        `/local-plans/${encodeURIComponent(localPlanSlug ?? "")}`,
-      );
-      const url =
-        typeof window !== "undefined" && localPlanBridgeUrl
-          ? window.location.href
-          : typeof window === "undefined"
-            ? path
-            : `${window.location.origin}${path}`;
+      const url = localPlanRouteUrl(localPlanSlug ?? "");
       return buildPlanAgentContext({ bundle, documentHtml, url });
     }
     const base = bundle.plan.kind === "recap" ? "recaps" : "plans";
@@ -3345,22 +3362,15 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
     const url =
       typeof window === "undefined" ? path : `${window.location.origin}${path}`;
     return buildPlanAgentContext({ bundle, documentHtml, url });
-  }, [
-    bundle,
-    documentHtml,
-    localPlanBridgeUrl,
-    localPlanMode,
-    localPlanSlug,
-    selectedId,
-  ]);
+  }, [bundle, documentHtml, localPlanMode, localPlanSlug, selectedId]);
 
   const planShareUrl = useMemo(() => {
     if (typeof window === "undefined") return undefined;
-    if (localPlanMode) return window.location.href;
+    if (localPlanMode) return localPlanRouteUrl(localPlanSlug ?? "");
     if (!selectedId) return undefined;
     const base = bundle?.plan.kind === "recap" ? "recaps" : "plans";
     return `${window.location.origin}${appPath(`/${base}/${selectedId}`)}`;
-  }, [bundle?.plan.kind, localPlanMode, selectedId]);
+  }, [bundle?.plan.kind, localPlanMode, localPlanSlug, selectedId]);
 
   useEffect(() => {
     const onSidebarState = (event: Event) => {
@@ -3727,8 +3737,14 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
         html: localBundle.html || localBundle.plan.html || documentHtml,
         json: localBundle,
         mdx,
-        path: localBundle.path ?? window.location.pathname,
-        url: localBundle.url ?? window.location.href,
+        path:
+          localBundle.path ??
+          (localPlanSlug
+            ? localPlanRoutePath(localPlanSlug)
+            : window.location.pathname),
+        url:
+          localBundle.url ??
+          (localPlanSlug ? localPlanRouteUrl(localPlanSlug) : planShareUrl),
       };
     }
     const result = await exportPlan.refetch();
@@ -3737,7 +3753,14 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
       throw new Error("Plan export was not available yet.");
     }
     return data;
-  }, [bundle, documentHtml, exportPlan, localPlanMode]);
+  }, [
+    bundle,
+    documentHtml,
+    exportPlan,
+    localPlanMode,
+    localPlanSlug,
+    planShareUrl,
+  ]);
 
   const syncPlanToDesktopFolder = useCallback(
     async (options: { choose?: boolean; quiet?: boolean } = {}) => {

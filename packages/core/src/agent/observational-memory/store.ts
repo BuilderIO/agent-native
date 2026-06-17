@@ -101,6 +101,21 @@ function rowToEntry(row: Record<string, unknown>): ObservationalMemoryEntry {
   };
 }
 
+function addOwnerScope(
+  clauses: string[],
+  args: unknown[],
+  owner: ObservationalMemoryOwner,
+): void {
+  clauses.push("owner_email = ?");
+  args.push(owner.ownerEmail);
+  if (owner.orgId == null) {
+    clauses.push("org_id IS NULL");
+  } else {
+    clauses.push("org_id = ?");
+    args.push(owner.orgId);
+  }
+}
+
 export interface InsertObservationalMemoryInput extends ObservationalMemoryOwner {
   threadId: string;
   tier: ObservationalMemoryTier;
@@ -174,8 +189,9 @@ export async function listObservationalMemory(
 ): Promise<ObservationalMemoryEntry[]> {
   await ensureTable();
   const client = getDbExec();
-  const clauses = ["thread_id = ?", "owner_email = ?"];
-  const args: unknown[] = [options.threadId, options.ownerEmail];
+  const clauses = ["thread_id = ?"];
+  const args: unknown[] = [options.threadId];
+  addOwnerScope(clauses, args, options);
   if (options.tier) {
     clauses.push("tier = ?");
     args.push(options.tier);
@@ -199,11 +215,14 @@ export async function getObservedThroughIndex(
 ): Promise<number> {
   await ensureTable();
   const client = getDbExec();
+  const clauses = ["thread_id = ?", "tier = 'observation'"];
+  const args: unknown[] = [options.threadId];
+  addOwnerScope(clauses, args, options);
   const result = await client.execute({
     sql: `SELECT MAX(source_end_index) AS max_idx
       FROM observational_memory
-      WHERE thread_id = ? AND owner_email = ? AND tier = 'observation'`,
-    args: [options.threadId, options.ownerEmail],
+      WHERE ${clauses.join(" AND ")}`,
+    args,
   });
   const row = (result.rows as Record<string, unknown>[])[0];
   const max = numOrNull(row?.max_idx);
@@ -216,11 +235,14 @@ export async function getObservationLogTokens(
 ): Promise<number> {
   await ensureTable();
   const client = getDbExec();
+  const clauses = ["thread_id = ?", "tier = 'observation'"];
+  const args: unknown[] = [options.threadId];
+  addOwnerScope(clauses, args, options);
   const result = await client.execute({
     sql: `SELECT COALESCE(SUM(token_estimate), 0) AS total
       FROM observational_memory
-      WHERE thread_id = ? AND owner_email = ? AND tier = 'observation'`,
-    args: [options.threadId, options.ownerEmail],
+      WHERE ${clauses.join(" AND ")}`,
+    args,
   });
   const row = (result.rows as Record<string, unknown>[])[0];
   return Number(row?.total) || 0;

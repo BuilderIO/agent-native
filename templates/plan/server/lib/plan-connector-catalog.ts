@@ -5,8 +5,10 @@
  * see only these tools plus the builtin cross-app tools (list_apps, open_app,
  * ask_app, create_embed_session). Tools outside this list are not callable.
  *
- * Callers who need the full surface (db-exec, seed-*, extension tools, etc.)
- * can opt up with `agent-native connect --full-catalog`.
+ * Callers who need every action registered by this Plan MCP mount can opt up
+ * with `agent-native connect --full-catalog`. That bypasses this curated
+ * catalog tier, but it still does not add generic framework/dev/local tools
+ * that this hosted Plan MCP server intentionally never mounts.
  *
  * EXCLUDED intentionally:
  *   - seed-kitchen-sink, seed-vertical-tabs  (destructive demo scripts)

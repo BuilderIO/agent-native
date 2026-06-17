@@ -47,6 +47,47 @@ function sumTokens(entries: ObservationalMemoryEntry[]): number {
  * `recentMessages` verbatim, and prepend a short "Observational Memory" system
  * section. This module deliberately does not edit production-agent.ts.
  */
+/** True when this thread has at least one persisted observation or reflection. */
+export function hasObservationalMemory(context: ObservationalContext): boolean {
+  return context.reflections.length > 0 || context.observations.length > 0;
+}
+
+/**
+ * Serialize the reflections + observations tiers into a single, clearly
+ * delimited prompt block. The recent-raw-message tail is NOT serialized here —
+ * it stays as verbatim engine messages — so this block represents only the
+ * compacted older history that replaces the raw prefix.
+ *
+ * Returns an empty string when there is nothing compacted yet, so callers can
+ * cheaply skip injection for short threads.
+ */
+export function serializeObservationalMemoryBlock(
+  context: ObservationalContext,
+): string {
+  if (!hasObservationalMemory(context)) return "";
+  const sections: string[] = [];
+  sections.push(
+    "[Observational Memory] The earlier part of this long conversation has been " +
+      "compacted into the dated reflections and observations below. Treat these " +
+      "as an authoritative record of what already happened — do not redo " +
+      "completed work, and trust the recorded decisions, names, dates, and " +
+      "status. The most recent turns follow verbatim after this block.",
+  );
+  if (context.reflections.length > 0) {
+    sections.push(
+      "## Reflections (highest-level)\n" +
+        context.reflections.map((entry) => entry.text).join("\n\n"),
+    );
+  }
+  if (context.observations.length > 0) {
+    sections.push(
+      "## Observations (dense, dated)\n" +
+        context.observations.map((entry) => entry.text).join("\n\n"),
+    );
+  }
+  return sections.join("\n\n");
+}
+
 export async function buildObservationalContext(
   options: BuildObservationalContextOptions,
 ): Promise<ObservationalContext> {

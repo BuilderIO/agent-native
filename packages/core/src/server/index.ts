@@ -149,6 +149,10 @@ export {
   defaultContextXrayPlugin,
 } from "../agent/context-xray/plugin.js";
 export {
+  createObservationalMemoryPlugin,
+  defaultObservationalMemoryPlugin,
+} from "../agent/observational-memory/plugin.js";
+export {
   createGoogleAuthPlugin,
   type GoogleAuthPluginOptions,
 } from "./google-auth-plugin.js";

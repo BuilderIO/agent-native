@@ -136,7 +136,6 @@ import {
   getAgentEngineEntry,
   detectEngineFromEnv,
   detectEngineFromUserSecrets,
-  isAgentEnginePackageInstalled,
   isStoredEngineUsableForRequest,
 } from "../agent/engine/registry.js";
 import { registerBuiltinEngines } from "../agent/engine/builtin.js";
@@ -212,7 +211,11 @@ async function detectUsageEngineName(
       ? getAgentEngineEntry(process.env.AGENT_ENGINE)
       : undefined;
     if (envEntry) {
-      return isAgentEnginePackageInstalled(envEntry) ? envEntry.name : null;
+      return (await runWithRequestContext({ userEmail, orgId }, () =>
+        isStoredEngineUsableForRequest({ engine: envEntry.name }, envEntry),
+      ))
+        ? envEntry.name
+        : null;
     }
 
     const detectedFromUser = await runWithRequestContext(
@@ -2152,7 +2155,15 @@ export function createCoreRoutesPlugin(
               ? getAgentEngineEntry(process.env.AGENT_ENGINE)
               : undefined;
             if (envEntry) {
-              if (!isAgentEnginePackageInstalled(envEntry)) {
+              const envUsable = await runWithRequestContext(
+                { userEmail, orgId },
+                () =>
+                  isStoredEngineUsableForRequest(
+                    { engine: envEntry.name },
+                    envEntry,
+                  ),
+              );
+              if (!envUsable) {
                 return { configured: false };
               }
               return {

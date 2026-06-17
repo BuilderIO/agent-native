@@ -131,3 +131,168 @@ describe("redactSensitiveFields", () => {
     expect(out.self).toBe("[Circular]");
   });
 });
+
+// OpenTelemetry export: instrumentAgentLoop wraps the run, each tool call, and
+// the model call in OTel spans. With no provider registered the api package's
+// no-op tracer means zero spans escape; with a registered (test) provider the
+// spans carry the expected names and attributes.
+
+interface RecordedSpan {
+  name: string;
+  attributes: Record<string, string | number | boolean>;
+  status?: { code: number; message?: string };
+  ended: boolean;
+}
+
+function createRecordingTracer() {
+  const spans: RecordedSpan[] = [];
+  const tracer = {
+    startSpan(
+      name: string,
+      options?: { attributes?: Record<string, string | number | boolean> },
+    ): AgentSpan {
+      const recorded: RecordedSpan = {
+        name,
+        attributes: { ...(options?.attributes ?? {}) },
+        ended: false,
+      };
+      spans.push(recorded);
+      return {
+        setAttribute(key, value) {
+          recorded.attributes[key] = value;
+        },
+        setAttributes(attributes) {
+          Object.assign(recorded.attributes, attributes);
+        },
+        setStatus(status) {
+          recorded.status = status;
+        },
+        recordException() {},
+        end() {
+          recorded.ended = true;
+        },
+      };
+    },
+  };
+  return { tracer, spans };
+}
+
+describe("instrumentAgentLoop OpenTelemetry export", () => {
+  afterEach(() => {
+    __resetAgentTracerCache();
+  });
+
+  it("emits run/tool/llm spans with expected names and attributes", async () => {
+    const { tracer, spans } = createRecordingTracer();
+    __setAgentTracerForTests(tracer as any);
+
+    const loopOpts: any = {
+      engine: {},
+      model: "claude-test",
+      systemPrompt: "",
+      tools: [],
+      messages: [],
+      actions: {},
+      send: () => {},
+      signal: new AbortController().signal,
+    };
+
+    await instrumentAgentLoop({
+      runAgentLoop: async ({ send }) => {
+        send({ type: "tool_start", tool: "read", input: { path: "x" } });
+        send({ type: "tool_done", tool: "read", result: "ok" });
+        send({ type: "tool_start", tool: "db-exec", input: {} });
+        send({ type: "tool_done", tool: "db-exec", result: "Error: boom" });
+        return {
+          inputTokens: 100,
+          outputTokens: 20,
+          cacheReadTokens: 5,
+          cacheWriteTokens: 0,
+          model: "claude-test",
+        };
+      },
+      loopOpts,
+      runId: "run-otel-1",
+      threadId: "thread-1",
+      userId: "user@example.com",
+      config: { ...DEFAULT_OBSERVABILITY_CONFIG, enabled: true },
+    });
+
+    // Let the tool-span microtasks settle.
+    await new Promise((r) => setTimeout(r, 0));
+
+    const byName = (n: string) => spans.filter((s) => s.name === n);
+
+    // Run span.
+    const runSpan = byName("agent.run")[0];
+    expect(runSpan).toBeDefined();
+    expect(runSpan.attributes["agent.run_id"]).toBe("run-otel-1");
+    expect(runSpan.attributes["agent.model"]).toBe("claude-test");
+    expect(runSpan.attributes["agent.tool_calls"]).toBe(2);
+    expect(runSpan.attributes["agent.failed_tools"]).toBe(1);
+    expect(runSpan.status?.code).toBe(SPAN_STATUS_OK);
+    expect(runSpan.ended).toBe(true);
+
+    // Tool spans: one success, one error.
+    const toolSpans = byName("tool.call");
+    expect(toolSpans).toHaveLength(2);
+    const readSpan = toolSpans.find(
+      (s) => s.attributes["tool.name"] === "read",
+    );
+    const dbSpan = toolSpans.find(
+      (s) => s.attributes["tool.name"] === "db-exec",
+    );
+    expect(readSpan?.status?.code).toBe(SPAN_STATUS_OK);
+    expect(readSpan?.ended).toBe(true);
+    expect(dbSpan?.status?.code).toBe(SPAN_STATUS_ERROR);
+    expect(dbSpan?.status?.message).toBe("Error: boom");
+    expect(dbSpan?.ended).toBe(true);
+
+    // LLM span carries model + token usage.
+    const llmSpan = byName("llm.call")[0];
+    expect(llmSpan).toBeDefined();
+    expect(llmSpan.attributes["llm.model"]).toBe("claude-test");
+    expect(llmSpan.attributes["llm.input_tokens"]).toBe(100);
+    expect(llmSpan.attributes["llm.output_tokens"]).toBe(20);
+    expect(llmSpan.attributes["llm.cache_read_tokens"]).toBe(5);
+    expect(llmSpan.status?.code).toBe(SPAN_STATUS_OK);
+    expect(llmSpan.ended).toBe(true);
+  });
+
+  it("no-ops (emits no spans) when no provider is registered", async () => {
+    __setAgentTracerForTests(null);
+
+    const loopOpts: any = {
+      engine: {},
+      model: "claude-test",
+      systemPrompt: "",
+      tools: [],
+      messages: [],
+      actions: {},
+      send: () => {},
+      signal: new AbortController().signal,
+    };
+
+    // Must complete without throwing even though no tracer is available.
+    const usage = await instrumentAgentLoop({
+      runAgentLoop: async ({ send }) => {
+        send({ type: "tool_start", tool: "read", input: {} });
+        send({ type: "tool_done", tool: "read", result: "ok" });
+        return {
+          inputTokens: 1,
+          outputTokens: 1,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          model: "claude-test",
+        };
+      },
+      loopOpts,
+      runId: "run-otel-2",
+      threadId: null,
+      userId: null,
+      config: { ...DEFAULT_OBSERVABILITY_CONFIG, enabled: true },
+    });
+
+    expect(usage.model).toBe("claude-test");
+  });
+});

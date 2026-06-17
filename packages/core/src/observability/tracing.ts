@@ -90,10 +90,7 @@ function pruneAttributes(
  */
 export async function startAgentSpan(
   name: string,
-  attributes: Record<
-    string,
-    string | number | boolean | null | undefined
-  > = {},
+  attributes: Record<string, string | number | boolean | null | undefined> = {},
 ): Promise<AgentSpan | null> {
   const tracer = await resolveTracer();
   if (!tracer) return null;
