@@ -540,8 +540,12 @@ export interface ActionDefinition<TInput, TReturn> {
  * });
  * ```
  */
-export function defineAction<TSchema extends StandardSchemaV1, TReturn>(
-  options: DefineActionWithSchema<TSchema, TReturn>,
+export function defineAction<
+  TSchema extends StandardSchemaV1,
+  TReturn,
+  TOutputSchema extends StandardSchemaV1 | undefined = undefined,
+>(
+  options: DefineActionWithSchema<TSchema, TReturn, TOutputSchema>,
 ): ActionDefinition<StandardSchemaV1.InferInput<TSchema>, TReturn>;
 export function defineAction<
   TParams extends Record<string, ParameterSchema> | undefined,
