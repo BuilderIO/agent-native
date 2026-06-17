@@ -2062,18 +2062,14 @@ async function resolveSessionUncached(
     };
   }
 
-  // 2. AUTH_DISABLED bypass — skip login/signup; all requests share one user.
-  const authDisabledSession = getAuthDisabledSession();
-  if (authDisabledSession) return authDisabledSession;
-
-  // 3. ACCESS_TOKEN check (programmatic/agent access)
+  // 2. ACCESS_TOKEN check (programmatic/agent access)
   const accessTokens = getAccessTokens();
   if (accessTokens.length > 0) {
     const cookieSession = await getLegacyCookieSession(event);
     if (cookieSession) return cookieSession;
   }
 
-  // 4. BYOA custom getSession
+  // 3. BYOA custom getSession
   if (customGetSession) {
     const session = await customGetSession(event);
     if (session) return session;
@@ -2090,14 +2086,14 @@ async function resolveSessionUncached(
     if (sso?.email) return { email: sso.email, token: sso.token };
     // Fall through to mobile _session check
   } else {
-    // 5. Bearer session. Desktop/native clients can persist a legacy session
+    // 4. Bearer session. Desktop/native clients can persist a legacy session
     // token outside the WebView cookie jar and attach it to all app requests.
     // `agent-native connect` clients may present a connect-minted MCP OAuth
     // token, but only the framework action route accepts that fallback.
     const bearerSession = await getBearerSession(event);
     if (bearerSession) return bearerSession;
 
-    // 6. Better Auth session (cookie or Bearer token)
+    // 5. Better Auth session (cookie or Bearer token)
     try {
       const ba = getBetterAuthSync();
       if (ba) {
@@ -2112,11 +2108,11 @@ async function resolveSessionUncached(
       console.error("[auth] ba.api.getSession error:", e);
     }
 
-    // 7. Legacy cookie fallback (for sessions created before migration)
+    // 6. Legacy cookie fallback (for sessions created before migration)
     const cookieSession = await getLegacyCookieSession(event);
     if (cookieSession) return cookieSession;
 
-    // 8. Desktop SSO broker fallback.
+    // 7. Desktop SSO broker fallback.
     // Each template in the Electron desktop app has its own database, so
     // a session token created by one template doesn't resolve in another.
     // When an Electron request has no resolvable session, trust the
@@ -2134,6 +2130,12 @@ async function resolveSessionUncached(
   // 8. Mobile WebView bridge — _session query param
   const querySession = await promoteQuerySession(event);
   if (querySession) return querySession;
+
+  // 9. AUTH_DISABLED fallback — only when no session resolved above.
+  // Must run after BYOA customGetSession so infrastructure/custom auth keeps
+  // caller identity instead of collapsing to the shared preview user.
+  const authDisabledSession = getAuthDisabledSession();
+  if (authDisabledSession) return authDisabledSession;
 
   return null;
 }
