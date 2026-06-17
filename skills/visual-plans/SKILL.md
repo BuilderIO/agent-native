@@ -347,11 +347,20 @@ planning, repo-owned/source-controlled planning artifacts, or when
 `AGENT_NATIVE_PLANS_MODE=local-files` is set. Also use it when a user or repo
 policy says a plan must stay under their own brand, domain, source control, or
 infrastructure. In this mode the plan data must never be sent to the Plan MCP
-server or Plan app action surface.
+server or Plan app action surface. Schema-only block catalog lookup is allowed
+because it sends no plan content: use the MCP `get-plan-blocks` tool if it is
+already available, or run
+`npx @agent-native/core@latest plan blocks --out plan-blocks.md` and read that
+file before authoring MDX.
 
 The local-files contract is:
 
 - Read source context from local files and shell commands only.
+- Fetch/read the block catalog before writing structured MDX. The
+  `plan blocks` command calls the public no-auth `get-plan-blocks` route and
+  writes only registry metadata to disk; use `--format schema` if exact nested
+  fields are needed. If network access is unavailable, use the bundled
+  references and rely on `plan local preview` to catch invalid tags.
 - Write the plan as a local MDX folder under `plans/<slug>/`: `plan.mdx`,
   optional `canvas.mdx`, optional `prototype.mdx`, and optional
   `.plan-state.json`.
@@ -362,7 +371,8 @@ The local-files contract is:
 - Do **not** call `create-visual-plan`, `create-ui-plan`,
   `create-prototype-plan`, `create-plan-design`, `import-visual-plan-source`,
   `update-visual-plan`, `patch-visual-plan-source`, `get-plan-feedback`,
-  `export-visual-plan`, or any hosted Plan tool for that plan.
+  `export-visual-plan`, or any hosted Plan tool for that plan except the
+  schema-only block catalog lookup above.
 - Treat feedback as file or chat feedback: update the MDX files directly, rerun
   the local preview command, and summarize the new local URL/path. Hosted
   comments, sharing, history, and publish/export receipts are unavailable until

@@ -82,7 +82,8 @@ When installing visual-plan or visual-recap interactively, the CLI asks where
 plans and recaps should live: hosted Plans for shareable links/comments, local
 files for "No sharing, all local.", or a self-hosted/custom Plan app URL.
 Pass --mode to choose directly. Local-files mode skips MCP registration and
-auth and installs instructions that default to MDX folders plus local preview.
+auth and installs instructions that default to a no-auth block catalog fetch,
+MDX folders, and local preview.
 
 When installing visual-recap interactively, the CLI offers to add the optional PR
 Visual Recap GitHub Action. Pass --with-github-action to write it directly, then
@@ -280,6 +281,22 @@ the connector without authenticating, then run
 whenever you are ready, or choose a narrower \`--client\`. Auth and MCP tool
 loading are per client config/session.
 
+**Local-only / text installs.** If the user wants no sharing and all local files,
+install with \`--mode local-files\`:
+
+\`\`\`bash
+npx @agent-native/core@latest skills add visual-plan --mode local-files
+\`\`\`
+
+This mode does not register the Plan MCP connector. Before authoring structured
+MDX, fetch the no-auth, schema-only block catalog with
+\`npx @agent-native/core@latest plan blocks --out plan-blocks.md\`, read that file,
+write \`plans/<slug>/plan.mdx\` locally, then run \`plan local preview\`. Plain
+text skill installs (Vercel Skills CLI, copied GitHub files, etc.) can follow
+that same local flow if \`@agent-native/core\` is available. Text alone cannot
+register MCP tools; hosted/shareable Plans still need the Agent-Native CLI
+install/reconnect step above.
+
 **Browser (people you share with).** Open the Plans editor and create & edit
 with no sign-up — you work as a guest. Sign in only when you want to save or
 share; signing in claims the plans you made as a guest into your account.
@@ -287,9 +304,10 @@ share; signing in claims the plans you made as a guest into your account.
 Sharing and commenting require an account: public/shared plans are viewable by
 anyone with the link, but commenting on them needs an agent-native account.
 
-For fully offline, no-account use, run the Plans app locally and sync plans to
-your repo as MDX. This local mode is a separate advanced path, not the default
-hosted flow.
+For fully offline, no-account use, use local-files mode and the local preview
+command. The optional \`plan blocks\` lookup reads only public schema metadata; if
+network access is unavailable, use the bundled references and validate with
+\`plan local preview\`.
 
 If a Plans tool returns \`needs auth\`, \`Unauthorized\`, or \`Session terminated\`,
 do not keep retrying the tool. Stop and give the user the reconnect step for the
@@ -1333,11 +1351,20 @@ planning, repo-owned/source-controlled planning artifacts, or when
 \`AGENT_NATIVE_PLANS_MODE=local-files\` is set. Also use it when a user or repo
 policy says a plan must stay under their own brand, domain, source control, or
 infrastructure. In this mode the plan data must never be sent to the Plan MCP
-server or Plan app action surface.
+server or Plan app action surface. Schema-only block catalog lookup is allowed
+because it sends no plan content: use the MCP \`get-plan-blocks\` tool if it is
+already available, or run
+\`npx @agent-native/core@latest plan blocks --out plan-blocks.md\` and read that
+file before authoring MDX.
 
 The local-files contract is:
 
 - Read source context from local files and shell commands only.
+- Fetch/read the block catalog before writing structured MDX. The
+  \`plan blocks\` command calls the public no-auth \`get-plan-blocks\` route and
+  writes only registry metadata to disk; use \`--format schema\` if exact nested
+  fields are needed. If network access is unavailable, use the bundled
+  references and rely on \`plan local preview\` to catch invalid tags.
 - Write the plan as a local MDX folder under \`plans/<slug>/\`: \`plan.mdx\`,
   optional \`canvas.mdx\`, optional \`prototype.mdx\`, and optional
   \`.plan-state.json\`.
@@ -1348,7 +1375,8 @@ The local-files contract is:
 - Do **not** call \`create-visual-plan\`, \`create-ui-plan\`,
   \`create-prototype-plan\`, \`create-plan-design\`, \`import-visual-plan-source\`,
   \`update-visual-plan\`, \`patch-visual-plan-source\`, \`get-plan-feedback\`,
-  \`export-visual-plan\`, or any hosted Plan tool for that plan.
+  \`export-visual-plan\`, or any hosted Plan tool for that plan except the
+  schema-only block catalog lookup above.
 - Treat feedback as file or chat feedback: update the MDX files directly, rerun
   the local preview command, and summarize the new local URL/path. Hosted
   comments, sharing, history, and publish/export receipts are unavailable until
@@ -1480,6 +1508,12 @@ In local-files mode:
   The existing \`npx @agent-native/core@latest recap collect-diff\`, \`scan\`, and
   \`build-prompt --local-files\` helpers are safe to use because they operate on
   local files and do not write to the Plan database.
+- Fetch/read the block catalog before writing structured MDX. Use
+  \`npx @agent-native/core@latest plan blocks --out plan-blocks.md\` when the Plan
+  MCP connector is not registered; it calls the public no-auth
+  \`get-plan-blocks\` route and sends no recap content. If network access is
+  unavailable, use the bundled references and validate with
+  \`plan local preview\`.
 - Write the recap as a local MDX folder under \`plans/<slug>/\`: \`plan.mdx\`,
   optional \`canvas.mdx\`, optional \`prototype.mdx\`, and optional
   \`.plan-state.json\`. Set \`kind: "recap"\` and \`localOnly: true\` in
@@ -1491,7 +1525,8 @@ In local-files mode:
 - Do **not** call \`create-visual-recap\`, \`create-visual-plan\`,
   \`import-visual-plan-source\`, \`update-visual-plan\`,
   \`patch-visual-plan-source\`, \`get-plan-feedback\`, \`export-visual-plan\`,
-  \`set-resource-visibility\`, or any hosted Plan tool for that recap.
+  \`set-resource-visibility\`, or any hosted Plan tool for that recap except the
+  schema-only block catalog lookup above.
 - Treat review feedback as file or chat feedback: update the MDX files directly,
   rerun the local preview command, and summarize the new local URL/path.
   Hosted comments, sharing, screenshots, usage attachment, and PR sticky comment
@@ -1854,12 +1889,19 @@ memorized tags — they drift and silently produce a wrong tag (\`ApiEndpoint\`
 instead of \`Endpoint\`, \`JsonExplorer\` instead of \`Json\`, \`Tabs\` instead of
 \`TabsBlock\`) that errors on import.
 
-**Before writing any structured plan content, call \`get-plan-blocks\` on the Plan
-MCP connector (\`plan\` or legacy \`agent-native-plans\`).** It returns the
-authoritative, always-current block
-vocabulary generated live from the app's own block registry — the same config
-the renderer and MDX round-trip use — so it can never be stale even if this
-SKILL.md is an old installed copy:
+**Before writing any structured plan content, fetch/read the block catalog.** In
+hosted or self-hosted mode, call \`get-plan-blocks\` on the Plan MCP connector
+(\`plan\` or legacy \`agent-native-plans\`). In local-files mode, or when the skill
+was installed as plain text and no MCP tools are registered, run
+\`npx @agent-native/core@latest plan blocks --out plan-blocks.md\` and read that
+file first. The CLI command calls the public no-auth \`get-plan-blocks\` route and
+sends no plan/recap content. If network access is unavailable, use the bundled
+references and validate with \`plan local preview\`.
+
+The catalog returns the authoritative, always-current block vocabulary generated
+live from the app's own block registry — the same config the renderer and MDX
+round-trip use — so it can never be stale even if this SKILL.md is an old
+installed copy:
 
 - \`get-plan-blocks\` (default \`format: "reference"\`) → a compact table of every
   block's runtime \`type\`, exact MDX \`<Tag>\`, placement, and key data fields.
@@ -2564,7 +2606,9 @@ function planModeInstructionBlock(input: {
     return `## Installed Mode
 
 Default storage for this installation: local files. Create and update plans and
-recaps as MDX folders under \`plans/<slug>/\`, run
+recaps as MDX folders under \`plans/<slug>/\`. Before authoring structured MDX,
+run \`npx @agent-native/core@latest plan blocks --out plan-blocks.md\` and read
+the no-auth block catalog; it sends no plan content. Then run
 \`npx @agent-native/core@latest plan local preview --dir plans/<slug> --kind plan|recap\`,
 and report the local preview URL or path. No sharing, all local. Use a hosted
 or self-hosted Plan MCP connector only if the user explicitly asks to publish or

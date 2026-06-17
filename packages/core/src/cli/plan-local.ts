@@ -1,14 +1,24 @@
 /**
- * DB-free local plan helpers.
+ * Plan helper commands.
  *
- * These commands are intentionally separate from the Plan app actions. They do
- * not call MCP, HTTP, SQLite, or the Plan template runtime; they only read and
- * write local files so privacy-focused users have an auditable no-DB path.
+ * The `plan local` commands are intentionally separate from the Plan app
+ * actions. They do not call MCP, HTTP, SQLite, or the Plan template runtime;
+ * they only read and write local files so privacy-focused users have an
+ * auditable no-DB path. The top-level `plan blocks` command is a schema-only,
+ * no-auth helper for fetching the public block catalog before authoring local
+ * MDX; it never sends plan content.
  */
 
 import fs from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
+
+import {
+  DEFAULT_PLAN_APP_URL,
+  defaultPlanBlocksOut,
+  fetchPlanBlockCatalog,
+  normalizePlanBlockFormat,
+} from "./plan-blocks.js";
 
 type LocalPlanKind = "plan" | "recap";
 
@@ -536,25 +546,51 @@ function runPreview(args: Record<string, string | boolean>): void {
   process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
 }
 
+async function runBlocks(
+  args: Record<string, string | boolean>,
+): Promise<void> {
+  const format = normalizePlanBlockFormat(optionalArg(args, "format"));
+  const result = await fetchPlanBlockCatalog({
+    appUrl:
+      optionalArg(args, "app-url") ||
+      process.env.PLAN_BLOCKS_APP_URL ||
+      process.env.PLAN_RECAP_APP_URL ||
+      DEFAULT_PLAN_APP_URL,
+    format,
+    out: optionalArg(args, "out") || defaultPlanBlocksOut(format),
+  });
+  process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+}
+
 const HELP = `agent-native plan — local Agent-Native Plan helpers
 
 Usage:
+  agent-native plan blocks [--format reference|schema] [--app-url <url>] [--out <file>]
   agent-native plan local init --title <title> [--brief <text>] [--kind plan|recap] [--dir <folder>] [--force]
   agent-native plan local check --dir <folder>
   agent-native plan local preview --dir <folder> [--out preview.html] [--kind plan|recap]
 
+The blocks command fetches the no-auth, read-only get-plan-blocks catalog from
+the Plan app and writes plan-blocks.md (or plan-blocks.schema.json). It sends no
+plan content and is safe for local-files authoring before writing MDX.
+
 The local subcommands are the privacy-focused no-DB path. They only read and
 write local files: plan.mdx, optional canvas.mdx, optional prototype.mdx, and
 optional .plan-state.json. They do not call the Plan MCP server, the Plan app
-actions, hosted services, or SQLite.
+write actions, hosted storage, or SQLite.
 
 Common flow:
+  agent-native plan blocks --out plan-blocks.md
   agent-native plan local init --title "Checkout review" --kind plan
   agent-native plan local preview --dir plans/checkout-review
 `;
 
 export async function runPlan(argv: string[]): Promise<void> {
   const [area, sub, ...rest] = argv;
+  if (area === "blocks") {
+    await runBlocks(parseArgs(argv.slice(1)));
+    return;
+  }
   if (area !== "local") {
     // Bare `agent-native plan` / `plan help` / `plan --help` → show help on
     // stdout and exit 0 (informational, not an error).
