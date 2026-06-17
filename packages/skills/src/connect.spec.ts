@@ -104,6 +104,54 @@ describe("registerMcpServer", () => {
     expect(result.guidance.join("\n")).toMatch(/Authenticate/i);
   });
 
+  it("writes URL-only OAuth entries for Cursor, OpenCode, and GitHub Copilot / VS Code", async () => {
+    isolateHome();
+    const baseDir = tmpDir();
+    const descriptor: McpDescriptor = {
+      serverName: "plan",
+      mcpUrl: "https://plan.agent-native.com/_agent-native/mcp",
+      authMode: "oauth",
+      hostedUrl: "https://plan.agent-native.com",
+    };
+
+    const result = await registerMcpServer({
+      descriptor,
+      clients: ["cursor", "opencode", "github-copilot"],
+      scope: "project",
+      baseDir,
+      interactive: true,
+    });
+
+    const cursorConfig = JSON.parse(
+      fs.readFileSync(path.join(baseDir, ".cursor", "mcp.json"), "utf-8"),
+    );
+    expect(cursorConfig.mcpServers.plan).toEqual({
+      url: "https://plan.agent-native.com/_agent-native/mcp",
+    });
+
+    const opencodeConfig = JSON.parse(
+      fs.readFileSync(path.join(baseDir, "opencode.json"), "utf-8"),
+    );
+    expect(opencodeConfig.mcp.plan).toEqual({
+      type: "remote",
+      url: "https://plan.agent-native.com/_agent-native/mcp",
+      enabled: true,
+    });
+
+    const copilotConfig = JSON.parse(
+      fs.readFileSync(path.join(baseDir, ".vscode", "mcp.json"), "utf-8"),
+    );
+    expect(copilotConfig.servers.plan).toEqual({
+      type: "http",
+      url: "https://plan.agent-native.com/_agent-native/mcp",
+    });
+
+    expect(result.authenticated).toBe(false);
+    expect(result.guidance.join("\n")).toMatch(/Cursor/);
+    expect(result.guidance.join("\n")).toMatch(/OpenCode/);
+    expect(result.guidance.join("\n")).toMatch(/GitHub Copilot/);
+  });
+
   it("writes a codex bearer entry after an approved device-flow poll", async () => {
     const { codexHome } = isolateHome();
     const baseDir = tmpDir();
@@ -302,7 +350,7 @@ describe("registerMcpServer", () => {
 
     const guidance = result.guidance.join("\n");
     expect(guidance).toContain(
-      "codex: skipped MCP config because this client needs a bearer token.",
+      "Codex: skipped MCP config because this client needs a bearer token.",
     );
     expect(guidance).toContain(
       "npx @agent-native/core@latest connect https://plan.agent-native.com --client codex --scope user",

@@ -18,17 +18,17 @@ The agent and the UI are equal citizens of the same system. Every action works b
 - **Reusable integrations** — Connect a provider once in Dispatch, keep secret values in the vault, then grant apps like Brain, Analytics, Mail, and Dispatch access to the shared account metadata and credential refs.
 - **Apps that improve themselves** — Your apps get better on their own. The agent can add features, fix bugs, and refine the UI over time.
 - **Any database, any host** — Any SQL database Drizzle supports. Any hosting target Nitro supports. No lock-in.
-- **Any AI agent** — Claude Code, Codex, Gemini CLI, OpenCode, or Builder.io. Use whichever agent you prefer.
+- **Any AI agent** — Claude Code, Codex, Cursor, Pi, OpenCode, GitHub Copilot / VS Code, or Builder.io. Use whichever agent you prefer.
 
 ## Try it with a skill
 
-Don't want to scaffold a whole app yet? Add agent-native superpowers to a coding agent you already use — Claude Code, Codex, or Cursor — with one command:
+Don't want to scaffold a whole app yet? Add agent-native superpowers to a coding agent you already use — Claude Code, Codex, Cursor, Pi, OpenCode, GitHub Copilot / VS Code, and similar agents — with one command:
 
 ```bash
 npx @agent-native/core@latest skills add visual-plan
 ```
 
-It installs the skills, registers the hosted MCP connector, and signs in the selected local client(s) in one step. You get two slash commands that upgrade how your agent plans and reports its work:
+It installs the skills, writes shared `.agents` skill folders for agents that support them, registers the hosted MCP connector for supported local clients, and signs in the selected client(s) in one step. You get two slash commands that upgrade how your agent plans and reports its work:
 
 - **`/visual-plan`** — before the agent writes code, it opens a structured, reviewable plan document instead of a wall of text: inline diagrams, UI wireframes and prototypes, file-by-file implementation maps, and annotations you can comment on and approve.
 - **`/visual-recap`** — after changes land, it turns a PR or git diff into a high-altitude visual recap: schema, API, and file changes rendered as grounded before/after blocks with a shareable review link, instead of scrolling a raw diff.

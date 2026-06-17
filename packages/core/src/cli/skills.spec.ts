@@ -233,7 +233,7 @@ describe("agent-native skills", () => {
     expect(runConnect).toHaveBeenCalledWith([
       "https://assets.agent-native.com",
       "--client",
-      "claude-code,codex,cowork",
+      "claude-code,codex,cowork,cursor,opencode,github-copilot",
       "--scope",
       "project",
     ]);
@@ -830,10 +830,20 @@ describe("agent-native skills", () => {
         "claude-code",
         "codex",
         "cowork",
+        "cursor",
+        "opencode",
+        "github-copilot",
       ]);
       expect(
         promptClients.mock.calls[0]?.[0].options.map((o) => o.value),
-      ).toEqual(["claude-code", "codex", "cowork"]);
+      ).toEqual([
+        "claude-code",
+        "codex",
+        "cowork",
+        "cursor",
+        "opencode",
+        "github-copilot",
+      ]);
       expect(promptClients.mock.calls[0]?.[0].installsMcp).toBe(true);
       // Built-in instructions are written in-process for each selected client.
       expect(
@@ -859,7 +869,7 @@ describe("agent-native skills", () => {
         ]),
       );
       expect(stdout.join("")).toContain("MCP config");
-      expect(stdout.join("")).toContain("codex, claude-code");
+      expect(stdout.join("")).toContain("Codex, Claude Code");
       expect(stdout.join("")).toContain("Authentication");
       expect(stdout.join("")).toContain("completed");
       expect(stdout.join("")).toContain("Add another client later");
@@ -921,6 +931,9 @@ describe("agent-native skills", () => {
     );
 
     expect(promptGithubAction).toHaveBeenCalledTimes(1);
+    expect(promptGithubAction.mock.calls[0]?.[0]).toMatchObject({
+      docsUrl: "https://www.agent-native.com/docs/pr-visual-recap",
+    });
     const workflow = path.join(
       root,
       ".github",
@@ -1083,9 +1096,15 @@ describe("agent-native skills", () => {
       ),
     ).toBe(true);
     expect(
+      fs.existsSync(path.join(root, ".agents", "commands", "visual-plan.md")),
+    ).toBe(true);
+    expect(
       fs.existsSync(
         path.join(root, ".agents", "skills", "visual-recap", "SKILL.md"),
       ),
+    ).toBe(true);
+    expect(
+      fs.existsSync(path.join(root, ".agents", "commands", "visual-recap.md")),
     ).toBe(true);
   });
 
@@ -1199,7 +1218,7 @@ describe("agent-native skills", () => {
     expect(runConnect).not.toHaveBeenCalled();
     expect(
       promptClients.mock.calls[0]?.[0].options.map((o) => o.value),
-    ).toEqual(["claude-code", "codex"]);
+    ).toEqual(["codex", "claude-code", "pi"]);
     expect(fs.existsSync(path.join(root, ".codex", "config.toml"))).toBe(false);
     expect(
       fs.existsSync(
@@ -1216,7 +1235,11 @@ describe("agent-native skills", () => {
   it("runs public skills through the same prompt flow before delegating the copy", async () => {
     const root = tmpDir();
     const calls: string[] = [];
-    const commands: { cmd: string; args: string[] }[] = [];
+    const commands: {
+      cmd: string;
+      args: string[];
+      options?: { stdio?: string };
+    }[] = [];
     vi.spyOn(process.stdout, "write").mockImplementation(() => true);
 
     await runSkills(["add"], {
@@ -1246,8 +1269,8 @@ describe("agent-native skills", () => {
         calls.push("instructions");
         return true;
       },
-      runCommand: async (cmd, args) => {
-        commands.push({ cmd, args });
+      runCommand: async (cmd, args, options) => {
+        commands.push({ cmd, args, options });
         return 0;
       },
     });
@@ -1259,6 +1282,7 @@ describe("agent-native skills", () => {
       expect.arrayContaining([
         "@agent-native/skills@latest",
         "add",
+        "--quiet",
         "--copy",
         "BuilderIO/skills",
         "--skill",
@@ -1272,6 +1296,7 @@ describe("agent-native skills", () => {
         "--update-instructions",
       ]),
     );
+    expect(commands[0].options).toMatchObject({ stdio: "silent" });
   });
 
   it("does not forward local plan mode to non-plan public skill copies", async () => {
@@ -1349,7 +1374,85 @@ describe("agent-native skills", () => {
       ),
     ).toBe(true);
     expect(
+      fs.existsSync(path.join(root, ".agents", "commands", "visual-recap.md")),
+    ).toBe(true);
+    expect(
       fs.existsSync(path.join(root, ".agents", "skills", "visual-plan")),
+    ).toBe(false);
+    expect(
+      fs.existsSync(path.join(root, ".agents", "commands", "visual-plan.md")),
+    ).toBe(false);
+  });
+
+  it("writes user-scope Codex slash commands for visual plan skills", async () => {
+    const root = tmpDir();
+    const codexHome = path.join(root, "codex-home");
+    fs.mkdirSync(codexHome, { recursive: true });
+    const previousCodexHome = process.env.CODEX_HOME;
+    process.env.CODEX_HOME = codexHome;
+    vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+
+    try {
+      await runSkills(
+        [
+          "add",
+          "visual-plan",
+          "--client",
+          "codex",
+          "--scope",
+          "user",
+          "--mode",
+          "local-files",
+          "--yes",
+        ],
+        { baseDir: root },
+      );
+
+      expect(
+        fs.existsSync(
+          path.join(codexHome, "skills", "visual-plan", "SKILL.md"),
+        ),
+      ).toBe(true);
+      expect(
+        fs.existsSync(path.join(codexHome, "commands", "visual-plan.md")),
+      ).toBe(true);
+    } finally {
+      if (previousCodexHome === undefined) delete process.env.CODEX_HOME;
+      else process.env.CODEX_HOME = previousCodexHome;
+    }
+  });
+
+  it("writes Pi skills to .agents and Pi prompt templates for local plan skills", async () => {
+    const root = tmpDir();
+    vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+
+    await runSkills(
+      [
+        "add",
+        "visual-plan",
+        "--client",
+        "pi",
+        "--scope",
+        "project",
+        "--mode",
+        "local-files",
+        "--yes",
+      ],
+      { baseDir: root },
+    );
+
+    expect(
+      fs.existsSync(
+        path.join(root, ".agents", "skills", "visual-plan", "SKILL.md"),
+      ),
+    ).toBe(true);
+    expect(
+      fs.existsSync(path.join(root, ".pi", "prompts", "visual-plan.md")),
+    ).toBe(true);
+    expect(
+      fs.existsSync(
+        path.join(root, ".pi", "skills", "visual-plan", "SKILL.md"),
+      ),
     ).toBe(false);
   });
 
@@ -1410,7 +1513,7 @@ describe("agent-native skills", () => {
     );
 
     expect(result.commands).toEqual([
-      "npx @agent-native/core@latest skills add assets --client claude-code,codex,cowork --scope project --yes",
+      "npx @agent-native/core@latest skills add assets --client claude-code,codex,cowork,cursor,opencode,github-copilot --scope project --yes",
     ]);
     expect(result.commands.join("\n")).not.toContain(os.tmpdir());
     expect(fs.existsSync(path.join(root, ".mcp.json"))).toBe(false);
@@ -1432,7 +1535,7 @@ describe("agent-native skills", () => {
     );
 
     expect(result.commands).toEqual([
-      "npx @agent-native/core@latest skills add visual-recap --client claude-code,codex,cowork --scope project --with-github-action --yes",
+      "npx @agent-native/core@latest skills add visual-recap --client claude-code,codex,cowork,cursor,opencode,github-copilot --scope project --with-github-action --yes",
     ]);
     expect(result.githubActionPath).toBe(
       path.join(".github", "workflows", "pr-visual-recap.yml"),

@@ -348,7 +348,7 @@ export default function PlanTemplate() {
             {
               step: "1",
               title: "Add the skill",
-              body: "One command installs the plan skill into your Codex or Claude Code project. No separate app to deploy.",
+              body: "One command installs the plan skill into Claude Code, Codex, Pi, Cursor, OpenCode, GitHub Copilot / VS Code, and similar agent projects. No separate app to deploy.",
             },
             {
               step: "2",
@@ -526,7 +526,7 @@ export default function PlanTemplate() {
               </tr>
               <tr className="border-b border-[var(--docs-border)]">
                 <td className="px-5 py-3 font-medium text-[var(--fg)]">
-                  Works with Codex / Claude Code
+                  Works with Codex / Claude Code / Pi
                 </td>
                 <td className="px-5 py-3">Yes</td>
                 <td className="px-5 py-3">No</td>
@@ -555,8 +555,9 @@ export default function PlanTemplate() {
           Get started in seconds
         </h2>
         <p className="mx-auto mb-8 max-w-lg text-base text-[var(--fg-secondary)]">
-          One command adds visual planning to any Codex or Claude Code project.
-          No separate deployment needed.
+          One command adds visual planning to Claude Code, Codex, Pi, Cursor,
+          OpenCode, GitHub Copilot / VS Code, and similar agent projects. No
+          separate deployment needed.
         </p>
         <div className="template-detail-cta-actions flex flex-col items-stretch justify-center gap-3 sm:flex-row sm:items-center sm:gap-4">
           <TemplateDocsLink

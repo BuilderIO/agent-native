@@ -84,6 +84,7 @@ wrangler.toml
 
 # Local scratch files from ad hoc repo/video tooling
 **/scratch/
+.video-bakeoff/
 
 # Regenerable plan artifacts (plan.mdx/canvas.mdx are kept; these are not)
 plans/*/preview.html

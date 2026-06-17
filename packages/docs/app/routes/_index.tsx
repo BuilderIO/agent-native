@@ -337,9 +337,12 @@ export default function Home() {
             </h2>
             <p className="mx-auto max-w-2xl text-base leading-relaxed text-[var(--fg-secondary)]">
               Not ready to scaffold a whole app? Add agent-native superpowers to
-              a coding agent you already use — Claude Code, Codex, or Cursor —
-              with one command. It installs the skills, registers the hosted MCP
-              connector, and signs you in in one step.
+              a coding agent you already use — Claude Code, Codex, Cursor, Pi,
+              OpenCode, GitHub Copilot / VS Code, and similar agents — with one
+              command. It installs the skills, writes shared .agents skill
+              folders for agents that support them, registers the hosted MCP
+              connector for supported local clients, and signs you in in one
+              step.
             </p>
           </div>
 
@@ -609,8 +612,8 @@ export default function Home() {
               <div className="rounded-xl border border-[var(--docs-border)] p-6">
                 <h3 className="mb-2 text-base font-semibold">Any AI agent</h3>
                 <p className="m-0 text-sm leading-relaxed text-[var(--fg-secondary)]">
-                  Claude Code, Codex, Gemini CLI, OpenCode, or Builder.io. Use
-                  whichever agent you prefer.
+                  Claude Code, Codex, Cursor, Pi, OpenCode, GitHub Copilot / VS
+                  Code, or Builder.io. Use whichever agent you prefer.
                 </p>
               </div>
               <div className="rounded-xl border border-[var(--docs-border)] p-6">

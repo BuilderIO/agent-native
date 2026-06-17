@@ -329,16 +329,19 @@ The hosted `connect` flow above is the recommended path. For local dev, run
 the app (`pnpm dev` / `pnpm exec agent-native dev`) then point a local agent at it:
 
 ```bash
-pnpm exec agent-native mcp install --client claude-code|claude-code-cli|codex|cowork \
+pnpm exec agent-native mcp install --client claude-code|claude-code-cli|codex|cowork|cursor|opencode|github-copilot \
   [--app <id>] [--scope user|project]
 ```
 
 It provisions a token (random `ACCESS_TOKEN` into the workspace `.env` for
 local dev, or a `signA2AToken` JWT for a detected hosted origin) and writes an
 idempotent stdio server entry — `.mcp.json` / `~/.claude.json` for Claude Code,
-the `[mcp_servers.*]` block in `~/.codex/config.toml` for Codex, the
-Claude-Code JSON shape for Cowork. The entry runs `pnpm exec agent-native mcp serve
---app <id>`, by default a **thin stdio proxy** to the running local app's
+the `[mcp_servers.*]` block in `~/.codex/config.toml` for Codex,
+`.cursor/mcp.json` / `~/.cursor/mcp.json` for Cursor, `opencode.json` /
+`~/.config/opencode/opencode.json` for OpenCode, `.vscode/mcp.json` / VS Code
+user `mcp.json` for GitHub Copilot / VS Code, and the Claude-Code JSON shape
+for Cowork. The entry runs `pnpm exec agent-native mcp serve --app <id>`, by
+default a **thin stdio proxy** to the running local app's
 `/_agent-native/mcp` (live registry + HMR + correct deep links stay the single
 source of truth; `--standalone` builds the registry in-process). Companion
 subcommands: `mcp uninstall`, `mcp status`, `mcp token [--rotate]`. You can

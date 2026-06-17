@@ -267,8 +267,9 @@ export default function SkillsPage() {
           Two skills, one install
         </h2>
         <p className="mb-8 max-w-2xl text-base text-[var(--fg-secondary)]">
-          Both ship in the same bundle and publish to the hosted Plan app, so
-          your agent can open a plan and hand you a link to review.
+          Both ship in the same bundle. Use hosted shareable Plan links, local
+          files only, or a self-hosted/custom Plan app, and your agent opens the
+          review surface in the right mode.
         </p>
         <div className="grid gap-6 md:grid-cols-2">
           {SKILLS.map((skill) => (
@@ -280,7 +281,8 @@ export default function SkillsPage() {
       {/* CTA */}
       <section className="border-t border-[var(--docs-border)] py-16 text-center">
         <p className="mx-auto mb-8 max-w-lg text-base text-[var(--fg-secondary)]">
-          Works with Claude Code, Codex, Cursor, and any MCP-compatible agent.
+          Works with Claude Code, Codex, Cursor, Pi, OpenCode, GitHub Copilot /
+          VS Code, and similar coding agents.
         </p>
         <div className="mx-auto max-w-xl">
           <CliCopy command={INSTALL_COMMAND} location="skills_cta" />

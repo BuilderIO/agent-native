@@ -1556,9 +1556,7 @@ export function buildRecapPrompt(input: {
     lines.push(
       `2. Run \`npx @agent-native/core@latest plan local preview --dir ${JSON.stringify(
         localDir,
-      )} --kind recap --open --out ${JSON.stringify(
-        path.join(localDir, "preview.html"),
-      )}\` to validate the folder and generate the local preview.`,
+      )} --kind recap --open\` to validate the folder and open it in the local Plan app.`,
     );
     lines.push(
       "3. Write the returned `url` from that command to `recap-url.txt` at the repo root, containing exactly one line. This file is the workflow's only hand-off.",

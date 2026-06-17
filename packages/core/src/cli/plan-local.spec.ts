@@ -76,16 +76,31 @@ describe("local plan CLI helpers", () => {
     expect(html).toContain("&lt;WireframeBlock");
   });
 
-  it("writes preview.html and returns a file URL", () => {
+  it("returns the local Plan app route by default", () => {
     const dir = path.join(tmpDir(), "checkout");
     writeSamplePlan(dir);
 
-    const result = writeLocalPlanPreview({ dir });
+    const result = writeLocalPlanPreview({
+      dir,
+      appUrl: "http://localhost:8096",
+    });
 
     expect(result.kind).toBe("recap");
     expect(result.files).toContain("plan.mdx");
+    expect(result.out).toBeUndefined();
+    expect(result.url).toBe("http://localhost:8096/local-plans/checkout");
+  });
+
+  it("writes standalone HTML only when --out is provided", () => {
+    const dir = path.join(tmpDir(), "checkout");
+    writeSamplePlan(dir);
+    const out = path.join(dir, "preview.html");
+
+    const result = writeLocalPlanPreview({ dir, out });
+
     expect(result.url).toMatch(/^file:\/\//);
-    expect(fs.readFileSync(result.out, "utf-8")).toContain("Local-files mode");
+    expect(result.out).toBe(out);
+    expect(fs.readFileSync(out, "utf-8")).toContain("Local-files mode");
   });
 
   it("can open the generated preview when requested", () => {
