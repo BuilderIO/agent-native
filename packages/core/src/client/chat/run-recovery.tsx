@@ -21,7 +21,6 @@ import {
   IconExternalLink,
   IconKey,
   IconGitFork,
-  IconMessage,
   IconGauge,
   IconSettings,
   IconArrowRight,
@@ -192,10 +191,45 @@ export function BuilderConnectCta({
       onConnected,
     });
 
+  if (variant === "compact") {
+    if (configured) {
+      return (
+        <span className="inline-flex h-8 items-center gap-1.5 rounded-md border border-border bg-background px-2.5 text-[11px] font-medium text-foreground">
+          <IconCheck size={11} className="text-emerald-500" />
+          {orgName ? `Connected to ${orgName}` : "Connected"}
+        </span>
+      );
+    }
+
+    return (
+      <div className="flex min-w-0 flex-col items-start gap-1 sm:items-end">
+        <button
+          type="button"
+          onClick={() => start()}
+          disabled={connecting}
+          className="inline-flex h-8 shrink-0 items-center gap-1 rounded-md bg-foreground px-3 text-[11px] font-medium text-background hover:opacity-90 disabled:cursor-wait disabled:opacity-60"
+          aria-busy={connecting}
+        >
+          {connecting ? (
+            <>
+              <IconLoader2 size={10} className="animate-spin" />
+              Waiting…
+            </>
+          ) : (
+            "Connect Builder.io"
+          )}
+        </button>
+        {error && (
+          <p className="max-w-[13rem] text-[10px] leading-snug text-destructive sm:text-right">
+            {error}
+          </p>
+        )}
+      </div>
+    );
+  }
+
   const containerClass =
-    variant === "compact"
-      ? "flex items-center gap-3 rounded-md border border-border bg-background/70 px-3 py-2.5"
-      : "flex items-center gap-3 rounded-md border border-border px-3 py-3";
+    "flex items-center gap-3 rounded-md border border-border px-3 py-3";
 
   if (configured) {
     return (
@@ -388,40 +422,35 @@ export function BuilderSetupCard({
   }, [bouncePulse]);
 
   return (
-    <div
-      ref={cardRef}
-      className="mx-auto my-4 w-full max-w-[34rem] rounded-lg border border-border/80 bg-card/80 p-3 shadow-sm backdrop-blur"
-    >
-      <div className="mb-2.5 flex items-center gap-2.5">
-        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-muted">
-          <IconMessage className="h-4.5 w-4.5 text-muted-foreground" />
-        </div>
-        <div className="min-w-0">
-          <h3 className="text-[13px] font-medium text-foreground">
-            Connect an agent engine
-          </h3>
-          <p className="mt-0.5 text-[11px] leading-relaxed text-muted-foreground">
-            Use Builder-hosted models or paste your own Anthropic/OpenAI key.
-          </p>
-        </div>
-      </div>
-
-      <div className="space-y-2.5">
-        <BuilderConnectCta variant="compact" onConnected={onConnected} />
-
-        {keyOpen ? (
-          <ApiKeyConnect onConnected={onConnected} />
-        ) : (
-          <div className="flex justify-center">
+    <div ref={cardRef} className="mx-auto w-full max-w-[34rem] px-3 pb-2">
+      <div className="rounded-lg border border-border/80 bg-background/80 p-3 shadow-sm backdrop-blur">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="min-w-0">
+            <h3 className="text-[13px] font-medium text-foreground">
+              Connect AI
+            </h3>
+            <p className="mt-0.5 text-[11px] leading-relaxed text-muted-foreground">
+              Use Builder.io, or add an Anthropic/OpenAI key.
+            </p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <BuilderConnectCta variant="compact" onConnected={onConnected} />
             <button
               type="button"
-              onClick={() => setKeyOpen(true)}
-              className="text-[11px] text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+              onClick={() => setKeyOpen((open) => !open)}
+              className="inline-flex h-8 shrink-0 items-center rounded-md border border-border bg-background px-3 text-[11px] font-medium text-foreground hover:bg-accent"
+              aria-expanded={keyOpen}
             >
-              Or paste your own Anthropic or OpenAI key
+              Use API key
             </button>
           </div>
-        )}
+        </div>
+
+        {keyOpen ? (
+          <div className="mt-3">
+            <ApiKeyConnect onConnected={onConnected} />
+          </div>
+        ) : null}
       </div>
     </div>
   );

@@ -20,6 +20,7 @@ import {
   looksLikeStrongCoverageClaim,
   looksLikeAnalyticsDataRequest,
   needsCorpusWorkflowForCoverageSensitiveRequest,
+  needsSourceRecordBodyWorkflowForCoverageSensitiveRequest,
 } from "../lib/real-data-actions";
 import { renderDataDictionary } from "../lib/data-dictionary-context";
 
@@ -71,6 +72,20 @@ function realDataFinalGuard(context: AgentLoopFinalResponseGuardContext) {
         "The user asked a coverage-sensitive provider question, but the draft only used bounded convenience data actions. Do not finalize an exhaustive, all-records, or absence-sensitive answer from shortcut actions alone. Use the broad provider API/MCP surface and a corpus workflow now: provider-api-catalog/provider-api-docs when needed, provider-corpus-job for durable paginated or batched corpus scans, provider-api-request with fetchAllPages/stageAs/saveToFile for the exact provider endpoint/filter/body/pagination, then run-code or query-staged-dataset to join, grep, classify, and aggregate. If full coverage is not possible in this turn, finalize with explicit partial-coverage wording, inspected counts, filters, and remaining gaps.",
       fallbackMessage:
         "I can't make a confident coverage-sensitive provider claim from bounded shortcut actions alone. I need a provider API/corpus workflow, or I need to label the answer as partial with exact inspected counts and gaps.",
+    };
+  }
+  if (
+    needsSourceRecordBodyWorkflowForCoverageSensitiveRequest({
+      userText,
+      finalText: context.text,
+      toolResults: context.toolResults,
+    })
+  ) {
+    return {
+      retryMessage:
+        "The user asked to search source-record body text such as transcripts, messages, tickets, issues, notes, documents, or conversation logs, but the draft's corpus evidence does not show that the requested body records were actually searched. A parent/container metadata scan, title search, summary search, or call/ticket/message list is not enough for an absence-sensitive body-text claim. Retry with the provider's raw body endpoint or native search for the requested record type, using provider-corpus-job batch-search/paginated-search, provider-api-request with staging, or run-code over staged raw records. Then report source path/body field, inspected record count, hit count, and gaps.",
+      fallbackMessage:
+        "I can't make a confident source-record body-text claim because the corpus evidence does not show that the requested raw records were searched.",
     };
   }
   if (
@@ -128,6 +143,7 @@ export default createAgentChatPlugin({
       "Provider-specific actions are shortcuts, not limits. If a first-class action cannot express the exact endpoint, object type, filters, request body, pagination mode, API version, or corpus coverage needed, call `provider-api-catalog` and `provider-api-docs` as needed, then call `provider-api-request` against the provider's real HTTP API. Use this raw provider API escape hatch instead of weakening the analysis, broadening filters, sampling default pages, or claiming the integration cannot do something the underlying API can do. " +
       "When one provider cohort becomes the input to a second provider search, join, or exhaustive corpus scan, stage the upstream cohort with `provider-api-request`/`stageAs` (or a native provider API/MCP bulk primitive) before the downstream search. Avoid starting such workflows with convenience list/search actions that return display-shaped pages or can time out before the corpus path is established. " +
       'For broad unstructured provider records such as transcripts, messages, tickets, issues, notes, events, documents, or conversation logs, prefer `provider-corpus-job` so the scan has durable checkpoints, stored snippets, coverage counts, and provider quota pause/resume. Use mode="paginated-search" for any provider endpoint that already pages over the target records; use mode="batch-search" when a staged upstream cohort of ids/records must feed a second provider endpoint by `itemBodyPath` or `itemQueryParam`. Continue paused jobs until completed or quota_wait, then read results. Use `run-code` with `providerSearchAll`, `providerFetch`, `appAction`, `workspaceRead`, and Resources-backed workspace files for shorter reductions, joins, classification, and aggregation after the corpus path is established. Convenience actions are bounded shortcuts for common checks, not the ceiling for what the underlying provider API can answer. ' +
+      "When the user asks to search source-record body text, use the raw body endpoint or native provider search for that record type. Parent/container metadata such as call lists, titles, summaries, briefs, channel lists, ticket lists, or issue lists can discover scope but cannot support a complete body-text absence claim. " +
       "For source-record mention searches, phrase searches, and absence checks across transcripts/messages/tickets/issues, prefer provider-side search, `provider-corpus-job`, staged corpus, `providerSearchAll`, or action-side search arguments that return counts, coverage, and snippets instead of loading raw full records into chat. Use full transcripts/messages only for selected evidence after the search narrows the corpus, and state whether the search covered every matching record or only a bounded sample. " +
       "For complex provider questions, broad searches, corpus-wide counts, cross-source joins, or any answer where absence matters, prefer a corpus-first workflow: inspect the provider API, fetch every relevant page or an explicitly bounded cohort, stage large responses with `saveToFile`/`stageAs`/`fetchAllPages`, use `provider-corpus-job` for durable long-running searches, and use `run-code` with `providerSearchAll`, `providerFetch`, `appAction`, and Resources-backed workspace files to join, search, classify, and aggregate. Use `scratch/` for temporary staging and durable folder names only for files the user should keep. Do not infer no results from sampled records, default limits, truncated excerpts, or aborted calls. If full coverage is not possible in the turn, say exactly what was inspected and what remains uncovered. " +
       'For HubSpot deal cohorts, structured `hubspot-deals` filters can enumerate a bounded cohort for direct deal-list answers: `product` for the `products` field, `pipeline` for pipeline label/id, `closedStatus` for won/lost/open/closed, and `closedDateFrom`/`closedDateTo` for close-date windows. The `query` argument is full-text deal search and is not proof that a specific property matched; do not use `query: "Publish"` when the user asked for products field = Publish. If the cohort feeds transcript/message/ticket search, a cross-source join, or exhaustive/absence-sensitive coverage, use `provider-api-request` with HubSpot search and `stageAs` for the cohort first, then continue with the provider API/corpus workflow. Report the returned filter values and cohort count in the methodology. ' +

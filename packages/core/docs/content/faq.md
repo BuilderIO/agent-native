@@ -15,11 +15,12 @@ Agent-native is a framework for building apps where the AI agent and the UI are 
 
 ### Who is this for? {#who-is-this-for}
 
-Anyone who wants to ship an AI-powered product without spending a year building the boring parts. That includes:
+Agent-native is for people who want a real app and an AI agent to work from the same data and actions. The common paths are:
 
-- **Founders and PMs** who want to fork a working SaaS and make it their own — see [Templates](/docs/cloneable-saas).
-- **Operators** who want a [pure-agent app](/docs/pure-agent-apps) — an agent that does work in the background with a minimal management UI.
-- **Developers** building agent-driven products from scratch and want auth, multi-tenancy, real-time sync, and an architecture that won't break when AI is the primary user.
+- **Use a hosted app** if you want Mail, Calendar, Forms, Plan, or another finished template with no setup — start at the [template gallery](/templates).
+- **Fork and customize a template** if you want your own SaaS product with auth, database, UI, and agent actions already wired — see [Templates](/docs/cloneable-saas).
+- **Build from scratch** if you want the framework primitives for a new agent-driven product — start with [Getting Started](/docs/getting-started).
+- **Connect another agent or code tool** if you want Claude, ChatGPT, Codex, Cursor, or GitHub Copilot / VS Code to use an agent-native app — see [External Agents](/docs/external-agents) and [Skills Guide](/docs/skills-guide).
 
 ### How is this different from adding AI to an existing app? {#how-is-this-different}
 

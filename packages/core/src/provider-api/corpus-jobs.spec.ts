@@ -263,6 +263,13 @@ describe("provider corpus jobs", () => {
     expect(first.job.status).toBe("paused");
     expect(first.coverage.pagesProcessed).toBe(1);
     expect(first.coverage.totalHits).toBe(1);
+    expect(first.source).toMatchObject({
+      provider: "fake",
+      mode: "paginated-search",
+      request: { method: "GET", path: "/messages" },
+      pagination: { itemsPath: "items" },
+      search: { textPaths: ["text"], queryCount: 1 },
+    });
 
     const second = (await action.run({
       operation: "continue",
@@ -331,6 +338,17 @@ describe("provider corpus jobs", () => {
     expect(first.job.status).toBe("paused");
     expect(first.coverage.batchesProcessed).toBe(1);
     expect(first.coverage.totalHits).toBe(1);
+    expect(first.source).toMatchObject({
+      provider: "fake",
+      mode: "batch-search",
+      request: { method: "POST", path: "/calls/transcript" },
+      batch: {
+        batchSize: 2,
+        itemBodyPath: "filter.callIds",
+        responseItemsPath: "callTranscripts",
+      },
+      search: { textPaths: ["transcript"], idPaths: ["callId"] },
+    });
 
     const second = (await action.run({
       operation: "continue",

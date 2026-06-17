@@ -201,6 +201,7 @@ export interface ProviderApiConfig {
   placeholders?: readonly ProviderApiPlaceholder[];
   examples?: readonly ProviderApiExample[];
   notes?: readonly string[];
+  corpusRecipes?: readonly ProviderApiCorpusRecipe[];
   templateUses?: readonly WorkspaceConnectionTemplateUse[];
 }
 
@@ -215,6 +216,40 @@ export interface ProviderApiExample {
   method: ProviderApiMethod;
   path: string;
   body?: unknown;
+}
+
+export interface ProviderApiCorpusRecipe {
+  label: string;
+  useWhen: string;
+  workflow: readonly string[];
+  request: {
+    method: ProviderApiMethod;
+    path: string;
+    body?: unknown;
+    query?: unknown;
+  };
+  pagination?: {
+    itemsPath?: string;
+    nextCursorPath?: string;
+    cursorParam?: string;
+    cursorBodyPath?: string;
+    pageParam?: string;
+    offsetParam?: string;
+    pageSize?: number;
+    maxPages?: number;
+  };
+  batch?: {
+    inputValuePath?: string;
+    itemBodyPath?: string;
+    itemQueryParam?: string;
+    responseItemsPath?: string;
+    batchSize?: number;
+  };
+  search?: {
+    textPaths?: readonly string[];
+    idPaths?: readonly string[];
+    metadataPaths?: readonly string[];
+  };
 }
 
 export interface ProviderApiResolvedCredential {
@@ -639,6 +674,59 @@ const PROVIDER_CONFIGS: Record<ProviderApiId, ProviderApiConfig> = {
       "For broad corpus work, call /calls/extensive with provider-api-request and stageAs/saveToFile. Gong returns the next cursor at records.cursor and expects the next cursor in the POST body at cursor, so use pagination { nextCursorPath: 'records.cursor', cursorBodyPath: 'cursor' } for stageAs or fetchAllPages { cursorPath: 'records.cursor', cursorBodyPath: 'cursor' } for saveToFile.",
       "Batch transcripts with POST /calls/transcript and body { filter: { callIds: [...] } } after narrowing or staging call ids.",
     ],
+    corpusRecipes: [
+      {
+        label: "Batch-search Gong call transcripts from staged call ids",
+        useWhen:
+          "Use when the user asks to search, count, or prove absence across Gong transcript text for a bounded cohort of call ids.",
+        workflow: [
+          "Stage or otherwise collect the exact call ids in scope first.",
+          "Start provider-corpus-job with mode=batch-search against /calls/transcript.",
+          "Inject each batch into body path filter.callIds and search responseItemsPath callTranscripts.",
+          "Search transcript.sentence text fields, then report call-id coverage, batches processed, matches, and gaps.",
+        ],
+        request: {
+          method: "POST",
+          path: "/calls/transcript",
+          body: { filter: { callIds: [] } },
+        },
+        batch: {
+          inputValuePath: "id",
+          itemBodyPath: "filter.callIds",
+          responseItemsPath: "callTranscripts",
+          batchSize: 20,
+        },
+        search: {
+          textPaths: ["transcript.sentences.text", "transcript"],
+          idPaths: ["callId"],
+          metadataPaths: ["callId"],
+        },
+      },
+      {
+        label: "Stage Gong calls with parties/content",
+        useWhen:
+          "Use when the user needs a complete Gong call cohort before a transcript/message join or coverage-sensitive search.",
+        workflow: [
+          "Call provider-api-request with stageAs and pagination.",
+          "Use /calls/extensive when party fields or content summaries are needed; use /calls for lightweight metadata.",
+          "Do not treat staged call metadata as transcript text.",
+        ],
+        request: {
+          method: "POST",
+          path: "/calls/extensive",
+          body: {
+            filter: { fromDateTime: "<iso-date-time>" },
+            contentSelector: { exposedFields: { parties: true } },
+          },
+        },
+        pagination: {
+          itemsPath: "calls",
+          nextCursorPath: "records.cursor",
+          cursorBodyPath: "cursor",
+          maxPages: 200,
+        },
+      },
+    ],
   },
   google_calendar: {
     id: "google_calendar",
@@ -1031,6 +1119,7 @@ export function listProviderApiCatalog(
     defaultHeaders: config.defaultHeaders ?? {},
     examples: config.examples ?? [],
     notes: config.notes ?? [],
+    corpusRecipes: config.corpusRecipes ?? [],
     templateUses: config.templateUses ?? [],
   }));
 }
@@ -1724,6 +1813,7 @@ function customProviderToCatalogEntry(config: CustomProviderConfig) {
     defaultHeaders: config.defaultHeaders,
     examples: [] as unknown[],
     notes: config.notes ? [config.notes] : ([] as string[]),
+    corpusRecipes: [] as unknown[],
     templateUses: [] as string[],
     custom: true,
   };

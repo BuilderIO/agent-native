@@ -481,6 +481,7 @@ export {
   AGENT_CHAT_VIEW_TRANSITION_CLASS,
   AGENT_CHAT_VIEW_TRANSITION_NAME,
   getAgentChatViewTransitionStyle,
+  navigateWithAgentChatViewTransition,
   startAgentChatViewTransition,
   supportsAgentChatViewTransition,
   type AgentChatViewTransition,

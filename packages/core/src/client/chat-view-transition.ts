@@ -1,3 +1,5 @@
+import type { NavigateFunction, NavigateOptions } from "react-router";
+
 export const AGENT_CHAT_VIEW_TRANSITION_NAME = "agent-native-chat";
 export const AGENT_CHAT_VIEW_TRANSITION_CLASS =
   "agent-native-chat-view-transition";
@@ -100,4 +102,27 @@ export function startAgentChatViewTransition(
   }
 
   return observeTransitionRejections(startViewTransition.call(doc, update));
+}
+
+/**
+ * Navigate with the agent-chat morph. Fires the warm-handoff prepare signal so
+ * the destination chat renders a warm thread instead of a skeleton, then lets
+ * React Router own the View Transition (`viewTransition: true`) so the snapshot
+ * is taken *after* the new route commits. A manual
+ * `document.startViewTransition(() => navigate(...))` snapshots the old DOM —
+ * `navigate()` commits asynchronously and `flushSync` cannot commit a lazy
+ * route + async loader in time — so the morph would run between two identical
+ * frames. Respects `prefers-reduced-motion`.
+ */
+export function navigateWithAgentChatViewTransition(
+  navigate: NavigateFunction,
+  to: string,
+  options?: NavigateOptions,
+): void {
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(
+      new CustomEvent(AGENT_CHAT_VIEW_TRANSITION_PREPARE_EVENT),
+    );
+  }
+  void navigate(to, { ...options, viewTransition: !prefersReducedMotion() });
 }
