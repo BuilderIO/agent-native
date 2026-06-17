@@ -29,6 +29,7 @@ import {
   IconFlag,
   IconFolder,
   IconDotsVertical,
+  IconHelpCircle,
   IconHistory,
   IconLayoutSidebarRight,
   IconLock,
@@ -289,6 +290,8 @@ const ENABLE_PLAN_STATUS_FEATURE = false;
 const GITHUB_LIGHT_CANVAS_BACKGROUND = "#ffffff";
 const GITHUB_DARK_CANVAS_BACKGROUND = "#0d1117";
 const LOCAL_PLAN_OWNER_EMAIL = "local@agent-native.local";
+const LOCAL_FILES_DOCS_URL =
+  "https://www.agent-native.com/docs/template-plan#local-files";
 const AUTO_DEV_COMMENT_EMAILS = new Set(["dev@local.test", "dev@local"]);
 const CURRENT_USER_FALLBACK_NAME = "You";
 const CURRENT_USER_FALLBACK_INITIALS = "You";
@@ -2657,6 +2660,39 @@ function PlanStatusControl({
         </DropdownMenuGroup>
       </DropdownMenuContent>
     </DropdownMenu>
+  );
+}
+
+function LocalModeBadge() {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <a
+          href={LOCAL_FILES_DOCS_URL}
+          target="_blank"
+          rel="noreferrer"
+          className="pointer-events-auto inline-flex h-8 items-center gap-1.5 rounded-md border border-emerald-500/35 bg-emerald-500/10 px-2.5 text-xs font-medium text-emerald-700 outline-none transition-colors hover:bg-emerald-500/15 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 dark:text-emerald-300"
+          aria-label="Local mode privacy details"
+        >
+          <span className="size-1.5 rounded-full bg-emerald-500" />
+          <span>Local mode</span>
+          <IconHelpCircle className="size-3.5 opacity-75" />
+        </a>
+      </TooltipTrigger>
+      <TooltipContent align="end" side="bottom" className="max-w-xs p-3">
+        <div className="grid gap-1.5">
+          <p className="font-medium leading-5">Private local preview</p>
+          <p className="text-xs leading-5 text-muted-foreground">
+            Nothing is saved to the hosted Plan database. Your plan content
+            stays in local MDX files and this page reads it from your local
+            bridge or local Plan server.
+          </p>
+          <p className="text-xs font-medium leading-5 text-foreground">
+            Click to open the docs.
+          </p>
+        </div>
+      </TooltipContent>
+    </Tooltip>
   );
 }
 
@@ -5275,6 +5311,7 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
                   }
                 }}
               >
+                {localPlanMode && <LocalModeBadge />}
                 {!localPlanMode && (
                   <PlanShareControl
                     planId={bundle.plan.id}
