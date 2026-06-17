@@ -498,9 +498,14 @@ export {
 export {
   clearReservedToolRenderersForTests,
   clearToolRenderersForTests,
+  registerActionChatRenderer,
+  registerFallbackToolRenderer,
+  registerReservedActionChatRenderer,
+  registerReservedFallbackToolRenderer,
   registerReservedToolRenderer,
   registerToolRenderer,
   resolveToolRenderer,
+  type ActionChatRendererRegistration,
   type ToolRendererComponent,
   type ToolRendererContext,
   type ToolRendererMatch,
@@ -509,12 +514,25 @@ export {
 } from "./chat/tool-render-registry.js";
 export type * from "./chat/runtime.js";
 export {
+  ACTION_CHAT_UI_DATA_CHART_RENDERER,
+  ACTION_CHAT_UI_DATA_INSIGHTS_RENDERER,
+  ACTION_CHAT_UI_DATA_TABLE_RENDERER,
+  ACTION_CHAT_UI_DATA_WIDGET_RENDERER,
+  type ActionChatUIConfig,
+} from "../action-ui.js";
+export {
   DATA_CHART_WIDGET,
   DATA_INSIGHTS_WIDGET,
   DATA_TABLE_WIDGET,
   createDataChartWidgetResult,
   createDataInsightsWidgetResult,
   createDataTableWidgetResult,
+  dataChartWidgetResultSchema,
+  dataChartWidgetSchema,
+  dataInsightsWidgetResultSchema,
+  dataTableWidgetResultSchema,
+  dataTableWidgetSchema,
+  dataWidgetResultSchema,
   isDataChartWidget,
   isDataTableWidget,
   isDataWidgetResult,

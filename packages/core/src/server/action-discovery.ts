@@ -209,6 +209,13 @@ function preserveActionFlags(entry: Record<string, any>): Partial<ActionEntry> {
     out.mcpApp = entry.mcpApp;
   }
   if (
+    entry.chatUI &&
+    typeof entry.chatUI === "object" &&
+    !Array.isArray(entry.chatUI)
+  ) {
+    out.chatUI = entry.chatUI;
+  }
+  if (
     typeof entry.needsApproval === "boolean" ||
     typeof entry.needsApproval === "function"
   ) {

@@ -1,4 +1,5 @@
 import type { ComponentType } from "react";
+import type { ActionChatUIConfig } from "../../action-ui.js";
 
 export interface ToolRendererContext {
   toolName: string;
@@ -6,6 +7,7 @@ export interface ToolRendererContext {
   resultText?: string;
   resultJson: unknown;
   isRunning: boolean;
+  chatUI?: ActionChatUIConfig;
 }
 
 export interface ToolRendererProps {
@@ -24,13 +26,20 @@ export interface ToolRendererRegistration {
   Component: ToolRendererComponent;
 }
 
+export interface ActionChatRendererRegistration {
+  id: string;
+  renderer: string;
+  Component: ToolRendererComponent;
+}
+
 const reservedRegistrations: ToolRendererRegistration[] = [];
 const registrations: ToolRendererRegistration[] = [];
+const reservedFallbackRegistrations: ToolRendererRegistration[] = [];
+const fallbackRegistrations: ToolRendererRegistration[] = [];
+const reservedActionChatRegistrations: ActionChatRendererRegistration[] = [];
+const actionChatRegistrations: ActionChatRendererRegistration[] = [];
 
-function registerIn(
-  list: ToolRendererRegistration[],
-  registration: ToolRendererRegistration,
-) {
+function registerIn<T>(list: T[], registration: T) {
   list.push(registration);
   return () => {
     const index = list.findIndex((item) => item === registration);
@@ -50,6 +59,30 @@ export function registerReservedToolRenderer(
   return registerIn(reservedRegistrations, registration);
 }
 
+export function registerReservedFallbackToolRenderer(
+  registration: ToolRendererRegistration,
+): () => void {
+  return registerIn(reservedFallbackRegistrations, registration);
+}
+
+export function registerFallbackToolRenderer(
+  registration: ToolRendererRegistration,
+): () => void {
+  return registerIn(fallbackRegistrations, registration);
+}
+
+export function registerActionChatRenderer(
+  registration: ActionChatRendererRegistration,
+): () => void {
+  return registerIn(actionChatRegistrations, registration);
+}
+
+export function registerReservedActionChatRenderer(
+  registration: ActionChatRendererRegistration,
+): () => void {
+  return registerIn(reservedActionChatRegistrations, registration);
+}
+
 function matchesToolRenderer(
   registration: ToolRendererRegistration,
   context: ToolRendererContext,
@@ -63,7 +96,33 @@ function matchesToolRenderer(
 export function resolveToolRenderer(
   context: ToolRendererContext,
 ): ToolRendererComponent | null {
-  for (const registration of [...reservedRegistrations, ...registrations]) {
+  for (const registration of reservedRegistrations) {
+    if (matchesToolRenderer(registration, context)) {
+      return registration.Component;
+    }
+  }
+  const renderer = context.chatUI?.renderer;
+  if (renderer) {
+    for (const registration of [
+      ...reservedActionChatRegistrations,
+      ...actionChatRegistrations,
+    ]) {
+      if (registration.renderer === renderer) {
+        return registration.Component;
+      }
+    }
+  }
+  for (const registration of registrations) {
+    if (matchesToolRenderer(registration, context)) {
+      return registration.Component;
+    }
+  }
+  for (const registration of reservedFallbackRegistrations) {
+    if (matchesToolRenderer(registration, context)) {
+      return registration.Component;
+    }
+  }
+  for (const registration of fallbackRegistrations) {
     if (matchesToolRenderer(registration, context)) {
       return registration.Component;
     }
@@ -73,8 +132,12 @@ export function resolveToolRenderer(
 
 export function clearToolRenderersForTests() {
   registrations.length = 0;
+  fallbackRegistrations.length = 0;
+  actionChatRegistrations.length = 0;
 }
 
 export function clearReservedToolRenderersForTests() {
   reservedRegistrations.length = 0;
+  reservedFallbackRegistrations.length = 0;
+  reservedActionChatRegistrations.length = 0;
 }

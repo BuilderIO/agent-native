@@ -9,6 +9,7 @@ import React, {
   useRef,
 } from "react";
 import type { ToolCallMessagePartProps } from "@assistant-ui/react";
+import type { ActionChatUIConfig } from "../../action-ui.js";
 import type { AgentMcpAppPayload } from "../../mcp-client/app-result.js";
 import type { ContentPart } from "../sse-event-processor.js";
 import { humanizeToolName } from "../tool-display.js";
@@ -408,6 +409,7 @@ export function ToolCallDisplay({
   args,
   result,
   mcpApp,
+  chatUI,
   isRunning,
   structuredMeta,
   approval,
@@ -417,6 +419,7 @@ export function ToolCallDisplay({
   args: Record<string, unknown>;
   result?: string;
   mcpApp?: AgentMcpAppPayload;
+  chatUI?: ActionChatUIConfig;
   isRunning: boolean;
   structuredMeta?: Record<string, unknown>;
   approval?: { approvalKey: string; dismissed?: boolean };
@@ -463,6 +466,7 @@ export function ToolCallDisplay({
       args={args}
       result={result}
       mcpApp={mcpApp}
+      chatUI={chatUI}
       isRunning={isRunning}
       approval={approval}
     />
@@ -475,6 +479,7 @@ function ToolCallDisplayGeneric({
   args,
   result,
   mcpApp,
+  chatUI,
   isRunning,
   approval,
 }: {
@@ -483,6 +488,7 @@ function ToolCallDisplayGeneric({
   args: Record<string, unknown>;
   result?: string;
   mcpApp?: AgentMcpAppPayload;
+  chatUI?: ActionChatUIConfig;
   isRunning: boolean;
   approval?: { approvalKey: string; dismissed?: boolean };
 }) {
@@ -573,6 +579,7 @@ function ToolCallDisplayGeneric({
     resultText: result,
     resultJson: parsedResult,
     isRunning,
+    chatUI,
   };
   const NativeToolRenderer = isAgentCall
     ? null
@@ -674,6 +681,7 @@ export function ToolCallFallback({
   ...rest
 }: ToolCallMessagePartProps & {
   mcpApp?: AgentMcpAppPayload;
+  chatUI?: ActionChatUIConfig;
   structuredMeta?: Record<string, unknown>;
   approval?: { approvalKey: string; dismissed?: boolean };
 }) {
@@ -692,6 +700,7 @@ export function ToolCallFallback({
             : undefined
       }
       mcpApp={rest.mcpApp}
+      chatUI={rest.chatUI}
       structuredMeta={rest.structuredMeta}
       isRunning={isRunning}
       approval={rest.approval}
@@ -734,6 +743,7 @@ export function ReconnectStreamMessage({
                 args={part.args}
                 result={part.result}
                 mcpApp={part.mcpApp}
+                chatUI={part.chatUI}
                 structuredMeta={part.structuredMeta}
                 isRunning={part.result === undefined && chatRunning}
                 approval={part.approval}

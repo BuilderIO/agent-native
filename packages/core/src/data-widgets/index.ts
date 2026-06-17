@@ -1,3 +1,5 @@
+import { z } from "zod";
+
 export const DATA_TABLE_WIDGET = "data-table";
 export const DATA_CHART_WIDGET = "data-chart";
 export const DATA_INSIGHTS_WIDGET = "data-insights";
@@ -175,13 +177,17 @@ function normalizeDisplay(value: unknown): DataWidgetDisplay | undefined {
   };
 }
 
-function assertDataTableWidget(table: unknown): asserts table is DataTableWidget {
+function assertDataTableWidget(
+  table: unknown,
+): asserts table is DataTableWidget {
   if (!isDataTableWidget(table)) {
     throw new Error("Invalid data-table widget payload");
   }
 }
 
-function assertDataChartWidget(chart: unknown): asserts chart is DataChartWidget {
+function assertDataChartWidget(
+  chart: unknown,
+): asserts chart is DataChartWidget {
   if (!isDataChartWidget(chart)) {
     throw new Error("Invalid data-chart widget payload");
   }
@@ -275,3 +281,96 @@ export function normalizeDataWidgetResult(
 export function isDataWidgetResult(value: unknown): value is DataWidgetResult {
   return normalizeDataWidgetResult(value) !== null;
 }
+
+const dataTableColumnSchema = z
+  .object({
+    key: z.string().min(1),
+    label: z.string().min(1),
+    align: z.enum(["left", "right"]).optional(),
+  })
+  .passthrough();
+
+export const dataTableWidgetSchema = z
+  .object({
+    title: z.string().optional(),
+    columns: z.array(dataTableColumnSchema).min(1),
+    rows: z.array(z.record(z.string(), z.unknown())),
+    totalRows: z.number().optional(),
+    sampledRows: z.number().optional(),
+    truncated: z.boolean().optional(),
+  })
+  .passthrough();
+
+const dataChartSeriesDefinitionSchema = z
+  .object({
+    key: z.string().min(1),
+    label: z.string().min(1),
+    color: z.string().optional(),
+  })
+  .passthrough();
+
+export const dataChartWidgetSchema = z
+  .object({
+    type: z.enum(["bar", "line", "area"]),
+    title: z.string().optional(),
+    xKey: z.string().min(1),
+    series: z.array(dataChartSeriesDefinitionSchema).min(1),
+    data: z.array(z.record(z.string(), z.unknown())),
+    sampled: z.boolean().optional(),
+  })
+  .passthrough();
+
+const primaryActionSchema = z
+  .object({
+    label: z.string().min(1),
+    href: z.string().min(1),
+  })
+  .passthrough();
+
+const dataWidgetDisplaySchema = z
+  .object({
+    title: z.string().optional(),
+    description: z.string().optional(),
+    primaryAction: primaryActionSchema.optional(),
+  })
+  .passthrough();
+
+const dataWidgetBaseSchema = z
+  .object({
+    widgetId: z.string().optional(),
+    title: z.string().optional(),
+    summary: z.record(z.string(), z.unknown()).optional(),
+    display: dataWidgetDisplaySchema.optional(),
+  })
+  .passthrough();
+
+export const dataTableWidgetResultSchema = dataWidgetBaseSchema
+  .extend({
+    widget: z.literal(DATA_TABLE_WIDGET),
+    table: dataTableWidgetSchema,
+  })
+  .passthrough();
+
+export const dataChartWidgetResultSchema = dataWidgetBaseSchema
+  .extend({
+    widget: z.literal(DATA_CHART_WIDGET),
+    chartSeries: dataChartWidgetSchema,
+  })
+  .passthrough();
+
+export const dataInsightsWidgetResultSchema = dataWidgetBaseSchema
+  .extend({
+    widget: z.literal(DATA_INSIGHTS_WIDGET),
+    table: dataTableWidgetSchema.optional(),
+    chartSeries: dataChartWidgetSchema.optional(),
+  })
+  .passthrough()
+  .refine((value) => value.table || value.chartSeries, {
+    message: "data-insights widgets require table or chartSeries",
+  });
+
+export const dataWidgetResultSchema = z.union([
+  dataTableWidgetResultSchema,
+  dataChartWidgetResultSchema,
+  dataInsightsWidgetResultSchema,
+]);

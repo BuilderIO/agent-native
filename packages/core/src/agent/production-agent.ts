@@ -345,6 +345,8 @@ export interface ActionEntry {
    *  app iframes. CLI/non-UI hosts still receive the normal tool result and
    *  any deep link from `link`. */
   mcpApp?: import("../action.js").ActionMcpAppConfig;
+  /** Optional native Agent-Native chat renderer for this action's result. */
+  chatUI?: import("../action-ui.js").ActionChatUIConfig;
   /**
    * Per-tool timeout override in milliseconds. When set, the agent loop uses
    * this value instead of the global TOOL_TIMEOUT_MS (60 s) for this action.
@@ -3118,6 +3120,7 @@ export async function runAgentLoop(opts: {
         tool: toolCall.name,
         result,
         ...(mcpApp ? { mcpApp } : {}),
+        ...(actionEntry.chatUI ? { chatUI: actionEntry.chatUI } : {}),
       });
       recordToolResult(result, isError);
       if (!isError) {

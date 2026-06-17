@@ -49,12 +49,25 @@ export {
   type EmbedRouteResult,
 } from "./mcp/embed-route.js";
 export {
+  ACTION_CHAT_UI_DATA_CHART_RENDERER,
+  ACTION_CHAT_UI_DATA_INSIGHTS_RENDERER,
+  ACTION_CHAT_UI_DATA_TABLE_RENDERER,
+  ACTION_CHAT_UI_DATA_WIDGET_RENDERER,
+  type ActionChatUIConfig,
+} from "./action-ui.js";
+export {
   DATA_CHART_WIDGET,
   DATA_INSIGHTS_WIDGET,
   DATA_TABLE_WIDGET,
   createDataChartWidgetResult,
   createDataInsightsWidgetResult,
   createDataTableWidgetResult,
+  dataChartWidgetResultSchema,
+  dataChartWidgetSchema,
+  dataInsightsWidgetResultSchema,
+  dataTableWidgetResultSchema,
+  dataTableWidgetSchema,
+  dataWidgetResultSchema,
   isDataChartWidget,
   isDataTableWidget,
   isDataWidgetResult,

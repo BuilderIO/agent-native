@@ -155,7 +155,10 @@ export interface FormResponse {
 
 export type ResponseInsightsTableColumn = DataTableColumn;
 
-export type ResponseInsightsTable = DataTableWidget & {
+export type ResponseInsightsTable = Omit<
+  DataTableWidget,
+  "title" | "columns" | "rows" | "totalRows" | "sampledRows" | "truncated"
+> & {
   title: string;
   columns: ResponseInsightsTableColumn[];
   rows: Array<Record<string, string | number | boolean | null>>;
@@ -164,7 +167,10 @@ export type ResponseInsightsTable = DataTableWidget & {
   truncated: boolean;
 };
 
-export type ResponseInsightsChartSeries = DataChartWidget & {
+export type ResponseInsightsChartSeries = Omit<
+  DataChartWidget,
+  "type" | "title" | "xKey" | "series" | "data" | "sampled"
+> & {
   type: "bar";
   title: string;
   xKey: "date";
@@ -179,7 +185,7 @@ export type ResponseInsightsDisplay = DataWidgetDisplay & {
   primaryAction: { label: string; href: string };
 };
 
-export type ResponseInsightsWidgetResult = DataInsightsWidgetResult<{
+type ResponseInsightsWidgetResultBase = DataInsightsWidgetResult<{
   widgetId: "forms.responseInsights.v1";
   scope: {
     formId?: string;
@@ -208,7 +214,12 @@ export type ResponseInsightsWidgetResult = DataInsightsWidgetResult<{
   chartSeries: ResponseInsightsChartSeries;
   table: ResponseInsightsTable;
   display: ResponseInsightsDisplay;
-}> & {
+}>;
+
+export type ResponseInsightsWidgetResult = Omit<
+  ResponseInsightsWidgetResultBase,
+  "widgetId" | "chartSeries" | "table" | "display"
+> & {
   widgetId: "forms.responseInsights.v1";
   chartSeries: ResponseInsightsChartSeries;
   table: ResponseInsightsTable;

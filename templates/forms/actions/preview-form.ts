@@ -1,4 +1,8 @@
-import { defineAction } from "@agent-native/core";
+import {
+  ACTION_CHAT_UI_DATA_INSIGHTS_RENDERER,
+  dataInsightsWidgetResultSchema,
+  defineAction,
+} from "@agent-native/core";
 import { createDataInsightsWidgetResult } from "@agent-native/core/data-widgets";
 import { resolveAccess } from "@agent-native/core/sharing";
 import { eq, sql } from "drizzle-orm";
@@ -23,6 +27,12 @@ export default defineAction({
     formId: z.string().optional().describe("Form ID"),
     form: z.string().optional().describe("Form ID (legacy alias for formId)"),
   }),
+  outputSchema: dataInsightsWidgetResultSchema,
+  chatUI: {
+    renderer: ACTION_CHAT_UI_DATA_INSIGHTS_RENDERER,
+    title: "Form preview",
+    description: "Render a form setup summary and field table in chat.",
+  },
   http: { method: "GET" },
   readOnly: true,
   run: async (args) => {

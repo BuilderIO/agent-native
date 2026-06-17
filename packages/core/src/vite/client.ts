@@ -550,6 +550,10 @@ function getCoreSourceAliases(
     ),
     "@agent-native/core/usage": path.join(coreSrc, "usage/store.ts"),
     "@agent-native/core/brand-kit": path.join(coreSrc, "brand-kit/index.ts"),
+    "@agent-native/core/data-widgets": path.join(
+      coreSrc,
+      "data-widgets/index.ts",
+    ),
     "@agent-native/core/server/design-token-utils": path.join(
       coreSrc,
       "server/design-token-utils.ts",

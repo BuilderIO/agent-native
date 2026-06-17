@@ -1,4 +1,5 @@
 import type { AgentMcpAppPayload } from "../../mcp-client/app-result.js";
+import type { ActionChatUIConfig } from "../../action-ui.js";
 import type { ReasoningEffort } from "../../shared/reasoning-effort.js";
 
 export type AgentChatRuntimeId = string;
@@ -62,6 +63,7 @@ export interface AgentChatRuntimeToolResultPart extends AgentChatRuntimeContentP
   readonly resultText?: string;
   readonly isError?: boolean;
   readonly mcpApp?: AgentMcpAppPayload;
+  readonly chatUI?: ActionChatUIConfig;
 }
 
 export interface AgentChatRuntimeDataPart extends AgentChatRuntimeContentPartBase<"data"> {

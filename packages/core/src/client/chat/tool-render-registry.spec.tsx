@@ -2,6 +2,8 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   clearReservedToolRenderersForTests,
   clearToolRenderersForTests,
+  registerActionChatRenderer,
+  registerFallbackToolRenderer,
   registerReservedToolRenderer,
   registerToolRenderer,
   resolveToolRenderer,
@@ -101,6 +103,56 @@ describe("tool render registry", () => {
         isRunning: false,
       }),
     ).toBe(SecondRenderer);
+  });
+
+  it("resolves explicit action chat renderers before app and fallback matches", () => {
+    registerFallbackToolRenderer({
+      id: "fallback",
+      match: "response-insights",
+      Component: FirstRenderer,
+    });
+    registerToolRenderer({
+      id: "app",
+      match: "response-insights",
+      Component: FirstRenderer,
+    });
+    registerActionChatRenderer({
+      id: "action",
+      renderer: "example.renderer",
+      Component: SecondRenderer,
+    });
+
+    expect(
+      resolveToolRenderer({
+        toolName: "response-insights",
+        args: {},
+        resultJson: {},
+        isRunning: false,
+        chatUI: { renderer: "example.renderer" },
+      }),
+    ).toBe(SecondRenderer);
+  });
+
+  it("uses fallback renderers after app registrations", () => {
+    registerFallbackToolRenderer({
+      id: "fallback",
+      match: "response-insights",
+      Component: SecondRenderer,
+    });
+    registerToolRenderer({
+      id: "app",
+      match: "response-insights",
+      Component: FirstRenderer,
+    });
+
+    expect(
+      resolveToolRenderer({
+        toolName: "response-insights",
+        args: {},
+        resultJson: {},
+        isRunning: false,
+      }),
+    ).toBe(FirstRenderer);
   });
 
   it("requires an explicit data-widget discriminant", () => {

@@ -233,6 +233,7 @@ function cloneContentParts(content: ContentPart[]): ContentPart[] {
           ...part,
           args: { ...part.args },
           ...(part.mcpApp ? { mcpApp: { ...part.mcpApp } } : {}),
+          ...(part.chatUI ? { chatUI: { ...part.chatUI } } : {}),
         },
   );
 }
@@ -439,6 +440,7 @@ function contentPartFollowKey(part: any): string {
       String(part.argsText ?? "").length,
       String(part.result ?? "").length,
       part.mcpApp ? 1 : 0,
+      part.chatUI?.renderer ?? "",
     ].join(":");
   }
   if (type === "image") return `image:${String(part.image ?? "").length}`;
