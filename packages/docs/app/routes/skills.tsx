@@ -45,28 +45,24 @@ const SKILLS: Skill[] = [
   {
     command: "/visual-plan",
     name: "Visual Plan",
-    tagline: "Plan before you implement",
+    tagline: "Review before code",
     description:
-      "Structured visual planning mode for coding agents. The plan you'd normally write in Markdown, but as a scannable document with editable blocks — and an optional visual review surface for anything UI.",
+      "Turns a coding task into a shareable plan with diagrams, file notes, and optional UI sketches.",
     features: [
-      "Inline diagrams and data-model maps near each claim",
-      "Annotated code for the key files you'll touch",
-      "Optional wireframe canvas plus a clickable prototype",
-      "Comments, annotations, and a shareable review link",
+      "See the implementation shape before changes land",
+      "Comment, revise, approve, or hand off",
     ],
     docsTo: "/docs/template-plan",
   },
   {
     command: "/visual-recap",
     name: "Visual Recap",
-    tagline: "Review a diff at a higher altitude",
+    tagline: "Review after changes",
     description:
-      "The reverse of forward planning: turn a PR or git diff into a structured recap — schema, API, file, and before/after changes as grounded blocks instead of a wall of diff a reviewer has to read line by line.",
+      "Turns a PR or git diff into a shareable recap of what changed and why.",
     features: [
-      "Schema, API, file-tree, and diagram blocks built from the diff",
-      "High-altitude shape of the change before the literal lines",
-      "Optional GitHub Action recaps every pull request",
-      "Posts one sticky PR comment with an inline screenshot",
+      "Summarizes schema, API, and file changes",
+      "Optionally posts one sticky PR comment",
     ],
     docsTo: "/docs/pr-visual-recap",
   },
@@ -133,7 +129,7 @@ function CliCopy({
 
 function SkillCard({ skill }: { skill: Skill }) {
   return (
-    <article className="flex flex-col rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)] p-6">
+    <article className="flex flex-col rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)] p-5 sm:p-6">
       <div className="mb-3 flex items-center gap-3">
         <span className="rounded-md border border-[var(--code-border)] bg-[var(--code-bg)] px-2 py-1 font-mono text-sm text-[var(--fg)]">
           {skill.command}
@@ -146,11 +142,11 @@ function SkillCard({ skill }: { skill: Skill }) {
       <h3 className="mb-2 text-lg font-semibold tracking-tight">
         {skill.name}
       </h3>
-      <p className="mb-5 text-sm leading-relaxed text-[var(--fg-secondary)]">
+      <p className="mb-4 text-sm leading-relaxed text-[var(--fg-secondary)]">
         {skill.description}
       </p>
 
-      <ul className="m-0 mb-5 list-disc space-y-2 pl-5 text-sm text-[var(--fg-secondary)]">
+      <ul className="m-0 mb-4 list-disc space-y-1.5 pl-5 text-sm text-[var(--fg-secondary)]">
         {skill.features.map((f) => (
           <li key={f}>{f}</li>
         ))}
