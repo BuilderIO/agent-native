@@ -1,5 +1,119 @@
 # @agent-native/core
 
+## 0.53.0
+
+### Minor Changes
+
+- 5a57b60: Add a first-class evals primitive and an `agent-native eval` CLI runner that
+  doubles as a CI deploy gate. Define test cases with `defineEval({ name, input,
+scorers, threshold })` and compose scorers with the Mastra-style 4-step
+  pipeline `createScorer({ preprocess, analyze, generateScore, generateReason })`.
+  Built-in scorers ship for the common cases — `exactMatch`, `contains`,
+  `usesTool`, and a provider-agnostic `llmJudge` (the judge model is resolved
+  from the engine registry, never hardcoded). The runner discovers `**/*.eval.ts`
+  and `evals/*.ts`, actually runs the agent loop for each input, scores the
+  output, prints a readable scored table (or `--json` for CI), and exits
+  non-zero when any eval scores below its threshold. Results are written to the
+  observability eval store, with a documented seam for future live sampled
+  scoring of production traffic through the same scorers.
+- 5a57b60: Add opt-in per-action human-in-the-loop approvals. Actions can now declare
+  `needsApproval` (a boolean or an `(args, ctx) => boolean | Promise<boolean>`
+  predicate) on `defineAction`. When the gate resolves truthy, the agent loop does
+  NOT execute `run()`: it emits an `approval_required` event carrying the tool
+  name, a compact view of the input, and a stable `approvalKey`, then pauses the
+  turn. A human approves by re-issuing the turn with that key in
+  `AgentChatRequest.approvedToolCalls`, which lets the specific call run. The gate
+  is default-off and fail-closed (a throwing predicate requires approval). The
+  mail template's `send-email` action opts in as the canonical example.
+- 5a57b60: Add the core of Observational Memory (OM): background compaction of a long
+  agent thread into a dated, three-tier context (recent raw messages → dense
+  "observations" → higher-level "reflections") so long-running threads cost far
+  fewer tokens and stay prompt-cache stable.
+
+  This ships the store (a new ownable, dialect-agnostic `observational_memory`
+  table + additive migrations), the Observer and Reflector compaction passes
+  (provider-agnostic internal agent calls — no hardcoded model), the
+  `maybeCompactThread` compactor entry point, and the `buildObservationalContext`
+  read API returning the three tiers ready for prompt injection, all exported
+  from `@agent-native/core/agent/observational-memory`.
+
+  The read API and compactor are intentionally not yet wired into the agent loop:
+  injecting `buildObservationalContext` output into `production-agent.ts` (and
+  registering the migration plugin in the default plugin set) is a follow-up so it
+  does not collide with concurrent agent-loop changes. The store creates its table
+  lazily on first use, so OM is fully functional in the meantime.
+
+- 5a57b60: Wire Observational Memory into the agent loop (compaction + long-thread context
+  injection). The OM migration plugin is now registered alongside the other
+  framework migration plugins so its table is created on startup. After a clean
+  turn the loop runs a best-effort, fire-and-forget compaction pass
+  (`maybeCompactThread`) so long threads accrue dated observations and
+  reflections. On subsequent turns, threads that have already crossed the
+  compaction threshold get their reflections+observations folded in as a leading
+  context block while the recent raw-message window is preserved verbatim - short
+  threads with no OM entries are left byte-for-byte unchanged.
+- 5a57b60: Add `agent-native add <kind> [name|url]`, a blueprint installer. Instead of
+  scaffolding files, it prints a curated Markdown integration blueprint to stdout
+  so you can pipe it into your own coding agent (`agent-native add provider stripe
+| claude`). A URL instead of a name emits a generic research-and-integrate
+  blueprint with the URL as the research seed. Ships seeded blueprints for
+  provider-api integrations, inbound channel adapters, custom sandbox adapters,
+  and multi-surface actions; `--list` browses what's available.
+
+### Patch Changes
+
+- 5a57b60: Fix hosted skills install flows for Codex plus Claude Cowork client selections and make MCP connect polling handle structured device-code failures consistently.
+- 5a57b60: Add an optional OpenTelemetry export to the agent loop. `instrumentAgentLoop`
+  now wraps the run, each tool call, and the model call in OTel spans
+  (`agent.run`, `tool.call`, `llm.call`) carrying tool name, model, token usage,
+  and error attributes. The export is fully no-op unless a host installs
+  `@opentelemetry/api` (a new optional dependency) and registers a tracer
+  provider, so there is zero overhead by default and no heavy SDK is added to
+  core.
+- 5a57b60: Add a hard delegation-depth guardrail so sub-agents cannot infinitely spawn
+  sub-agents. Each sub-agent now carries its delegation depth (top-level chat is
+  0); `spawnTask` refuses server-side once a spawn would exceed the cap, returning
+  a clear "Delegation depth limit reached" error to the parent agent. Enforcement
+  lives in `agent-teams.ts` and reads the spawning agent's depth from the ambient
+  run context, so it holds even if the team tool is not stripped. The cap defaults
+  to 2 and is configurable via the `AGENT_NATIVE_MAX_SUBAGENT_DEPTH` env var
+  (parsed and clamped, falling back to the default on invalid values).
+- 5a57b60: Document four newly-landed framework features in the published docs content:
+  pluggable sandbox adapters for the `run-code` tool (`SandboxAdapter`,
+  `AGENT_NATIVE_SANDBOX`, `registerSandboxAdapter`), the first-class evals CI gate
+  (`defineEval`, `createScorer`, built-in scorers, and the `agent-native eval`
+  command), the sub-agent delegation depth guard
+  (`AGENT_NATIVE_MAX_SUBAGENT_DEPTH`), and the `agent-native add` blueprint
+  installer. Adds `sandbox-adapters`, `evals`, and `blueprint-installer` pages, a
+  delegation-depth section in the Agent Teams doc, and surgical pointers in the
+  harness-agents, observability, and external-agents skills.
+- 5a57b60: Add an opt-out for agent-chat MCP mounting so apps can provide a dedicated stable MCP route.
+- 5a57b60: Surface the current sub-agent delegation depth in the runtime-context prompt.
+  The chat plugin now reads the ambient delegation depth and passes it into
+  `buildRuntimeContextPrompt`, so a sub-agent already at the delegation cap is
+  told it cannot spawn further sub-agents. The cap was already enforced
+  server-side; this only makes it visible to the model.
+- 5a57b60: Tool-call journal hard-block: skip re-executing journaled-complete tool calls on
+  resume. The per-turn tool-call journal (derived from the durable run-event
+  ledger) previously only added a prompt-level "already completed, don't re-run"
+  note. The agent loop now enforces this at the tool layer: when a non-read-only
+  tool call's exact (tool name + input) already completed in an earlier
+  interrupted chunk of the same turn, `runToolCall` returns the recorded result
+  instead of re-executing the side effect, while still emitting the normal
+  tool_start/tool_done so the transcript stays coherent. Fresh calls with no prior
+  completed journal entry are unaffected.
+- 5a57b60: Add a per-turn tool-call journal that hardens the run-resume path against
+  duplicate side effects. When a run resumes after an interruption (gateway or
+  transport drop, cold start, or soft-timeout auto-continue), the journal is
+  derived from the existing run-event ledger and injected into the resume nudge:
+  tool calls that already completed are listed with their results and flagged as
+  "do NOT re-run", and any tool call that started but never recorded a result is
+  surfaced as "interrupted / unknown outcome" so the model can decide rather than
+  blindly re-executing (e.g. re-sending an email or re-creating a ticket). The
+  journal is read-only over the ledger (no new recording hook), best-effort, and a
+  no-op for turns with no completed or interrupted tool calls, so normal resumes
+  are unchanged.
+
 ## 0.52.0
 
 ### Minor Changes

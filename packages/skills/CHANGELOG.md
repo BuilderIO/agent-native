@@ -1,5 +1,25 @@
 # @agent-native/skills
 
+## 0.2.13
+
+### Patch Changes
+
+- 5a57b60: Fix hosted skills install flows for Codex plus Claude Cowork client selections and make MCP connect polling handle structured device-code failures consistently.
+- Updated dependencies [5a57b60]
+- Updated dependencies [5a57b60]
+- Updated dependencies [5a57b60]
+- Updated dependencies [5a57b60]
+- Updated dependencies [5a57b60]
+- Updated dependencies [5a57b60]
+- Updated dependencies [5a57b60]
+- Updated dependencies [5a57b60]
+- Updated dependencies [5a57b60]
+- Updated dependencies [5a57b60]
+- Updated dependencies [5a57b60]
+- Updated dependencies [5a57b60]
+- Updated dependencies [5a57b60]
+  - @agent-native/core@0.53.0
+
 ## 0.2.12
 
 ### Patch Changes
