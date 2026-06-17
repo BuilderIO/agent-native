@@ -102,6 +102,3 @@ templates/*/.env.local
 templates/*/.env.*.local
 test-reports/
 *.tsbuildinfo
-
-# Local scaffold/test apps created during development
-my-standalone-app/
