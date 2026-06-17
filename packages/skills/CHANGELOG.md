@@ -1,5 +1,17 @@
 # @agent-native/skills
 
+## 0.2.12
+
+### Patch Changes
+
+- 9dc6ba7: Polish the shared skills CLI prompts, standalone catalog, and install summary.
+  Add MCP install support for more local agent clients and keep the PR Visual
+  Recap GitHub Action prompt available in local-files mode.
+- Updated dependencies [9dc6ba7]
+- Updated dependencies [9dc6ba7]
+- Updated dependencies [9dc6ba7]
+  - @agent-native/core@0.52.0
+
 ## 0.2.11
 
 ### Patch Changes
