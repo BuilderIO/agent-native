@@ -95,10 +95,12 @@ describe("document sidebar layout", () => {
     expect(sidebar).toContain("if (activeAncestorIds.has(id)) return");
   });
 
-  it("keeps local files above extensions and hides the dev database link", () => {
+  it("keeps local files above extensions and gates the dev database link to Code mode", () => {
     const sidebar = readSidebarSource("./DocumentSidebar.tsx");
 
-    expect(sidebar).not.toContain("DevDatabaseLink");
+    // The dev-only "Database admin" link must never render for normal users;
+    // it is allowed only behind the Code mode gate.
+    expect(sidebar).toContain("isCodeMode ? <DevDatabaseLink");
     expect(sidebar.indexOf("{renderLocalFilesNavButton()}")).toBeLessThan(
       sidebar.indexOf("<ExtensionsSidebarSection />"),
     );
