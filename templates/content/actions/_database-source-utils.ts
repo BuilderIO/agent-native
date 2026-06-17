@@ -156,9 +156,12 @@ function normalizeChangeKind(
 }
 
 function normalizeChangeDirection(
-  value: string | null | undefined,
+  _value: string | null | undefined,
 ): ContentDatabaseSourceChangeDirection {
-  return value === "outbound" ? "outbound" : "incoming";
+  // Integrations are the source of truth; change-sets only flow outbound
+  // (local → provider). Any legacy "incoming" rows coerce to outbound and are
+  // pruned by the resync cleanup.
+  return "outbound";
 }
 
 function normalizePushMode(

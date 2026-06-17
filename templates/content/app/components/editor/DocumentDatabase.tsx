@@ -101,7 +101,6 @@ import {
   useMoveDatabaseItem,
   usePrepareBuilderSourceExecution,
   usePrepareBuilderSourceReview,
-  useProposeContentDatabaseSourceChangeSet,
   useRefreshContentDatabaseSource,
   useReviewContentDatabaseSourceChangeSet,
   useSetContentDatabaseSourceWriteMode,
@@ -397,9 +396,6 @@ function DatabaseTable({
   const attachSource = useAttachContentDatabaseSource(document.id);
   const refreshSource = useRefreshContentDatabaseSource(document.id);
   const disconnectSource = useDisconnectContentDatabaseSource(document.id);
-  const proposeSourceChangeSet = useProposeContentDatabaseSourceChangeSet(
-    document.id,
-  );
   const stageBuilderRevision = useStageBuilderRevision(document.id);
   const reviewSourceChangeSet = useReviewContentDatabaseSourceChangeSet(
     document.id,
@@ -1447,11 +1443,6 @@ function DatabaseTable({
             },
           )
         }
-        onProposeSourceChangeSet={() =>
-          proposeSourceChangeSet.mutate({
-            documentId: document.id,
-          })
-        }
         onReviewBuilderUpdate={() => {
           setBuilderReviewResult(null);
           setBuilderReviewCheckedAt(null);
@@ -1523,7 +1514,6 @@ function DatabaseTable({
           attachSource.isPending ||
           refreshSource.isPending ||
           disconnectSource.isPending ||
-          proposeSourceChangeSet.isPending ||
           stageBuilderRevision.isPending ||
           reviewSourceChangeSet.isPending ||
           prepareBuilderExecution.isPending ||
@@ -1661,9 +1651,6 @@ export function databaseNavigationState({
         (property) => property.definition.id === activeView.endDatePropertyId,
       )
     : null;
-  const incomingSourceChangeCount =
-    source?.changeSets.filter((changeSet) => changeSet.direction === "incoming")
-      .length ?? 0;
   const outboundSourceChangeCount =
     source?.changeSets.filter((changeSet) => changeSet.direction === "outbound")
       .length ?? 0;
@@ -1679,9 +1666,6 @@ export function databaseNavigationState({
     databaseSourceSyncState: source?.syncState,
     databaseSourceFreshness: source?.freshness,
     databaseSourcePendingChangeCount: source?.changeSets.length,
-    databaseSourceIncomingProposalCount: source
-      ? incomingSourceChangeCount
-      : undefined,
     databaseSourceLocalChangeCount: source
       ? outboundSourceChangeCount
       : undefined,
@@ -3207,7 +3191,6 @@ function DatabaseSettingsPanelSheet({
   onAttachBuilderSource,
   onRefreshSource,
   onDisconnectSource,
-  onProposeSourceChangeSet,
   onReviewBuilderUpdate,
   onStageBuilderRevision,
   onApproveSourceChangeSet,
@@ -3240,7 +3223,6 @@ function DatabaseSettingsPanelSheet({
   onAttachBuilderSource: (model: BuilderCmsModelSummary) => void;
   onRefreshSource: () => void;
   onDisconnectSource: () => void;
-  onProposeSourceChangeSet: () => void;
   onReviewBuilderUpdate: () => void;
   onStageBuilderRevision: () => void;
   onApproveSourceChangeSet: (changeSetId: string) => void;
@@ -3315,7 +3297,6 @@ function DatabaseSettingsPanelSheet({
             onAttachBuilderSource={onAttachBuilderSource}
             onRefreshSource={onRefreshSource}
             onDisconnectSource={onDisconnectSource}
-            onProposeSourceChangeSet={onProposeSourceChangeSet}
             onReviewBuilderUpdate={onReviewBuilderUpdate}
             onStageBuilderRevision={onStageBuilderRevision}
             onApproveSourceChangeSet={onApproveSourceChangeSet}
@@ -3860,7 +3841,6 @@ function DatabaseSettingsSourcePanel({
   onAttachBuilderSource,
   onRefreshSource,
   onDisconnectSource,
-  onProposeSourceChangeSet,
   onReviewBuilderUpdate,
   onStageBuilderRevision,
   onApproveSourceChangeSet,
@@ -3876,7 +3856,6 @@ function DatabaseSettingsSourcePanel({
   onAttachBuilderSource: (model: BuilderCmsModelSummary) => void;
   onRefreshSource: () => void;
   onDisconnectSource: () => void;
-  onProposeSourceChangeSet: () => void;
   onReviewBuilderUpdate: () => void;
   onStageBuilderRevision: () => void;
   onApproveSourceChangeSet: (changeSetId: string) => void;
@@ -3892,10 +3871,6 @@ function DatabaseSettingsSourcePanel({
   onSetBuilderLiveWrites: (enabled: boolean) => void;
   sourceActionPending: boolean;
 }) {
-  const incomingChangeSets =
-    source?.changeSets.filter(
-      (changeSet) => changeSet.direction === "incoming",
-    ) ?? [];
   const outboundChangeSets =
     source?.changeSets.filter(
       (changeSet) => changeSet.direction === "outbound",
@@ -3915,7 +3890,6 @@ function DatabaseSettingsSourcePanel({
   const builderStatus = useBuilderStatus();
   const builderConfigured = builderStatus.status?.configured === true;
   const builderOrgName = builderStatus.status?.orgName ?? null;
-  const showMockSourceControls = isCodeMode;
   const builderSyncFailed =
     isBuilderSource &&
     (source?.syncState === "error" || Boolean(source?.lastError));
@@ -4047,49 +4021,8 @@ function DatabaseSettingsSourcePanel({
             </div>
           ) : null}
 
-          {showMockSourceControls && !isBuilderSource ? (
-            <div className="rounded-lg border border-border bg-muted/30 p-3">
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                disabled={!canEdit || sourceActionPending || itemCount === 0}
-                onClick={onProposeSourceChangeSet}
-              >
-                <IconPlus className="mr-1.5 size-3.5" />
-                Create test diff
-              </Button>
-            </div>
-          ) : null}
-
           {isCodeMode ? (
             <>
-              <div className="grid min-w-0 gap-2 rounded-lg border border-border bg-background p-3 text-sm">
-                <div className="font-medium">Incoming source proposals</div>
-                <div className="grid min-w-0 gap-2">
-                  {incomingChangeSets.slice(0, 6).map((changeSet) => (
-                    <SourceChangeSetReviewCard
-                      key={changeSet.id}
-                      changeSet={changeSet}
-                      source={source}
-                      canEdit={canEdit}
-                      sourceActionPending={sourceActionPending}
-                      onApprove={onApproveSourceChangeSet}
-                      onReject={onRejectSourceChangeSet}
-                      onPrepareExecution={onPrepareBuilderExecution}
-                      onValidateExecution={onValidateBuilderExecution}
-                    />
-                  ))}
-                  {incomingChangeSets.length === 0 ? (
-                    <div className="text-xs text-muted-foreground">
-                      {showMockSourceControls && !isBuilderSource
-                        ? "No proposed changes yet. Create a test diff to preview the incoming review surface."
-                        : "No incoming source proposals yet."}
-                    </div>
-                  ) : null}
-                </div>
-              </div>
-
               <div className="grid min-w-0 gap-2 rounded-lg border border-border bg-background p-3 text-sm">
                 <div className="font-medium">
                   {source.sourceType === "builder-cms"

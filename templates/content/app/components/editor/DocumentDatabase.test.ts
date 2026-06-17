@@ -498,11 +498,6 @@ describe("Builder source settings helpers", () => {
             builderChangeSet({ id: "pending", state: "pending_push" }),
             builderChangeSet({ id: "approved", state: "approved" }),
             builderChangeSet({ id: "applied", state: "applied" }),
-            builderChangeSet({
-              id: "incoming",
-              direction: "incoming",
-              state: "proposed",
-            }),
           ],
         }),
       ).map((changeSet) => changeSet.id),
@@ -1199,7 +1194,6 @@ describe("database item preview", () => {
       databaseSourceSyncState: undefined,
       databaseSourceFreshness: undefined,
       databaseSourcePendingChangeCount: undefined,
-      databaseSourceIncomingProposalCount: undefined,
       databaseSourceLocalChangeCount: undefined,
       databaseViews: [{ id: "default", name: "Table", type: "table" }],
       databaseViewId: "default",
@@ -1284,8 +1278,8 @@ describe("database item preview", () => {
               databaseItemId: null,
               documentId: null,
               kind: "field_update",
-              direction: "incoming",
-              state: "proposed",
+              direction: "outbound",
+              state: "pending_push",
               pushMode: null,
               localOnly: true,
               summary: "Mock change",
@@ -1311,8 +1305,7 @@ describe("database item preview", () => {
       databaseSourceSyncState: "idle",
       databaseSourceFreshness: "fresh",
       databaseSourcePendingChangeCount: 1,
-      databaseSourceIncomingProposalCount: 1,
-      databaseSourceLocalChangeCount: 0,
+      databaseSourceLocalChangeCount: 1,
     });
   });
 
@@ -1611,7 +1604,6 @@ describe("database item preview", () => {
       databaseSourceSyncState: undefined,
       databaseSourceFreshness: undefined,
       databaseSourcePendingChangeCount: undefined,
-      databaseSourceIncomingProposalCount: undefined,
       databaseSourceLocalChangeCount: undefined,
       databaseViews: [{ id: "default", name: "Table", type: "table" }],
       databaseViewId: "default",

@@ -15,7 +15,6 @@ import type {
   PrepareBuilderSourceExecutionRequest,
   PrepareBuilderSourceReviewRequest,
   PrepareBuilderSourceReviewResponse,
-  ProposeContentDatabaseSourceChangeSetRequest,
   RefreshContentDatabaseSourceRequest,
   ReviewContentDatabaseSourceChangeSetRequest,
   SetContentDatabaseSourceWriteModeRequest,
@@ -243,23 +242,6 @@ export function useDisconnectContentDatabaseSource(documentId: string) {
     ContentDatabaseResponse,
     DisconnectContentDatabaseSourceRequest
   >("disconnect-content-database-source", {
-    onSuccess: () => {
-      queryClient.invalidateQueries({
-        queryKey: contentDatabaseQueryKey(documentId),
-      });
-      queryClient.invalidateQueries({
-        queryKey: ["action", "get-content-database-source", { documentId }],
-      });
-    },
-  });
-}
-
-export function useProposeContentDatabaseSourceChangeSet(documentId: string) {
-  const queryClient = useQueryClient();
-  return useActionMutation<
-    ContentDatabaseResponse,
-    ProposeContentDatabaseSourceChangeSetRequest
-  >("propose-content-database-source-change-set", {
     onSuccess: () => {
       queryClient.invalidateQueries({
         queryKey: contentDatabaseQueryKey(documentId),

@@ -12,7 +12,6 @@ import prepareExecution from "./prepare-builder-source-execution";
 import prepareReview, {
   buildBuilderSourceReviewPayload,
 } from "./prepare-builder-source-review";
-import proposeChangeSet from "./propose-content-database-source-change-set";
 import refreshSource from "./refresh-content-database-source";
 import reviewChangeSet from "./review-content-database-source-change-set";
 import setWriteMode from "./set-content-database-source-write-mode";
@@ -177,22 +176,6 @@ describe("content database source actions", () => {
 
   it("accepts no-argument Builder model discovery requests", () => {
     expect(listBuilderModels.schema.parse({})).toEqual({});
-  });
-
-  it("keeps proposed change-set inputs scoped to local review metadata", () => {
-    expect(
-      proposeChangeSet.schema.parse({
-        databaseId: "database",
-        itemDocumentId: "row-page",
-        propertyId: "title",
-        includeBodyChange: true,
-      }),
-    ).toEqual({
-      databaseId: "database",
-      itemDocumentId: "row-page",
-      propertyId: "title",
-      includeBodyChange: true,
-    });
   });
 
   it("accepts local-only Builder revision staging requests", () => {

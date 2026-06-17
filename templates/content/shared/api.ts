@@ -321,7 +321,7 @@ export type ContentDatabaseSourcePushMode =
   | "draft"
   | "publish";
 export const BUILDER_CMS_SAFE_WRITE_MODEL = "agent-native-blog-article-test";
-export type ContentDatabaseSourceChangeDirection = "incoming" | "outbound";
+export type ContentDatabaseSourceChangeDirection = "outbound";
 export type ContentDatabaseSourceChangeState =
   | "proposed"
   | "pending_push"
@@ -594,14 +594,6 @@ export interface AddContentDatabaseSourceFieldPropertyRequest {
   databaseId?: string;
   documentId?: string;
   sourceFieldId: string;
-}
-
-export interface ProposeContentDatabaseSourceChangeSetRequest {
-  databaseId?: string;
-  documentId?: string;
-  itemDocumentId?: string;
-  propertyId?: string;
-  includeBodyChange?: boolean;
 }
 
 export interface StageBuilderRevisionRequest {
