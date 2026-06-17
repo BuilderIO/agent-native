@@ -2348,6 +2348,17 @@ const SKILL_INSTRUCTION_CLIENTS: SkillInstructionClientId[] = [
   "claude-code",
   "pi",
 ];
+// Clients that don't write their own instruction files but READ the shared
+// `.agents/skills` path the codex install writes. In instructions/local-files
+// mode they resolve to that shared-agents install instead of being dropped, so
+// `--client cursor --mode local-files` (etc.) installs the skills they read
+// rather than failing with an empty client set.
+const SHARED_AGENTS_READER_CLIENTS = new Set<SkillInstructionClientId>([
+  "cursor",
+  "opencode",
+  "github-copilot",
+  "cowork",
+]);
 const SKILL_INSTRUCTION_CLIENT_LABELS: Record<
   SkillInstructionClientId,
   string
@@ -3269,7 +3280,20 @@ function filterSkillsClients(
         isMcpClientId(client) && SKILLS_CLIENTS.includes(client),
     );
   }
-  return clients.filter((client) => SKILL_INSTRUCTION_CLIENTS.includes(client));
+  // Instructions/local-files mode: keep the first-class instruction writers, and
+  // map shared-`.agents` readers (cursor/opencode/github-copilot/cowork) onto
+  // the shared-agents install (codex) so they install the skills they read
+  // rather than being silently dropped to an empty set.
+  const out: SkillInstructionClientId[] = [];
+  for (const client of clients) {
+    const resolved = SKILL_INSTRUCTION_CLIENTS.includes(client)
+      ? client
+      : SHARED_AGENTS_READER_CLIENTS.has(client)
+        ? "codex"
+        : undefined;
+    if (resolved && !out.includes(resolved)) out.push(resolved);
+  }
+  return out;
 }
 
 function clientPromptOptions(
