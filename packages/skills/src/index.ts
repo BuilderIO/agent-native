@@ -550,17 +550,7 @@ export async function installSkills(
       );
     }
 
-    // Fire the "skills prompted" step only when an interactive chooser will
-    // actually be shown (mirrors resolveSelectedSkills's prompt condition), so
-    // the funnel distinguishes "saw the picker" from "passed --skill".
     const preselected = (options.skillNames ?? []).length > 0;
-    if (isInteractive(options) && !options.yes && !preselected) {
-      options.telemetry?.track("skills_cli skills prompted", {
-        availableCount: entries.length,
-        available: entries.map((entry) => entry.name).join(","),
-      });
-    }
-
     const selected = await resolveSelectedSkills(entries, options);
     options.telemetry?.track("skills_cli skills selected", {
       selected: selected.map((skill) => skill.name).join(","),
@@ -592,8 +582,7 @@ export async function installSkills(
     );
     const shouldWriteGithubAction =
       selected.some((skill) => skill.name === "visual-recap") &&
-      (options.withGithubAction ||
-        (await shouldPromptGithubAction(options, baseDir)));
+      shouldWritePrVisualRecapWorkflow(options, baseDir);
     const mcpApps =
       options.mcp === false || planMode === "local-files"
         ? []
@@ -785,12 +774,6 @@ async function resolvePlanModeForSkills(
 
   if (options.mcpUrl && !options.planMode) return "self-hosted";
   if (options.planMode) return options.planMode;
-  if (isInteractive(options) && !options.yes) {
-    const prompt = options.promptPlanMode ?? promptForPlanMode;
-    const mode = await prompt({ initialMode: "hosted" });
-    if (!mode) throw new Error("Cancelled.");
-    return mode;
-  }
   return "hosted";
 }
 
@@ -829,17 +812,12 @@ async function resolvePlanMcpOverrideForMode(
     throw new Error("--mode local-files cannot be combined with --mcp-url.");
   }
   if (planMode !== "self-hosted") return undefined;
-  let mcpUrl = options.mcpUrl;
-  if (!mcpUrl && isInteractive(options) && !options.yes) {
-    const prompt = options.promptPlanMcpUrl ?? promptForPlanMcpUrl;
-    mcpUrl = (await prompt()) ?? undefined;
-  }
-  if (!mcpUrl) {
+  if (!options.mcpUrl) {
     throw new Error(
-      "--mode self-hosted requires --mcp-url <url> in non-interactive mode.",
+      "--mode self-hosted requires --mcp-url <url> in direct mode.",
     );
   }
-  return resolvePlanMcpUrlOverride(mcpUrl);
+  return resolvePlanMcpUrlOverride(options.mcpUrl);
 }
 
 function parsePlanMode(value: string): PlanMode {
@@ -1056,96 +1034,6 @@ async function printInstallResult(
   clack.outro(`${options.dryRun ? "Dry run complete" : "All set"} ✅`);
 }
 
-function compactPromptHint(value: string | undefined): string {
-  const hint = value?.replace(/\s+/g, " ").trim() ?? "";
-  if (!hint) return "Skill from BuilderIO/skills.";
-  if (hint.length <= 96) return hint;
-  return `${hint.slice(0, 93).trimEnd()}...`;
-}
-
-function skillPromptOptions(
-  entries: SkillEntry[],
-): SkillsPromptContext["options"] {
-  return entries.map((entry) => ({
-    value: entry.name,
-    label: entry.name,
-    hint: compactPromptHint(entry.description),
-  }));
-}
-
-async function promptForSkills(
-  context: SkillsPromptContext,
-): Promise<string[] | null> {
-  const clack = await import("@clack/prompts");
-  const result = await clack.multiselect({
-    message:
-      "Which skills do you want to install?\n" +
-      "  (space toggles, enter confirms)",
-    options: context.options,
-    initialValues: context.initialSkills,
-    required: true,
-  });
-  if (clack.isCancel(result)) {
-    clack.cancel("Cancelled.");
-    return null;
-  }
-  if (!Array.isArray(result)) return [];
-  return result.filter((value): value is string => typeof value === "string");
-}
-
-async function promptForPlanMode(
-  context: PlanModePromptContext,
-): Promise<PlanMode | null> {
-  const clack = await import("@clack/prompts");
-  const result = await clack.select({
-    message: "How should visual-plan / visual-recap run?",
-    options: [
-      {
-        value: "hosted",
-        label: "Hosted",
-        hint: "Shareable Plan app with MCP tools, auth, comments, and hosted storage.",
-      },
-      {
-        value: "local-files",
-        label: "Local files",
-        hint: "No sharing, all local. Installs text skills and skips MCP/auth.",
-      },
-      {
-        value: "self-hosted",
-        label: "Self-hosted",
-        hint: "Use your own deployed Plan app MCP URL.",
-      },
-    ],
-    initialValue: context.initialMode,
-  });
-  if (clack.isCancel(result)) {
-    clack.cancel("Cancelled.");
-    return null;
-  }
-  return typeof result === "string" ? parsePlanMode(result) : null;
-}
-
-async function promptForPlanMcpUrl(): Promise<string | null> {
-  const clack = await import("@clack/prompts");
-  const result = await clack.text({
-    message: "What is your self-hosted Plan app or MCP URL?",
-    placeholder: "https://plans.example.com",
-    validate(value) {
-      try {
-        resolvePlanMcpUrlOverride(String(value));
-        return undefined;
-      } catch (error) {
-        return error instanceof Error ? error.message : String(error);
-      }
-    },
-  });
-  if (clack.isCancel(result)) {
-    clack.cancel("Cancelled.");
-    return null;
-  }
-  return typeof result === "string" ? result : null;
-}
-
 async function resolveSelectedSkills(
   entries: SkillEntry[],
   options: InstallSkillsOptions,
@@ -1164,103 +1052,14 @@ async function resolveSelectedSkills(
     return requested.map((name) => byName.get(name)!);
   }
 
-  if (!isInteractive(options) || options.yes) return entries;
-
-  const prompt = options.promptSkills ?? promptForSkills;
-  const selectedNames = await prompt({
-    initialSkills: entries.map((entry) => entry.name),
-    options: skillPromptOptions(entries),
-  });
-  if (!selectedNames || selectedNames.length === 0) {
-    throw new Error("Cancelled.");
-  }
-  return resolveSelectedSkills(entries, {
-    ...options,
-    skillNames: selectedNames,
-  });
-}
-
-async function promptForScope(
-  context: ScopePromptContext,
-): Promise<SkillScope | null> {
-  const clack = await import("@clack/prompts");
-  const result = await clack.select({
-    message: "Where do you want to install these skills?",
-    options: [
-      {
-        value: "project",
-        label: "Project",
-        hint: "This repo only (.agents / .claude in the current directory)",
-      },
-      {
-        value: "user",
-        label: "User",
-        hint: "Your home directory (~/.codex, ~/.claude), across projects",
-      },
-    ],
-    initialValue: context.initialScope,
-  });
-  if (clack.isCancel(result)) {
-    clack.cancel("Cancelled.");
-    return null;
-  }
-  return result === "user" ? "user" : "project";
+  return entries;
 }
 
 async function resolveSelectedScope(
   options: InstallSkillsOptions,
 ): Promise<SkillScope> {
   if (options.scope) return options.scope;
-  if (!isInteractive(options) || options.yes) return "user";
-
-  const prompt = options.promptScope ?? promptForScope;
-  const selected = await prompt({ initialScope: "project" });
-  if (!selected) throw new Error("Cancelled.");
-  return selected;
-}
-
-function clientPromptOptions(): ClientsPromptContext["options"] {
-  return [
-    {
-      value: "codex",
-      label: "Codex",
-      hint: "Install into Codex skill directories",
-    },
-    {
-      value: "claude-code",
-      label: "Claude Code",
-      hint: "Install into Claude Code skill directories",
-    },
-  ];
-}
-
-function normalizePromptClients(values: unknown): SkillClient[] {
-  if (!Array.isArray(values)) return [];
-  return unique(
-    values.filter(
-      (value): value is SkillClient =>
-        value === "codex" || value === "claude-code",
-    ),
-  );
-}
-
-async function promptForClients(
-  context: ClientsPromptContext,
-): Promise<SkillClient[] | null> {
-  const clack = await import("@clack/prompts");
-  const result = await clack.multiselect({
-    message:
-      "Install these skills for which local agents?\n" +
-      "  (space toggles, enter confirms)",
-    options: context.options,
-    initialValues: context.initialClients,
-    required: true,
-  });
-  if (clack.isCancel(result)) {
-    clack.cancel("Cancelled.");
-    return null;
-  }
-  return normalizePromptClients(result);
+  return "user";
 }
 
 async function resolveSelectedClients(
@@ -1268,15 +1067,7 @@ async function resolveSelectedClients(
 ): Promise<SkillClient[]> {
   const requested = unique(options.clients ?? []);
   if (requested.length > 0) return requested;
-  if (!isInteractive(options) || options.yes) return CLIENTS;
-
-  const prompt = options.promptClients ?? promptForClients;
-  const selected = await prompt({
-    initialClients: CLIENTS,
-    options: clientPromptOptions(),
-  });
-  if (!selected || selected.length === 0) throw new Error("Cancelled.");
-  return selected;
+  return CLIENTS;
 }
 
 function isInteractive(
@@ -1505,10 +1296,7 @@ async function shouldUpdateManagedInstructions(
   let shouldUpdate = options.updateInstructions;
   if (shouldUpdate !== undefined) return shouldUpdate;
   if (options.yes) return true;
-  if (!isInteractive(options)) return false;
-  const prompt =
-    options.promptUpdateInstructions ?? promptForUpdateInstructions;
-  return (await prompt()) === true;
+  return false;
 }
 
 function writeManagedInstructions(
@@ -1591,12 +1379,11 @@ function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-async function shouldPromptGithubAction(
+function shouldWritePrVisualRecapWorkflow(
   options: InstallSkillsOptions,
   baseDir: string,
-): Promise<boolean> {
+): boolean {
   if (options.withGithubAction) return true;
-  if (options.yes || !isInteractive(options)) return false;
   if (
     fs.existsSync(
       path.join(baseDir, ".github", "workflows", "pr-visual-recap.yml"),
@@ -1604,44 +1391,7 @@ async function shouldPromptGithubAction(
   ) {
     return false;
   }
-  const prompt = options.promptGithubAction ?? promptForGithubAction;
-  return (
-    (await prompt({
-      workflowPath: path.join(".github", "workflows", "pr-visual-recap.yml"),
-    })) === true
-  );
-}
-
-async function promptForUpdateInstructions(): Promise<boolean | null> {
-  const clack = await import("@clack/prompts");
-  const result = await clack.confirm({
-    message:
-      "Add managed AGENTS.md / CLAUDE.md instructions for always-on behavior?",
-    initialValue: true,
-  });
-  if (clack.isCancel(result)) {
-    clack.cancel("Skipped instruction update.");
-    return null;
-  }
-  return Boolean(result);
-}
-
-async function promptForGithubAction(
-  context: GithubActionPromptContext,
-): Promise<boolean | null> {
-  const clack = await import("@clack/prompts");
-  const result = await clack.confirm({
-    message:
-      "Optional: add automatic PR Visual Recaps? (GitHub Action)\n" +
-      "  Posts a human-friendly recap on every pull request.\n" +
-      `  Writes ${context.workflowPath}.`,
-    initialValue: false,
-  });
-  if (clack.isCancel(result)) {
-    clack.cancel("Skipped PR Visual Recap workflow.");
-    return null;
-  }
-  return Boolean(result);
+  return false;
 }
 
 const PR_VISUAL_RECAP_REUSABLE_WORKFLOW = `name: PR Visual Recap

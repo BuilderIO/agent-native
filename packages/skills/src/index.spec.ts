@@ -72,7 +72,7 @@ describe("@agent-native/skills", () => {
       ),
     );
 
-    expect(pkg.dependencies["@agent-native/core"]).toBe(">=0.51.11");
+    expect(pkg.dependencies["@agent-native/core"]).toBe(">=0.51.12");
     expect(pkg.peerDependencies?.["@agent-native/core"]).toBeUndefined();
   });
 
@@ -316,50 +316,48 @@ describe("@agent-native/skills", () => {
     });
   });
 
-  it("prompts with the clack-style picker using every discovered repo skill", async () => {
+  it("installs copied source skills headlessly in direct mode", async () => {
     const repo = tmpDir();
     const project = tmpDir();
     writeSkill(repo, "quick-recap");
     writeSkill(repo, "efficient-fable");
-    let skillContext: SkillsPromptContext | undefined;
-    const promptSkills = vi.fn(async (context: SkillsPromptContext) => {
-      skillContext = context;
-      return ["quick-recap"];
-    });
+    const promptSkills = vi.fn(async () => ["efficient-fable"]);
     const promptClients = vi.fn(async () => ["codex" as const]);
     const promptScope = vi.fn(async () => "project" as const);
     vi.spyOn(process.stdout, "write").mockImplementation(() => true);
     const restoreDirect = enableDirectSkillsMode();
 
     try {
-      await runSkillsCli(["add", "--copy", repo], {
-        baseDir: project,
-        isInteractive: () => true,
-        promptSkills,
-        promptClients,
-        promptScope,
-        promptUpdateInstructions: async () => false,
-      });
+      await runSkillsCli(
+        [
+          "add",
+          "--copy",
+          repo,
+          "--skill",
+          "quick-recap",
+          "--client",
+          "codex",
+          "--scope",
+          "project",
+          "--no-update-instructions",
+        ],
+        {
+          baseDir: project,
+          isInteractive: () => true,
+          promptSkills,
+          promptClients,
+          promptScope,
+          promptUpdateInstructions: async () => false,
+        },
+      );
     } finally {
       restoreDirect();
     }
 
     expect(runCoreSkills).not.toHaveBeenCalled();
-    expect(promptSkills).toHaveBeenCalledTimes(1);
-    expect(skillContext?.options.map((option) => option.value)).toEqual([
-      "efficient-fable",
-      "quick-recap",
-    ]);
-    expect(skillContext?.options.map((option) => option.label)).toEqual([
-      "efficient-fable",
-      "quick-recap",
-    ]);
-    expect(skillContext?.initialSkills).toEqual([
-      "efficient-fable",
-      "quick-recap",
-    ]);
-    expect(promptClients).toHaveBeenCalledTimes(1);
-    expect(promptScope).toHaveBeenCalledTimes(1);
+    expect(promptSkills).not.toHaveBeenCalled();
+    expect(promptClients).not.toHaveBeenCalled();
+    expect(promptScope).not.toHaveBeenCalled();
     expect(
       fs.existsSync(
         path.join(project, ".agents", "skills", "quick-recap", "SKILL.md"),
@@ -382,23 +380,34 @@ describe("@agent-native/skills", () => {
     const restoreDirect = enableDirectSkillsMode();
 
     try {
-      await runSkillsCli(["add", "--copy", repo], {
-        baseDir: project,
-        isInteractive: () => true,
-        promptSkills: async () => [
+      await runSkillsCli(
+        [
+          "add",
+          "--copy",
+          repo,
+          "--client",
+          "codex",
+          "--scope",
+          "project",
+          "--update-instructions",
+          "--skill",
           "efficient-fable",
+          "--skill",
           "efficient-frontier",
+          "--skill",
           "quick-recap",
         ],
-        promptClients: async () => ["codex"],
-        promptScope: async () => "project",
-        promptUpdateInstructions,
-      });
+        {
+          baseDir: project,
+          isInteractive: () => true,
+          promptUpdateInstructions,
+        },
+      );
     } finally {
       restoreDirect();
     }
 
-    expect(promptUpdateInstructions).toHaveBeenCalledTimes(1);
+    expect(promptUpdateInstructions).not.toHaveBeenCalled();
     const agents = fs.readFileSync(path.join(project, "AGENTS.md"), "utf-8");
     expect(agents).toContain(
       "When operating as Claude Fable, use the /efficient-fable skill always.",
@@ -416,27 +425,38 @@ describe("@agent-native/skills", () => {
     const project = tmpDir();
     writeSkill(repo, "visual-recap");
     const promptGithubAction = vi.fn(async () => true);
+    const promptPlanMode = vi.fn(async () => "hosted" as const);
     vi.spyOn(process.stdout, "write").mockImplementation(() => true);
     const restoreDirect = enableDirectSkillsMode();
 
     try {
-      await runSkillsCli(["add", "--copy", repo, "--no-mcp"], {
-        baseDir: project,
-        isInteractive: () => true,
-        promptSkills: async () => ["visual-recap"],
-        promptClients: async () => ["codex"],
-        promptScope: async () => "project",
-        promptPlanMode: async () => "hosted",
-        promptUpdateInstructions: async () => false,
-        promptGithubAction,
-      });
+      await runSkillsCli(
+        [
+          "add",
+          "--copy",
+          repo,
+          "--skill",
+          "visual-recap",
+          "--client",
+          "codex",
+          "--scope",
+          "project",
+          "--with-github-action",
+          "--no-mcp",
+        ],
+        {
+          baseDir: project,
+          isInteractive: () => true,
+          promptPlanMode,
+          promptGithubAction,
+        },
+      );
     } finally {
       restoreDirect();
     }
 
-    expect(promptGithubAction).toHaveBeenCalledWith({
-      workflowPath: path.join(".github", "workflows", "pr-visual-recap.yml"),
-    });
+    expect(promptGithubAction).not.toHaveBeenCalled();
+    expect(promptPlanMode).not.toHaveBeenCalled();
     expect(
       fs.existsSync(
         path.join(project, ".github", "workflows", "pr-visual-recap.yml"),
@@ -808,7 +828,7 @@ describe("@agent-native/skills", () => {
     }
   });
 
-  it("uses folded frontmatter descriptions as prompt hints", async () => {
+  it("uses folded frontmatter descriptions in the delegated public catalog", async () => {
     const repo = tmpDir();
     const project = tmpDir();
     const dir = path.join(repo, "skills", "visual-plan");
@@ -827,30 +847,22 @@ describe("@agent-native/skills", () => {
       ].join("\n"),
       "utf-8",
     );
-    let skillContext: SkillsPromptContext | undefined;
-    vi.spyOn(process.stdout, "write").mockImplementation(() => true);
-    const restoreDirect = enableDirectSkillsMode();
+    await runSkillsCli(["add", "--copy", repo, "--dry-run"], {
+      baseDir: project,
+      isInteractive: () => false,
+    });
 
-    try {
-      await runSkillsCli(["add", "--copy", repo, "--no-mcp"], {
-        baseDir: project,
-        isInteractive: () => true,
-        promptSkills: async (context) => {
-          skillContext = context;
-          return ["visual-plan"];
+    expect(runCoreSkills).toHaveBeenCalledTimes(1);
+    const [, options] = vi.mocked(runCoreSkills).mock.calls[0];
+    expect(options).toMatchObject({
+      publicSkillEntries: [
+        {
+          name: "visual-plan",
+          description:
+            "Turn risky coding work into interactive visual plans with diagrams, file maps, annotated code, questions, and optional UI review.",
         },
-        promptClients: async () => ["codex"],
-        promptScope: async () => "project",
-        promptPlanMode: async () => "hosted",
-        promptUpdateInstructions: async () => false,
-      });
-    } finally {
-      restoreDirect();
-    }
-
-    expect(skillContext?.options[0]?.hint).toContain(
-      "interactive visual plans",
-    );
+      ],
+    });
   });
 
   it("defaults to user scope when scope is omitted non-interactively", async () => {
