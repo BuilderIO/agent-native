@@ -288,7 +288,7 @@ export function ApiKeyConnect({ onConnected }: { onConnected?: () => void }) {
         Use your own API key
       </div>
       <p className="mb-2.5 text-[11px] leading-relaxed text-muted-foreground">
-        Stored locally for this app only — no account required.
+        Stored securely for this app only.
       </p>
       <div
         role="tablist"
