@@ -1,5 +1,12 @@
 # @agent-native/core
 
+## 0.51.8
+
+### Patch Changes
+
+- 0aa83d7: Only report assistant UI recovery errors to Sentry after the retry budget is exceeded.
+- 0aa83d7: Clarify Plans skill setup with hosted, local-files, and self-hosted install modes.
+
 ## 0.51.7
 
 ### Patch Changes
