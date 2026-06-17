@@ -485,7 +485,7 @@ export default function Home() {
               </div>
             </div>
 
-            <div className="mt-10 grid gap-3 border-t border-[var(--docs-border)] pt-8 sm:grid-cols-2 lg:grid-cols-4">
+            <div className="mt-10 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
               {frameworkPrimitives.map((primitive) => (
                 <div
                   key={primitive.title}

@@ -12,7 +12,7 @@ export const meta = () =>
     {
       name: "description",
       content:
-        "Install app-backed skills your coding agent runs as slash commands. /visual-plan opens structured visual plans before you build; /visual-recap turns a PR diff into a high-altitude review. One install, free and open source.",
+        "Install Agent-Native app-backed skills your coding agent runs as slash commands. /visual-plan opens structured plans; /visual-recap turns a PR diff into a high-altitude review.",
     },
     {
       property: "og:title",
@@ -21,7 +21,7 @@ export const meta = () =>
     {
       property: "og:description",
       content:
-        "Give your coding agent new superpowers: structured visual plans and high-altitude PR recaps, hosted and shareable. One install, free and open source.",
+        "Give your coding agent slash commands powered by Agent-Native apps you can host, inspect, and customize.",
     },
     {
       name: "keywords",
@@ -31,7 +31,6 @@ export const meta = () =>
   ]);
 
 const INSTALL_COMMAND = "npx @agent-native/core@latest skills add";
-const DEMO_URL = "https://plan.agent-native.com";
 
 type Skill = {
   command: string;
@@ -72,43 +71,6 @@ const SKILLS: Skill[] = [
     docsTo: "/docs/pr-visual-recap",
   },
 ];
-
-function CheckIcon() {
-  return (
-    <svg
-      className="mt-0.5 shrink-0 text-[var(--docs-accent)]"
-      width="16"
-      height="16"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <polyline points="20 6 9 17 4 12" />
-    </svg>
-  );
-}
-
-function ExternalIcon() {
-  return (
-    <svg
-      width="16"
-      height="16"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
-      <polyline points="15 3 21 3 21 9" />
-      <line x1="10" y1="14" x2="21" y2="3" />
-    </svg>
-  );
-}
 
 function CliCopy({
   command,
@@ -188,12 +150,9 @@ function SkillCard({ skill }: { skill: Skill }) {
         {skill.description}
       </p>
 
-      <ul className="m-0 mb-5 list-none space-y-2 p-0 text-sm text-[var(--fg-secondary)]">
+      <ul className="m-0 mb-5 list-disc space-y-2 pl-5 text-sm text-[var(--fg-secondary)]">
         {skill.features.map((f) => (
-          <li key={f} className="flex items-start gap-2">
-            <CheckIcon />
-            {f}
-          </li>
+          <li key={f}>{f}</li>
         ))}
       </ul>
 
@@ -212,21 +171,6 @@ function SkillCard({ skill }: { skill: Skill }) {
           Read the docs
           <span aria-hidden>→</span>
         </Link>
-        <a
-          href={DEMO_URL}
-          target="_blank"
-          rel="noopener noreferrer"
-          onClick={() =>
-            trackEvent("skill try demo", {
-              skill: skill.command,
-              location: "skills_card",
-            })
-          }
-          className="inline-flex items-center gap-1 text-sm text-[var(--fg-secondary)] no-underline hover:text-[var(--fg)]"
-        >
-          Live demo
-          <ExternalIcon />
-        </a>
       </div>
     </article>
   );
@@ -244,9 +188,9 @@ export default function SkillsPage() {
             </h1>
 
             <p className="mb-6 text-base leading-7 text-[var(--fg-secondary)] sm:text-lg sm:leading-relaxed">
-              Install app-backed skills your coding agent runs as slash commands
-              — structured visual plans before you build, and high-altitude
-              recaps of any diff. Hosted, shareable, and 100% open source.
+              Install slash commands powered by Agent-Native apps you can fully
+              customize. Start with visual plans before you build and
+              high-altitude recaps after each diff.
             </p>
 
             <CliCopy command={INSTALL_COMMAND} location="skills_hero" />
