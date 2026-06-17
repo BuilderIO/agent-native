@@ -2,6 +2,7 @@ import { Link, useNavigate, useParams, useSearchParams } from "react-router";
 import {
   type Dispatch,
   type DragEvent,
+  type ReactNode,
   type SetStateAction,
   useEffect,
   useRef,
@@ -108,6 +109,7 @@ import {
   VIDEO_RESOLUTIONS,
   type AspectRatio,
   type ImageCategory,
+  type ImageRole,
 } from "../../shared/api";
 
 function candidateSaveKey(slot: any): string {
@@ -148,6 +150,32 @@ function markLibraryAssetSavedInCache(
           ...savedAssetRecord,
           status: "saved",
           metadata: { ...currentMetadata, ...savedMetadata },
+        };
+      });
+      return changed ? { ...current, assets } : current;
+    },
+  );
+}
+
+function markLibraryAssetReferenceInCache(
+  queryClient: QueryClient,
+  libraryId: string,
+  assetId: string,
+  role: ImageRole,
+) {
+  queryClient.setQueryData(
+    ["action", "get-library", { id: libraryId }],
+    (current: any) => {
+      if (!current || !Array.isArray(current.assets)) return current;
+      let changed = false;
+      const assets = current.assets.map((asset: any) => {
+        if (asset.id !== assetId) return asset;
+        changed = true;
+        return {
+          ...asset,
+          status: "reference",
+          role,
+          updatedAt: new Date().toISOString(),
         };
       });
       return changed ? { ...current, assets } : current;
@@ -241,6 +269,17 @@ function paletteDraftFromColors(colors: unknown): string {
     : "";
 }
 
+function referenceRoleForAsset(asset: any): ImageRole {
+  if (asset?.mediaType === "video" || asset?.mimeType?.startsWith("video/")) {
+    return "video_reference";
+  }
+  const category = asset?.metadata?.category;
+  if (category === "logo") return "logo_reference";
+  if (category === "product") return "product_reference";
+  if (category === "diagram") return "diagram_reference";
+  return "style_reference";
+}
+
 function parsePaletteDraft(value: string): string[] {
   const seen = new Set<string>();
   const colors: string[] = [];
@@ -276,6 +315,7 @@ export default function LibraryPage() {
   const updateLibrary = useActionMutation("update-library");
   const archiveLibrary = useActionMutation("archive-library");
   const saveGenerated = useActionMutation("save-generated-image");
+  const updateAsset = useActionMutation("update-asset");
   const rerunGeneration = useActionMutation("rerun-generation-run");
   const refreshGeneration = useActionMutation("refresh-generation-run");
   const createSession = useActionMutation("create-generation-session");
@@ -349,11 +389,12 @@ export default function LibraryPage() {
   const generationPresets = ((presetData as any)?.presets ?? []) as any[];
   const generationSessions = ((sessionData as any)?.sessions ?? []) as any[];
   const serverAssets = (data?.assets ?? []) as any[];
-  const savedCandidateAssetIds = new Set(
+  const finishedVariantAssetIds = new Set(
     serverAssets
       .filter(
         (asset) =>
-          asset.status === "saved" || optimisticallySavedAssetIds.has(asset.id),
+          asset.status !== "candidate" ||
+          optimisticallySavedAssetIds.has(asset.id),
       )
       .map((asset) => asset.id),
   );
@@ -429,7 +470,7 @@ export default function LibraryPage() {
       ? (variants.slots ?? [])
           .filter(
             (slot: any) =>
-              !slot.assetId || !savedCandidateAssetIds.has(slot.assetId),
+              !slot.assetId || !finishedVariantAssetIds.has(slot.assetId),
           )
           .sort(compareVariantSlotsNewestFirst)
       : [];
@@ -556,13 +597,51 @@ export default function LibraryPage() {
     }
   }
 
+  async function handleMoveToReferences(asset: any, slot?: any) {
+    if (!asset?.id || updateAsset.isPending) return;
+    const role = referenceRoleForAsset(asset);
+    try {
+      await updateAsset.mutateAsync({
+        id: asset.id,
+        status: "reference",
+        role,
+      });
+      markLibraryAssetReferenceInCache(queryClient, libraryId, asset.id, role);
+      updateVariantSlotsInCache(
+        queryClient,
+        (candidate) =>
+          candidate.assetId === asset.id ||
+          (!!slot?.slotId && candidate.slotId === slot.slotId),
+      );
+      setSelectedAssetIds((current) => {
+        if (!current.has(asset.id)) return current;
+        const next = new Set(current);
+        next.delete(asset.id);
+        return next;
+      });
+      void queryClient.invalidateQueries({
+        queryKey: ["action", "get-library", { id: libraryId }],
+        refetchType: "active",
+      });
+      void queryClient.invalidateQueries({
+        queryKey: ["app-state", "asset-variants"],
+        refetchType: "active",
+      });
+      toast.success("Moved to Inspirations.");
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Could not move asset to Inspirations.",
+      );
+    }
+  }
+
   useEffect(() => {
     const selectableAssets =
-      activeTab === "references"
-        ? references
-        : activeTab === "generated"
-          ? [...candidates, ...saved]
-          : [];
+      activeTab === "runs" || activeTab === "settings"
+        ? []
+        : [...references, ...candidates, ...saved];
     const selectableIds = new Set(selectableAssets.map((asset) => asset.id));
     setSelectedAssetIds((current) => {
       const next = new Set(
@@ -904,6 +983,8 @@ export default function LibraryPage() {
     );
   }
   const assetById = new Map(assets.map((asset) => [asset.id, asset]));
+  const activeSurfaceTab =
+    activeTab === "runs" || activeTab === "settings" ? activeTab : "assets";
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -1156,73 +1237,41 @@ export default function LibraryPage() {
           </div>
         </section>
 
-        {pendingVariants.length > 0 && (
-          <section className="mb-6 rounded-lg border border-border bg-card p-4">
-            <div className="mb-3 flex items-center justify-between gap-3">
-              <div className="min-w-0">
-                <h3 className="text-sm font-semibold">Live candidates</h3>
-                <p className="text-xs text-muted-foreground">
-                  These slots are written by the agent while generation runs.
-                </p>
-              </div>
-              <LiveCandidatesActions
-                slots={pendingVariants}
-                libraryId={libraryId}
-              />
-            </div>
-            <div className="max-h-[420px] overflow-y-auto pr-1">
-              <div className="grid grid-cols-1 gap-3 md:grid-cols-3 xl:grid-cols-4">
-                {pendingVariants.map((slot: any) => (
-                  <VariantCard
-                    key={slot.slotId}
-                    slot={slot}
-                    libraryId={libraryId}
-                    saving={savingCandidateKeys.has(candidateSaveKey(slot))}
-                    onSave={() => {
-                      void handleSaveCandidate(slot);
-                    }}
-                  />
-                ))}
-              </div>
-            </div>
-          </section>
-        )}
-
         <Tabs
-          value={activeTab}
-          onValueChange={(value) => setActiveTab(value as LibraryTab)}
+          value={activeSurfaceTab}
+          onValueChange={(value) =>
+            setActiveTab(
+              value === "assets" ? "references" : (value as LibraryTab),
+            )
+          }
           className="space-y-4"
         >
           <TabsList>
-            <TabsTrigger value="references">References</TabsTrigger>
-            <TabsTrigger value="generated">Generated</TabsTrigger>
+            <TabsTrigger value="assets">Assets</TabsTrigger>
             <TabsTrigger value="runs">Runs</TabsTrigger>
             <TabsTrigger value="settings">Settings</TabsTrigger>
           </TabsList>
 
-          <TabsContent value="references">
-            <AssetGrid
-              assets={references}
-              folders={folders}
+          <TabsContent value="assets">
+            <AssetSwimlaneBoard
+              references={references}
+              candidates={candidates}
+              saved={saved}
+              pendingVariants={pendingVariants}
               pendingUploads={pendingVisibleUploads}
-              emptyTitle="Upload reference assets"
-              emptyBody="Add images, clips, product shots, logos, and style references so the agent can match your brand."
-              onEmptyClick={() => fileInputRef.current?.click()}
-              onDrop={(files) => void upload(files)}
-              selectedIds={selectedAssetIds}
-              onSelectedIdsChange={setSelectedAssetIds}
-              onOptimisticDelete={markAssetsOptimisticallyDeleted}
-              onRestoreOptimisticDelete={restoreOptimisticallyDeletedAssets}
-            />
-          </TabsContent>
-
-          <TabsContent value="generated">
-            <AssetGrid
-              assets={[...candidates, ...saved]}
               folders={folders}
-              emptyTitle="Generate your first assets"
-              emptyBody="Use the chat-driven generate flow to create image or video candidates, then save the ones that work."
-              onEmptyClick={() => setGenerateOpen(true)}
+              libraryId={libraryId}
+              savingCandidateKeys={savingCandidateKeys}
+              promoting={updateAsset.isPending}
+              onUploadClick={() => fileInputRef.current?.click()}
+              onGenerateClick={() => setGenerateOpen(true)}
+              onDrop={(files) => void upload(files)}
+              onSaveCandidate={(slot) => {
+                void handleSaveCandidate(slot);
+              }}
+              onMoveToReferences={(asset, slot) => {
+                void handleMoveToReferences(asset, slot);
+              }}
               selectedIds={selectedAssetIds}
               onSelectedIdsChange={setSelectedAssetIds}
               onOptimisticDelete={markAssetsOptimisticallyDeleted}
@@ -2248,35 +2297,6 @@ function FolderChip({
   );
 }
 
-function PendingUploadCard({ upload }: { upload: PendingUpload }) {
-  const isChecking = upload.status === "checking";
-  return (
-    <div className="overflow-hidden rounded-lg border border-dashed border-border bg-card">
-      <div className="flex aspect-[4/3] items-center justify-center bg-muted/30">
-        <div className="flex flex-col items-center gap-2 text-muted-foreground">
-          <Spinner className="h-5 w-5" />
-          <span className="text-xs font-medium">
-            {isChecking ? "Checking upload" : "Uploading"}
-          </span>
-        </div>
-      </div>
-      <div className="space-y-2 p-3">
-        <div className="flex items-center gap-2 truncate text-xs font-medium">
-          {upload.mediaType === "video" ? (
-            <IconVideo className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-          ) : (
-            <IconPhoto className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-          )}
-          <span className="truncate">{upload.name}</span>
-        </div>
-        <Badge variant="outline">
-          {isChecking ? "verifying" : "uploading"}
-        </Badge>
-      </div>
-    </div>
-  );
-}
-
 function AssetPreview({ asset }: { asset: any }) {
   const [sourceIndex, setSourceIndex] = useState(0);
   const [unavailable, setUnavailable] = useState(false);
@@ -2332,94 +2352,40 @@ function AssetPreview({ asset }: { asset: any }) {
   );
 }
 
-function CreateFolderDialog({
-  open,
-  onOpenChange,
-  onSubmit,
-  pending,
-}: {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  onSubmit: (title: string) => void | Promise<void>;
-  pending?: boolean;
-}) {
-  const [title, setTitle] = useState("");
-  async function submit() {
-    const trimmed = title.trim();
-    if (!trimmed || pending) return;
-    try {
-      await onSubmit(trimmed);
-      setTitle("");
-    } catch (error) {
-      toast.error(
-        error instanceof Error ? error.message : "Could not create folder",
-      );
-    }
-  }
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md">
-        <DialogHeader>
-          <DialogTitle>New folder</DialogTitle>
-          <DialogDescription>
-            Group uploaded and generated assets for a campaign, channel, or
-            reusable collection.
-          </DialogDescription>
-        </DialogHeader>
-        <div className="space-y-2">
-          <Label htmlFor="folder-title">Name</Label>
-          <Input
-            id="folder-title"
-            value={title}
-            onChange={(event) => setTitle(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === "Enter" && title.trim()) {
-                event.preventDefault();
-                void submit();
-              }
-            }}
-            placeholder="Campaign launch"
-            autoFocus
-          />
-        </div>
-        <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>
-            Cancel
-          </Button>
-          <Button
-            disabled={!title.trim() || pending}
-            onClick={() => {
-              void submit();
-            }}
-          >
-            Create
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-function AssetGrid({
-  assets,
+function AssetSwimlaneBoard({
+  references,
+  candidates,
+  saved,
+  pendingVariants,
+  pendingUploads,
   folders,
-  pendingUploads = [],
-  emptyTitle,
-  emptyBody,
-  onEmptyClick,
+  libraryId,
+  savingCandidateKeys,
+  promoting,
+  onUploadClick,
+  onGenerateClick,
   onDrop,
+  onSaveCandidate,
+  onMoveToReferences,
   selectedIds,
   onSelectedIdsChange,
   onOptimisticDelete,
   onRestoreOptimisticDelete,
 }: {
-  assets: any[];
+  references: any[];
+  candidates: any[];
+  saved: any[];
+  pendingVariants: any[];
+  pendingUploads: PendingUpload[];
   folders: any[];
-  pendingUploads?: PendingUpload[];
-  emptyTitle: string;
-  emptyBody: string;
-  onEmptyClick: () => void;
-  onDrop?: (files: FileList) => void;
+  libraryId: string;
+  savingCandidateKeys: Set<string>;
+  promoting?: boolean;
+  onUploadClick: () => void;
+  onGenerateClick: () => void;
+  onDrop: (files: FileList) => void;
+  onSaveCandidate: (slot: any) => void;
+  onMoveToReferences: (asset: any, slot?: any) => void;
   selectedIds: Set<string>;
   onSelectedIdsChange: Dispatch<SetStateAction<Set<string>>>;
   onOptimisticDelete?: (ids: string[]) => void;
@@ -2430,12 +2396,21 @@ function AssetGrid({
   const updateAsset = useActionMutation("update-asset");
   const [confirmDeleteIds, setConfirmDeleteIds] = useState<string[]>([]);
   const [deletingIds, setDeletingIds] = useState<Set<string>>(() => new Set());
-  const selectedAssets = assets.filter((asset) => selectedIds.has(asset.id));
+  const boardAssets = [...references, ...candidates, ...saved];
+  const selectedAssets = boardAssets.filter((asset) =>
+    selectedIds.has(asset.id),
+  );
   const selectedCount = selectedAssets.length;
-  const allSelected = assets.length > 0 && selectedCount === assets.length;
+  const allSelected =
+    boardAssets.length > 0 && selectedCount === boardAssets.length;
   const pendingDeleteCount = deletingIds.size;
   const deleting =
     deleteAsset.isPending || deleteAssets.isPending || pendingDeleteCount > 0;
+  const hasAnyVisibleItem =
+    boardAssets.length > 0 ||
+    pendingUploads.length > 0 ||
+    pendingVariants.length > 0 ||
+    pendingDeleteCount > 0;
 
   function toggleAsset(assetId: string, checked: boolean) {
     onSelectedIdsChange((current) => {
@@ -2451,7 +2426,7 @@ function AssetGrid({
 
   function toggleAll(checked: boolean) {
     onSelectedIdsChange(
-      checked ? new Set(assets.map((asset) => asset.id)) : new Set(),
+      checked ? new Set(boardAssets.map((asset) => asset.id)) : new Set(),
     );
   }
 
@@ -2522,8 +2497,7 @@ function AssetGrid({
       {
         onSuccess: (result: any) => {
           finishDeleting(ids);
-          const deletedIds = new Set(ids);
-          const count = Number(result?.deletedCount ?? deletedIds.size);
+          const count = Number(result?.deletedCount ?? ids.length);
           toast.success(`Deleted ${count} asset${count === 1 ? "" : "s"}.`);
         },
         onError: (error) => {
@@ -2534,26 +2508,26 @@ function AssetGrid({
     );
   }
 
-  if (!assets.length && !pendingUploads.length && pendingDeleteCount === 0) {
+  if (!hasAnyVisibleItem) {
     return (
       <button
-        onClick={onEmptyClick}
+        onClick={onUploadClick}
         onDragOver={(e) => {
-          if (onDrop && e.dataTransfer.types.includes("Files"))
-            e.preventDefault();
+          if (e.dataTransfer.types.includes("Files")) e.preventDefault();
         }}
         onDrop={(e) => {
-          if (!onDrop) return;
           e.preventDefault();
           e.stopPropagation();
           onDrop(e.dataTransfer.files);
         }}
-        className="flex min-h-[320px] w-full flex-col items-center justify-center rounded-lg border border-dashed border-border bg-muted/20 p-8 text-center"
+        className="flex min-h-[360px] w-full flex-col items-center justify-center rounded-lg border border-dashed border-border bg-muted/20 p-8 text-center"
       >
         <IconPhotoPlus className="h-10 w-10 text-muted-foreground" />
-        <span className="mt-4 text-base font-semibold">{emptyTitle}</span>
+        <span className="mt-4 text-base font-semibold">
+          Build your inspiration lane
+        </span>
         <span className="mt-2 max-w-md text-sm text-muted-foreground">
-          {emptyBody}
+          Upload brand references, then generate variations from the same board.
         </span>
       </button>
     );
@@ -2596,8 +2570,8 @@ function AssetGrid({
         </AlertDialogContent>
       </AlertDialog>
 
-      {assets.length > 0 || pendingDeleteCount > 0 ? (
-        <div className="mb-3 flex min-h-10 flex-wrap items-center justify-between gap-2 rounded-lg border border-border bg-card px-3 py-2">
+      <div className="overflow-hidden rounded-lg border border-border bg-background">
+        <div className="flex min-h-12 flex-wrap items-center justify-between gap-2 border-b border-border bg-muted/20 px-3 py-2">
           {pendingDeleteCount > 0 ? (
             <div className="flex min-w-0 items-center gap-2 text-sm font-medium">
               <Spinner className="h-4 w-4" />
@@ -2611,12 +2585,17 @@ function AssetGrid({
               <Checkbox
                 checked={allSelected}
                 onCheckedChange={(checked) => toggleAll(checked === true)}
-                aria-label="Select all assets in this view"
+                aria-label="Select all assets in this board"
               />
               <span className="truncate">
                 {selectedCount > 0
                   ? `${selectedCount} selected`
-                  : `${assets.length} asset${assets.length === 1 ? "" : "s"}`}
+                  : `${boardAssets.length} asset${boardAssets.length === 1 ? "" : "s"}`}
+              </span>
+              <span className="hidden text-xs text-muted-foreground sm:inline">
+                {references.length} inspirations ·{" "}
+                {pendingVariants.length + candidates.length} variations ·{" "}
+                {saved.length} saved
               </span>
             </div>
           )}
@@ -2647,154 +2626,473 @@ function AssetGrid({
                 Delete
               </Button>
             </div>
-          ) : null}
-        </div>
-      ) : null}
-
-      {assets.length || pendingUploads.length ? (
-        <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-5">
-          {pendingUploads.map((upload) => (
-            <PendingUploadCard key={upload.id} upload={upload} />
-          ))}
-          {assets.map((asset) => {
-            const displayTitle = assetDisplayTitle(asset);
-            const sourceText = assetLineageSourceText(asset);
-            return (
-              <div
-                key={asset.id}
-                className={[
-                  "group relative overflow-hidden rounded-lg border bg-card transition",
-                  selectedIds.has(asset.id)
-                    ? "border-primary ring-2 ring-primary/25"
-                    : "border-border",
-                ].join(" ")}
+          ) : (
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                className="gap-2"
+                onClick={onUploadClick}
               >
-                <div className="absolute left-2 top-2 z-10">
-                  <Checkbox
-                    checked={selectedIds.has(asset.id)}
-                    onCheckedChange={(checked) =>
-                      toggleAsset(asset.id, checked === true)
-                    }
-                    aria-label={`Select ${displayTitle}`}
-                    className={[
-                      "border-background bg-background/90 shadow-sm opacity-100 transition sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100",
-                      selectedIds.has(asset.id) ? "sm:opacity-100" : "",
-                    ].join(" ")}
-                  />
-                </div>
-                <div className="absolute right-2 top-2 z-10">
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button
-                        type="button"
-                        variant="secondary"
-                        size="icon"
-                        className="h-8 w-8 shadow-sm opacity-100 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100 data-[state=open]:opacity-100"
-                        aria-label="Asset actions"
-                      >
-                        <IconDotsVertical className="h-4 w-4" />
-                      </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end">
-                      <DropdownMenuItem asChild>
-                        <Link to={`/asset/${asset.id}`}>View details</Link>
-                      </DropdownMenuItem>
-                      <DropdownMenuSub>
-                        <DropdownMenuSubTrigger>
-                          <IconFolder className="mr-2 h-4 w-4 shrink-0" />
-                          Move to
-                        </DropdownMenuSubTrigger>
-                        <DropdownMenuSubContent>
-                          <DropdownMenuItem
-                            onSelect={() =>
-                              updateAsset.mutate({
-                                id: asset.id,
-                                folderId: null,
-                              })
-                            }
-                          >
-                            Unfiled
-                          </DropdownMenuItem>
-                          {folders.map((folder) => (
-                            <DropdownMenuItem
-                              key={folder.id}
-                              onSelect={() =>
-                                updateAsset.mutate({
-                                  id: asset.id,
-                                  folderId: folder.id,
-                                })
-                              }
-                            >
-                              {folder.title}
-                            </DropdownMenuItem>
-                          ))}
-                        </DropdownMenuSubContent>
-                      </DropdownMenuSub>
-                      <DropdownMenuSeparator />
-                      <DropdownMenuItem
-                        className="text-destructive focus:bg-destructive/10 focus:text-destructive"
-                        onSelect={() => confirmDelete([asset.id])}
-                      >
-                        <IconTrash className="mr-2 h-4 w-4 shrink-0" />
-                        Delete
-                      </DropdownMenuItem>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                </div>
-                <Link to={`/asset/${asset.id}`} className="block outline-none">
-                  <div className="aspect-[4/3] bg-muted">
-                    <AssetPreview asset={asset} />
-                  </div>
-                  <div className="space-y-2 p-3">
-                    <div className="flex items-center gap-2 truncate text-xs font-medium">
-                      {asset.mediaType === "video" ? (
-                        <IconVideo className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                      ) : (
-                        <IconPhoto className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                      )}
-                      <span className="truncate">{displayTitle}</span>
-                    </div>
-                    {sourceText ? (
-                      <div className="truncate text-[11px] text-muted-foreground">
-                        {sourceText}
-                      </div>
-                    ) : null}
-                    <div className="flex items-center gap-2">
-                      <Badge variant="secondary">{asset.status}</Badge>
-                      {assetCategoryLabel(asset) && (
-                        <Badge variant="outline">
-                          {assetCategoryLabel(asset)}
-                        </Badge>
-                      )}
-                    </div>
-                  </div>
-                </Link>
-              </div>
-            );
-          })}
+                <IconUpload className="h-4 w-4" />
+                Upload
+              </Button>
+              <Button size="sm" className="gap-2" onClick={onGenerateClick}>
+                <IconMessageCircle className="h-4 w-4" />
+                Generate
+              </Button>
+            </div>
+          )}
         </div>
-      ) : (
-        <div className="flex min-h-[320px] w-full flex-col items-center justify-center rounded-lg border border-dashed border-border bg-muted/20 p-8 text-center">
-          <Spinner className="h-8 w-8 text-muted-foreground" />
-          <span className="mt-4 text-base font-semibold">
-            Deleting selected assets...
-          </span>
+
+        <div className="divide-y divide-border">
+          <SwimLane
+            title="Inspirations"
+            eyebrow="Reusable references"
+            count={references.length + pendingUploads.length}
+            action={
+              <Button variant="outline" size="sm" onClick={onUploadClick}>
+                Add
+              </Button>
+            }
+            empty={
+              <LaneDropTarget
+                title="Drop references here"
+                body="Images, clips, logos, products, or style boards."
+                onClick={onUploadClick}
+                onDrop={onDrop}
+              />
+            }
+          >
+            {pendingUploads.map((upload) => (
+              <PendingUploadLaneTile key={upload.id} upload={upload} />
+            ))}
+            {references.map((asset) => (
+              <AssetLaneTile
+                key={asset.id}
+                asset={asset}
+                folders={folders}
+                selected={selectedIds.has(asset.id)}
+                deleting={deletingIds.has(asset.id)}
+                onToggle={(checked) => toggleAsset(asset.id, checked)}
+                onDelete={() => confirmDelete([asset.id])}
+                updateAsset={updateAsset}
+              />
+            ))}
+          </SwimLane>
+
+          <SwimLane
+            title="Variations"
+            eyebrow="Live slots and unsaved outputs"
+            count={pendingVariants.length + candidates.length}
+            action={
+              pendingVariants.length > 0 ? (
+                <LiveCandidatesActions
+                  slots={pendingVariants}
+                  libraryId={libraryId}
+                />
+              ) : (
+                <Button variant="outline" size="sm" onClick={onGenerateClick}>
+                  Generate
+                </Button>
+              )
+            }
+            empty={
+              <LaneActionEmpty
+                title="No variations in flight"
+                body="Generate a few directions, then save or move the best ones."
+                onClick={onGenerateClick}
+                action="Generate"
+              />
+            }
+          >
+            {pendingVariants.map((slot: any) => (
+              <VariantLaneTile
+                key={slot.slotId}
+                slot={slot}
+                libraryId={libraryId}
+                saving={savingCandidateKeys.has(candidateSaveKey(slot))}
+                promoting={promoting}
+                onSave={() => onSaveCandidate(slot)}
+                onMoveToReferences={
+                  slot.assetId
+                    ? () =>
+                        onMoveToReferences({ ...slot, id: slot.assetId }, slot)
+                    : undefined
+                }
+              />
+            ))}
+            {candidates.map((asset) => (
+              <AssetLaneTile
+                key={asset.id}
+                asset={asset}
+                folders={folders}
+                selected={selectedIds.has(asset.id)}
+                deleting={deletingIds.has(asset.id)}
+                saving={savingCandidateKeys.has(`asset:${asset.id}`)}
+                promoting={promoting}
+                onToggle={(checked) => toggleAsset(asset.id, checked)}
+                onDelete={() => confirmDelete([asset.id])}
+                updateAsset={updateAsset}
+                onSave={() => onSaveCandidate({ assetId: asset.id })}
+                onMoveToReferences={() => onMoveToReferences(asset)}
+              />
+            ))}
+          </SwimLane>
+
+          <SwimLane
+            title="Saved outputs"
+            eyebrow="Approved generated assets"
+            count={saved.length}
+            empty={
+              <LaneActionEmpty
+                title="No saved outputs yet"
+                body="Saved variations collect here for export and reuse."
+                onClick={onGenerateClick}
+                action="Generate"
+              />
+            }
+          >
+            {saved.map((asset) => (
+              <AssetLaneTile
+                key={asset.id}
+                asset={asset}
+                folders={folders}
+                selected={selectedIds.has(asset.id)}
+                deleting={deletingIds.has(asset.id)}
+                promoting={promoting}
+                onToggle={(checked) => toggleAsset(asset.id, checked)}
+                onDelete={() => confirmDelete([asset.id])}
+                updateAsset={updateAsset}
+                onMoveToReferences={() => onMoveToReferences(asset)}
+              />
+            ))}
+          </SwimLane>
         </div>
-      )}
+      </div>
     </>
   );
 }
 
-function VariantCard({
+function SwimLane({
+  title,
+  eyebrow,
+  count,
+  action,
+  empty,
+  children,
+}: {
+  title: string;
+  eyebrow: string;
+  count: number;
+  action?: ReactNode;
+  empty: ReactNode;
+  children: ReactNode;
+}) {
+  const hasContent = count > 0;
+  return (
+    <section className="grid gap-3 p-3 lg:grid-cols-[176px_minmax(0,1fr)]">
+      <div className="flex items-start justify-between gap-3 lg:block">
+        <div className="min-w-0">
+          <div className="text-[11px] font-medium uppercase text-muted-foreground">
+            {eyebrow}
+          </div>
+          <h3 className="mt-1 flex items-center gap-2 text-sm font-semibold">
+            <span className="truncate">{title}</span>
+            <Badge variant="outline">{count}</Badge>
+          </h3>
+        </div>
+        {action ? <div className="shrink-0 lg:mt-3">{action}</div> : null}
+      </div>
+      {hasContent ? (
+        <div className="flex gap-3 overflow-x-auto pb-1">{children}</div>
+      ) : (
+        empty
+      )}
+    </section>
+  );
+}
+
+function LaneDropTarget({
+  title,
+  body,
+  onClick,
+  onDrop,
+}: {
+  title: string;
+  body: string;
+  onClick: () => void;
+  onDrop: (files: FileList) => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      onDragOver={(e) => {
+        if (e.dataTransfer.types.includes("Files")) e.preventDefault();
+      }}
+      onDrop={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        onDrop(e.dataTransfer.files);
+      }}
+      className="flex min-h-[152px] items-center justify-center rounded-md border border-dashed border-border bg-muted/20 px-4 text-center transition hover:bg-muted/35"
+    >
+      <span>
+        <IconPhotoPlus className="mx-auto h-7 w-7 text-muted-foreground" />
+        <span className="mt-2 block text-sm font-medium">{title}</span>
+        <span className="mt-1 block text-xs text-muted-foreground">{body}</span>
+      </span>
+    </button>
+  );
+}
+
+function LaneActionEmpty({
+  title,
+  body,
+  action,
+  onClick,
+}: {
+  title: string;
+  body: string;
+  action: string;
+  onClick: () => void;
+}) {
+  return (
+    <div className="flex min-h-[152px] items-center justify-between gap-3 rounded-md border border-dashed border-border bg-muted/20 px-4">
+      <div className="min-w-0">
+        <div className="text-sm font-medium">{title}</div>
+        <div className="mt-1 text-xs text-muted-foreground">{body}</div>
+      </div>
+      <Button variant="outline" size="sm" onClick={onClick}>
+        {action}
+      </Button>
+    </div>
+  );
+}
+
+function PendingUploadLaneTile({ upload }: { upload: PendingUpload }) {
+  const isChecking = upload.status === "checking";
+  return (
+    <div className="w-[172px] shrink-0 overflow-hidden rounded-md border border-dashed border-border bg-card sm:w-[188px]">
+      <div className="flex aspect-[4/3] items-center justify-center bg-muted/30">
+        <div className="flex flex-col items-center gap-2 text-muted-foreground">
+          <Spinner className="h-5 w-5" />
+          <span className="text-xs font-medium">
+            {isChecking ? "Checking" : "Uploading"}
+          </span>
+        </div>
+      </div>
+      <div className="p-2.5">
+        <div className="flex items-center gap-2 truncate text-xs font-medium">
+          {upload.mediaType === "video" ? (
+            <IconVideo className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+          ) : (
+            <IconPhoto className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+          )}
+          <span className="truncate">{upload.name}</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function AssetLaneTile({
+  asset,
+  folders,
+  selected,
+  deleting,
+  saving,
+  promoting,
+  onToggle,
+  onDelete,
+  updateAsset,
+  onSave,
+  onMoveToReferences,
+}: {
+  asset: any;
+  folders: any[];
+  selected: boolean;
+  deleting?: boolean;
+  saving?: boolean;
+  promoting?: boolean;
+  onToggle: (checked: boolean) => void;
+  onDelete: () => void;
+  updateAsset: any;
+  onSave?: () => void;
+  onMoveToReferences?: () => void;
+}) {
+  const displayTitle = assetDisplayTitle(asset);
+  const sourceText = assetLineageSourceText(asset);
+  const canMoveToReferences = Boolean(onMoveToReferences);
+  const busy = deleting || saving || promoting;
+
+  return (
+    <div
+      className={[
+        "group relative w-[172px] shrink-0 overflow-hidden rounded-md border bg-card transition sm:w-[188px]",
+        selected ? "border-primary ring-2 ring-primary/25" : "border-border",
+        deleting ? "opacity-60" : "",
+      ].join(" ")}
+      aria-busy={busy}
+    >
+      <div className="absolute left-2 top-2 z-10">
+        <Checkbox
+          checked={selected}
+          onCheckedChange={(checked) => onToggle(checked === true)}
+          aria-label={`Select ${displayTitle}`}
+          className={[
+            "border-background bg-background/90 shadow-sm opacity-100 transition sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100",
+            selected ? "sm:opacity-100" : "",
+          ].join(" ")}
+        />
+      </div>
+      <div className="absolute right-2 top-2 z-10">
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button
+              type="button"
+              variant="secondary"
+              size="icon"
+              className="h-8 w-8 shadow-sm opacity-100 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100 data-[state=open]:opacity-100"
+              aria-label="Asset actions"
+              disabled={busy}
+            >
+              <IconDotsVertical className="h-4 w-4" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuItem asChild>
+              <Link to={`/asset/${asset.id}`}>View details</Link>
+            </DropdownMenuItem>
+            {canMoveToReferences ? (
+              <DropdownMenuItem
+                onSelect={(event) => {
+                  event.preventDefault();
+                  onMoveToReferences?.();
+                }}
+              >
+                <IconPhotoPlus className="mr-2 h-4 w-4 shrink-0" />
+                Move to Inspirations
+              </DropdownMenuItem>
+            ) : null}
+            <DropdownMenuSub>
+              <DropdownMenuSubTrigger>
+                <IconFolder className="mr-2 h-4 w-4 shrink-0" />
+                Move to
+              </DropdownMenuSubTrigger>
+              <DropdownMenuSubContent>
+                <DropdownMenuItem
+                  onSelect={() =>
+                    updateAsset.mutate({
+                      id: asset.id,
+                      folderId: null,
+                    })
+                  }
+                >
+                  Unfiled
+                </DropdownMenuItem>
+                {folders.map((folder) => (
+                  <DropdownMenuItem
+                    key={folder.id}
+                    onSelect={() =>
+                      updateAsset.mutate({
+                        id: asset.id,
+                        folderId: folder.id,
+                      })
+                    }
+                  >
+                    {folder.title}
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuSubContent>
+            </DropdownMenuSub>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              className="text-destructive focus:bg-destructive/10 focus:text-destructive"
+              onSelect={onDelete}
+            >
+              <IconTrash className="mr-2 h-4 w-4 shrink-0" />
+              Delete
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
+      <Link to={`/asset/${asset.id}`} className="block outline-none">
+        <div className="aspect-[4/3] bg-muted">
+          <AssetPreview asset={asset} />
+        </div>
+      </Link>
+      <div className="space-y-2 p-2.5">
+        <div className="flex items-center gap-2 truncate text-xs font-medium">
+          {asset.mediaType === "video" ? (
+            <IconVideo className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+          ) : (
+            <IconPhoto className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+          )}
+          <Link to={`/asset/${asset.id}`} className="truncate hover:underline">
+            {displayTitle}
+          </Link>
+        </div>
+        {sourceText ? (
+          <div className="truncate text-[11px] text-muted-foreground">
+            {sourceText}
+          </div>
+        ) : null}
+        {onSave || canMoveToReferences ? (
+          <div className="grid grid-cols-2 gap-2">
+            {onSave ? (
+              <Button
+                size="sm"
+                className="h-8 px-2 text-xs"
+                onClick={onSave}
+                disabled={busy}
+              >
+                {saving ? <Spinner className="h-3.5 w-3.5" /> : "Save"}
+              </Button>
+            ) : null}
+            {canMoveToReferences ? (
+              <Button
+                variant="outline"
+                size="sm"
+                className={
+                  onSave ? "h-8 px-2 text-xs" : "col-span-2 h-8 px-2 text-xs"
+                }
+                onClick={onMoveToReferences}
+                disabled={busy}
+                title="Move to Inspirations"
+              >
+                {promoting ? <Spinner className="h-3.5 w-3.5" /> : "Inspire"}
+              </Button>
+            ) : null}
+          </div>
+        ) : (
+          <div className="flex items-center gap-2">
+            <Badge variant="secondary">{asset.status}</Badge>
+            {assetCategoryLabel(asset) && (
+              <Badge variant="outline">{assetCategoryLabel(asset)}</Badge>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function VariantLaneTile({
   slot,
   libraryId,
   onSave,
+  onMoveToReferences,
   saving = false,
+  promoting = false,
 }: {
   slot: any;
   libraryId: string;
   onSave: () => void;
+  onMoveToReferences?: () => void;
   saving?: boolean;
+  promoting?: boolean;
 }) {
   const dismissSlot = useActionMutation("dismiss-variant-slots");
   const queryClient = useQueryClient();
@@ -2805,7 +3103,7 @@ function VariantCard({
   const previewSourcesKey = previewSources.join("\n");
   const isFailed = slot.status === "failed";
   const label = isFailed ? "Dismiss" : "Delete";
-  const busy = saving || dismissSlot.isPending;
+  const busy = saving || promoting || dismissSlot.isPending;
   const previewSrc = previewSources[sourceIndex];
 
   useEffect(() => {
@@ -2815,7 +3113,7 @@ function VariantCard({
 
   return (
     <div
-      className="group relative overflow-hidden rounded-lg border border-border bg-background"
+      className="group relative w-[172px] shrink-0 overflow-hidden rounded-md border border-border bg-card sm:w-[188px]"
       aria-busy={busy}
     >
       <div className="absolute right-2 top-2 z-10">
@@ -2833,6 +3131,17 @@ function VariantCard({
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
+            {onMoveToReferences && !isFailed ? (
+              <DropdownMenuItem
+                onSelect={(event) => {
+                  event.preventDefault();
+                  onMoveToReferences?.();
+                }}
+              >
+                <IconPhotoPlus className="mr-2 h-4 w-4 shrink-0" />
+                Move to Inspirations
+              </DropdownMenuItem>
+            ) : null}
             <DropdownMenuItem
               className="text-destructive focus:bg-destructive/10 focus:text-destructive"
               onSelect={(event) => {
@@ -2935,24 +3244,109 @@ function VariantCard({
           <IconPhoto className="h-8 w-8 animate-pulse text-muted-foreground" />
         )}
       </div>
-      <div className="flex items-center justify-between gap-2 p-3">
-        <Badge variant={slot.status === "ready" ? "secondary" : "outline"}>
-          {slot.status}
-        </Badge>
-        {slot.status === "ready" && (
-          <Button size="sm" className="w-24" onClick={onSave} disabled={busy}>
-            {saving ? (
-              <>
-                <Spinner className="h-4 w-4" />
-                Saving...
-              </>
-            ) : (
-              "Save"
-            )}
-          </Button>
-        )}
+      <div className="space-y-2 p-2.5">
+        <div className="flex items-center justify-between gap-2">
+          <Badge variant={slot.status === "ready" ? "secondary" : "outline"}>
+            {slot.status}
+          </Badge>
+          <span className="truncate text-[11px] text-muted-foreground">
+            {slot.slotId ? shortId(String(slot.slotId)) : "slot"}
+          </span>
+        </div>
+        {slot.status === "ready" ? (
+          <div className="grid grid-cols-2 gap-2">
+            <Button
+              size="sm"
+              className="h-8 px-2 text-xs"
+              onClick={onSave}
+              disabled={busy}
+            >
+              {saving ? <Spinner className="h-3.5 w-3.5" /> : "Save"}
+            </Button>
+            {onMoveToReferences ? (
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-8 px-2 text-xs"
+                onClick={onMoveToReferences}
+                disabled={busy}
+                title="Move to Inspirations"
+              >
+                {promoting ? <Spinner className="h-3.5 w-3.5" /> : "Inspire"}
+              </Button>
+            ) : null}
+          </div>
+        ) : null}
       </div>
     </div>
+  );
+}
+
+function CreateFolderDialog({
+  open,
+  onOpenChange,
+  onSubmit,
+  pending,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onSubmit: (title: string) => void | Promise<void>;
+  pending?: boolean;
+}) {
+  const [title, setTitle] = useState("");
+  async function submit() {
+    const trimmed = title.trim();
+    if (!trimmed || pending) return;
+    try {
+      await onSubmit(trimmed);
+      setTitle("");
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "Could not create folder",
+      );
+    }
+  }
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>New folder</DialogTitle>
+          <DialogDescription>
+            Group uploaded and generated assets for a campaign, channel, or
+            reusable collection.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-2">
+          <Label htmlFor="folder-title">Name</Label>
+          <Input
+            id="folder-title"
+            value={title}
+            onChange={(event) => setTitle(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter" && title.trim()) {
+                event.preventDefault();
+                void submit();
+              }
+            }}
+            placeholder="Campaign launch"
+            autoFocus
+          />
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>
+            Cancel
+          </Button>
+          <Button
+            disabled={!title.trim() || pending}
+            onClick={() => {
+              void submit();
+            }}
+          >
+            Create
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
