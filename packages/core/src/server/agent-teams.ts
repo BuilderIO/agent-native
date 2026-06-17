@@ -118,6 +118,19 @@ function currentAmbientDelegationDepth(): number {
   return delegationDepthStorage.getStore() ?? 0;
 }
 
+/**
+ * Public read of the ambient sub-agent delegation depth for the currently
+ * executing agent. 0 = the top-level (user-facing) chat; 1+ = a spawned
+ * sub-agent. Used by the chat plugin to thread the depth into
+ * `buildRuntimeContextPrompt` so a sub-agent at the cap is told it can't
+ * delegate further. Mirrors `currentAmbientDelegationDepth`; exported under a
+ * descriptive name so callers outside this module don't depend on the private
+ * helper or the test-only export object.
+ */
+export function getCurrentDelegationDepth(): number {
+  return currentAmbientDelegationDepth();
+}
+
 export interface SubagentDepthDecision {
   /** Whether the spawn is allowed under the depth cap. */
   allowed: boolean;

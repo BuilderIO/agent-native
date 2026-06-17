@@ -124,6 +124,7 @@ import nodePath from "node:path";
 import { readBody } from "./h3-helpers.js";
 import {
   AGENT_TEAM_PROCESS_RUN_PATH,
+  getCurrentDelegationDepth,
   processAgentTeamRun,
   reconcileAgentTeamRunsForOwner,
 } from "./agent-teams.js";
@@ -5053,7 +5054,13 @@ export function createAgentChatPlugin(
           tzRaw.trim().length < 64
             ? tzRaw.trim()
             : undefined;
-        return buildRuntimeContextPrompt({ timezone });
+        // Thread the ambient sub-agent delegation depth so a sub-agent running
+        // at the depth cap is told in its runtime context that it cannot
+        // delegate further. The depth-guard already enforces the cap
+        // server-side (`evaluateSubagentDepth`); this only surfaces it to the
+        // model. 0 (the top-level chat) emits no delegation line.
+        const delegationDepth = getCurrentDelegationDepth();
+        return buildRuntimeContextPrompt({ timezone, delegationDepth });
       };
 
       // The app-rendered sidebar must never edit the app's source code

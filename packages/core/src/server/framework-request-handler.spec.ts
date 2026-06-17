@@ -338,6 +338,33 @@ describe("framework request handler", () => {
     await expect(pending).resolves.toEqual({ ok: true });
   });
 
+  it("returns a retryable 503 instead of a bare 404 when tracked plugin init fails", async () => {
+    // Reproduces the recurring hosted MCP 404: on a cold/propagating instance
+    // the async plugin init can reject (e.g. DB unreachable) before it ever
+    // registers /_agent-native/mcp. Without the failure fallback the readiness
+    // gate would release into a bare "Cannot find any route matching" 404 that
+    // external MCP clients (pi/codex) can't recover from.
+    const nitroApp = createNitroApp();
+    let fail!: (err: Error) => void;
+    const ready = new Promise<void>((_resolve, reject) => {
+      fail = reject;
+    });
+    trackPluginInit(nitroApp, ready, {
+      paths: ["/_agent-native/mcp"],
+    });
+
+    fail(new Error("db unreachable"));
+    // Let the tracked-init catch record the failure.
+    await Promise.resolve();
+    await Promise.resolve();
+
+    const result = await dispatch(nitroApp, "/_agent-native/mcp");
+
+    // Must not fall through to a bare 404; returns a meaningful, retryable body.
+    expect(result).not.toEqual({ fellThrough: true });
+    expect(JSON.stringify(result)).toContain("initializing or unavailable");
+  });
+
   it("does not treat similar non-prefixed paths as framework routes", async () => {
     process.env.APP_BASE_PATH = "/docs";
     const nitroApp = createNitroApp();

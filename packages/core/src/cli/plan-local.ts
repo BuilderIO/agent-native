@@ -38,6 +38,12 @@ type LocalPlanFiles = {
   assets?: Record<string, string>;
 };
 
+export type LocalPlanValidationIssue = {
+  file: string;
+  line: number;
+  message: string;
+};
+
 type LocalPlanPreviewInput = {
   dir: string;
   kind?: LocalPlanKind;
@@ -476,10 +482,316 @@ function localPlanFileList(files: LocalPlanFiles): string[] {
   ];
 }
 
+function localPlanSourceEntries(files: LocalPlanFiles): Array<{
+  file: string;
+  source: string;
+}> {
+  return [
+    { file: "plan.mdx", source: files.planMdx },
+    ...(files.canvasMdx
+      ? [{ file: "canvas.mdx", source: files.canvasMdx }]
+      : []),
+    ...(files.prototypeMdx
+      ? [{ file: "prototype.mdx", source: files.prototypeMdx }]
+      : []),
+  ];
+}
+
+function lineNumberAt(source: string, index: number): number {
+  let line = 1;
+  for (let i = 0; i < index; i += 1) {
+    if (source.charCodeAt(i) === 10) line += 1;
+  }
+  return line;
+}
+
+function maskFencedCode(source: string): string {
+  return source.replace(
+    /(^|\n)(```|~~~)[\s\S]*?(\n\2[^\n]*(?=\n|$))/g,
+    (match) => match.replace(/[^\n]/g, " "),
+  );
+}
+
+function findJsxOpeningTagEnd(source: string, start: number): number {
+  let quote: string | null = null;
+  let braceDepth = 0;
+  for (let i = start; i < source.length; i += 1) {
+    const char = source[i];
+    if (quote) {
+      if (char === "\\" && i + 1 < source.length) {
+        i += 1;
+        continue;
+      }
+      if (char === quote) quote = null;
+      continue;
+    }
+    if (char === '"' || char === "'" || char === "`") {
+      quote = char;
+      continue;
+    }
+    if (char === "{") {
+      braceDepth += 1;
+      continue;
+    }
+    if (char === "}") {
+      braceDepth = Math.max(0, braceDepth - 1);
+      continue;
+    }
+    if (char === ">" && braceDepth === 0) return i;
+  }
+  return -1;
+}
+
+function addValidationIssue(
+  issues: LocalPlanValidationIssue[],
+  file: string,
+  source: string,
+  index: number,
+  message: string,
+) {
+  issues.push({ file, line: lineNumberAt(source, index), message });
+}
+
+const ENTITY_RE = /&(?:[a-z][a-z0-9]+|#[0-9]+|#x[0-9a-f]+);/gi;
+const HTML_TEXT_ATTR_RE =
+  /\b(?:aria-label|alt|placeholder|title|value)=\s*(?:"([^"]*)"|'([^']*)'|`([^`]*)`)/gi;
+const WIREFRAME_TEXT_ATTR_RE =
+  /\b(?:text|value|label|placeholder|title|note|due)=\s*(?:"([^"]*)"|'([^']*)'|`([^`]*)`)/gi;
+
+function normalizeVisibleText(value: string): string {
+  return value
+    .replace(/&nbsp;|&#160;|&#x0*a0;/gi, " ")
+    .replace(ENTITY_RE, "x")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function meaningfulTextLength(value: string | undefined): number {
+  return normalizeVisibleText(value ?? "").length;
+}
+
+function htmlMeaningfulTextLength(html: string): number {
+  let length = 0;
+  for (const match of html.matchAll(HTML_TEXT_ATTR_RE)) {
+    length += meaningfulTextLength(match[1] ?? match[2] ?? match[3]);
+  }
+
+  const visibleText = html
+    .replace(/<!--[\s\S]*?-->/g, " ")
+    .replace(/<script\b[\s\S]*?<\/script>/gi, " ")
+    .replace(/<style\b[\s\S]*?<\/style>/gi, " ")
+    .replace(/<[^>]+>/g, " ");
+  length += meaningfulTextLength(visibleText);
+
+  return length;
+}
+
+function hasSkeletonGeometry(html: string): boolean {
+  return (
+    /<(?:div|span|section|main|article|ul|li)\b/i.test(html) &&
+    /\b(?:height|width|background|border|padding|wf-card|wf-box|wf-pill|wf-chip)\b/i.test(
+      html,
+    )
+  );
+}
+
+function stringAttributeValues(source: string, name: string): string[] {
+  const values: string[] = [];
+  const re = new RegExp(
+    `\\b${name}\\s*=\\s*(?:\\{\\s*\`([\\s\\S]*?)\`\\s*\\}|\\{\\s*"([^"]*)"\\s*\\}|\\{\\s*'([^']*)'\\s*\\}|"([^"]*)"|'([^']*)')`,
+    "g",
+  );
+  for (const match of source.matchAll(re)) {
+    const value = match[1] ?? match[2] ?? match[3] ?? match[4] ?? match[5];
+    if (value !== undefined) values.push(value);
+  }
+  return values;
+}
+
+function hasUnparsedAttributeExpression(source: string, name: string): boolean {
+  return new RegExp(`\\b${name}\\s*=\\s*\\{`).test(source);
+}
+
+function hasMeaningfulWireframeHtml(screenOpening: string): boolean | null {
+  const htmlValues = stringAttributeValues(screenOpening, "html");
+  if (htmlValues.length === 0) {
+    return hasUnparsedAttributeExpression(screenOpening, "html") ? null : false;
+  }
+  return htmlValues.some(
+    (html) => htmlMeaningfulTextLength(html) >= 2 || hasSkeletonGeometry(html),
+  );
+}
+
+function hasMeaningfulKitScreen(screenSource: string): boolean {
+  for (const match of screenSource.matchAll(WIREFRAME_TEXT_ATTR_RE)) {
+    if (meaningfulTextLength(match[1] ?? match[2] ?? match[3]) >= 2) {
+      return true;
+    }
+  }
+  if (/\bitems\s*=\s*\{[\s\S]*?\blabel\s*:/i.test(screenSource)) return true;
+  if (/\brows\s*=\s*\{[\s\S]*?\b[klv]\s*:/i.test(screenSource)) return true;
+  return false;
+}
+
+function hasMeaningfulWireframeScreen(blockSource: string): boolean | null {
+  const screenMatch = /<Screen\b/.exec(blockSource);
+  if (!screenMatch) return false;
+  const screenStart = screenMatch.index;
+  const screenOpeningEnd = findJsxOpeningTagEnd(blockSource, screenStart);
+  if (screenOpeningEnd < 0) return false;
+  const screenOpening = blockSource.slice(screenStart, screenOpeningEnd + 1);
+  const htmlMeaningful = hasMeaningfulWireframeHtml(screenOpening);
+  if (htmlMeaningful === true) return true;
+
+  const selfClosing = /\/\s*>$/.test(screenOpening);
+  const closeIndex = selfClosing
+    ? -1
+    : blockSource.indexOf("</Screen>", screenOpeningEnd + 1);
+  const screenSource =
+    closeIndex >= 0
+      ? blockSource.slice(screenStart, closeIndex + "</Screen>".length)
+      : screenOpening;
+  if (hasMeaningfulKitScreen(screenSource)) return true;
+
+  return htmlMeaningful === null ? null : false;
+}
+
+function lintWireframeBlocks(
+  file: string,
+  source: string,
+  issues: LocalPlanValidationIssue[],
+) {
+  const scanSource = maskFencedCode(source);
+  const re = /<WireframeBlock\b/g;
+  let match: RegExpExecArray | null;
+  while ((match = re.exec(scanSource))) {
+    const start = match.index;
+    const openingEnd = findJsxOpeningTagEnd(scanSource, start);
+    if (openingEnd < 0) {
+      addValidationIssue(
+        issues,
+        file,
+        source,
+        start,
+        "WireframeBlock opening tag is not closed.",
+      );
+      continue;
+    }
+
+    const opening = scanSource.slice(start, openingEnd + 1);
+    const unsupportedAttr = opening.match(
+      /\b(data|screens|screen|elements)\s*=/,
+    );
+    if (unsupportedAttr) {
+      addValidationIssue(
+        issues,
+        file,
+        source,
+        start,
+        `WireframeBlock uses unsupported "${unsupportedAttr[1]}" prop. Put content inside a <Screen> child instead.`,
+      );
+    }
+
+    const selfClosing = /\/\s*>$/.test(opening);
+    const closeTag = "</WireframeBlock>";
+    const closeIndex = selfClosing
+      ? -1
+      : scanSource.indexOf(closeTag, openingEnd + 1);
+    const blockSource = selfClosing
+      ? opening
+      : closeIndex >= 0
+        ? scanSource.slice(start, closeIndex + closeTag.length)
+        : scanSource.slice(start, openingEnd + 1);
+
+    if (!selfClosing && closeIndex < 0) {
+      addValidationIssue(
+        issues,
+        file,
+        source,
+        start,
+        "WireframeBlock must have a closing </WireframeBlock> tag.",
+      );
+    }
+
+    if (selfClosing || !/<Screen\b/.test(blockSource)) {
+      addValidationIssue(
+        issues,
+        file,
+        source,
+        start,
+        'WireframeBlock must wrap a <Screen> child; self-closing wireframes render empty. Use <WireframeBlock><Screen surface="browser">...</Screen></WireframeBlock>.',
+      );
+      continue;
+    }
+
+    const meaningfulScreen = hasMeaningfulWireframeScreen(blockSource);
+    if (meaningfulScreen === false) {
+      addValidationIssue(
+        issues,
+        file,
+        source,
+        start,
+        'WireframeBlock contains an empty <Screen>; local previews render blank wireframes. Add visible html text/controls or kit nodes such as <Title text="Checkout" /> and <Btn label="Pay" />.',
+      );
+    }
+  }
+}
+
+function lintColumnsBlocks(
+  file: string,
+  source: string,
+  issues: LocalPlanValidationIssue[],
+) {
+  const scanSource = maskFencedCode(source);
+  const re = /<Columns\b/g;
+  let match: RegExpExecArray | null;
+  while ((match = re.exec(scanSource))) {
+    const start = match.index;
+    const openingEnd = findJsxOpeningTagEnd(scanSource, start);
+    if (openingEnd < 0) continue;
+    const opening = scanSource.slice(start, openingEnd + 1);
+    if (/\bcolumns\s*=/.test(opening)) {
+      addValidationIssue(
+        issues,
+        file,
+        source,
+        start,
+        'Columns must use <Column> children, not a columns= prop. Use <Columns><Column label="Before">...</Column><Column label="After">...</Column></Columns>.',
+      );
+    }
+  }
+}
+
+export function validateLocalPlanFiles(
+  files: LocalPlanFiles,
+): LocalPlanValidationIssue[] {
+  const issues: LocalPlanValidationIssue[] = [];
+  for (const entry of localPlanSourceEntries(files)) {
+    lintWireframeBlocks(entry.file, entry.source, issues);
+    lintColumnsBlocks(entry.file, entry.source, issues);
+  }
+  return issues;
+}
+
+export function assertLocalPlanFilesValid(files: LocalPlanFiles): void {
+  const issues = validateLocalPlanFiles(files);
+  if (issues.length === 0) return;
+  const details = issues
+    .slice(0, 8)
+    .map((issue) => `${issue.file}:${issue.line} ${issue.message}`)
+    .join("\n");
+  const overflow =
+    issues.length > 8 ? `\n...plus ${issues.length - 8} more issues` : "";
+  throw new Error(
+    `Local plan source validation failed:\n${details}${overflow}\nRun \`npx @agent-native/core@latest plan blocks --out plan-blocks.md\` and update the MDX to the documented block shapes.`,
+  );
+}
+
 export function buildLocalPlanPreviewHtml(
   input: LocalPlanPreviewInput,
 ): string {
   const files = readLocalPlanFiles(input.dir);
+  assertLocalPlanFilesValid(files);
   const parsed = stripFrontmatter(files.planMdx);
   const title =
     input.title ||
@@ -599,6 +911,7 @@ export function writeLocalPlanPreview(input: {
 }): LocalPlanPreviewResult {
   const dir = path.resolve(input.dir);
   const files = readLocalPlanFiles(dir);
+  assertLocalPlanFilesValid(files);
   const parsed = stripFrontmatter(files.planMdx);
   const kind = input.kind || normalizeKind(parsed.frontmatter.kind);
   const title =
@@ -639,6 +952,7 @@ function buildLocalPlanBridgePayload(input: {
 }): LocalPlanBridgePayload {
   const dir = path.resolve(input.dir);
   const files = readLocalPlanFiles(dir);
+  assertLocalPlanFilesValid(files);
   const parsed = stripFrontmatter(files.planMdx);
   const kind = input.kind || normalizeKind(parsed.frontmatter.kind);
   const title =
@@ -723,6 +1037,12 @@ export async function startLocalPlanBridge(input: {
   openUrl?: (url: string) => OpenLocalUrlResult;
 }): Promise<LocalPlanBridgeServer> {
   const dir = path.resolve(input.dir);
+  const initialPayload = buildLocalPlanBridgePayload({
+    dir,
+    kind: input.kind,
+    title: input.title,
+    brief: input.brief,
+  });
   const token = input.token || crypto.randomBytes(24).toString("base64url");
   const host = input.host || "127.0.0.1";
   const appUrl = normalizeBridgeAppUrl(input.appUrl);
@@ -788,12 +1108,6 @@ export async function startLocalPlanBridge(input: {
   const bridgeUrl = `http://${bridgeHostForUrl(host)}:${address.port}/local-plan.json?token=${encodeURIComponent(
     token,
   )}`;
-  const payload = buildLocalPlanBridgePayload({
-    dir,
-    kind: input.kind,
-    title: input.title,
-    brief: input.brief,
-  });
   const url = localPlanBridgePageUrl({ dir, bridgeUrl, appUrl });
   const openResult = input.open
     ? (input.openUrl || openLocalUrl)(url)
@@ -807,9 +1121,9 @@ export async function startLocalPlanBridge(input: {
       url,
       bridgeUrl,
       appUrl,
-      title: payload.title,
-      kind: payload.kind,
-      files: payload.files,
+      title: initialPayload.title,
+      kind: initialPayload.kind,
+      files: initialPayload.files,
       host,
       port: address.port,
       ...(openResult
@@ -861,9 +1175,9 @@ function writeLocalPlanSkeleton(input: {
     "## Review Surface",
     "",
     "Author the structured plan or recap here. You can add Agent-Native Plan MDX",
-    "blocks such as `<WireframeBlock />`, `<Diagram />`, `<TabsBlock />`,",
-    "`<FileTree />`, or `<Diff />`; the local preview will show the source",
-    "without publishing it to the Plan app.",
+    'blocks such as `<WireframeBlock><Screen surface="browser">...</Screen></WireframeBlock>`,',
+    "`<Diagram />`, `<TabsBlock />`, `<FileTree />`, or `<Diff />`; the local",
+    "preview will show the source without publishing it to the Plan app.",
     "",
   ].join("\n");
   fs.writeFileSync(planPath, mdx, "utf-8");
@@ -898,10 +1212,12 @@ function runInit(args: Record<string, string | boolean>): void {
 function runCheck(args: Record<string, string | boolean>): void {
   const dir = stringArg(args, "dir");
   const files = readLocalPlanFiles(dir);
+  assertLocalPlanFilesValid(files);
   const parsed = stripFrontmatter(files.planMdx);
   const result = {
     ok: true,
     noDb: true,
+    validation: "passed",
     dir: files.dir,
     title: parsed.frontmatter.title || firstHeading(parsed.body),
     kind: normalizeKind(parsed.frontmatter.kind),

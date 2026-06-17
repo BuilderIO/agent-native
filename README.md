@@ -22,7 +22,11 @@ The agent and the UI are equal citizens of the same system. Every action works b
 
 ## The framework for agent-native apps
 
-Templates and skills are the first products built on the open framework. Agent-Native gives you the primitives for apps where the UI and agent share actions, state, identity, and context.
+Agent-Native is an open-source framework for building robust agents that can act inside real apps, not just chat next to them.
+
+It gives you primitives for product-grade agentic software: shared actions, SQL-backed state, identity, tools, skills, jobs, observability, and UI surfaces that all work together.
+
+Backend agnostic: bring your own database, hosting provider, model stack, and app code.
 
 ```ts
 // One action powers UI, agent, HTTP, MCP, A2A, and CLI.
@@ -64,17 +68,6 @@ Start with a full featured template. Each one is a complete, 100% free and open-
 <tr>
 <td width="33%" align="center" valign="top">
 
-**Mail**
-
-<a href="https://agent-native.com/templates/mail"><img src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F6f49a81c404d4242b33317491eac7575?format=webp&width=800" alt="Mail template" width="100%" /></a>
-
-**Agent-Native Mail, Superhuman**
-
-Superhuman-style email client with keyboard shortcuts, AI triage, and a fully customizable inbox you own.
-
-</td>
-<td width="33%" align="center" valign="top">
-
 **Calendar**
 
 <a href="https://agent-native.com/templates/calendar"><img src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Ffb6c3b483ca24ab3b6c3a758aeceef4c?format=webp&width=800" alt="Calendar template" width="100%" /></a>
@@ -82,6 +75,17 @@ Superhuman-style email client with keyboard shortcuts, AI triage, and a fully cu
 **Agent-Native Google Calendar, Calendly**
 
 Manage events, sync with Google Calendar, and share a public booking page with AI scheduling.
+
+</td>
+<td width="33%" align="center" valign="top">
+
+**Content**
+
+<a href="https://agent-native.com/templates/content"><img src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F89bcfc6106304bfbaf8ec8a7ccd721eb?format=webp&width=800" alt="Content template" width="100%" /></a>
+
+**Open-source Obsidian for MDX**
+
+Edit local Markdown/MDX files, generate rich interactive custom blocks, and draft, rewrite, or publish with an agent.
 
 </td>
 <td width="33%" align="center" valign="top">
@@ -99,17 +103,6 @@ Install `/visual-plan` and `/visual-recap` so your coding agent can plan before 
 <tr>
 <td width="33%" align="center" valign="top">
 
-**Content**
-
-<a href="https://agent-native.com/templates/content"><img src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F89bcfc6106304bfbaf8ec8a7ccd721eb?format=webp&width=800" alt="Content template" width="100%" /></a>
-
-**Open-source Obsidian for MDX**
-
-Edit local Markdown/MDX files, generate rich interactive custom blocks, and draft, rewrite, or publish with an agent.
-
-</td>
-<td width="33%" align="center" valign="top">
-
 **Slides**
 
 <a href="https://agent-native.com/templates/slides"><img src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F2c09b451d40c4a74a89a38d69170c2d8?format=webp&width=800" alt="Slides template" width="100%" /></a>
@@ -119,19 +112,6 @@ Edit local Markdown/MDX files, generate rich interactive custom blocks, and draf
 Generate and edit React-based presentations via prompt or point-and-click.
 
 </td>
-<td width="33%" align="center" valign="top">
-
-**Video**
-
-<a href="https://agent-native.com/templates/video"><img src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F6b8bfcc18a1d4c47a491da3b2d4148a4?format=webp&width=800" alt="Video template" width="100%" /></a>
-
-**Agent-Native video editing**
-
-Create and edit Remotion video compositions with agent assistance.
-
-</td>
-</tr>
-<tr>
 <td width="33%" align="center" valign="top">
 
 **Analytics**
@@ -154,69 +134,12 @@ Connect analytics data sources, prompt for real charts, and build reusable dashb
 Record your screen with auto-transcripts, shareable links, and an agent that summarizes, captions, and edits clips on demand.
 
 </td>
-<td width="33%" align="center" valign="top">
-
-**Design**
-
-<a href="https://agent-native.com/templates/design"><img src="https://cdn.builder.io/api/v1/image/assets%2F348da13fcd8b414c87de9066196f7266%2F961bedb713a94463b834c1f2f4643bcf?format=webp&width=800" alt="Design template" width="100%" /></a>
-
-**Agent-Native Figma, Canva**
-
-Create and edit visual designs by prompt or by hand, with the agent as your co-designer.
-
-</td>
-</tr>
-<tr>
-<td width="33%" align="center" valign="top">
-
-**Dispatch**
-
-<a href="https://agent-native.com/templates/dispatch"><img src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F104b3ad8d1dc461aa33ab9bff37a4482?format=webp&width=800" alt="Dispatch template" width="100%" /></a>
-
-**Mission control for agent-native apps**
-
-Message, manage, and delegate to agents from Slack, Telegram, or the web. Dispatch is also the control plane for vault secrets, reusable provider connections, app grants, routing, memory, and approvals.
-
-</td>
-<td width="33%" align="center" valign="top">
-
-**Forms**
-
-<a href="https://agent-native.com/templates/forms"><img src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F190c3fabd51f4c1bba5aa4e091ad4e9b?format=webp&width=800" alt="Forms template" width="100%" /></a>
-
-**Agent-Native Typeform**
-
-Generate forms from a prompt, branch logic with the agent, and own every response in your own database.
-
-</td>
-<td width="33%" align="center" valign="top">
-
-**Brain**
-
-<a href="https://agent-native.com/templates/brain"><img src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F9c9fe3b5b9494e33803cd3f494cba356?format=webp&width=800" alt="Brain template" width="100%" /></a>
-
-**Agent-Native company memory**
-
-Ask questions over cited company knowledge from approved Slack, meetings, transcripts, GitHub, and decisions.
-
-</td>
-</tr>
-<tr>
-<td width="33%" align="center" valign="top">
-
-**Assets**
-
-<a href="https://agent-native.com/templates/assets"><img src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F769092170a14474f998cbca47384f891?format=webp&width=800" alt="Assets template" width="100%" /></a>
-
-**Agent-Native asset library**
-
-Upload, organize, search, and generate on-brand image and video assets that other apps can reuse.
-
-</td>
 </tr>
 </table>
 
 Every template is a complete cloneable SaaS — fork it, customize it with the agent, own it. Try them with example data before connecting your own sources.
+
+View the full template gallery at **[agent-native.com/templates](https://agent-native.com/templates)**.
 
 ## Quick Start
 

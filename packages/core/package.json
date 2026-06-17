@@ -275,6 +275,7 @@
     "ws": ">=8"
   },
   "optionalDependencies": {
+    "@opentelemetry/api": "^1.9.1",
     "playwright": "^1.60.0"
   },
   "peerDependenciesMeta": {

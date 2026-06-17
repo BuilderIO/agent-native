@@ -136,6 +136,19 @@ const frameworkPrimitives = [
   },
 ];
 
+const homepageTemplateSlugs = [
+  "calendar",
+  "content",
+  "plan",
+  "slides",
+  "analytics",
+  "clips",
+];
+
+const homepageTemplates = homepageTemplateSlugs.flatMap((slug) =>
+  featuredTemplates.filter((template) => template.slug === slug),
+);
+
 function BidirectionalTabs() {
   const [activeTab, setActiveTab] = useState(0);
   const videoRefs = useRef<(HTMLVideoElement | null)[]>([]);
@@ -363,7 +376,83 @@ export default function Home() {
           </div>
         </section>
 
-        {/* Try it with a skill - above templates */}
+        {/* Framework */}
+        <section className="border-t border-[var(--docs-border)] px-6 py-20">
+          <div className="mx-auto max-w-[1200px]">
+            <div className="grid gap-10 lg:grid-cols-[0.92fr_1.08fr] lg:items-center">
+              <div>
+                <p className="mb-3 text-sm font-semibold text-[var(--docs-accent)]">
+                  Open source framework
+                </p>
+                <h2 className="mb-4 text-3xl font-bold tracking-tight md:text-4xl">
+                  The framework for agent-native apps
+                </h2>
+                <p className="mb-5 max-w-xl text-base leading-relaxed text-[var(--fg-secondary)]">
+                  Agent-Native is an open-source framework for building robust
+                  agents that can act inside real apps, not just chat next to
+                  them.
+                </p>
+                <p className="mb-5 max-w-xl text-base leading-relaxed text-[var(--fg-secondary)]">
+                  It gives you primitives for product-grade agentic software:
+                  shared actions, SQL-backed state, identity, tools, skills,
+                  jobs, observability, and UI surfaces that all work together.
+                </p>
+                <p className="mb-6 max-w-xl text-base leading-relaxed text-[var(--fg-secondary)]">
+                  Backend agnostic: bring your own database, hosting provider,
+                  model stack, and app code.
+                </p>
+                <Link
+                  data-an-prefetch="render"
+                  to="/docs/what-is-agent-native"
+                  className="inline-flex items-center gap-2 rounded-full border border-[var(--docs-border)] px-5 py-2.5 text-sm font-medium text-[var(--fg)] no-underline transition hover:border-[var(--fg-secondary)] hover:no-underline"
+                  onClick={() =>
+                    trackEvent("click cta", {
+                      label: "framework_guide",
+                      location: "framework_section",
+                    })
+                  }
+                >
+                  Read the framework guide
+                  <svg
+                    width="16"
+                    height="16"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <line x1="5" y1="12" x2="19" y2="12" />
+                    <polyline points="12 5 19 12 12 19" />
+                  </svg>
+                </Link>
+              </div>
+
+              <div className="min-w-0">
+                <CodeBlock code={frameworkCode} lang="typescript" />
+              </div>
+            </div>
+
+            <div className="mt-10 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              {frameworkPrimitives.map((primitive) => (
+                <div
+                  key={primitive.title}
+                  className="rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)] p-5"
+                >
+                  <h3 className="mb-2 text-base font-semibold">
+                    {primitive.title}
+                  </h3>
+                  <p className="m-0 text-sm leading-relaxed text-[var(--fg-secondary)]">
+                    {primitive.description}
+                  </p>
+                </div>
+              ))}
+            </div>
+          </div>
+        </section>
+
+        {/* Try it with a skill */}
         <section className="border-t border-[var(--docs-border)] px-6 py-16">
           <div className="mx-auto grid max-w-[1100px] gap-8 lg:grid-cols-[minmax(0,1fr)_minmax(320px,0.82fr)] lg:items-center">
             <div>
@@ -432,77 +521,6 @@ export default function Home() {
           </div>
         </section>
 
-        {/* Framework */}
-        <section className="border-t border-[var(--docs-border)] px-6 py-20">
-          <div className="mx-auto max-w-[1200px]">
-            <div className="grid gap-10 lg:grid-cols-[0.92fr_1.08fr] lg:items-center">
-              <div>
-                <p className="mb-3 text-sm font-semibold text-[var(--docs-accent)]">
-                  Open source framework
-                </p>
-                <h2 className="mb-4 text-3xl font-bold tracking-tight md:text-4xl">
-                  The framework for agent-native apps
-                </h2>
-                <p className="mb-5 max-w-xl text-base leading-relaxed text-[var(--fg-secondary)]">
-                  Templates and skills are the first products built on it.
-                  Agent-Native gives you the primitives for apps where the UI
-                  and agent share actions, state, identity, and context.
-                </p>
-                <p className="mb-6 max-w-xl text-base leading-relaxed text-[var(--fg-secondary)]">
-                  It is backend agnostic: bring your own database, your own
-                  hosting provider, and your own agent stack.
-                </p>
-                <Link
-                  data-an-prefetch="render"
-                  to="/docs/what-is-agent-native"
-                  className="inline-flex items-center gap-2 rounded-full border border-[var(--docs-border)] px-5 py-2.5 text-sm font-medium text-[var(--fg)] no-underline transition hover:border-[var(--fg-secondary)] hover:no-underline"
-                  onClick={() =>
-                    trackEvent("click cta", {
-                      label: "framework_guide",
-                      location: "framework_section",
-                    })
-                  }
-                >
-                  Read the framework guide
-                  <svg
-                    width="16"
-                    height="16"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  >
-                    <line x1="5" y1="12" x2="19" y2="12" />
-                    <polyline points="12 5 19 12 12 19" />
-                  </svg>
-                </Link>
-              </div>
-
-              <div className="min-w-0">
-                <CodeBlock code={frameworkCode} lang="typescript" />
-              </div>
-            </div>
-
-            <div className="mt-10 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-              {frameworkPrimitives.map((primitive) => (
-                <div
-                  key={primitive.title}
-                  className="rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)] p-5"
-                >
-                  <h3 className="mb-2 text-base font-semibold">
-                    {primitive.title}
-                  </h3>
-                  <p className="m-0 text-sm leading-relaxed text-[var(--fg-secondary)]">
-                    {primitive.description}
-                  </p>
-                </div>
-              ))}
-            </div>
-          </div>
-        </section>
-
         {/* Templates - breaks out of max-width on ultra-wide screens */}
         <section
           id="templates"
@@ -523,7 +541,7 @@ export default function Home() {
           </div>
 
           <div className="mx-auto grid max-w-[1200px] grid-cols-1 gap-5 md:grid-cols-2 lg:grid-cols-3">
-            {featuredTemplates.map((t) => (
+            {homepageTemplates.map((t) => (
               <TemplateCard key={t.name} template={t} />
             ))}
           </div>

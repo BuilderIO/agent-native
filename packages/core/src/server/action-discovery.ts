@@ -208,6 +208,12 @@ function preserveActionFlags(entry: Record<string, any>): Partial<ActionEntry> {
   ) {
     out.mcpApp = entry.mcpApp;
   }
+  if (
+    typeof entry.needsApproval === "boolean" ||
+    typeof entry.needsApproval === "function"
+  ) {
+    out.needsApproval = entry.needsApproval;
+  }
   return out;
 }
 

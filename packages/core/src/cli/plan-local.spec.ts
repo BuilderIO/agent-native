@@ -41,7 +41,49 @@ function writeSamplePlan(dir: string) {
       "",
       "This plan stays local.",
       "",
-      '<WireframeBlock id="wf" title="Checkout" data={{ surface: "browser", html: "<div>Pay</div>" }} />',
+      '<WireframeBlock id="wf" title="Checkout">',
+      '  <Screen surface="browser" html={`<div>Pay</div>`} />',
+      "</WireframeBlock>",
+      "",
+    ].join("\n"),
+    "utf-8",
+  );
+}
+
+function writeInvalidSelfClosingWireframe(dir: string) {
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(
+    path.join(dir, "plan.mdx"),
+    [
+      "---",
+      'title: "Invalid Wireframe"',
+      'kind: "plan"',
+      "---",
+      "",
+      "# Invalid Wireframe",
+      "",
+      '<WireframeBlock id="wf" screens={[{ name: "Checkout", elements: [] }]} />',
+      "",
+    ].join("\n"),
+    "utf-8",
+  );
+}
+
+function writeEmptyWireframe(dir: string) {
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(
+    path.join(dir, "plan.mdx"),
+    [
+      "---",
+      'title: "Empty Wireframe"',
+      'kind: "recap"',
+      "---",
+      "",
+      "# Empty Wireframe",
+      "",
+      '<WireframeBlock id="wf" title="Checkout">',
+      '  <Screen surface="browser" />',
+      "</WireframeBlock>",
       "",
     ].join("\n"),
     "utf-8",
@@ -123,23 +165,26 @@ describe("local plan CLI helpers", () => {
     expect(result.openCommand).toBe("test-open");
   });
 
-  it("can open the generated preview when requested", () => {
-    const dir = path.join(tmpDir(), "checkout");
-    writeSamplePlan(dir);
-    let openedUrl = "";
+  it("rejects self-closing local wireframes before opening a preview", async () => {
+    const dir = path.join(tmpDir(), "bad-wireframe");
+    writeInvalidSelfClosingWireframe(dir);
 
-    const result = writeLocalPlanPreview({
-      dir,
-      open: true,
-      openUrl: (url) => {
-        openedUrl = url;
-        return { ok: true, command: "test-open" };
-      },
-    });
+    expect(() => writeLocalPlanPreview({ dir })).toThrow(
+      /WireframeBlock must wrap a <Screen> child/,
+    );
+    await expect(startLocalPlanBridge({ dir })).rejects.toThrow(
+      /WireframeBlock must wrap a <Screen> child/,
+    );
+  });
 
-    expect(openedUrl).toBe(result.url);
-    expect(result.opened).toBe(true);
-    expect(result.openCommand).toBe("test-open");
+  it("rejects empty local wireframes before opening a preview", async () => {
+    const dir = path.join(tmpDir(), "empty-wireframe");
+    writeEmptyWireframe(dir);
+
+    expect(() => writeLocalPlanPreview({ dir })).toThrow(/empty <Screen>/);
+    await expect(startLocalPlanBridge({ dir })).rejects.toThrow(
+      /empty <Screen>/,
+    );
   });
 
   it("serves a tokened localhost bridge for the hosted local plan UI", async () => {

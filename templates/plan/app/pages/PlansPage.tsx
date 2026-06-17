@@ -3682,6 +3682,11 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
     toast.success(isRecap ? "Recap link copied" : "Plan link copied");
   };
 
+  const copyLocalPlanFolder = async () => {
+    await navigator.clipboard.writeText(localPlanDisplayFolder);
+    toast.success("Local path copied");
+  };
+
   const openPrototypeWindow = () => {
     if (typeof window === "undefined") return;
     const url = new URL(window.location.href);
@@ -5122,6 +5127,29 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
                     </Button>
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end" className="w-56 rounded-xl">
+                    {localPlanMode && (
+                      <>
+                        <DropdownMenuLabel className="text-xs font-medium text-muted-foreground">
+                          Local files
+                        </DropdownMenuLabel>
+                        <div className="px-2 pb-1 text-xs leading-5 text-muted-foreground">
+                          <div className="break-words text-foreground">
+                            {localPlanDisplayFolder}
+                          </div>
+                          <div>No hosted database writes or sharing.</div>
+                        </div>
+                        <DropdownMenuItem
+                          onClick={() =>
+                            runPlanExportAction(copyLocalPlanFolder)
+                          }
+                          className="gap-2"
+                        >
+                          <IconFolder className="size-4" />
+                          Copy local path
+                        </DropdownMenuItem>
+                        <DropdownMenuSeparator />
+                      </>
+                    )}
                     <DropdownMenuGroup>
                       {!localPlanMode && (
                         <>
@@ -5423,15 +5451,6 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
                     onPointerDown={handleNativeReaderPointerDown}
                     onPointerUp={handleNativeReaderPointerUp}
                   >
-                    {localPlanMode ? (
-                      <div className="mx-auto flex w-full max-w-6xl flex-wrap items-center gap-2 px-6 pt-6 text-sm text-muted-foreground">
-                        <Badge variant="secondary">Local-files mode</Badge>
-                        <span>
-                          Reading {localPlanDisplayFolder} through localhost. No
-                          hosted database writes or sharing.
-                        </span>
-                      </div>
-                    ) : null}
                     <PlanContentRenderer
                       key={bundle.plan.id}
                       content={bundle.plan.content}

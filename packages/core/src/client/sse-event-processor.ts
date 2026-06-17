@@ -19,6 +19,13 @@ export type ContentPart =
       mcpApp?: AgentMcpAppPayload;
       activity?: boolean;
       /**
+       * Set when the server emitted an `approval_required` event for this tool
+       * call (opt-in `needsApproval` actions). The action did NOT run; the UI
+       * renders an Approve/Deny affordance. `approvalKey` is echoed back in
+       * `approvedToolCalls` to approve, `dismissed` records a local Deny.
+       */
+      approval?: { approvalKey: string; dismissed?: boolean };
+      /**
        * Structured metadata from the coding-tools executor side-channel.
        * Present only on code-agent tool calls from executors new enough to
        * emit it.  The `toolKind` discriminant identifies the shape.
@@ -36,6 +43,9 @@ export interface SSEEvent {
   input?: Record<string, string>;
   result?: string;
   mcpApp?: AgentMcpAppPayload;
+  /** Stable key the client echoes back in `approvedToolCalls` to approve a
+   *  paused `needsApproval` tool call. Present on `approval_required` events. */
+  approvalKey?: string;
   error?: string;
   seq?: number;
   agent?: string;
@@ -426,6 +436,28 @@ export function processEvent(
         argsText: JSON.stringify(args),
         args,
       });
+    }
+    return {
+      action: "yield",
+      result: { content: [...content] } as ChatModelRunResult,
+    };
+  }
+
+  if (ev.type === "approval_required") {
+    // Opt-in `needsApproval` gate: the server emitted `tool_start` immediately
+    // before this, so the matching tool-call part already exists. Mark it as
+    // awaiting approval so the UI can render the Approve/Deny affordance. The
+    // action did NOT execute; a paused `tool_done` follows.
+    const approvalTool = ev.tool ?? "unknown";
+    const approvalKey = ev.approvalKey;
+    if (approvalKey) {
+      const idx = findPendingToolCallIndex(content, approvalTool, ev.id);
+      if (idx >= 0) {
+        const part = content[idx];
+        if (part.type === "tool-call") {
+          part.approval = { approvalKey };
+        }
+      }
     }
     return {
       action: "yield",
