@@ -9,7 +9,6 @@ import {
 } from "h3";
 import { eq } from "drizzle-orm";
 import { getUserSetting } from "@agent-native/core/settings";
-import { assets as serverAssets } from "#nitro/virtual/server-assets";
 import { getDb, schema } from "../../../../../db/index.js";
 import { getBookingUsername } from "../../../../../handlers/booking-usernames.js";
 import { loadBundledOgFontFiles } from "../../../../../lib/booking-og-fonts.js";
@@ -143,7 +142,7 @@ export default defineEventHandler(async (event: H3Event) => {
     bookingPageTitle: ownerSettings?.bookingPageTitle,
     profileImageDataUrl,
   };
-  const fontFiles = await loadBundledOgFontFiles(serverAssets);
+  const fontFiles = await loadBundledOgFontFiles();
   let png: Uint8Array;
   try {
     png = await renderBookingOgImagePng(
