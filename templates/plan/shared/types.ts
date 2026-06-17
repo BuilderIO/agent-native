@@ -101,6 +101,8 @@ export interface PlanSummary {
   createdAt: string;
   updatedAt: string;
   approvedAt?: string | null;
+  deletedAt?: string | null;
+  deletedBy?: string | null;
   sectionCounts: Record<string, number>;
   commentCount: number;
   openCommentCount: number;
@@ -124,6 +126,8 @@ export interface Plan {
   createdAt: string;
   updatedAt: string;
   approvedAt?: string | null;
+  deletedAt?: string | null;
+  deletedBy?: string | null;
 }
 
 export interface PlanSection {

@@ -449,16 +449,18 @@ export default function Home() {
                     key={primitive.title}
                     className="rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)] p-5"
                   >
-                    <div className="mb-4 flex size-9 items-center justify-center rounded-lg border border-[var(--docs-border)] bg-[var(--bg)] text-[var(--docs-accent)]">
-                      <PrimitiveIcon
-                        className="size-4"
-                        stroke={1.8}
-                        aria-hidden="true"
-                      />
+                    <div className="mb-2 flex items-center gap-3">
+                      <span className="flex size-7 shrink-0 items-center justify-center rounded-md border border-[var(--docs-border)] bg-[var(--bg)] text-[var(--docs-accent)]">
+                        <PrimitiveIcon
+                          className="size-3.5"
+                          stroke={1.8}
+                          aria-hidden="true"
+                        />
+                      </span>
+                      <h3 className="m-0 text-base font-semibold">
+                        {primitive.title}
+                      </h3>
                     </div>
-                    <h3 className="mb-2 text-base font-semibold">
-                      {primitive.title}
-                    </h3>
                     <p className="m-0 text-sm leading-relaxed text-[var(--fg-secondary)]">
                       {primitive.description}
                     </p>

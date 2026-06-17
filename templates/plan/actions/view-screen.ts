@@ -10,7 +10,7 @@
 import { defineAction } from "@agent-native/core";
 import { readAppState } from "@agent-native/core/application-state";
 import { accessFilter, currentAccess } from "@agent-native/core/sharing";
-import { desc } from "drizzle-orm";
+import { and, desc, isNull } from "drizzle-orm";
 import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import { resolvePlanAccessContext } from "../server/lib/local-identity.js";
@@ -91,13 +91,18 @@ export default defineAction({
             createdAt: schema.plans.createdAt,
             updatedAt: schema.plans.updatedAt,
             approvedAt: schema.plans.approvedAt,
+            deletedAt: schema.plans.deletedAt,
+            deletedBy: schema.plans.deletedBy,
           })
           .from(schema.plans)
           .where(
-            accessFilter(
-              schema.plans,
-              schema.planShares,
-              resolvePlanAccessContext(currentAccess()),
+            and(
+              accessFilter(
+                schema.plans,
+                schema.planShares,
+                resolvePlanAccessContext(currentAccess()),
+              ),
+              isNull(schema.plans.deletedAt),
             ),
           )
           .orderBy(desc(schema.plans.updatedAt))

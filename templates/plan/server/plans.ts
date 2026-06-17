@@ -692,12 +692,16 @@ export function emitPlanStatusChanged(input: {
 }
 
 export async function assertPlanEditor(planId: string) {
-  return assertAccess(
+  const access = await assertAccess(
     "plan",
     planId,
     "editor",
     resolvePlanAccessContext(currentAccess()),
   );
+  if ((access.resource as typeof schema.plans.$inferSelect).deletedAt) {
+    throw new ForbiddenError(`Plan ${planId} not found`);
+  }
+  return access;
 }
 
 export async function loadPlanBundle(planId: string): Promise<PlanBundle> {
@@ -714,6 +718,9 @@ export async function loadPlanBundle(planId: string): Promise<PlanBundle> {
     throw new ForbiddenError(`Plan ${planId} not found`);
   }
   const plan = access.resource as typeof schema.plans.$inferSelect;
+  if (plan.deletedAt) {
+    throw new ForbiddenError(`Plan ${planId} not found`);
+  }
   const db = getDb();
   const [sectionRows, commentRows, eventRows] = await Promise.all([
     db
@@ -763,6 +770,8 @@ export async function loadPlanBundle(planId: string): Promise<PlanBundle> {
       createdAt: plan.createdAt,
       updatedAt: plan.updatedAt,
       approvedAt: plan.approvedAt,
+      deletedAt: plan.deletedAt,
+      deletedBy: plan.deletedBy,
     },
     access: {
       role: access.role,
@@ -811,6 +820,8 @@ export async function summarizePlans(
       | "createdAt"
       | "updatedAt"
       | "approvedAt"
+      | "deletedAt"
+      | "deletedBy"
     >
   >,
 ): Promise<PlanSummary[]> {
@@ -865,6 +876,8 @@ export async function summarizePlans(
       createdAt: plan.createdAt,
       updatedAt: plan.updatedAt,
       approvedAt: plan.approvedAt,
+      deletedAt: plan.deletedAt,
+      deletedBy: plan.deletedBy,
       ...summarizePlan(sections, comments),
     };
   });
