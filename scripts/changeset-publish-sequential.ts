@@ -314,11 +314,10 @@ function tagName(pkg: PublishPackage): string {
   return `${pkg.name}@${pkg.version}`;
 }
 
-export function localDependencyNames(pkg: PublishPackage): string[] {
+export function localRuntimeDependencyNames(pkg: PublishPackage): string[] {
   return Object.keys({
     ...pkg.packageJson.dependencies,
-    ...pkg.packageJson.peerDependencies,
-    ...pkg.packageJson.devDependencies,
+    ...pkg.packageJson.optionalDependencies,
   });
 }
 
@@ -448,23 +447,6 @@ async function main() {
   const failedPackageNames = new Set<string>();
 
   for (const pkg of packages) {
-    const failedLocalDeps = localDependencyNames(pkg).filter((dependencyName) =>
-      failedPackageNames.has(dependencyName),
-    );
-    if (failedLocalDeps.length > 0) {
-      const error = new Error(
-        `${tagName(pkg)} depends on failed local package(s): ${failedLocalDeps.join(
-          ", ",
-        )}`,
-      );
-      failures.push({ pkg, error });
-      failedPackageNames.add(pkg.name);
-      console.error(
-        `::error::Skipping ${tagName(pkg)} because ${error.message}`,
-      );
-      continue;
-    }
-
     if (await isPublished(pkg)) {
       if (await hasRemoteTag(pkg)) {
         console.log(
@@ -478,6 +460,24 @@ async function main() {
       }
       continue;
     }
+
+    const failedLocalRuntimeDeps = localRuntimeDependencyNames(pkg).filter(
+      (dependencyName) => failedPackageNames.has(dependencyName),
+    );
+    if (failedLocalRuntimeDeps.length > 0) {
+      const error = new Error(
+        `${tagName(pkg)} depends on failed local runtime package(s): ${failedLocalRuntimeDeps.join(
+          ", ",
+        )}`,
+      );
+      failures.push({ pkg, error });
+      failedPackageNames.add(pkg.name);
+      console.error(
+        `::error::Skipping ${tagName(pkg)} because ${error.message}`,
+      );
+      continue;
+    }
+
     console.log(
       `${pkg.name} is being published because local version ${pkg.version} has not been published on npm`,
     );
