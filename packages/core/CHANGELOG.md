@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.51.10
+
+### Patch Changes
+
+- 14ea897: Harden local Plan block authoring guidance and align the standalone skills CLI with hosted, local-files, and self-hosted Plan modes.
+
 ## 0.51.9
 
 ### Patch Changes
