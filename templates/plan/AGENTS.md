@@ -181,6 +181,13 @@ elementId, styles }]`. Elements must have `data-design-id` or
   remains for audit/debugging. Deleting a thread root also deletes its replies.
   When feedback has merely been handled, prefer `resolve-plan-comment` and
   `consume-plan-feedback` so review history remains visible.
+- Use `delete-visual-plan` only when the owner explicitly asks to delete or
+  restore their hosted plan/recap data. `mode=soft` moves the resource to the
+  Deleted tab and makes normal reads/direct links stop working; `mode=restore`
+  undeletes it; `mode=hard` permanently removes the plan row plus plan-scoped
+  comments, sections, events, versions, shares, reports, SQL asset records, and
+  collab snapshots. Hard delete requires the exact confirmation phrase
+  `DELETE <planId>`.
 - `get-plan-feedback` returns flat comments, grouped threads, anchor summaries,
   detailed anchor lines, and recent review events that describe the edit/comment
   delta. Use those fields before changing code or updating the plan, especially

@@ -260,6 +260,27 @@ This path does not require cloning the Plan app or running a CLI. It is for
 file-first review/editing around a hosted plan, not for keeping plan content out
 of the hosted database.
 
+## Deleting hosted plan data {#delete-data}
+
+Signed-in owners can delete their hosted plans and recaps from the Plans list or
+the plan action menu.
+
+- **Soft delete** moves the plan to the **Deleted** tab, makes normal plan
+  views/direct links stop working, and removes public access by making the row
+  private. The SQL rows are retained so the owner can restore the plan later.
+- **Restore** is available from the **Deleted** tab for soft-deleted plans.
+- **Permanent delete** removes the hosted plan row and plan-scoped comments,
+  sections, activity events, version snapshots, share grants, abuse reports, and
+  SQL asset records. The UI requires typing `DELETE <plan-id>` before the final
+  button enables.
+
+Permanent delete removes the Plan app's database records and SQL-backed asset
+bytes/references. If a deployment uses an external upload provider, provider
+object retention follows that provider's lifecycle because the shared upload
+abstraction does not currently expose object deletion. Local-files privacy mode
+keeps the source in your local MDX folder instead; deleting hosted data does not
+touch local files.
+
 ## Useful prompts
 
 - "Use `/visual-plan` before changing the auth flow."
@@ -305,7 +326,7 @@ Schema lives in `templates/plan/server/db/schema.ts`. Core tables:
 
 | Table              | What it holds                                                                                                                                                |
 | ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `plans`            | Each plan or recap — `title`, `brief`, `kind` (plan/recap), `status`, `source`, `html`/`markdown`/`content`, `hosted_plan_id/url`, usage stats, `source_url` |
+| `plans`            | Each plan or recap — `title`, `brief`, `kind` (plan/recap), `status`, `source`, `html`/`markdown`/`content`, `hosted_plan_id/url`, usage stats, `source_url`, `deleted_at`/`deleted_by` |
 | `plan_sections`    | Ordered sections within a plan — `type`, `title`, `body`, `html`, `sort_order`, `created_by`                                                                 |
 | `plan_comments`    | Threaded comments — `kind`, `status`, `anchor`, `message`, `resolution_target`, `mentions_json`, `resolved_by`                                               |
 | `plan_events`      | Audit log of agent/human events on a plan                                                                                                                    |
@@ -320,6 +341,7 @@ Actions in `templates/plan/actions/`:
 
 - **Creation** — `create-visual-plan`, `create-visual-recap`, `create-ui-plan`, `create-prototype-plan`, `create-plan-design`, `create-visual-questions`
 - **Reading & editing** — `get-visual-plan`, `update-visual-plan`, `list-visual-plans`, `import-visual-plan-source`, `patch-visual-plan-source`, `read-visual-plan-source`, `export-visual-plan`
+- **Lifecycle** — `delete-visual-plan` for owner-only soft delete, restore, and typed-confirmation permanent delete
 - **Publishing & sharing** — `publish-visual-plan`
 - **Versions** — `list-plan-versions`, `get-plan-version`, `restore-plan-version`
 - **Comments & feedback** — `get-plan-feedback`, `reply-to-plan-comment`, `resolve-plan-comment`, `consume-plan-feedback`, `delete-plan-comment`

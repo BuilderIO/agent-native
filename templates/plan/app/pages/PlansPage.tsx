@@ -159,6 +159,9 @@ import type {
 } from "@/components/plan/CanvasArea";
 import {
   planBundleQueryKey,
+  ALL_PLANS_QUERY_ARGS,
+  ALL_PLANS_QUERY_KEY,
+  ACTIVE_PLANS_QUERY_KEY,
   usePlan,
   usePlanAccessStatus,
   usePlans,
@@ -170,10 +173,12 @@ import {
   useUpdatePlan,
   useUpdatePlanComments,
   useUpdatePlanStatus,
+  useDeletePlan,
   useDeletePlanComment,
   useExportPlan,
   useImportPlanSource,
   useRequestPlanAccess,
+  type DeletePlanInput,
   type PlanCommentInput,
   type PlanAccessStatusResponse,
   type PublishVisualPlanResult,
@@ -694,6 +699,16 @@ export type CommentVisibility = "hidden" | "open" | "all";
 type DeleteCommentRequest = {
   commentId: string;
   replyCount: number;
+};
+
+type DeletePlanTarget = Pick<
+  PlanSummary,
+  "id" | "title" | "kind" | "deletedAt" | "canDelete"
+>;
+
+type DeletePlanRequest = {
+  plan: DeletePlanTarget;
+  mode: "soft" | "hard";
 };
 
 function withPlanComments(
@@ -2548,16 +2563,20 @@ function PlanStatusControl({
       if (newStatus === status) return;
       // Optimistic: patch both the bundle cache and the list cache.
       const bundleKey = planBundleQueryKey(planId);
-      const listKey = ["action", "list-visual-plans", {}] as const;
       const prevBundle = qc.getQueryData<PlanBundleWithHtml>(bundleKey);
-      const prevList = qc.getQueryData<PlanSummary[]>(listKey);
+      const prevActiveList = qc.getQueryData<PlanSummary[]>(
+        ACTIVE_PLANS_QUERY_KEY,
+      );
+      const prevAllList = qc.getQueryData<PlanSummary[]>(ALL_PLANS_QUERY_KEY);
 
       qc.setQueryData(bundleKey, (prev: PlanBundleWithHtml | undefined) =>
         prev ? { ...prev, plan: { ...prev.plan, status: newStatus } } : prev,
       );
-      qc.setQueryData(listKey, (prev: PlanSummary[] | undefined) =>
-        prev?.map((p) => (p.id === planId ? { ...p, status: newStatus } : p)),
-      );
+      for (const listKey of [ACTIVE_PLANS_QUERY_KEY, ALL_PLANS_QUERY_KEY]) {
+        qc.setQueryData(listKey, (prev: PlanSummary[] | undefined) =>
+          prev?.map((p) => (p.id === planId ? { ...p, status: newStatus } : p)),
+        );
+      }
 
       updateStatus.mutate(
         { planId, status: newStatus },
@@ -2566,7 +2585,10 @@ function PlanStatusControl({
             // Roll back optimistic updates.
             if (prevBundle !== undefined)
               qc.setQueryData(bundleKey, prevBundle);
-            if (prevList !== undefined) qc.setQueryData(listKey, prevList);
+            if (prevActiveList !== undefined)
+              qc.setQueryData(ACTIVE_PLANS_QUERY_KEY, prevActiveList);
+            if (prevAllList !== undefined)
+              qc.setQueryData(ALL_PLANS_QUERY_KEY, prevAllList);
             toast.error("Failed to update plan status.");
           },
         },
@@ -2672,6 +2694,8 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
   } | null>(null);
   const [deleteCommentRequest, setDeleteCommentRequest] =
     useState<DeleteCommentRequest | null>(null);
+  const [deletePlanRequest, setDeletePlanRequest] =
+    useState<DeletePlanRequest | null>(null);
   const [nativeMarkerVersion, setNativeMarkerVersion] = useState(0);
   const [commentVisibility, setCommentVisibility] =
     useState<CommentVisibility>("open");
@@ -2728,7 +2752,7 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
     ? (localPlanData?.plan.id ??
       (localPlanSlug ? `local-${localPlanSlug}` : undefined))
     : routeSelectedId;
-  const plansQuery = usePlans({
+  const plansQuery = usePlans(ALL_PLANS_QUERY_ARGS, {
     enabled: Boolean(session && !selectedId && !localPlanMode),
   });
   const plans = plansQuery.data ?? [];
@@ -2950,6 +2974,25 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
     canEditPlanContentRole(effectivePlanAccessRole);
   const canManagePlan =
     !localPlanMode && canEditPlanContentRole(effectivePlanAccessRole);
+  const canDeleteCurrentPlan =
+    !localPlanMode && effectivePlanAccessRole === "owner";
+  const currentPlanDeleteTarget = useMemo<DeletePlanTarget | null>(() => {
+    if (!bundle || !canDeleteCurrentPlan) return null;
+    return {
+      id: bundle.plan.id,
+      title: bundle.plan.title,
+      kind: bundle.plan.kind,
+      deletedAt: bundle.plan.deletedAt,
+      canDelete: true,
+    };
+  }, [
+    bundle?.plan.deletedAt,
+    bundle?.plan.id,
+    bundle?.plan.kind,
+    bundle?.plan.title,
+    bundle,
+    canDeleteCurrentPlan,
+  ]);
   const effectivePlanVisibility = bundle?.access?.visibility ?? null;
   const canReportPlan =
     !localPlanMode &&
@@ -3110,6 +3153,7 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
   // disabled states (Issue 3).
   const updateCommentMutation = useUpdatePlanComments();
   const deleteCommentMutation = useDeletePlanComment();
+  const deletePlanMutation = useDeletePlan();
 
   /**
    * Archive or unarchive a plan from the overview. Optimistically updates the
@@ -3118,25 +3162,27 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
    */
   const handleArchivePlan = useCallback(
     (planId: string, archive: boolean) => {
-      const listKey = ["action", "list-visual-plans", {}] as const;
       const newStatus = archive ? "archived" : "draft";
-      const prev = queryClient.getQueryData<typeof plans>(listKey);
-      // Optimistic update
-      queryClient.setQueryData(
-        listKey,
-        (old: typeof plans | undefined) =>
-          old?.map((p) =>
-            p.id === planId ? { ...p, status: newStatus } : p,
-          ) ?? old,
+      const prevActive = queryClient.getQueryData<PlanSummary[]>(
+        ACTIVE_PLANS_QUERY_KEY,
       );
+      const prevAll =
+        queryClient.getQueryData<PlanSummary[]>(ALL_PLANS_QUERY_KEY);
+      // Optimistic update
+      for (const listKey of [ACTIVE_PLANS_QUERY_KEY, ALL_PLANS_QUERY_KEY]) {
+        queryClient.setQueryData(listKey, (old: PlanSummary[] | undefined) =>
+          old?.map((p) => (p.id === planId ? { ...p, status: newStatus } : p)),
+        );
+      }
       updatePlan.mutate(
         { planId, status: newStatus },
         {
           onError: () => {
             // Roll back
-            if (prev !== undefined) {
-              queryClient.setQueryData(listKey, prev);
-            }
+            if (prevActive !== undefined)
+              queryClient.setQueryData(ACTIVE_PLANS_QUERY_KEY, prevActive);
+            if (prevAll !== undefined)
+              queryClient.setQueryData(ALL_PLANS_QUERY_KEY, prevAll);
             toast.error(
               archive ? "Failed to archive plan." : "Failed to unarchive plan.",
             );
@@ -3145,6 +3191,87 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
       );
     },
     [queryClient, updatePlan],
+  );
+
+  const updatePlanListCaches = useCallback(
+    (updater: (plans: PlanSummary[]) => PlanSummary[]) => {
+      for (const listKey of [ACTIVE_PLANS_QUERY_KEY, ALL_PLANS_QUERY_KEY]) {
+        queryClient.setQueryData(listKey, (old: PlanSummary[] | undefined) =>
+          old ? updater(old) : old,
+        );
+      }
+    },
+    [queryClient],
+  );
+
+  const requestDeletePlan = useCallback(
+    (plan: DeletePlanTarget, initialMode: "soft" | "hard" = "soft") => {
+      setDeletePlanRequest({ plan, mode: initialMode });
+    },
+    [],
+  );
+
+  const confirmDeletePlan = useCallback(
+    async (input: DeletePlanInput, targetOverride?: DeletePlanTarget) => {
+      const target = targetOverride ?? deletePlanRequest?.plan;
+      if (!target) return;
+      try {
+        const result = await deletePlanMutation.mutateAsync(input);
+        if (result.mode === "soft") {
+          queryClient.setQueryData(
+            ACTIVE_PLANS_QUERY_KEY,
+            (items: PlanSummary[] | undefined) =>
+              items?.filter((plan) => plan.id !== target.id),
+          );
+          queryClient.setQueryData(
+            ALL_PLANS_QUERY_KEY,
+            (items: PlanSummary[] | undefined) =>
+              items?.map((plan) =>
+                plan.id === target.id
+                  ? { ...plan, deletedAt: result.deletedAt }
+                  : plan,
+              ),
+          );
+          toast.success(
+            `${target.kind === "recap" ? "Recap" : "Plan"} moved to Deleted.`,
+          );
+          if (selectedId === target.id) navigate("/plans");
+        } else if (result.mode === "restore") {
+          updatePlanListCaches((items) =>
+            items.map((plan) =>
+              plan.id === target.id
+                ? { ...plan, deletedAt: null, deletedBy: null }
+                : plan,
+            ),
+          );
+          toast.success(
+            `${target.kind === "recap" ? "Recap" : "Plan"} restored.`,
+          );
+        } else {
+          updatePlanListCaches((items) =>
+            items.filter((plan) => plan.id !== target.id),
+          );
+          queryClient.removeQueries({
+            queryKey: planBundleQueryKey(target.id),
+          });
+          toast.success(
+            `${target.kind === "recap" ? "Recap" : "Plan"} permanently deleted.`,
+          );
+          if (selectedId === target.id) navigate("/plans");
+        }
+        if (!targetOverride) setDeletePlanRequest(null);
+      } catch {
+        // The hook already shows a normalized action error toast.
+      }
+    },
+    [
+      deletePlanMutation,
+      deletePlanRequest?.plan,
+      navigate,
+      queryClient,
+      selectedId,
+      updatePlanListCaches,
+    ],
   );
 
   /**
@@ -4944,6 +5071,13 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
               onCreate={requestCreatePlan}
               canCreate={Boolean(session)}
               onArchive={handleArchivePlan}
+              onDelete={requestDeletePlan}
+              onRestore={(plan) =>
+                void confirmDeletePlan(
+                  { planId: plan.id, mode: "restore" },
+                  plan,
+                )
+              }
               onSignIn={() => openSignIn()}
             />
           ) : showLocalPlanLoadError ? (
@@ -5432,6 +5566,22 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
                           </DropdownMenuItem>
                         )}
                     </DropdownMenuGroup>
+                    {currentPlanDeleteTarget && (
+                      <>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem
+                          onClick={() =>
+                            preservePlanReaderScroll(() =>
+                              requestDeletePlan(currentPlanDeleteTarget),
+                            )
+                          }
+                          className="gap-2 text-destructive focus:text-destructive"
+                        >
+                          <IconTrash className="size-4" />
+                          Delete...
+                        </DropdownMenuItem>
+                      </>
+                    )}
                   </DropdownMenuContent>
                 </DropdownMenu>
                 <Tooltip>
@@ -5730,6 +5880,23 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
           }
         }}
         onConfirm={() => void confirmDeleteCommentThread()}
+      />
+
+      <DeletePlanDialog
+        request={deletePlanRequest}
+        isPending={deletePlanMutation.isPending}
+        onOpenChange={(open) => {
+          if (!open && !deletePlanMutation.isPending) {
+            setDeletePlanRequest(null);
+          }
+        }}
+        onConfirm={(mode, confirmation) =>
+          void confirmDeletePlan({
+            planId: deletePlanRequest?.plan.id ?? "",
+            mode,
+            confirmation,
+          })
+        }
       />
     </div>
   );
@@ -6911,7 +7078,7 @@ function LoggedOutEmptyPlan() {
   );
 }
 
-type OverviewFilter = "all" | "plans" | "recaps" | "archived";
+type OverviewFilter = "all" | "plans" | "recaps" | "archived" | "deleted";
 
 function PlansOverview({
   plans,
@@ -6919,21 +7086,17 @@ function PlansOverview({
   onCreate,
   canCreate,
   onArchive,
+  onDelete,
+  onRestore,
   onSignIn,
 }: {
-  plans: Array<{
-    id: string;
-    title: string;
-    brief: string;
-    kind: PlanKind;
-    status: string;
-    updatedAt: string;
-    openCommentCount: number;
-  }>;
+  plans: PlanSummary[];
   isLoading: boolean;
   onCreate: () => void;
   canCreate: boolean;
   onArchive: (planId: string, archived: boolean) => void;
+  onDelete: (plan: DeletePlanTarget, initialMode?: "soft" | "hard") => void;
+  onRestore: (plan: DeletePlanTarget) => void;
   onSignIn?: () => void;
 }) {
   const [filter, setFilter] = useState<OverviewFilter>("all");
@@ -6946,7 +7109,11 @@ function PlansOverview({
     return <EmptyPlan onCreate={onCreate} canCreate={canCreate} />;
   }
 
+  const activePlans = plans.filter((p) => !p.deletedAt);
+  const deletedPlans = plans.filter((p) => p.deletedAt);
   const visibleBeforeSearch = plans.filter((p) => {
+    if (filter === "deleted") return Boolean(p.deletedAt);
+    if (p.deletedAt) return false;
     if (filter === "archived") return p.status === "archived";
     if (p.status === "archived") return false;
     if (filter === "plans") return p.kind === "plan";
@@ -6964,7 +7131,9 @@ function PlansOverview({
         )
       : visibleBeforeSearch;
 
-  const totalVisible = plans.filter((p) => p.status !== "archived").length;
+  const totalVisible = activePlans.filter(
+    (p) => p.status !== "archived",
+  ).length;
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -6996,6 +7165,14 @@ function PlansOverview({
                 <TabsTrigger value="plans">Plans</TabsTrigger>
                 <TabsTrigger value="recaps">Recaps</TabsTrigger>
                 <TabsTrigger value="archived">Archived</TabsTrigger>
+                <TabsTrigger value="deleted">
+                  Deleted
+                  {deletedPlans.length > 0 && (
+                    <span className="ml-1 text-[11px] text-muted-foreground">
+                      {deletedPlans.length}
+                    </span>
+                  )}
+                </TabsTrigger>
               </TabsList>
             </Tabs>
 
@@ -7017,23 +7194,16 @@ function PlansOverview({
                 ? "No plans match."
                 : filter === "archived"
                   ? "No archived plans."
-                  : "No plans here yet."}
+                  : filter === "deleted"
+                    ? "No deleted plans."
+                    : "No plans here yet."}
             </div>
           ) : (
             <div className="grid gap-3 md:grid-cols-2">
-              {visiblePlans.map((plan) => (
-                <div
-                  key={plan.id}
-                  className="group relative rounded-lg border border-border bg-background transition-colors hover:bg-accent/35"
-                >
-                  <Link
-                    to={
-                      plan.kind === "recap"
-                        ? `/recaps/${plan.id}`
-                        : `/plans/${plan.id}`
-                    }
-                    className="block p-4"
-                  >
+              {visiblePlans.map((plan) => {
+                const isDeleted = Boolean(plan.deletedAt);
+                const cardContent = (
+                  <>
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
                         <div className="flex min-w-0 items-center gap-2">
@@ -7048,6 +7218,14 @@ function PlansOverview({
                               Recap
                             </Badge>
                           )}
+                          {isDeleted && (
+                            <Badge
+                              variant="outline"
+                              className="shrink-0 border-destructive/30 text-[10px] text-destructive"
+                            >
+                              Deleted
+                            </Badge>
+                          )}
                         </div>
                         <p className="mt-1 line-clamp-2 text-xs leading-5 text-muted-foreground">
                           {plan.brief}
@@ -7060,55 +7238,126 @@ function PlansOverview({
                       )}
                     </div>
                     <div className="mt-4 flex items-center gap-2 text-xs text-muted-foreground">
-                      {ENABLE_PLAN_STATUS_FEATURE && (
+                      {isDeleted ? (
+                        <span>Deleted {shortDate(plan.deletedAt ?? "")}</span>
+                      ) : ENABLE_PLAN_STATUS_FEATURE ? (
                         <>
                           <span>{statusLabel(plan.status)}</span>
                           <span>·</span>
                         </>
-                      )}
-                      <span>{shortDate(plan.updatedAt)}</span>
+                      ) : null}
+                      {!isDeleted && <span>{shortDate(plan.updatedAt)}</span>}
                     </div>
-                  </Link>
+                  </>
+                );
+                return (
+                  <div
+                    key={plan.id}
+                    className={cn(
+                      "group relative rounded-lg border bg-background transition-colors",
+                      isDeleted
+                        ? "border-destructive/20"
+                        : "border-border hover:bg-accent/35",
+                    )}
+                  >
+                    {isDeleted ? (
+                      <div className="block p-4">{cardContent}</div>
+                    ) : (
+                      <Link
+                        to={
+                          plan.kind === "recap"
+                            ? `/recaps/${plan.id}`
+                            : `/plans/${plan.id}`
+                        }
+                        className="block p-4"
+                      >
+                        {cardContent}
+                      </Link>
+                    )}
 
-                  {/* Card-level archive dropdown — visible on hover/focus-within */}
-                  <div className="absolute right-2 top-2 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <button
-                          type="button"
-                          className="flex size-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                          aria-label="Plan actions"
-                        >
-                          <IconDots className="size-4" />
-                        </button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end" className="w-40">
-                        {plan.status === "archived" ? (
-                          <DropdownMenuItem
-                            onClick={(e) => {
-                              e.preventDefault();
-                              onArchive(plan.id, false);
-                            }}
+                    {/* Card-level archive dropdown — visible on hover/focus-within */}
+                    <div className="absolute right-2 top-2 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <button
+                            type="button"
+                            className="flex size-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                            aria-label="Plan actions"
                           >
-                            <IconArchiveOff className="size-4" />
-                            Unarchive
-                          </DropdownMenuItem>
-                        ) : (
-                          <DropdownMenuItem
-                            onClick={(e) => {
-                              e.preventDefault();
-                              onArchive(plan.id, true);
-                            }}
-                          >
-                            <IconArchive className="size-4" />
-                            Archive
-                          </DropdownMenuItem>
-                        )}
-                      </DropdownMenuContent>
-                    </DropdownMenu>
+                            <IconDots className="size-4" />
+                          </button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end" className="w-48">
+                          {isDeleted ? (
+                            <>
+                              <DropdownMenuItem
+                                onClick={(e) => {
+                                  e.preventDefault();
+                                  onRestore(plan);
+                                }}
+                                disabled={!plan.canDelete}
+                              >
+                                <IconRestore className="size-4" />
+                                Restore
+                              </DropdownMenuItem>
+                              <DropdownMenuItem
+                                onClick={(e) => {
+                                  e.preventDefault();
+                                  onDelete(plan, "hard");
+                                }}
+                                disabled={!plan.canDelete}
+                                className="text-destructive focus:text-destructive"
+                              >
+                                <IconTrash className="size-4" />
+                                Delete permanently
+                              </DropdownMenuItem>
+                            </>
+                          ) : (
+                            <>
+                              {plan.status === "archived" ? (
+                                <DropdownMenuItem
+                                  onClick={(e) => {
+                                    e.preventDefault();
+                                    onArchive(plan.id, false);
+                                  }}
+                                >
+                                  <IconArchiveOff className="size-4" />
+                                  Unarchive
+                                </DropdownMenuItem>
+                              ) : (
+                                <DropdownMenuItem
+                                  onClick={(e) => {
+                                    e.preventDefault();
+                                    onArchive(plan.id, true);
+                                  }}
+                                >
+                                  <IconArchive className="size-4" />
+                                  Archive
+                                </DropdownMenuItem>
+                              )}
+                              {plan.canDelete && (
+                                <>
+                                  <DropdownMenuSeparator />
+                                  <DropdownMenuItem
+                                    onClick={(e) => {
+                                      e.preventDefault();
+                                      onDelete(plan);
+                                    }}
+                                    className="text-destructive focus:text-destructive"
+                                  >
+                                    <IconTrash className="size-4" />
+                                    Delete...
+                                  </DropdownMenuItem>
+                                </>
+                              )}
+                            </>
+                          )}
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>
@@ -9016,6 +9265,168 @@ function DeleteCommentDialog({
         </AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>
+  );
+}
+
+function hardDeletePlanPhrase(planId: string) {
+  return `DELETE ${planId}`;
+}
+
+function DeletePlanDialog({
+  request,
+  isPending,
+  onOpenChange,
+  onConfirm,
+}: {
+  request: DeletePlanRequest | null;
+  isPending: boolean;
+  onOpenChange: (open: boolean) => void;
+  onConfirm: (mode: "soft" | "hard", confirmation?: string) => void;
+}) {
+  const [mode, setMode] = useState<"soft" | "hard">("soft");
+  const [confirmation, setConfirmation] = useState("");
+  const plan = request?.plan ?? null;
+  const hardOnly = Boolean(plan?.deletedAt);
+  const effectiveMode = hardOnly ? "hard" : mode;
+  const phrase = plan ? hardDeletePlanPhrase(plan.id) : "";
+  const noun = plan?.kind === "recap" ? "recap" : "plan";
+  const canSubmit =
+    Boolean(plan) &&
+    !isPending &&
+    (effectiveMode === "soft" || confirmation.trim() === phrase);
+
+  useEffect(() => {
+    if (!request) return;
+    setMode(request.mode);
+    setConfirmation("");
+  }, [request?.mode, request?.plan.id, request]);
+
+  return (
+    <Dialog open={Boolean(request)} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle>
+            {effectiveMode === "hard"
+              ? `Permanently delete this ${noun}?`
+              : `Delete this ${noun}?`}
+          </DialogTitle>
+          <DialogDescription>
+            {plan?.title ?? "This hosted plan"} will no longer be available from
+            normal plan views.
+          </DialogDescription>
+        </DialogHeader>
+
+        {!hardOnly && (
+          <div className="grid gap-2 sm:grid-cols-2">
+            <button
+              type="button"
+              onClick={() => {
+                setMode("soft");
+                setConfirmation("");
+              }}
+              className={cn(
+                "rounded-lg border p-3 text-left text-sm transition-colors",
+                effectiveMode === "soft"
+                  ? "border-primary bg-primary/5"
+                  : "border-border hover:bg-accent/40",
+              )}
+            >
+              <span className="font-medium">Move to Deleted</span>
+              <span className="mt-1 block text-xs leading-5 text-muted-foreground">
+                Hide it now, stop public access, and keep restore available.
+              </span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setMode("hard")}
+              className={cn(
+                "rounded-lg border p-3 text-left text-sm transition-colors",
+                effectiveMode === "hard"
+                  ? "border-destructive bg-destructive/5"
+                  : "border-border hover:bg-accent/40",
+              )}
+            >
+              <span className="font-medium text-destructive">
+                Delete permanently
+              </span>
+              <span className="mt-1 block text-xs leading-5 text-muted-foreground">
+                Remove hosted rows and references. This cannot be undone.
+              </span>
+            </button>
+          </div>
+        )}
+
+        {effectiveMode === "soft" ? (
+          <div className="rounded-lg border border-border bg-muted/30 p-3 text-sm leading-6 text-muted-foreground">
+            Soft delete moves the {noun} to the Deleted tab. Direct links,
+            public sharing, comments, and agent reads stop working until you
+            restore it.
+          </div>
+        ) : (
+          <div className="space-y-3">
+            <div className="rounded-lg border border-destructive/40 bg-destructive/10 p-3">
+              <div className="flex items-start gap-2">
+                <IconAlertTriangle className="mt-0.5 size-4 shrink-0 text-destructive" />
+                <div className="space-y-1 text-sm">
+                  <p className="font-medium text-destructive">
+                    Permanent deletion cannot be undone.
+                  </p>
+                  <p className="leading-6 text-muted-foreground">
+                    This removes the hosted {noun}, comments, shares, activity,
+                    versions, reports, and Plan SQL asset records. Local files
+                    and external upload-provider lifecycle rules are separate.
+                  </p>
+                </div>
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="hard-delete-plan-confirmation">
+                Type{" "}
+                <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-xs">
+                  {phrase}
+                </code>{" "}
+                to confirm
+              </Label>
+              <Input
+                id="hard-delete-plan-confirmation"
+                value={confirmation}
+                onChange={(event) => setConfirmation(event.target.value)}
+                autoComplete="off"
+                placeholder={phrase}
+              />
+            </div>
+          </div>
+        )}
+
+        <DialogFooter>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => onOpenChange(false)}
+            disabled={isPending}
+          >
+            Cancel
+          </Button>
+          <Button
+            type="button"
+            variant={effectiveMode === "hard" ? "destructive" : "default"}
+            disabled={!canSubmit}
+            onClick={() =>
+              onConfirm(
+                effectiveMode,
+                effectiveMode === "hard" ? confirmation.trim() : undefined,
+              )
+            }
+          >
+            {isPending
+              ? "Deleting..."
+              : effectiveMode === "hard"
+                ? "Delete permanently"
+                : "Move to Deleted"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
