@@ -191,7 +191,7 @@ not call the hosted Plan MCP tools. The durable files are:
 After writing the folder, the agent validates and previews it locally:
 
 ```bash
-npx @agent-native/core@latest plan local preview --dir plans/<slug> --kind plan
+npx @agent-native/core@latest plan local preview --dir plans/<slug> --kind plan --open
 ```
 
 If you run the Plan app locally with the same `PLAN_LOCAL_DIR`, you can open the

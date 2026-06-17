@@ -216,7 +216,7 @@ the prompt instructs the agent to write `plans/pr-123-visual-recap/plan.mdx`
 plus optional visual files and then run:
 
 ```bash
-npx @agent-native/core@latest plan local preview --dir plans/pr-123-visual-recap --kind recap
+npx @agent-native/core@latest plan local preview --dir plans/pr-123-visual-recap --kind recap --open
 ```
 
 The returned `file://` preview, or `/local-plans/pr-123-visual-recap` in a local

@@ -1556,7 +1556,7 @@ export function buildRecapPrompt(input: {
     lines.push(
       `2. Run \`npx @agent-native/core@latest plan local preview --dir ${JSON.stringify(
         localDir,
-      )} --kind recap --out ${JSON.stringify(
+      )} --kind recap --open --out ${JSON.stringify(
         path.join(localDir, "preview.html"),
       )}\` to validate the folder and generate the local preview.`,
     );
