@@ -577,9 +577,8 @@ async function bootstrapDefaultPlugins(nitroApp: any): Promise<void> {
     const terminalModule = await import("../terminal/terminal-plugin.js");
     const integrationsModule = await import("../integrations/plugin.js");
     const contextXrayModule = await import("../agent/context-xray/plugin.js");
-    const observationalMemoryModule = await import(
-      "../agent/observational-memory/plugin.js"
-    );
+    const observationalMemoryModule =
+      await import("../agent/observational-memory/plugin.js");
     const orgModule = await import("../org/plugin.js");
     const onboardingModule = await import("../onboarding/plugin.js");
 

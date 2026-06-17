@@ -86,7 +86,13 @@ import {
   writeLedgerEntry,
   readLedgerEntry,
   clearLedgerForThread,
+  getCurrentTurnEventsForThread,
 } from "./run-store.js";
+import {
+  classifyToolCallJournal,
+  findCompletedJournalEntry,
+  type ToolCallJournal,
+} from "./tool-call-journal.js";
 import { preUploadAttachments } from "../file-upload/pre-upload-attachments.js";
 import { extensionIdFromPathname } from "../extensions/path.js";
 import { applyContextDirectives } from "./context-xray/apply-directives.js";
@@ -2156,6 +2162,31 @@ export async function runAgentLoop(opts: {
     messages,
     actions,
   );
+
+  // Tool-call journal hard-block (resume safety). Snapshot the per-turn journal
+  // ONCE here, before any tool runs in this chunk, so it reflects only PRIOR
+  // run chunks of this logical turn. A write tool whose exact call already
+  // completed in an earlier interrupted chunk must not re-fire its side effect;
+  // when matched, runToolCall returns the journaled result instead of executing.
+  // Loaded eagerly (not lazily mid-loop) so the current chunk's own
+  // asynchronously-persisted tool_done events can never leak in and make a
+  // same-chunk call wrongly short-circuit. Best-effort: any ledger failure
+  // leaves the journal empty and all calls run normally. Fresh first-turn calls
+  // see an empty journal and are unaffected.
+  let toolCallJournal: ToolCallJournal | null = null;
+  const consumedJournalKeys = new Set<string>();
+  if (opts.threadId) {
+    try {
+      const priorEvents = await getCurrentTurnEventsForThread(opts.threadId);
+      if (priorEvents.length > 0) {
+        toolCallJournal = classifyToolCallJournal(priorEvents);
+      }
+    } catch {
+      // Journal is a hardening layer, never a gate — a failed ledger read just
+      // means no hard-block this turn.
+    }
+  }
+
   const bufferTextUntilFinalGuard = Boolean(opts.finalResponseGuard);
   let finalGuardRetries = 0;
   let iterations = 0;
@@ -2675,6 +2706,47 @@ export async function runAgentLoop(opts: {
           toolInput: wireToolInput,
           content: result,
         };
+      }
+
+      // TOOL-CALL JOURNAL HARD-BLOCK (resume safety, tool-layer enforcement).
+      // The prompt-level resume journal already TELLS a resuming model not to
+      // re-run completed tool calls; this enforces it at the tool layer so a
+      // re-dispatched write call whose exact (tool name + input) already
+      // completed in an earlier interrupted chunk of this turn does NOT execute
+      // its side effect again — we return the journaled result instead and emit
+      // the normal tool_start/tool_done so the transcript stays coherent.
+      //
+      // Gated on a non-readOnly tool + an existing prior-chunk journal (so fresh
+      // calls with no completed journal entry are completely unaffected). The
+      // snapshot was taken before this chunk's tools ran, so it can only match a
+      // PRIOR completion, never one from the current chunk.
+      if (!actionEntry.readOnly && toolCallJournal) {
+        const journaled = findCompletedJournalEntry(
+          toolCallJournal,
+          toolCall.name,
+          toolCall.input,
+          consumedJournalKeys,
+        );
+        if (journaled) {
+          const recordedResult = journaled.result ?? "";
+          const result =
+            `(Already completed in an earlier interrupted attempt - not re-run to avoid a duplicate side effect.)\n\n` +
+            recordedResult;
+          send({
+            type: "tool_start",
+            tool: toolCall.name,
+            input: toolCall.input as Record<string, string>,
+          });
+          send({ type: "tool_done", tool: toolCall.name, result });
+          recordToolResult(result, false);
+          return {
+            type: "tool-result" as const,
+            toolCallId: toolCall.id,
+            toolName: toolCall.name,
+            toolInput: wireToolInput,
+            content: result,
+          };
+        }
       }
 
       // Guard against write tools that have been interrupted too many times in

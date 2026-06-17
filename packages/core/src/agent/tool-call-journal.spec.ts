@@ -3,6 +3,7 @@ import type { AgentChatEvent } from "./types.js";
 import {
   classifyToolCallJournal,
   buildResumeJournalNote,
+  findCompletedJournalEntry,
   isJournalEmpty,
 } from "./tool-call-journal.js";
 
@@ -164,5 +165,50 @@ describe("buildResumeJournalNote", () => {
     expect(note).toContain("…");
     // Result summary is capped well under the raw length.
     expect(note.length).toBeLessThan(longResult.length);
+  });
+});
+
+describe("findCompletedJournalEntry", () => {
+  it("matches completed entries by tool and input, and consumes each match once", () => {
+    const journal = classifyToolCallJournal([
+      start("sendEmail", { to: "a@example.com" }),
+      done("sendEmail", "sent A"),
+      start("sendEmail", { to: "b@example.com" }),
+      done("sendEmail", "sent B"),
+    ]);
+    const consumed = new Set<string>();
+
+    const first = findCompletedJournalEntry(
+      journal,
+      "sendEmail",
+      { to: "a@example.com" },
+      consumed,
+    );
+    expect(first?.result).toBe("sent A");
+    expect(
+      findCompletedJournalEntry(
+        journal,
+        "sendEmail",
+        { to: "a@example.com" },
+        consumed,
+      ),
+    ).toBeUndefined();
+
+    expect(
+      findCompletedJournalEntry(
+        journal,
+        "sendEmail",
+        { to: "b@example.com" },
+        consumed,
+      )?.result,
+    ).toBe("sent B");
+    expect(
+      findCompletedJournalEntry(
+        journal,
+        "sendEmail",
+        { to: "c@example.com" },
+        consumed,
+      ),
+    ).toBeUndefined();
   });
 });

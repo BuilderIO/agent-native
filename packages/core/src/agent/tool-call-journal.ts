@@ -166,6 +166,51 @@ export function isJournalEmpty(journal: ToolCallJournal): boolean {
   return journal.completed.length === 0 && journal.interrupted.length === 0;
 }
 
+/**
+ * Find a COMPLETED journal entry that matches a tool call about to be
+ * dispatched, by tool name + input signature (position-independent — a resumed
+ * call may sit at a different order than the original). Used by the tool-layer
+ * hard-block in production-agent.ts/runToolCall to skip re-executing a side
+ * effect that already completed in a prior interrupted chunk: when this returns
+ * an entry, the loop returns `entry.result` instead of running the action.
+ *
+ * Returns the FIRST unmatched completed entry for that (name + input); the
+ * caller is expected to claim it (mark it consumed) so two identical fresh
+ * calls in the same turn don't both short-circuit on one journaled completion.
+ * Returns undefined when there is no completed entry for this exact call —
+ * including every fresh call, which must execute normally.
+ */
+export function findCompletedJournalEntry(
+  journal: ToolCallJournal,
+  toolName: string,
+  input: unknown,
+  consumedKeys?: Set<string>,
+): ToolCallJournalEntry | undefined {
+  const wantSig = inputSignature(normalizeInputForSignature(input));
+  for (const entry of journal.completed) {
+    if (entry.tool !== toolName) continue;
+    if (inputSignature(entry.input) !== wantSig) continue;
+    if (consumedKeys?.has(entry.key)) continue;
+    consumedKeys?.add(entry.key);
+    return entry;
+  }
+  return undefined;
+}
+
+/**
+ * Coerce an arbitrary tool input into the `Record<string, string>` shape the
+ * journal recorded at `tool_start` so signatures compare apples-to-apples. The
+ * ledger stores `tool_start.input` as a string map; the live call's `input` is
+ * the parsed object — both pass through `inputSignature`, which sorts keys and
+ * JSON-stringifies, so a plain object compares correctly.
+ */
+function normalizeInputForSignature(
+  input: unknown,
+): Record<string, string> | undefined {
+  if (input == null || typeof input !== "object") return undefined;
+  return input as Record<string, string>;
+}
+
 function summarizeResult(result: string | undefined): string {
   if (!result) return "(no result recorded)";
   const oneLine = result.replace(/\s+/g, " ").trim();
