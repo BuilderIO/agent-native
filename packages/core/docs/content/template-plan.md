@@ -97,6 +97,22 @@ connector, so use the Agent-Native CLI path when you want the one-command setup.
 > Plan skills _and_ the connector in one install and auto-updates as the skills
 > improve — see [Plan plugin & marketplace](/docs/plan-plugin).
 
+### Open Plans inside VS Code {#vscode-extension}
+
+If you live in VS Code, the Agent Native VS Code extension can open the same
+Plan review surface in a side panel instead of sending you to a separate browser
+tab. Plans tools still return the normal web link, and the MCP metadata also
+includes a VS Code handoff URL:
+
+```text
+vscode://builderio.agent-native/open?url=<encoded-plan-url>
+```
+
+The extension handles that URI, opens the decoded Plan URL in a VS Code webview,
+and includes a command to run the existing Agent Native MCP connect flow for VS
+Code / GitHub Copilot. This is especially useful from Claude Code or another
+coding-agent workflow where the plan should stay next to the files being edited.
+
 ## Use it from your coding agent
 
 After installation, ask your agent for the command that fits the work:
@@ -110,9 +126,9 @@ After installation, ask your agent for the command that fits the work:
   before/after blocks instead of a wall of raw diff.
 
 The agent should inspect the codebase first, then create the visual plan when a
-wrong direction would be costly. The returned Plans link opens the review UI so
-you can annotate, correct, choose options, and ask for updates before code
-changes begin.
+wrong direction would be costly. The returned Plans link opens the review UI in
+the browser or VS Code, so you can annotate, correct, choose options, and ask for
+updates before code changes begin.
 
 When a Codex, Claude Code, Markdown, or pasted plan already exists, use
 `/visual-plan`; the agent preserves that source plan and builds the richer review

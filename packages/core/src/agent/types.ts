@@ -223,6 +223,18 @@ export type AgentChatEvent =
   | { type: "missing_api_key" }
   | { type: "loop_limit"; maxIterations?: number }
   | {
+      /**
+       * An in-loop `Processor` aborted the run via `abort()` (which throws a
+       * `TripWire`). The loop catches it, emits this event, stops cleanly, and
+       * surfaces the reason as a final assistant message. Structural hook for
+       * real-time guardrails and a proof-of-done / coverage gate.
+       */
+      type: "tripwire";
+      reason: string;
+      /** Name of the processor that aborted, when it declared one. */
+      processor?: string;
+    }
+  | {
       type: "auto_continue";
       reason:
         | "run_timeout"

@@ -195,6 +195,48 @@ run: async (args) => {
 }
 ```
 
+### Validating Return Values (`outputSchema`)
+
+`schema` validates inputs; `outputSchema` validates what the action **returns**. Pass any Standard Schema-compatible schema (Zod, Valibot, ArkType) and the framework validates the result _after_ `run()` resolves — input validated before `run`, output after.
+
+```ts
+export default defineAction({
+  description: "Summarize a thread.",
+  schema: z.object({ threadId: z.string() }),
+  outputSchema: z.object({ summary: z.string(), messageCount: z.number() }),
+  outputErrorStrategy: "warn", // default; "strict" | "fallback"
+  // outputFallback: { summary: "", messageCount: 0 }, // used only by "fallback"
+  run: async ({ threadId }) => {
+    /* ... */
+  },
+});
+```
+
+- `"warn"` (default) — `console.warn` the issues and return the **original** result unchanged. Non-breaking.
+- `"strict"` — throw a clear error so a buggy action surfaces loudly.
+- `"fallback"` — return `outputFallback` in place of the invalid result.
+
+On success the validated value is returned, so coercion/defaults on `outputSchema` apply. Omit `outputSchema` and behavior is byte-for-byte unchanged (no wrapping).
+
+### Human-in-the-Loop Approval (`needsApproval`)
+
+For high-consequence, outward-facing, hard-to-undo actions (sending an email, charging a card, deleting an account), set `needsApproval` so the agent **cannot** run the action without a human approving the specific call:
+
+```ts
+export default defineAction({
+  description: "Send an email via Gmail.",
+  schema: z.object({ to: z.string(), subject: z.string(), body: z.string() }),
+  needsApproval: true, // boolean, or (args, ctx) => boolean | Promise<boolean>
+  run: async (args) => {
+    /* ...actually send... */
+  },
+});
+```
+
+When the gate is truthy and the call isn't yet approved, the loop emits an `approval_required` event and **stops the turn — `run()` never executes**. A predicate gates conditionally (e.g. only external recipients) and **fails closed**: a throw is treated as "approval required". The human approves via the chat UI's Approve affordance, which re-issues the turn with the call's `approvalKey`, and only then does the action run.
+
+**Keep approvals rare** — the default is off and almost every action should leave it off. The canonical example is Mail's `send-email` (`needsApproval: true`). See the `security` skill and the Human Approval doc.
+
 ## Frontend Hooks
 
 The frontend calls actions using React Query hooks from `@agent-native/core/client`. Components should not hand-write `fetch("/_agent-native/actions/...")`; add or reuse a client hook/helper instead. Use `callAction` from the same package for imperative cases that do not fit a hook, such as debounced search, prefetching, or non-React event handlers.

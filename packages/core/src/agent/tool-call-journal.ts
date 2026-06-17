@@ -24,14 +24,12 @@
  * the result. We surface those as "interrupted / unknown outcome" so the model
  * decides rather than blindly re-running.
  *
- * TODO(charlie-merge): optional hard-block — refuse re-execution of
- * journaled-complete tool calls at the tool layer in
- * production-agent.ts/runToolCall (CHARLIE owns that file). The prompt-level
- * journal here is the shippable first cut; the tool-layer enforcement is the
- * stronger guarantee and must wait until CHARLIE's loop edits land. When wiring
- * it, key off `classifyToolCallJournal(...).completed` and short-circuit a
- * re-dispatched write tool whose (tool name + input + order) matches a
- * completed entry, returning the journaled result instead of executing.
+ * Two layers of protection are built on this: (1) a prompt-level note on resume
+ * (see `run-loop-with-resume.ts`) telling the model what already completed, and
+ * (2) tool-layer enforcement in `production-agent.ts`/`runToolCall`, which uses
+ * `findCompletedJournalEntry(...)` to refuse re-executing a journaled-complete
+ * write tool — returning the journaled result instead of running the side
+ * effect again. Layer 2 is the stronger guarantee.
  */
 
 import type { AgentChatEvent } from "./types.js";

@@ -97,6 +97,12 @@ import { preUploadAttachments } from "../file-upload/pre-upload-attachments.js";
 import { extensionIdFromPathname } from "../extensions/path.js";
 import { applyContextDirectives } from "./context-xray/apply-directives.js";
 import {
+  ProcessorChain,
+  TripWire,
+  toolCallsFromContent,
+  type Processor,
+} from "./processors.js";
+import {
   completeRun as completeProgressRun,
   startRun as startProgressRun,
   updateRunProgress,
@@ -2114,6 +2120,15 @@ export async function runAgentLoop(opts: {
    * `approval_required`. See `AgentChatRequest.approvedToolCalls`.
    */
   approvedToolCalls?: string[];
+  /**
+   * In-loop processor seam (see `processors.ts`). Each processor can observe
+   * streamed chunks, observe model responses around tool execution, and
+   * `abort()` the run. Loop-internal config, NOT a tool/authoring surface —
+   * processors only observe/mutate-stream/abort; they never define app
+   * behavior or replace actions. When omitted or empty, none of the seam code
+   * runs and the loop is byte-for-byte unchanged (zero overhead).
+   */
+  processors?: Processor[];
 }): Promise<AgentLoopUsage> {
   const {
     engine,
@@ -2125,6 +2140,13 @@ export async function runAgentLoop(opts: {
     send,
     signal,
   } = opts;
+
+  // Build the processor chain only when at least one processor is supplied so
+  // the common (no-processors) path is unchanged and carries zero overhead.
+  const processorChain =
+    opts.processors && opts.processors.length > 0
+      ? new ProcessorChain(opts.processors)
+      : null;
 
   const usage: AgentLoopUsage = {
     inputTokens: 0,
@@ -2190,6 +2212,21 @@ export async function runAgentLoop(opts: {
   const bufferTextUntilFinalGuard = Boolean(opts.finalResponseGuard);
   let finalGuardRetries = 0;
   let iterations = 0;
+
+  // Set when an in-loop processor aborts via `abort()` / throws a `TripWire`.
+  // The loop emits the `tripwire` event, surfaces the reason as a final
+  // assistant message, and stops cleanly.
+  let tripwire: TripWire | null = null;
+  const emitTripwire = (err: TripWire) => {
+    tripwire = err;
+    send({
+      type: "tripwire",
+      reason: err.message,
+      ...(err.processor ? { processor: err.processor } : {}),
+    });
+    send({ type: "text", text: err.message });
+  };
+
   while (true) {
     if (signal.aborted) break;
     if (++iterations > maxIterations) {
@@ -2310,6 +2347,21 @@ export async function runAgentLoop(opts: {
         };
 
         for await (const event of eventStream) {
+          // In-loop processor seam (stream hook). Each chunk is offered to every
+          // processor's `processOutputStream` before the loop handles it. A
+          // processor `abort()` throws a TripWire; catch it locally so it is not
+          // mistaken for a retryable engine error, then break out cleanly.
+          if (processorChain) {
+            try {
+              await processorChain.runStream(event);
+            } catch (err) {
+              if (err instanceof TripWire) {
+                emitTripwire(err);
+                break;
+              }
+              throw err;
+            }
+          }
           if (event.type === "text-delta") {
             if (bufferTextUntilFinalGuard) {
               bufferedAssistantText += event.text;
@@ -2397,6 +2449,10 @@ export async function runAgentLoop(opts: {
       }
     }
 
+    // A processor aborted mid-stream. The tripwire event + final message were
+    // already emitted; halt the loop without sending a normal `done`.
+    if (tripwire) break;
+
     if (!assistantContent && toolCallErrors.size > 0) {
       assistantContent = [];
     }
@@ -2442,6 +2498,32 @@ export async function runAgentLoop(opts: {
       (p): p is import("./engine/types.js").EngineToolCallPart =>
         p.type === "tool-call",
     );
+
+    // In-loop processor seam (step hook). Fires once per model response, around
+    // tool execution, with the tool calls the model just requested (empty for a
+    // final answer) plus the stop reason and cumulative usage. A coverage gate
+    // can inspect what the model is about to do and `abort()` before tools run.
+    if (processorChain) {
+      try {
+        await processorChain.runStep({
+          toolCalls: toolCallsFromContent(assistantContent),
+          ...(terminalStopReason ? { finishReason: terminalStopReason } : {}),
+          usage: {
+            inputTokens: usage.inputTokens,
+            outputTokens: usage.outputTokens,
+            cacheReadTokens: usage.cacheReadTokens,
+            cacheWriteTokens: usage.cacheWriteTokens,
+          },
+        });
+      } catch (err) {
+        if (err instanceof TripWire) {
+          emitTripwire(err);
+          break;
+        }
+        throw err;
+      }
+    }
+
     const flushBufferedAssistantText = () => {
       if (!bufferTextUntilFinalGuard) return;
       const text =
@@ -3110,7 +3192,42 @@ export async function runAgentLoop(opts: {
     }
   }
 
+  // A processor halted the run: the `tripwire` event and final message were
+  // already emitted at the abort site. Do NOT send the normal `done` — the run
+  // ended on a guardrail, not a clean turn. The result hook still fires below
+  // so processors can observe the (halted) final text.
+  if (tripwire) {
+    if (processorChain) {
+      try {
+        await processorChain.runResult(
+          collectTextParts(
+            messages.flatMap((m) => (m.role === "assistant" ? m.content : [])),
+          ),
+        );
+      } catch (err) {
+        if (!(err instanceof TripWire)) throw err;
+        // A result-hook abort is a no-op: the run is already halting.
+      }
+    }
+    return usage;
+  }
+
   if (!signal.aborted) {
+    // In-loop processor seam (result hook). Fires once at clean run end with the
+    // final assistant text so processors (e.g. a proof-of-done gate) can record
+    // a verdict. A result-hook abort cannot un-finish a completed run, so a
+    // TripWire here is swallowed.
+    if (processorChain) {
+      try {
+        await processorChain.runResult(
+          collectTextParts(
+            messages.flatMap((m) => (m.role === "assistant" ? m.content : [])),
+          ),
+        );
+      } catch (err) {
+        if (!(err instanceof TripWire)) throw err;
+      }
+    }
     send({ type: "done" });
     // Clean up any zombie-completion ledger entries for this thread now that
     // the turn completed normally. If the run was aborted the ledger must stay
@@ -4194,6 +4311,13 @@ export function createProductionAgentHandler(
           // Experiments module unavailable — use default model
         }
 
+        // TODO(processor-seam): thread `processors` from ProductionAgentOptions
+        // through to runAgentLoop here once the handler exposes a way to
+        // configure them (e.g. a `processors` field on ProductionAgentOptions
+        // or a per-request resolver). The loop-level seam (runAgentLoop's
+        // `processors` opt + ProcessorChain/TripWire) is the deliverable and is
+        // already callable directly by sub-agents, A2A, MCP, and tests; this is
+        // only the HTTP-handler convenience plumbing.
         const agentLoopOpts = {
           engine,
           model: effectiveModel,

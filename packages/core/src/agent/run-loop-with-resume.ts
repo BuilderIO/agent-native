@@ -51,11 +51,10 @@ import type { EngineMessage } from "./engine/types.js";
  * what it was before. Best-effort: any ledger read/parse failure is swallowed so
  * a journal hiccup can never block a recovery that would otherwise succeed.
  *
- * TODO(charlie-merge): optional hard-block — once CHARLIE's loop edits land,
- * pair this prompt-level journal with tool-layer enforcement in
- * production-agent.ts/runToolCall that refuses to re-execute a journaled-
- * complete tool call (return the journaled result instead). See
- * `tool-call-journal.ts` for the keying to use.
+ * This prompt-level journal is paired with tool-layer enforcement in
+ * production-agent.ts/runToolCall, which refuses to re-execute a journaled-
+ * complete write tool (returning the journaled result instead). See
+ * `tool-call-journal.ts` (`findCompletedJournalEntry`) for the keying used.
  */
 async function appendToolCallJournalNote(
   messages: EngineMessage[],
