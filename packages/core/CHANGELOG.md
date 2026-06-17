@@ -1,5 +1,59 @@
 # @agent-native/core
 
+## 0.54.0
+
+### Minor Changes
+
+- f81e032: Add optional `outputSchema` to `defineAction` — validate an action's RETURN
+  value (warn/strict/fallback). Pass a Standard Schema-compatible `outputSchema`
+  (Zod, Valibot, ArkType — same surface as the input `schema`) and the framework
+  validates the result AFTER `run()` resolves, composing with the existing input
+  validation (input validated before `run`, output validated after). The
+  `outputErrorStrategy` (default `"warn"`) controls the mismatch behavior:
+  `"strict"` throws a clear error so a buggy action surfaces loudly, `"warn"`
+  `console.warn`s the issues and returns the ORIGINAL result unchanged
+  (non-breaking), and `"fallback"` returns the provided `outputFallback`. When no
+  `outputSchema` is supplied, behavior is byte-for-byte unchanged (no wrapping).
+  Borrowed from Mastra/Flue structured-output and kept dependency-free on the
+  action layer.
+- f81e032: Add an in-loop processor seam (`processOutputStream` / `processOutputStep` +
+  `abort()` / `TripWire`) for real-time guardrails. `runAgentLoop` now accepts an
+  optional `processors: Processor[]`. Each processor exposes optional hooks —
+  `processOutputStream` (per streamed chunk), `processOutputStep` (once per model
+  response, around tool execution, with the requested tool calls), and
+  `processOutputResult` (once at run end) — and a per-processor mutable `state`
+  that persists across hooks and is isolated between processors. A processor can
+  call `abort(reason, meta?)` (throws an exported `TripWire`) to halt the run
+  gracefully; the loop catches it, emits a new `{ type: "tripwire"; reason;
+processor? }` agent-chat event, surfaces the reason as a final message, and
+  stops. This is the structural prerequisite for real-time guardrails and a
+  proof-of-done / coverage gate. Borrowed from Mastra's output processors and
+  kept loop-internal configuration (processors only observe/mutate-stream/abort;
+  they do not define app behavior or replace actions). When no processors are
+  passed the loop is byte-for-byte unchanged with zero overhead.
+- f81e032: Add token-efficient web content fetching for agents. `web-request` and `provider-api-docs` can now return extracted markdown, plain text, metadata, links, or bounded search matches instead of raw HTML, and `run-code` exposes `webRead()` plus pass-through options on `webFetch()` for compact web/document reduction.
+
+### Patch Changes
+
+- f81e032: Docs: document the agent-runtime features added since the first docs sweep.
+  New pages: Human-in-the-Loop Approvals (`needsApproval` gate + `approval_required`
+  / `approvedToolCalls` flow), Observational Memory (background three-tier
+  compaction with `AGENT_NATIVE_OM_*` config), In-Loop Processors (the
+  `processOutput*` guardrail seam + `TripWire` / `tripwire` event), and Durable
+  Resume (tool-call journal — prompt note + tool-layer hard-block against
+  re-running completed side effects). Folded action `outputSchema` /
+  `outputErrorStrategy` and the `needsApproval` gate into the Actions page, and
+  added an optional OpenTelemetry-spans section to Observability. All wired into
+  the docs sidebar nav; no runtime behavior changes.
+- 9909dcc: Avoid bundling native canvas from web content extraction in template SSR builds.
+- f81e032: Allow the hosted Plan local-files UI to read the localhost bridge in Chromium by
+  answering Private Network Access preflights.
+- f81e032: Include repo-relative paths in direct local Plan preview URLs so local Plan app
+  routes can reopen and edit MDX folders from the current repository.
+- f81e032: Improve provider corpus jobs with a read-only status/results action helper and better multi-term snippet windows for durable provider searches.
+- f81e032: Add app/template and agent-native-specific app/template properties to Better Auth signup tracking events.
+- f81e032: Add VS Code extension open URLs to MCP open-link metadata.
+
 ## 0.53.0
 
 ### Minor Changes

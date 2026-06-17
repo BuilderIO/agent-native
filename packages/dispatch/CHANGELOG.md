@@ -1,5 +1,11 @@
 # @agent-native/dispatch
 
+## 0.11.0
+
+### Minor Changes
+
+- f81e032: Add token-efficient web content fetching for agents. `web-request` and `provider-api-docs` can now return extracted markdown, plain text, metadata, links, or bounded search matches instead of raw HTML, and `run-code` exposes `webRead()` plus pass-through options on `webFetch()` for compact web/document reduction.
+
 ## 0.10.4
 
 ### Patch Changes
