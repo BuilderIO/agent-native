@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.56.1
+
+### Patch Changes
+
+- e3e8515: Preserve native chat widget registrations when packaged apps are bundled for deployment.
+
 ## 0.56.0
 
 ### Minor Changes
