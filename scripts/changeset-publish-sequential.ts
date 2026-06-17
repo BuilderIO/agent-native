@@ -3,7 +3,7 @@ import { existsSync } from "node:fs";
 import { mkdtemp, readdir, readFile, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 type PackageJson = {
   name?: string;
@@ -84,10 +84,33 @@ function run(
   });
 }
 
-function parsePackJson(output: string, pkg: PublishPackage): string {
+function parseJsonOutput(output: string, context: string): unknown {
+  const trimmed = output.trim();
+  const starts: number[] = [];
+  for (let index = 0; index < trimmed.length; index += 1) {
+    const char = trimmed[index];
+    if (
+      (char === "[" || char === "{") &&
+      (index === 0 || trimmed[index - 1] === "\n")
+    ) {
+      starts.push(index);
+    }
+  }
+
+  for (let index = starts.length - 1; index >= 0; index -= 1) {
+    const start = starts[index];
+    try {
+      return JSON.parse(trimmed.slice(start));
+    } catch {}
+  }
+
+  throw new Error(`Unable to parse JSON output for ${context}:\n${output}`);
+}
+
+export function parsePackJson(output: string, pkg: PublishPackage): string {
   let parsed: unknown;
   try {
-    parsed = JSON.parse(output.trim());
+    parsed = parseJsonOutput(output, `pnpm pack ${tagName(pkg)}`);
   } catch (error) {
     const parseError = new Error(
       `Unable to parse pnpm pack output for ${tagName(pkg)}:\n${output}`,
@@ -291,6 +314,26 @@ function tagName(pkg: PublishPackage): string {
   return `${pkg.name}@${pkg.version}`;
 }
 
+export function localDependencyNames(pkg: PublishPackage): string[] {
+  return Object.keys({
+    ...pkg.packageJson.dependencies,
+    ...pkg.packageJson.peerDependencies,
+    ...pkg.packageJson.devDependencies,
+  });
+}
+
+function formatError(error: unknown): string {
+  if (!(error instanceof Error)) {
+    return String(error);
+  }
+  const details = error.stack ?? error.message;
+  const cause = (error as Error & { cause?: unknown }).cause;
+  if (!cause) {
+    return details;
+  }
+  return `${details}\nCaused by: ${formatError(cause)}`;
+}
+
 async function hasRemoteTag(pkg: PublishPackage): Promise<boolean> {
   const result = await run(
     "git",
@@ -402,8 +445,26 @@ async function main() {
   const packages = await getPublishPackages();
   const packagesNeedingTags: PublishPackage[] = [];
   const failures: { pkg: PublishPackage; error: unknown }[] = [];
+  const failedPackageNames = new Set<string>();
 
   for (const pkg of packages) {
+    const failedLocalDeps = localDependencyNames(pkg).filter((dependencyName) =>
+      failedPackageNames.has(dependencyName),
+    );
+    if (failedLocalDeps.length > 0) {
+      const error = new Error(
+        `${tagName(pkg)} depends on failed local package(s): ${failedLocalDeps.join(
+          ", ",
+        )}`,
+      );
+      failures.push({ pkg, error });
+      failedPackageNames.add(pkg.name);
+      console.error(
+        `::error::Skipping ${tagName(pkg)} because ${error.message}`,
+      );
+      continue;
+    }
+
     if (await isPublished(pkg)) {
       if (await hasRemoteTag(pkg)) {
         console.log(
@@ -429,7 +490,9 @@ async function main() {
       }
     } catch (error) {
       failures.push({ pkg, error });
+      failedPackageNames.add(pkg.name);
       console.error(`::error::Failed to publish ${tagName(pkg)}`);
+      console.error(formatError(error));
       if ((error as { isMissingPackage?: boolean }).isMissingPackage) {
         console.error(
           `${pkg.name} does not exist on npm yet, and OIDC trusted publishing ` +
@@ -468,7 +531,17 @@ async function main() {
   }
 }
 
-main().catch((error) => {
-  console.error(error);
-  process.exit(1);
-});
+function isDirectExecution(): boolean {
+  const entrypoint = process.argv[1];
+  return Boolean(
+    entrypoint &&
+    import.meta.url === pathToFileURL(path.resolve(entrypoint)).href,
+  );
+}
+
+if (isDirectExecution()) {
+  main().catch((error) => {
+    console.error(error);
+    process.exit(1);
+  });
+}
