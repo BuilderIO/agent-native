@@ -7,7 +7,9 @@ import {
   buildLocalPlanPreviewHtml,
   localPlanFolderName,
   readLocalPlanFiles,
+  runPlan,
   startLocalPlanBridge,
+  validateLocalPlanFiles,
   verifyLocalPlanBridge,
   writeLocalPlanPreview,
 } from "./plan-local.js";
@@ -36,6 +38,97 @@ function tmpDir(): string {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "an-plan-local-"));
   tmpRoots.push(root);
   return root;
+}
+
+async function captureRunPlan(argv: string[]) {
+  const originalStdoutWrite = process.stdout.write;
+  const originalStderrWrite = process.stderr.write;
+  const originalExit = process.exit;
+  let stdout = "";
+  let stderr = "";
+  let exitCode: string | number | null | undefined;
+
+  process.stdout.write = ((chunk: string | Uint8Array) => {
+    stdout += chunk.toString();
+    return true;
+  }) as typeof process.stdout.write;
+  process.stderr.write = ((chunk: string | Uint8Array) => {
+    stderr += chunk.toString();
+    return true;
+  }) as typeof process.stderr.write;
+  process.exit = ((code?: string | number | null | undefined) => {
+    exitCode = code;
+    throw new Error(`process.exit(${code ?? 0})`);
+  }) as typeof process.exit;
+
+  try {
+    await runPlan(argv);
+  } catch (error) {
+    if (
+      !(error instanceof Error) ||
+      !error.message.startsWith("process.exit(")
+    ) {
+      throw error;
+    }
+  } finally {
+    process.stdout.write = originalStdoutWrite;
+    process.stderr.write = originalStderrWrite;
+    process.exit = originalExit;
+  }
+
+  return { stdout, stderr, exitCode };
+}
+
+async function waitForOutput(
+  predicate: () => boolean,
+  description: string,
+): Promise<void> {
+  const startedAt = Date.now();
+  while (!predicate()) {
+    if (Date.now() - startedAt > 5_000) {
+      throw new Error(`Timed out waiting for ${description}`);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+}
+
+async function captureRunningServe(argv: string[]) {
+  const originalStdoutWrite = process.stdout.write;
+  const originalStderrWrite = process.stderr.write;
+  let stdout = "";
+  let stderr = "";
+  let runError: unknown;
+  let stopped = false;
+
+  process.stdout.write = ((chunk: string | Uint8Array) => {
+    stdout += chunk.toString();
+    return true;
+  }) as typeof process.stdout.write;
+  process.stderr.write = ((chunk: string | Uint8Array) => {
+    stderr += chunk.toString();
+    return true;
+  }) as typeof process.stderr.write;
+
+  const running = runPlan(argv).catch((error: unknown) => {
+    runError = error;
+  });
+
+  try {
+    await waitForOutput(
+      () => Boolean(runError) || stderr.includes("Local Plan bridge running"),
+      "Plan local bridge startup",
+    );
+    if (runError) throw runError;
+    stopped = process.emit("SIGTERM");
+    await running;
+    if (runError) throw runError;
+  } finally {
+    if (!stopped) process.emit("SIGTERM");
+    process.stdout.write = originalStdoutWrite;
+    process.stderr.write = originalStderrWrite;
+  }
+
+  return { stdout, stderr };
 }
 
 function writeSamplePlan(dir: string) {
@@ -140,6 +233,63 @@ function writeQuestionFormMissingIds(dir: string) {
   );
 }
 
+function writeChecklistMissingItemLabel(dir: string) {
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(
+    path.join(dir, "plan.mdx"),
+    [
+      "---",
+      'title: "Checklist missing label"',
+      'kind: "plan"',
+      "---",
+      "",
+      "# Checklist missing label",
+      "",
+      '<Checklist items={[{ id: "ship" }]} />',
+      "",
+    ].join("\n"),
+    "utf-8",
+  );
+}
+
+function writeQuestionFormMissingTitleAndMode(dir: string) {
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(
+    path.join(dir, "plan.mdx"),
+    [
+      "---",
+      'title: "Question form missing title/mode"',
+      'kind: "plan"',
+      "---",
+      "",
+      "# Question form missing title and mode",
+      "",
+      '<QuestionForm questions={[{ id: "q1", options: [{ id: "o1" }] }]} />',
+      "",
+    ].join("\n"),
+    "utf-8",
+  );
+}
+
+function writeQuestionFormInvalidMode(dir: string) {
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(
+    path.join(dir, "plan.mdx"),
+    [
+      "---",
+      'title: "Question form invalid mode"',
+      'kind: "plan"',
+      "---",
+      "",
+      "# Question form invalid mode",
+      "",
+      '<QuestionForm questions={[{ id: "q1", title: "Pick", mode: "checkbox" }]} />',
+      "",
+    ].join("\n"),
+    "utf-8",
+  );
+}
+
 function writeScaffoldExamplePlan(dir: string) {
   // Mirrors the `plan local init` scaffold prose, which documents block usage
   // with an inline-code example. That example must NOT be linted as a real
@@ -167,6 +317,74 @@ function writeScaffoldExamplePlan(dir: string) {
 }
 
 describe("local plan CLI helpers", () => {
+  it("keeps plan serve as a compatibility alias for plan local serve", async () => {
+    const result = await captureRunPlan(["serve", "--help"]);
+
+    expect(result.exitCode).toBeUndefined();
+    expect(result.stderr).toBe("");
+    expect(result.stdout).toContain("agent-native plan serve --dir <folder>");
+    expect(result.stdout).toContain(
+      "compatibility alias for `plan local serve`",
+    );
+    expect(result.stdout).toContain(
+      "agent-native plan local serve --dir <folder>",
+    );
+  });
+
+  it("starts the bridge through both plan serve and plan local serve", async () => {
+    const dir = path.join(tmpDir(), "checkout");
+    writeSamplePlan(dir);
+    const aliasUrlFile = path.join(dir, "alias.plan-url");
+    const localUrlFile = path.join(dir, "local.plan-url");
+
+    const alias = await captureRunningServe([
+      "serve",
+      "--dir",
+      dir,
+      "--app-url",
+      "https://plan.example.com",
+      "--url-file",
+      aliasUrlFile,
+    ]);
+    const local = await captureRunningServe([
+      "local",
+      "serve",
+      "--dir",
+      dir,
+      "--app-url",
+      "https://plan.example.com",
+      "--url-file",
+      localUrlFile,
+    ]);
+
+    for (const [label, captured, urlFile] of [
+      ["alias", alias, aliasUrlFile],
+      ["local", local, localUrlFile],
+    ] as const) {
+      const result = JSON.parse(captured.stdout) as {
+        ok: boolean;
+        url: string;
+        bridgeUrl: string;
+        appUrl: string;
+        urlFile: string;
+      };
+      expect(result.ok, label).toBe(true);
+      expect(result.appUrl, label).toBe("https://plan.example.com");
+      expect(result.bridgeUrl, label).toContain("http://127.0.0.1:");
+      expect(result.url, label).toBe(
+        `https://plan.example.com/local-plans/checkout?bridge=${encodeURIComponent(
+          result.bridgeUrl,
+        )}`,
+      );
+      expect(result.urlFile, label).toBe(urlFile);
+      expect(fs.readFileSync(urlFile, "utf-8"), label).toBe(`${result.url}\n`);
+      expect(captured.stderr, label).toContain("Local Plan bridge running at");
+      expect(captured.stderr, label).toContain(
+        `Open URL written to ${urlFile}`,
+      );
+    }
+  });
+
   it("builds the same safe folder names as the Plan app local mirror", () => {
     expect(localPlanFolderName("Private / no-DB recap!")).toBe(
       "private-no-db-recap",
@@ -303,6 +521,41 @@ describe("local plan CLI helpers", () => {
     );
     await expect(startLocalPlanBridge({ dir })).rejects.toThrow(
       /QuestionForm questions\[0\]\.id is required/,
+    );
+  });
+
+  it("rejects missing checklist item labels (renderer schema parity)", () => {
+    const dir = path.join(tmpDir(), "bad-checklist-label");
+    writeChecklistMissingItemLabel(dir);
+
+    expect(() => writeLocalPlanPreview({ dir })).toThrow(
+      /Checklist items\[0\]\.label is required/,
+    );
+  });
+
+  it("rejects missing question title, mode, and option label", () => {
+    const dir = path.join(tmpDir(), "bad-question-required");
+    writeQuestionFormMissingTitleAndMode(dir);
+
+    const issues = validateLocalPlanFiles(readLocalPlanFiles(dir));
+    const messages = issues.map((issue) => issue.message);
+    expect(messages).toEqual(
+      expect.arrayContaining([
+        expect.stringMatching(/questions\[0\]\.title is required/),
+        expect.stringMatching(/questions\[0\]\.mode is required/),
+        expect.stringMatching(
+          /questions\[0\]\.options\[0\]\.label is required/,
+        ),
+      ]),
+    );
+  });
+
+  it("rejects an invalid question mode value", () => {
+    const dir = path.join(tmpDir(), "bad-question-mode");
+    writeQuestionFormInvalidMode(dir);
+
+    expect(() => writeLocalPlanPreview({ dir })).toThrow(
+      /questions\[0\]\.mode is required by the Plan renderer schema/,
     );
   });
 

@@ -1180,9 +1180,28 @@ function isStaticNonEmptyStringLiteral(value: string): boolean {
   return trimmed.slice(1, -1).trim().length > 0;
 }
 
-function hasRequiredStaticId(objectSource: string): boolean {
-  const prop = readTopLevelObjectProperty(objectSource, "id");
+function hasRequiredStaticString(objectSource: string, name: string): boolean {
+  const prop = readTopLevelObjectProperty(objectSource, name);
   return prop ? isStaticNonEmptyStringLiteral(prop.value) : false;
+}
+
+function hasRequiredStaticId(objectSource: string): boolean {
+  return hasRequiredStaticString(objectSource, "id");
+}
+
+function hasRequiredEnumLiteral(
+  objectSource: string,
+  name: string,
+  allowed: readonly string[],
+): boolean {
+  const prop = readTopLevelObjectProperty(objectSource, name);
+  if (!prop) return false;
+  const trimmed = prop.value.trim();
+  const quote = trimmed[0];
+  if (quote !== '"' && quote !== "'" && quote !== "`") return false;
+  if (!trimmed.endsWith(quote)) return false;
+  if (quote === "`" && /\$\{/.test(trimmed)) return false;
+  return allowed.includes(trimmed.slice(1, -1).trim());
 }
 
 function lintChecklistShape(
@@ -1222,14 +1241,25 @@ function lintChecklistShape(
       continue;
     }
     objects.forEach((item, index) => {
-      if (hasRequiredStaticId(item.source)) return;
-      addValidationIssue(
-        issues,
-        file,
-        source,
-        start + items.start + item.start,
-        `Checklist items[${index}].id is required by the Plan renderer schema; add a stable string id.`,
-      );
+      const base = start + items.start + item.start;
+      if (!hasRequiredStaticId(item.source)) {
+        addValidationIssue(
+          issues,
+          file,
+          source,
+          base,
+          `Checklist items[${index}].id is required by the Plan renderer schema; add a stable string id.`,
+        );
+      }
+      if (!hasRequiredStaticString(item.source, "label")) {
+        addValidationIssue(
+          issues,
+          file,
+          source,
+          base,
+          `Checklist items[${index}].label is required by the Plan renderer schema; add a non-empty string label.`,
+        );
+      }
     });
   }
 }
@@ -1281,13 +1311,38 @@ function lintQuestionFormShape(
       continue;
     }
     questionObjects.forEach((question, questionIndex) => {
+      const questionBase = start + questions.start + question.start;
       if (!hasRequiredStaticId(question.source)) {
         addValidationIssue(
           issues,
           file,
           source,
-          start + questions.start + question.start,
+          questionBase,
           `${tag} questions[${questionIndex}].id is required by the Plan renderer schema; add a stable string id.`,
+        );
+      }
+      if (!hasRequiredStaticString(question.source, "title")) {
+        addValidationIssue(
+          issues,
+          file,
+          source,
+          questionBase,
+          `${tag} questions[${questionIndex}].title is required by the Plan renderer schema; add a non-empty string title.`,
+        );
+      }
+      if (
+        !hasRequiredEnumLiteral(question.source, "mode", [
+          "single",
+          "multi",
+          "freeform",
+        ])
+      ) {
+        addValidationIssue(
+          issues,
+          file,
+          source,
+          questionBase,
+          `${tag} questions[${questionIndex}].mode is required by the Plan renderer schema; use "single", "multi", or "freeform".`,
         );
       }
       const options = readTopLevelObjectProperty(question.source, "options");
@@ -1304,18 +1359,30 @@ function lintQuestionFormShape(
         return;
       }
       optionObjects.forEach((option, optionIndex) => {
-        if (hasRequiredStaticId(option.source)) return;
-        addValidationIssue(
-          issues,
-          file,
-          source,
+        const optionBase =
           start +
-            questions.start +
-            question.start +
-            options.valueStart +
-            option.start,
-          `${tag} questions[${questionIndex}].options[${optionIndex}].id is required by the Plan renderer schema; add a stable string id.`,
-        );
+          questions.start +
+          question.start +
+          options.valueStart +
+          option.start;
+        if (!hasRequiredStaticId(option.source)) {
+          addValidationIssue(
+            issues,
+            file,
+            source,
+            optionBase,
+            `${tag} questions[${questionIndex}].options[${optionIndex}].id is required by the Plan renderer schema; add a stable string id.`,
+          );
+        }
+        if (!hasRequiredStaticString(option.source, "label")) {
+          addValidationIssue(
+            issues,
+            file,
+            source,
+            optionBase,
+            `${tag} questions[${questionIndex}].options[${optionIndex}].label is required by the Plan renderer schema; add a non-empty string label.`,
+          );
+        }
       });
     });
   }
@@ -1991,7 +2058,15 @@ async function runServe(args: Record<string, string | boolean>): Promise<void> {
   );
 
   await new Promise<void>((resolve) => {
+    let stopped = false;
+    const cleanup = () => {
+      process.off("SIGINT", stop);
+      process.off("SIGTERM", stop);
+    };
     const stop = () => {
+      if (stopped) return;
+      stopped = true;
+      cleanup();
       bridge.server.close(() => resolve());
     };
     process.once("SIGINT", stop);
@@ -2082,6 +2157,7 @@ const HELP = `agent-native plan — local Agent-Native Plan helpers
 
 Usage:
   agent-native plan blocks [--format reference|schema] [--app-url <url>] [--out <file>] [--json]
+  agent-native plan serve --dir <folder> [--app-url <url>] [--kind plan|recap] [--open] [--port <port>] [--url-file <file>]
   agent-native plan local init --title <title> [--brief <text>] [--kind plan|recap] [--dir <folder>] [--force]
   agent-native plan local check --dir <folder>
   agent-native plan local serve --dir <folder> [--app-url <url>] [--kind plan|recap] [--open] [--port <port>] [--url-file <file>]
@@ -2113,12 +2189,22 @@ Safari may block the hosted HTTPS page from reading the HTTP localhost bridge.
 Use \`plan local verify\` for headless bridge/CORS diagnostics that exit cleanly.
 Use \`plan local preview\` for a local Plan dev server route. \`preview --out\` is
 a legacy/debug escape hatch that writes a standalone static HTML file.
+\`plan serve\` is kept as a compatibility alias for \`plan local serve\`.
 `;
 
 export async function runPlan(argv: string[]): Promise<void> {
   const [area, sub, ...rest] = argv;
   if (area === "blocks") {
     await runBlocks(parseArgs(argv.slice(1)));
+    return;
+  }
+  if (area === "serve") {
+    const args = parseArgs(argv.slice(1));
+    if (args.help === true || args.h === true) {
+      process.stdout.write(HELP);
+      return;
+    }
+    await runServe(args);
     return;
   }
   if (area !== "local") {

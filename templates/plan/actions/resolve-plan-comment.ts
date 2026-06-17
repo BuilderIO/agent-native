@@ -26,6 +26,46 @@ import {
   nowIso,
   writeEvent,
 } from "../server/plans.js";
+import type { PlanComment } from "../shared/types.js";
+
+function rootCommentIdFor(
+  comment: Pick<PlanComment, "id" | "parentCommentId">,
+  commentsById: Map<string, Pick<PlanComment, "id" | "parentCommentId">>,
+) {
+  let current = comment;
+  const seen = new Set<string>();
+  while (current.parentCommentId && !seen.has(current.id)) {
+    seen.add(current.id);
+    const parent = commentsById.get(current.parentCommentId);
+    if (!parent) break;
+    current = parent;
+  }
+  return current.id;
+}
+
+function threadCommentIdsFor(
+  rootId: string,
+  comments: Array<Pick<PlanComment, "id" | "parentCommentId">>,
+) {
+  const childrenByParent = new Map<string, string[]>();
+  for (const comment of comments) {
+    if (!comment.parentCommentId) continue;
+    const children = childrenByParent.get(comment.parentCommentId) ?? [];
+    children.push(comment.id);
+    childrenByParent.set(comment.parentCommentId, children);
+  }
+  const ids: string[] = [];
+  const seen = new Set<string>();
+  const stack = [rootId];
+  while (stack.length > 0) {
+    const id = stack.pop();
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    ids.push(id);
+    stack.push(...(childrenByParent.get(id) ?? []));
+  }
+  return ids;
+}
 
 export default defineAction({
   description:
@@ -145,18 +185,36 @@ export default defineAction({
       requestEmail: commentRequestEmail,
       now,
     });
+    const bundle = await loadPlanBundle(args.planId);
+    const commentsById = new Map(
+      bundle.comments.map((comment) => [
+        comment.id,
+        {
+          id: comment.id,
+          parentCommentId: comment.parentCommentId,
+        },
+      ]),
+    );
+    const threadRootId = rootCommentIdFor(existing, commentsById);
+    const existingThreadCommentIds = threadCommentIdsFor(
+      threadRootId,
+      bundle.comments,
+    );
+    const updatedCommentIds =
+      existingThreadCommentIds.length > 0
+        ? existingThreadCommentIds
+        : [existing.id];
 
     // Optionally post a reply note before updating the status.
     let insertedNoteId: string | undefined;
     if (args.resolutionNote) {
-      const bundle = await loadPlanBundle(args.planId);
       const noteRows = buildUpdatedPlanCommentRows({
         planId: args.planId,
         comments: [
           {
-            parentCommentId: existing.id,
+            parentCommentId: threadRootId,
             kind: existing.kind,
-            status: "open" as const,
+            status: args.status,
             message: args.resolutionNote,
             createdBy: "agent" as const,
           },
@@ -172,36 +230,34 @@ export default defineAction({
         insertedNoteId = noteRow.id;
       }
     }
+    const allUpdatedCommentIds = insertedNoteId
+      ? [...updatedCommentIds, insertedNoteId]
+      : updatedCommentIds;
 
-    // Update the comment status.
-    await db
-      .update(schema.planComments)
-      .set({
-        status: args.status,
-        sectionId: existing.sectionId,
-        kind: existing.kind,
-        anchor: existing.anchor,
-        message: existing.message,
-        resolutionTarget: existing.resolutionTarget,
-        mentionsJson: existing.mentionsJson,
-        resolvedBy: resolution.resolvedBy,
-        resolvedAt: resolution.resolvedAt,
-        updatedAt: now,
-      })
-      .where(
-        and(
-          eq(schema.planComments.id, args.commentId),
-          eq(schema.planComments.planId, args.planId),
-          isNull(schema.planComments.deletedAt),
-        ),
-      );
+    for (const commentId of allUpdatedCommentIds) {
+      await db
+        .update(schema.planComments)
+        .set({
+          status: args.status,
+          resolvedBy: resolution.resolvedBy,
+          resolvedAt: resolution.resolvedAt,
+          updatedAt: now,
+        })
+        .where(
+          and(
+            eq(schema.planComments.id, commentId),
+            eq(schema.planComments.planId, args.planId),
+            isNull(schema.planComments.deletedAt),
+          ),
+        );
+    }
 
     await writeEvent({
       planId: args.planId,
       type: "plan.updated",
       message: `Comment ${args.commentId} ${args.status === "resolved" ? "resolved" : "reopened"}.`,
       payload: {
-        existingCommentIdsUpdated: [args.commentId],
+        existingCommentIdsUpdated: updatedCommentIds,
         insertedCommentIds: insertedNoteId ? [insertedNoteId] : [],
         resolutionNote: args.resolutionNote ?? null,
       },

@@ -46,7 +46,7 @@ export {
   type CodeAgentChatTranscriptEvent,
   type CreateCodeAgentChatAdapterOptions,
 } from "../code-agent-chat-adapter.js";
-export type * from "./runtime.js";
+export * from "./runtime.js";
 export { sendToAgentChat, type AgentChatMessage } from "../agent-chat.js";
 export { useAgentChatGenerating } from "../use-agent-chat.js";
 export { useSendToAgentChat } from "../use-send-to-agent-chat.js";

@@ -1,6 +1,6 @@
 {
   "name": "agent-native-visual-plans",
-  "version": "1.0.0+codex.d0dcd53dd871",
+  "version": "1.0.0+codex.d0b9e254c484",
   "description": "Create rich interactive visual plans and recaps with diagrams, file maps, annotated code and diffs, API/schema summaries, feedback, and HTML export.",
   "author": { "name": "Agent-Native", "url": "https://agent-native.com" },
   "homepage": "https://plan.agent-native.com",

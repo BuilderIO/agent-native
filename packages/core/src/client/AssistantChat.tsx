@@ -29,6 +29,10 @@ import {
   type AgentChatSurfaceKind,
 } from "./agent-chat-adapter.js";
 import {
+  createAgentChatRuntimeAdapter,
+  type AgentChatRuntime,
+} from "./chat/runtime.js";
+import {
   appendAgentChatContextToMessage,
   formatAgentChatContextItemsForPrompt,
   normalizeAgentChatContextItem,
@@ -695,6 +699,13 @@ export interface AssistantChatProps {
    * sidebar SSE adapter when omitted.
    */
   createAdapter?: (context: AssistantChatAdapterContext) => ChatModelAdapter;
+  /**
+   * Bring-your-own agent runtime. When supplied, AssistantChat keeps the
+   * standard composer/transcript/tool rendering shell but sends turns through
+   * this runtime instead of the built-in Agent-Native SSE endpoint. If
+   * `createAdapter` is also supplied, the adapter override takes precedence.
+   */
+  runtime?: AgentChatRuntime;
   /**
    * Explicitly recreate an injected adapter when the host transport identity
    * changes. Omit for the production sidebar so parent rerenders do not reset
@@ -3303,6 +3314,8 @@ export const AssistantChat = forwardRef<
   const surface = props.agentChatSurface ?? "app";
   const createAdapterRef = useRef(props.createAdapter);
   createAdapterRef.current = props.createAdapter;
+  const runtimeRef = useRef(props.runtime);
+  runtimeRef.current = props.runtime;
 
   const adapter = useMemo(
     () => {
@@ -3319,14 +3332,30 @@ export const AssistantChat = forwardRef<
         surface,
       };
       const createAdapter = createAdapterRef.current;
-      return createAdapter
-        ? createAdapter(context)
-        : createAgentChatAdapter(context);
+      if (createAdapter) return createAdapter(context);
+      const runtime = runtimeRef.current;
+      if (runtime) {
+        return createAgentChatRuntimeAdapter(runtime, {
+          sessionId: threadId ?? tabId,
+          threadId,
+          modelRef,
+          effortRef,
+        });
+      }
+      return createAgentChatAdapter(context);
     },
     // Adapter factories must be memoized and use refs for changing values.
     // `adapterReloadKey` is an explicit opt-in for embedded hosts whose
     // transport identity can change without changing tab/thread ids.
-    [apiUrl, tabId, threadId, browserTabId, surface, props.adapterReloadKey],
+    [
+      apiUrl,
+      tabId,
+      threadId,
+      browserTabId,
+      surface,
+      props.runtime,
+      props.adapterReloadKey,
+    ],
   );
   const attachmentAdapter = useMemo(
     () =>

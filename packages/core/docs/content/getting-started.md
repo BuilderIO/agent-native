@@ -13,6 +13,7 @@ Start with the path that matches what you want to do next:
 
 - **Use a starter app.** Browse the [template gallery](/templates). Hosted apps already include sign-in, data, and the agent sidebar. No install required.
 - **Build or customize your own app.** Continue with [Create a local app](#create-your-app). You'll scaffold a template, run it locally, then change the code, brand, data model, and integrations.
+- **Choose headless, chat, embedded, or full app.** Use [Agent Surfaces](/docs/agent-surfaces) when you know the workflow but not how much UI belongs around it.
 - **Add agent-native skills to a code tool.** Jump to [Try it with a skill](#try-with-a-skill) to add Plans or PR Recaps to Claude Code, Codex, or Cursor without scaffolding an app.
 - **Connect an external agent to an app.** Use [External Agents](/docs/external-agents) to connect Claude, ChatGPT, Codex, Cursor, OpenCode, GitHub Copilot / VS Code, or another MCP host to an existing app.
 
@@ -122,6 +123,7 @@ Once your app is running, the usual next step is small and concrete:
 Useful follow-up docs:
 
 - [Key Concepts](/docs/key-concepts) for the architecture: SQL, actions, polling sync, and context awareness
+- [Agent Surfaces](/docs/agent-surfaces) for choosing headless, rich chat, embedded sidecar, or full app
 - [Workspace](/docs/workspace) for instructions, skills, memory, and per-user MCP connections
 - [Messaging](/docs/messaging) for Slack, email, Telegram, and other ways to reach the agent
 - [FAQ](/docs/faq) for setup and product questions

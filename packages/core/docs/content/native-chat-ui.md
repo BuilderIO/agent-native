@@ -178,32 +178,79 @@ arbitrary query execution behind typed read actions rather than raw SQL in chat.
 
 ## BYO agent runtimes {#byo-agent-runtimes}
 
-Agent-Native ships the chat/runtime stack: thread persistence, streaming,
-attachments, tool calls, run recovery, approvals, suggestions, native widgets,
-and SQL-backed app state. In docs, `AgentChatRuntime` refers to that standard
-runtime posture, not a separate package you need to replace.
+`AgentChatRuntime` is the bring-your-own-agent contract for the chat shell. It
+lets an agent you built elsewhere stream normalized events into Agent-Native's
+conversation UI while keeping the shared composer, transcript rendering, tool
+cards, approvals, native widgets, and surrounding app layout. For how this fits
+with headless actions, embedded sidecars, and full applications, see
+[Agent Surfaces](/docs/agent-surfaces).
 
-For bring-your-own agent work, keep the action surface and app state as the
-contract:
+Use the generic HTTP runtime when your agent can expose a POST endpoint that
+returns SSE or NDJSON runtime events:
 
-- Use `createAgentChatAdapter()` or the `<AssistantChat createAdapter={...} />`
-  prop when you need a custom assistant-ui transport while keeping the standard
-  chat runtime.
-- Use `PromptComposer` only when your product owns the full external runtime
-  and wants the Agent-Native composer field without the standard transcript.
-- Treat AG-UI as the likely adapter shape for external event-stream runtimes.
-  It should adapt into Agent-Native actions, context, and native renderers
-  rather than creating a second app API.
-- Treat ACP as coding-agent/editor interoperability. It is useful for IDE
-  agents, but it is not the general BYO chat runtime contract for app users.
+```tsx
+import {
+  AssistantChat,
+  createHttpAgentChatRuntime,
+} from "@agent-native/core/client/chat";
 
-The goal is one operation model: actions, SQL state, context awareness, native
-widgets, MCP Apps, A2A, and MCP all wrap the same app capabilities instead of
-forking behavior per agent surface.
+const runtime = createHttpAgentChatRuntime({
+  id: "external:mastra",
+  label: "Mastra",
+  endpoint: "/api/mastra/chat",
+  headers: async () => ({
+    Authorization: `Bearer ${await getAgentToken()}`,
+  }),
+});
+
+export function SupportChat() {
+  return <AssistantChat runtime={runtime} threadId="support" />;
+}
+```
+
+The endpoint may stream the normalized event shape directly:
+
+```txt
+data: {"type":"message-start","message":{"id":"m1","role":"assistant","content":[]}}
+data: {"type":"message-delta","messageId":"m1","delta":{"type":"text","text":"Hello"}}
+data: {"type":"tool-start","toolCall":{"id":"t1","name":"query","input":{"q":"forms"}}}
+data: {"type":"tool-done","toolCallId":"t1","toolName":"query","status":"completed","resultText":"34 rows"}
+data: {"type":"done","reason":"complete"}
+```
+
+For very simple agents, a JSON response `{ "text": "..." }` is accepted and
+converted into a single assistant message. For richer agents, stream
+`message-*`, `tool-*`, `approval-request`, `status`, `artifact`, `file`,
+`usage`, `error`, and `done` events. Tool results can carry `mcpApp` or
+`chatUI` metadata, so action-declared native widgets still render without
+iframes.
+
+When you want the built-in Agent-Native transport as a runtime object, use:
+
+```ts
+import { createAgentNativeChatRuntime } from "@agent-native/core/client/chat";
+
+const runtime = createAgentNativeChatRuntime({
+  threadId: "forms-chat",
+  mode: "act",
+});
+```
+
+Use `<AssistantChat createAdapter={...} />` only when you need full
+assistant-ui adapter control. Use `PromptComposer` by itself when your product
+owns the entire external transcript and only wants Agent-Native's composer
+field.
+
+AG-UI is still an adapter target: it can be mapped into `AgentChatRuntime`
+events, actions, context, and native renderers over time. ACP remains
+coding-agent/editor interoperability, not the general app-chat runtime for end
+users. A2UI is not claimed as supported here; if it matures, it should adapt
+into this same explicit runtime/widget contract.
 
 ## Related docs {#related-docs}
 
 - [Actions](/docs/actions) — define the operations that return native widget data.
+- [Agent Surfaces](/docs/agent-surfaces) — decide whether you need headless, chat, sidecar, or full app.
 - [Drop-in Agent](/docs/drop-in-agent) — mount the standard chat runtime.
 - [Component API](/docs/components) — custom chat layers and tool renderers.
 - [MCP Apps](/docs/mcp-apps) — inline UI for external MCP hosts.

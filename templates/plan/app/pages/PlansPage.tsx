@@ -535,6 +535,63 @@ function assertLocalBridgeUrl(value: string): string {
   return url.toString();
 }
 
+const LOCAL_PLAN_BRIDGE_MAX_RETRIES = 5;
+
+export function shouldRetryLocalPlanBridgeBundle(
+  failureCount: number,
+  error: unknown,
+) {
+  const message = error instanceof Error ? error.message : String(error ?? "");
+  if (
+    message.includes("Local plan bridge URL") ||
+    message.includes("Local plan bridge must") ||
+    message.includes("Local plan bridge response was not")
+  ) {
+    return false;
+  }
+  return failureCount < LOCAL_PLAN_BRIDGE_MAX_RETRIES;
+}
+
+export function localPlanBridgeRetryDelay(attemptIndex: number) {
+  return Math.min(500 * 2 ** attemptIndex, 2_500);
+}
+
+/**
+ * Decide whether the hosted-plan render should surface the retryable load
+ * error card instead of the initial skeleton.
+ *
+ * A React Query read can be *paused* (browser offline, or the tab blurred
+ * during a retry backoff): in that state it never errors and never resolves,
+ * so `isError`/`isLoading`/`isFetching` are all false and `data` stays
+ * undefined. Without treating that as an error-like state the page sits on the
+ * initial skeleton forever until a manual refresh — exactly the "wasn't
+ * loading the content until I do another refresh" report. Surfacing the
+ * retry card lets the user recover; React Query also auto-resumes the paused
+ * fetch when the network/tab returns, which clears the card on its own.
+ */
+export function shouldShowPlanLoadError(input: {
+  hasSelectedId: boolean;
+  localPlanMode: boolean;
+  hasBundle: boolean;
+  planQueryPending: boolean;
+  planQueryError: boolean;
+  planQueryPaused: boolean;
+  accessStatusPending: boolean;
+  accessStatusPaused: boolean;
+  accessDenied: boolean;
+}): boolean {
+  if (!input.hasSelectedId || input.localPlanMode || input.hasBundle) {
+    return false;
+  }
+  // While a read is actively in flight, keep showing the skeleton.
+  if (input.planQueryPending) return false;
+  if (input.planQueryError) return true;
+  // Paused/stalled read that will never settle on its own input.
+  if (input.planQueryPaused || input.accessStatusPaused) return true;
+  if (!input.accessStatusPending && input.accessDenied) return true;
+  return false;
+}
+
 function localPlanRoutePath(slug: string, repoPath?: string | null): string {
   const base = appPath(`/local-plans/${encodeURIComponent(slug)}`);
   if (!repoPath) return base;
@@ -2774,6 +2831,8 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
     queryKey: ["local-plan-bridge", localPlanSlug, localPlanBridgeUrl],
     enabled: localPlanMode && Boolean(localPlanSlug && localPlanBridgeUrl),
     refetchOnWindowFocus: false,
+    retry: shouldRetryLocalPlanBridgeBundle,
+    retryDelay: localPlanBridgeRetryDelay,
     queryFn: () =>
       fetchLocalPlanBridgeBundle(localPlanBridgeUrl ?? "", localPlanSlug ?? ""),
   });
@@ -2929,12 +2988,20 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
     Boolean(selectedId && !bundle && !localPlanMode),
   );
   const planAccessStatus = planAccessStatusQuery.data ?? null;
-  const showPlanLoadError = Boolean(
-    selectedId &&
-    !localPlanMode &&
-    !bundle &&
-    (planQuery.isError || (planAccessStatus && !planAccessStatus.hasAccess)),
-  );
+  const planQueryPending = planQuery.isLoading || planQuery.isFetching;
+  const planAccessStatusPending =
+    planAccessStatusQuery.isLoading || planAccessStatusQuery.isFetching;
+  const showPlanLoadError = shouldShowPlanLoadError({
+    hasSelectedId: Boolean(selectedId),
+    localPlanMode,
+    hasBundle: Boolean(bundle),
+    planQueryPending,
+    planQueryError: planQuery.isError,
+    planQueryPaused: planQuery.isPaused,
+    accessStatusPending: planAccessStatusPending,
+    accessStatusPaused: planAccessStatusQuery.isPaused,
+    accessDenied: Boolean(planAccessStatus && !planAccessStatus.hasAccess),
+  });
   const showLocalPlanLoadError = Boolean(
     localPlanMode &&
     !bundle &&
@@ -4890,7 +4957,10 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
     clearPendingDocumentRestore();
     pendingDocumentRestoreRef.current = documentStateRef.current;
     commentMutationPendingRef.current = true;
-    void queryClient.cancelQueries({ queryKey: selectedPlanQueryKey });
+    // Await the cancel so an in-flight 3s poll can't resolve *after* our
+    // optimistic write and revert it (the "comment lagged / didn't stick"
+    // symptom). cancelQueries reverts outstanding fetches before we patch.
+    await queryClient.cancelQueries({ queryKey: selectedPlanQueryKey });
     queryClient.setQueryData(
       selectedPlanQueryKey,
       (current: PlanBundleWithHtml | undefined) =>
@@ -4899,7 +4969,7 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
     setFailedCommentDraft(null);
     clearInlineCommentDraft();
     setAnnotateMode(true);
-    void updatePlan
+    void updateCommentMutation
       .mutateAsync({
         planId: bundle.plan.id,
         comments: [commentInput],
@@ -5012,7 +5082,10 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
       updatedAt: now,
     };
     commentMutationPendingRef.current = true;
-    void queryClient.cancelQueries({ queryKey: selectedPlanQueryKey });
+    // Await the cancel so an in-flight 3s poll can't resolve *after* our
+    // optimistic write and revert it (the "comment lagged / didn't stick"
+    // symptom). cancelQueries reverts outstanding fetches before we patch.
+    await queryClient.cancelQueries({ queryKey: selectedPlanQueryKey });
     queryClient.setQueryData(
       selectedPlanQueryKey,
       (current: PlanBundleWithHtml | undefined) =>
@@ -5054,7 +5127,7 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
     }
   };
 
-  const setCommentThreadStatus = (
+  const setCommentThreadStatus = async (
     threadRootId: string,
     status: PlanBundle["comments"][number]["status"],
     fallbackAnchor?: PlanAnnotationAnchor | null,
@@ -5069,6 +5142,11 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
     // popover update without waiting for the server round-trip (Issue 3).
     const prevBundle =
       queryClient.getQueryData<PlanBundleWithHtml>(selectedPlanQueryKey);
+    commentMutationPendingRef.current = true;
+    // Await the cancel so an in-flight 3s poll can't resolve *after* our
+    // optimistic write and revert it (the "comment lagged / didn't stick"
+    // symptom). cancelQueries reverts outstanding fetches before we patch.
+    await queryClient.cancelQueries({ queryKey: selectedPlanQueryKey });
     queryClient.setQueryData(
       selectedPlanQueryKey,
       (current: PlanBundleWithHtml | undefined) => {
@@ -5084,7 +5162,6 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
       },
     );
     setActiveAnnotation(null);
-    commentMutationPendingRef.current = true;
     updateCommentMutation.mutate(
       {
         planId: bundle.plan.id,
@@ -5142,7 +5219,10 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
       queryClient.getQueryData<PlanBundleWithHtml>(selectedPlanQueryKey);
     const commentId = request.commentId;
     commentMutationPendingRef.current = true;
-    void queryClient.cancelQueries({ queryKey: selectedPlanQueryKey });
+    // Await the cancel so an in-flight 3s poll can't resolve *after* our
+    // optimistic write and revert it (the "comment lagged / didn't stick"
+    // symptom). cancelQueries reverts outstanding fetches before we patch.
+    await queryClient.cancelQueries({ queryKey: selectedPlanQueryKey });
     queryClient.setQueryData(
       selectedPlanQueryKey,
       (current: PlanBundleWithHtml | undefined) =>
@@ -6011,6 +6091,7 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
                   position={activeAnnotation.position}
                   isPending={updateCommentMutation.isPending}
                   pendingAuthor={pendingCommentAuthor}
+                  canEditRootComment={canEditPlanContent}
                   onSave={(message) =>
                     updateAnnotationComment(
                       activeAnnotation.annotation,
@@ -7339,6 +7420,33 @@ function EmptyPlan({
 }
 
 function LoggedOutEmptyPlan() {
+  const [installCommandCopied, setInstallCommandCopied] = useState(false);
+  const copyResetTimeoutRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (copyResetTimeoutRef.current) {
+        window.clearTimeout(copyResetTimeoutRef.current);
+      }
+    };
+  }, []);
+
+  const copyInstallCommand = useCallback(async () => {
+    try {
+      await navigator.clipboard.writeText(PLAN_SKILL_INSTALL_COMMAND);
+      setInstallCommandCopied(true);
+      toast.success("Install command copied");
+      if (copyResetTimeoutRef.current) {
+        window.clearTimeout(copyResetTimeoutRef.current);
+      }
+      copyResetTimeoutRef.current = window.setTimeout(() => {
+        setInstallCommandCopied(false);
+      }, 2200);
+    } catch {
+      toast.error("Could not copy install command");
+    }
+  }, []);
+
   return (
     <div className="flex h-full items-center justify-center p-6 sm:p-8">
       <div className="flex w-full max-w-lg -translate-y-10 flex-col items-center gap-3 text-center sm:-translate-y-16">
@@ -7353,15 +7461,47 @@ function LoggedOutEmptyPlan() {
           <p className="text-xs font-medium text-muted-foreground">
             Install once
           </p>
-          <code className="mt-2 block rounded-md bg-muted/40 px-3 py-2 font-mono text-xs leading-5 text-foreground">
-            {PLAN_SKILL_INSTALL_COMMAND}
-          </code>
+          <div className="mt-2 flex items-center gap-2 rounded-md bg-muted/40 p-1.5">
+            <code className="min-w-0 flex-1 overflow-x-auto px-2 py-1 font-mono text-xs leading-5 text-foreground">
+              {PLAN_SKILL_INSTALL_COMMAND}
+            </code>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={copyInstallCommand}
+              className="h-8 min-w-20 shrink-0 gap-1.5 px-2 text-xs text-muted-foreground hover:text-foreground"
+              aria-label={
+                installCommandCopied
+                  ? "Install command copied"
+                  : "Copy install command"
+              }
+            >
+              {installCommandCopied ? (
+                <IconCircleCheck className="size-3.5 text-emerald-600" />
+              ) : (
+                <IconCopy className="size-3.5" />
+              )}
+              {installCommandCopied ? "Copied" : "Copy"}
+            </Button>
+          </div>
           <p className="mt-3 text-xs leading-5 text-muted-foreground">
             Then ask for <code>/visual-plan</code> to create a plan, or{" "}
             <code>/visual-recap</code> for a PR recap, from Codex, Claude Code,
             or Cursor.
           </p>
         </div>
+        <Button
+          variant="ghost"
+          size="sm"
+          asChild
+          className="mt-1 text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300"
+        >
+          <a href={PLAN_DOCS_URL} target="_blank" rel="noreferrer">
+            <IconExternalLink className="size-4" />
+            View the docs
+          </a>
+        </Button>
       </div>
     </div>
   );
@@ -8952,6 +9092,7 @@ function AnnotationPopover({
   position,
   isPending,
   pendingAuthor,
+  canEditRootComment,
   onSave,
   onReply,
   canResolve,
@@ -8966,6 +9107,7 @@ function AnnotationPopover({
   position: InlineCommentPosition;
   isPending: boolean;
   pendingAuthor: CommentAuthorPresentation;
+  canEditRootComment: boolean;
   onSave: (message: string) => void;
   onReply: (threadRootId: string, message: string) => Promise<void>;
   canResolve: boolean;
@@ -9005,7 +9147,9 @@ function AnnotationPopover({
   const rootDeleteLabel = deleteCommentLabel(
     commentDescendantCount(annotationComments, rootComment.id),
   );
-  const canSave = messageDraft.message.trim().length > 0 && !isPending;
+  const canSave =
+    canEditRootComment && messageDraft.message.trim().length > 0 && !isPending;
+  const hasOptions = canResolve || canEditRootComment || canDelete;
   const resolver = normalizePlanCommentResolutionTarget(
     annotation.anchor.resolutionTarget,
   );
@@ -9074,55 +9218,59 @@ function AnnotationPopover({
           </Badge>
         </div>
         <div className="flex shrink-0 items-center gap-1">
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button
-                type="button"
-                size="icon"
-                variant="ghost"
-                className="size-8 shrink-0"
-                aria-label="Comment options"
-              >
-                <IconDotsVertical className="size-4" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent
-              align="end"
-              className="w-48 rounded-xl"
-              data-comment-popover-portal
-            >
-              {canResolve && (
-                <DropdownMenuItem
-                  className="gap-2"
-                  onClick={() =>
-                    onStatusChange(isResolved ? "open" : "resolved")
-                  }
+          {hasOptions && (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  type="button"
+                  size="icon"
+                  variant="ghost"
+                  className="size-8 shrink-0"
+                  aria-label="Comment options"
                 >
-                  <IconCircleCheck className="size-4" />
-                  {isResolved ? "Reopen thread" : "Mark as resolved"}
-                </DropdownMenuItem>
-              )}
-              <DropdownMenuItem
-                className="gap-2"
-                onClick={() => setEditing(true)}
+                  <IconDotsVertical className="size-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent
+                align="end"
+                className="w-48 rounded-xl"
+                data-comment-popover-portal
               >
-                <IconPencil className="size-4" />
-                Edit first comment
-              </DropdownMenuItem>
-              {canDelete && (
-                <>
-                  <DropdownMenuSeparator />
+                {canResolve && (
                   <DropdownMenuItem
-                    className="gap-2 text-destructive focus:text-destructive"
-                    onClick={onDelete}
+                    className="gap-2"
+                    onClick={() =>
+                      onStatusChange(isResolved ? "open" : "resolved")
+                    }
                   >
-                    <IconTrash className="size-4" />
-                    {rootDeleteLabel}
+                    <IconCircleCheck className="size-4" />
+                    {isResolved ? "Reopen thread" : "Mark as resolved"}
                   </DropdownMenuItem>
-                </>
-              )}
-            </DropdownMenuContent>
-          </DropdownMenu>
+                )}
+                {canEditRootComment && (
+                  <DropdownMenuItem
+                    className="gap-2"
+                    onClick={() => setEditing(true)}
+                  >
+                    <IconPencil className="size-4" />
+                    Edit first comment
+                  </DropdownMenuItem>
+                )}
+                {canDelete && (
+                  <>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem
+                      className="gap-2 text-destructive focus:text-destructive"
+                      onClick={onDelete}
+                    >
+                      <IconTrash className="size-4" />
+                      {rootDeleteLabel}
+                    </DropdownMenuItem>
+                  </>
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
           {canResolve && (
             <Tooltip>
               <TooltipTrigger asChild>

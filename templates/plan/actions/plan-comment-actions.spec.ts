@@ -430,6 +430,49 @@ describe("resolve-plan-comment", () => {
     expect(updates[0]?.resolvedAt).toBeNull();
   });
 
+  it("resolves every comment in the thread, not just the root", async () => {
+    const updates: Record<string, unknown>[] = [];
+    const db = makeDb([], updates, [
+      {
+        id: "root_cmt",
+        planId: "plan_1",
+        parentCommentId: null,
+        sectionId: null,
+        kind: "comment",
+        anchor: null,
+        message: "Original feedback",
+        createdBy: "human",
+        authorEmail: "reviewer@example.com",
+        resolutionTarget: "agent",
+        mentionsJson: null,
+        status: "open",
+      },
+    ]);
+    getDbMock.mockReturnValue(db);
+    loadPlanBundleMock.mockResolvedValue({
+      ...BASE_BUNDLE,
+      comments: [
+        BASE_BUNDLE.comments[0]!,
+        {
+          ...BASE_BUNDLE.comments[0]!,
+          id: "reply_cmt",
+          parentCommentId: "root_cmt",
+          message: "Follow-up detail",
+        },
+      ],
+    });
+
+    await runResolve({
+      planId: "plan_1",
+      commentId: "root_cmt",
+      status: "resolved",
+    });
+
+    expect(updates).toHaveLength(2);
+    expect(updates.every((patch) => patch.status === "resolved")).toBe(true);
+    expect(updates.every((patch) => patch.resolvedBy)).toBe(true);
+  });
+
   it("posts a resolutionNote reply before updating the status", async () => {
     const inserts: Record<string, unknown>[] = [];
     const updates: Record<string, unknown>[] = [];
@@ -464,9 +507,11 @@ describe("resolve-plan-comment", () => {
       (row) => row.message === "Fixed in commit abc123.",
     );
     expect(note).toBeDefined();
+    expect(note?.status).toBe("resolved");
     expect(result.resolutionNoteId).toBeDefined();
-    // The status update must have happened.
-    expect(updates[0]?.status).toBe("resolved");
+    // The original thread and the inserted note are both resolved, so the note
+    // cannot keep get-plan-feedback's thread status open.
+    expect(updates.every((patch) => patch.status === "resolved")).toBe(true);
   });
 
   it("throws a friendly error when the comment is not on the plan", async () => {

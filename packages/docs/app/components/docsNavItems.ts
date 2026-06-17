@@ -10,6 +10,7 @@ export const NAV_SECTIONS: NavSection[] = [
         label: "What Is Agent-Native?",
         to: "/docs/what-is-agent-native" as const,
       },
+      { label: "Agent Surfaces", to: "/docs/agent-surfaces" as const },
       { label: "Key Concepts", to: "/docs/key-concepts" as const },
       { label: "Template Catalog", to: "/docs/cloneable-saas" as const },
       { label: "Pure-Agent Apps", to: "/docs/pure-agent-apps" as const },

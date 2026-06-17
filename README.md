@@ -19,7 +19,7 @@ The agent and the UI are equal citizens of the same system. Every action works b
 - **Three shapes** — Build the same agent as a headless API, a rich chat experience, or a full application where agent and UI stay in sync.
 - **Apps that improve themselves** — Your apps get better on their own. The agent can add features, fix bugs, and refine the UI over time.
 - **Any database, any host** — Any SQL database Drizzle supports. Any hosting target Nitro supports. No lock-in.
-- **Bring the agent surface you need** — MCP-compatible hosts can call your apps, coding agents can install skills, native chat renders reusable app outputs, and AG-UI-style adapters can connect external runtimes to Agent-Native UI primitives over time.
+- **Bring the agent surface you need** — MCP-compatible hosts can call your apps, coding agents can install skills, native chat renders reusable app outputs, and BYO agent runtimes can stream into the Agent-Native chat shell.
 
 ## The framework for agent-native apps
 
@@ -50,13 +50,15 @@ export default defineAction({
 
 Agent-Native primitives let you choose how much UI to put around an agent without rebuilding the agent contract:
 
-| Shape         | What you ship                                                                                             | Same primitives underneath                                                         |
-| ------------- | --------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
-| **Headless**  | Call the agent and actions from code, CLI, HTTP, MCP, or A2A.                                             | `defineAction`, auth, skills, memory, jobs, observability                          |
-| **Rich chat** | A standalone or embedded chat with native tables, charts, approvals, setup flows, and tool results.       | Shared chat runtime, action-declared native renderers, MCP Apps for external hosts |
-| **Whole app** | A full SaaS/product UI where chat can start central, move to the sidebar, and stay synced with app state. | SQL state, actions, context awareness, deep links, live sync                       |
+| Shape         | What you ship                                                                                             | Same primitives underneath                                                  |
+| ------------- | --------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------- |
+| **Headless**  | Call the agent and actions from code, CLI, HTTP, MCP, or A2A.                                             | `defineAction`, auth, skills, memory, jobs, observability                   |
+| **Rich chat** | A standalone or embedded chat with native tables, charts, approvals, setup flows, and tool results.       | Shared chat runtime, BYO runtime adapters, action-declared native renderers |
+| **Whole app** | A full SaaS/product UI where chat can start central, move to the sidebar, and stay synced with app state. | SQL state, actions, context awareness, deep links, live sync                |
 
-Protocols come with the framework instead of becoming separate integrations per feature. Today that means A2A, MCP, MCP Apps, standard remote MCP OAuth, MCP clients, HTTP/CLI action calls, native chat widgets, and deep links all hang off the same action surface. AG-UI is a natural adapter path for bring-your-own agent runtimes; ACP is best understood as the coding-agent/editor interoperability protocol, not the general BYO app-chat runtime.
+Protocols come with the framework instead of becoming separate integrations per feature. Today that means A2A, MCP, MCP Apps, standard remote MCP OAuth, MCP clients, HTTP/CLI action calls, native chat widgets, `AgentChatRuntime` adapters, and deep links all hang off the same action surface. AG-UI is a natural future adapter path for bring-your-own agent runtimes; ACP is best understood as the coding-agent/editor interoperability protocol, not the general BYO app-chat runtime.
+
+For the full decision guide — headless, rich chat on the built-in agent, rich chat on your own agent, embedded sidecar, or full app — see [Agent Surfaces](https://agent-native.com/docs/agent-surfaces).
 
 To connect Claude, ChatGPT, Codex, Cursor, OpenCode, GitHub Copilot / VS Code, or another MCP host to your hosted app, see the [External Agents guide](https://agent-native.com/docs/external-agents).
 

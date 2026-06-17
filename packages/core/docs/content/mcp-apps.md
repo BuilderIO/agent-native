@@ -9,7 +9,7 @@ MCP Apps are the official `io.modelcontextprotocol/ui` extension that lets compa
 
 For connecting external agents and the broader MCP server setup, see [External Agents](/docs/external-agents) and [MCP Protocol](/docs/mcp-protocol). This page covers authoring MCP App resources and the embed bridge that powers them.
 
-Inside an Agent-Native app's own chat, prefer [native chat renderers](/docs/native-chat-ui) for first-party widgets such as tables, charts, setup cards, and approvals. Use MCP Apps for external/cross-host inline UI in Claude, ChatGPT, Copilot, Cursor, and other compatible hosts, with the action `link` as the universal deep-link fallback.
+Inside an Agent-Native app's own chat, prefer [native chat renderers](/docs/native-chat-ui) for first-party widgets such as tables, charts, typed results, and approval affordances. Use MCP Apps for external/cross-host inline UI in Claude, ChatGPT, Copilot, Cursor, and other compatible hosts, with the action `link` as the universal deep-link fallback.
 
 ## Authoring: optional MCP Apps UI {#mcp-apps}
 

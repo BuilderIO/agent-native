@@ -38,8 +38,10 @@ In local-files mode:
   `get-plan-blocks` route and sends no recap content. If network access is
   unavailable, use the bundled references and validate with
   `plan local check` / `plan local serve`. For `checklist` and `question-form`,
-  copy the catalog examples: checklist items need `id`, and question-form
-  questions/options need `id`.
+  copy the catalog examples verbatim: checklist items need `id` and `label`;
+  question-form questions need `id`, `title`, and `mode`; and each option needs
+  `id` and `label`. `plan local check` validates these required fields against
+  the renderer schema.
 - Write the recap as a local MDX folder: use `plans/<slug>/` when the user
   wants the artifact checked into the repo, or use a repo-ignored/temporary
   folder such as `.agent-native/plans/<slug>/` or `/tmp/agent-native-plans/<slug>/`

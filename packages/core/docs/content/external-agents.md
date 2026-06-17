@@ -13,6 +13,7 @@ The external-agent bridge closes the loop. First you connect your own agent to a
 ## Which agent path do you need? {#which-agent-path}
 
 - **External MCP host:** use this page when Claude, ChatGPT, Codex, Cursor, OpenCode, GitHub Copilot / VS Code, or another MCP-compatible host should call your hosted agent-native app.
+- **Your own runtime behind Agent-Native chat:** see [Agent Surfaces](/docs/agent-surfaces#byo-agent) and [Native Chat UI](/docs/native-chat-ui#byo-agent-runtimes) when an agent built with another framework should power `<AssistantChat runtime={...}>`.
 - **Your app consuming MCP tools:** see [MCP Clients](/docs/mcp-clients) when an agent-native app needs to call tools exposed by another MCP server.
 - **Another app or agent via A2A:** use [Agent Mentions](/docs/agent-mentions) and [A2A](/docs/a2a-protocol) when agent-native apps should discover and delegate to each other.
 - **Local custom sub-agents:** use [Workspace](/docs/workspace) when you want custom agent profiles inside the agent-native workspace itself.
