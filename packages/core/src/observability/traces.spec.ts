@@ -1,5 +1,13 @@
-import { describe, it, expect } from "vitest";
-import { redactSensitiveFields } from "./traces.js";
+import { afterEach, describe, it, expect } from "vitest";
+import { instrumentAgentLoop, redactSensitiveFields } from "./traces.js";
+import {
+  type AgentSpan,
+  SPAN_STATUS_ERROR,
+  SPAN_STATUS_OK,
+  __resetAgentTracerCache,
+  __setAgentTracerForTests,
+} from "./tracing.js";
+import { DEFAULT_OBSERVABILITY_CONFIG } from "./types.js";
 
 // M14 in the MCP/A2A audit: tool inputs persisted into trace spans can
 // include verbatim credentials (e.g. db-exec INSERTs that contain a raw
