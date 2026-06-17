@@ -1,5 +1,11 @@
 import { Link } from "react-router";
 import { useEffect, useRef, useState } from "react";
+import {
+  IconBrain,
+  IconDatabase,
+  IconRoute,
+  IconServer,
+} from "@tabler/icons-react";
 import { AgentNativeDemoVideo } from "../components/AgentNativeDemoVideo";
 import CodeBlock from "../components/CodeBlock";
 import Seascape from "../components/Seascape";
@@ -118,21 +124,25 @@ const frameworkPrimitives = [
   {
     title: "Actions",
     description: "Define work once. Use it from UI, agent, API, MCP, and A2A.",
+    icon: IconRoute,
   },
   {
     title: "Shared state",
     description:
       "SQL-backed app state keeps humans, agents, and sessions in sync.",
+    icon: IconDatabase,
   },
   {
     title: "Agent runtime",
     description:
       "Chat, tools, skills, memory, jobs, observability, and handoffs ship together.",
+    icon: IconBrain,
   },
   {
     title: "Backend agnostic",
     description:
       "Plug in any Drizzle-supported SQL database and Nitro-compatible host.",
+    icon: IconServer,
   },
 ];
 
@@ -381,10 +391,7 @@ export default function Home() {
           <div className="mx-auto max-w-[1200px]">
             <div className="grid gap-10 lg:grid-cols-[0.92fr_1.08fr] lg:items-center">
               <div>
-                <p className="mb-3 text-sm font-semibold text-[var(--docs-accent)]">
-                  Open source framework
-                </p>
-                <h2 className="mb-4 text-3xl font-bold tracking-tight md:text-4xl">
+                <h2 className="mb-4 max-w-[370px] text-3xl font-bold tracking-tight md:text-4xl">
                   The framework for agent-native apps
                 </h2>
                 <p className="mb-5 max-w-xl text-base leading-relaxed text-[var(--fg-secondary)]">
@@ -435,19 +442,29 @@ export default function Home() {
             </div>
 
             <div className="mt-10 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-              {frameworkPrimitives.map((primitive) => (
-                <div
-                  key={primitive.title}
-                  className="rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)] p-5"
-                >
-                  <h3 className="mb-2 text-base font-semibold">
-                    {primitive.title}
-                  </h3>
-                  <p className="m-0 text-sm leading-relaxed text-[var(--fg-secondary)]">
-                    {primitive.description}
-                  </p>
-                </div>
-              ))}
+              {frameworkPrimitives.map((primitive) => {
+                const PrimitiveIcon = primitive.icon;
+                return (
+                  <div
+                    key={primitive.title}
+                    className="rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)] p-5"
+                  >
+                    <div className="mb-4 flex size-9 items-center justify-center rounded-lg border border-[var(--docs-border)] bg-[var(--bg)] text-[var(--docs-accent)]">
+                      <PrimitiveIcon
+                        className="size-4"
+                        stroke={1.8}
+                        aria-hidden="true"
+                      />
+                    </div>
+                    <h3 className="mb-2 text-base font-semibold">
+                      {primitive.title}
+                    </h3>
+                    <p className="m-0 text-sm leading-relaxed text-[var(--fg-secondary)]">
+                      {primitive.description}
+                    </p>
+                  </div>
+                );
+              })}
             </div>
           </div>
         </section>
