@@ -34,7 +34,7 @@ function routeOwnsToolbar(pathname: string): boolean {
 // went immersive — they were stuck in app view and the full-screen toggle did
 // nothing.
 function isPlanDetailRoute(pathname: string): boolean {
-  return /^\/(plans|recaps)\/[^/]+/.test(pathname);
+  return /^\/(plans|recaps|local-plans)\/[^/]+/.test(pathname);
 }
 
 export function Layout({ children }: LayoutProps) {

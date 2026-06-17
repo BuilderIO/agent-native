@@ -9,14 +9,13 @@
  * SAME device-code/OAuth protocol as core.
  *
  * Two client families, exactly as in core:
- *   - OAuth-capable (claude-code, claude-code-cli): get a URL-only HTTP MCP
- *     entry (no bearer headers). The user authenticates in-host via standard
- *     remote MCP OAuth: restart Claude Code, run /mcp, choose Authenticate.
+ *   - OAuth-capable (Claude Code, Cursor, OpenCode, GitHub Copilot / VS Code):
+ *     get a URL-only HTTP MCP entry (no bearer headers). The user authenticates
+ *     in-host via standard remote MCP OAuth.
  *   - Device-code (codex, cowork): run the browser device-code flow against the
  *     descriptor's hosted URL, then write the entry WITH the minted bearer token
- *     + headers. Non-interactive (or no TTY) skips the flow and writes a
- *     URL-only entry, surfacing the exact `agent-native connect <url> --token`
- *     fallback command.
+ *     + headers. Non-interactive (or no TTY) skips writing device-code configs,
+ *     surfacing the exact `agent-native connect <url>` fallback command.
  *
  * Server contract (identical paths + JSON field names to core):
  *   POST <hostedUrl>/_agent-native/mcp/connect/device/start  (no auth)
@@ -43,7 +42,20 @@ const MCP_PATH = "/_agent-native/mcp";
 const REMOTE_MCP_OAUTH_CLIENTS = new Set<ClientId>([
   "claude-code",
   "claude-code-cli",
+  "cursor",
+  "opencode",
+  "github-copilot",
 ]);
+
+const CLIENT_LABELS: Record<ClientId, string> = {
+  "claude-code": "Claude Code",
+  "claude-code-cli": "Claude Code CLI",
+  codex: "Codex",
+  cowork: "Claude Cowork",
+  cursor: "Cursor",
+  opencode: "OpenCode",
+  "github-copilot": "GitHub Copilot / VS Code",
+};
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -278,6 +290,34 @@ function manualConnectGuidance(
     `To authenticate ${describeClients(clients)}, run: ` +
     fallbackConnectCommand(baseUrl, clients, scope)
   );
+}
+
+function oauthNextStepsForClients(
+  clients: ClientId[],
+  serverName?: string,
+): string[] {
+  const lines: string[] = [];
+  if (clients.includes("claude-code") || clients.includes("claude-code-cli")) {
+    lines.push(
+      "Claude Code: restart Claude Code, run /mcp, and choose Authenticate.",
+    );
+  }
+  if (clients.includes("cursor")) {
+    lines.push(
+      "Cursor: restart or reload Cursor, then authenticate the MCP server from Cursor MCP settings if prompted.",
+    );
+  }
+  if (clients.includes("opencode")) {
+    lines.push(
+      `OpenCode: run opencode mcp auth ${serverName ?? "<server-name>"} or authenticate on first use.`,
+    );
+  }
+  if (clients.includes("github-copilot")) {
+    lines.push(
+      "GitHub Copilot / VS Code: reload VS Code, open the MCP config, and use the Auth action above the server if prompted.",
+    );
+  }
+  return lines;
 }
 
 /** Write a token+headers entry for every config key, collecting files. */
@@ -519,7 +559,7 @@ export async function registerMcpServer(
     );
     guidance.push(
       `${describeClients(oauthClients)}: wrote URL-only MCP config (no bearer headers).`,
-      "Next: restart Claude Code, run /mcp, and choose Authenticate.",
+      ...oauthNextStepsForClients(oauthClients, descriptor.serverName),
     );
   }
 
@@ -588,7 +628,7 @@ export async function registerMcpServer(
 }
 
 function describeClients(clients: ClientId[]): string {
-  return clients.join(", ");
+  return clients.map((client) => CLIENT_LABELS[client]).join(", ");
 }
 
 /** Derive the `app` slug the device-start endpoint expects. */

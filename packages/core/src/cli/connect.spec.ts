@@ -206,11 +206,20 @@ describe("resolveClients", () => {
       "claude-code-cli",
       "codex",
       "cowork",
+      "cursor",
+      "opencode",
+      "github-copilot",
     ]);
   });
 
   it("returns a single client when named", () => {
     expect(resolveClients("codex")).toEqual(["codex"]);
+  });
+
+  it("accepts common GitHub Copilot / VS Code aliases", () => {
+    expect(resolveClients("copilot")).toEqual(["github-copilot"]);
+    expect(resolveClients("vscode")).toEqual(["github-copilot"]);
+    expect(resolveClients("vs-code")).toEqual(["github-copilot"]);
   });
 
   it("throws on an unknown client", () => {
@@ -222,6 +231,9 @@ describe("supportsRemoteMcpOAuth", () => {
   it("treats Claude Code clients as native remote MCP OAuth clients", () => {
     expect(supportsRemoteMcpOAuth("claude-code")).toBe(true);
     expect(supportsRemoteMcpOAuth("claude-code-cli")).toBe(true);
+    expect(supportsRemoteMcpOAuth("cursor")).toBe(true);
+    expect(supportsRemoteMcpOAuth("opencode")).toBe(true);
+    expect(supportsRemoteMcpOAuth("github-copilot")).toBe(true);
     expect(supportsRemoteMcpOAuth("codex")).toBe(false);
     expect(supportsRemoteMcpOAuth("cowork")).toBe(false);
   });

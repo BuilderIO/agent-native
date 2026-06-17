@@ -36,12 +36,13 @@ type LocalPlanPreviewInput = {
   kind?: LocalPlanKind;
   title?: string;
   brief?: string;
+  appUrl?: string;
 };
 
 type LocalPlanPreviewResult = {
   ok: true;
   dir: string;
-  out: string;
+  out?: string;
   url: string;
   title: string;
   kind: LocalPlanKind;
@@ -116,6 +117,24 @@ function normalizeKind(value: string | undefined): LocalPlanKind {
 
 function defaultPlansDir(): string {
   return path.resolve(process.env.PLAN_LOCAL_DIR || "plans");
+}
+
+function defaultLocalPlanAppUrl(): string {
+  return (
+    process.env.PLAN_LOCAL_APP_URL ||
+    process.env.PLAN_BASE_URL ||
+    "http://localhost:8096"
+  );
+}
+
+function normalizeAppUrl(value: string | undefined): string {
+  return (value || defaultLocalPlanAppUrl()).replace(/\/+$/, "");
+}
+
+function localPlanPreviewUrl(dir: string, appUrl?: string): string {
+  return `${normalizeAppUrl(appUrl)}/local-plans/${encodeURIComponent(
+    path.basename(path.resolve(dir)),
+  )}`;
 }
 
 function openLocalUrl(url: string): OpenLocalUrlResult {
@@ -443,6 +462,7 @@ export function writeLocalPlanPreview(input: {
   kind?: LocalPlanKind;
   title?: string;
   brief?: string;
+  appUrl?: string;
   open?: boolean;
   openUrl?: (url: string) => OpenLocalUrlResult;
 }): LocalPlanPreviewResult {
@@ -454,9 +474,11 @@ export function writeLocalPlanPreview(input: {
     parsed.frontmatter.title ||
     firstHeading(parsed.body) ||
     path.basename(dir);
-  const out = path.resolve(input.out || path.join(dir, "preview.html"));
-  fs.mkdirSync(path.dirname(out), { recursive: true });
-  fs.writeFileSync(out, buildLocalPlanPreviewHtml({ ...input, dir, kind }));
+  const out = input.out ? path.resolve(input.out) : undefined;
+  if (out) {
+    fs.mkdirSync(path.dirname(out), { recursive: true });
+    fs.writeFileSync(out, buildLocalPlanPreviewHtml({ ...input, dir, kind }));
+  }
   const files = [
     "plan.mdx",
     "canvas.mdx",
@@ -466,8 +488,8 @@ export function writeLocalPlanPreview(input: {
   const result: LocalPlanPreviewResult = {
     ok: true,
     dir,
-    out,
-    url: pathToFileURL(out).href,
+    ...(out ? { out } : {}),
+    url: out ? pathToFileURL(out).href : localPlanPreviewUrl(dir, input.appUrl),
     title,
     kind,
     files,
@@ -585,6 +607,7 @@ function runPreview(args: Record<string, string | boolean>): void {
   const result = writeLocalPlanPreview({
     dir: stringArg(args, "dir"),
     out: optionalArg(args, "out"),
+    appUrl: optionalArg(args, "app-url"),
     title: optionalArg(args, "title"),
     brief: optionalArg(args, "brief"),
     open: boolArg(args, "open"),
@@ -655,7 +678,7 @@ Usage:
   agent-native plan blocks [--format reference|schema] [--app-url <url>] [--out <file>] [--json]
   agent-native plan local init --title <title> [--brief <text>] [--kind plan|recap] [--dir <folder>] [--force]
   agent-native plan local check --dir <folder>
-  agent-native plan local preview --dir <folder> [--out preview.html] [--kind plan|recap] [--open]
+  agent-native plan local preview --dir <folder> [--app-url <url>] [--kind plan|recap] [--open] [--out preview.html]
 
 The blocks command fetches the no-auth, read-only get-plan-blocks catalog from
 the Plan app and writes plan-blocks.md (or plan-blocks.schema.json). It sends no
@@ -672,6 +695,10 @@ Common flow:
   agent-native plan blocks --out plan-blocks.md
   agent-native plan local init --title "Checkout review" --kind plan
   agent-native plan local preview --dir plans/checkout-review --open
+
+\`plan local preview\` opens the local Plan app route by default. Pass
+\`--app-url\` when your local Plan app is on a non-default port. \`--out\` is a
+legacy/debug escape hatch that writes a standalone static HTML file.
 `;
 
 export async function runPlan(argv: string[]): Promise<void> {

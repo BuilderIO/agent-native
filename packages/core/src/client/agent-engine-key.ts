@@ -4,9 +4,9 @@
  * Named client helper for storing a bring-your-own provider key (Anthropic,
  * OpenAI, etc.) so the agent chat can run without a Builder connection or an
  * account. The key is persisted by the framework under the matching provider
- * env var (e.g. ANTHROPIC_API_KEY) for the current owner, exactly like the
+ * key (e.g. ANTHROPIC_API_KEY) for the current user or org, exactly like the
  * LLM settings panel does — UI code should call this instead of hand-writing
- * a fetch to the framework env-vars route.
+ * a fetch to framework routes.
  */
 
 import { agentNativePath } from "./api-path.js";
@@ -23,8 +23,10 @@ const PROVIDER_ENV_VAR: Record<AgentEngineProvider, string> = {
 const CONFIGURED_CHANGED_EVENT = "agent-engine:configured-changed";
 
 export interface SaveAgentEngineApiKeyOptions {
-  provider: AgentEngineProvider;
+  provider?: AgentEngineProvider;
+  key?: string;
   apiKey: string;
+  scope?: "user" | "org";
 }
 
 /**
@@ -35,18 +37,26 @@ export interface SaveAgentEngineApiKeyOptions {
  */
 export async function saveAgentEngineApiKey({
   provider,
+  key,
   apiKey,
+  scope,
 }: SaveAgentEngineApiKeyOptions): Promise<void> {
   const trimmed = apiKey.trim();
   if (!trimmed) {
     throw new Error("Enter an API key first.");
   }
-  const envVar = PROVIDER_ENV_VAR[provider];
-  const res = await fetch(agentNativePath("/_agent-native/env-vars"), {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ vars: [{ key: envVar, value: trimmed }] }),
-  });
+  const envVar = key?.trim() || (provider ? PROVIDER_ENV_VAR[provider] : "");
+  if (!envVar) {
+    throw new Error("Choose an API key provider first.");
+  }
+  const res = await fetch(
+    agentNativePath("/_agent-native/agent-engine/api-key"),
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ key: envVar, value: trimmed, scope }),
+    },
+  );
   if (!res.ok) {
     const message = await res
       .json()

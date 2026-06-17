@@ -781,6 +781,7 @@ describe("recap prompt builder", () => {
     expect(prompt).toContain(
       "npx @agent-native/core@latest plan local preview",
     );
+    expect(prompt).not.toContain("preview.html");
     expect(prompt).toContain("recap-url.txt");
     expect(prompt).not.toContain("mcp__plan__create-visual-recap");
     expect(prompt).not.toContain("set-resource-visibility");

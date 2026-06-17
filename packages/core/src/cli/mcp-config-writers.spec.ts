@@ -5,8 +5,10 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import {
   buildHttpMcpEntry,
+  buildLocalMcpEntryForClient,
   canonicalUrl,
   hasJsonMcpEntry,
+  hasJsonMcpEntryForClient,
   removeCodexSameUrlDuplicates,
   removeJsonSameUrlDuplicates,
   writeHttpEntryForClient,
@@ -255,6 +257,98 @@ describe("writeHttpEntryForClient", () => {
     ).toThrow(/Cannot parse JSON config file/);
 
     expect(fs.readFileSync(file, "utf-8")).toBe(bad);
+  });
+
+  it("writes Cursor remote entries to .cursor/mcp.json", () => {
+    const dir = tmpDir();
+    const returned = writeHttpEntryForClient(
+      "cursor",
+      "plan",
+      "https://plan.agent-native.com/_agent-native/mcp",
+      undefined,
+      dir,
+      "project",
+    );
+
+    expect(returned).toBe(path.join(dir, ".cursor", "mcp.json"));
+    const written = JSON.parse(fs.readFileSync(returned, "utf-8"));
+    expect(written.mcpServers.plan).toEqual({
+      url: "https://plan.agent-native.com/_agent-native/mcp",
+    });
+    expect(hasJsonMcpEntryForClient("cursor", returned, "plan")).toBe(true);
+  });
+
+  it("writes OpenCode remote entries to opencode.json under mcp", () => {
+    const dir = tmpDir();
+    const returned = writeHttpEntryForClient(
+      "opencode",
+      "plan",
+      "https://plan.agent-native.com/_agent-native/mcp",
+      "tok_abc",
+      dir,
+      "project",
+    );
+
+    expect(returned).toBe(path.join(dir, "opencode.json"));
+    const written = JSON.parse(fs.readFileSync(returned, "utf-8"));
+    expect(written.mcp.plan).toEqual({
+      type: "remote",
+      url: "https://plan.agent-native.com/_agent-native/mcp",
+      enabled: true,
+      headers: { Authorization: "Bearer tok_abc" },
+    });
+    expect(hasJsonMcpEntryForClient("opencode", returned, "plan")).toBe(true);
+  });
+
+  it("writes GitHub Copilot / VS Code remote entries to .vscode/mcp.json under servers", () => {
+    const dir = tmpDir();
+    const returned = writeHttpEntryForClient(
+      "github-copilot",
+      "plan",
+      "https://plan.agent-native.com/_agent-native/mcp",
+      "tok_abc",
+      dir,
+      "project",
+    );
+
+    expect(returned).toBe(path.join(dir, ".vscode", "mcp.json"));
+    const written = JSON.parse(fs.readFileSync(returned, "utf-8"));
+    expect(written.servers.plan).toEqual({
+      type: "http",
+      url: "https://plan.agent-native.com/_agent-native/mcp",
+      requestInit: { headers: { Authorization: "Bearer tok_abc" } },
+    });
+    expect(hasJsonMcpEntryForClient("github-copilot", returned, "plan")).toBe(
+      true,
+    );
+  });
+});
+
+describe("buildLocalMcpEntryForClient", () => {
+  it("uses the OpenCode local command-array shape", () => {
+    expect(
+      buildLocalMcpEntryForClient("opencode", ["mcp", "serve"], {
+        ACCESS_TOKEN: "tok",
+      }),
+    ).toEqual({
+      type: "local",
+      command: ["agent-native", "mcp", "serve"],
+      enabled: true,
+      environment: { ACCESS_TOKEN: "tok" },
+    });
+  });
+
+  it("uses the VS Code stdio shape for GitHub Copilot", () => {
+    expect(
+      buildLocalMcpEntryForClient("github-copilot", ["mcp", "serve"], {
+        ACCESS_TOKEN: "tok",
+      }),
+    ).toEqual({
+      type: "stdio",
+      command: "agent-native",
+      args: ["mcp", "serve"],
+      env: { ACCESS_TOKEN: "tok" },
+    });
   });
 });
 

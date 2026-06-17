@@ -23,7 +23,8 @@ export function useNavigationState() {
     };
     const planMatch =
       location.pathname.match(/^\/plans\/([^/]+)/) ??
-      location.pathname.match(/^\/recaps\/([^/]+)/);
+      location.pathname.match(/^\/recaps\/([^/]+)/) ??
+      location.pathname.match(/^\/local-plans\/([^/]+)/);
     if (planMatch) state.planId = decodeURIComponent(planMatch[1]);
 
     fetch(agentNativePath("/_agent-native/application-state/navigation"), {
@@ -92,13 +93,18 @@ export function useNavigationState() {
 function viewForPath(pathname: string): string {
   // Recaps are a kind of plan; both detail routes map to the "plan" view so the
   // agent's navigation/selection state is the same surface regardless of route.
-  if (pathname.startsWith("/plans/") || pathname.startsWith("/recaps/")) {
+  if (
+    pathname.startsWith("/plans/") ||
+    pathname.startsWith("/recaps/") ||
+    pathname.startsWith("/local-plans/")
+  ) {
     return "plan";
   }
   if (
     pathname === "/" ||
     pathname.startsWith("/plans") ||
-    pathname.startsWith("/recaps")
+    pathname.startsWith("/recaps") ||
+    pathname.startsWith("/local-plans")
   ) {
     return "plans";
   }

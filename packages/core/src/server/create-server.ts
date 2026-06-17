@@ -280,7 +280,7 @@ export function createServer(
           setResponseStatus(event, 403);
           return {
             error:
-              "env-vars endpoint disabled on multi-tenant deployments. Use saveCredential(key, value, { userEmail, orgId, scope: 'org' }) to store per-org credentials.",
+              "env-vars endpoint disabled on multi-tenant deployments. Use scoped secrets or credentials for user/org API keys.",
           };
         }
 

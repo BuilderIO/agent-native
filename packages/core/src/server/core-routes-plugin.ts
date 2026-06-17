@@ -119,7 +119,11 @@ import { runWithRequestContext } from "./request-context.js";
 import { createVoiceProvidersStatusHandler } from "./voice-providers-status.js";
 import { PROVIDER_ENV_META } from "../agent/engine/provider-env-vars.js";
 import { DEFAULT_MODEL } from "../agent/default-model.js";
-import { canUseDeployCredentialFallbackForRequest } from "./credential-provider.js";
+import {
+  canUseDeployCredentialFallbackForRequest,
+  resolveSecret,
+} from "./credential-provider.js";
+import { createAgentEngineApiKeyHandler } from "./agent-engine-api-key-route.js";
 import {
   canUpdateAgentLoopSettings,
   readAgentLoopSettings,
@@ -1979,22 +1983,23 @@ export function createCoreRoutesPlugin(
                 /* org module not present in this template */
               }
             }
-            const canUseDeployEnv = await runWithRequestContext(
-              { userEmail, orgId },
-              () => canUseDeployCredentialFallbackForRequest(),
+            return Promise.all(
+              envKeys.map(async (cfg) => {
+                const isProviderKey = PROVIDER_ENV_VAR_KEYS.has(cfg.key);
+                const configured = isProviderKey
+                  ? await runWithRequestContext({ userEmail, orgId }, () =>
+                      resolveSecret(cfg.key).then(Boolean),
+                    )
+                  : !!process.env[cfg.key];
+                return {
+                  key: cfg.key,
+                  label: cfg.label,
+                  required: cfg.required ?? false,
+                  configured,
+                  ...(cfg.helpText ? { helpText: cfg.helpText } : {}),
+                };
+              }),
             );
-
-            return envKeys.map((cfg) => {
-              const isProviderKey = PROVIDER_ENV_VAR_KEYS.has(cfg.key);
-              return {
-                key: cfg.key,
-                label: cfg.label,
-                required: cfg.required ?? false,
-                configured:
-                  !!process.env[cfg.key] && (!isProviderKey || canUseDeployEnv),
-                ...(cfg.helpText ? { helpText: cfg.helpText } : {}),
-              };
-            });
           }),
         );
 
@@ -2016,7 +2021,7 @@ export function createCoreRoutesPlugin(
               setResponseStatus(event, 403);
               return {
                 error:
-                  "env-vars endpoint disabled on multi-tenant deployments. Use saveCredential(key, value, { userEmail, orgId, scope: 'org' }) to store per-org credentials.",
+                  "env-vars endpoint disabled on multi-tenant deployments. Use scoped secrets or credentials for user/org API keys.",
               };
             }
 
@@ -2104,6 +2109,11 @@ export function createCoreRoutesPlugin(
           }),
         );
       }
+
+      getH3App(nitroApp).use(
+        `${P}/agent-engine/api-key`,
+        createAgentEngineApiKeyHandler(),
+      );
 
       // GET /_agent-native/agent-engine/status — reports whether an engine
       // is configured (settings row, settings+env, or auto-detected from env).

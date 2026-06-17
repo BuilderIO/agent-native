@@ -292,6 +292,11 @@ describe("@agent-native/skills", () => {
     expect(options).toMatchObject({
       baseDir: project,
       catalogMode: "all",
+      hiddenBuiltInSkillTargets: [
+        "assets",
+        "design-exploration",
+        "context-xray",
+      ],
       publicSkillSource: repo,
       publicSkillEntries: [
         {
@@ -457,6 +462,53 @@ describe("@agent-native/skills", () => {
 
     expect(promptGithubAction).not.toHaveBeenCalled();
     expect(promptPlanMode).not.toHaveBeenCalled();
+    expect(
+      fs.existsSync(
+        path.join(project, ".github", "workflows", "pr-visual-recap.yml"),
+      ),
+    ).toBe(true);
+  });
+
+  it("prompts for the PR Visual Recap GitHub Action in direct local-files mode", async () => {
+    const repo = tmpDir();
+    const project = tmpDir();
+    writeSkill(repo, "visual-recap");
+    const promptGithubAction = vi.fn(async () => true);
+    vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+    const restoreDirect = enableDirectSkillsMode();
+
+    try {
+      await runSkillsCli(
+        [
+          "add",
+          "--copy",
+          repo,
+          "--skill",
+          "visual-recap",
+          "--client",
+          "codex",
+          "--scope",
+          "project",
+          "--mode",
+          "local-files",
+          "--no-mcp",
+        ],
+        {
+          baseDir: project,
+          isInteractive: () => true,
+          promptGithubAction,
+        },
+      );
+    } finally {
+      restoreDirect();
+    }
+
+    expect(promptGithubAction).toHaveBeenCalledTimes(1);
+    expect(promptGithubAction.mock.calls[0]?.[0]).toMatchObject({
+      workflowPath: path.join(".github", "workflows", "pr-visual-recap.yml"),
+      setupCommand: "npx @agent-native/core@latest recap setup",
+      docsUrl: "https://www.agent-native.com/docs/pr-visual-recap",
+    });
     expect(
       fs.existsSync(
         path.join(project, ".github", "workflows", "pr-visual-recap.yml"),
@@ -711,7 +763,14 @@ describe("@agent-native/skills", () => {
       yes: true,
     });
 
-    expect(result.clients).toEqual(["codex", "claude-code"]);
+    expect(result.clients).toEqual([
+      "codex",
+      "claude-code",
+      "pi",
+      "cursor",
+      "opencode",
+      "github-copilot",
+    ]);
     expect(
       fs.existsSync(
         path.join(project, ".agents", "skills", "quick-recap", "SKILL.md"),
@@ -722,6 +781,9 @@ describe("@agent-native/skills", () => {
         path.join(project, ".claude", "skills", "quick-recap", "SKILL.md"),
       ),
     ).toBe(true);
+    expect(
+      fs.existsSync(path.join(project, ".pi", "skills", "quick-recap")),
+    ).toBe(false);
   });
 
   it("adds an idempotent managed instruction block for quick-recap", async () => {

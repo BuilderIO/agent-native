@@ -36,9 +36,9 @@ const HELP = `npx @agent-native/core@latest skills
 
 Usage:
   npx @agent-native/core@latest skills list
-  npx @agent-native/core@latest skills status [assets|design-exploration|visual-plan|visual-recap|context-xray] [--client codex|claude-code|all] [--scope user|project] [--json]
-  npx @agent-native/core@latest skills update [assets|design-exploration|visual-plan|visual-recap|context-xray] [--client codex|claude-code|all] [--scope user|project] [--dry-run] [--json]
-  npx @agent-native/core@latest skills add assets|design-exploration|visual-plan|visual-recap|context-xray [--client codex|claude-code|claude-code-cli|cowork|all] [--scope user|project] [--mode hosted|local-files|self-hosted] [--mcp-url <url>] [--no-connect] [--with-github-action] [--yes] [--dry-run] [--json]
+  npx @agent-native/core@latest skills status [assets|design-exploration|visual-plan|visual-recap|context-xray] [--client codex|claude-code|pi|all] [--scope user|project] [--json]
+  npx @agent-native/core@latest skills update [assets|design-exploration|visual-plan|visual-recap|context-xray] [--client codex|claude-code|pi|all] [--scope user|project] [--dry-run] [--json]
+  npx @agent-native/core@latest skills add assets|design-exploration|visual-plan|visual-recap|context-xray [--client codex|claude-code|claude-code-cli|cowork|cursor|opencode|github-copilot|all] [--scope user|project] [--mode hosted|local-files|self-hosted] [--mcp-url <url>] [--no-connect] [--with-github-action] [--yes] [--dry-run] [--json]
   npx @agent-native/core@latest skills add <manifest-or-app-dir|skill-repo> [--skill <name>] [--client ...] [--yes]
 
 Examples:
@@ -61,11 +61,14 @@ Examples:
 
 The add command installs the SKILL.md instructions, registers the app-backed
 MCP connector, and then authenticates it in one step so you do not hit an OAuth
-wall on the first tool call. By default, add targets every supported local
-client this CLI can configure (Claude Code, Codex, and Cowork);
-pass --client to narrow it. Authentication reuses "npx @agent-native/core@latest connect":
-OAuth-capable clients (Claude Code) get a URL-only entry and a /mcp authenticate
-prompt, while Codex / Cowork run the browser device-code flow. In a
+wall on the first tool call. Hosted installs can configure Claude Code, Codex,
+Claude Cowork, Cursor, OpenCode, and GitHub Copilot / VS Code; local-files
+instruction installs target the shared .agents skill path used by Codex, Pi,
+Cursor, OpenCode, Copilot, and similar agents, plus Claude Code's native skill
+path when selected. Pass --client to narrow it. Authentication reuses
+"npx @agent-native/core@latest connect": OAuth-capable clients (Claude Code,
+Cursor, OpenCode, GitHub Copilot / VS Code) get URL-only entries and authenticate
+inside that host, while Codex / Cowork run the browser device-code flow. In a
 non-interactive shell or CI the auth step is skipped and the exact
 "npx @agent-native/core@latest connect <url> --client all" command is printed instead.
 
@@ -88,7 +91,7 @@ MDX folders, and local preview.
 When installing visual-recap interactively, the CLI offers to add the optional PR
 Visual Recap GitHub Action. Pass --with-github-action to write it directly, then
 run "npx @agent-native/core@latest recap setup" / "npx @agent-native/core@latest recap doctor" to configure and
-verify GitHub Actions.
+verify GitHub Actions. Docs: https://www.agent-native.com/docs/pr-visual-recap.
 
 The status/update commands inspect copied Agent Native skill folders and refresh
 their instruction files from the current @agent-native/core package.`;
@@ -2305,6 +2308,9 @@ const CLIENT_LABELS: Record<ClientId, string> = {
   "claude-code-cli": "Claude Code CLI",
   codex: "Codex",
   cowork: "Claude Cowork",
+  cursor: "Cursor",
+  opencode: "OpenCode",
+  "github-copilot": "GitHub Copilot / VS Code",
 };
 
 const CLIENT_HINTS: Record<ClientId, string> = {
@@ -2312,16 +2318,47 @@ const CLIENT_HINTS: Record<ClientId, string> = {
   "claude-code-cli": ".mcp.json or ~/.claude.json",
   codex: "$CODEX_HOME/config.toml or ~/.codex/config.toml",
   cowork: "~/.cowork/mcp.json",
+  cursor: ".cursor/mcp.json or ~/.cursor/mcp.json",
+  opencode: "opencode.json or ~/.config/opencode/opencode.json",
+  "github-copilot": ".vscode/mcp.json or VS Code user mcp.json",
 };
 
-const SKILLS_CLIENTS: ClientId[] = ["claude-code", "codex", "cowork"];
-const SKILL_INSTRUCTION_CLIENTS: ClientId[] = ["claude-code", "codex"];
-const SKILL_INSTRUCTION_CLIENT_HINTS: Record<ClientId, string> = {
-  "claude-code": ".claude/skills or .claude/commands",
-  "claude-code-cli": ".claude/skills or .claude/commands",
-  codex: ".agents/skills or ~/.codex/skills",
+type SkillInstructionClientId = ClientId | "pi";
+
+const SKILLS_CLIENTS: ClientId[] = [
+  "claude-code",
+  "codex",
+  "cowork",
+  "cursor",
+  "opencode",
+  "github-copilot",
+];
+const SKILL_INSTRUCTION_CLIENTS: SkillInstructionClientId[] = [
+  "codex",
+  "claude-code",
+  "pi",
+];
+const SKILL_INSTRUCTION_CLIENT_LABELS: Record<
+  SkillInstructionClientId,
+  string
+> = {
+  "claude-code": "Claude Code",
+  "claude-code-cli": "Claude Code",
+  codex: "Shared .agents skills",
   cowork: "MCP only",
+  pi: "Pi",
 };
+const SKILL_INSTRUCTION_CLIENT_HINTS: Record<SkillInstructionClientId, string> =
+  {
+    "claude-code":
+      "Also write Claude Code's native .claude/skills and commands files.",
+    "claude-code-cli":
+      "Also write Claude Code's native .claude/skills and commands files.",
+    codex:
+      "Project scope writes .agents skills/commands for Codex, Pi, Cursor, OpenCode, Copilot, and similar agents; user scope writes Codex's ~/.codex skills/commands.",
+    cowork: "MCP only",
+    pi: "Project scope writes .agents/skills plus .pi/prompts; user scope writes ~/.agents/skills plus ~/.pi/agent/prompts.",
+  };
 
 type SkillsCommand = "list" | "add" | "status" | "update" | "help";
 type PlanInstallMode = "hosted" | "local-files" | "self-hosted";
@@ -2332,7 +2369,7 @@ export interface ParsedSkillsArgs {
   baseDir?: string;
   client: string;
   clientExplicit: boolean;
-  clients?: ClientId[];
+  clients?: SkillInstructionClientId[];
   plainSkillNames?: string[];
   scope: string;
   scopeExplicit: boolean;
@@ -2500,11 +2537,16 @@ export interface RunSkillsOptions {
    * user-facing flow; the wrapper owns materializing the broader catalog.
    */
   publicSkillEntries?: PublicSkillCatalogEntry[];
+  /**
+   * Built-in Agent Native skill prompt/list entries to hide for wrapper CLIs.
+   * Direct installs by explicit name still work; this only controls discovery.
+   */
+  hiddenBuiltInSkillTargets?: string[];
   isInteractive?: () => boolean;
   log?: (message: string) => void;
   promptClients?: (
     context: SkillsClientPromptContext,
-  ) => Promise<ClientId[] | null>;
+  ) => Promise<SkillInstructionClientId[] | null>;
   promptSkills?: (
     context: SkillsTargetPromptContext,
   ) => Promise<string[] | null>;
@@ -2540,8 +2582,12 @@ export interface RunSkillsOptions {
 }
 
 interface SkillsClientPromptContext {
-  initialClients: ClientId[];
-  options: Array<{ value: ClientId; label: string; hint: string }>;
+  initialClients: SkillInstructionClientId[];
+  options: Array<{
+    value: SkillInstructionClientId;
+    label: string;
+    hint: string;
+  }>;
   installsMcp: boolean;
 }
 
@@ -2553,6 +2599,7 @@ interface SkillsTargetPromptContext {
 interface SkillsGithubActionPromptContext {
   workflowPath: string;
   setupCommand: string;
+  docsUrl: string;
 }
 
 interface SkillsScopePromptContext {
@@ -2777,16 +2824,70 @@ function builtInSkillsRootForAgent(
 ): string {
   const home = homeDir() ?? baseDir;
   if (scope === "project") {
-    return agent === "codex"
-      ? path.join(baseDir, ".agents", "skills")
-      : path.join(baseDir, ".claude", "skills");
+    if (agent === "codex") return path.join(baseDir, ".agents", "skills");
+    if (agent === "pi") return path.join(baseDir, ".agents", "skills");
+    return path.join(baseDir, ".claude", "skills");
   }
   if (agent === "codex") {
     return process.env.CODEX_HOME
       ? path.join(process.env.CODEX_HOME, "skills")
       : path.join(home, ".codex", "skills");
   }
+  if (agent === "pi") {
+    return path.join(home, ".agents", "skills");
+  }
   return path.join(home, ".claude", "skills");
+}
+
+function builtInCommandsRootForAgent(
+  agent: string,
+  scope: "project" | "user",
+  baseDir: string,
+): string {
+  const home = homeDir() ?? baseDir;
+  if (scope === "project") {
+    if (agent === "codex") return path.join(baseDir, ".agents", "commands");
+    if (agent === "pi") return path.join(baseDir, ".pi", "prompts");
+    return path.join(baseDir, ".claude", "commands");
+  }
+  if (agent === "codex") {
+    return process.env.CODEX_HOME
+      ? path.join(process.env.CODEX_HOME, "commands")
+      : path.join(home, ".codex", "commands");
+  }
+  if (agent === "pi") {
+    const piHome =
+      process.env.PI_CODING_AGENT_DIR || path.join(home, ".pi", "agent");
+    return path.join(piHome, "prompts");
+  }
+  return path.join(home, ".claude", "commands");
+}
+
+function slashCommandForBuiltInSkill(skillName: string): string | null {
+  if (skillName === "visual-plan") {
+    return `---
+description: Create an interactive Agent-Native visual plan for the current task.
+argument-hint: [optional request or scope]
+---
+
+Use the visual-plan skill for this task. Treat any arguments as the user's
+requested plan scope or focus:
+
+$ARGUMENTS
+`;
+  }
+  if (skillName === "visual-recap") {
+    return `---
+description: Create an interactive Agent-Native visual recap for a PR, branch, commit, or diff.
+argument-hint: [PR, branch, commit, diff, or scope]
+---
+
+Use the visual-recap skill. Treat any arguments as the recap target or focus:
+
+$ARGUMENTS
+`;
+  }
+  return null;
 }
 
 /**
@@ -2817,10 +2918,24 @@ function installBuiltInInstructions(input: {
   const written: string[] = [];
   for (const agent of input.skillsAgents) {
     const root = builtInSkillsRootForAgent(agent, input.scope, input.baseDir);
+    const commandsRoot = builtInCommandsRootForAgent(
+      agent,
+      input.scope,
+      input.baseDir,
+    );
     for (const bundle of bundles) {
       const dir = path.join(root, bundle.skillName);
       if (!input.dryRun) writeSkillFolder(dir, bundle);
       written.push(dir);
+      const command = slashCommandForBuiltInSkill(bundle.skillName);
+      if (command) {
+        const commandPath = path.join(commandsRoot, `${bundle.skillName}.md`);
+        if (!input.dryRun) {
+          fs.mkdirSync(path.dirname(commandPath), { recursive: true });
+          fs.writeFileSync(commandPath, command, "utf-8");
+        }
+        written.push(commandPath);
+      }
     }
   }
   return written;
@@ -2869,7 +2984,7 @@ function homeDir(): string | undefined {
 
 function skillSearchRoots(input: {
   baseDir: string;
-  clients: ClientId[];
+  clients: SkillInstructionClientId[];
   scopes: Array<"project" | "user">;
 }): Array<{
   root: string;
@@ -2881,9 +2996,10 @@ function skillSearchRoots(input: {
     scope: "project" | "user";
     client: string;
   }> = [];
-  const clientSet = new Set(input.clients);
+  const clientSet = new Set<SkillInstructionClientId>(input.clients);
   const includeAll = input.clients.length === 0;
-  const hasClient = (client: ClientId) => includeAll || clientSet.has(client);
+  const hasClient = (client: SkillInstructionClientId) =>
+    includeAll || clientSet.has(client);
   const add = (
     root: string | undefined,
     scope: "project" | "user",
@@ -2902,6 +3018,10 @@ function skillSearchRoots(input: {
         "project",
         "claude-code",
       );
+    }
+    if (hasClient("pi")) {
+      add(path.join(input.baseDir, ".agents", "skills"), "project", "pi");
+      add(path.join(input.baseDir, ".pi", "skills"), "project", "pi");
     }
     if (includeAll) add(path.join(input.baseDir, "skills"), "project", "repo");
   }
@@ -2928,6 +3048,17 @@ function skillSearchRoots(input: {
         "user",
         "claude-code",
       );
+    }
+    if (hasClient("pi")) {
+      const piHome =
+        process.env.PI_CODING_AGENT_DIR ||
+        (home ? path.join(home, ".pi", "agent") : undefined);
+      add(
+        home ? path.join(home, ".agents", "skills") : undefined,
+        "user",
+        "pi",
+      );
+      add(piHome ? path.join(piHome, "skills") : undefined, "user", "pi");
     }
   }
 
@@ -2968,8 +3099,10 @@ function scopeFilterForStatus(
     : ["project", "user"];
 }
 
-function clientFilterForStatus(parsed: ParsedSkillsArgs): ClientId[] {
-  return parsed.clientExplicit ? resolveClients(parsed.client) : [];
+function clientFilterForStatus(
+  parsed: ParsedSkillsArgs,
+): SkillInstructionClientId[] {
+  return parsed.clientExplicit ? resolveSkillsClientArg(parsed.client) : [];
 }
 
 function collectSkillInstallStates(
@@ -3065,11 +3198,27 @@ function normalizeClientIds(values: unknown): ClientId[] {
   return out;
 }
 
-function normalizeSkillsClientIds(values: unknown): ClientId[] {
-  const seen = new Set<ClientId>();
-  const out: ClientId[] = [];
-  for (const client of normalizeClientIds(values)) {
-    const normalized = client === "claude-code-cli" ? "claude-code" : client;
+function isMcpClientId(value: SkillInstructionClientId): value is ClientId {
+  return (CLIENTS as string[]).includes(value);
+}
+
+function normalizeSkillInstructionClientIds(
+  values: unknown,
+): SkillInstructionClientId[] {
+  if (!Array.isArray(values)) return [];
+  const seen = new Set<SkillInstructionClientId>();
+  const out: SkillInstructionClientId[] = [];
+  for (const value of values) {
+    if (typeof value !== "string") continue;
+    const id = value.toLowerCase();
+    let normalized: SkillInstructionClientId | null = null;
+    if (id === "pi") {
+      normalized = "pi";
+    } else if ((CLIENTS as string[]).includes(id)) {
+      const client = id as ClientId;
+      normalized = client === "claude-code-cli" ? "claude-code" : client;
+    }
+    if (!normalized) continue;
     if (seen.has(normalized)) continue;
     seen.add(normalized);
     out.push(normalized);
@@ -3077,19 +3226,36 @@ function normalizeSkillsClientIds(values: unknown): ClientId[] {
   return out;
 }
 
-function resolveSkillsClientArg(client: string): ClientId[] {
-  return normalizeSkillsClientIds(resolveClients(client));
+function resolveSkillsClientArg(
+  client: string,
+  installsMcp = false,
+): SkillInstructionClientId[] {
+  if (installsMcp)
+    return normalizeSkillInstructionClientIds(resolveClients(client));
+  const values = client.split(",").flatMap((raw) => {
+    const id = raw.trim().toLowerCase();
+    if (!id) return [];
+    if (id === "all") return SKILL_INSTRUCTION_CLIENTS;
+    if (id === "pi") return ["pi" as const];
+    return resolveClients(id);
+  });
+  return normalizeSkillInstructionClientIds(values);
 }
 
-function skillsClients(installsMcp: boolean): ClientId[] {
+function skillsClients(installsMcp: boolean): SkillInstructionClientId[] {
   return installsMcp ? SKILLS_CLIENTS : SKILL_INSTRUCTION_CLIENTS;
 }
 
 function filterSkillsClients(
-  clients: ClientId[],
+  clients: SkillInstructionClientId[],
   installsMcp: boolean,
-): ClientId[] {
-  if (installsMcp) return clients;
+): SkillInstructionClientId[] {
+  if (installsMcp) {
+    return clients.filter(
+      (client): client is ClientId =>
+        isMcpClientId(client) && SKILLS_CLIENTS.includes(client),
+    );
+  }
   return clients.filter((client) => SKILL_INSTRUCTION_CLIENTS.includes(client));
 }
 
@@ -3098,10 +3264,14 @@ function clientPromptOptions(
 ): SkillsClientPromptContext["options"] {
   return skillsClients(installsMcp).map((client) => ({
     value: client,
-    label: CLIENT_LABELS[client],
-    hint: installsMcp
-      ? CLIENT_HINTS[client]
-      : SKILL_INSTRUCTION_CLIENT_HINTS[client],
+    label:
+      installsMcp && isMcpClientId(client)
+        ? CLIENT_LABELS[client]
+        : SKILL_INSTRUCTION_CLIENT_LABELS[client],
+    hint:
+      installsMcp && isMcpClientId(client)
+        ? CLIENT_HINTS[client]
+        : SKILL_INSTRUCTION_CLIENT_HINTS[client],
   }));
 }
 
@@ -3137,6 +3307,23 @@ const BUILT_IN_SKILL_PROMPT_OPTIONS: SkillsTargetPromptContext["options"] = [
 ];
 
 const DEFAULT_SKILL_PROMPT_TARGETS = ["visual-plan", "visual-recap"];
+
+function hiddenBuiltInSkillTargets(options: RunSkillsOptions): Set<string> {
+  return new Set(
+    (options.hiddenBuiltInSkillTargets ?? []).map((target) =>
+      target.trim().toLowerCase(),
+    ),
+  );
+}
+
+function builtInSkillPromptOptions(
+  options: RunSkillsOptions,
+): SkillsTargetPromptContext["options"] {
+  const hidden = hiddenBuiltInSkillTargets(options);
+  return BUILT_IN_SKILL_PROMPT_OPTIONS.filter(
+    (entry) => !hidden.has(entry.value),
+  );
+}
 
 function publicSkillEntries(
   options: RunSkillsOptions,
@@ -3177,7 +3364,7 @@ function skillPromptOptions(
   options: RunSkillsOptions = {},
 ): SkillsTargetPromptContext["options"] {
   return [
-    ...BUILT_IN_SKILL_PROMPT_OPTIONS,
+    ...builtInSkillPromptOptions(options),
     ...publicSkillPromptOptions(options),
   ];
 }
@@ -3210,6 +3397,9 @@ function prVisualRecapWorkflowDisplayPath(): string {
   return path.join(".github", "workflows", "pr-visual-recap.yml");
 }
 
+const PR_VISUAL_RECAP_DOCS_URL =
+  "https://www.agent-native.com/docs/pr-visual-recap";
+
 function prVisualRecapInstallCommand(): string {
   return "npx @agent-native/core@latest skills add visual-recap --with-github-action";
 }
@@ -3228,6 +3418,7 @@ async function promptForGithubAction(
       "  Posts a human-friendly recap on every pull request — a high-altitude\n" +
       "  overview of what the PR does, with annotated code, diagrams, and\n" +
       "  before/after notes instead of a raw diff.\n" +
+      `  Learn more: ${PR_VISUAL_RECAP_DOCS_URL}\n` +
       `  Writes ${context.workflowPath}; ${context.setupCommand} finishes the GitHub secrets.`,
     initialValue: false,
   });
@@ -3248,12 +3439,12 @@ function shouldPrompt(parsed: ParsedSkillsArgs, options: RunSkillsOptions) {
 
 async function promptForClients(
   context: SkillsClientPromptContext,
-): Promise<ClientId[] | null> {
+): Promise<SkillInstructionClientId[] | null> {
   const clack = await import("@clack/prompts");
   const message = context.installsMcp
-    ? "Install the MCP connector and skills for which local agents?\n" +
+    ? "Install the MCP connector for which clients?\n" +
       "  (space toggles, enter confirms; saved for next time)"
-    : "Install skill instructions for which local agents?\n" +
+    : "Where should the skill instructions be written?\n" +
       "  (space toggles, enter confirms; saved for next time)";
   const result = await clack.multiselect({
     message,
@@ -3265,7 +3456,7 @@ async function promptForClients(
     clack.cancel("Cancelled.");
     return null;
   }
-  return normalizeClientIds(result);
+  return normalizeSkillInstructionClientIds(result);
 }
 
 async function promptForScope(
@@ -3304,7 +3495,7 @@ async function promptForPlanMode(
     options: [
       {
         value: "hosted",
-        label: "Hosted Plans, shareable links",
+        label: "Hosted Plans, shareable links (recommended)",
         hint: "100% free and open source. Stores plans at plan.agent-native.com with sharing, comments, and browser editor. Requires one-time browser sign-in.",
       },
       {
@@ -3386,22 +3577,24 @@ async function resolveSkillsClients(
   parsed: ParsedSkillsArgs,
   options: RunSkillsOptions,
   installsMcp: boolean,
-): Promise<ClientId[] | null> {
+): Promise<SkillInstructionClientId[] | null> {
   if (parsed.clientExplicit || !shouldPrompt(parsed, options)) {
     const clients = filterSkillsClients(
-      resolveSkillsClientArg(parsed.client),
+      resolveSkillsClientArg(parsed.client, installsMcp),
       installsMcp,
     );
     if (clients.length === 0) {
       throw new Error(
-        "Local-file skill instructions only support Codex or Claude Code clients.",
+        installsMcp
+          ? "MCP setup supports Claude Code, Codex, Claude Cowork, Cursor, OpenCode, or GitHub Copilot / VS Code clients. Use --mode local-files or --no-mcp for Pi."
+          : "Skill instructions use shared .agents for Codex, Pi, Cursor, OpenCode, Copilot, and similar agents, or Claude Code's native files.",
       );
     }
     return clients;
   }
   const initialClients = skillsClients(installsMcp);
   const prompt = options.promptClients ?? promptForClients;
-  const selected = normalizeSkillsClientIds(
+  const selected = normalizeSkillInstructionClientIds(
     await prompt({
       initialClients,
       options: clientPromptOptions(installsMcp),
@@ -3411,7 +3604,7 @@ async function resolveSkillsClients(
   if (selected.length === 0) return null;
   if (!parsed.dryRun) {
     try {
-      writeConnectClientPreferences(selected);
+      writeConnectClientPreferences(selected.filter(isMcpClientId));
     } catch {}
   }
   return selected;
@@ -3728,13 +3921,14 @@ function loadSkillTarget(
   };
 }
 
-function skillsAgentsForClients(clients: ClientId[]): string[] {
+function skillsAgentsForClients(clients: SkillInstructionClientId[]): string[] {
   const agents = new Set<string>();
   for (const client of clients) {
     if (client === "codex") agents.add("codex");
     if (client === "claude-code" || client === "claude-code-cli") {
       agents.add("claude-code");
     }
+    if (client === "pi") agents.add("pi");
   }
   return [...agents];
 }
@@ -3748,8 +3942,9 @@ function commandString(cmd: string, args: string[]): string {
   return [cmd, ...args].map(shellArg).join(" ");
 }
 
-function clientArgForClients(clients: ClientId[]): string {
-  if (clients.length === CLIENTS.length) return "all";
+function clientArgForClients(clients: SkillInstructionClientId[]): string {
+  if (clients.length === CLIENTS.length && clients.every(isMcpClientId))
+    return "all";
   if (clients.length === 1) return clients[0];
   return clients.join(",");
 }
@@ -3787,7 +3982,9 @@ function dryRunInstallCommand(
   parsed: ParsedSkillsArgs,
   target: string,
 ): string {
-  const clients = parsed.clients ?? resolveSkillsClientArg(parsed.client);
+  const clients =
+    parsed.clients ??
+    resolveSkillsClientArg(parsed.client, targetInstallsMcp(target, parsed));
   const args = [
     "@agent-native/core@latest",
     "skills",
@@ -3936,13 +4133,14 @@ function isPlainSkillRepoTarget(target: string): boolean {
 function agentNativeSkillsInstallArgs(
   parsed: ParsedSkillsArgs,
   target: string,
-  clients: ClientId[],
+  clients: SkillInstructionClientId[],
   baseDir: string | undefined,
 ): string[] {
   const args = [
     "--yes",
     "@agent-native/skills@latest",
     "add",
+    "--quiet",
     "--copy",
     target,
     "--client",
@@ -3994,7 +4192,7 @@ async function addPlainSkillRepo(
   const selectedSkillNames = parsed.plainSkillNames ?? [];
   if (skillsAgents.length === 0) {
     throw new Error(
-      "Plain skill repositories can only install instructions for Codex or Claude Code clients.",
+      "Plain skill repositories install through shared .agents for Codex, Pi, Cursor, OpenCode, Copilot, and similar agents, or Claude Code's native files.",
     );
   }
   const args = agentNativeSkillsInstallArgs(
@@ -4005,7 +4203,7 @@ async function addPlainSkillRepo(
   );
   if (!parsed.dryRun) {
     const code = await (options.runCommand ?? runCommand)("npx", args, {
-      stdio: parsed.yes ? "silent" : "inherit",
+      stdio: "silent",
     });
     if (code !== 0)
       throw new Error(
@@ -4195,7 +4393,9 @@ export async function addAgentNativeSkill(
         "Context X-Ray does not need MCP config yet. Run without --mcp-only.",
       );
     }
-    const clients = parsed.clients ?? resolveSkillsClientArg(parsed.client);
+    const clients = (
+      parsed.clients ?? resolveSkillsClientArg(parsed.client)
+    ).filter(isMcpClientId);
     const skillsAgents = skillsAgentsForClients(clients);
     if (parsed.dryRun) {
       const githubActionPath =
@@ -4251,7 +4451,14 @@ export async function addAgentNativeSkill(
   if (parsed.mcpUrl) {
     installTarget = withMcpUrlOverride(installTarget, parsed.mcpUrl);
   }
-  const clients = parsed.clients ?? resolveSkillsClientArg(parsed.client);
+  const clients =
+    parsed.clients ?? resolveSkillsClientArg(parsed.client, shouldRegisterMcp);
+  const mcpClients = clients.filter(isMcpClientId);
+  if (shouldRegisterMcp && mcpClients.length === 0) {
+    throw new Error(
+      "MCP setup supports Claude Code, Codex, Claude Cowork, Cursor, OpenCode, or GitHub Copilot / VS Code clients. Use --mode local-files or --no-mcp for Pi.",
+    );
+  }
   installTarget = preserveMcpUrlAppPathOverride(installTarget, parsed.mcpUrl);
   const skillsAgents = skillsAgentsForClients(clients);
   if (parsed.dryRun) {
@@ -4279,7 +4486,7 @@ export async function addAgentNativeSkill(
           knownTarget === "visual-plans" && planMode === "local-files"
             ? ""
             : installTarget.loaded.manifest.hosted.mcpUrl,
-        mcpClients: shouldRegisterMcp ? clients : [],
+        mcpClients: shouldRegisterMcp ? mcpClients : [],
         dryRun: true,
         commands: [dryRunInstallCommand(parsed, target)],
         githubActionPath,
@@ -4296,14 +4503,14 @@ export async function addAgentNativeSkill(
   let instructionsWritten: string[] | undefined;
   let connected = false;
   let connectCommand: string | undefined;
-  let registeredMcpClients: ClientId[] = shouldRegisterMcp ? clients : [];
+  let registeredMcpClients: ClientId[] = shouldRegisterMcp ? mcpClients : [];
 
   try {
     if (parsed.instructions) {
       if (skillsAgents.length === 0) {
         if (!shouldRegisterMcp) {
           throw new Error(
-            "Skill instructions can only be installed for Codex or Claude Code clients. Use an MCP-capable client or omit --instructions-only.",
+            "Skill instructions use shared .agents for Codex, Pi, Cursor, OpenCode, Copilot, and similar agents, or Claude Code's native files. Use an MCP-capable client or omit --instructions-only.",
           );
         }
       } else if (knownTarget) {
@@ -4332,6 +4539,7 @@ export async function addAgentNativeSkill(
           "--yes",
           "@agent-native/skills@latest",
           "add",
+          "--quiet",
           instructionSource,
           "--copy",
           ...installTarget.skillNames.flatMap((skill) => ["--skill", skill]),
@@ -4367,7 +4575,7 @@ export async function addAgentNativeSkill(
       );
       if (!parsed.dryRun) {
         const ensureResult = await ensureAppSkill(installTarget.loaded, {
-          clients,
+          clients: mcpClients,
           scope: parsed.scope,
           baseDir: options.baseDir,
           yes: parsed.yes || Boolean(knownTarget),
@@ -4388,16 +4596,16 @@ export async function addAgentNativeSkill(
         if (parsed.connect) {
           const result = await connectAfterEnsure(
             installTarget,
-            clients,
+            mcpClients,
             parsed,
             options,
           );
           connected = result.connected;
           connectCommand = result.connectCommand || undefined;
-          if (connected) registeredMcpClients = clients;
+          if (connected) registeredMcpClients = mcpClients;
           if (connectCommand) commands.push(connectCommand);
         } else {
-          const pendingClients = clients.filter(
+          const pendingClients = mcpClients.filter(
             (client) => !registeredMcpClients.includes(client),
           );
           if (pendingClients.length > 0) {
@@ -4432,6 +4640,7 @@ export async function addAgentNativeSkill(
         const choice = await prompt({
           workflowPath: prVisualRecapWorkflowDisplayPath(),
           setupCommand: prVisualRecapSetupCommand(),
+          docsUrl: PR_VISUAL_RECAP_DOCS_URL,
         });
         if (choice === null) {
           options.telemetry?.track("skills_cli cancelled", {
@@ -4493,21 +4702,24 @@ export async function addAgentNativeSkill(
 }
 
 function listSkills(options: RunSkillsOptions = {}) {
+  const hidden = hiddenBuiltInSkillTargets(options);
   return [
-    ...Object.values(BUILT_IN_APP_SKILLS).map((entry) => ({
-      id: entry.manifest.id,
-      aliases:
-        BUILT_IN_APP_SKILL_DISPLAY_ALIASES[
-          entry.manifest.id as BuiltInAppSkillId
-        ] ?? [],
-      name: entry.manifest.displayName,
-      description: entry.manifest.description,
-      mcpUrl: isLocalOnlyBuiltInSkill(entry)
-        ? ""
-        : entry.manifest.hosted.mcpUrl,
-      local: isLocalOnlyBuiltInSkill(entry),
-      source: "agent-native",
-    })),
+    ...Object.values(BUILT_IN_APP_SKILLS)
+      .filter((entry) => !hidden.has(entry.skillName))
+      .map((entry) => ({
+        id: entry.manifest.id,
+        aliases:
+          BUILT_IN_APP_SKILL_DISPLAY_ALIASES[
+            entry.manifest.id as BuiltInAppSkillId
+          ] ?? [],
+        name: entry.manifest.displayName,
+        description: entry.manifest.description,
+        mcpUrl: isLocalOnlyBuiltInSkill(entry)
+          ? ""
+          : entry.manifest.hosted.mcpUrl,
+        local: isLocalOnlyBuiltInSkill(entry),
+        source: "agent-native",
+      })),
     ...publicSkillEntries(options).map((entry) => ({
       id: entry.name,
       aliases: [] as string[],
@@ -4552,6 +4764,14 @@ function planModeSummary(mode: PlanInstallMode): string {
   if (mode === "local-files") return "Local files - No sharing, all local.";
   if (mode === "self-hosted") return "Self-hosted/custom Plan app";
   return "Hosted Plans - shareable links and comments";
+}
+
+function skillInstructionAgentLabel(agent: string): string {
+  if (agent === "codex") return SKILL_INSTRUCTION_CLIENT_LABELS.codex;
+  if (agent === "claude-code")
+    return SKILL_INSTRUCTION_CLIENT_LABELS["claude-code"];
+  if (agent === "pi") return SKILL_INSTRUCTION_CLIENT_LABELS.pi;
+  return agent;
 }
 
 function targetInstallsMcp(
@@ -4895,6 +5115,7 @@ export async function runSkills(
       const choice = await prompt({
         workflowPath: prVisualRecapWorkflowDisplayPath(),
         setupCommand: prVisualRecapSetupCommand(),
+        docsUrl: PR_VISUAL_RECAP_DOCS_URL,
       });
       if (choice === null) {
         telemetry.track("skills_cli cancelled", { step: "github-action" });
@@ -4965,7 +5186,7 @@ export async function runSkills(
     const localCommands = [
       ...new Set(
         results
-          .filter((result) => result.local)
+          .filter((result) => result.local && result.scriptPath)
           .flatMap((result) => result.commands),
       ),
     ];
@@ -5014,10 +5235,10 @@ export async function runSkills(
     const clack = await import("@clack/prompts");
     const summary = [
       skillsAgents.length
-        ? `Skill instructions   ${skillsAgents.join(", ")}`
+        ? `Skill instructions   ${skillsAgents.map(skillInstructionAgentLabel).join(", ")}`
         : "Skill instructions   skipped",
       mcpClients.length
-        ? `MCP config           ${mcpClients.join(", ")}`
+        ? `MCP config           ${mcpClients.map((client) => CLIENT_LABELS[client]).join(", ")}`
         : "MCP config           not required",
       mcpUrls.length ? `MCP URL              ${mcpUrls.join(", ")}` : "",
       planModes.length

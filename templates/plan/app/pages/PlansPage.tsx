@@ -455,7 +455,21 @@ type CurrentCommentAuthor = {
   color: string;
 };
 
-type PlanBundleWithHtml = PlanBundle & { html?: string };
+type LocalPlanBundle = PlanBundle & {
+  localOnly: true;
+  slug: string;
+  folder: string;
+  path?: string;
+  url?: string;
+  html?: string;
+  mdx?: {
+    "plan.mdx": string;
+    "canvas.mdx"?: string;
+    "prototype.mdx"?: string;
+    ".plan-state.json"?: string;
+  };
+};
+type PlanBundleWithHtml = (PlanBundle & { html?: string }) | LocalPlanBundle;
 type PlanCommentItem = PlanBundle["comments"][number];
 
 type CommentThread = {
@@ -2409,7 +2423,7 @@ export function canEditPlanContentRole(role?: PlanAccessRole | null) {
   return role === "owner" || role === "admin" || role === "editor";
 }
 
-export function PlansPage() {
+export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
   const params = useParams<{ id?: string }>();
   const navigate = useNavigate();
   const location = useLocation();
@@ -2461,9 +2475,22 @@ export function PlansPage() {
   // comments before the server write commits (Issue 4a).
   const commentMutationPendingRef = useRef(false);
   const { session, isLoading: sessionLoading } = useSession();
-  const selectedId = params.id;
+  const localPlanMode = Boolean(localPlanSlug);
+  const routeSelectedId = params.id;
+  const localPlanQuery = useActionQuery<LocalPlanBundle>(
+    "get-local-plan-folder",
+    { slug: localPlanSlug ?? "" },
+    {
+      enabled: localPlanMode && Boolean(localPlanSlug),
+      refetchInterval: false,
+    },
+  );
+  const selectedId = localPlanMode
+    ? (localPlanQuery.data?.plan.id ??
+      (localPlanSlug ? `local-${localPlanSlug}` : undefined))
+    : routeSelectedId;
   const plansQuery = usePlans({
-    enabled: Boolean(session && !selectedId),
+    enabled: Boolean(session && !selectedId && !localPlanMode),
   });
   const plans = plansQuery.data ?? [];
   // Identity for collaborative cursor labels. Only a signed-in user enables
@@ -2501,11 +2528,11 @@ export function PlansPage() {
   useEffect(() => {
     if (sessionLoading) return;
     const signedIn = Boolean(session);
-    if (signedIn && !wasSignedInRef.current && !selectedId) {
+    if (signedIn && !wasSignedInRef.current && !selectedId && !localPlanMode) {
       void plansQuery.refetch();
     }
     wasSignedInRef.current = signedIn;
-  }, [selectedId, session, sessionLoading, plansQuery]);
+  }, [localPlanMode, selectedId, session, sessionLoading, plansQuery]);
   useEffect(() => {
     const search = new URLSearchParams(location.search);
     if (search.get("create") !== "1" || sessionLoading) return;
@@ -2565,20 +2592,30 @@ export function PlansPage() {
   const immersiveReader = Boolean(
     selectedId && (planFullscreen || prototypeOnly),
   );
-  const planQuery = usePlan(selectedId, commentMutationPendingRef);
-  const bundle = planQuery.data;
+  const planQuery = usePlan(
+    localPlanMode ? undefined : selectedId,
+    commentMutationPendingRef,
+  );
+  const bundle = localPlanMode ? localPlanQuery.data : planQuery.data;
   const planAccessStatusQuery = usePlanAccessStatus(
     selectedId,
-    Boolean(selectedId && !bundle),
+    Boolean(selectedId && !bundle && !localPlanMode),
   );
   const planAccessStatus = planAccessStatusQuery.data ?? null;
   const showPlanLoadError = Boolean(
     selectedId &&
+    !localPlanMode &&
     !bundle &&
     (planQuery.isError || (planAccessStatus && !planAccessStatus.hasAccess)),
   );
+  const showLocalPlanLoadError = Boolean(
+    localPlanMode &&
+    !bundle &&
+    (localPlanQuery.isError ||
+      (!localPlanQuery.isLoading && !localPlanQuery.isFetching)),
+  );
   const showInitialPlanSkeleton = Boolean(
-    selectedId && !bundle && !showPlanLoadError,
+    selectedId && !bundle && !showPlanLoadError && !showLocalPlanLoadError,
   );
   const requestPlanAccessMutation = useRequestPlanAccess();
   const [accessRequestSentPlanId, setAccessRequestSentPlanId] = useState<
@@ -2615,7 +2652,7 @@ export function PlansPage() {
     openSignIn(returnPath);
   }, [openSignIn]);
   const requestPlanAccess = useCallback(() => {
-    if (!selectedId) return;
+    if (!selectedId || localPlanMode) return;
     requestPlanAccessMutation.mutate(
       { planId: selectedId },
       {
@@ -2626,11 +2663,12 @@ export function PlansPage() {
         },
       },
     );
-  }, [planQuery, requestPlanAccessMutation, selectedId]);
+  }, [localPlanMode, planQuery, requestPlanAccessMutation, selectedId]);
   const queryClient = useQueryClient();
   const selectedPlanQueryKey = useMemo(
-    () => (selectedId ? planBundleQueryKey(selectedId) : null),
-    [selectedId],
+    () =>
+      selectedId && !localPlanMode ? planBundleQueryKey(selectedId) : null,
+    [localPlanMode, selectedId],
   );
   // Reflect a structural block edit (drag-to-columns, reorder) into the
   // `get-visual-plan` cache IMMEDIATELY so the editor's authoritative content
@@ -2665,13 +2703,19 @@ export function PlansPage() {
   const isRecap = bundle?.plan.kind === "recap";
   const effectivePlanAccessRole = bundle?.access?.role ?? null;
   const canEditPlanContent =
-    !isRecap && canEditPlanContentRole(effectivePlanAccessRole);
-  const canManagePlan = canEditPlanContentRole(effectivePlanAccessRole);
+    !localPlanMode &&
+    !isRecap &&
+    canEditPlanContentRole(effectivePlanAccessRole);
+  const canManagePlan =
+    !localPlanMode && canEditPlanContentRole(effectivePlanAccessRole);
   const effectivePlanVisibility = bundle?.access?.visibility ?? null;
   const canReportPlan =
-    Boolean(bundle) && effectivePlanVisibility === "public" && !canManagePlan;
+    !localPlanMode &&
+    Boolean(bundle) &&
+    effectivePlanVisibility === "public" &&
+    !canManagePlan;
   const canResolveCommentThreads = Boolean(
-    bundle && (session || canEditPlanContent),
+    !localPlanMode && bundle && (session || canEditPlanContent),
   );
   const defaultInlineCommentDraft = useMemo<CommentDraft>(() => {
     const ownerEmail = normalizeCommentEmail(bundle?.access?.ownerEmail);
@@ -2897,7 +2941,7 @@ export function PlansPage() {
     [collabUser?.email, collabUser?.name],
   );
 
-  const exportPlan = useExportPlan(selectedId);
+  const exportPlan = useExportPlan(localPlanMode ? undefined : selectedId);
   const importPlanSource = useImportPlanSource();
   const [desktopPlanFolder, setDesktopPlanFolder] =
     useState<DesktopPlanFilesFolder | null>(null);
@@ -2995,7 +3039,7 @@ export function PlansPage() {
     setDesktopPlanFolder(null);
     setDesktopPlanAutoSync(readDesktopPlanAutoSync(selectedId));
     const planFiles = getDesktopPlanFiles();
-    if (!planFiles || !selectedId) return;
+    if (!planFiles || !selectedId || localPlanMode) return;
 
     let cancelled = false;
     void planFiles.getFolder({ planId: selectedId }).then((result) => {
@@ -3019,7 +3063,7 @@ export function PlansPage() {
     return () => {
       cancelled = true;
     };
-  }, [queryClient, selectedId]);
+  }, [localPlanMode, queryClient, selectedId]);
 
   useEffect(() => {
     if (!selectedId) return;
@@ -3067,18 +3111,30 @@ export function PlansPage() {
 
   const planAgentContext = useMemo(() => {
     if (!bundle) return "";
+    if (localPlanMode) {
+      const path = appPath(
+        `/local-plans/${encodeURIComponent(localPlanSlug ?? "")}`,
+      );
+      const url =
+        typeof window === "undefined"
+          ? path
+          : `${window.location.origin}${path}`;
+      return buildPlanAgentContext({ bundle, documentHtml, url });
+    }
     const base = bundle.plan.kind === "recap" ? "recaps" : "plans";
     const path = appPath(`/${base}/${selectedId ?? bundle.plan.id}`);
     const url =
       typeof window === "undefined" ? path : `${window.location.origin}${path}`;
     return buildPlanAgentContext({ bundle, documentHtml, url });
-  }, [bundle, documentHtml, selectedId]);
+  }, [bundle, documentHtml, localPlanMode, localPlanSlug, selectedId]);
 
   const planShareUrl = useMemo(() => {
-    if (!selectedId || typeof window === "undefined") return undefined;
+    if (typeof window === "undefined") return undefined;
+    if (localPlanMode) return window.location.href;
+    if (!selectedId) return undefined;
     const base = bundle?.plan.kind === "recap" ? "recaps" : "plans";
     return `${window.location.origin}${appPath(`/${base}/${selectedId}`)}`;
-  }, [selectedId, bundle?.plan.kind]);
+  }, [bundle?.plan.kind, localPlanMode, selectedId]);
 
   useEffect(() => {
     const onSidebarState = (event: Event) => {
@@ -3422,13 +3478,35 @@ export function PlansPage() {
   };
 
   const readPlanExport = useCallback(async () => {
+    if (localPlanMode) {
+      const localBundle = bundle as LocalPlanBundle | undefined;
+      if (!localBundle) {
+        throw new Error("Local plan source was not available yet.");
+      }
+      const mdx =
+        localBundle.mdx ??
+        (localBundle.plan.markdown
+          ? { "plan.mdx": localBundle.plan.markdown }
+          : undefined);
+      if (!mdx?.["plan.mdx"]) {
+        throw new Error("Local plan source files were not available yet.");
+      }
+      return {
+        markdown: localBundle.plan.markdown ?? mdx["plan.mdx"],
+        html: localBundle.html || localBundle.plan.html || documentHtml,
+        json: localBundle,
+        mdx,
+        path: localBundle.path ?? window.location.pathname,
+        url: localBundle.url ?? window.location.href,
+      };
+    }
     const result = await exportPlan.refetch();
     const data = result.data ?? exportPlan.data;
     if (!data) {
       throw new Error("Plan export was not available yet.");
     }
     return data;
-  }, [exportPlan]);
+  }, [bundle, documentHtml, exportPlan, localPlanMode]);
 
   const syncPlanToDesktopFolder = useCallback(
     async (options: { choose?: boolean; quiet?: boolean } = {}) => {
@@ -4605,7 +4683,7 @@ export function PlansPage() {
         data-view={immersiveReader ? "immersive" : "app"}
       >
         <section className="flex min-h-0 min-w-0 flex-1 flex-col">
-          {!params.id ? (
+          {!selectedId ? (
             <PlansOverview
               plans={plans}
               isLoading={sessionLoading || plansQuery.isLoading}
@@ -4613,6 +4691,12 @@ export function PlansPage() {
               canCreate={Boolean(session)}
               onArchive={handleArchivePlan}
               onSignIn={() => openSignIn()}
+            />
+          ) : showLocalPlanLoadError ? (
+            <LocalPlanLoadError
+              error={localPlanQuery.error}
+              slug={localPlanSlug ?? ""}
+              onRetry={() => void localPlanQuery.refetch()}
             />
           ) : showPlanLoadError ? (
             <PlanLoadError
@@ -4623,7 +4707,7 @@ export function PlansPage() {
               onGoogleSignIn={startGoogleSignIn}
               onRequestAccess={requestPlanAccess}
               requestAccessPending={requestPlanAccessMutation.isPending}
-              accessRequestSent={accessRequestSentPlanId === params.id}
+              accessRequestSent={accessRequestSentPlanId === selectedId}
               viewerEmail={session?.email ?? null}
             />
           ) : showInitialPlanSkeleton ? (
@@ -4670,17 +4754,19 @@ export function PlansPage() {
                   }
                 }}
               >
-                <PlanShareControl
-                  planId={bundle.plan.id}
-                  planTitle={bundle.plan.title}
-                  isRecap={isRecap}
-                  localShareUrl={planShareUrl}
-                  hostedPlanId={bundle.plan.hostedPlanId}
-                  hostedPlanUrl={bundle.plan.hostedPlanUrl}
-                  onOpenChange={(open) => {
-                    if (open) closeInlineComment();
-                  }}
-                />
+                {!localPlanMode && (
+                  <PlanShareControl
+                    planId={bundle.plan.id}
+                    planTitle={bundle.plan.title}
+                    isRecap={isRecap}
+                    localShareUrl={planShareUrl}
+                    hostedPlanId={bundle.plan.hostedPlanId}
+                    hostedPlanUrl={bundle.plan.hostedPlanUrl}
+                    onOpenChange={(open) => {
+                      if (open) closeInlineComment();
+                    }}
+                  />
+                )}
                 {canReportPlan && (
                   <PlanReportControl
                     planId={bundle.plan.id}
@@ -4691,10 +4777,12 @@ export function PlansPage() {
                     }}
                   />
                 )}
-                <ReviewMarkupToolbar
-                  mode={reviewMode}
-                  onModeChange={selectReviewMode}
-                />
+                {!localPlanMode && (
+                  <ReviewMarkupToolbar
+                    mode={reviewMode}
+                    onModeChange={selectReviewMode}
+                  />
+                )}
                 {bundle.plan.content?.prototype && showingPrototypeSurface && (
                   <Tooltip>
                     <TooltipTrigger asChild>
@@ -4728,7 +4816,7 @@ export function PlansPage() {
                     </TooltipContent>
                   </Tooltip>
                 )}
-                {bundle.summary.openCommentCount > 0 && (
+                {!localPlanMode && bundle.summary.openCommentCount > 0 && (
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild>
                       <Button
@@ -4788,7 +4876,7 @@ export function PlansPage() {
                     </DropdownMenuContent>
                   </DropdownMenu>
                 )}
-                {ENABLE_PLAN_STATUS_FEATURE && !isRecap && (
+                {ENABLE_PLAN_STATUS_FEATURE && !localPlanMode && !isRecap && (
                   <PlanStatusControl
                     planId={bundle.plan.id}
                     status={bundle.plan.status}
@@ -4809,51 +4897,55 @@ export function PlansPage() {
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end" className="w-56 rounded-xl">
                     <DropdownMenuGroup>
-                      <DropdownMenuLabel className="text-xs font-medium text-muted-foreground">
-                        Comments
-                      </DropdownMenuLabel>
-                      <DropdownMenuRadioGroup value={commentVisibility}>
-                        <DropdownMenuRadioItem
-                          value="hidden"
-                          onSelect={() => chooseCommentVisibility("hidden")}
-                        >
-                          Hide comments
-                        </DropdownMenuRadioItem>
-                        <DropdownMenuRadioItem
-                          value="open"
-                          onSelect={() => chooseCommentVisibility("open")}
-                        >
-                          <span className="flex-1">Show comments</span>
-                          {hasOpenThreads && (
-                            <span className="text-xs text-muted-foreground">
-                              {bundle.summary.openCommentCount}
-                            </span>
-                          )}
-                        </DropdownMenuRadioItem>
-                        <DropdownMenuRadioItem
-                          value="all"
-                          onSelect={() => chooseCommentVisibility("all")}
-                        >
-                          <span className="flex-1">Show all comments</span>
-                          {resolvedCommentThreadCount > 0 && (
-                            <span className="text-xs text-muted-foreground">
-                              {commentThreads.length}
-                            </span>
-                          )}
-                        </DropdownMenuRadioItem>
-                      </DropdownMenuRadioGroup>
-                      <DropdownMenuItem
-                        onClick={() => {
-                          preservePlanReaderScroll(() => {
-                            closeInlineComment();
-                            setHistoryOpen(true);
-                          });
-                        }}
-                        className="gap-2"
-                      >
-                        <IconHistory className="size-4" />
-                        History
-                      </DropdownMenuItem>
+                      {!localPlanMode && (
+                        <>
+                          <DropdownMenuLabel className="text-xs font-medium text-muted-foreground">
+                            Comments
+                          </DropdownMenuLabel>
+                          <DropdownMenuRadioGroup value={commentVisibility}>
+                            <DropdownMenuRadioItem
+                              value="hidden"
+                              onSelect={() => chooseCommentVisibility("hidden")}
+                            >
+                              Hide comments
+                            </DropdownMenuRadioItem>
+                            <DropdownMenuRadioItem
+                              value="open"
+                              onSelect={() => chooseCommentVisibility("open")}
+                            >
+                              <span className="flex-1">Show comments</span>
+                              {hasOpenThreads && (
+                                <span className="text-xs text-muted-foreground">
+                                  {bundle.summary.openCommentCount}
+                                </span>
+                              )}
+                            </DropdownMenuRadioItem>
+                            <DropdownMenuRadioItem
+                              value="all"
+                              onSelect={() => chooseCommentVisibility("all")}
+                            >
+                              <span className="flex-1">Show all comments</span>
+                              {resolvedCommentThreadCount > 0 && (
+                                <span className="text-xs text-muted-foreground">
+                                  {commentThreads.length}
+                                </span>
+                              )}
+                            </DropdownMenuRadioItem>
+                          </DropdownMenuRadioGroup>
+                          <DropdownMenuItem
+                            onClick={() => {
+                              preservePlanReaderScroll(() => {
+                                closeInlineComment();
+                                setHistoryOpen(true);
+                              });
+                            }}
+                            className="gap-2"
+                          >
+                            <IconHistory className="size-4" />
+                            History
+                          </DropdownMenuItem>
+                        </>
+                      )}
                       <DropdownMenuItem
                         onClick={() => {
                           preservePlanReaderScroll(() => {
@@ -4935,7 +5027,7 @@ export function PlansPage() {
                         <IconFileZip className="size-4" />
                         Download source (.zip)
                       </DropdownMenuItem>
-                      {desktopPlanFilesAvailable && (
+                      {desktopPlanFilesAvailable && !localPlanMode && (
                         <>
                           <DropdownMenuSeparator />
                           <DropdownMenuLabel className="text-xs font-medium text-muted-foreground">
@@ -5048,19 +5140,20 @@ export function PlansPage() {
                           </DropdownMenuItem>
                         </DropdownMenuSubContent>
                       </DropdownMenuSub>
-                      {bundle.summary.openCommentCount > 0 && (
-                        <DropdownMenuItem
-                          onClick={() =>
-                            preservePlanReaderScroll(() => {
-                              void copyPlanFeedbackForAgent();
-                            })
-                          }
-                          className="gap-2"
-                        >
-                          <IconClipboardText className="size-4" />
-                          Copy feedback
-                        </DropdownMenuItem>
-                      )}
+                      {!localPlanMode &&
+                        bundle.summary.openCommentCount > 0 && (
+                          <DropdownMenuItem
+                            onClick={() =>
+                              preservePlanReaderScroll(() => {
+                                void copyPlanFeedbackForAgent();
+                              })
+                            }
+                            className="gap-2"
+                          >
+                            <IconClipboardText className="size-4" />
+                            Copy feedback
+                          </DropdownMenuItem>
+                        )}
                     </DropdownMenuGroup>
                   </DropdownMenuContent>
                 </DropdownMenu>
@@ -6064,6 +6157,51 @@ function ReviewMarkupToolbar({
         </TooltipContent>
       </Tooltip>
     </ToggleGroup>
+  );
+}
+
+function LocalPlanLoadError({
+  error,
+  slug,
+  onRetry,
+}: {
+  error?: unknown;
+  slug: string;
+  onRetry: () => void;
+}) {
+  const message =
+    error instanceof Error && error.message
+      ? error.message.replace(/^Action [\w-]+ failed:\s*/, "")
+      : `The local plan folder "${slug}" could not be read.`;
+
+  return (
+    <div className="flex min-h-0 flex-1 items-center justify-center px-6 py-12">
+      <div className="w-full max-w-xl rounded-xl border border-border bg-background p-6 shadow-sm">
+        <div className="flex items-center gap-3">
+          <div className="flex size-10 items-center justify-center rounded-lg bg-destructive/10 text-destructive">
+            <IconAlertTriangle className="size-5" />
+          </div>
+          <div>
+            <h1 className="text-lg font-semibold tracking-tight">
+              Local plan not found
+            </h1>
+            <p className="mt-1 text-sm text-muted-foreground">{message}</p>
+          </div>
+        </div>
+        <div className="mt-5 flex flex-wrap gap-2">
+          <Button type="button" variant="outline" onClick={onRetry}>
+            <IconRefresh className="mr-2 size-4" />
+            Retry
+          </Button>
+          <Button asChild type="button" variant="ghost">
+            <Link to="/plans">
+              <IconArrowLeft className="mr-2 size-4" />
+              Plans
+            </Link>
+          </Button>
+        </div>
+      </div>
+    </div>
   );
 }
 
