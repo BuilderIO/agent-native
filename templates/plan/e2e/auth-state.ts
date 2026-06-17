@@ -8,6 +8,10 @@ const PLAN_ROOT = path.resolve(
 );
 export const LOCAL_PLAN_OWNER_EMAIL = "local@agent-native.local";
 
+let generatedAuthRunId: string | undefined;
+let generatedAuthStatePath: string | undefined;
+let generatedAuthEmailPath: string | undefined;
+
 export function planE2eBaseUrl() {
   return process.env.PLAN_BASE_URL || "http://localhost:8081";
 }
@@ -28,9 +32,8 @@ function safeBaseUrlSlug(baseURL: string) {
 function authRunId() {
   const existing = process.env.PLAN_E2E_AUTH_RUN_ID?.trim();
   if (existing) return existing;
-  const generated = `${Date.now().toString(36)}-${process.pid}`;
-  process.env.PLAN_E2E_AUTH_RUN_ID = generated;
-  return generated;
+  generatedAuthRunId ??= `${Date.now().toString(36)}-${process.pid}`;
+  return generatedAuthRunId;
 }
 
 export function planE2eAuthDir(baseURL = planE2eBaseUrl()) {
@@ -47,17 +50,15 @@ export function planE2eAuthDir(baseURL = planE2eBaseUrl()) {
 export function planE2eAuthStatePath(baseURL = planE2eBaseUrl()) {
   const explicit = process.env.PLAN_E2E_AUTH_STATE?.trim();
   if (explicit) return path.resolve(explicit);
-  const generated = path.join(planE2eAuthDir(baseURL), "state.json");
-  process.env.PLAN_E2E_AUTH_STATE = generated;
-  return generated;
+  generatedAuthStatePath ??= path.join(planE2eAuthDir(baseURL), "state.json");
+  return generatedAuthStatePath;
 }
 
 export function planE2eAuthEmailPath(baseURL = planE2eBaseUrl()) {
   const explicit = process.env.PLAN_E2E_EMAIL_FILE?.trim();
   if (explicit) return path.resolve(explicit);
-  const generated = path.join(planE2eAuthDir(baseURL), "email.txt");
-  process.env.PLAN_E2E_EMAIL_FILE = generated;
-  return generated;
+  generatedAuthEmailPath ??= path.join(planE2eAuthDir(baseURL), "email.txt");
+  return generatedAuthEmailPath;
 }
 
 export function planE2eUsesLocalPlanOwner() {

@@ -347,4 +347,60 @@ describe("createAgentChatRuntimeAdapter", () => {
       metadata: { custom: { runtimeId: "external:test", runId: "run-1" } },
     });
   });
+
+  it("does not reuse an already-aborted signal for explicit cancel", async () => {
+    const abortController = new AbortController();
+    let cancelInput: Parameters<NonNullable<AgentChatRuntimeTurn["cancel"]>>[0];
+    const abortError = new Error("aborted");
+    abortError.name = "AbortError";
+
+    const runtime: AgentChatRuntime = {
+      id: "external:test",
+      kind: "external-agent",
+      label: "Test runtime",
+      capabilities: {
+        messages: { streaming: true, history: true },
+        cancellation: { abortSignal: true, explicitCancel: true },
+      },
+      async createSession() {
+        return {
+          id: "session-1",
+          runtimeId: "external:test",
+          async startTurn() {
+            async function* events(): AsyncIterable<AgentChatRuntimeEvent> {
+              throw abortError;
+            }
+            return {
+              id: "turn-1",
+              sessionId: "session-1",
+              runId: "run-1",
+              events: events(),
+              cancel: async (input) => {
+                cancelInput = input;
+                return { status: "cancelled" };
+              },
+            };
+          },
+        };
+      },
+    };
+    const adapter = createAgentChatRuntimeAdapter(runtime);
+
+    abortController.abort();
+    const results = await drain(
+      adapter.run({
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: "Stop" }],
+          },
+        ],
+        abortSignal: abortController.signal,
+        runConfig: {},
+      } as any),
+    );
+
+    expect(results).toEqual([]);
+    expect(cancelInput).toEqual({ reason: "abort" });
+  });
 });

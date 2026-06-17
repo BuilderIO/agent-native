@@ -1695,7 +1695,7 @@ export function createAgentChatRuntimeAdapter(
         }
       } catch (error) {
         if (error instanceof Error && error.name === "AbortError") {
-          await turn.cancel?.({ reason: "abort", abortSignal });
+          await turn.cancel?.({ reason: "abort" });
           return;
         }
         throw error;
