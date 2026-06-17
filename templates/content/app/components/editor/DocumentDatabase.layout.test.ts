@@ -150,13 +150,31 @@ describe("document database layout", () => {
     expect(source).toContain('onClick={() => onPanelChange("source")}');
   });
 
-  it("exposes a manual refresh action in connected source settings", () => {
+  it("auto-syncs the connected source instead of showing a manual refresh button", () => {
     const source = readDatabaseSource();
 
-    expect(source).toContain("Refresh source");
-    expect(source).toContain("onClick={onRefreshSource}");
-    expect(source).toContain("update field");
-    expect(source).toContain("source row values");
+    // The manual "Refresh source" block is gone; sync is automatic.
+    expect(source).not.toContain("Refresh source");
+    // Auto-sync runs on panel open and whenever the window regains focus.
+    expect(source).toContain("const autoSyncEnabled");
+    expect(source).toContain('window.addEventListener("focus"');
+    expect(source).toContain("refreshSourceRef.current()");
+  });
+
+  it("reduces the connected source panel to read-only status plus a diff slot", () => {
+    const source = readDatabaseSource();
+
+    // Read-only is the headline signal; live writes flip the same badge.
+    expect(source).toContain("Read-only");
+    expect(source).toContain("Live writes on");
+    // The dormant diff slot is the single push-review entry point.
+    expect(source).toContain("Review diff");
+    // A failed sync surfaces inline instead of silently going stale.
+    expect(source).toContain("Couldn’t sync · Retry");
+    // Disconnect stays available, tucked at the bottom.
+    expect(source).toContain("Disconnect source");
+    // The aggregate field-mappings list is gone (mappings live in column menus).
+    expect(source).not.toContain(">Field mappings<");
   });
 
   it("keeps the Layout settings panel limited to implemented controls", () => {

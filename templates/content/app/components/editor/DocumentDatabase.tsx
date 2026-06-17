@@ -41,6 +41,7 @@ import {
   IconLayoutKanban,
   IconLayoutGrid,
   IconList,
+  IconLock,
   IconMinus,
   IconPlus,
   IconPlugConnected,
@@ -3914,272 +3915,155 @@ function DatabaseSettingsSourcePanel({
   const builderStatus = useBuilderStatus();
   const builderConfigured = builderStatus.status?.configured === true;
   const builderOrgName = builderStatus.status?.orgName ?? null;
-  const liveWriteControl = builderSourceLiveWriteControlState(source);
   const showMockSourceControls = isCodeMode;
-  const showAttentionCard =
-    !source ||
-    (isBuilderSource && reviewableBuilderChangeSets.length > 0) ||
-    conflictChangeSets.length > 0 ||
-    showMockSourceControls;
+  const builderSyncFailed =
+    isBuilderSource &&
+    (source?.syncState === "error" || Boolean(source?.lastError));
+
+  // Auto-sync: the manual Refresh button is gone, so pull the read-only
+  // snapshot when the panel opens and whenever the window regains focus.
+  // Throttled so rapid focus changes don't hammer Builder; the refresh
+  // mutation is silent (no toast), so this stays quiet in the background.
+  const refreshSourceRef = useRef(onRefreshSource);
+  refreshSourceRef.current = onRefreshSource;
+  const lastAutoSyncRef = useRef(0);
+  const autoSyncEnabled = Boolean(source) && isBuilderSource && canEdit;
+  useEffect(() => {
+    if (!autoSyncEnabled) return;
+    const maybeSync = () => {
+      const now = Date.now();
+      if (now - lastAutoSyncRef.current < 15_000) return;
+      lastAutoSyncRef.current = now;
+      refreshSourceRef.current();
+    };
+    maybeSync();
+    const onFocus = () => maybeSync();
+    window.addEventListener("focus", onFocus);
+    return () => window.removeEventListener("focus", onFocus);
+  }, [autoSyncEnabled]);
 
   return (
     <div className="grid min-w-0 gap-4">
-      {showAttentionCard ? (
+      {!source ? (
         <div className="min-w-0 rounded-lg border border-border bg-muted/30 p-3">
-          <div className="flex items-start justify-between gap-3">
-            <div className="min-w-0 flex-1">
-              <div className="truncate text-sm font-medium">
-                {source
-                  ? conflictChangeSets.length > 0
-                    ? "Source needs review"
-                    : isBuilderSource && reviewableBuilderChangeSets.length > 0
-                      ? "Builder update ready"
-                      : source.sourceName
-                  : "Local / no source"}
-              </div>
-              <div className="mt-1 break-words text-xs text-muted-foreground">
-                {source
-                  ? conflictChangeSets.length > 0
-                    ? `${conflictChangeSets.length} source change ${
-                        conflictChangeSets.length === 1 ? "needs" : "need"
-                      } review before syncing.`
-                    : isBuilderSource && reviewableBuilderChangeSets.length > 0
-                      ? `${reviewableBuilderChangeSets.length} local Builder ${
-                          reviewableBuilderChangeSets.length === 1
-                            ? "update is"
-                            : "updates are"
-                        } ready to review.`
-                      : isBuilderSource
-                        ? "Builder CMS is connected. Source refresh can run quietly in the background."
-                        : `${source.sourceType} table ${source.sourceTable}`
-                  : "This database is local. Attach Builder CMS to inspect row identity, field provenance, freshness, and source-aware changes."}
-              </div>
-            </div>
-            <span className="shrink-0 rounded-full border border-border px-2 py-0.5 text-[11px] uppercase tracking-wide text-muted-foreground">
-              {source ? source.syncState : "local"}
-            </span>
+          <div className="text-sm font-medium">Local / no source</div>
+          <div className="mt-1 break-words text-xs text-muted-foreground">
+            This database is local. Attach Builder CMS to inspect row identity,
+            field provenance, freshness, and source-aware changes.
           </div>
-
-          <div className="mt-3 flex flex-wrap gap-2">
-            {source ? (
-              <>
-                {showMockSourceControls && !isBuilderSource ? (
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="outline"
-                    disabled={
-                      !canEdit || sourceActionPending || itemCount === 0
-                    }
-                    onClick={onProposeSourceChangeSet}
-                  >
-                    <IconPlus className="mr-1.5 size-3.5" />
-                    Create test diff
-                  </Button>
-                ) : null}
-                {isBuilderSource && reviewableBuilderChangeSets.length > 0 ? (
-                  <Button
-                    type="button"
-                    size="sm"
-                    disabled={!canEdit || sourceActionPending}
-                    onClick={onReviewBuilderUpdate}
-                  >
-                    <IconCheck className="mr-1.5 size-3.5" />
-                    Review Builder update
-                  </Button>
-                ) : null}
-              </>
-            ) : (
-              <BuilderCmsModelAttachControl
-                canEdit={canEdit}
-                sourceActionPending={sourceActionPending}
-                onAttachBuilderSource={onAttachBuilderSource}
-              />
-            )}
+          <div className="mt-3">
+            <BuilderCmsModelAttachControl
+              canEdit={canEdit}
+              sourceActionPending={sourceActionPending}
+              onAttachBuilderSource={onAttachBuilderSource}
+            />
           </div>
         </div>
       ) : null}
 
       {source ? (
         <>
-          <div className="grid min-w-0 gap-2 rounded-lg border border-border bg-background p-3 text-sm">
-            <div className="font-medium">Status</div>
-            <div className="text-xs text-muted-foreground">
-              {isBuilderSource
-                ? source.metadata.liveReadConfigured
-                  ? source.capabilities.liveWritesEnabled
-                    ? "Builder CMS is connected for source checks and guarded autosave writes to the Agent Native test collection."
-                    : "Builder CMS is connected for read-only source checks. Live Builder writes are disabled."
-                  : source.capabilities.liveWritesEnabled
-                    ? "Builder CMS is connected as a local review target with guarded autosave writes enabled for the Agent Native test collection."
-                    : "Builder CMS is connected as a local review target. Add Builder credentials to read live CMS entries; live Builder writes are disabled."
-                : "This source snapshot is rebuilt from the current local database when resynced. No provider writes run from this panel."}
-            </div>
-            {isBuilderSource && builderConfigured ? (
-              <SourceMetadataRow
-                label="Builder account"
-                value={builderOrgName ?? "Connected"}
-              />
-            ) : null}
-            <SourceMetadataRow
-              label="Freshness"
-              value={`${source.freshness}${
-                source.lastRefreshedAt
-                  ? ` • refreshed ${formatSourceTimestamp(source.lastRefreshedAt)}`
-                  : ""
-              }`}
-            />
-            {isCodeMode ? (
-              <SourceMetadataRow
-                label="Capabilities"
-                value={sourceCapabilitySummary(source)}
-              />
-            ) : null}
-            <SourceMetadataRow
-              label="Push mode"
-              value={sourcePushModeSummary(source)}
-            />
-            {isBuilderSource ? (
-              <div className="flex min-w-0 items-start justify-between gap-3 rounded-md border border-border/70 bg-muted/20 p-2">
-                <div className="min-w-0">
-                  <div className="text-xs font-medium">Builder live writes</div>
-                  <div className="mt-0.5 break-words text-xs text-muted-foreground">
-                    {liveWriteControl.description}
-                  </div>
-                </div>
-                {liveWriteControl.showAction ? (
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant={liveWriteControl.enabled ? "outline" : "default"}
-                    className="h-7 shrink-0 px-2 text-xs"
-                    disabled={!canEdit || sourceActionPending}
-                    onClick={() =>
-                      onSetBuilderLiveWrites(!liveWriteControl.enabled)
-                    }
-                  >
-                    {sourceActionPending ? (
-                      <Spinner className="mr-1 size-3.5" />
-                    ) : liveWriteControl.enabled ? (
-                      <IconX className="mr-1 size-3.5" />
-                    ) : (
-                      <IconCheck className="mr-1 size-3.5" />
-                    )}
-                    {liveWriteControl.actionLabel}
-                  </Button>
-                ) : null}
-              </div>
-            ) : null}
-            {isBuilderSource ? (
-              <>
-                <SourceMetadataRow
-                  label="Read mode"
-                  value={sourceBuilderReadModeSummary(source)}
-                />
-                <SourceMetadataRow
-                  label="Builder matches"
-                  value={`${source.metadata.lastReadMatchedRowCount ?? 0} of ${
-                    source.metadata.lastReadEntryCount ?? 0
-                  } entries matched`}
-                />
-              </>
-            ) : null}
-            <SourceMetadataRow
-              label="Rows tracked"
-              value={`${source.metadata.lastReadMatchedRowCount ?? source.rows.length}`}
-            />
-            {isCodeMode ? (
-              <SourceMetadataRow
-                label="Incoming proposals"
-                value={`${incomingChangeSets.length}`}
-              />
-            ) : null}
-            <SourceMetadataRow
-              label="Local Builder changes"
-              value={`${outboundChangeSets.length}`}
-            />
-            <div className="mt-1 border-t border-border/70 pt-3">
-              <div className="text-xs font-medium">Refresh source</div>
-              <div className="mt-0.5 text-xs text-muted-foreground">
-                Pull the latest read-only source snapshot and update field
-                mappings, row identity, and source row values.
-              </div>
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                className="mt-2 h-8 text-xs"
-                disabled={!canEdit || sourceActionPending}
-                onClick={onRefreshSource}
-              >
-                {sourceActionPending ? (
-                  <Spinner className="mr-1 size-3.5" />
+          <div className="grid min-w-0 gap-1.5 rounded-lg border border-border bg-background p-3 text-sm">
+            <div className="flex min-w-0 items-center justify-between gap-2">
+              <span className="truncate font-medium" title={source.sourceName}>
+                {source.sourceName}
+              </span>
+              {isBuilderSource ? (
+                source.capabilities.liveWritesEnabled ? (
+                  <span className="inline-flex shrink-0 items-center gap-1 rounded-full border border-border px-2 py-0.5 text-[11px] font-medium text-foreground">
+                    <IconPencil className="size-3" />
+                    Live writes on
+                  </span>
                 ) : (
-                  <IconRefresh className="mr-1 size-3.5" />
-                )}
-                Refresh
-              </Button>
+                  <span className="inline-flex shrink-0 items-center gap-1 rounded-full border border-border px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
+                    <IconLock className="size-3" />
+                    Read-only
+                  </span>
+                )
+              ) : (
+                <span className="shrink-0 rounded-full border border-border px-2 py-0.5 text-[11px] uppercase tracking-wide text-muted-foreground">
+                  {source.syncState}
+                </span>
+              )}
             </div>
-            <div className="mt-1 border-t border-border/70 pt-3">
-              <div className="text-xs font-medium">Disconnect source</div>
-              <div className="mt-0.5 text-xs text-muted-foreground">
-                Keep the database rows and local properties, but remove source
-                mappings, row identity, and pending source changes.
-              </div>
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                className="mt-2 h-8 text-xs text-destructive hover:text-destructive"
-                disabled={!canEdit || sourceActionPending}
-                onClick={onDisconnectSource}
-              >
-                {sourceActionPending ? (
-                  <Spinner className="mr-1 size-3.5" />
-                ) : (
-                  <IconX className="mr-1 size-3.5" />
-                )}
-                Disconnect
-              </Button>
+            <div className="min-w-0 break-words text-xs text-muted-foreground">
+              {builderSyncFailed ? (
+                <button
+                  type="button"
+                  className="inline-flex items-center gap-1 text-destructive hover:underline disabled:opacity-60"
+                  disabled={!canEdit || sourceActionPending}
+                  onClick={onRefreshSource}
+                >
+                  <IconRefresh className="size-3" />
+                  Couldn’t sync · Retry
+                </button>
+              ) : isBuilderSource ? (
+                [
+                  builderConfigured ? (builderOrgName ?? "Connected") : null,
+                  source.lastRefreshedAt
+                    ? `synced ${
+                        formatRelativeSyncTime(source.lastRefreshedAt) ??
+                        source.freshness
+                      }`
+                    : source.freshness,
+                ]
+                  .filter(Boolean)
+                  .join(" · ")
+              ) : (
+                `Local snapshot · ${source.freshness}`
+              )}
             </div>
           </div>
 
+          {reviewableBuilderChangeSets.length > 0 ||
+          conflictChangeSets.length > 0 ? (
+            <div className="grid min-w-0 gap-2 rounded-lg border border-border bg-muted/30 p-3">
+              <div className="flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="text-sm font-medium">
+                    {conflictChangeSets.length > 0
+                      ? `${conflictChangeSets.length} change${
+                          conflictChangeSets.length === 1 ? "" : "s"
+                        } need review`
+                      : `${reviewableBuilderChangeSets.length} change${
+                          reviewableBuilderChangeSets.length === 1 ? "" : "s"
+                        } ready to push`}
+                  </div>
+                  <div className="mt-0.5 break-words text-xs text-muted-foreground">
+                    Review before they reach Builder.
+                  </div>
+                </div>
+                <Button
+                  type="button"
+                  size="sm"
+                  className="shrink-0"
+                  disabled={!canEdit || sourceActionPending}
+                  onClick={onReviewBuilderUpdate}
+                >
+                  <IconCheck className="mr-1.5 size-3.5" />
+                  Review diff
+                </Button>
+              </div>
+            </div>
+          ) : null}
+
+          {showMockSourceControls && !isBuilderSource ? (
+            <div className="rounded-lg border border-border bg-muted/30 p-3">
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                disabled={!canEdit || sourceActionPending || itemCount === 0}
+                onClick={onProposeSourceChangeSet}
+              >
+                <IconPlus className="mr-1.5 size-3.5" />
+                Create test diff
+              </Button>
+            </div>
+          ) : null}
+
           {isCodeMode ? (
             <>
-              <div className="grid min-w-0 gap-2 rounded-lg border border-border bg-background p-3 text-sm">
-                <div className="font-medium">Field mappings</div>
-                <div className="grid min-w-0 gap-2">
-                  {source.fields.slice(0, 8).map((field) => (
-                    <div
-                      key={field.id}
-                      className="min-w-0 rounded-md border border-border/70 px-2 py-1.5"
-                    >
-                      <div className="flex min-w-0 items-center justify-between gap-2">
-                        <span className="truncate font-medium">
-                          {field.propertyName ?? field.sourceFieldLabel}
-                        </span>
-                        <span className="shrink-0 text-[11px] uppercase tracking-wide text-muted-foreground">
-                          {field.mappingType}
-                        </span>
-                      </div>
-                      <div
-                        className="mt-1 break-all text-xs text-muted-foreground"
-                        title={`${field.localFieldKey} -> ${field.sourceFieldKey}`}
-                      >
-                        {field.localFieldKey}
-                        {" -> "}
-                        {field.sourceFieldKey}
-                      </div>
-                    </div>
-                  ))}
-                  {source.fields.length === 0 ? (
-                    <div className="text-xs text-muted-foreground">
-                      No source field mappings yet.
-                    </div>
-                  ) : null}
-                </div>
-              </div>
-
               <div className="grid min-w-0 gap-2 rounded-lg border border-border bg-background p-3 text-sm">
                 <div className="font-medium">Row identity</div>
                 <div className="grid min-w-0 gap-2">
@@ -4273,12 +4157,30 @@ function DatabaseSettingsSourcePanel({
                 </div>
               </div>
             </>
-          ) : (
-            <div className="rounded-lg border border-border bg-background p-3 text-xs text-muted-foreground">
-              Source mappings now live in column menus. Use Code Mode for raw
-              rows, mappings, and execution gates.
+          ) : null}
+
+          <div className="rounded-lg border border-border bg-background p-3">
+            <div className="text-xs font-medium">Disconnect source</div>
+            <div className="mt-0.5 break-words text-xs text-muted-foreground">
+              Keep the database rows and local properties, but remove source
+              mappings, row identity, and pending source changes.
             </div>
-          )}
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="mt-2 h-8 text-xs text-destructive hover:text-destructive"
+              disabled={!canEdit || sourceActionPending}
+              onClick={onDisconnectSource}
+            >
+              {sourceActionPending ? (
+                <Spinner className="mr-1 size-3.5" />
+              ) : (
+                <IconX className="mr-1 size-3.5" />
+              )}
+              Disconnect
+            </Button>
+          </div>
         </>
       ) : null}
     </div>
@@ -4788,35 +4690,17 @@ function formatSourceTimestamp(value: string) {
   return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
 }
 
-function sourceCapabilitySummary(source: ContentDatabaseSource) {
-  const parts = [];
-  if (source.capabilities.canRefresh) parts.push("refresh");
-  if (source.capabilities.canCreateChangeSets) parts.push("diffs");
-  if (source.capabilities.canWriteFields) parts.push("field writes");
-  if (source.capabilities.canWriteBody) parts.push("body writes");
-  if (source.capabilities.readOnlyRefresh) parts.push("read-only");
-  if (source.capabilities.canStageLocalRevision) parts.push("stage revision");
-  if (source.capabilities.canPull) parts.push("pull");
-  if (source.capabilities.canPush) parts.push("push");
-  if (source.capabilities.canPublish) parts.push("publish");
-  if (source.capabilities.canDelete) parts.push("delete");
-  parts.push(
-    source.capabilities.liveWritesEnabled
-      ? "live writes enabled"
-      : "live writes disabled",
-  );
-  return parts.join(", ");
-}
-
-function sourcePushModeSummary(source: ContentDatabaseSource) {
-  const label =
-    source.metadata.pushModeLabel ??
-    sourcePushModeLabel(source.metadata.pushMode);
-  const mode = source.metadata.pushMode ?? "none";
-  const safety = source.capabilities.liveWritesEnabled
-    ? "live writes enabled"
-    : "local-only, live writes disabled";
-  return `${label} (${mode}); ${safety}`;
+function formatRelativeSyncTime(value: string | null): string | null {
+  if (!value) return null;
+  const ms = new Date(value).getTime();
+  if (Number.isNaN(ms)) return null;
+  const diff = Date.now() - ms;
+  if (diff < 60_000) return "just now";
+  const minutes = Math.floor(diff / 60_000);
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  return `${Math.floor(hours / 24)}d ago`;
 }
 
 function sourceBuilderReadModeSummary(source: ContentDatabaseSource) {
