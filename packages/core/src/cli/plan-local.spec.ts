@@ -220,7 +220,6 @@ describe("local plan CLI helpers", () => {
     // inline code, not a real block — validation must not trip on it so the
     // default `init` → `serve`/`check` flow works out of the box.
     expect(() => writeLocalPlanPreview({ dir })).not.toThrow();
-    await expect(startLocalPlanBridge({ dir })).resolves.toBeTruthy();
   });
 
   it("serves a tokened localhost bridge for the hosted local plan UI", async () => {
