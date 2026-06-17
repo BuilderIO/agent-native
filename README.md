@@ -58,6 +58,8 @@ Agent-Native primitives let you choose how much UI to put around an agent withou
 
 Protocols come with the framework instead of becoming separate integrations per feature. Today that means A2A, MCP, MCP Apps, MCP OAuth, MCP clients, HTTP/CLI action calls, and deep links all hang off the same action surface. AG-UI is a natural adapter path for bring-your-own agent runtimes; A2UI is a promising declarative UI format to watch; ACP is best understood as the coding-agent/editor interoperability protocol.
 
+To connect Claude, ChatGPT, Codex, Cursor, OpenCode, GitHub Copilot / VS Code, or another MCP host to your hosted app, see the [External Agents guide](https://agent-native.com/docs/external-agents).
+
 ## Try it with a skill
 
 Don't want to scaffold a whole app yet? Add visual planning and PR recaps to Claude Code, Codex, Cursor, Pi, OpenCode, GitHub Copilot / VS Code, and similar agents with one command:

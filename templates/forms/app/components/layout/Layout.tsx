@@ -31,6 +31,7 @@ export function Layout({ children }: LayoutProps) {
     if (!formId) return null;
     return { type: "form" as const, id: formId };
   }, [location.pathname]);
+  const sidebarScope = startedFromChatHome ? null : formScope;
 
   if (BARE_ROUTES.has(location.pathname)) {
     return <>{children}</>;
@@ -59,7 +60,7 @@ export function Layout({ children }: LayoutProps) {
             "Show submissions by day",
             "Export responses to CSV",
           ]}
-          scope={formScope}
+          scope={sidebarScope}
         >
           <div className="flex h-full flex-1 flex-col overflow-hidden">
             {showHeader ? <Header /> : null}

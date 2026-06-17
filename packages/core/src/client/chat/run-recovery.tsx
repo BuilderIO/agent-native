@@ -194,7 +194,7 @@ export function BuilderConnectCta({
 
   const containerClass =
     variant === "compact"
-      ? "rounded-md border border-border px-3 py-2.5"
+      ? "flex items-center gap-3 rounded-md border border-border bg-background/70 px-3 py-2.5"
       : "flex items-center gap-3 rounded-md border border-border px-3 py-3";
 
   if (configured) {
@@ -370,10 +370,8 @@ export function BuilderSetupCard({
   onConnected?: () => void;
   bouncePulse?: number;
 }) {
-  // Progressive disclosure: the card leads with the one-click Builder connect.
-  // The bring-your-own-key path stays tucked behind a single link so the chat
-  // stays clean for people who connect Builder or never use the side chat at
-  // all (they can keep driving the plan from their own coding agent).
+  // Progressive disclosure: the card leads with one-click Builder connect while
+  // keeping the bring-your-own-key path close by.
   const [keyOpen, setKeyOpen] = useState(false);
 
   const cardRef = useRef<HTMLDivElement>(null);
@@ -392,30 +390,29 @@ export function BuilderSetupCard({
   return (
     <div
       ref={cardRef}
-      className="mx-4 my-6 rounded-lg border border-border bg-card p-5"
+      className="mx-auto my-4 w-full max-w-[34rem] rounded-lg border border-border/80 bg-card/80 p-3 shadow-sm backdrop-blur"
     >
-      <div className="flex items-center gap-3 mb-3">
-        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-muted">
+      <div className="mb-2.5 flex items-center gap-2.5">
+        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-muted">
           <IconMessage className="h-4.5 w-4.5 text-muted-foreground" />
         </div>
-        <div>
-          <h3 className="text-sm font-medium text-foreground">
-            Turn on the side chat
+        <div className="min-w-0">
+          <h3 className="text-[13px] font-medium text-foreground">
+            Connect an agent engine
           </h3>
-          <p className="mt-0.5 text-[11px] text-muted-foreground">
-            One click to connect Builder for free hosted access — no API key or
-            account needed.
+          <p className="mt-0.5 text-[11px] leading-relaxed text-muted-foreground">
+            Use Builder-hosted models or paste your own Anthropic/OpenAI key.
           </p>
         </div>
       </div>
 
-      <div className="space-y-3">
-        <BuilderConnectCta onConnected={onConnected} />
+      <div className="space-y-2.5">
+        <BuilderConnectCta variant="compact" onConnected={onConnected} />
 
         {keyOpen ? (
           <ApiKeyConnect onConnected={onConnected} />
         ) : (
-          <div className="text-center">
+          <div className="flex justify-center">
             <button
               type="button"
               onClick={() => setKeyOpen(true)}
@@ -425,11 +422,6 @@ export function BuilderSetupCard({
             </button>
           </div>
         )}
-
-        <p className="text-center text-[11px] leading-relaxed text-muted-foreground">
-          You can skip this and keep editing the plan with your own coding
-          agent.
-        </p>
       </div>
     </div>
   );

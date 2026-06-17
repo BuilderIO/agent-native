@@ -68,8 +68,8 @@ export default function Index() {
       </header>
       <AgentChatHome
         className="relative z-10 min-h-screen px-4 py-8 sm:px-6"
-        contentClassName="max-w-4xl justify-center pb-12 pt-16"
-        surfaceClassName="forms-home-chat-panel h-auto min-h-[430px] flex-none border-0 bg-transparent shadow-none"
+        contentClassName="max-w-4xl pb-12 pt-16"
+        surfaceClassName="forms-home-chat-panel border-0 bg-transparent shadow-none"
         defaultMode="chat"
         storageKey="forms"
         showHeader={false}

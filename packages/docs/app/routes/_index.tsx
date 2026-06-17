@@ -516,6 +516,15 @@ export default function Home() {
                       </span>
                     ))}
                   </div>
+                  <Link
+                    to="/docs/external-agents"
+                    className="mt-4 inline-flex items-center rounded-full border border-[var(--docs-border)] bg-[var(--bg)] px-3 py-1.5 text-sm font-medium text-[var(--fg)] no-underline transition-colors hover:border-[var(--docs-accent)]"
+                  >
+                    Connect your existing agent
+                    <span className="ml-1" aria-hidden="true">
+                      →
+                    </span>
+                  </Link>
                 </div>
                 <div className="grid gap-3 sm:grid-cols-3">
                   {agentProductShapes.map((shape) => (

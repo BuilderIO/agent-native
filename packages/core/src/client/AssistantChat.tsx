@@ -2580,13 +2580,22 @@ const AssistantChatInner = forwardRef<
         !visibleRunError.runId ||
         userStoppedRunRef.current.runId === visibleRunError.runId)
     );
+  const hasActiveChatWork =
+    showRunningInUI ||
+    isAutoResuming ||
+    queuedMessages.length > 0 ||
+    reconnectContent.length > 0;
   const isFreshEmptyChat =
     messages.length === 0 &&
+    !hasActiveChatWork &&
     !isRestoring &&
     !isReconnecting &&
-    !authError &&
-    !missingApiKey;
+    !authError;
   const centeredEmptyState = centerComposerWhenEmpty && isFreshEmptyChat;
+  const showEmptyState =
+    messages.length === 0 && !isReconnecting && !hasActiveChatWork;
+  const showComposerSlot =
+    Boolean(composerSlot) && (!centerComposerWhenEmpty || centeredEmptyState);
 
   // Clarifying-question surface: the `ask-question` action writes a
   // GuidedQuestionPayload to application_state under "guided-questions". The
@@ -2793,7 +2802,7 @@ const AssistantChatInner = forwardRef<
                         <div className="h-4 w-40 rounded bg-muted animate-pulse" />
                       </div>
                     </div>
-                  ) : messages.length === 0 && !isReconnecting ? (
+                  ) : showEmptyState ? (
                     <div
                       className={cn(
                         "agent-empty-state",
@@ -2964,7 +2973,7 @@ const AssistantChatInner = forwardRef<
                   </div>
                 )}
 
-                {composerSlot}
+                {showComposerSlot ? composerSlot : null}
                 {guidedQuestions && guidedQuestions.length > 0 && (
                   <div className="shrink-0 px-3 pb-2 pt-1">
                     <div className="rounded-lg border border-border bg-card/60 shadow-sm">

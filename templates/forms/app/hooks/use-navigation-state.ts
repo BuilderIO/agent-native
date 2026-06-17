@@ -1,4 +1,6 @@
 import { useAgentRouteState } from "@agent-native/core/client";
+import { useLocation } from "react-router";
+import { markFormsChatHomeHandoff } from "@/lib/chat-home-handoff";
 
 interface NavigationState {
   view: string;
@@ -6,6 +8,8 @@ interface NavigationState {
 }
 
 export function useNavigationState() {
+  const location = useLocation();
+
   useAgentRouteState<NavigationState>({
     getNavigationState: ({ pathname, searchParams }) => {
       const state: NavigationState = { view: "forms" };
@@ -60,5 +64,10 @@ export function useNavigationState() {
       return "/forms";
     },
     agentChatViewTransition: true,
+    onNavigate: (_command, path) => {
+      if (location.pathname === "/" && path !== "/") {
+        markFormsChatHomeHandoff();
+      }
+    },
   });
 }

@@ -10,6 +10,13 @@ An agent-native app is reachable by any MCP-compatible host — Claude, Claude D
 
 The external-agent bridge closes the loop. First you connect your own agent to a **hosted** app — either by pasting the app's remote MCP URL into a chat host like Claude or ChatGPT, or by running the developer CLI flow for local coding agents. Then the agent does the work over MCP and hands the user either an inline **MCP App** UI in compatible hosts or a single **"Open in &lt;app&gt; →"** link that opens the real app focused on exactly what was produced. It reuses the existing `navigate` / `application_state` contract the UI already drains every 2s (see [Context Awareness](/docs/context-awareness)) — there is no second navigation mechanism.
 
+## Which agent path do you need? {#which-agent-path}
+
+- **External MCP host:** use this page when Claude, ChatGPT, Codex, Cursor, OpenCode, GitHub Copilot / VS Code, or another MCP-compatible host should call your hosted agent-native app.
+- **Your app consuming MCP tools:** see [MCP Clients](/docs/mcp-clients) when an agent-native app needs to call tools exposed by another MCP server.
+- **Another app or agent via A2A:** use [Agent Mentions](/docs/agent-mentions) and [A2A](/docs/a2a-protocol) when agent-native apps should discover and delegate to each other.
+- **Local custom sub-agents:** use [Workspace](/docs/workspace) when you want custom agent profiles inside the agent-native workspace itself.
+
 ## Easy setup {#easy-setup}
 
 Add one remote MCP connector to the host where you want to use Agent-Native.
@@ -83,7 +90,7 @@ In hosts that support MCP Apps, Analytics can render real dashboard and analysis
 
 ## Advanced setup: local agents {#connect}
 
-Use this flow for local agent clients on your machine — Claude Code, Claude Code CLI, Codex, and Claude Cowork. (Cursor uses the paste-URL flow above; it does not need this CLI path.)
+Use this flow for local agent clients on your machine — Claude Code, Claude Code CLI, Codex, Claude Cowork, Cursor, OpenCode, and GitHub Copilot / VS Code. Cursor and other OAuth-native clients can also use the paste-URL flow above when their UI supports remote MCP OAuth.
 
 Run the connect command through npm:
 
@@ -93,7 +100,7 @@ npx @agent-native/core@latest connect https://dispatch.agent-native.com
 
 The command asks which local agent clients should receive MCP config. All clients are preselected the first time; after you choose, the selection is saved to `~/.agent-native/connect.json` so the next run can reuse it with Enter, or you can edit the checked items.
 
-For Claude Code and Claude Code CLI, `connect` writes a standard remote HTTP MCP entry with no static headers. Restart Claude Code, run `/mcp`, and choose **Authenticate**; Claude completes the OAuth flow and stores its own tokens. For Codex and Claude Cowork, `connect` uses the compatibility device-code flow: it opens your browser at the app, you click **Authorize** once, and the command writes a scoped bearer-token entry. If you choose a mix of clients, it does both.
+For Claude Code, Claude Code CLI, Cursor, OpenCode, and GitHub Copilot / VS Code, `connect` writes a standard remote HTTP MCP entry with no static headers. Restart the client and authenticate from its MCP UI when prompted. For Codex and Claude Cowork, `connect` uses the compatibility device-code flow: it opens your browser at the app, you click **Authorize** once, and the command writes a scoped bearer-token entry. If you choose a mix of clients, it does both.
 
 Keep the `connect` command running until the browser approval completes. If the
 waiting process is stopped early, the approval can succeed in the browser but
@@ -104,7 +111,10 @@ If you previously connected Claude Code through the old bearer-token flow, just 
 | Local client                  | Config written by `connect`                             | Auth flow                                       |
 | ----------------------------- | ------------------------------------------------------- | ----------------------------------------------- |
 | Claude Code / Claude Code CLI | `.mcp.json` or `~/.claude.json`, depending on `--scope` | Standard remote MCP OAuth in Claude's `/mcp` UI |
-| Codex                         | `~/.codex/config.toml` under `[mcp_servers.<app>]`      | Browser-authorized bearer fallback              |
+| Cursor                        | `.cursor/mcp.json` or `~/.cursor/mcp.json`              | Standard remote MCP OAuth in Cursor's MCP UI    |
+| OpenCode                      | `opencode.json` or `~/.config/opencode/opencode.json`   | Standard remote MCP OAuth in OpenCode's MCP UI  |
+| GitHub Copilot / VS Code      | `.vscode/mcp.json` or VS Code user MCP config           | Standard remote MCP OAuth in VS Code's MCP UI   |
+| Codex                         | `$CODEX_HOME/config.toml` or `~/.codex/config.toml`     | Browser-authorized bearer fallback              |
 | Claude Cowork                 | `~/.cowork/mcp.json` using the Claude Code MCP shape    | Browser-authorized bearer fallback              |
 
 Restart the agent client after connecting so it picks up the new MCP server; OAuth-native clients may then prompt you to authenticate from their MCP UI.
@@ -114,7 +124,7 @@ and token values before sharing logs. Do not use raw curl as a substitute for a
 host MCP session; after connecting, use the host-exposed tools or restart the
 client if the new server is not visible yet.
 
-Use `--client codex` (or `--client claude-code`, `--client claude-code-cli`, `--client cowork`, `--client all`) to skip the picker for scripts or one-off installs.
+Use `--client codex` (or `--client claude-code`, `--client claude-code-cli`, `--client cursor`, `--client opencode`, `--client github-copilot`, `--client cowork`, `--client all`) to skip the picker for scripts or one-off installs.
 
 First-party app skills install the instructions and the hosted MCP connector together with the Agent Native CLI:
 
