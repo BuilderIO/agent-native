@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
-import { readdir, readFile } from "node:fs/promises";
+import { mkdtemp, readdir, readFile, rm } from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -10,6 +11,7 @@ type PackageJson = {
   private?: boolean;
   dependencies?: Record<string, string>;
   devDependencies?: Record<string, string>;
+  optionalDependencies?: Record<string, string>;
   peerDependencies?: Record<string, string>;
   publishConfig?: {
     access?: string;
@@ -80,6 +82,79 @@ function run(
       resolve({ code: code ?? 1, stdout, stderr });
     });
   });
+}
+
+function parsePackJson(output: string, pkg: PublishPackage): string {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(output.trim());
+  } catch (error) {
+    const parseError = new Error(
+      `Unable to parse pnpm pack output for ${tagName(pkg)}:\n${output}`,
+    );
+    (parseError as Error & { cause?: unknown }).cause = error;
+    throw parseError;
+  }
+
+  const packResult = Array.isArray(parsed) ? parsed[0] : parsed;
+  if (
+    !packResult ||
+    typeof packResult !== "object" ||
+    typeof (packResult as { filename?: unknown }).filename !== "string"
+  ) {
+    throw new Error(
+      `pnpm pack did not return a tarball filename for ${tagName(pkg)}:\n${output}`,
+    );
+  }
+
+  return (packResult as { filename: string }).filename;
+}
+
+function protocolDependencyFailures(pkg: PackageJson): string[] {
+  const packageName = pkg.name ?? "unknown package";
+  const failures: string[] = [];
+  for (const [field, dependencies] of Object.entries({
+    dependencies: pkg.dependencies,
+    devDependencies: pkg.devDependencies,
+    optionalDependencies: pkg.optionalDependencies,
+    peerDependencies: pkg.peerDependencies,
+  })) {
+    if (!dependencies) continue;
+    for (const [dependencyName, version] of Object.entries(dependencies)) {
+      if (/^(catalog|workspace):/.test(version)) {
+        failures.push(
+          `${packageName} ${field}.${dependencyName} still uses ${version}`,
+        );
+      }
+    }
+  }
+  return failures;
+}
+
+async function assertPackedManifestIsPublishable(
+  tarballPath: string,
+  pkg: PublishPackage,
+): Promise<void> {
+  const result = await run(
+    "tar",
+    ["-xOf", tarballPath, "package/package.json"],
+    { stream: false },
+  );
+  if (result.code !== 0) {
+    throw new Error(
+      `Unable to read packed package.json for ${tagName(pkg)}:\n${result.stderr}`,
+    );
+  }
+
+  const packedPackageJson = JSON.parse(result.stdout) as PackageJson;
+  const failures = protocolDependencyFailures(packedPackageJson);
+  if (failures.length > 0) {
+    throw new Error(
+      `Packed manifest for ${tagName(pkg)} is not publishable:\n${failures
+        .map((failure) => `- ${failure}`)
+        .join("\n")}`,
+    );
+  }
 }
 
 async function getPublishPackages(): Promise<PublishPackage[]> {
@@ -267,17 +342,43 @@ async function publishPackage(pkg: PublishPackage): Promise<boolean> {
   const access = pkg.packageJson.publishConfig?.access ?? "public";
 
   console.log(`Publishing \"${pkg.name}\" at \"${pkg.version}\"`);
-  const result = await run("npm", [
-    "publish",
-    publishDir,
-    "--access",
-    access,
-    "--tag",
-    "latest",
-    `--registry=${registry}`,
-    "--provenance",
-    "--json",
-  ]);
+  const packDir = await mkdtemp(path.join(os.tmpdir(), "agent-native-pack-"));
+  let result: RunResult | undefined;
+  try {
+    const packResult = await run("pnpm", [
+      "--dir",
+      publishDir,
+      "pack",
+      "--pack-destination",
+      packDir,
+      "--json",
+    ]);
+    if (packResult.code !== 0) {
+      throw new Error(
+        `Failed to pack ${tagName(pkg)} with exit code ${packResult.code}`,
+      );
+    }
+
+    const tarballPath = parsePackJson(packResult.stdout, pkg);
+    await assertPackedManifestIsPublishable(tarballPath, pkg);
+    result = await run("npm", [
+      "publish",
+      tarballPath,
+      "--access",
+      access,
+      "--tag",
+      "latest",
+      `--registry=${registry}`,
+      "--provenance",
+      "--json",
+    ]);
+  } finally {
+    await rm(packDir, { recursive: true, force: true });
+  }
+
+  if (!result) {
+    throw new Error(`Publishing ${tagName(pkg)} did not produce a result`);
+  }
 
   if (result.code === 0) {
     return true;
