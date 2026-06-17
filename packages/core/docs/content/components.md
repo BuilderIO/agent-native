@@ -135,6 +135,7 @@ from `@agent-native/core/client/chat` and the root client entry. See
 | `DataTableWidget`                | You want an action result to render rows and columns in native chat.                    |
 | `DataChartWidget`                | You want compact bar, line, or area chart output in native chat.                        |
 | `DataWidgetResult`               | You want a typed result shape for `"data-table"`, `"data-chart"`, or `"data-insights"`. |
+| `registerActionChatRenderer()`   | You need an action-declared renderer selected by exact `chatUI.renderer`.               |
 | `registerToolRenderer()`         | You need a product-specific native renderer for a non-core tool result.                 |
 | `registerReservedToolRenderer()` | Framework code needs a reserved renderer that wins before template renderers.           |
 

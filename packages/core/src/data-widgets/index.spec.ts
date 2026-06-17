@@ -6,6 +6,7 @@ import {
   createDataChartWidgetResult,
   createDataInsightsWidgetResult,
   createDataTableWidgetResult,
+  dataInsightsWidgetResultSchema,
   normalizeDataWidgetResult,
 } from "./index.js";
 
@@ -67,6 +68,21 @@ describe("data widget helpers", () => {
       widget: DATA_INSIGHTS_WIDGET,
       summary: { responses: 3 },
     });
+  });
+
+  it("validates insights widget results without stripping app metadata", () => {
+    const result = dataInsightsWidgetResultSchema.parse(
+      createDataInsightsWidgetResult({
+        scope: { formId: "form_1" },
+        summary: { responses: 3 },
+        table: {
+          columns: [{ key: "submittedAt", label: "Submitted" }],
+          rows: [{ submittedAt: "2026-06-17T12:00:00.000Z" }],
+        },
+      }),
+    );
+
+    expect(result.scope).toEqual({ formId: "form_1" });
   });
 
   it("rejects invalid widget payloads when constructing results", () => {

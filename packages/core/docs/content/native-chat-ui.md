@@ -19,8 +19,13 @@ an inline route from your app.
 
 ## Action-declared widgets {#action-declared-widgets}
 
-The contract is a plain action result. Include `widget` plus the matching
-payload:
+The native path has two explicit parts:
+
+- `outputSchema` validates the action's response shape.
+- `chatUI.renderer` selects the native React renderer for the validated result.
+
+The built-in data renderers use a plain JSON result with `widget` plus the
+matching payload:
 
 | Widget            | Required payload             | Renders as                                      |
 | ----------------- | ---------------------------- | ----------------------------------------------- |
@@ -28,54 +33,66 @@ payload:
 | `"data-chart"`    | `chartSeries`                | A native bar, line, or area chart               |
 | `"data-insights"` | `table` and/or `chartSeries` | A combined insight card with chart/table output |
 
-The exported TypeScript names are `DataTableWidget`, `DataChartWidget`, and
-`DataWidgetResult` from `@agent-native/core/client/chat` (also re-exported from
-`@agent-native/core/client`). Server actions can return the same JSON shape
-directly; type-only imports are optional.
+Server actions should import the server-safe helpers and schemas from
+`@agent-native/core/data-widgets`; client code can import the same types from
+`@agent-native/core/client/chat` or `@agent-native/core/client`.
 
 ```ts
+import {
+  ACTION_CHAT_UI_DATA_INSIGHTS_RENDERER,
+  dataInsightsWidgetResultSchema,
+  defineAction,
+} from "@agent-native/core";
+import { createDataInsightsWidgetResult } from "@agent-native/core/data-widgets";
+
 export default defineAction({
   description: "Analyze form responses.",
   readOnly: true,
-  run: async () => ({
-    widget: "data-insights",
+  outputSchema: dataInsightsWidgetResultSchema,
+  chatUI: {
+    renderer: ACTION_CHAT_UI_DATA_INSIGHTS_RENDERER,
     title: "Response insights",
-    display: {
-      title: "42 responses",
-      description: "Completion rate rose this week.",
-      primaryAction: {
-        label: "Open response insights",
-        href: "/response-insights",
+  },
+  run: async () =>
+    createDataInsightsWidgetResult({
+      title: "Response insights",
+      display: {
+        title: "42 responses",
+        description: "Completion rate rose this week.",
+        primaryAction: {
+          label: "Open response insights",
+          href: "/response-insights",
+        },
       },
-    },
-    chartSeries: {
-      type: "bar",
-      title: "Responses by day",
-      xKey: "day",
-      series: [{ key: "responses", label: "Responses" }],
-      data: [
-        { day: "Mon", responses: 8 },
-        { day: "Tue", responses: 13 },
-      ],
-    },
-    table: {
-      title: "Top answers",
-      columns: [
-        { key: "answer", label: "Answer" },
-        { key: "count", label: "Count", align: "right" },
-      ],
-      rows: [
-        { answer: "Yes", count: 31 },
-        { answer: "No", count: 11 },
-      ],
-      totalRows: 2,
-    },
-  }),
+      chartSeries: {
+        type: "bar",
+        title: "Responses by day",
+        xKey: "day",
+        series: [{ key: "responses", label: "Responses" }],
+        data: [
+          { day: "Mon", responses: 8 },
+          { day: "Tue", responses: 13 },
+        ],
+      },
+      table: {
+        title: "Top answers",
+        columns: [
+          { key: "answer", label: "Answer" },
+          { key: "count", label: "Count", align: "right" },
+        ],
+        rows: [
+          { answer: "Yes", count: 31 },
+          { answer: "No", count: 11 },
+        ],
+        totalRows: 2,
+      },
+    }),
 });
 ```
 
-The renderer validates the shape before taking over. If the object does not
-match a known native widget, chat falls back to the normal tool-result display.
+The renderer only takes over when the action declares `chatUI` or the result has
+an explicit known `widget` discriminant. It never shape-infers arbitrary objects
+and it never executes HTML or JavaScript from tool results.
 
 ## DataTable output {#data-table}
 
@@ -131,6 +148,33 @@ Native chat widgets and MCP Apps are complementary:
 When both a native widget payload and MCP Apps metadata are present, the in-app
 chat prefers the native widget. External hosts use the MCP Apps resource or the
 deep link fallback.
+
+## Custom native renderers {#custom-native-renderers}
+
+Register product-specific components by exact renderer id, then declare that id
+on the action:
+
+```tsx
+import { registerActionChatRenderer } from "@agent-native/core/client/chat";
+
+registerActionChatRenderer({
+  id: "crm.deal-card",
+  renderer: "crm.deal-card",
+  Component: ({ context }) => <DealCard result={context.resultJson} />,
+});
+```
+
+```ts
+export default defineAction({
+  description: "Show a deal card.",
+  outputSchema: dealCardSchema,
+  chatUI: { renderer: "crm.deal-card" },
+  run: async () => ({ dealId: "deal_123", amount: 42000 }),
+});
+```
+
+Use this for first-party app UI. Keep cross-host iframe UI in `mcpApp`, and keep
+arbitrary query execution behind typed read actions rather than raw SQL in chat.
 
 ## BYO agent runtimes {#byo-agent-runtimes}
 
