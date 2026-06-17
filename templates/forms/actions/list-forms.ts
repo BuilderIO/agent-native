@@ -5,7 +5,16 @@ import {
   ROLE_RANK,
   type ShareRole,
 } from "@agent-native/core/sharing";
-import { and, eq, inArray, or, sql } from "drizzle-orm";
+import {
+  and,
+  desc,
+  eq,
+  inArray,
+  isNotNull,
+  isNull,
+  or,
+  sql,
+} from "drizzle-orm";
 import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 
@@ -47,22 +56,40 @@ export default defineAction({
         deletedAt: schema.forms.deletedAt,
       })
       .from(schema.forms)
-      .where(accessFilter(schema.forms, schema.formShares))
-      .orderBy(schema.forms.updatedAt);
-
-    const counts = await db
-      .select({
-        formId: schema.responses.formId,
-        count: sql<number>`count(*)`,
-      })
-      .from(schema.responses)
-      .groupBy(schema.responses.formId);
-    const countMap = new Map(counts.map((c) => [c.formId, c.count]));
+      .where(
+        and(
+          accessFilter(schema.forms, schema.formShares),
+          args.archived
+            ? isNotNull(schema.forms.deletedAt)
+            : isNull(schema.forms.deletedAt),
+          args.status ? eq(schema.forms.status, args.status) : undefined,
+        ),
+      )
+      .orderBy(desc(schema.forms.updatedAt));
 
     // Per-form effective role for the current user. Used by the UI to hide
     // controls viewers shouldn't see (Delete, Duplicate, Publish, etc.).
     const { userEmail, orgId } = currentAccess();
     const formIds = rows.map((r) => r.id);
+    const countsPromise =
+      formIds.length > 0
+        ? db
+            .select({
+              formId: schema.responses.formId,
+              count: sql<number>`count(*)`,
+            })
+            .from(schema.responses)
+            .where(
+              formIds.length === 1
+                ? eq(schema.responses.formId, formIds[0]!)
+                : inArray(schema.responses.formId, formIds),
+            )
+            .groupBy(schema.responses.formId)
+        : Promise.resolve([]);
+    const countMap = new Map(
+      (await countsPromise).map((c) => [c.formId, c.count]),
+    );
+
     const shareRoleByForm = new Map<string, ShareRole>();
     if (formIds.length > 0 && (userEmail || orgId)) {
       const principalClauses = [];
@@ -105,7 +132,7 @@ export default defineAction({
       }
     }
 
-    let forms = rows.map((r) => {
+    return rows.map((r) => {
       let role: "owner" | ShareRole = "viewer";
       if (userEmail && r.ownerEmail === userEmail) {
         role = "owner";
@@ -129,15 +156,5 @@ export default defineAction({
         deletedAt: r.deletedAt ?? null,
       };
     });
-
-    forms = args.archived
-      ? forms.filter((f) => f.deletedAt !== null)
-      : forms.filter((f) => f.deletedAt === null);
-
-    if (args.status) {
-      forms = forms.filter((f) => f.status === args.status);
-    }
-
-    return forms.reverse();
   },
 });

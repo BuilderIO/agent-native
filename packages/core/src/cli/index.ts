@@ -836,7 +836,7 @@ Usage:
                                 Run 'agent-native recap help' for subcommands.
   agent-native plan <cmd>       Plan helpers for block catalogs and local files.
                                 cmds: blocks | local init | local check |
-                                local serve | local preview
+                                local serve | local verify | local preview
   agent-native migrate <source> Create an Agent-Native Code /migrate session, or use
                                 --emit for a portable own-agent dossier.
   agent-native add-app [name]   Add one or more apps to the current workspace

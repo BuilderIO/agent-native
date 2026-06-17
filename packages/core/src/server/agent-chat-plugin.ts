@@ -2288,6 +2288,14 @@ export interface AgentChatPluginOptions {
    */
   nativeActionsInDev?: boolean;
   /**
+   * Expose raw SQL/native database tools (`db-query`, `db-exec`, `db-patch`,
+   * `db-schema`) to the app agent. Defaults to true for backwards-compatible
+   * agent/UI parity. Set to false for chat-first apps that want agents to use
+   * typed actions only while still rendering rich data widgets from action
+   * results.
+   */
+  databaseTools?: boolean;
+  /**
    * Optional A2A-only deterministic response path. Runs after inbound A2A text
    * and user context are resolved, but before an agent engine/model is loaded.
    * Return a message to complete the A2A task without invoking the LLM, or
@@ -2576,7 +2584,10 @@ The \`db-*\` tools ONLY query the app's own SQL database. They do NOT reach exte
  * request) with the template's promptExamples, producing the four assembled
  * prompt strings used at request time.
  */
-function buildFrameworkPrompts(examples?: PromptExamples): {
+function buildFrameworkPrompts(
+  examples?: PromptExamples,
+  options?: { databaseTools?: boolean },
+): {
   FRAMEWORK_CORE: string;
   FRAMEWORK_CORE_COMPACT: string;
   PROD_FRAMEWORK_PROMPT: string;
@@ -2587,8 +2598,8 @@ function buildFrameworkPrompts(examples?: PromptExamples): {
   // Note: FIRST_SESSION_PERSONALIZATION is NOT appended here — it is injected
   // at per-request prompt-assembly time only for new threads (no prior messages).
   // This prevents the ~1.5KB block from appearing on every request forever.
-  const FRAMEWORK_CORE = buildFrameworkCore(examples);
-  const FRAMEWORK_CORE_COMPACT = buildFrameworkCoreCompact(examples);
+  const FRAMEWORK_CORE = buildFrameworkCore(examples, options);
+  const FRAMEWORK_CORE_COMPACT = buildFrameworkCoreCompact(examples, options);
 
   const PROD_FRAMEWORK_PROMPT = `## Agent-Native Framework — Production Mode
 
@@ -2958,16 +2969,13 @@ export async function loadResourcesForPrompt(
  */
 async function buildSchemaBlock(
   owner: string,
-  _legacyHasRawDbTools?: boolean,
+  hasRawDbTools = true,
 ): Promise<string> {
-  // db-* tools are always registered (see createDbScriptEntries), in both dev
-  // and prod. The legacy boolean is kept for call-site compatibility but
-  // ignored — always advertise the tools to the agent.
   try {
     return await loadSchemaPromptBlock({
       owner,
       orgId: getRequestOrgId() ?? null,
-      hasRawDbTools: true,
+      hasRawDbTools,
     });
   } catch {
     return "";
@@ -3302,7 +3310,9 @@ export function createAgentChatPlugin(
         DEV_FRAMEWORK_PROMPT,
         PROD_FRAMEWORK_PROMPT_COMPACT,
         DEV_FRAMEWORK_PROMPT_COMPACT,
-      } = buildFrameworkPrompts(options?.promptExamples);
+      } = buildFrameworkPrompts(options?.promptExamples, {
+        databaseTools: options?.databaseTools,
+      });
 
       // Initialize MCP client. Merges file/env config + auto-detected binaries
       // + any remote servers users have added through the settings UI (persisted
@@ -3409,7 +3419,10 @@ export function createAgentChatPlugin(
       // Resource, chat, docs, db, and cross-agent scripts are available in both prod and dev modes
       const resourceScripts = await createResourceScriptEntries();
       const docsScripts = await createDocsScriptEntries();
-      const dbScripts = await createDbScriptEntries();
+      const databaseToolsEnabled = options?.databaseTools !== false;
+      const dbScripts = databaseToolsEnabled
+        ? await createDbScriptEntries()
+        : {};
       const refreshScreenTool = createRefreshScreenEntry();
       const frameworkContextTool = createFrameworkContextEntry();
       const leanPrompt = options?.leanPrompt === true;
@@ -3441,7 +3454,9 @@ export function createAgentChatPlugin(
         try {
           const { createDevScriptRegistry } =
             await import("../scripts/dev/index.js");
-          devScriptsForA2A = await createDevScriptRegistry();
+          devScriptsForA2A = await createDevScriptRegistry({
+            databaseTools: databaseToolsEnabled,
+          });
         } catch {}
 
         // Auto-discover template action files and register as bash-based tools.
@@ -4116,7 +4131,7 @@ export function createAgentChatPlugin(
           );
           const schemaBlock = lazyContext
             ? ""
-            : await buildSchemaBlock(owner, devActive);
+            : await buildSchemaBlock(owner, databaseToolsEnabled && devActive);
           const extra = await resolveExtraContext(context.event, owner);
           const runtimeContext = runtimeContextForEvent(context.event);
           const systemPrompt = devActive
@@ -4401,7 +4416,7 @@ export function createAgentChatPlugin(
             );
             const schemaBlock = lazyContext
               ? ""
-              : await buildSchemaBlock(SHARED_OWNER, devActiveMcp);
+              : await buildSchemaBlock(SHARED_OWNER, databaseToolsEnabled);
             // Build the MCP handler's own prompt — always use the bash-based
             // dev prompt in dev mode because mcpActions routes template actions
             // through bash (`devScriptsForA2A`), regardless of `nativeActionsInDev`.
@@ -4923,7 +4938,9 @@ export function createAgentChatPlugin(
       // Code-mode toggle), so the agent has the same DB-admin capability the UI
       // does whenever it is available — true agent/UI parity, in App or Code mode.
       const dbAdminScripts =
-        process.env.NODE_ENV === "development" ? createDbAdminAgentTools() : {};
+        databaseToolsEnabled && process.env.NODE_ENV === "development"
+          ? createDbAdminAgentTools()
+          : {};
 
       const prodActions = attachToolSearch({
         ...templateScripts,
@@ -5130,11 +5147,11 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             lazyContext,
             options?.appId,
           );
-          // In lazy context mode, skip embedding the full schema — the agent
-          // calls `db-schema` on demand. This saves ~1-2K tokens per request.
+          // In lazy context mode, skip embedding the full schema. When database
+          // tools are enabled the agent can call `db-schema` on demand.
           const schemaBlock = lazyContext
             ? ""
-            : await buildSchemaBlock(owner, false);
+            : await buildSchemaBlock(owner, databaseToolsEnabled);
           return setSystemPromptOnContext(
             basePrompt +
               personalizationBlock +
@@ -5311,7 +5328,9 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                   ...coreAttachmentTools,
                   ...browserTools,
                   ...mcpActionEntries,
-                  ...(await createDevScriptRegistry()),
+                  ...(await createDevScriptRegistry({
+                    databaseTools: databaseToolsEnabled,
+                  })),
                   // Full-database admin tools (NODE_ENV=development gate — see
                   // dbAdminScripts; also in prodActions so App mode has them too).
                   ...dbAdminScripts,
@@ -5349,9 +5368,10 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               lazyContext,
               options?.appId,
             );
-            const schemaBlock = lazyContext
-              ? ""
-              : await buildSchemaBlock(owner, true);
+            const schemaBlock =
+              lazyContext || !databaseToolsEnabled
+                ? ""
+                : await buildSchemaBlock(owner, true);
             return setSystemPromptOnContext(
               devPrompt +
                 personalizationBlock +
@@ -7224,7 +7244,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             );
             const schemaBlock = lazyContext
               ? ""
-              : await buildSchemaBlock(owner, false);
+              : await buildSchemaBlock(owner, databaseToolsEnabled);
             return basePrompt + resources + schemaBlock;
           },
           apiKey: options?.apiKey ?? process.env.ANTHROPIC_API_KEY,
@@ -7323,7 +7343,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             );
             const schemaBlock = lazyContext
               ? ""
-              : await buildSchemaBlock(owner, false);
+              : await buildSchemaBlock(owner, databaseToolsEnabled);
             return basePrompt + resources + schemaBlock;
           },
           apiKey: options?.apiKey ?? process.env.ANTHROPIC_API_KEY,

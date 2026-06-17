@@ -2225,6 +2225,10 @@ export async function runAgentLoop(opts: {
       ...(err.processor ? { processor: err.processor } : {}),
     });
     send({ type: "text", text: err.message });
+    messages.push({
+      role: "assistant",
+      content: [{ type: "text", text: err.message }],
+    });
   };
 
   while (true) {

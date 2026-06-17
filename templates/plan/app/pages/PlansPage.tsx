@@ -290,8 +290,8 @@ const ENABLE_PLAN_STATUS_FEATURE = false;
 const GITHUB_LIGHT_CANVAS_BACKGROUND = "#ffffff";
 const GITHUB_DARK_CANVAS_BACKGROUND = "#0d1117";
 const LOCAL_PLAN_OWNER_EMAIL = "local@agent-native.local";
-const LOCAL_FILES_DOCS_URL =
-  "https://www.agent-native.com/docs/template-plan#local-files";
+const PLAN_DOCS_URL = "https://www.agent-native.com/docs/template-plan";
+const LOCAL_FILES_DOCS_URL = `${PLAN_DOCS_URL}#local-files`;
 const AUTO_DEV_COMMENT_EMAILS = new Set(["dev@local.test", "dev@local"]);
 const CURRENT_USER_FALLBACK_NAME = "You";
 const CURRENT_USER_FALLBACK_INITIALS = "You";
@@ -5635,6 +5635,16 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
                       >
                         <IconCopy className="size-4" />
                         Copy link
+                      </DropdownMenuItem>
+                      <DropdownMenuItem asChild className="gap-2">
+                        <a
+                          href={PLAN_DOCS_URL}
+                          target="_blank"
+                          rel="noreferrer"
+                        >
+                          <IconHelpCircle className="size-4" />
+                          Open docs
+                        </a>
                       </DropdownMenuItem>
                       <DropdownMenuItem
                         onClick={() => runPlanExportAction(downloadPlanSource)}

@@ -689,7 +689,12 @@ export interface ConnectDeps {
   /** Sleep between polls (ms). Defaults to real setTimeout. */
   sleep?: (ms: number) => Promise<void>;
   /** Open the verification URL. Defaults to the platform browser opener. */
-  openBrowser?: (url: string) => void;
+  openBrowser?: (url: string) => void | Promise<void>;
+  /** Optional wrapper for showing progress while the browser opener runs. */
+  withBrowserOpenSpinner?: (
+    message: string,
+    openBrowser: () => void | Promise<void>,
+  ) => void | Promise<void>;
   /** Override "now" for the expiry cap (ms epoch). Defaults to Date.now. */
   now?: () => number;
   /** Tests/embedders can force or suppress the interactive client picker. */
@@ -904,7 +909,15 @@ export async function runDeviceFlow(
   logOut(`  Open:       ${start.verification_uri_complete}`);
   logOut("");
   logOut("  Approve in the browser to finish. Opening it now…");
-  open(start.verification_uri_complete);
+  const openVerificationUrl = () => open(start.verification_uri_complete);
+  if (deps.withBrowserOpenSpinner) {
+    await deps.withBrowserOpenSpinner(
+      "Opening browser for approval",
+      openVerificationUrl,
+    );
+  } else {
+    await openVerificationUrl();
+  }
 
   let spin = 0;
   let transientStreak = 0;

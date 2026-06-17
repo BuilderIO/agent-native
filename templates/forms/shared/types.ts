@@ -140,3 +140,68 @@ export interface FormResponse {
   /** Email of the submitter when known (claimed by the client; not verified). */
   submitterEmail?: string | null;
 }
+
+// ---------------------------------------------------------------------------
+// Response insight widgets
+// ---------------------------------------------------------------------------
+
+export interface ResponseInsightsTableColumn {
+  key: string;
+  label: string;
+  align?: "left" | "right";
+}
+
+export interface ResponseInsightsTable {
+  title: string;
+  columns: ResponseInsightsTableColumn[];
+  rows: Array<Record<string, string | number | boolean | null>>;
+  totalRows: number;
+  sampledRows: number;
+  truncated: boolean;
+}
+
+export interface ResponseInsightsChartSeries {
+  type: "bar";
+  title: string;
+  xKey: "date";
+  yKey: "submissions";
+  series: Array<{ key: "submissions"; label: string }>;
+  data: Array<{ date: string; submissions: number }>;
+  sampled: boolean;
+}
+
+export interface ResponseInsightsWidgetResult {
+  widget: "data-insights";
+  widgetId: "forms.responseInsights.v1";
+  scope: {
+    formId?: string;
+    title: string;
+    days: number;
+    sampledLimit: number;
+    formLimit: number;
+  };
+  summary: {
+    forms: number;
+    responses: number;
+    sampledResponses: number;
+    truncated: boolean;
+    rangeStart: string;
+    rangeEnd: string;
+    scopeCapped: boolean;
+  };
+  forms: Array<{
+    id: string;
+    title: string;
+    slug: string;
+    status: string;
+    responseCount: number;
+    url: string;
+  }>;
+  chartSeries: ResponseInsightsChartSeries;
+  table: ResponseInsightsTable;
+  display: {
+    title: string;
+    route: string;
+    primaryAction: { label: string; href: string };
+  };
+}

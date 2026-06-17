@@ -8,6 +8,7 @@ import {
   localPlanFolderName,
   readLocalPlanFiles,
   startLocalPlanBridge,
+  verifyLocalPlanBridge,
   writeLocalPlanPreview,
 } from "./plan-local.js";
 import { fetchPlanBlockCatalog } from "./plan-blocks.js";
@@ -95,6 +96,44 @@ function writeEmptyWireframe(dir: string) {
       '<WireframeBlock id="wf" title="Checkout">',
       '  <Screen surface="browser" />',
       "</WireframeBlock>",
+      "",
+    ].join("\n"),
+    "utf-8",
+  );
+}
+
+function writeChecklistMissingItemId(dir: string) {
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(
+    path.join(dir, "plan.mdx"),
+    [
+      "---",
+      'title: "Checklist missing ids"',
+      'kind: "plan"',
+      "---",
+      "",
+      "# Checklist missing ids",
+      "",
+      '<Checklist id="todo" items={[{ label: "Ship it" }]} />',
+      "",
+    ].join("\n"),
+    "utf-8",
+  );
+}
+
+function writeQuestionFormMissingIds(dir: string) {
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(
+    path.join(dir, "plan.mdx"),
+    [
+      "---",
+      'title: "Question form missing ids"',
+      'kind: "plan"',
+      "---",
+      "",
+      "# Question form missing ids",
+      "",
+      '<QuestionForm id="questions" questions={[{ title: "Pick one", mode: "single", options: [{ label: "A" }] }]} />',
       "",
     ].join("\n"),
     "utf-8",
@@ -243,6 +282,30 @@ describe("local plan CLI helpers", () => {
     );
   });
 
+  it("rejects missing checklist item ids before opening or serving", async () => {
+    const dir = path.join(tmpDir(), "bad-checklist");
+    writeChecklistMissingItemId(dir);
+
+    expect(() => writeLocalPlanPreview({ dir })).toThrow(
+      /Checklist items\[0\]\.id is required/,
+    );
+    await expect(startLocalPlanBridge({ dir })).rejects.toThrow(
+      /Checklist items\[0\]\.id is required/,
+    );
+  });
+
+  it("rejects missing question-form question and option ids", async () => {
+    const dir = path.join(tmpDir(), "bad-question-form");
+    writeQuestionFormMissingIds(dir);
+
+    expect(() => writeLocalPlanPreview({ dir })).toThrow(
+      /QuestionForm questions\[0\]\.id is required/,
+    );
+    await expect(startLocalPlanBridge({ dir })).rejects.toThrow(
+      /QuestionForm questions\[0\]\.id is required/,
+    );
+  });
+
   it("does not lint block tags written inside inline code (init scaffold passes)", () => {
     const dir = path.join(tmpDir(), "scaffold");
     writeScaffoldExamplePlan(dir);
@@ -270,6 +333,10 @@ describe("local plan CLI helpers", () => {
       );
       expect(bridge.result.bridgeUrl).toContain("127.0.0.1");
       expect(bridge.result.files).toContain("plan.mdx");
+      expect(bridge.result.urlFile).toBe(path.join(dir, ".plan-url"));
+      expect(fs.readFileSync(path.join(dir, ".plan-url"), "utf-8")).toBe(
+        `${bridge.result.url}\n`,
+      );
 
       const response = await fetch(bridge.result.bridgeUrl);
       expect(response.ok).toBe(true);
@@ -306,6 +373,27 @@ describe("local plan CLI helpers", () => {
         bridge.server.close(() => resolve()),
       );
     }
+  });
+
+  it("verifies the localhost bridge headlessly and reports Safari guidance", async () => {
+    const dir = path.join(tmpDir(), "checkout");
+    writeSamplePlan(dir);
+
+    const result = await verifyLocalPlanBridge({
+      dir,
+      appUrl: "https://plan.example.com",
+      token: "test-token",
+      urlFile: false,
+    });
+
+    expect(result.ok).toBe(true);
+    expect(result.preflight.status).toBe(204);
+    expect(result.preflight.allowPrivateNetwork).toBe("true");
+    expect(result.bridge.ok).toBe(true);
+    expect(result.bridge.source).toBe("agent-native-local-bridge");
+    expect(result.bridge.mdxFiles).toContain("plan.mdx");
+    expect(result.warnings.join("\n")).toContain("Safari may block");
+    expect(fs.existsSync(path.join(dir, ".plan-url"))).toBe(false);
   });
 
   it("fetches the no-auth block catalog for local authoring", async () => {

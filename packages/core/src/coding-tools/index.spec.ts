@@ -85,6 +85,19 @@ describe("shared coding tools", () => {
     expect(registry["search-files"]).toBeUndefined();
   });
 
+  it("can disable raw database tools without removing coding tools", async () => {
+    const registry = await createDevScriptRegistry({ databaseTools: false });
+
+    expect(registry.bash).toBeDefined();
+    expect(registry.read).toBeDefined();
+    expect(registry.edit).toBeDefined();
+    expect(registry.write).toBeDefined();
+    expect(registry["db-query"]).toBeUndefined();
+    expect(registry["db-exec"]).toBeUndefined();
+    expect(registry["db-patch"]).toBeUndefined();
+    expect(registry["db-schema"]).toBeUndefined();
+  });
+
   it("can expose legacy aliases explicitly for compatibility callers", async () => {
     const registry = await createDevScriptRegistry({ legacyAliases: true });
 

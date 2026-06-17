@@ -294,7 +294,8 @@ npx @agent-native/core@latest skills add visual-plan --mode local-files
 This mode does not register the Plan MCP connector. Before authoring structured
 MDX, fetch the no-auth, schema-only block catalog with
 \`npx @agent-native/core@latest plan blocks --out plan-blocks.md\`, read that file,
-write the MDX folder locally, then run \`plan local serve\`. Plain text skill
+write the MDX folder locally, run \`plan local check\`, then run \`plan local serve\`.
+Plain text skill
 installs (Vercel Skills CLI, copied GitHub files, etc.) can follow that same
 local flow if \`@agent-native/core\` is available. Text alone cannot register
 MCP tools; hosted/shareable Plans still need the Agent-Native CLI
@@ -1367,17 +1368,31 @@ The local-files contract is:
   \`plan blocks\` command calls the public no-auth \`get-plan-blocks\` route and
   writes only registry metadata to disk; use \`--format schema\` if exact nested
   fields are needed. If network access is unavailable, use the bundled
-  references and rely on \`plan local serve\` to catch invalid tags.
+  references and rely on \`plan local check\` / \`plan local serve\` to catch
+  invalid tags. For \`checklist\` and \`question-form\`, copy the catalog examples:
+  checklist items need \`id\`, and question-form questions/options need \`id\`.
 - Write the plan as a local MDX folder: use \`plans/<slug>/\` when the user
   wants the artifact checked into the repo, or use a repo-ignored/temporary
   folder such as \`.agent-native/plans/<slug>/\` or \`/tmp/agent-native-plans/<slug>/\`
   when it should not be checked in. The folder contains \`plan.mdx\`, optional
   \`canvas.mdx\`, optional \`prototype.mdx\`, and optional \`.plan-state.json\`.
-- Run \`npx @agent-native/core@latest plan local serve --dir plans/<slug> --kind plan --open\`
-  after writing or updating the folder. Report the returned local bridge URL. It opens the hosted Plan UI but reads
-  from the localhost bridge on this machine, so it is not shareable across
-  machines. If the Plan app itself is running locally with the same
-  \`PLAN_LOCAL_DIR\`, the \`/local-plans/<slug>\` route is also valid.
+- Run \`npx @agent-native/core@latest plan local check --dir plans/<slug>\`
+  before serving, then run
+  \`npx @agent-native/core@latest plan local serve --dir plans/<slug> --kind plan --open\`.
+  Report the returned local bridge URL from stdout or \`plans/<slug>/.plan-url\`.
+  Treat \`.plan-url\` as a local token file and do not commit it. The URL opens
+  the hosted Plan UI but reads from the localhost bridge on this machine, so it
+  is not shareable across machines. On macOS, \`--open\` prefers Chromium browsers;
+  if Safari opens, switch to Chrome/Chromium because Safari can block the hosted
+  HTTPS page from fetching the HTTP localhost bridge. If the Plan app itself is
+  running locally with the same \`PLAN_LOCAL_DIR\`, the \`/local-plans/<slug>\` route
+  is also valid.
+- For headless verification, run
+  \`npx @agent-native/core@latest plan local verify --dir plans/<slug> --kind plan\`.
+  It starts the bridge, checks the private-network preflight and JSON payload,
+  prints diagnostics, and exits. If the browser hangs on "Loading plan", fetch
+  the \`bridgeUrl\` from the verify/serve JSON to read the concrete validation
+  error.
 - Do **not** call \`create-visual-plan\`, \`create-ui-plan\`,
   \`create-prototype-plan\`, \`create-plan-design\`, \`import-visual-plan-source\`,
   \`update-visual-plan\`, \`patch-visual-plan-source\`, \`get-plan-feedback\`,
@@ -1519,7 +1534,9 @@ In local-files mode:
   MCP connector is not registered; it calls the public no-auth
   \`get-plan-blocks\` route and sends no recap content. If network access is
   unavailable, use the bundled references and validate with
-  \`plan local serve\`.
+  \`plan local check\` / \`plan local serve\`. For \`checklist\` and \`question-form\`,
+  copy the catalog examples: checklist items need \`id\`, and question-form
+  questions/options need \`id\`.
 - Write the recap as a local MDX folder: use \`plans/<slug>/\` when the user
   wants the artifact checked into the repo, or use a repo-ignored/temporary
   folder such as \`.agent-native/plans/<slug>/\` or \`/tmp/agent-native-plans/<slug>/\`
@@ -1527,11 +1544,23 @@ In local-files mode:
   \`canvas.mdx\`, optional \`prototype.mdx\`, and optional \`.plan-state.json\`. Set
   \`kind: "recap"\` and \`localOnly: true\` in frontmatter/state when authoring
   the source.
-- Run \`npx @agent-native/core@latest plan local serve --dir plans/<slug> --kind recap --open\`
-  after writing or updating the folder. Report the returned local bridge URL. It opens the hosted Plan UI but reads
-  from the localhost bridge on this machine, so it is not shareable across
-  machines. If the Plan app itself is running locally with the same
-  \`PLAN_LOCAL_DIR\`, the \`/local-plans/<slug>\` route is also valid.
+- Run \`npx @agent-native/core@latest plan local check --dir plans/<slug>\`
+  before serving, then run
+  \`npx @agent-native/core@latest plan local serve --dir plans/<slug> --kind recap --open\`.
+  Report the returned local bridge URL from stdout or \`plans/<slug>/.plan-url\`.
+  Treat \`.plan-url\` as a local token file and do not commit it. The URL opens
+  the hosted Plan UI but reads from the localhost bridge on this machine, so it
+  is not shareable across machines. On macOS, \`--open\` prefers Chromium browsers;
+  if Safari opens, switch to Chrome/Chromium because Safari can block the hosted
+  HTTPS page from fetching the HTTP localhost bridge. If the Plan app itself is
+  running locally with the same \`PLAN_LOCAL_DIR\`, the \`/local-plans/<slug>\` route
+  is also valid.
+- For headless verification, run
+  \`npx @agent-native/core@latest plan local verify --dir plans/<slug> --kind recap\`.
+  It starts the bridge, checks the private-network preflight and JSON payload,
+  prints diagnostics, and exits. If the browser hangs on "Loading plan", fetch
+  the \`bridgeUrl\` from the verify/serve JSON to read the concrete validation
+  error.
 - Do **not** call \`create-visual-recap\`, \`create-visual-plan\`,
   \`import-visual-plan-source\`, \`update-visual-plan\`,
   \`patch-visual-plan-source\`, \`get-plan-feedback\`, \`export-visual-plan\`,
@@ -1749,13 +1778,14 @@ a headless CI agent), state that in the recap handoff instead.
 
 ## Open And Report The Recap
 
-In local-files privacy mode, report the local bridge URL from
-\`npx @agent-native/core@latest plan local serve --dir plans/<slug> --kind recap --open\`.
-It opens the hosted Plan UI but reads from the localhost bridge on this machine,
-so it is not shareable across machines. If the Plan app itself is running
-locally with the same \`PLAN_LOCAL_DIR\`, the \`/local-plans/<slug>\` route is also
-valid. Do not invent a hosted database URL and do not publish just to get an
-absolute Plan link.
+In local-files privacy mode, run \`plan local check\` first, then report the local
+bridge URL from
+\`npx @agent-native/core@latest plan local serve --dir plans/<slug> --kind recap --open\`
+or from \`plans/<slug>/.plan-url\`. It opens the hosted Plan UI but reads from the
+localhost bridge on this machine, so it is not shareable across machines. If the
+Plan app itself is running locally with the same \`PLAN_LOCAL_DIR\`, the
+\`/local-plans/<slug>\` route is also valid. Do not invent a hosted database URL
+and do not publish just to get an absolute Plan link.
 
 After creating the recap, link the reviewer to the rendered plan with an
 **absolute URL on the origin whose database actually holds the plan**. That
@@ -1909,7 +1939,7 @@ was installed as plain text and no MCP tools are registered, run
 \`npx @agent-native/core@latest plan blocks --out plan-blocks.md\` and read that
 file first. The CLI command calls the public no-auth \`get-plan-blocks\` route and
 sends no plan/recap content. If network access is unavailable, use the bundled
-references and validate with \`plan local serve\`.
+references and validate with \`plan local check\` / \`plan local serve\`.
 
 The catalog returns the authoritative, always-current block vocabulary generated
 live from the app's own block registry — the same config the renderer and MDX
@@ -2540,6 +2570,11 @@ export interface PublicSkillCatalogEntry {
   description?: string;
 }
 
+interface ConnectSpinner {
+  start(message?: string): void;
+  clear(): void;
+}
+
 export interface RunSkillsOptions {
   baseDir?: string;
   /**
@@ -2565,6 +2600,17 @@ export interface RunSkillsOptions {
   hiddenBuiltInSkillTargets?: string[];
   isInteractive?: () => boolean;
   log?: (message: string) => void;
+  /**
+   * Optional output hook for the embedded `agent-native connect` transcript.
+   * Defaults to `log`; the clack-based CLI uses this to render the multi-line
+   * auth details as one continuous guide block instead of separate status logs.
+   */
+  connectLog?: (message: string) => void;
+  /**
+   * Optional spinner factory for the embedded connect flow. The default CLI only
+   * enables this for real TTYs so captured/test output stays deterministic.
+   */
+  createConnectSpinner?: () => ConnectSpinner | undefined;
   promptClients?: (
     context: SkillsClientPromptContext,
   ) => Promise<SkillInstructionClientId[] | null>;
@@ -2718,11 +2764,15 @@ under a repo-ignored/temp folder when they should stay private scratch. Before
 authoring structured MDX, run
 \`npx @agent-native/core@latest plan blocks --out plan-blocks.md\` and read the
 no-auth block catalog; it sends no plan content. Then run
+\`npx @agent-native/core@latest plan local check --dir plans/<slug>\`, then
 \`npx @agent-native/core@latest plan local serve --dir plans/<slug> --kind plan|recap --open\`,
-and report the local bridge URL. It opens the hosted Plan UI but reads from the
-localhost bridge on this machine, so it is not shareable across machines. No
-sharing, all local. Use a hosted or self-hosted Plan MCP connector only if the
-user explicitly asks to publish or share.`;
+and report the local bridge URL from stdout or \`plans/<slug>/.plan-url\`. Treat
+\`.plan-url\` as a local token file and do not commit it. It opens the hosted Plan
+UI but reads from the localhost bridge on this machine, so it is not shareable
+across machines. On macOS, use Chrome/Chromium if Safari blocks the localhost
+bridge; run \`plan local verify --dir plans/<slug> --kind plan|recap\` for
+headless diagnostics. No sharing, all local. Use a hosted or self-hosted Plan MCP
+connector only if the user explicitly asks to publish or share.`;
   }
   if (input.mode === "self-hosted") {
     return `## Installed Mode
@@ -4282,6 +4332,40 @@ function canRunInteractiveConnect(options: RunSkillsOptions): boolean {
   return !!process.stdin.isTTY && !!process.stdout.isTTY;
 }
 
+function normalizeConnectLogMessage(message: string): string {
+  return message
+    .split("\n")
+    .map((line) => (line.startsWith("  ") ? line.slice(2) : line))
+    .join("\n");
+}
+
+function createClackConnectLog(
+  clack: typeof import("@clack/prompts"),
+): (message: string) => void {
+  return (message) => {
+    clack.log.message(normalizeConnectLogMessage(message), {
+      symbol: clack.S_BAR,
+      secondarySymbol: clack.S_BAR,
+      spacing: 0,
+    });
+  };
+}
+
+async function runWithConnectSpinner<T>(
+  options: RunSkillsOptions,
+  message: string,
+  task: () => T | Promise<T>,
+): Promise<T> {
+  const spinner = options.createConnectSpinner?.();
+  if (!spinner) return await task();
+  spinner.start(message);
+  try {
+    return await task();
+  } finally {
+    spinner.clear();
+  }
+}
+
 /** Build the `npx @agent-native/core@latest connect <url> --client … --scope …` command. */
 function connectCommandFor(
   hostedUrl: string,
@@ -4332,7 +4416,32 @@ async function connectAfterEnsure(
     return { connected: false, connectCommand };
   }
 
-  options.log?.(`Authenticating ${installTarget.displayName}…`);
+  const authMessage = `Authenticating ${installTarget.displayName}…`;
+  const connectLog = options.connectLog ?? options.log;
+  const spinner = options.createConnectSpinner?.();
+  let spinnerActive = false;
+  let wroteAuthMessage = false;
+  const clearSpinner = () => {
+    if (!spinnerActive) return;
+    spinner.clear();
+    spinnerActive = false;
+  };
+  const writeAuthMessage = () => {
+    if (wroteAuthMessage) return;
+    connectLog?.(authMessage);
+    wroteAuthMessage = true;
+  };
+  const writeConnectLog = (message: string) => {
+    clearSpinner();
+    writeAuthMessage();
+    connectLog?.(message);
+  };
+  if (spinner) {
+    spinner.start(authMessage);
+    spinnerActive = true;
+  } else {
+    writeAuthMessage();
+  }
   options.telemetry?.track("skills_cli connect started");
   try {
     const connectArgs = [
@@ -4347,22 +4456,24 @@ async function connectAfterEnsure(
     } else {
       await runConnect(connectArgs, {
         isInteractive: options.isInteractive,
-        logOut: (message) => {
-          if (message.trim()) options.log?.(message);
-        },
-        logErr: (message) => {
-          if (message.trim()) options.log?.(message);
-        },
+        logOut: writeConnectLog,
+        logErr: writeConnectLog,
+        withBrowserOpenSpinner: (message, openBrowser) =>
+          runWithConnectSpinner(options, message, openBrowser),
       });
     }
+    clearSpinner();
+    writeAuthMessage();
     options.telemetry?.track("skills_cli connect completed");
     return { connected: true, connectCommand: "" };
   } catch (err: any) {
+    clearSpinner();
+    writeAuthMessage();
     // Non-fatal: the MCP connector is registered. Surface the manual command.
     options.telemetry?.track("skills_cli connect failed", {
       error: err?.message ?? String(err),
     });
-    options.log?.(
+    connectLog?.(
       `Could not finish authentication automatically (${err?.message ?? err}). ` +
         `Run it later with: ${connectCommand}`,
     );
@@ -4967,6 +5078,14 @@ export async function runSkills(
         if (!message.trim()) return;
         clackForLog?.log.info(message);
       };
+  const connectLog =
+    !parsed.printJson && clackForLog
+      ? createClackConnectLog(clackForLog)
+      : undefined;
+  const createConnectSpinner =
+    !parsed.printJson && clackForLog && process.stdout.isTTY
+      ? () => clackForLog.spinner({ indicator: "timer" })
+      : undefined;
 
   if (parsed.command === "help") {
     process.stdout.write(`${HELP}\n`);
@@ -4993,7 +5112,12 @@ export async function runSkills(
       command: parsed.command,
       interactive: shouldPrompt(parsed, options),
     });
-  const optionsWithTelemetry: RunSkillsOptions = { ...options, telemetry };
+  const optionsWithTelemetry: RunSkillsOptions = {
+    ...options,
+    telemetry,
+    connectLog: options.connectLog ?? connectLog,
+    createConnectSpinner: options.createConnectSpinner ?? createConnectSpinner,
+  };
 
   try {
     telemetry.track("skills_cli started");

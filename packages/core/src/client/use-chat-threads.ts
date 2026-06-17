@@ -61,6 +61,21 @@ function emitThreadsUpdated() {
   window.dispatchEvent(new CustomEvent(THREADS_UPDATED_EVENT));
 }
 
+function sortThreadSummaries(
+  threads: ChatThreadSummary[],
+): ChatThreadSummary[] {
+  return [...threads].sort((a, b) => {
+    const aPinnedAt = a.pinnedAt ?? null;
+    const bPinnedAt = b.pinnedAt ?? null;
+    if (aPinnedAt !== null || bPinnedAt !== null) {
+      if (aPinnedAt === null) return 1;
+      if (bPinnedAt === null) return -1;
+      if (aPinnedAt !== bPinnedAt) return bPinnedAt - aPinnedAt;
+    }
+    return b.updatedAt - a.updatedAt;
+  });
+}
+
 function scopeKeySegment(scope?: ChatThreadScope | null): string {
   if (!scope) return "";
   return `:scope:${scope.type}:${scope.id}`;
@@ -791,31 +806,33 @@ export function useChatThreads(
         setThreads((prev) => {
           const exists = prev.some((t) => t.id === id);
           if (exists) {
-            return prev.map((t) =>
-              t.id === id
-                ? {
-                    ...t,
-                    title: nextThreadTitle(
-                      t.title,
-                      data.title,
-                      data.preview,
-                      titleSource,
-                      {
-                        preserveUserTitle:
-                          userRenamedThreadIdsRef.current.has(id),
-                      },
-                    ),
-                    preview: data.preview,
-                    ...(data.messageCount != null && {
-                      messageCount: data.messageCount,
-                    }),
-                    updatedAt: Date.now(),
-                  }
-                : t,
+            return sortThreadSummaries(
+              prev.map((t) =>
+                t.id === id
+                  ? {
+                      ...t,
+                      title: nextThreadTitle(
+                        t.title,
+                        data.title,
+                        data.preview,
+                        titleSource,
+                        {
+                          preserveUserTitle:
+                            userRenamedThreadIdsRef.current.has(id),
+                        },
+                      ),
+                      preview: data.preview,
+                      ...(data.messageCount != null && {
+                        messageCount: data.messageCount,
+                      }),
+                      updatedAt: Date.now(),
+                    }
+                  : t,
+              ),
             );
           }
           const now = Date.now();
-          return [
+          return sortThreadSummaries([
             {
               id,
               title,
@@ -826,7 +843,7 @@ export function useChatThreads(
               scope: scopeRef.current ?? null,
             },
             ...prev,
-          ];
+          ]);
         });
       } catch {}
     },

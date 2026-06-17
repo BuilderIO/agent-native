@@ -161,6 +161,20 @@ function assertInsideLocalPlansDir(folder: string): string {
   throw new Error("Local plan path escaped PLAN_LOCAL_DIR.");
 }
 
+function canonicalPathForContainment(target: string): string {
+  let current = path.resolve(target);
+  const missingSegments: string[] = [];
+
+  while (!fsSync.existsSync(current)) {
+    const parent = path.dirname(current);
+    if (parent === current) return path.resolve(target);
+    missingSegments.unshift(path.basename(current));
+    current = parent;
+  }
+
+  return path.join(fsSync.realpathSync.native(current), ...missingSegments);
+}
+
 function firstEnvValue(names: string[]): string | undefined {
   for (const name of names) {
     const value = process.env[name]?.trim();
@@ -202,9 +216,10 @@ export function localPlanRepoRoot(): string {
 }
 
 function assertInsideRepoRoot(folder: string): string {
-  const root = path.resolve(localPlanRepoRoot());
+  const root = canonicalPathForContainment(localPlanRepoRoot());
   const resolved = path.resolve(folder);
-  const relative = path.relative(root, resolved);
+  const containmentPath = canonicalPathForContainment(resolved);
+  const relative = path.relative(root, containmentPath);
   if (
     relative === "" ||
     (!relative.startsWith("..") && !path.isAbsolute(relative))

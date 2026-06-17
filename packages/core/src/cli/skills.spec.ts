@@ -239,6 +239,47 @@ describe("agent-native skills", () => {
     ]);
   });
 
+  it("routes embedded connect output through a transcript log with spinner feedback", async () => {
+    const root = tmpDir();
+    const runConnect = vi.fn(async () => {});
+    const connectLog: string[] = [];
+    const spinner = {
+      start: vi.fn(),
+      clear: vi.fn(),
+    };
+
+    const result = await addAgentNativeSkill(
+      parseSkillsArgs([
+        "add",
+        "assets",
+        "--client",
+        "claude-code",
+        "--scope",
+        "project",
+      ]),
+      {
+        baseDir: root,
+        isInteractive: () => true,
+        connectLog: (message) => connectLog.push(message),
+        createConnectSpinner: () => spinner,
+        runConnect,
+        runCommand: async () => 0,
+      },
+    );
+
+    expect(result.connected).toBe(true);
+    expect(spinner.start).toHaveBeenCalledWith("Authenticating Assets…");
+    expect(spinner.clear).toHaveBeenCalledTimes(1);
+    expect(connectLog).toEqual(["Authenticating Assets…"]);
+    expect(runConnect).toHaveBeenCalledWith([
+      "https://assets.agent-native.com",
+      "--client",
+      "claude-code",
+      "--scope",
+      "project",
+    ]);
+  });
+
   it("accepts image-generation aliases for the built-in Assets skill", async () => {
     const root = tmpDir();
 

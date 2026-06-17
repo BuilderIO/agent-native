@@ -43,6 +43,8 @@ export const PRIORITY_EXAMPLE_BLOCK_TYPES = [
   "wireframe",
   "code",
   "callout",
+  "checklist",
+  "question-form",
   "rich-text",
   "json-explorer",
   "table",
@@ -332,6 +334,63 @@ export const EXAMPLE_BLOCKS: Record<PriorityExampleBlockType, PlanBlock> = {
     },
   },
 
+  // Checklist: each item needs a stable id; labels alone fail the renderer schema.
+  checklist: {
+    id: "example-checklist",
+    type: "checklist",
+    data: {
+      items: [
+        {
+          id: "verify-local-check",
+          label: "Run `plan local check` before serving",
+          checked: true,
+        },
+        {
+          id: "open-in-chromium",
+          label: "Open local-files plans in Chrome/Chromium",
+          note: "Safari can block HTTPS pages from reading an HTTP localhost bridge.",
+        },
+      ],
+    },
+  },
+
+  // Question form: questions and options both require stable ids.
+  "question-form": {
+    id: "example-question-form",
+    type: "question-form",
+    data: {
+      submitLabel: "Send answers",
+      questions: [
+        {
+          id: "local-mode-browser",
+          title: "Which browser should local reviewers use?",
+          subtitle: "Choose the default recommendation for local-files mode.",
+          mode: "single",
+          required: true,
+          options: [
+            {
+              id: "chromium",
+              label: "Chrome / Chromium",
+              detail: "Best support for hosted HTTPS pages reading localhost.",
+              recommended: true,
+            },
+            {
+              id: "local-plan-app",
+              label: "Local Plan app",
+              detail: "Use when the Plan app is running on localhost too.",
+            },
+          ],
+        },
+        {
+          id: "handoff-notes",
+          title: "What should the agent preserve?",
+          mode: "freeform",
+          placeholder: "Add constraints or review notes...",
+        },
+      ],
+    },
+  },
+
   // Rich text: standard markdown prose. Use a `###` heading here to title a
   // following block rather than the legacy block `title` field.
   "rich-text": {
@@ -408,7 +467,7 @@ export async function renderPlanBlockAuthoringExamples(): Promise<string> {
     "",
     "## Authoring examples",
     "",
-    "Copy a working shape from these complete, valid examples instead of inferring one from the JSON schema. Each is generated from a real block and round-trips through the strict source parser, so every required field is present (tab `id`, nested child `data`, api-endpoint `responses[].status`, non-empty `callout` body). Keep block `id`s unique and edit the content; do not drop required fields.",
+    "Copy a working shape from these complete, valid examples instead of inferring one from the JSON schema. Each is generated from a real block and round-trips through the strict source parser, so every required field is present (tab `id`, nested child `data`, checklist item `id`, question-form question/option `id`, api-endpoint `responses[].status`, non-empty `callout` body). Keep block `id`s unique and edit the content; do not drop required fields.",
     "",
     sections.join("\n\n"),
   ].join("\n");

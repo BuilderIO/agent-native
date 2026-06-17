@@ -2,7 +2,7 @@ import { defineAction } from "@agent-native/core";
 import { readAppState } from "@agent-native/core/application-state";
 import { accessFilter } from "@agent-native/core/sharing";
 import { getDb, schema } from "../server/db/index.js";
-import { and, eq, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 
 export default defineAction({
@@ -58,16 +58,35 @@ export default defineAction({
       try {
         const db = getDb();
         const rows = await db
-          .select()
-          .from(schema.forms)
-          .where(accessFilter(schema.forms, schema.formShares));
-        const counts = await db
           .select({
-            formId: schema.responses.formId,
-            count: sql<number>`count(*)`,
+            id: schema.forms.id,
+            title: schema.forms.title,
+            status: schema.forms.status,
+            slug: schema.forms.slug,
+            createdAt: schema.forms.createdAt,
+            updatedAt: schema.forms.updatedAt,
           })
-          .from(schema.responses)
-          .groupBy(schema.responses.formId);
+          .from(schema.forms)
+          .where(
+            and(
+              accessFilter(schema.forms, schema.formShares),
+              isNull(schema.forms.deletedAt),
+            ),
+          )
+          .orderBy(desc(schema.forms.updatedAt))
+          .limit(100);
+        const formIds = rows.map((form) => form.id);
+        const counts =
+          formIds.length > 0
+            ? await db
+                .select({
+                  formId: schema.responses.formId,
+                  count: sql<number>`count(*)`,
+                })
+                .from(schema.responses)
+                .where(inArray(schema.responses.formId, formIds))
+                .groupBy(schema.responses.formId)
+            : [];
         const countMap = new Map(counts.map((c) => [c.formId, c.count]));
 
         screen.formsList = {
@@ -81,10 +100,21 @@ export default defineAction({
             createdAt: form.createdAt,
             updatedAt: form.updatedAt,
           })),
+          capped: rows.length >= 100,
         };
       } catch {
         // continue without forms list
       }
+    }
+
+    if (nav?.view === "response-insights") {
+      screen.responseInsights = {
+        formId: nav.formId,
+        action:
+          nav.formId !== undefined
+            ? `response-insights --formId ${nav.formId}`
+            : "response-insights",
+      };
     }
 
     if (nav?.view === "responses" && nav?.formId) {
@@ -103,9 +133,14 @@ export default defineAction({
         if (!form) return screen;
 
         const responses = await db
-          .select()
+          .select({
+            id: schema.responses.id,
+            data: schema.responses.data,
+            submittedAt: schema.responses.submittedAt,
+          })
           .from(schema.responses)
           .where(eq(schema.responses.formId, nav.formId))
+          .orderBy(desc(schema.responses.submittedAt))
           .limit(20);
 
         const [total] = await db

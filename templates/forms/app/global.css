@@ -92,3 +92,119 @@
 ::-webkit-scrollbar-thumb:hover {
   background: hsl(var(--muted-foreground) / 0.4);
 }
+
+.forms-home-page::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(hsl(var(--border) / 0.24) 1px, transparent 1px),
+    linear-gradient(90deg, hsl(var(--border) / 0.18) 1px, transparent 1px);
+  background-size: 46px 46px;
+  mask-image: linear-gradient(
+    to bottom,
+    transparent,
+    black 14%,
+    black 78%,
+    transparent
+  );
+}
+
+.forms-home-chat-panel {
+  width: 100%;
+}
+
+.forms-home-chat-panel [data-agent-empty-state="centered"] {
+  justify-content: center;
+  padding-bottom: clamp(4rem, 12vh, 8rem);
+}
+
+.forms-home-chat-panel [data-agent-empty-state="centered"] .agent-chat-scroll {
+  flex: 0 0 auto;
+  min-height: 0;
+  overflow: visible;
+}
+
+.forms-home-chat-panel .agent-composer-area--hero {
+  padding-inline: 0;
+  filter: none;
+}
+
+.forms-home-chat-panel
+  [data-agent-empty-state="centered"]
+  .agent-composer-area--hero {
+  width: 100%;
+}
+
+.forms-home-chat-panel .agent-composer-root--hero {
+  border-radius: 1.25rem;
+  box-shadow: none;
+}
+
+.forms-chat-intro {
+  display: none;
+}
+
+.forms-home-chat-panel [data-agent-empty-state="centered"] .forms-chat-intro {
+  display: grid;
+  justify-items: center;
+  gap: 0.75rem;
+  margin: 0 auto 1rem;
+  padding-bottom: 1.25rem;
+  text-align: center;
+}
+
+.forms-chat-kicker {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  border: 1px solid hsl(var(--border));
+  border-radius: 999px;
+  background: hsl(var(--background) / 0.84);
+  padding: 0.25rem 0.625rem;
+  color: hsl(var(--muted-foreground));
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.forms-chat-intro h1 {
+  margin: 0;
+  font-size: 2.25rem;
+  font-weight: 650;
+  line-height: 1.04;
+}
+
+.forms-chat-intro p {
+  margin: 0;
+  max-width: 38rem;
+  color: hsl(var(--muted-foreground));
+  font-size: 1rem;
+  line-height: 1.55;
+}
+
+.forms-chat-pill-row {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.5rem;
+  padding-top: 0.125rem;
+}
+
+.forms-chat-pill-row span {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  border: 1px solid hsl(var(--border));
+  border-radius: 999px;
+  background: hsl(var(--background) / 0.78);
+  padding: 0.375rem 0.625rem;
+  color: hsl(var(--muted-foreground));
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+@media (min-width: 640px) {
+  .forms-chat-intro h1 {
+    font-size: 3.75rem;
+  }
+}

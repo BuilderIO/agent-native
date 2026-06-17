@@ -23,6 +23,8 @@ import { ConnectBuilderCard } from "../ConnectBuilderCard.js";
 import { McpAppRenderer } from "../mcp-apps/McpAppRenderer.js";
 import { writeClipboardText } from "../clipboard.js";
 import { cn } from "../utils.js";
+import "./widgets/builtin-tool-renderers.js";
+import { resolveToolRenderer } from "./tool-render-registry.js";
 import {
   SmoothMarkdownText,
   HighlightedCodeBlock,
@@ -562,6 +564,21 @@ function ToolCallDisplayGeneric({
     } catch {
       // Fall through to default pill rendering
     }
+  }
+
+  const parsedResult = result ? parseJsonText(result) : null;
+  const nativeToolContext = {
+    toolName,
+    args,
+    resultText: result,
+    resultJson: parsedResult,
+    isRunning,
+  };
+  const NativeToolRenderer = isAgentCall
+    ? null
+    : resolveToolRenderer(nativeToolContext);
+  if (NativeToolRenderer) {
+    return <NativeToolRenderer context={nativeToolContext} />;
   }
 
   const inputPayload = hasArgs ? toolInputPayload(toolName, args) : null;

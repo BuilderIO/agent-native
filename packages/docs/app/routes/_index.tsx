@@ -146,6 +146,35 @@ const frameworkPrimitives = [
   },
 ];
 
+const agentProductShapes = [
+  {
+    title: "Headless",
+    description:
+      "Call actions and the agent from code, HTTP, CLI, MCP, or A2A.",
+  },
+  {
+    title: "Rich chat",
+    description:
+      "Ship chat with native tables, charts, approvals, setup flows, and tool results.",
+  },
+  {
+    title: "Whole app",
+    description:
+      "Put dashboards, editors, and workflows around the same synced agent.",
+  },
+];
+
+const protocolSurfaces = [
+  "A2A",
+  "MCP",
+  "MCP OAuth",
+  "MCP Apps",
+  "MCP clients",
+  "HTTP actions",
+  "CLI",
+  "Deep links",
+];
+
 const homepageTemplateSlugs = [
   "calendar",
   "content",
@@ -464,6 +493,55 @@ export default function Home() {
                   </div>
                 );
               })}
+            </div>
+
+            <div className="mt-10 rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)] p-5 md:p-6">
+              <div className="grid gap-6 lg:grid-cols-[0.92fr_1.08fr] lg:items-start">
+                <div>
+                  <h3 className="m-0 text-xl font-semibold">
+                    One primitive, many surfaces
+                  </h3>
+                  <p className="mt-2 max-w-xl text-sm leading-relaxed text-[var(--fg-secondary)]">
+                    Define actions once, then expose the same agent as a
+                    headless service, a rich chat interface, or a whole
+                    application with synchronized UI.
+                  </p>
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    {protocolSurfaces.map((surface) => (
+                      <span
+                        key={surface}
+                        className="rounded-full border border-[var(--docs-border)] bg-[var(--bg)] px-3 py-1 text-xs font-medium text-[var(--fg-secondary)]"
+                      >
+                        {surface}
+                      </span>
+                    ))}
+                  </div>
+                  <Link
+                    to="/docs/external-agents"
+                    className="mt-4 inline-flex items-center rounded-full border border-[var(--docs-border)] bg-[var(--bg)] px-3 py-1.5 text-sm font-medium text-[var(--fg)] no-underline transition-colors hover:border-[var(--docs-accent)]"
+                  >
+                    Connect your existing agent
+                    <span className="ml-1" aria-hidden="true">
+                      →
+                    </span>
+                  </Link>
+                </div>
+                <div className="grid gap-3 sm:grid-cols-3">
+                  {agentProductShapes.map((shape) => (
+                    <div
+                      key={shape.title}
+                      className="rounded-lg border border-[var(--docs-border)] bg-[var(--bg)] p-4"
+                    >
+                      <h4 className="m-0 text-sm font-semibold">
+                        {shape.title}
+                      </h4>
+                      <p className="mt-2 text-sm leading-relaxed text-[var(--fg-secondary)]">
+                        {shape.description}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              </div>
             </div>
           </div>
         </section>

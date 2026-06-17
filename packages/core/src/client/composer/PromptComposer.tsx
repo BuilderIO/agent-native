@@ -30,6 +30,7 @@ import { IconX } from "@tabler/icons-react";
 import { cn } from "../utils.js";
 import { AgentComposerFrame } from "./AgentComposerFrame.js";
 import {
+  DEFAULT_VOICE_DICTATION_ENABLED,
   TiptapComposer,
   type ComposerSubmitIntent,
   type TiptapComposerHandle,
@@ -90,7 +91,7 @@ export interface PromptComposerProps {
   preserveDraftOnSubmit?: boolean;
   /** Show the model selector (default: true). */
   showModelSelector?: boolean;
-  /** Show the voice dictation button (default: true). */
+  /** Show the voice dictation button. Defaults to DEFAULT_VOICE_DICTATION_ENABLED. */
   voiceEnabled?: boolean;
   /** Show file upload controls and pass submitted files to onSubmit (default: true). */
   attachmentsEnabled?: boolean;
@@ -436,7 +437,7 @@ function PromptComposerInner({
   draftScope,
   preserveDraftOnSubmit = false,
   showModelSelector = true,
-  voiceEnabled = true,
+  voiceEnabled = DEFAULT_VOICE_DICTATION_ENABLED,
   attachmentsEnabled = true,
   plusMenuMode,
   initialText,

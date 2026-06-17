@@ -1096,7 +1096,9 @@ async function printInstallResult(
       [
         "No sharing, all local.",
         "Run: npx @agent-native/core@latest plan blocks --out plan-blocks.md",
-        "Preview: npx @agent-native/core@latest plan local preview --dir plans/<slug> --open",
+        "Check: npx @agent-native/core@latest plan local check --dir plans/<slug>",
+        "Serve: npx @agent-native/core@latest plan local serve --dir plans/<slug> --open",
+        "Verify: npx @agent-native/core@latest plan local verify --dir plans/<slug>",
       ].join("\n"),
       "Local Plan files",
     );

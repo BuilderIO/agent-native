@@ -4,30 +4,44 @@ import { writeAppState } from "@agent-native/core/application-state";
 
 export default defineAction({
   description:
-    "Navigate the UI to a view or form. Views: forms, form, responses, settings.",
+    "Navigate the UI to a view or form. Views: home, forms, form, responses, response-insights, team, extensions, form-preview.",
   schema: z.object({
     view: z
-      .string()
+      .enum([
+        "home",
+        "forms",
+        "form",
+        "responses",
+        "response-insights",
+        "team",
+        "extensions",
+        "form-preview",
+      ])
       .optional()
-      .describe("View to navigate to (forms, form, responses, settings)"),
+      .describe(
+        "View to navigate to (home, forms, form, responses, response-insights, team, extensions, form-preview)",
+      ),
     formId: z
       .string()
       .optional()
-      .describe("Form to open (for form or responses view)"),
+      .describe(
+        "Form to open (for form, responses, or response-insights view)",
+      ),
   }),
   http: false,
   run: async (args) => {
     const { view, formId } = args;
+    const resolvedView = view ?? (formId ? "form" : undefined);
 
     if (!view && !formId) {
       throw new Error("At least --view or --formId is required.");
     }
 
     const nav: Record<string, string> = {};
-    if (view) nav.view = view;
+    if (resolvedView) nav.view = resolvedView;
     if (formId) nav.formId = formId;
 
     await writeAppState("navigate", nav);
-    return `Navigating to ${view || "form"}${formId ? ` (form: ${formId})` : ""}`;
+    return `Navigating to ${resolvedView || "form"}${formId ? ` (form: ${formId})` : ""}`;
   },
 });

@@ -32,6 +32,19 @@ export function dispatchAgentSidebarStateChange(
   );
 }
 
+export function setAgentSidebarOpenPreference(open: boolean): void {
+  if (typeof window === "undefined") return;
+  try {
+    localStorage.setItem(SIDEBAR_OPEN_KEY, String(open));
+  } catch {}
+}
+
+export function requestAgentSidebarOpen(): void {
+  if (typeof window === "undefined") return;
+  setAgentSidebarOpenPreference(true);
+  window.dispatchEvent(new CustomEvent("agent-panel:open"));
+}
+
 export function getAgentSidebarUrlOpenOverride(): boolean | null {
   if (typeof window === "undefined") return null;
   try {
@@ -46,9 +59,7 @@ export function consumeAgentSidebarUrlOpenOverride(): boolean | null {
   const override = getAgentSidebarUrlOpenOverride();
   if (override === null || typeof window === "undefined") return override;
 
-  try {
-    localStorage.setItem(SIDEBAR_OPEN_KEY, String(override));
-  } catch {}
+  setAgentSidebarOpenPreference(override);
 
   try {
     const url = new URL(window.location.href);

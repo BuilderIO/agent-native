@@ -133,6 +133,23 @@ describe("prompt content invariants", () => {
     }
   });
 
+  it("database-tool-free variants point agents at typed actions", () => {
+    const typedOnlyFull = buildFrameworkCore(undefined, {
+      databaseTools: false,
+    });
+    const typedOnlyCompact = buildFrameworkCoreCompact(undefined, {
+      databaseTools: false,
+    });
+
+    for (const prompt of [typedOnlyFull, typedOnlyCompact]) {
+      expect(prompt).toContain("raw database tools are not available");
+      expect(prompt).toContain("typed app actions");
+      expect(prompt).not.toContain("db-schema");
+      expect(prompt).not.toContain("db-query");
+      expect(prompt).not.toContain("db-exec");
+    }
+  });
+
   it("both variants contain the no-fabrication rule", () => {
     for (const prompt of [full, compact]) {
       expect(prompt).toContain("Never fabricate factual claims");
