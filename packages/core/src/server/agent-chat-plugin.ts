@@ -3450,11 +3450,13 @@ export function createAgentChatPlugin(
       // has access to the same tools as the interactive agent.
       let devScriptsForA2A: Record<string, ActionEntry> = {};
       let discoveredActionsAll: Record<string, ActionEntry> = {};
-      if (canToggle && databaseToolsEnabled) {
+      if (canToggle) {
         try {
           const { createDevScriptRegistry } =
             await import("../scripts/dev/index.js");
-          devScriptsForA2A = await createDevScriptRegistry();
+          devScriptsForA2A = await createDevScriptRegistry({
+            databaseTools: databaseToolsEnabled,
+          });
         } catch {}
 
         // Auto-discover template action files and register as bash-based tools.
@@ -5326,9 +5328,9 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                   ...coreAttachmentTools,
                   ...browserTools,
                   ...mcpActionEntries,
-                  ...(databaseToolsEnabled
-                    ? await createDevScriptRegistry()
-                    : {}),
+                  ...(await createDevScriptRegistry({
+                    databaseTools: databaseToolsEnabled,
+                  })),
                   // Full-database admin tools (NODE_ENV=development gate — see
                   // dbAdminScripts; also in prodActions so App mode has them too).
                   ...dbAdminScripts,

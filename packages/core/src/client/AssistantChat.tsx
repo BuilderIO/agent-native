@@ -253,6 +253,13 @@ function clearPendingSelection() {
   }
 }
 
+// Thread ids the server has already told us don't exist (a prior mount's
+// /threads/:id probe returned 404). Module-scoped so it survives remounts:
+// re-probing a known-absent thread on every navigation just re-spams DevTools
+// with 404s for a thread that has no server row yet (e.g. a freshly created,
+// not-yet-sent chat). Reset on a full page reload.
+const knownAbsentThreadIds = new Set<string>();
+
 async function waitForThreadRunToClear(apiUrl: string, threadId?: string) {
   if (!threadId) return;
   const deadline = Date.now() + ACTIVE_RUN_CLEAR_TIMEOUT_MS;
@@ -1603,6 +1610,10 @@ const AssistantChatInner = forwardRef<
       // message is sent. Avoid probing /threads/:id on mount; that request
       // can only 404 and makes normal app startup look broken in DevTools.
       setIsRestoring(false);
+    } else if (threadId && knownAbsentThreadIds.has(threadId)) {
+      // A prior mount already learned this thread has no server row (404).
+      // Skip the re-probe so remounts don't re-spam 404s for the same id.
+      setIsRestoring(false);
     } else if (threadId) {
       (async () => {
         try {
@@ -1634,6 +1645,10 @@ const AssistantChatInner = forwardRef<
             if (data.title) {
               titleGeneratedRef.current = true;
             }
+          } else if (res.status === 404) {
+            // No server row for this thread yet — remember it so later remounts
+            // skip the probe instead of re-fetching a known 404.
+            knownAbsentThreadIds.add(threadId);
           }
         } catch {
           // Start fresh

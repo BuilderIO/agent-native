@@ -20,7 +20,10 @@ interface LayoutProps {
 
 export function Layout({ children }: LayoutProps) {
   const location = useLocation();
-  const [startedFromChatHome] = useState(() => consumeFormsChatHomeHandoff());
+  const [chatHomeHandoffPath] = useState(() =>
+    consumeFormsChatHomeHandoff() ? location.pathname : null,
+  );
+  const chatHomeHandoffActive = chatHomeHandoffPath === location.pathname;
 
   // Bind chat to the currently-open form. The `/forms/:id` URL covers
   // both the builder and the responses sub-page (`/forms/:id/responses`);
@@ -31,7 +34,7 @@ export function Layout({ children }: LayoutProps) {
     if (!formId) return null;
     return { type: "form" as const, id: formId };
   }, [location.pathname]);
-  const sidebarScope = startedFromChatHome ? null : formScope;
+  const sidebarScope = chatHomeHandoffActive ? null : formScope;
 
   if (BARE_ROUTES.has(location.pathname)) {
     return <>{children}</>;
@@ -53,7 +56,7 @@ export function Layout({ children }: LayoutProps) {
           defaultOpen
           chatViewTransition
           storageKey="forms"
-          openOnChatRunning={startedFromChatHome}
+          openOnChatRunning={chatHomeHandoffActive}
           emptyStateText="Ask me anything about your forms"
           suggestions={[
             "Build a customer feedback survey",

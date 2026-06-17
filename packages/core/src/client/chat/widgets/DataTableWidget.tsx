@@ -1,8 +1,11 @@
 import { IconExternalLink, IconTable } from "@tabler/icons-react";
 import { requestAgentSidebarOpen } from "../../agent-sidebar-state.js";
+import { appPath } from "../../api-path.js";
 import { startAgentChatViewTransition } from "../../chat-view-transition.js";
 import { cn } from "../../utils.js";
 import type { DataTableWidget as DataTableWidgetData } from "./data-widget-types.js";
+
+const SAFE_ACTION_PROTOCOLS = new Set(["http:", "https:", "mailto:"]);
 
 function formatCell(value: unknown): string {
   if (value === undefined || value === null || value === "") return "—";
@@ -22,6 +25,34 @@ function formatCell(value: unknown): string {
     }).format(new Date(timestamp));
   }
   return text;
+}
+
+function normalizeActionHref(href: string): string | null {
+  const trimmed = href.trim();
+  if (!trimmed) return null;
+  if (trimmed.startsWith("/") && !trimmed.startsWith("//")) {
+    return appPath(trimmed);
+  }
+
+  const base =
+    typeof window === "undefined"
+      ? "http://agent-native.local/"
+      : window.location.href;
+  try {
+    const url = new URL(trimmed, base);
+    if (!SAFE_ACTION_PROTOCOLS.has(url.protocol)) return null;
+
+    if (
+      typeof window !== "undefined" &&
+      url.origin === window.location.origin
+    ) {
+      return appPath(`${url.pathname}${url.search}${url.hash}`);
+    }
+
+    return url.toString();
+  } catch {
+    return null;
+  }
 }
 
 function isSameAppHref(href: string): boolean {
@@ -58,6 +89,7 @@ export function DataTableWidget({
   action?: { label: string; href: string };
 }) {
   const rows = table.rows ?? [];
+  const actionHref = action ? normalizeActionHref(action.href) : null;
 
   return (
     <div className="my-1.5 overflow-hidden rounded-lg border border-border bg-background text-foreground shadow-sm">
@@ -74,9 +106,9 @@ export function DataTableWidget({
             {table.truncated ? " sampled" : ""}
           </div>
         </div>
-        {action ? (
+        {action && actionHref ? (
           <a
-            href={action.href}
+            href={actionHref}
             onClick={(event) => {
               if (
                 event.defaultPrevented ||
@@ -85,12 +117,12 @@ export function DataTableWidget({
                 event.ctrlKey ||
                 event.shiftKey ||
                 event.altKey ||
-                !isSameAppHref(action.href)
+                !isSameAppHref(actionHref)
               ) {
                 return;
               }
               event.preventDefault();
-              navigateSameAppHref(action.href);
+              navigateSameAppHref(actionHref);
             }}
             className="inline-flex shrink-0 items-center gap-1 rounded-md border border-border px-2 py-1 text-[11px] font-medium text-foreground no-underline hover:bg-muted hover:no-underline"
           >
