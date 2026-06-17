@@ -15,30 +15,14 @@ import {
 } from "vitest";
 import { registerShareableResource } from "@agent-native/core/sharing";
 import { runWithRequestContext } from "@agent-native/core/server/request-context";
+import { closeDbExec } from "@agent-native/core/db";
 import * as planSchema from "../server/db/schema.js";
-
-const execMock = vi.hoisted(() =>
-  vi.fn(async () => ({ rows: [], rowsAffected: 0 })),
-);
-const deleteCollabStateMock = vi.hoisted(() => vi.fn(async () => undefined));
-
-vi.mock("@agent-native/core/db", async () => {
-  const actual = await vi.importActual<typeof import("@agent-native/core/db")>(
-    "@agent-native/core/db",
-  );
-  return {
-    ...actual,
-    getDbExec: () => ({ execute: execMock }),
-  };
-});
-
-vi.mock("@agent-native/core/collab", () => ({
-  deleteCollabState: deleteCollabStateMock,
-}));
 
 let client: Client;
 let db: LibSQLDatabase<typeof planSchema>;
 let dbDir: string;
+let previousDatabaseUrl: string | undefined;
+let previousPlanDatabaseUrl: string | undefined;
 
 vi.mock("../server/db/index.js", () => ({
   getDb: () => db,
@@ -60,6 +44,7 @@ function asUser(userEmail: string, fn: () => Promise<any> | any) {
 async function resetTables() {
   // guard:allow-unscoped -- test-only fixture cleanup resets isolated temp DB.
   await client.executeMultiple(`
+    DROP TABLE IF EXISTS _collab_docs;
     DELETE FROM plan_assets;
     DELETE FROM plan_reports;
     DELETE FROM plan_versions;
@@ -181,6 +166,19 @@ async function seedPlan() {
     byteSize: 4,
     createdAt: NOW,
   });
+  await client.executeMultiple(`
+    CREATE TABLE IF NOT EXISTS _collab_docs (
+      doc_id TEXT PRIMARY KEY,
+      yjs_state TEXT NOT NULL,
+      text_snapshot TEXT NOT NULL DEFAULT '',
+      version INTEGER NOT NULL DEFAULT 0,
+      updated_at TEXT NOT NULL DEFAULT ''
+    );
+    INSERT INTO _collab_docs (doc_id, yjs_state, text_snapshot, version, updated_at)
+      VALUES ('plan:${PLAN_ID}', 'state', 'exact', 0, '${NOW}');
+    INSERT INTO _collab_docs (doc_id, yjs_state, text_snapshot, version, updated_at)
+      VALUES ('plan:${PLAN_ID}:block_1', 'state', 'block', 0, '${NOW}');
+  `);
 }
 
 async function countRows(table: string, column = "plan_id") {
@@ -195,7 +193,13 @@ beforeAll(async () => {
   process.env.PLAN_LOCAL_MODE = "0";
 
   dbDir = fs.mkdtempSync(path.join(os.tmpdir(), "plan-delete-action-"));
-  client = createClient({ url: `file:${path.join(dbDir, "test.db")}` });
+  const dbUrl = `file:${path.join(dbDir, "test.db")}`;
+  previousDatabaseUrl = process.env.DATABASE_URL;
+  previousPlanDatabaseUrl = process.env.PLAN_DATABASE_URL;
+  process.env.DATABASE_URL = dbUrl;
+  process.env.PLAN_DATABASE_URL = dbUrl;
+  await closeDbExec();
+  client = createClient({ url: dbUrl });
   db = drizzle(client, { schema: planSchema });
 
   await client.executeMultiple(`
@@ -254,14 +258,18 @@ beforeAll(async () => {
     .default as AnyAction;
 });
 
-afterAll(() => {
+afterAll(async () => {
+  await closeDbExec();
   client?.close();
+  if (previousDatabaseUrl === undefined) delete process.env.DATABASE_URL;
+  else process.env.DATABASE_URL = previousDatabaseUrl;
+  if (previousPlanDatabaseUrl === undefined)
+    delete process.env.PLAN_DATABASE_URL;
+  else process.env.PLAN_DATABASE_URL = previousPlanDatabaseUrl;
   if (dbDir) fs.rmSync(dbDir, { recursive: true, force: true });
 });
 
 beforeEach(async () => {
-  execMock.mockClear();
-  deleteCollabStateMock.mockClear();
   await resetTables();
 });
 
@@ -357,13 +365,11 @@ describe("delete-visual-plan", () => {
     expect(await countRows("plan_versions")).toBe(0);
     expect(await countRows("plan_shares", "resource_id")).toBe(0);
     expect(await countRows("plan_assets")).toBe(0);
-    expect(deleteCollabStateMock).toHaveBeenCalledWith(`plan:${PLAN_ID}`);
-    expect(execMock).toHaveBeenCalledWith(
-      expect.objectContaining({
-        sql: expect.stringContaining("DELETE FROM _collab_docs"),
-        args: [`plan:${PLAN_ID.replaceAll("_", "\\_")}:%`],
-      }),
-    );
+    const collabRows = await client.execute({
+      sql: `SELECT doc_id FROM _collab_docs WHERE doc_id = ? OR doc_id LIKE ?`,
+      args: [`plan:${PLAN_ID}`, `plan:${PLAN_ID}:%`],
+    });
+    expect(collabRows.rows).toHaveLength(0);
   });
 
   it("rejects non-owners", async () => {
