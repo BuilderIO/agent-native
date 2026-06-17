@@ -1887,10 +1887,9 @@ describe("server/auth", () => {
   });
 
   describe("getSession", () => {
-    it("returns a shared session when AGENT_NATIVE_SKIP_AUTH=1", async () => {
+    it("returns a shared session when AUTH_DISABLED=1", async () => {
       vi.stubEnv("NODE_ENV", "production");
-      vi.stubEnv("AGENT_NATIVE_SKIP_AUTH", "1");
-      delete process.env.AGENT_NATIVE_SKIP_AUTH_EMAIL;
+      vi.stubEnv("AUTH_DISABLED", "1");
       delete process.env.ACCESS_TOKEN;
       delete process.env.ACCESS_TOKENS;
 
@@ -1913,10 +1912,9 @@ describe("server/auth", () => {
       expect(await getSession(event)).toEqual({ email: "dev@local.test" });
     });
 
-    it("honors AGENT_NATIVE_SKIP_AUTH_EMAIL", async () => {
+    it("returns a shared session when AUTH_DISABLED=true", async () => {
       vi.stubEnv("NODE_ENV", "production");
-      vi.stubEnv("AGENT_NATIVE_SKIP_AUTH", "1");
-      vi.stubEnv("AGENT_NATIVE_SKIP_AUTH_EMAIL", "preview@example.com");
+      vi.stubEnv("AUTH_DISABLED", "true");
       delete process.env.ACCESS_TOKEN;
       delete process.env.ACCESS_TOKENS;
 
@@ -1936,7 +1934,7 @@ describe("server/auth", () => {
       const { getSession } = await import("./auth.js");
       const event = createMockEvent();
 
-      expect(await getSession(event)).toEqual({ email: "preview@example.com" });
+      expect(await getSession(event)).toEqual({ email: "dev@local.test" });
     });
 
     it("resolves bearer legacy session tokens for desktop clients", async () => {

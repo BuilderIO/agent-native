@@ -1783,27 +1783,22 @@ const AUTO_DEV_ACCOUNT_EMAIL = "dev@local.test";
 // permanently disable auto-create) and the post-logout guard still fires.
 const LEGACY_AUTO_DEV_ACCOUNT_EMAIL = "dev@local";
 
-let skipAuthWarningLogged = false;
+let authDisabledWarningLogged = false;
 
-function isSkipAuthEnabled(): boolean {
-  return process.env.AGENT_NATIVE_SKIP_AUTH === "1";
+function isAuthDisabled(): boolean {
+  const value = process.env.AUTH_DISABLED?.trim().toLowerCase();
+  return value === "1" || value === "true";
 }
 
-function getSkipAuthEmail(): string {
-  return (
-    process.env.AGENT_NATIVE_SKIP_AUTH_EMAIL?.trim() || AUTO_DEV_ACCOUNT_EMAIL
-  );
-}
-
-function getSkipAuthSession(): AuthSession | null {
-  if (!isSkipAuthEnabled()) return null;
-  if (!skipAuthWarningLogged) {
-    skipAuthWarningLogged = true;
+function getAuthDisabledSession(): AuthSession | null {
+  if (!isAuthDisabled()) return null;
+  if (!authDisabledWarningLogged) {
+    authDisabledWarningLogged = true;
     console.warn(
-      `[agent-native] AGENT_NATIVE_SKIP_AUTH=1 — login/signup disabled; all requests run as ${getSkipAuthEmail()}`,
+      `[agent-native] AUTH_DISABLED — login/signup disabled; all requests run as ${AUTO_DEV_ACCOUNT_EMAIL}`,
     );
   }
-  return { email: getSkipAuthEmail() };
+  return { email: AUTO_DEV_ACCOUNT_EMAIL };
 }
 
 async function hasAutoDevAccountUser(
@@ -2067,9 +2062,9 @@ async function resolveSessionUncached(
     };
   }
 
-  // 2. Preview/demo bypass — opt-in via AGENT_NATIVE_SKIP_AUTH=1.
-  const skipAuthSession = getSkipAuthSession();
-  if (skipAuthSession) return skipAuthSession;
+  // 2. AUTH_DISABLED bypass — skip login/signup; all requests share one user.
+  const authDisabledSession = getAuthDisabledSession();
+  if (authDisabledSession) return authDisabledSession;
 
   // 3. ACCESS_TOKEN check (programmatic/agent access)
   const accessTokens = getAccessTokens();

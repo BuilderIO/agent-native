@@ -156,7 +156,7 @@ When adding app data, define tables with `@agent-native/core/db/schema` helpers 
 | --------------------- | ------------------------------- | -------------------------------------------------------------------------- |
 | `DATABASE_URL`        | Production yes, local dev no    | Persistent SQL connection string (local dev default: `file:./data/app.db`) |
 | `DATABASE_AUTH_TOKEN` | Only when the provider needs it | Auth token for providers such as Turso/libSQL                              |
-| `AGENT_NATIVE_SKIP_AUTH` | Optional                     | Set to `1` to skip login/signup (preview/demo only)                        |
+| `AUTH_DISABLED`       | Optional                        | Set to `true` or `1` to skip login/signup (local dev/preview only)         |
 
 ## Extensions (Framework Feature)
 
