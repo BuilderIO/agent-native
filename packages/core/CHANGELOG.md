@@ -1,5 +1,12 @@
 # @agent-native/core
 
+## 0.51.9
+
+### Patch Changes
+
+- 077d67f: Add a no-auth `agent-native plan blocks` command and teach local Plans skills to
+  use it before authoring local MDX.
+
 ## 0.51.8
 
 ### Patch Changes
