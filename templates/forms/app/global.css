@@ -127,6 +127,7 @@
 
 .forms-home-chat-panel .agent-composer-area--hero {
   padding-inline: 0;
+  filter: none;
 }
 
 .forms-home-chat-panel
@@ -137,6 +138,7 @@
 
 .forms-home-chat-panel .agent-composer-root--hero {
   border-radius: 1.25rem;
+  box-shadow: none;
 }
 
 .forms-chat-intro {

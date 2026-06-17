@@ -74,6 +74,8 @@ export interface TiptapComposerHandle {
 
 export type ComposerSubmitIntent = "immediate" | "queued";
 
+export const DEFAULT_VOICE_DICTATION_ENABLED = false;
+
 export interface TiptapComposerSubmitOptions {
   intent?: ComposerSubmitIntent;
 }
@@ -357,7 +359,7 @@ export interface TiptapComposerProps {
   planModeDisabled?: boolean;
   /** Explanation shown next to the disabled Plan option. */
   planModeDisabledReason?: string;
-  /** Show the microphone button for voice dictation. Default true. */
+  /** Show the microphone button for voice dictation. Defaults to DEFAULT_VOICE_DICTATION_ENABLED. */
   voiceEnabled?: boolean;
   /** Selected model override for this conversation */
   selectedModel?: string;
@@ -954,7 +956,7 @@ export function TiptapComposer({
   onExecModeChange,
   planModeDisabled = false,
   planModeDisabledReason,
-  voiceEnabled = true,
+  voiceEnabled = DEFAULT_VOICE_DICTATION_ENABLED,
   selectedModel,
   selectedEffort,
   availableModels,

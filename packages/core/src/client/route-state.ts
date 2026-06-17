@@ -12,7 +12,7 @@ import {
   setClientAppState,
 } from "./application-state.js";
 import {
-  startAgentChatViewTransition,
+  AGENT_CHAT_VIEW_TRANSITION_PREPARE_EVENT,
   type AgentChatViewTransitionOptions,
 } from "./chat-view-transition.js";
 
@@ -445,7 +445,23 @@ export function useAgentRouteState<
       );
       const runNavigate = () => navigate(path, resolvedOptions);
       if (transitionOptions) {
-        startAgentChatViewTransition(runNavigate, transitionOptions);
+        // Let React Router own the View Transition: it snapshots the page
+        // *after* React commits the new route, so the shared
+        // `view-transition-name` chat element morphs from its old box (centered
+        // page chat) to its new one (sidebar). Wrapping an async `navigate()`
+        // in a manual `document.startViewTransition()` snapshots the *old* DOM
+        // as the "after" state, so the transition fires but animates between two
+        // identical frames — it runs, but nothing visibly moves.
+        if (typeof window !== "undefined") {
+          window.dispatchEvent(
+            new CustomEvent(AGENT_CHAT_VIEW_TRANSITION_PREPARE_EVENT),
+          );
+        }
+        const reduceMotion =
+          typeof window !== "undefined" &&
+          typeof window.matchMedia === "function" &&
+          window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+        navigate(path, { ...resolvedOptions, viewTransition: !reduceMotion });
         return;
       }
       runNavigate();

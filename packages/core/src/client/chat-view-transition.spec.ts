@@ -2,6 +2,7 @@
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  AGENT_CHAT_VIEW_TRANSITION_PREPARE_EVENT,
   AGENT_CHAT_VIEW_TRANSITION_NAME,
   getAgentChatViewTransitionStyle,
   startAgentChatViewTransition,
@@ -33,6 +34,21 @@ describe("chat view-transition helpers", () => {
     expect(transition).toBeNull();
     expect(update).toHaveBeenCalledOnce();
     expect(supportsAgentChatViewTransition()).toBe(false);
+  });
+
+  it("dispatches a prepare event before navigation updates", () => {
+    const calls: string[] = [];
+    const handler = vi.fn(() => calls.push("prepare"));
+    window.addEventListener(AGENT_CHAT_VIEW_TRANSITION_PREPARE_EVENT, handler);
+
+    startAgentChatViewTransition(() => calls.push("update"));
+
+    expect(handler).toHaveBeenCalledOnce();
+    expect(calls).toEqual(["prepare", "update"]);
+    window.removeEventListener(
+      AGENT_CHAT_VIEW_TRANSITION_PREPARE_EVENT,
+      handler,
+    );
   });
 
   it("wraps updates with document.startViewTransition when available", () => {

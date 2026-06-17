@@ -238,24 +238,13 @@ describe("route-state client helpers", () => {
     });
   });
 
-  it("can wrap navigate commands in the shared chat view transition", async () => {
+  it("prepares shared chat view transitions before navigate commands", async () => {
     const { fetchMock } = makeAppStateFetch({
       navigate: { view: "detail", id: "123", _writeId: "cmd-1" },
     });
     vi.stubGlobal("fetch", fetchMock);
-    const startViewTransition = vi.fn((callback: () => void) => {
-      callback();
-      return {
-        ready: Promise.resolve(),
-        finished: Promise.resolve(),
-        updateCallbackDone: Promise.resolve(),
-        skipTransition: vi.fn(),
-      };
-    });
-    Object.defineProperty(document, "startViewTransition", {
-      configurable: true,
-      value: startViewTransition,
-    });
+    const prepare = vi.fn();
+    window.addEventListener("agentNative.chatViewTransitionPrepare", prepare);
 
     function Harness() {
       const location = useLocation();
@@ -288,7 +277,11 @@ describe("route-state client helpers", () => {
     await act(flush);
     await act(flush);
 
-    expect(startViewTransition).toHaveBeenCalledOnce();
+    expect(prepare).toHaveBeenCalledOnce();
     expect(rendered.container.textContent).toBe("/detail/123");
+    window.removeEventListener(
+      "agentNative.chatViewTransitionPrepare",
+      prepare,
+    );
   });
 });

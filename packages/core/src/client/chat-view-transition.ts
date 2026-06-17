@@ -1,6 +1,8 @@
 export const AGENT_CHAT_VIEW_TRANSITION_NAME = "agent-native-chat";
 export const AGENT_CHAT_VIEW_TRANSITION_CLASS =
   "agent-native-chat-view-transition";
+export const AGENT_CHAT_VIEW_TRANSITION_PREPARE_EVENT =
+  "agentNative.chatViewTransitionPrepare";
 
 export interface AgentChatViewTransition {
   readonly ready: Promise<void>;
@@ -81,6 +83,12 @@ export function startAgentChatViewTransition(
   const doc = options.document ?? getClientDocument();
   const startViewTransition = (doc as ViewTransitionDocument | null)
     ?.startViewTransition;
+
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(
+      new CustomEvent(AGENT_CHAT_VIEW_TRANSITION_PREPARE_EVENT),
+    );
+  }
 
   if (
     options.disabled ||

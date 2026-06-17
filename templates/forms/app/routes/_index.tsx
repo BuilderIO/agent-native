@@ -1,5 +1,6 @@
 import {
   AgentChatHome,
+  appPath,
   startAgentChatViewTransition,
 } from "@agent-native/core/client";
 import {
@@ -49,7 +50,18 @@ export default function Index() {
     <div className="forms-home-page relative min-h-screen overflow-hidden bg-background">
       <header className="pointer-events-none absolute inset-x-0 top-0 z-20 flex h-16 items-center justify-between px-4 sm:px-6">
         <div className="pointer-events-auto flex items-center gap-2 text-sm font-semibold">
-          <IconForms className="size-4 text-muted-foreground" />
+          <img
+            src={appPath("/agent-native-icon-light.svg")}
+            alt=""
+            aria-hidden="true"
+            className="block h-4 w-auto shrink-0 dark:hidden"
+          />
+          <img
+            src={appPath("/agent-native-icon-dark.svg")}
+            alt=""
+            aria-hidden="true"
+            className="hidden h-4 w-auto shrink-0 dark:block"
+          />
           Forms
         </div>
         <div className="pointer-events-auto flex items-center gap-1.5">
@@ -61,7 +73,7 @@ export default function Index() {
             className="gap-1.5"
             onClick={openForms}
           >
-            Open forms
+            Dashboard
             <IconArrowRight className="size-3.5" />
           </Button>
         </div>

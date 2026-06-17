@@ -211,6 +211,7 @@ After writing the folder, the agent starts a tiny localhost bridge and opens the
 hosted Plan UI against that local-only source:
 
 ```bash
+npx @agent-native/core@latest plan local check --dir plans/<slug>
 npx @agent-native/core@latest plan local serve --dir plans/<slug> --kind plan --open
 ```
 
@@ -220,7 +221,21 @@ The page is the normal Plan viewer, but the browser fetches `plan.mdx`,
 `canvas.mdx`, `prototype.mdx`, `.plan-state.json`, and local image assets from
 the localhost bridge. Plan content is not written to the hosted database and is
 not sent through hosted Plan actions. Keep the bridge process running while you
-review; the URL is local to your machine and is not a shareable team link.
+review; the URL is local to your machine and is not a shareable team link. The
+serve command writes the open URL to `.plan-url` by default so coding agents can
+capture it without scraping long-running stdout; treat that file as local-only
+because the URL contains the bridge token, and do not commit it.
+
+On macOS, `--open` prefers Chrome/Chromium because Safari can block the hosted
+HTTPS Plan page from fetching an HTTP localhost bridge. For headless
+troubleshooting, run:
+
+```bash
+npx @agent-native/core@latest plan local verify --dir plans/<slug> --kind plan
+```
+
+`verify` starts the bridge, checks the private-network preflight and JSON
+payload, prints diagnostics, and exits.
 
 If you run the Plan app locally with the same `PLAN_LOCAL_DIR`, you can also
 open the editable app route:

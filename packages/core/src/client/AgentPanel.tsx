@@ -287,6 +287,39 @@ function ChatLoadingSkeleton({
   );
 }
 
+export function getAgentPanelChatTabGroups(
+  tabs: MultiTabAssistantChatHeaderProps["tabs"],
+  activeTabId: string,
+) {
+  const activeTab = tabs.find((t) => t.id === activeTabId);
+  const focusParentId = activeTab?.parentThreadId || activeTabId;
+  const childTabs = tabs.filter((t) => t.parentThreadId === focusParentId);
+  const mainTabs = tabs.filter((t) => !t.parentThreadId);
+
+  return {
+    activeTab,
+    childTabs,
+    focusParentId,
+    hasSubTabs: childTabs.length > 0,
+    mainTabs,
+  };
+}
+
+export function shouldShowAgentPanelChatTabBar(
+  tabs: MultiTabAssistantChatHeaderProps["tabs"],
+  activeTabId: string,
+) {
+  const { hasSubTabs, mainTabs } = getAgentPanelChatTabGroups(
+    tabs,
+    activeTabId,
+  );
+  return mainTabs.length > 1 || hasSubTabs;
+}
+
+export function shouldShowAgentPanelCliTabBar(cliTabs: string[]) {
+  return cliTabs.length > 1;
+}
+
 // ─── AgentPanel ─────────────────────────────────────────────────────────────
 
 export interface AgentPanelCodeAccess {
@@ -769,8 +802,6 @@ function AgentPanelInner({
 
   const availableClis = useAvailableClis();
   const [selectedCli, selectCli] = useCliSelection(keyPrefix);
-  const selectedLabel =
-    availableClis.find((c) => c.command === selectedCli)?.label || selectedCli;
   const { isDevMode, canToggle, setDevMode } = useDevMode(apiUrl);
   const isDevFrameChatSurface =
     assistantChatProps.agentChatSurface === "dev-frame";
@@ -884,7 +915,7 @@ function AgentPanelInner({
                 onClick={() => switchMode("resources")}
                 aria-label="Workspace files, agents, skills, and tasks"
                 className={cn(
-                  "flex items-center gap-1 rounded-md px-2 py-1 text-[12px] leading-none",
+                  "agent-sidebar-hover-reveal flex items-center gap-1 rounded-md px-2 py-1 text-[12px] leading-none",
                   activeMode === "resources"
                     ? "bg-accent text-foreground"
                     : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
@@ -899,32 +930,40 @@ function AgentPanelInner({
               Workspace files, agents, skills, and tasks
             </TooltipContent>
           </Tooltip>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <button
-                onClick={() => switchMode("settings")}
-                aria-label="Setup and configuration"
-                className={cn(
-                  "flex items-center justify-center rounded-md px-1.5 py-1",
-                  activeMode === "settings"
-                    ? "bg-accent text-foreground"
-                    : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
-                )}
-              >
-                <IconSettings size={14} />
-              </button>
-            </TooltipTrigger>
-            <TooltipContent>Setup and configuration</TooltipContent>
-          </Tooltip>
         </div>
       </TooltipProvider>
     ),
     [codeAccessEnabled, codeUnavailableDescription, showCliMode],
   );
 
+  const [headerMenuOpen, setHeaderMenuOpen] = useState(false);
+  const [feedbackOpen, setFeedbackOpen] = useState(false);
+
   const renderHeaderActions = useCallback(
-    (activeChatSessionId?: string) => (
-      <div className="flex shrink-0 items-center gap-1.5">
+    ({
+      activeChatSessionId,
+      activeTabId,
+      addTab,
+      clearActiveTab,
+      closeAllTabs,
+      closeOtherTabs,
+      closeTab,
+      showHistory,
+      tabs,
+      toggleHistory,
+    }: Pick<
+      MultiTabAssistantChatHeaderProps,
+      | "activeTabId"
+      | "addTab"
+      | "clearActiveTab"
+      | "closeAllTabs"
+      | "closeOtherTabs"
+      | "closeTab"
+      | "showHistory"
+      | "tabs"
+      | "toggleHistory"
+    > & { activeChatSessionId?: string }) => (
+      <div className="relative flex shrink-0 items-center gap-0.5">
         {SHOW_ONBOARDING && canUseCodeTools && (
           <Suspense fallback={null}>
             <SetupButton />
@@ -936,42 +975,208 @@ function AgentPanelInner({
           align="end"
           chatSessionId={activeChatSessionId}
           chatStorageKey={storageKey}
+          open={feedbackOpen}
+          onOpenChange={setFeedbackOpen}
+          trigger={
+            <button
+              type="button"
+              tabIndex={-1}
+              aria-hidden="true"
+              className="pointer-events-none absolute right-0 top-full h-px w-px opacity-0"
+            />
+          }
         />
-        {onToggleFullscreen && (
-          <IconTooltip
-            content={isFullscreen ? "Exit fullscreen" : "Fullscreen"}
-          >
+        {mode === "chat" && (
+          <IconTooltip content="New chat">
             <button
-              onClick={onToggleFullscreen}
-              aria-label={isFullscreen ? "Exit fullscreen" : "Enter fullscreen"}
-              className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/50"
+              onClick={addTab}
+              aria-label="New chat"
+              className="agent-sidebar-hover-reveal flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/50"
             >
-              {isFullscreen ? (
-                <IconArrowsMinimize size={14} />
-              ) : (
-                <IconArrowsMaximize size={14} />
+              <IconPlus size={14} />
+            </button>
+          </IconTooltip>
+        )}
+        {mode === "cli" && canUseCodeTools && (
+          <IconTooltip content="New terminal">
+            <button
+              onClick={addCliTab}
+              aria-label="New terminal"
+              className="agent-sidebar-hover-reveal flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/50"
+            >
+              <IconPlus size={14} />
+            </button>
+          </IconTooltip>
+        )}
+        <DropdownMenu open={headerMenuOpen} onOpenChange={setHeaderMenuOpen}>
+          <DropdownMenuTrigger asChild>
+            <button
+              className={cn(
+                "flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/50",
+                (headerMenuOpen || mode === "settings") &&
+                  "bg-accent text-foreground",
               )}
-            </button>
-          </IconTooltip>
-        )}
-        {onCollapse && (
-          <IconTooltip content="Collapse sidebar">
-            <button
-              onClick={onCollapse}
-              aria-label="Collapse sidebar"
-              className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/50"
+              aria-label="Agent panel options"
             >
-              <IconLayoutSidebarRightCollapse size={14} />
+              <IconDotsVertical size={14} />
             </button>
-          </IconTooltip>
-        )}
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" sideOffset={6} className="w-48">
+            {mode === "chat" && toggleHistory && (
+              <DropdownMenuItem onSelect={toggleHistory}>
+                <IconHistory size={14} className="shrink-0" />
+                {showHistory ? "Hide chats" : "All chats"}
+              </DropdownMenuItem>
+            )}
+            {mode === "chat" && (
+              <RunsTrayMenuItem
+                pollMs={2000}
+                limit={12}
+                showRecent={true}
+                onOpenThread={openRunThread}
+              />
+            )}
+            {mode === "chat" && <DropdownMenuSeparator />}
+            {mode === "cli" && availableClis.length > 0 && (
+              <>
+                {availableClis.map((cli) => (
+                  <DropdownMenuItem
+                    key={cli.command}
+                    onSelect={() => selectCli(cli.command)}
+                    className={cn(
+                      cli.command === selectedCli
+                        ? "font-medium"
+                        : "text-muted-foreground",
+                    )}
+                  >
+                    {cli.command === selectedCli ? (
+                      <IconCheck size={12} className="shrink-0" />
+                    ) : (
+                      <span className="w-3" />
+                    )}
+                    {cli.label}
+                  </DropdownMenuItem>
+                ))}
+                <DropdownMenuSeparator />
+              </>
+            )}
+            <DropdownMenuItem
+              onSelect={() => switchMode("settings")}
+              className={cn(
+                mode === "settings" ? "font-medium" : "text-muted-foreground",
+              )}
+            >
+              <IconSettings size={14} className="shrink-0" />
+              Settings
+            </DropdownMenuItem>
+            <DropdownMenuItem onSelect={() => setFeedbackOpen(true)}>
+              <IconMessageDots size={14} className="shrink-0" />
+              Feedback
+            </DropdownMenuItem>
+            {onToggleFullscreen && (
+              <DropdownMenuItem onSelect={onToggleFullscreen}>
+                {isFullscreen ? (
+                  <IconArrowsMinimize size={14} className="shrink-0" />
+                ) : (
+                  <IconArrowsMaximize size={14} className="shrink-0" />
+                )}
+                {isFullscreen ? "Exit fullscreen" : "Fullscreen"}
+              </DropdownMenuItem>
+            )}
+            {onCollapse && (
+              <DropdownMenuItem onSelect={onCollapse}>
+                <IconLayoutSidebarRightCollapse
+                  size={14}
+                  className="shrink-0"
+                />
+                Collapse sidebar
+              </DropdownMenuItem>
+            )}
+            {((mode === "chat" && activeTabId) ||
+              (mode === "cli" && canUseCodeTools && activeCliTab)) && (
+              <>
+                <DropdownMenuSeparator />
+                {mode === "chat" ? (
+                  shouldShowAgentPanelChatTabBar(tabs, activeTabId) ? (
+                    <>
+                      <DropdownMenuItem onSelect={() => closeTab(activeTabId)}>
+                        <IconX size={14} className="shrink-0" />
+                        Close Tab
+                        <DropdownMenuShortcut>
+                          {closeTabHint}
+                        </DropdownMenuShortcut>
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        onSelect={() => closeOtherTabs(activeTabId)}
+                      >
+                        Close Other Tabs
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onSelect={() => closeAllTabs()}>
+                        Close All Tabs
+                        <DropdownMenuShortcut>
+                          {closeAllTabsHint}
+                        </DropdownMenuShortcut>
+                      </DropdownMenuItem>
+                    </>
+                  ) : (
+                    <DropdownMenuItem onSelect={clearActiveTab}>
+                      <IconX size={14} className="shrink-0" />
+                      Clear chat
+                    </DropdownMenuItem>
+                  )
+                ) : (
+                  <>
+                    <DropdownMenuItem
+                      onSelect={() => closeCliTab(activeCliTab)}
+                    >
+                      <IconX size={14} className="shrink-0" />
+                      Close Tab
+                      <DropdownMenuShortcut>
+                        {closeTabHint}
+                      </DropdownMenuShortcut>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      onSelect={() => closeOtherCliTabs(activeCliTab)}
+                    >
+                      Close Other Tabs
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onSelect={() => closeAllCliTabs()}>
+                      Close All Tabs
+                      <DropdownMenuShortcut>
+                        {closeAllTabsHint}
+                      </DropdownMenuShortcut>
+                    </DropdownMenuItem>
+                  </>
+                )}
+              </>
+            )}
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
     ),
-    [canUseCodeTools, isFullscreen, onCollapse, onToggleFullscreen, storageKey],
+    [
+      activeCliTab,
+      addCliTab,
+      availableClis,
+      canUseCodeTools,
+      closeAllCliTabs,
+      closeAllTabsHint,
+      closeCliTab,
+      closeOtherCliTabs,
+      closeTabHint,
+      feedbackOpen,
+      headerMenuOpen,
+      isFullscreen,
+      mode,
+      onCollapse,
+      onToggleFullscreen,
+      openRunThread,
+      selectCli,
+      selectedCli,
+      storageKey,
+      switchMode,
+    ],
   );
-
-  const [tabMenuOpen, setTabMenuOpen] = useState<string | null>(null);
-  const [cliPickerOpen, setCliPickerOpen] = useState(false);
 
   // Ref callback: scroll the active tab into view in the overflow container.
   // Uses getBoundingClientRect for reliable positioning regardless of offsetParent.
@@ -997,6 +1202,7 @@ function AgentPanelInner({
       activeTabId,
       setActiveTabId,
       addTab,
+      clearActiveTab,
       closeTab,
       closeOtherTabs,
       closeAllTabs,
@@ -1013,25 +1219,43 @@ function AgentPanelInner({
             {renderModeButtons(mode)}
           </div>
           <div className="flex items-center gap-0.5">
-            {renderHeaderActions(activeTabId)}
+            {renderHeaderActions({
+              activeChatSessionId: activeTabId,
+              activeTabId,
+              addTab,
+              clearActiveTab,
+              closeAllTabs,
+              closeOtherTabs,
+              closeTab,
+              showHistory,
+              tabs,
+              toggleHistory,
+            })}
           </div>
         </div>
         {mode === "chat" && chatNotice ? (
           <div className="border-b border-border">{chatNotice}</div>
         ) : null}
-        {/* Tab bar: visible for chat, and for CLI only when terminals are usable. */}
-        {(mode === "chat" || (mode === "cli" && canUseCodeTools)) &&
+        {/* Tab bar: only visible when there is actually more than one tab to switch between. */}
+        {showTabBar &&
+          (mode === "chat" || (mode === "cli" && canUseCodeTools)) &&
           (() => {
-            // Compute parent/child tab groups for the sub-tab bar
-            const activeTab = tabs.find((t) => t.id === activeTabId);
-            // The "focus parent" is the parent thread for the active context
-            const focusParentId = activeTab?.parentThreadId || activeTabId;
-            const childTabs = tabs.filter(
-              (t) => t.parentThreadId === focusParentId,
-            );
-            const hasSubTabs = childTabs.length > 0;
-            // Main row: only show top-level (non-child) tabs
-            const mainTabs = tabs.filter((t) => !t.parentThreadId);
+            const {
+              activeTab,
+              childTabs,
+              focusParentId,
+              hasSubTabs,
+              mainTabs,
+            } = getAgentPanelChatTabGroups(tabs, activeTabId);
+            const showChatTabBar =
+              mode === "chat" &&
+              shouldShowAgentPanelChatTabBar(tabs, activeTabId);
+            const showCliTabBar =
+              mode === "cli" &&
+              canUseCodeTools &&
+              shouldShowAgentPanelCliTabBar(cliTabs);
+
+            if (!showChatTabBar && !showCliTabBar) return null;
 
             return (
               <>
@@ -1135,187 +1359,6 @@ function AgentPanelInner({
                           </div>
                         ))}
                   </div>
-                  <div className="flex items-center gap-0.5 shrink-0 ml-auto">
-                    {mode === "chat" && (
-                      <>
-                        <IconTooltip content="New chat">
-                          <button
-                            onClick={addTab}
-                            aria-label="New chat"
-                            className="flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/50"
-                          >
-                            <IconPlus size={14} />
-                          </button>
-                        </IconTooltip>
-                        {toggleHistory && (
-                          <IconTooltip content="All chats">
-                            <button
-                              onClick={toggleHistory}
-                              aria-label="All chats"
-                              className={cn(
-                                "flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/50",
-                                showHistory && "bg-accent text-foreground",
-                              )}
-                            >
-                              <IconHistory size={14} />
-                            </button>
-                          </IconTooltip>
-                        )}
-                        <DropdownMenu
-                          open={tabMenuOpen === "__chat_global"}
-                          onOpenChange={(open) =>
-                            setTabMenuOpen(open ? "__chat_global" : null)
-                          }
-                        >
-                          <DropdownMenuTrigger asChild>
-                            <button
-                              className={cn(
-                                "flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/50",
-                                tabMenuOpen === "__chat_global" &&
-                                  "bg-accent text-foreground",
-                              )}
-                              aria-label="Chat tab options"
-                            >
-                              <IconDotsVertical size={14} />
-                            </button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent
-                            align="end"
-                            sideOffset={4}
-                            className="w-44"
-                          >
-                            <RunsTrayMenuItem
-                              pollMs={2000}
-                              limit={12}
-                              showRecent={true}
-                              onOpenThread={openRunThread}
-                            />
-                            <DropdownMenuSeparator />
-                            <DropdownMenuItem
-                              onSelect={() => closeTab(activeTabId)}
-                            >
-                              Close Tab
-                              <DropdownMenuShortcut>
-                                {closeTabHint}
-                              </DropdownMenuShortcut>
-                            </DropdownMenuItem>
-                            <DropdownMenuItem
-                              onSelect={() => closeOtherTabs(activeTabId)}
-                            >
-                              Close Other Tabs
-                            </DropdownMenuItem>
-                            <DropdownMenuItem onSelect={() => closeAllTabs()}>
-                              Close All Tabs
-                              <DropdownMenuShortcut>
-                                {closeAllTabsHint}
-                              </DropdownMenuShortcut>
-                            </DropdownMenuItem>
-                          </DropdownMenuContent>
-                        </DropdownMenu>
-                      </>
-                    )}
-                    {mode === "cli" && (
-                      <>
-                        <IconTooltip content="New terminal">
-                          <button
-                            onClick={addCliTab}
-                            aria-label="New terminal"
-                            className="flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/50"
-                          >
-                            <IconPlus size={14} />
-                          </button>
-                        </IconTooltip>
-                        {availableClis.length > 0 && (
-                          <DropdownMenu
-                            open={cliPickerOpen}
-                            onOpenChange={setCliPickerOpen}
-                          >
-                            <DropdownMenuTrigger asChild>
-                              <button
-                                aria-label={`Select CLI, currently ${selectedLabel}`}
-                                className={cn(
-                                  "flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/50",
-                                  cliPickerOpen && "bg-accent text-foreground",
-                                )}
-                              >
-                                <IconSettings size={14} />
-                              </button>
-                            </DropdownMenuTrigger>
-                            <DropdownMenuContent
-                              align="end"
-                              sideOffset={4}
-                              className="w-48"
-                            >
-                              {availableClis.map((cli) => (
-                                <DropdownMenuItem
-                                  key={cli.command}
-                                  onSelect={() => selectCli(cli.command)}
-                                  className={cn(
-                                    cli.command === selectedCli
-                                      ? "font-medium"
-                                      : "text-muted-foreground",
-                                  )}
-                                >
-                                  {cli.command === selectedCli ? (
-                                    <IconCheck size={12} className="shrink-0" />
-                                  ) : (
-                                    <span className="w-3" />
-                                  )}
-                                  {cli.label}
-                                </DropdownMenuItem>
-                              ))}
-                            </DropdownMenuContent>
-                          </DropdownMenu>
-                        )}
-                        <DropdownMenu
-                          open={tabMenuOpen === "__cli_global"}
-                          onOpenChange={(open) =>
-                            setTabMenuOpen(open ? "__cli_global" : null)
-                          }
-                        >
-                          <DropdownMenuTrigger asChild>
-                            <button
-                              className={cn(
-                                "flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/50",
-                                tabMenuOpen === "__cli_global" &&
-                                  "bg-accent text-foreground",
-                              )}
-                              aria-label="Terminal tab options"
-                            >
-                              <IconDotsVertical size={14} />
-                            </button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent
-                            align="end"
-                            sideOffset={4}
-                            className="w-44"
-                          >
-                            <DropdownMenuItem
-                              onSelect={() => closeCliTab(activeCliTab)}
-                            >
-                              Close Tab
-                              <DropdownMenuShortcut>
-                                {closeTabHint}
-                              </DropdownMenuShortcut>
-                            </DropdownMenuItem>
-                            <DropdownMenuItem
-                              onSelect={() => closeOtherCliTabs(activeCliTab)}
-                            >
-                              Close Other Tabs
-                            </DropdownMenuItem>
-                            <DropdownMenuItem
-                              onSelect={() => closeAllCliTabs()}
-                            >
-                              Close All Tabs
-                              <DropdownMenuShortcut>
-                                {closeAllTabsHint}
-                              </DropdownMenuShortcut>
-                            </DropdownMenuItem>
-                          </DropdownMenuContent>
-                        </DropdownMenu>
-                      </>
-                    )}
-                  </div>
                 </div>
                 {/* Sub-agent tab row — shown when the active context has children */}
                 {mode === "chat" && hasSubTabs && (
@@ -1400,21 +1443,12 @@ function AgentPanelInner({
       renderModeButtons,
       chatNotice,
       canUseCodeTools,
+      showTabBar,
       cliTabs,
       activeCliTab,
-      addCliTab,
-      openRunThread,
+      activeTabRefCb,
+      activateOnKeyDown,
       closeCliTab,
-      closeOtherCliTabs,
-      closeAllCliTabs,
-      tabMenuOpen,
-      availableClis,
-      selectedCli,
-      selectedLabel,
-      selectCli,
-      cliPickerOpen,
-      closeTabHint,
-      closeAllTabsHint,
     ],
   );
 
@@ -1434,6 +1468,8 @@ function AgentPanelInner({
       <style
         dangerouslySetInnerHTML={{
           __html:
+            ".agent-sidebar-hover-reveal{opacity:0;pointer-events:none;transition:opacity 150ms ease-out;}" +
+            ".agent-panel-root:hover .agent-sidebar-hover-reveal,.agent-panel-root:focus-within .agent-sidebar-hover-reveal{opacity:1;pointer-events:auto;}" +
             ".agent-tab-close{opacity:0}.agent-tab:hover .agent-tab-close{opacity:1}" +
             ".agent-tabs-scroll{scrollbar-width:none;-ms-overflow-style:none;}" +
             ".agent-tabs-scroll::-webkit-scrollbar{display:none;}" +

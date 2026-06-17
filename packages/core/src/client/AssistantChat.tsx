@@ -4,6 +4,7 @@ import React, {
   useEffect,
   useCallback,
   useMemo,
+  useLayoutEffect,
   forwardRef,
   useImperativeHandle,
 } from "react";
@@ -66,6 +67,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "./components/ui/tooltip.js";
+import { AGENT_CHAT_VIEW_TRANSITION_PREPARE_EVENT } from "./chat-view-transition.js";
 import {
   GuidedQuestionFlow,
   useGuidedQuestionFlow,
@@ -150,6 +152,9 @@ export {
 } from "./assistant-ui-recovery.js";
 
 export { displayableUserMessageText } from "./chat/message-components.js";
+
+const useBrowserLayoutEffect =
+  typeof window === "undefined" ? useEffect : useLayoutEffect;
 
 export type AgentRequestMode = "act" | "plan";
 export type AgentRecoveryAction = "continue" | "retry";
@@ -699,6 +704,58 @@ export interface AssistantChatProps {
 }
 
 export const CHAT_STORAGE_PREFIX = "agent-chat:";
+const THREAD_SNAPSHOT_CACHE_PREFIX = `${CHAT_STORAGE_PREFIX}thread-snapshot:`;
+
+function threadSnapshotCacheKey(apiUrl: string, threadId: string): string {
+  return `${THREAD_SNAPSHOT_CACHE_PREFIX}${apiUrl}:${threadId}`;
+}
+
+function normalizeCachedThreadSnapshot(
+  value: unknown,
+): ChatThreadSnapshot | null {
+  if (!value || typeof value !== "object") return null;
+  const snapshot = value as Partial<ChatThreadSnapshot>;
+  if (typeof snapshot.threadData !== "string") return null;
+  return {
+    threadData: snapshot.threadData,
+    title: typeof snapshot.title === "string" ? snapshot.title : "",
+    preview: typeof snapshot.preview === "string" ? snapshot.preview : "",
+    messageCount:
+      typeof snapshot.messageCount === "number" &&
+      Number.isFinite(snapshot.messageCount)
+        ? snapshot.messageCount
+        : 0,
+  };
+}
+
+function readCachedThreadSnapshot(
+  apiUrl: string,
+  threadId?: string,
+): ChatThreadSnapshot | null {
+  if (!threadId || typeof sessionStorage === "undefined") return null;
+  try {
+    const raw = sessionStorage.getItem(
+      threadSnapshotCacheKey(apiUrl, threadId),
+    );
+    return raw ? normalizeCachedThreadSnapshot(JSON.parse(raw)) : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeCachedThreadSnapshot(
+  apiUrl: string,
+  threadId: string | undefined,
+  snapshot: ChatThreadSnapshot,
+) {
+  if (!threadId || typeof sessionStorage === "undefined") return;
+  try {
+    sessionStorage.setItem(
+      threadSnapshotCacheKey(apiUrl, threadId),
+      JSON.stringify(snapshot),
+    );
+  } catch {}
+}
 
 /** Remove persisted chat for a given tabId (or "default"). */
 export function clearChatStorage(tabId?: string) {
@@ -1157,8 +1214,14 @@ const AssistantChatInner = forwardRef<
 
   // ─── Chat persistence ──────────────────────────────────────────────
   const hasRestoredRef = useRef(false);
+  const [initialCachedThreadSnapshot] = useState(() =>
+    readCachedThreadSnapshot(apiUrl, threadId),
+  );
+  const hasImportedInitialCachedSnapshotRef = useRef(false);
   const [isRestoring, setIsRestoring] = useState(
-    !!(threadId || loadHistoryRepository) && !isNewThread,
+    !!(threadId || loadHistoryRepository) &&
+      !isNewThread &&
+      !initialCachedThreadSnapshot,
   );
   const onSaveThreadRef = useRef(onSaveThread);
   onSaveThreadRef.current = onSaveThread;
@@ -1260,6 +1323,45 @@ const AssistantChatInner = forwardRef<
       return null;
     }
   }, [apiUrl, importThreadData, loadHistoryRepository, threadId]);
+
+  const cacheCurrentThreadSnapshot = useCallback(() => {
+    if (!threadId || messages.length === 0) return;
+    const repo = threadRuntime.export();
+    const threadData = JSON.stringify(stripBase64FromRepo(repo));
+    const { title, preview } = extractThreadMeta(repo);
+    writeCachedThreadSnapshot(apiUrl, threadId, {
+      threadData,
+      title,
+      preview,
+      messageCount: messages.length,
+    });
+  }, [apiUrl, messages.length, threadId, threadRuntime]);
+
+  useBrowserLayoutEffect(() => {
+    if (hasImportedInitialCachedSnapshotRef.current) return;
+    if (!initialCachedThreadSnapshot) return;
+    hasImportedInitialCachedSnapshotRef.current = true;
+    try {
+      importThreadData(initialCachedThreadSnapshot.threadData, {
+        markTitleGenerated: Boolean(initialCachedThreadSnapshot.title),
+      });
+    } finally {
+      setIsRestoring(false);
+    }
+  }, [importThreadData, initialCachedThreadSnapshot]);
+
+  useEffect(() => {
+    window.addEventListener(
+      AGENT_CHAT_VIEW_TRANSITION_PREPARE_EVENT,
+      cacheCurrentThreadSnapshot,
+    );
+    return () => {
+      window.removeEventListener(
+        AGENT_CHAT_VIEW_TRANSITION_PREPARE_EVENT,
+        cacheCurrentThreadSnapshot,
+      );
+    };
+  }, [cacheCurrentThreadSnapshot]);
 
   const wasRecentlyStoppedRun = useCallback((runId?: string): boolean => {
     const stopped = userStoppedRunRef.current;
@@ -1510,7 +1612,23 @@ const AssistantChatInner = forwardRef<
           if (res.ok) {
             const data = await res.json();
             if (data.threadData) {
-              importThreadData(data.threadData, { markTitleGenerated: true });
+              const repo = importThreadData(data.threadData, {
+                markTitleGenerated: true,
+              });
+              if (repo) {
+                const { title, preview } = extractThreadMeta(repo);
+                writeCachedThreadSnapshot(apiUrl, threadId, {
+                  threadData:
+                    typeof data.threadData === "string"
+                      ? data.threadData
+                      : JSON.stringify(data.threadData),
+                  title: data.title || title,
+                  preview,
+                  messageCount: Array.isArray(repo.messages)
+                    ? repo.messages.length
+                    : 0,
+                });
+              }
             }
             // Also skip title generation if thread already has a title
             if (data.title) {
@@ -1669,16 +1787,19 @@ const AssistantChatInner = forwardRef<
 
     const repo = threadRuntime.export();
     const { title, preview } = extractThreadMeta(repo);
-
-    lastSaveTimeRef.current = now;
-    savedTitleRef.current = title;
-    onSaveThreadRef.current(threadId, {
-      threadData: JSON.stringify(stripBase64FromRepo(repo)),
+    const threadData = JSON.stringify(stripBase64FromRepo(repo));
+    const snapshot = {
+      threadData,
       title,
       preview,
       messageCount: messages.length,
-    });
-  }, [messages, isRunning, threadId, threadRuntime]);
+    };
+
+    lastSaveTimeRef.current = now;
+    savedTitleRef.current = title;
+    writeCachedThreadSnapshot(apiUrl, threadId, snapshot);
+    onSaveThreadRef.current(threadId, snapshot);
+  }, [apiUrl, messages, isRunning, threadId, threadRuntime]);
 
   // Persist full thread data after each completed response
   useEffect(() => {
@@ -1691,13 +1812,16 @@ const AssistantChatInner = forwardRef<
     if (threadId && onSaveThreadRef.current) {
       // Save to server via the hook callback
       const { title, preview } = extractThreadMeta(repo);
-      savedTitleRef.current = title;
-      onSaveThreadRef.current(threadId, {
-        threadData: JSON.stringify(stripBase64FromRepo(repo)),
+      const threadData = JSON.stringify(stripBase64FromRepo(repo));
+      const snapshot = {
+        threadData,
         title,
         preview,
         messageCount: messages.length,
-      });
+      };
+      savedTitleRef.current = title;
+      writeCachedThreadSnapshot(apiUrl, threadId, snapshot);
+      onSaveThreadRef.current(threadId, snapshot);
     } else {
       // Legacy: save to sessionStorage
       const storageKey = `${CHAT_STORAGE_PREFIX}${tabId || "default"}`;
@@ -1705,7 +1829,7 @@ const AssistantChatInner = forwardRef<
         sessionStorage.setItem(storageKey, JSON.stringify(repo));
       } catch {}
     }
-  }, [messages, isRunning, threadId, tabId, threadRuntime]);
+  }, [apiUrl, messages, isRunning, threadId, tabId, threadRuntime]);
 
   useEffect(() => {
     onMessageCountChange?.(messages.length);
