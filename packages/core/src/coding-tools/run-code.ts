@@ -20,17 +20,21 @@
  *    model; the env scrub means such requests carry no credentials, and all
  *    authenticated calls must go through the bridge (which applies the
  *    registered tools' host allowlists and SSRF guards).
+ *
+ * The actual execution is delegated to a pluggable `SandboxAdapter` (see
+ * `./sandbox`). The default `LocalChildProcessAdapter` preserves the spawned
+ * child-process behavior described above; a remote/durable adapter can be
+ * plugged in via `registerSandboxAdapter()` / `AGENT_NATIVE_SANDBOX` without
+ * changing this file. The bridge, env scrub, module building, and output
+ * formatting stay here in the parent regardless of adapter.
  */
 
 import crypto from "node:crypto";
-import fs from "node:fs";
 import http from "node:http";
-import os from "node:os";
-import path from "node:path";
-import { spawn, spawnSync } from "node:child_process";
 
 import type { ActionEntry } from "../agent/production-agent.js";
 import type { ActionRunContext } from "../action.js";
+import { getSandboxAdapter } from "./sandbox/index.js";
 
 const DEFAULT_TIMEOUT_MS = 120_000;
 const MAX_TIMEOUT_MS = 600_000;
@@ -38,49 +42,6 @@ const DEFAULT_MAX_OUTPUT_CHARS = 50_000;
 const MAX_OUTPUT_CHARS = 200_000;
 /** Hard cap on bridge request bodies so sandboxed code can't exhaust parent memory. */
 const BRIDGE_MAX_BODY_BYTES = 10 * 1024 * 1024;
-
-function sandboxReadAllowPaths(tmpDir: string): string[] {
-  const paths = new Set<string>([tmpDir]);
-  try {
-    paths.add(fs.realpathSync(tmpDir));
-  } catch {}
-  return [...paths];
-}
-
-function sandboxWriteAllowPaths(tmpDir: string): string[] {
-  const paths = new Set<string>([tmpDir]);
-  try {
-    paths.add(fs.realpathSync(tmpDir));
-  } catch {}
-  return [...paths];
-}
-
-/**
- * Resolve the Node permission-model flag supported by the current runtime,
- * probing once and caching. Returns null when the permission model is
- * unavailable (the sandbox then falls back to env-scrub isolation only).
- */
-let cachedPermissionFlag: string | null | undefined;
-function resolvePermissionFlag(): string | null {
-  if (cachedPermissionFlag !== undefined) return cachedPermissionFlag;
-  for (const flag of ["--permission", "--experimental-permission"]) {
-    try {
-      const probe = spawnSync(
-        process.execPath,
-        [flag, "-e", "process.exit(0)"],
-        { timeout: 10_000, stdio: "ignore" },
-      );
-      if (probe.status === 0) {
-        cachedPermissionFlag = flag;
-        return flag;
-      }
-    } catch {
-      // Probe failure means the flag is unsupported; try the next one.
-    }
-  }
-  cachedPermissionFlag = null;
-  return null;
-}
 
 /** Tools callable via the sandbox bridge by default. */
 const DEFAULT_BRIDGE_TOOLS = new Set([
@@ -185,7 +146,6 @@ export function createRunCodeEntry(
 
       // Start bridge server — resolves once the server is listening.
       const {
-        server,
         bridgePort,
         getUsedTools,
         cleanup: cleanupBridge,
@@ -197,20 +157,9 @@ export function createRunCodeEntry(
         extraBridgeTools,
       );
 
-      let tmpDir: string | undefined;
-      let tmpFile: string | undefined;
       try {
-        // Write code to a temp ESM file (top-level await needs a module).
-        const tmpBaseDir = fs.realpathSync(os.tmpdir());
-        tmpDir = fs.mkdtempSync(path.join(tmpBaseDir, "agent-run-code-"));
-        tmpFile = path.join(tmpDir, "sandbox.mjs");
-        fs.writeFileSync(
-          tmpFile,
-          buildSandboxModule(code, bridgePort, bridgeToken),
-          "utf8",
-        );
-
-        // Build scrubbed env — only safe POSIX vars, no secrets.
+        // Build scrubbed env — only safe POSIX vars, no secrets. The adapter
+        // points TMPDIR/TEMP/TMP at the sandbox's own temp dir.
         const safeEnv: Record<string, string> = {};
         for (const key of [
           "PATH",
@@ -223,61 +172,18 @@ export function createRunCodeEntry(
         ]) {
           if (process.env[key]) safeEnv[key] = process.env[key]!;
         }
-        // Point TMPDIR inside the sandbox dir so in-sandbox temp writes stay
-        // within the permission-model allow list.
-        safeEnv.TMPDIR = tmpDir;
-        safeEnv.TEMP = tmpDir;
-        safeEnv.TMP = tmpDir;
 
-        // Lock the child down with the Node permission model when available:
-        // filesystem restricted to the sandbox temp dir, and child processes,
-        // workers, and native addons denied entirely.
-        const permissionFlag = resolvePermissionFlag();
-        const nodeArgs = permissionFlag
-          ? [
-              permissionFlag,
-              ...sandboxReadAllowPaths(tmpDir).map(
-                (allowedPath) => `--allow-fs-read=${allowedPath}`,
-              ),
-              ...sandboxWriteAllowPaths(tmpDir).map(
-                (allowedPath) => `--allow-fs-write=${allowedPath}`,
-              ),
-              tmpFile,
-            ]
-          : [tmpFile];
-
-        const child = spawn(process.execPath, nodeArgs, {
-          cwd: tmpDir,
-          env: safeEnv,
-          stdio: ["ignore", "pipe", "pipe"],
-        });
-
-        let stdout = "";
-        let stderr = "";
-        let timedOut = false;
-
-        const timer = setTimeout(() => {
-          timedOut = true;
-          child.kill("SIGTERM");
-          setTimeout(() => {
-            try {
-              child.kill("SIGKILL");
-            } catch {}
-          }, 2_000);
-        }, timeoutMs);
-
-        child.stdout?.on("data", (chunk: Buffer) => {
-          stdout += chunk.toString();
-        });
-        child.stderr?.on("data", (chunk: Buffer) => {
-          stderr += chunk.toString();
-        });
-
-        const exitCode = await new Promise<number | null>((resolve, reject) => {
-          child.once("error", reject);
-          child.once("exit", resolve);
-        });
-        clearTimeout(timer);
+        // Delegate execution to the active sandbox adapter (local child process
+        // by default; remote/durable adapters can be registered via
+        // ./sandbox). The bridge, env scrub, module, and output formatting stay
+        // in the parent regardless of adapter.
+        const { stdout, stderr, exitCode, timedOut } =
+          await getSandboxAdapter().run({
+            moduleSource: buildSandboxModule(code, bridgePort, bridgeToken),
+            env: safeEnv,
+            timeoutMs,
+            bridgePort,
+          });
 
         const combined =
           [
@@ -303,13 +209,9 @@ export function createRunCodeEntry(
         }
         return full;
       } finally {
+        // The active sandbox adapter owns its own temp-file cleanup; the parent
+        // only tears down the bridge server here.
         cleanupBridge();
-        server.close();
-        // Clean up temp files (best-effort).
-        try {
-          if (tmpFile) fs.rmSync(tmpFile, { force: true });
-          if (tmpDir) fs.rmSync(tmpDir, { recursive: true, force: true });
-        } catch {}
       }
     },
   };
