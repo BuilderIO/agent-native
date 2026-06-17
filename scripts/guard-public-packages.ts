@@ -84,10 +84,16 @@ function dependencyProtocolFailures(
 ): string[] {
   if (!dependencies) return [];
   return Object.entries(dependencies)
-    .filter(([, version]) => /^(catalog|workspace):/.test(version))
+    .filter(([dep, version]) => {
+      if (/^catalog:/.test(version)) return true;
+      if (/^workspace:/.test(version)) {
+        return !npmPublishAllowlist.has(dep);
+      }
+      return false;
+    })
     .map(
       ([dep, version]) =>
-        `${pkgName} ${field}.${dep} must use a publishable semver range, not ${version}`,
+        `${pkgName} ${field}.${dep} must use a publishable semver range or published workspace package, not ${version}`,
     );
 }
 
