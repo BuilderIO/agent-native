@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.51.14
+
+### Patch Changes
+
+- cb49d6f: Keep Plan install mode flags scoped to Plan skills when the public skills CLI delegates extra text-skill copies.
+
 ## 0.51.13
 
 ### Patch Changes
