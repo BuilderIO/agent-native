@@ -1068,6 +1068,7 @@ function jobStatus(job: ProviderCorpusJobRecord) {
     : null;
   return {
     job: jobSummary(job),
+    source: jobSourceSummary(job),
     coverage: {
       pagesProcessed: job.pagesProcessed,
       batchesProcessed: job.batchesProcessed,
@@ -1080,6 +1081,53 @@ function jobStatus(job: ProviderCorpusJobRecord) {
     checkpoint: job.checkpoint,
     error: job.error,
     nextResumeAt: nextResumeAtIso,
+  };
+}
+
+function jobSourceSummary(job: ProviderCorpusJobRecord) {
+  const request = job.request as Partial<ProviderRequest>;
+  const pagination = (job.pagination ?? {}) as Partial<PaginationConfig>;
+  const batch = (job.batch ?? {}) as Partial<BatchConfig>;
+  const search = (job.search ?? {}) as Partial<SearchConfig>;
+  return {
+    provider: job.provider,
+    mode: job.mode,
+    request: {
+      method: request.method ?? "GET",
+      path: request.path ?? "",
+    },
+    pagination: {
+      itemsPath: pagination.itemsPath ?? null,
+      nextCursorPath:
+        pagination.nextCursorPath ?? pagination.cursorPath ?? null,
+      cursorParam: pagination.cursorParam ?? null,
+      cursorBodyPath: pagination.cursorBodyPath ?? null,
+      pageParam: pagination.pageParam ?? null,
+      offsetParam: pagination.offsetParam ?? null,
+    },
+    batch: {
+      inputDatasetId: batch.inputDatasetId ?? null,
+      inputValuePath: batch.inputValuePath ?? null,
+      batchSize: batch.batchSize ?? null,
+      itemBodyPath: batch.itemBodyPath ?? null,
+      itemQueryParam: batch.itemQueryParam ?? null,
+      responseItemsPath: batch.responseItemsPath ?? null,
+      sourceItemCount:
+        typeof job.checkpoint.sourceItemCount === "number"
+          ? job.checkpoint.sourceItemCount
+          : null,
+    },
+    search: {
+      textPaths: search.textPaths ?? [],
+      idPaths: search.idPaths ?? [],
+      metadataPaths: search.metadataPaths ?? [],
+      matchMode: search.matchMode ?? null,
+      queryCount:
+        (search.query ? 1 : 0) +
+        (search.regex ? 1 : 0) +
+        (search.queries?.length ?? 0) +
+        (search.terms?.length ?? 0),
+    },
   };
 }
 

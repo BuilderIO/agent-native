@@ -105,14 +105,21 @@ negative. Use this two-step pattern:
    calls — not just `limit` — and never auto-loads transcripts, so it stays under
    the function timeout. Collect the full `calls[]` (IDs + titles) across the cohort.
 
-2. **Scan transcript content in `run-code`.** Loop the discovered call IDs in a
-   `run-code` block, calling `appAction("gong-calls", { transcript: id })` to pull
-   each compact transcript, search the text locally for the term (plus sensible
-   variants), and return only per-call hits with short quoted snippets — never the
-   raw transcripts. Persist progress with `saveToFile` and process in chunks so a
-   soft-timeout continuation resumes instead of restarting. Because `gong-calls` is
-   read-only, transcripts already pulled are reused across continuations, not
-   re-fetched.
+2. **Batch-search the raw transcript endpoint.** Prefer `provider-corpus-job`
+   with `mode: "batch-search"` over one-call-at-a-time loops. Use
+   `provider-api-catalog(provider: "gong")` and its `corpusRecipes` if you need
+   the exact shape. The canonical request is `POST /calls/transcript` with
+   `batch.itemBodyPath: "filter.callIds"`, `batch.responseItemsPath:
+   "callTranscripts"`, `batch.batchSize: 20`, `search.textPaths:
+   ["transcript"]`, and `search.idPaths: ["callId"]`. Feed the staged/discovered
+   call IDs through `batch.inputDatasetId` + `batch.inputValuePath` or through
+   `batch.items`.
+
+3. **Use `run-code` only for joins/reductions around the corpus path.** After
+   the transcript job exists, use `run-code`, `query-staged-dataset`, or job
+   results to join hits back to deals/accounts, compute variants, dedupe, and
+   format evidence. A `run-code` loop over `gong-calls(transcript: id)` is a
+   fallback for small or awkward sets, not the default for broad scans.
 
 Report coverage explicitly: deals in cohort, calls discovered, calls scanned, and
 matches found. Never turn "I inspected a sample" into "no call mentions X".

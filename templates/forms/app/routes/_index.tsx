@@ -1,13 +1,12 @@
 import {
   AgentChatHome,
   appPath,
-  startAgentChatViewTransition,
+  navigateWithAgentChatViewTransition,
 } from "@agent-native/core/client";
 import {
   IconArrowRight,
   IconChartBar,
   IconDatabase,
-  IconForms,
   IconSettings,
 } from "@tabler/icons-react";
 import { useEffect } from "react";
@@ -43,7 +42,7 @@ export default function Index() {
 
   function openForms() {
     markFormsChatHomeHandoff();
-    startAgentChatViewTransition(() => navigate("/forms", { flushSync: true }));
+    navigateWithAgentChatViewTransition(navigate, "/forms");
   }
 
   return (
@@ -79,8 +78,8 @@ export default function Index() {
         </div>
       </header>
       <AgentChatHome
-        className="relative z-10 min-h-screen px-4 py-8 sm:px-6"
-        contentClassName="max-w-4xl pb-12 pt-16"
+        className="relative z-10 min-h-screen px-4 py-0 sm:px-6 sm:py-0"
+        contentClassName="max-w-4xl"
         surfaceClassName="forms-home-chat-panel border-0 bg-transparent shadow-none"
         defaultMode="chat"
         storageKey="forms"
@@ -95,10 +94,6 @@ export default function Index() {
         composerPlaceholder="Ask about @forms, responses, analytics, or configuration..."
         composerSlot={
           <div className="forms-chat-intro">
-            <div className="forms-chat-kicker">
-              <IconForms className="size-3.5" />
-              Agent-Native Forms
-            </div>
             <h1>What do you want to do?</h1>
             <p>
               Build a form, inspect results, chart submissions, or tune a form's

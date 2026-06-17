@@ -1,5 +1,6 @@
 import type { AgentChatAttachment, RunEvent } from "./types.js";
 import type { EngineMessage } from "./engine/types.js";
+import type { ActionChatUIConfig } from "../action-ui.js";
 import {
   normalizeCodeAgentTranscript,
   type CodeAgentTranscriptEvent as CoreCodeAgentTranscriptEvent,
@@ -7,6 +8,7 @@ import {
   type NormalizedCodeAgentToolEvent,
   type NormalizedCodeAgentTranscriptItem,
 } from "../code-agents/transcript-normalizer.js";
+import type { AgentMcpAppPayload } from "../mcp-client/app-result.js";
 
 interface ContentPart {
   type: string;
@@ -16,6 +18,8 @@ interface ContentPart {
   argsText?: string;
   args?: Record<string, string>;
   result?: string;
+  mcpApp?: AgentMcpAppPayload;
+  chatUI?: ActionChatUIConfig;
 }
 
 interface BuildAssistantMessageOptions {
@@ -155,6 +159,8 @@ export function buildAssistantMessage(
           part.result === undefined
         ) {
           part.result = event.result ?? "";
+          if (event.mcpApp) part.mcpApp = event.mcpApp;
+          if (event.chatUI) part.chatUI = event.chatUI;
           break;
         }
       }

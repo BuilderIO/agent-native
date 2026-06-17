@@ -8,6 +8,7 @@ import {
 import {
   getCalls,
   getCallTranscript,
+  getCallTranscripts,
   getUsers,
   type GongCall,
   searchCalls,
@@ -21,6 +22,7 @@ const MAX_TRANSCRIPT_MAX_CHARS = 100_000;
 const DEFAULT_TRANSCRIPT_SCAN_LIMIT = 50;
 const MAX_TRANSCRIPT_SCAN_LIMIT = 200;
 const DEFAULT_TRANSCRIPT_SEARCH_MAX_CHARS = MAX_TRANSCRIPT_MAX_CHARS;
+const TRANSCRIPT_BATCH_SIZE = 20;
 const MAX_TRANSCRIPT_MATCHES_PER_CALL = 5;
 const MATCH_SNIPPET_RADIUS = 240;
 
@@ -161,6 +163,60 @@ function snippetsForQuery(text: string, query: string): string[] {
   return snippets;
 }
 
+function chunkCalls(calls: GongCall[], size: number): GongCall[][] {
+  const chunks: GongCall[][] = [];
+  for (let i = 0; i < calls.length; i += size) {
+    chunks.push(calls.slice(i, i + size));
+  }
+  return chunks;
+}
+
+function transcriptRowsByCallId(payload: unknown): Map<string, unknown> {
+  const rows = new Map<string, unknown>();
+  const record = asRecord(payload);
+  const callTranscripts = record?.callTranscripts;
+  if (Array.isArray(callTranscripts)) {
+    for (const row of callTranscripts) {
+      const rowRecord = asRecord(row);
+      const callId = stringValue(rowRecord?.callId);
+      if (callId) rows.set(callId, row);
+    }
+  }
+  return rows;
+}
+
+async function fetchTranscriptBatch(calls: GongCall[]): Promise<{
+  payloads: Map<string, unknown>;
+  errors: TranscriptSearchError[];
+}> {
+  try {
+    const payload = await getCallTranscripts(calls.map((call) => call.id));
+    const payloads = transcriptRowsByCallId(payload);
+    const errors: TranscriptSearchError[] = [];
+    for (const call of calls) {
+      if (!payloads.has(call.id)) {
+        errors.push({
+          callId: call.id,
+          title: call.title,
+          started: call.started,
+          error: "Gong did not return a transcript for this call.",
+        });
+      }
+    }
+    return { payloads, errors };
+  } catch (err) {
+    return {
+      payloads: new Map(),
+      errors: calls.map((call) => ({
+        callId: call.id,
+        title: call.title,
+        started: call.started,
+        error: err instanceof Error ? err.message : String(err),
+      })),
+    };
+  }
+}
+
 async function searchTranscriptEvidence(
   calls: GongCall[],
   query: string,
@@ -176,50 +232,31 @@ async function searchTranscriptEvidence(
   const errors: TranscriptSearchError[] = [];
   let truncatedTranscripts = 0;
   const callsToScan = calls.slice(0, scanLimit);
-  const matchBuckets: TranscriptSearchMatch[][] = callsToScan.map(() => []);
-  const errorBuckets: TranscriptSearchError[][] = callsToScan.map(() => []);
-  let nextIndex = 0;
 
-  const workers = Array.from(
-    { length: Math.min(8, callsToScan.length) },
-    async () => {
-      while (nextIndex < callsToScan.length) {
-        const index = nextIndex;
-        nextIndex += 1;
-        const call = callsToScan[index];
-        try {
-          const transcript = await getCallTranscript(call.id);
-          const extracted = extractTranscriptText(transcript, maxChars);
-          if (extracted.truncated) truncatedTranscripts += 1;
-          const matchCount = countMatches(extracted.text, query);
-          if (matchCount > 0) {
-            matchBuckets[index].push({
-              callId: call.id,
-              title: call.title,
-              started: call.started,
-              url: typeof call.url === "string" ? call.url : undefined,
-              matchCount,
-              snippets: snippetsForQuery(extracted.text, query),
-              transcriptTruncated: extracted.truncated,
-              sentenceCount: extracted.sentenceCount,
-            });
-          }
-        } catch (err) {
-          errorBuckets[index].push({
-            callId: call.id,
-            title: call.title,
-            started: call.started,
-            error: err instanceof Error ? err.message : String(err),
-          });
-        }
+  for (const batch of chunkCalls(callsToScan, TRANSCRIPT_BATCH_SIZE)) {
+    const batchResult = await fetchTranscriptBatch(batch);
+    errors.push(...batchResult.errors);
+
+    for (const call of batch) {
+      const transcript = batchResult.payloads.get(call.id);
+      if (!transcript) continue;
+      const extracted = extractTranscriptText(transcript, maxChars);
+      if (extracted.truncated) truncatedTranscripts += 1;
+      const matchCount = countMatches(extracted.text, query);
+      if (matchCount > 0) {
+        matches.push({
+          callId: call.id,
+          title: call.title,
+          started: call.started,
+          url: typeof call.url === "string" ? call.url : undefined,
+          matchCount,
+          snippets: snippetsForQuery(extracted.text, query),
+          transcriptTruncated: extracted.truncated,
+          sentenceCount: extracted.sentenceCount,
+        });
       }
-    },
-  );
-
-  await Promise.all(workers);
-
-  for (const bucket of matchBuckets) matches.push(...bucket);
-  for (const bucket of errorBuckets) errors.push(...bucket);
+    }
+  }
 
   return {
     inspectedCalls: callsToScan.length,
@@ -334,29 +371,38 @@ async function loadTranscriptEvidence(
   limit: number,
   maxChars: number,
 ): Promise<TranscriptEvidence[]> {
-  return Promise.all(
-    calls.slice(0, limit).map(async (call) => {
-      try {
-        const transcript = await getCallTranscript(call.id);
-        return {
+  const evidence: TranscriptEvidence[] = [];
+  const callsToLoad = calls.slice(0, limit);
+  for (const batch of chunkCalls(callsToLoad, TRANSCRIPT_BATCH_SIZE)) {
+    const batchResult = await fetchTranscriptBatch(batch);
+    const errorByCallId = new Map(
+      batchResult.errors.map((error) => [error.callId, error.error]),
+    );
+    for (const call of batch) {
+      const transcript = batchResult.payloads.get(call.id);
+      if (transcript) {
+        evidence.push({
           callId: call.id,
           title: call.title,
           started: call.started,
           ...extractTranscriptText(transcript, maxChars),
-        };
-      } catch (err) {
-        return {
+        });
+      } else {
+        evidence.push({
           callId: call.id,
           title: call.title,
           started: call.started,
           text: "",
           sentenceCount: 0,
           truncated: false,
-          error: err instanceof Error ? err.message : String(err),
-        };
+          error:
+            errorByCallId.get(call.id) ??
+            "Gong did not return a transcript for this call.",
+        });
       }
-    }),
-  );
+    }
+  }
+  return evidence;
 }
 
 /**
@@ -376,7 +422,7 @@ export default defineAction({
   // reusable across continuation retries (no re-fetch on resume).
   readOnly: true,
   description:
-    "Query Gong sales calls, transcripts, and users. Pass --users for user list, --transcript for one transcript, --company to search by company/domain/person/email. For bounded account-level transcript mention/search questions, set transcriptQuery to search matching transcripts server-side and return coverage counts plus snippets instead of large transcript blobs. For deal, customer, objection, next-step, or deep-dive analysis, set includeTranscripts=true only when you need broad qualitative context rather than a specific term search. For complete account/cohort coverage (call counts, broad cohorts, or when 'no calls mention X' must be defensible), prefer provider-api-request/run-code corpus workflows; this action can still enumerate a bounded account/company window with exhaustive=true via after/before.",
+    "Query Gong sales calls, transcripts, and users. Pass --users for user list, --transcript for one transcript, --company to search by company/domain/person/email. For bounded account-level transcript mention/search questions, set transcriptQuery to search matching transcripts server-side and return coverage counts plus snippets instead of large transcript blobs. For deal, customer, objection, next-step, or deep-dive analysis, set includeTranscripts=true only when you need broad qualitative context rather than a specific term search. For complete account/cohort coverage (call counts, broad cohorts, or when 'no calls mention X' must be defensible), use provider-api-catalog(provider='gong') and provider-corpus-job mode='batch-search' against /calls/transcript after call-id discovery; this action can still enumerate a bounded account/company window with exhaustive=true via after/before.",
   schema: z.object({
     users: cliBoolean.optional().describe("Set to true to list Gong users"),
     transcript: z.string().optional().describe("Call ID to get transcript"),

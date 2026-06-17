@@ -3,6 +3,10 @@ import type {
   AgentChatAttachment,
   AgentChatEvent,
 } from "./agent/types.js";
+import {
+  normalizeActionChatUIConfig,
+  type ActionChatUIConfig,
+} from "./action-ui.js";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 
 /**
@@ -349,6 +353,9 @@ interface DefineActionWithSchema<
    *  interactive app iframes. Text/deep-link tool results remain the fallback
    *  for CLI and non-UI hosts. */
   mcpApp?: ActionMcpAppConfig;
+  /** Optional native Agent-Native chat renderer for this action's structured
+   *  result. This is first-party React UI, not arbitrary HTML/JS. */
+  chatUI?: ActionChatUIConfig;
   /**
    * Opt-in human-in-the-loop approval gate. **Default off** — the framework
    * intentionally keeps HITL approvals rare; almost every action should run
@@ -426,6 +433,8 @@ interface DefineActionWithParams<
   link?: ActionLinkBuilder;
   /** Optional MCP Apps UI resource. See schema overload above. */
   mcpApp?: ActionMcpAppConfig;
+  /** Optional native Agent-Native chat renderer. See schema overload above. */
+  chatUI?: ActionChatUIConfig;
   /** Opt-in human-in-the-loop approval gate (default off). See the schema
    *  overload above for full semantics. */
   needsApproval?:
@@ -473,6 +482,7 @@ export interface ActionDefinition<TInput, TReturn> {
   readonly publicAgent?: PublicAgentActionConfig;
   readonly link?: ActionLinkBuilder;
   readonly mcpApp?: ActionMcpAppConfig;
+  readonly chatUI?: ActionChatUIConfig;
   /** Standard Schema the action's RETURN value is validated against after
    *  `run()` resolves. Present only when the caller passed `outputSchema`. */
   readonly outputSchema?: StandardSchemaV1;
@@ -530,8 +540,12 @@ export interface ActionDefinition<TInput, TReturn> {
  * });
  * ```
  */
-export function defineAction<TSchema extends StandardSchemaV1, TReturn>(
-  options: DefineActionWithSchema<TSchema, TReturn>,
+export function defineAction<
+  TSchema extends StandardSchemaV1,
+  TReturn,
+  TOutputSchema extends StandardSchemaV1 | undefined = undefined,
+>(
+  options: DefineActionWithSchema<TSchema, TReturn, TOutputSchema>,
 ): ActionDefinition<StandardSchemaV1.InferInput<TSchema>, TReturn>;
 export function defineAction<
   TParams extends Record<string, ParameterSchema> | undefined,
@@ -654,6 +668,7 @@ export function defineAction(options: any) {
     }
     return undefined;
   })();
+  const chatUI = normalizeActionChatUIConfig(options.chatUI);
 
   return {
     tool: {
@@ -673,6 +688,7 @@ export function defineAction(options: any) {
     ...(publicAgent ? { publicAgent } : {}),
     ...(link ? { link } : {}),
     ...(mcpApp ? { mcpApp } : {}),
+    ...(chatUI ? { chatUI } : {}),
     ...(hasOutputSchema
       ? {
           outputSchema: options.outputSchema,

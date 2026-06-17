@@ -5,6 +5,11 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AgentMcpAppPayload } from "../../mcp-client/app-result.js";
 import { ToolCallDisplay } from "./tool-call-display.js";
+import {
+  clearToolRenderersForTests,
+  registerToolRenderer,
+  type ToolRendererProps,
+} from "./tool-render-registry.js";
 
 vi.mock("../mcp-apps/McpAppRenderer.js", () => ({
   McpAppRenderer: () => <div data-testid="mcp-app">MCP APP</div>,
@@ -24,6 +29,10 @@ function dataInsightResult(extra: Record<string, unknown> = {}) {
     },
     ...extra,
   });
+}
+
+function AppRenderer(_: ToolRendererProps) {
+  return <div>App renderer wins</div>;
 }
 
 const mcpApp: AgentMcpAppPayload = {
@@ -49,6 +58,7 @@ describe("ToolCallDisplay native renderers", () => {
   afterEach(() => {
     act(() => root.unmount());
     container.remove();
+    clearToolRenderersForTests();
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
   });
@@ -133,5 +143,50 @@ describe("ToolCallDisplay native renderers", () => {
     });
 
     expect(container.textContent).toContain("MCP APP");
+  });
+
+  it("renders action-declared native data widgets without relying on widget shape inference", () => {
+    act(() => {
+      root.render(
+        <ToolCallDisplay
+          toolName="top-customers"
+          args={{}}
+          result={JSON.stringify({
+            table: {
+              title: "Top customers",
+              columns: [{ key: "name", label: "Name" }],
+              rows: [{ name: "Ada" }],
+            },
+          })}
+          chatUI={{ renderer: "core.data-table" }}
+          isRunning={false}
+        />,
+      );
+    });
+
+    expect(container.textContent).toContain("Top customers");
+    expect(container.textContent).toContain("Ada");
+  });
+
+  it("lets app-specific renderers override the generic explicit widget fallback", () => {
+    registerToolRenderer({
+      id: "app.response-insights",
+      match: "response-insights",
+      Component: AppRenderer,
+    });
+
+    act(() => {
+      root.render(
+        <ToolCallDisplay
+          toolName="response-insights"
+          args={{}}
+          result={dataInsightResult()}
+          isRunning={false}
+        />,
+      );
+    });
+
+    expect(container.textContent).toContain("App renderer wins");
+    expect(container.textContent).not.toContain("Recent rows");
   });
 });

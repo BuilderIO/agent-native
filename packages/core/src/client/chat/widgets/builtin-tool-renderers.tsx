@@ -4,28 +4,105 @@ import {
   DATA_TABLE_WIDGET,
   normalizeDataWidgetKind,
   normalizeDataWidgetResult,
+  type DataWidgetResult,
 } from "./data-widget-types.js";
+import {
+  ACTION_CHAT_UI_DATA_CHART_RENDERER,
+  ACTION_CHAT_UI_DATA_INSIGHTS_RENDERER,
+  ACTION_CHAT_UI_DATA_TABLE_RENDERER,
+  ACTION_CHAT_UI_DATA_WIDGET_RENDERER,
+} from "../../../action-ui.js";
 import { DataChartWidget } from "./DataChartWidget.js";
 import { DataInsightsWidget } from "./DataInsightsWidget.js";
 import { DataTableWidget } from "./DataTableWidget.js";
-import { registerReservedToolRenderer } from "../tool-render-registry.js";
+import {
+  registerReservedActionChatRenderer,
+  registerReservedFallbackToolRenderer,
+  type ToolRendererContext,
+} from "../tool-render-registry.js";
 
-registerReservedToolRenderer({
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === "object" && !Array.isArray(value);
+}
+
+function normalizeActionDataWidgetResult(
+  context: ToolRendererContext,
+): DataWidgetResult | null {
+  const result = normalizeDataWidgetResult(context.resultJson);
+  if (result) return result;
+  if (!isRecord(context.resultJson)) return null;
+
+  const renderer = context.chatUI?.renderer;
+  if (renderer === ACTION_CHAT_UI_DATA_TABLE_RENDERER) {
+    return normalizeDataWidgetResult({
+      widget: DATA_TABLE_WIDGET,
+      table: isRecord(context.resultJson.table)
+        ? context.resultJson.table
+        : context.resultJson,
+      display: isRecord(context.resultJson.display)
+        ? context.resultJson.display
+        : undefined,
+    });
+  }
+  if (renderer === ACTION_CHAT_UI_DATA_CHART_RENDERER) {
+    return normalizeDataWidgetResult({
+      widget: DATA_CHART_WIDGET,
+      chartSeries: isRecord(context.resultJson.chartSeries)
+        ? context.resultJson.chartSeries
+        : context.resultJson,
+      display: isRecord(context.resultJson.display)
+        ? context.resultJson.display
+        : undefined,
+    });
+  }
+  if (renderer === ACTION_CHAT_UI_DATA_INSIGHTS_RENDERER) {
+    return normalizeDataWidgetResult({
+      ...context.resultJson,
+      widget: DATA_INSIGHTS_WIDGET,
+    });
+  }
+
+  return null;
+}
+
+function renderDataWidget(context: ToolRendererContext) {
+  const result =
+    normalizeActionDataWidgetResult(context) ??
+    normalizeDataWidgetResult(context.resultJson);
+  if (!result) return null;
+  const widget = normalizeDataWidgetKind(result.widget);
+  if (widget === DATA_TABLE_WIDGET && result.table) {
+    return (
+      <DataTableWidget
+        table={result.table}
+        action={result.display?.primaryAction}
+      />
+    );
+  }
+  if (widget === DATA_CHART_WIDGET && result.chartSeries) {
+    return <DataChartWidget chart={result.chartSeries} />;
+  }
+  if (widget === DATA_INSIGHTS_WIDGET) {
+    return <DataInsightsWidget result={result} />;
+  }
+  return null;
+}
+
+for (const [id, renderer] of [
+  ["core.data-table", ACTION_CHAT_UI_DATA_TABLE_RENDERER],
+  ["core.data-chart", ACTION_CHAT_UI_DATA_CHART_RENDERER],
+  ["core.data-insights", ACTION_CHAT_UI_DATA_INSIGHTS_RENDERER],
+  ["core.data-widget", ACTION_CHAT_UI_DATA_WIDGET_RENDERER],
+] as const) {
+  registerReservedActionChatRenderer({
+    id,
+    renderer,
+    Component: ({ context }) => renderDataWidget(context),
+  });
+}
+
+registerReservedFallbackToolRenderer({
   id: "core.data-widgets",
   match: (context) => normalizeDataWidgetResult(context.resultJson) !== null,
-  Component: ({ context }) => {
-    const result = normalizeDataWidgetResult(context.resultJson);
-    if (!result) return null;
-    const widget = normalizeDataWidgetKind(result.widget);
-    if (widget === DATA_TABLE_WIDGET && result.table) {
-      return <DataTableWidget table={result.table} />;
-    }
-    if (widget === DATA_CHART_WIDGET && result.chartSeries) {
-      return <DataChartWidget chart={result.chartSeries} />;
-    }
-    if (widget === DATA_INSIGHTS_WIDGET) {
-      return <DataInsightsWidget result={result} />;
-    }
-    return null;
-  },
+  Component: ({ context }) => renderDataWidget(context),
 });

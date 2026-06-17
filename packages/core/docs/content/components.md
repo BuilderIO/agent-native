@@ -35,9 +35,15 @@ so bundlers choose the browser-safe entry.
 | `<AgentChatSurface>`       | `@agent-native/core/client` or `/client/chat` | You want chat in panel or page mode without the sidebar wrapper.                                 |
 | `<AssistantChat>`          | `@agent-native/core/client` or `/client/chat` | You want to own surrounding chrome while keeping the standard conversation and composer runtime. |
 | `<MultiTabAssistantChat>`  | `@agent-native/core/client` or `/client/chat` | You want the framework's thread tabs without `AgentPanel` chrome.                                |
-| `createAgentChatAdapter()` | `@agent-native/core/client` or `/client/chat` | You are building a custom assistant-ui runtime and need the Agent-Native chat transport.         |
+| `createAgentChatAdapter()` | `@agent-native/core/client` or `/client/chat` | You are adapting a BYO assistant-ui transport into the Agent-Native chat runtime.                |
 | `useChatThreads()`         | `@agent-native/core/client` or `/client/chat` | You need a custom thread list, history picker, or scoped chat UI.                                |
 | `sendToAgentChat()`        | `@agent-native/core/client` or `/client/chat` | A product action should hand work to the agent chat.                                             |
+
+In docs, `AgentChatRuntime` means this standard runtime posture: assistant-ui
+thread state, Agent-Native streaming, run recovery, attachments, model
+selection, approvals, native tool widgets, and SQL-backed sync. It is not a
+separate protocol replacement. BYO agents should adapt into this runtime with
+`createAgentChatAdapter()` when they want the normal app chat experience.
 
 The shortest custom route is still a pre-wired surface:
 
@@ -115,6 +121,23 @@ outside the full agent runtime.
 This layer is intentionally data-first: you own where messages come from, and
 the renderer owns consistent markdown, attachments, notices, artifacts, and
 tool-call display.
+
+## Native Tool Widgets {#native-tool-widgets}
+
+Use native tool widgets when an action result should render as app-quality UI
+inside chat instead of plain JSON. Built-in reusable outputs include
+`DataTableWidget`, `DataChartWidget`, and `DataWidgetResult`; they are exported
+from `@agent-native/core/client/chat` and the root client entry. See
+[Native Chat UI](/docs/native-chat-ui) for the action result contract.
+
+| API                              | Use when                                                                                |
+| -------------------------------- | --------------------------------------------------------------------------------------- |
+| `DataTableWidget`                | You want an action result to render rows and columns in native chat.                    |
+| `DataChartWidget`                | You want compact bar, line, or area chart output in native chat.                        |
+| `DataWidgetResult`               | You want a typed result shape for `"data-table"`, `"data-chart"`, or `"data-insights"`. |
+| `registerActionChatRenderer()`   | You need an action-declared renderer selected by exact `chatUI.renderer`.               |
+| `registerToolRenderer()`         | You need a product-specific native renderer for a non-core tool result.                 |
+| `registerReservedToolRenderer()` | Framework code needs a reserved renderer that wins before template renderers.           |
 
 ## Realtime Collab And Presence {#collab-presence}
 

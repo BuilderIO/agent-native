@@ -271,8 +271,8 @@
 }
 
 .agent-composer-root--hero [data-agent-composer-slot="editor-wrap"] {
-  padding-inline: 0.375rem;
-  padding-top: 0.375rem;
+  padding-inline: 0.775rem;
+  padding-top: 0.675rem;
 }
 
 .agent-composer-root--hero [data-agent-composer-slot="editor-input"] {
@@ -298,6 +298,13 @@
 
     ::view-transition-old(agent-native-chat),
     ::view-transition-new(agent-native-chat) {
+      /* The default `block-size: auto` scales each snapshot by width, so as the
+         panel narrows (896 -> 380) its captured height shrinks and the
+         bottom-pinned chat field gets dragged upward (the "rises to half-page"
+         bug). Lock the snapshots to the group's constant height so only x +
+         width animate: the panel slides right at constant height and the chat
+         field stays pinned to the bottom. */
+      height: 100%;
       animation-duration: 340ms;
       animation-timing-function: cubic-bezier(0.2, 0.8, 0.2, 1);
     }

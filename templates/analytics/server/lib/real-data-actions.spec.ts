@@ -5,12 +5,14 @@ import {
   hasDataQueryAttempt,
   hasFailedCorpusWorkflowEvidence,
   hasIncompleteDataEvidence,
+  hasRequestedSourceRecordEvidence,
   hasOverstatedCoverageConfidenceClaim,
   isSafeNoDataAnalyticsResponse,
   looksLikeCoverageSensitiveAnalyticsRequest,
   looksLikeStrongCoverageClaim,
   looksLikeAnalyticsDataRequest,
   needsCorpusWorkflowForCoverageSensitiveRequest,
+  needsSourceRecordBodyWorkflowForCoverageSensitiveRequest,
   stripInjectedAnalyticsGuardContext,
 } from "./real-data-actions";
 
@@ -351,6 +353,72 @@ describe("coverage-sensitive analytics request classification", () => {
               'bridgeToolsUsed: provider-api-request\n\nstdout:\n{"searched":1000}',
           },
         ],
+      }),
+    ).toBe(false);
+  });
+
+  it("does not let container metadata satisfy requested source-record body searches", () => {
+    const metadataCorpusResult = {
+      name: "provider-corpus-job",
+      content: JSON.stringify({
+        job: { status: "completed" },
+        source: {
+          provider: "gong",
+          mode: "paginated-search",
+          request: { method: "GET", path: "/calls" },
+          pagination: { itemsPath: "calls" },
+          search: { textPaths: ["title", "content.brief"] },
+        },
+        coverage: { itemsProcessed: 13_885, totalHits: 0 },
+      }),
+    };
+
+    expect(
+      hasRequestedSourceRecordEvidence(broadProviderQuestion, [
+        metadataCorpusResult,
+      ]),
+    ).toBe(false);
+    expect(
+      needsSourceRecordBodyWorkflowForCoverageSensitiveRequest({
+        userText: broadProviderQuestion,
+        finalText:
+          "No mentions were found in any Gong transcripts across the full available corpus.",
+        toolResults: [metadataCorpusResult],
+      }),
+    ).toBe(true);
+  });
+
+  it("accepts raw source-record body corpus evidence for coverage-sensitive claims", () => {
+    const transcriptCorpusResult = {
+      name: "provider-corpus-job",
+      content: JSON.stringify({
+        job: { status: "completed" },
+        source: {
+          provider: "gong",
+          mode: "batch-search",
+          request: { method: "POST", path: "/calls/transcript" },
+          batch: {
+            itemBodyPath: "filter.callIds",
+            responseItemsPath: "callTranscripts",
+          },
+          search: { textPaths: ["transcript"], idPaths: ["callId"] },
+        },
+        coverage: { itemsProcessed: 1_100, totalHits: 214 },
+        sampleHits: [{ id: "call-1", path: "transcript.sentences.0.text" }],
+      }),
+    };
+
+    expect(
+      hasRequestedSourceRecordEvidence(broadProviderQuestion, [
+        transcriptCorpusResult,
+      ]),
+    ).toBe(true);
+    expect(
+      needsSourceRecordBodyWorkflowForCoverageSensitiveRequest({
+        userText: broadProviderQuestion,
+        finalText:
+          "I found 214 hits in 183 Gong transcripts across the full available corpus.",
+        toolResults: [transcriptCorpusResult],
       }),
     ).toBe(false);
   });

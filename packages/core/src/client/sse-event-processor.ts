@@ -1,4 +1,5 @@
 import type { ChatModelRunResult } from "@assistant-ui/react";
+import type { ActionChatUIConfig } from "../action-ui.js";
 import {
   LLM_MISSING_CREDENTIALS_ERROR_CODE,
   LLM_MISSING_CREDENTIALS_MESSAGE,
@@ -17,6 +18,7 @@ export type ContentPart =
       args: Record<string, string>;
       result?: string;
       mcpApp?: AgentMcpAppPayload;
+      chatUI?: ActionChatUIConfig;
       activity?: boolean;
       /**
        * Set when the server emitted an `approval_required` event for this tool
@@ -43,6 +45,7 @@ export interface SSEEvent {
   input?: Record<string, string>;
   result?: string;
   mcpApp?: AgentMcpAppPayload;
+  chatUI?: ActionChatUIConfig;
   /** Stable key the client echoes back in `approvedToolCalls` to approve a
    *  paused `needsApproval` tool call. Present on `approval_required` events. */
   approvalKey?: string;
@@ -485,6 +488,7 @@ export function processEvent(
       if (part.type === "tool-call") {
         part.result = ev.result ?? "";
         if (ev.mcpApp) part.mcpApp = ev.mcpApp;
+        if (ev.chatUI) part.chatUI = ev.chatUI;
       }
     }
     return {

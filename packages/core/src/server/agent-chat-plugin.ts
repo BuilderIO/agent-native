@@ -3509,6 +3509,11 @@ export function createAgentChatPlugin(
                     ...(typeof def.agentTool === "boolean"
                       ? { agentTool: def.agentTool }
                       : {}),
+                    ...(def.chatUI &&
+                    typeof def.chatUI === "object" &&
+                    !Array.isArray(def.chatUI)
+                      ? { chatUI: def.chatUI }
+                      : {}),
                   };
                   continue;
                 }

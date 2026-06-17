@@ -79,6 +79,34 @@ describe("provider API escape hatch", () => {
     expect(JSON.stringify(result)).not.toContain("secret-token");
   });
 
+  it("returns reusable corpus recipes for providers that define raw body search patterns", async () => {
+    const result = (await providerApiCatalog.run({
+      provider: "gong",
+    })) as Record<string, any>;
+
+    expect(result.providers[0].corpusRecipes).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          label: expect.stringContaining("Batch-search Gong call transcripts"),
+          request: {
+            method: "POST",
+            path: "/calls/transcript",
+            body: { filter: { callIds: [] } },
+          },
+          batch: expect.objectContaining({
+            itemBodyPath: "filter.callIds",
+            responseItemsPath: "callTranscripts",
+          }),
+          search: expect.objectContaining({
+            textPaths: expect.arrayContaining(["transcript"]),
+            idPaths: ["callId"],
+          }),
+        }),
+      ]),
+    );
+    expect(JSON.stringify(result)).not.toContain("secret-token");
+  });
+
   it("makes arbitrary authenticated provider requests and redacts secrets", async () => {
     resolveAnalyticsProviderCredential.mockResolvedValue({
       value: "hub-token",

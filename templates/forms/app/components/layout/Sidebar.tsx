@@ -25,7 +25,7 @@ import {
   DevDatabaseLink,
   FeedbackButton,
   appPath,
-  startAgentChatViewTransition,
+  navigateWithAgentChatViewTransition,
 } from "@agent-native/core/client";
 import { ExtensionsSidebarSection } from "@agent-native/core/client/extensions";
 import { Textarea } from "@/components/ui/textarea";
@@ -87,7 +87,7 @@ export function Sidebar() {
   function navigateHomeChat(event: MouseEvent<HTMLAnchorElement>) {
     event.preventDefault();
     if (isMobile) setMobileOpen(false);
-    startAgentChatViewTransition(() => navigate("/", { flushSync: true }));
+    navigateWithAgentChatViewTransition(navigate, "/");
   }
 
   const newFormButton = (

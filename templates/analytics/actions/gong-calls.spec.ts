@@ -2,12 +2,14 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const getCalls = vi.fn();
 const getCallTranscript = vi.fn();
+const getCallTranscripts = vi.fn();
 const getUsers = vi.fn();
 const searchCalls = vi.fn();
 
 vi.mock("../server/lib/gong", () => ({
   getCalls,
   getCallTranscript,
+  getCallTranscripts,
   getUsers,
   searchCalls,
 }));
@@ -19,6 +21,7 @@ describe("gong-calls action", () => {
   beforeEach(() => {
     getCalls.mockReset();
     getCallTranscript.mockReset();
+    getCallTranscripts.mockReset();
     getUsers.mockReset();
     searchCalls.mockReset();
   });
@@ -62,7 +65,7 @@ describe("gong-calls action", () => {
       limit: 8,
       truncated: false,
     });
-    getCallTranscript.mockResolvedValue({
+    getCallTranscripts.mockResolvedValue({
       callTranscripts: [
         {
           callId: "call-1",
@@ -86,7 +89,7 @@ describe("gong-calls action", () => {
     expect(searchCalls).toHaveBeenCalledWith("The Knot", 90, 8, {
       exhaustive: false,
     });
-    expect(getCallTranscript).toHaveBeenCalledWith("call-1");
+    expect(getCallTranscripts).toHaveBeenCalledWith(["call-1"]);
     expect(result.transcripts).toHaveLength(1);
     expect(result.transcripts[0].text).toContain("Budget is the blocker.");
     expect(result.guidance).toContain("Loaded transcript excerpts");
@@ -114,9 +117,9 @@ describe("gong-calls action", () => {
       limit: 8,
       truncated: false,
     });
-    getCallTranscript.mockImplementation(async (callId: string) => ({
+    getCallTranscripts.mockImplementation(async (callIds: string[]) => ({
       callTranscripts: [
-        {
+        ...callIds.map((callId) => ({
           callId,
           transcript: [
             {
@@ -132,7 +135,7 @@ describe("gong-calls action", () => {
               ],
             },
           ],
-        },
+        })),
       ],
     }));
 
@@ -142,7 +145,8 @@ describe("gong-calls action", () => {
       transcriptScanLimit: 2,
     })) as Record<string, any>;
 
-    expect(getCallTranscript).toHaveBeenCalledTimes(2);
+    expect(getCallTranscripts).toHaveBeenCalledTimes(1);
+    expect(getCallTranscripts).toHaveBeenCalledWith(["call-1", "call-2"]);
     expect(result.transcripts).toBeUndefined();
     expect(result.transcriptSearch).toMatchObject({
       query: "Figma MCP",
@@ -177,18 +181,19 @@ describe("gong-calls action", () => {
       limit: 2,
       truncated: true,
     });
-    getCallTranscript.mockResolvedValue({
+    getCallTranscripts.mockImplementation(async (callIds: string[]) => ({
       callTranscripts: [
-        {
+        ...callIds.map((callId) => ({
+          callId,
           transcript: [
             {
               speakerId: "buyer",
               sentences: [{ start: 0, text: "No matching phrase here." }],
             },
           ],
-        },
+        })),
       ],
-    });
+    }));
 
     const result = (await gongCalls.run({
       company: "Acme",
@@ -196,7 +201,7 @@ describe("gong-calls action", () => {
       transcriptScanLimit: 2,
     })) as Record<string, any>;
 
-    expect(getCallTranscript).toHaveBeenCalledTimes(2);
+    expect(getCallTranscripts).toHaveBeenCalledTimes(1);
     expect(result.transcriptSearch).toMatchObject({
       inspectedCalls: 2,
       availableCalls: 2,
@@ -226,18 +231,19 @@ describe("gong-calls action", () => {
         },
       ],
     });
-    getCallTranscript.mockResolvedValue({
+    getCallTranscripts.mockImplementation(async (callIds: string[]) => ({
       callTranscripts: [
-        {
+        ...callIds.map((callId) => ({
+          callId,
           transcript: [
             {
               speakerId: "buyer",
               sentences: [{ start: 0, text: "No matching phrase here." }],
             },
           ],
-        },
+        })),
       ],
-    });
+    }));
 
     const result = (await gongCalls.run({
       days: 30,
@@ -246,7 +252,7 @@ describe("gong-calls action", () => {
       transcriptScanLimit: 2,
     })) as Record<string, any>;
 
-    expect(getCallTranscript).toHaveBeenCalledTimes(2);
+    expect(getCallTranscripts).toHaveBeenCalledTimes(1);
     expect(result.truncated).toBe(true);
     expect(result.transcriptSearch).toMatchObject({
       inspectedCalls: 2,

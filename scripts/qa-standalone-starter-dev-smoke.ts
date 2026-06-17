@@ -829,10 +829,14 @@ async function waitForAuthenticatedShell(
   }
 
   await waitForViteDepsQuiet(running.viteReload, serverLogs);
-  await waitForHomeLink(page, Math.max(15_000, shellDeadline - Date.now()), {
-    baseUrl,
-    renavigateOnTimeout: true,
-  });
+  await waitForHomeLink(
+    page,
+    Math.max(isCi ? 60_000 : 15_000, shellDeadline - Date.now()),
+    {
+      baseUrl,
+      renavigateOnTimeout: true,
+    },
+  );
 
   const sessionEmail = await readAuthenticatedSessionEmail(page, baseUrl);
   log(`authenticated session: ${sessionEmail}`);

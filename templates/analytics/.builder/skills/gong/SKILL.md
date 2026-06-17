@@ -27,7 +27,8 @@ description: >
 | --------------------------- | -------------------------------------------------------- |
 | `getCalls(filters?)`        | List calls (cursor-paginated)                            |
 | `getCall(callId)`           | Get single call detail                                   |
-| `getCallTranscript(callId)` | Get call transcript                                      |
+| `getCallTranscript(callId)` | Get one call transcript                                  |
+| `getCallTranscripts(callIds)` | Batch-fetch call transcripts                           |
 | `getUsers()`                | List Gong users                                          |
 | `searchCalls(query, days)`  | List + filter by title and external party name/email/domain |
 | `getCallDetail(callId)`     | Get parties plus Gong brief/key points/outline            |
@@ -74,3 +75,24 @@ pnpm action gong-calls --users
 - Raw Gong transcript payloads have `speakerId` (numeric), `topic` (string or null), `sentences` array with `start`/`end` (ms) and `text`. Speaker IDs need cross-referencing with call parties.
 - For deal/customer deep dives, call `account-deep-dive` first when HubSpot context matters. For Gong-only follow-up, set `includeTranscripts=true`; call metadata alone is not enough for objections, risks, sentiment, or next-step claims.
 - Region/hostname is configurable with `GONG_API_BASE`; omit it for the global endpoint.
+
+## Complete-Coverage Transcript Scan
+
+When the question asks whether any call in a cohort mentions something, do not
+answer from call metadata, titles, briefs, or sampled transcript excerpts. Use a
+raw transcript corpus path:
+
+1. Discover or stage the exact call IDs in scope with bounded filters and
+   explicit coverage counts.
+2. Prefer `provider-corpus-job` with `mode: "batch-search"` against
+   `POST /calls/transcript`.
+3. Use `batch.itemBodyPath: "filter.callIds"`, `batch.responseItemsPath:
+   "callTranscripts"`, `batch.batchSize: 20`, `search.textPaths:
+   ["transcript"]`, and `search.idPaths: ["callId"]`.
+4. Join the stored hits back to deals/accounts with `run-code` or staged-dataset
+   queries, then report cohort size, call IDs discovered, transcript records
+   scanned, hits, errors, and quota gaps.
+
+Use `provider-api-catalog --provider=gong` to retrieve the reusable corpus
+recipe. A metadata scan over `/calls` or `/calls/extensive` is useful for call
+discovery, but it is not evidence that transcript text lacks a phrase.

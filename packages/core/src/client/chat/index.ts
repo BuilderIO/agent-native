@@ -14,6 +14,7 @@ export {
   AGENT_CHAT_VIEW_TRANSITION_CLASS,
   AGENT_CHAT_VIEW_TRANSITION_NAME,
   getAgentChatViewTransitionStyle,
+  navigateWithAgentChatViewTransition,
   startAgentChatViewTransition,
   supportsAgentChatViewTransition,
   type AgentChatViewTransition,
@@ -45,6 +46,7 @@ export {
   type CodeAgentChatTranscriptEvent,
   type CreateCodeAgentChatAdapterOptions,
 } from "../code-agent-chat-adapter.js";
+export type * from "./runtime.js";
 export { sendToAgentChat, type AgentChatMessage } from "../agent-chat.js";
 export { useAgentChatGenerating } from "../use-agent-chat.js";
 export { useSendToAgentChat } from "../use-send-to-agent-chat.js";
@@ -59,9 +61,14 @@ export {
 export {
   clearReservedToolRenderersForTests,
   clearToolRenderersForTests,
+  registerActionChatRenderer,
+  registerFallbackToolRenderer,
+  registerReservedActionChatRenderer,
+  registerReservedFallbackToolRenderer,
   registerReservedToolRenderer,
   registerToolRenderer,
   resolveToolRenderer,
+  type ActionChatRendererRegistration,
   type ToolRendererComponent,
   type ToolRendererContext,
   type ToolRendererMatch,
@@ -69,9 +76,25 @@ export {
   type ToolRendererRegistration,
 } from "./tool-render-registry.js";
 export {
+  ACTION_CHAT_UI_DATA_CHART_RENDERER,
+  ACTION_CHAT_UI_DATA_INSIGHTS_RENDERER,
+  ACTION_CHAT_UI_DATA_TABLE_RENDERER,
+  ACTION_CHAT_UI_DATA_WIDGET_RENDERER,
+  type ActionChatUIConfig,
+} from "../../action-ui.js";
+export {
   DATA_CHART_WIDGET,
   DATA_INSIGHTS_WIDGET,
   DATA_TABLE_WIDGET,
+  createDataChartWidgetResult,
+  createDataInsightsWidgetResult,
+  createDataTableWidgetResult,
+  dataChartWidgetResultSchema,
+  dataChartWidgetSchema,
+  dataInsightsWidgetResultSchema,
+  dataTableWidgetResultSchema,
+  dataTableWidgetSchema,
+  dataWidgetResultSchema,
   isDataChartWidget,
   isDataTableWidget,
   isDataWidgetResult,
@@ -79,10 +102,18 @@ export {
   normalizeDataWidgetResult,
   type DataChartSeriesDefinition,
   type DataChartWidget,
+  type DataChartWidgetResult,
+  type DataChartWidgetResultInput,
+  type DataInsightsWidgetResult,
+  type DataInsightsWidgetResultInput,
   type DataTableColumn,
   type DataTableWidget,
+  type DataTableWidgetResult,
+  type DataTableWidgetResultInput,
+  type DataWidgetDisplay,
   type DataWidgetKind,
   type DataWidgetResult,
+  type DataWidgetResultMetadata,
 } from "./widgets/data-widget-types.js";
 export {
   useChatModels,

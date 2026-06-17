@@ -305,6 +305,58 @@ const { data, isLoading } = useActionQuery("get-lead", { leadId });
 
 The query is cached under `["action", "get-lead", { leadId }]` and auto-invalidated on any mutating action that completes.
 
+## Rendering native chat UI {#native-chat-ui}
+
+Actions can return structured widget data that the in-app chat renders
+natively. This is the first-party chat path for reusable tables, charts, setup
+summaries, and insight cards; use [MCP Apps](/docs/mcp-apps) for inline UI in
+external MCP hosts.
+
+```ts
+import {
+  ACTION_CHAT_UI_DATA_INSIGHTS_RENDERER,
+  dataInsightsWidgetResultSchema,
+  defineAction,
+} from "@agent-native/core";
+import { createDataInsightsWidgetResult } from "@agent-native/core/data-widgets";
+
+export default defineAction({
+  description: "Summarize response trends.",
+  readOnly: true,
+  outputSchema: dataInsightsWidgetResultSchema,
+  chatUI: { renderer: ACTION_CHAT_UI_DATA_INSIGHTS_RENDERER },
+  run: async () =>
+    createDataInsightsWidgetResult({
+      title: "Response trends",
+      chartSeries: {
+        type: "line",
+        xKey: "day",
+        series: [{ key: "responses", label: "Responses" }],
+        data: [
+          { day: "Mon", responses: 12 },
+          { day: "Tue", responses: 18 },
+        ],
+      },
+      table: {
+        columns: [
+          { key: "day", label: "Day" },
+          { key: "responses", label: "Responses", align: "right" },
+        ],
+        rows: [
+          { day: "Mon", responses: 12 },
+          { day: "Tue", responses: 18 },
+        ],
+      },
+    }),
+});
+```
+
+The built-in discriminants are `"data-table"`, `"data-chart"`, and
+`"data-insights"`. Their server-safe builders and schemas are exported from
+`@agent-native/core/data-widgets`, and native renderer ids are exported from
+`@agent-native/core`. See [Native Chat UI](/docs/native-chat-ui) for the full
+result contract and BYO runtime guidance.
+
 ## Calling it from the CLI {#cli}
 
 Every action is runnable via `pnpm action`:

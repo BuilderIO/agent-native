@@ -233,6 +233,7 @@ function cloneContentParts(content: ContentPart[]): ContentPart[] {
           ...part,
           args: { ...part.args },
           ...(part.mcpApp ? { mcpApp: { ...part.mcpApp } } : {}),
+          ...(part.chatUI ? { chatUI: { ...part.chatUI } } : {}),
         },
   );
 }
@@ -439,6 +440,7 @@ function contentPartFollowKey(part: any): string {
       String(part.argsText ?? "").length,
       String(part.result ?? "").length,
       part.mcpApp ? 1 : 0,
+      part.chatUI?.renderer ?? "",
     ].join(":");
   }
   if (type === "image") return `image:${String(part.image ?? "").length}`;
@@ -2923,13 +2925,6 @@ const AssistantChatInner = forwardRef<
                         </button>
                       </div>
                     </div>
-                  ) : missingApiKey && messages.length === 0 ? (
-                    <div className="flex flex-col items-center justify-center h-full px-2">
-                      <BuilderSetupCard
-                        onConnected={handleBuilderConnected}
-                        bouncePulse={missingKeyBouncePulse}
-                      />
-                    </div>
                   ) : isRestoring ? (
                     <div className="flex flex-col gap-3 p-4">
                       <div className="flex justify-end">
@@ -2988,12 +2983,6 @@ const AssistantChatInner = forwardRef<
                           }}
                         />
                       </AssistantMessageListErrorBoundary>
-                      {missingApiKey && (
-                        <BuilderSetupCard
-                          onConnected={handleBuilderConnected}
-                          bouncePulse={missingKeyBouncePulse}
-                        />
-                      )}
                       {visibleLoopLimit && !showRunningInUI && (
                         <LoopLimitContinueCard
                           info={visibleLoopLimit}
@@ -3198,7 +3187,7 @@ const AssistantChatInner = forwardRef<
                     disabled={isComposerDisabled}
                     placeholder={
                       missingApiKey
-                        ? "Connect an AI engine above to start chatting…"
+                        ? "Connect AI below to start chatting..."
                         : composerDisabled
                           ? (composerDisabledPlaceholder ??
                             "Open Desktop to use this chat.")
@@ -3271,6 +3260,12 @@ const AssistantChatInner = forwardRef<
                     }
                   />
                 </AgentComposerFrame>
+                {missingApiKey && !authError ? (
+                  <BuilderSetupCard
+                    onConnected={handleBuilderConnected}
+                    bouncePulse={missingKeyBouncePulse}
+                  />
+                ) : null}
               </div>
             </TextStreamingContext.Provider>
           </ChatRunningContext.Provider>

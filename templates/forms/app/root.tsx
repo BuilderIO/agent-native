@@ -22,7 +22,7 @@ import {
   useCommandMenuShortcut,
   getThemeInitScript,
   configureTracking,
-  startAgentChatViewTransition,
+  navigateWithAgentChatViewTransition,
 } from "@agent-native/core/client";
 import type { LinksFunction } from "react-router";
 import stylesheet from "./global.css?url";
@@ -148,7 +148,7 @@ function OpenLinkInterceptor() {
       if (location.pathname === "/" && path !== "/") {
         markFormsChatHomeHandoff();
       }
-      startAgentChatViewTransition(() => navigate(path, { flushSync: true }));
+      navigateWithAgentChatViewTransition(navigate, path);
     }
 
     document.addEventListener("click", handleClick, true);

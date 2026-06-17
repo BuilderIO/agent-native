@@ -1,4 +1,9 @@
-import { defineAction } from "@agent-native/core";
+import {
+  ACTION_CHAT_UI_DATA_INSIGHTS_RENDERER,
+  dataInsightsWidgetResultSchema,
+  defineAction,
+} from "@agent-native/core";
+import { createDataInsightsWidgetResult } from "@agent-native/core/data-widgets";
 import { buildDeepLink } from "@agent-native/core/server";
 import { accessFilter, resolveAccess } from "@agent-native/core/sharing";
 import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
@@ -256,6 +261,12 @@ export default defineAction({
   description:
     "Analyze form response data and return SQL-backed summary plus native widget-discriminated chart and table data.",
   schema: responseInsightsSchema,
+  outputSchema: dataInsightsWidgetResultSchema,
+  chatUI: {
+    renderer: ACTION_CHAT_UI_DATA_INSIGHTS_RENDERER,
+    title: "Response insights",
+    description: "Render response analytics as native chart/table output.",
+  },
   http: { method: "GET" },
   readOnly: true,
   link: ({ args, result }) => {
@@ -364,55 +375,55 @@ export default defineAction({
       type: "bar",
       title: "Submissions by day",
       xKey: "date",
-      yKey: "submissions",
       series: [{ key: "submissions", label: "Submissions" }],
       data: dailySubmissions,
       sampled: totalResponses > responses.length,
     };
     const title = targetForm?.title ?? "All forms";
 
-    const result: ResponseInsightsWidgetResult = {
-      widget: "data-insights",
-      widgetId: "forms.responseInsights.v1",
-      scope: {
-        ...(targetForm ? { formId: targetForm.id } : {}),
-        title,
-        days: args.days,
-        sampledLimit: args.limit,
-        formLimit: args.formLimit,
-      },
-      summary: {
-        forms: forms.length,
-        responses: totalResponses,
-        sampledResponses: responses.length,
-        truncated: totalResponses > responses.length,
-        rangeStart: start.toISOString().slice(0, 10),
-        rangeEnd: end.toISOString().slice(0, 10),
-        scopeCapped: !targetForm && forms.length >= args.formLimit,
-      },
-      forms: forms.map((form) => ({
-        id: form.id,
-        title: form.title,
-        slug: form.slug,
-        status: form.status,
-        responseCount: responseCountByForm.get(form.id) ?? 0,
-        url: `/forms/${encodeURIComponent(form.id)}`,
-      })),
-      chartSeries,
-      table,
-      display: {
-        title: targetForm
-          ? `${targetForm.title} response insights`
-          : "Forms response insights",
-        route: insightsPath(targetForm?.id),
-        primaryAction: {
-          label: targetForm ? "Open responses" : "Open forms",
-          href: targetForm
-            ? `/forms/${encodeURIComponent(targetForm.id)}/responses`
-            : "/forms",
+    const result: ResponseInsightsWidgetResult = createDataInsightsWidgetResult(
+      {
+        widgetId: "forms.responseInsights.v1",
+        scope: {
+          ...(targetForm ? { formId: targetForm.id } : {}),
+          title,
+          days: args.days,
+          sampledLimit: args.limit,
+          formLimit: args.formLimit,
+        },
+        summary: {
+          forms: forms.length,
+          responses: totalResponses,
+          sampledResponses: responses.length,
+          truncated: totalResponses > responses.length,
+          rangeStart: start.toISOString().slice(0, 10),
+          rangeEnd: end.toISOString().slice(0, 10),
+          scopeCapped: !targetForm && forms.length >= args.formLimit,
+        },
+        forms: forms.map((form) => ({
+          id: form.id,
+          title: form.title,
+          slug: form.slug,
+          status: form.status,
+          responseCount: responseCountByForm.get(form.id) ?? 0,
+          url: `/forms/${encodeURIComponent(form.id)}`,
+        })),
+        chartSeries,
+        table,
+        display: {
+          title: targetForm
+            ? `${targetForm.title} response insights`
+            : "Forms response insights",
+          route: insightsPath(targetForm?.id),
+          primaryAction: {
+            label: targetForm ? "Open responses" : "Open forms",
+            href: targetForm
+              ? `/forms/${encodeURIComponent(targetForm.id)}/responses`
+              : "/forms",
+          },
         },
       },
-    };
+    );
 
     return result;
   },
