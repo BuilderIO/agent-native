@@ -32,6 +32,17 @@ function tmpDir(): string {
   return root;
 }
 
+function workspaceRoot(): string {
+  let current = process.cwd();
+  while (current !== path.dirname(current)) {
+    if (fs.existsSync(path.join(current, "pnpm-workspace.yaml"))) {
+      return current;
+    }
+    current = path.dirname(current);
+  }
+  throw new Error("Could not locate workspace root.");
+}
+
 function writeSkill(repo: string, name: string, body = "Body"): void {
   const dir = path.join(repo, "skills", name);
   fs.mkdirSync(dir, { recursive: true });
@@ -53,6 +64,18 @@ function enableDirectSkillsMode(): () => void {
 }
 
 describe("@agent-native/skills", () => {
+  it("declares core as a runtime dependency for npx installs", () => {
+    const pkg = JSON.parse(
+      fs.readFileSync(
+        path.join(workspaceRoot(), "packages", "skills", "package.json"),
+        "utf-8",
+      ),
+    );
+
+    expect(pkg.dependencies["@agent-native/core"]).toBe(">=0.51.11");
+    expect(pkg.peerDependencies?.["@agent-native/core"]).toBeUndefined();
+  });
+
   it("parses the no-source BuilderIO skills install command", () => {
     const parsed = parseSkillsCliArgs([
       "add",
