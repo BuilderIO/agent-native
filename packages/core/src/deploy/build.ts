@@ -868,6 +868,26 @@ async function buildCloudflarePages() {
     generateRequireShim(),
   );
 
+  const nitroServerAssetsStub = path.join(
+    tmpDir,
+    "_nitro-server-assets-stub.js",
+  );
+  fs.writeFileSync(
+    nitroServerAssetsStub,
+    [
+      "const empty = async () => undefined;",
+      "export const assets = {",
+      "  getItem: empty,",
+      "  getItemRaw: empty,",
+      "  getKeys: async () => [],",
+      "  getMeta: async () => undefined,",
+      "  hasItem: async () => false,",
+      "};",
+      "export default assets;",
+      "",
+    ].join("\n"),
+  );
+
   // Create stub modules for native/Node-only deps that can't run on Workers.
   // These get resolved by esbuild instead of the real modules, avoiding bundling
   // native code that would fail on the Workers runtime.
@@ -952,6 +972,7 @@ async function buildCloudflarePages() {
       "--conditions=workerd,worker,import",
       // The ssr-handler imports a virtual module that only exists at dev time
       "--external:virtual:react-router/server-build",
+      `--alias:#nitro/virtual/server-assets=${nitroServerAssetsStub}`,
       // Banner: override the __require shim that esbuild generates for CJS modules.
       // This provides a real require() backed by ESM imports of node builtins.
       // Without this, CF Workers rejects the bundle because esbuild's default
