@@ -45,9 +45,9 @@ describe("agent-native skills", () => {
       "utf-8",
     );
 
-    expect(source).toContain("Hosted Plans, shareable links");
+    expect(source).toContain("Hosted plans, shareable links");
     expect(source).toContain(
-      "100% free and open source. Stores plans at plan.agent-native.com with sharing, comments, and browser editor.",
+      "Recommended. 100% free and open source. Stores plans at plan.agent-native.com with sharing, comments, and browser editor.",
     );
   });
 
@@ -234,6 +234,47 @@ describe("agent-native skills", () => {
       "https://assets.agent-native.com",
       "--client",
       "claude-code,codex,cowork,cursor,opencode,github-copilot",
+      "--scope",
+      "project",
+    ]);
+  });
+
+  it("routes embedded connect output through a transcript log with spinner feedback", async () => {
+    const root = tmpDir();
+    const runConnect = vi.fn(async () => {});
+    const connectLog: string[] = [];
+    const spinner = {
+      start: vi.fn(),
+      clear: vi.fn(),
+    };
+
+    const result = await addAgentNativeSkill(
+      parseSkillsArgs([
+        "add",
+        "assets",
+        "--client",
+        "claude-code",
+        "--scope",
+        "project",
+      ]),
+      {
+        baseDir: root,
+        isInteractive: () => true,
+        connectLog: (message) => connectLog.push(message),
+        createConnectSpinner: () => spinner,
+        runConnect,
+        runCommand: async () => 0,
+      },
+    );
+
+    expect(result.connected).toBe(true);
+    expect(spinner.start).toHaveBeenCalledWith("Authenticating Assets…");
+    expect(spinner.clear).toHaveBeenCalledTimes(1);
+    expect(connectLog).toEqual(["Authenticating Assets…"]);
+    expect(runConnect).toHaveBeenCalledWith([
+      "https://assets.agent-native.com",
+      "--client",
+      "claude-code",
       "--scope",
       "project",
     ]);
@@ -1082,10 +1123,10 @@ describe("agent-native skills", () => {
 
     expect(promptSkills).toHaveBeenCalledTimes(1);
     expect(context?.options.map((o) => o.value)).toEqual([
-      "assets",
-      "design-exploration",
       "visual-plan",
       "visual-recap",
+      "assets",
+      "design-exploration",
       "context-xray",
     ]);
     expect(context?.initialTargets).toEqual(["visual-plan", "visual-recap"]);
@@ -1155,18 +1196,14 @@ describe("agent-native skills", () => {
     });
 
     expect(allContext?.options.map((option) => option.value)).toEqual([
-      "assets",
-      "design-exploration",
       "visual-plan",
       "visual-recap",
+      "assets",
+      "design-exploration",
       "context-xray",
       "quick-recap",
     ]);
-    expect(allContext?.initialTargets).toEqual([
-      "visual-plan",
-      "visual-recap",
-      "quick-recap",
-    ]);
+    expect(allContext?.initialTargets).toEqual(["visual-plan", "visual-recap"]);
   });
 
   it("asks for plan mode before clients and skips MCP for local-files", async () => {
@@ -1297,6 +1334,52 @@ describe("agent-native skills", () => {
       ]),
     );
     expect(commands[0].options).toMatchObject({ stdio: "silent" });
+  });
+
+  it("does not forward MCP-only Cowork to public skill copy installs", async () => {
+    const root = tmpDir();
+    const commands: { cmd: string; args: string[] }[] = [];
+    vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+
+    await runSkills(["add", "--no-connect"], {
+      baseDir: root,
+      catalogMode: "all",
+      publicSkillSource: "BuilderIO/skills",
+      publicSkillEntries: [
+        {
+          name: "quick-recap",
+          description: "Use final response status blocks.",
+        },
+      ],
+      isInteractive: () => true,
+      promptSkills: async () => ["visual-plan", "visual-recap", "quick-recap"],
+      promptPlanMode: async () => "hosted",
+      promptClients: async () => ["codex", "cowork"],
+      promptScope: async () => "project",
+      promptGithubAction: async () => false,
+      promptUpdateInstructions: async () => false,
+      runCommand: async (cmd, args) => {
+        commands.push({ cmd, args });
+        return 0;
+      },
+    });
+
+    const publicCopy = commands.find((command) =>
+      command.args.includes("@agent-native/skills@latest"),
+    );
+    expect(publicCopy?.args).toEqual(
+      expect.arrayContaining([
+        "@agent-native/skills@latest",
+        "add",
+        "--copy",
+        "BuilderIO/skills",
+        "--skill",
+        "quick-recap",
+        "--client",
+        "codex",
+      ]),
+    );
+    expect(publicCopy?.args).not.toContain("codex,cowork");
   });
 
   it("does not forward local plan mode to non-plan public skill copies", async () => {

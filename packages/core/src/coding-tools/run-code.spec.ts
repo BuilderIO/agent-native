@@ -127,6 +127,46 @@ describe("run-code bridge", () => {
     expect(result).toContain('"maxBytes":1000');
   });
 
+  it("forwards webFetch extraction and search options to web-request", async () => {
+    const calls: Record<string, any>[] = [];
+    const actions: Record<string, ActionEntry> = {
+      "web-request": {
+        tool,
+        readOnly: true,
+        run: async (args) => {
+          calls.push(args);
+          return 'HTTP 200 OK\n\nMatches: 1 shown of 1\n1. query "pagination" at 12: API pagination docs';
+        },
+      },
+    };
+    const entry = createRunCodeEntry(() => actions);
+
+    const result = await entry.run({
+      code: `
+        const result = await webRead("https://docs.example.com/api", {
+          search: { query: "pagination", maxMatches: 3 },
+          maxChars: 1200,
+          saveToFile: "scratch/docs.html",
+        });
+        console.log(JSON.stringify(result));
+      `,
+      timeoutMs: 30_000,
+    });
+
+    expect(result).toContain('"status":200');
+    expect(result).toContain("API pagination docs");
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toMatchObject({
+      url: "https://docs.example.com/api",
+      method: "GET",
+      responseMode: "auto",
+      includeLinks: true,
+      search: { query: "pagination", maxMatches: 3 },
+      maxChars: 1200,
+      saveToFile: "scratch/docs.html",
+    });
+  });
+
   it("paginates provider APIs inside sandbox code", async () => {
     const calls: Record<string, any>[] = [];
     const actions: Record<string, ActionEntry> = {

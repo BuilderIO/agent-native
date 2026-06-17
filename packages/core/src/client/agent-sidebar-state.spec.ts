@@ -5,8 +5,10 @@ const {
   consumeAgentSidebarUrlOpenOverride,
   dispatchAgentSidebarStateChange,
   getInitialAgentSidebarOpen,
+  requestAgentSidebarOpen,
   SIDEBAR_OPEN_KEY,
   SIDEBAR_STATE_CHANGE_EVENT,
+  setAgentSidebarOpenPreference,
   subscribeAgentSidebarUrlChanges,
 } = await import("./agent-sidebar-state.js");
 
@@ -44,6 +46,19 @@ describe("getInitialAgentSidebarOpen", () => {
 
     window.localStorage.setItem(SIDEBAR_OPEN_KEY, "false");
     expect(getInitialAgentSidebarOpen(true)).toBe(false);
+  });
+
+  it("can persist and request sidebar open state", () => {
+    const openEvents: string[] = [];
+    window.addEventListener("agent-panel:open", () => openEvents.push("open"));
+
+    setAgentSidebarOpenPreference(false);
+    expect(window.localStorage.getItem(SIDEBAR_OPEN_KEY)).toBe("false");
+
+    requestAgentSidebarOpen();
+
+    expect(window.localStorage.getItem(SIDEBAR_OPEN_KEY)).toBe("true");
+    expect(openEvents).toEqual(["open"]);
   });
 
   it("starts closed on mobile even with a saved open preference", () => {

@@ -40,6 +40,11 @@ the Plan MCP connector. They write `plans/<slug>/plan.mdx` plus optional
 npx @agent-native/core@latest plan local preview --dir plans/<slug> --kind plan --open
 ```
 
+For folders in the current repo, the direct local route includes `?path=...` so
+the local Plan app can keep browser edits saving to the repo folder. The Plan
+app uses `apps.plan.roots[0].path` in `agent-native.json` as the default place
+to save promoted local plans, falling back to `plans/`.
+
 This keeps plan content out of the Agent-Native Plan database. Hosted sharing,
 comments, screenshots, and plan history are unavailable until you explicitly
 publish later.

@@ -216,6 +216,75 @@ describe("provider API runtime", () => {
     );
   });
 
+  it("extracts provider docs HTML into compact markdown content", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        `<!doctype html><html><head><title>HubSpot Docs</title></head>
+        <body><main><h1>Deals API</h1><p>Use after for pagination.</p><a href="/docs/api/crm/deals">Deals</a></main></body></html>`,
+        {
+          status: 200,
+          statusText: "OK",
+          headers: { "content-type": "text/html; charset=utf-8" },
+        },
+      ),
+    );
+    const runtime = createProviderApiRuntime({
+      appId: "analytics",
+      providerIds: ["hubspot"],
+      getCredentialContext: () => credentialContext,
+    });
+
+    const result = (await runtime.fetchDocs({
+      provider: "hubspot",
+      url: "https://developers.hubspot.com/docs/api/crm/deals",
+    })) as any;
+
+    expect(result.response).toMatchObject({
+      status: 200,
+      contentType: "text/html; charset=utf-8",
+    });
+    expect(result.response.text).toBeUndefined();
+    expect(result.content.mode).toBe("markdown");
+    expect(result.content.title).toBeTruthy();
+    expect(result.content.content).toContain("Deals API");
+    expect(result.content.links).toEqual([
+      {
+        text: "Deals",
+        url: "https://developers.hubspot.com/docs/api/crm/deals",
+      },
+    ]);
+  });
+
+  it("returns provider docs matches without the full raw HTML body", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        `<!doctype html><html><body><main><p>GET /crm/v3/objects/deals lists deals.</p><p>POST /crm/v3/objects/deals creates deals.</p></main></body></html>`,
+        {
+          status: 200,
+          statusText: "OK",
+          headers: { "content-type": "text/html" },
+        },
+      ),
+    );
+    const runtime = createProviderApiRuntime({
+      appId: "analytics",
+      providerIds: ["hubspot"],
+      getCredentialContext: () => credentialContext,
+    });
+
+    const result = (await runtime.fetchDocs({
+      provider: "hubspot",
+      url: "https://developers.hubspot.com/docs/api/crm/deals",
+      responseMode: "matches",
+      search: { regex: "\\b(GET|POST) /crm/v3/objects/deals\\b" },
+    })) as any;
+
+    expect(result.response.text).toBeUndefined();
+    expect(result.content.mode).toBe("matches");
+    expect(result.content.totalMatches).toBe(2);
+    expect(result.content.matches[0].match).toBe("GET /crm/v3/objects/deals");
+  });
+
   it("deletes stale Google OAuth grants after permanent refresh failures", async () => {
     vi.stubEnv("GOOGLE_CLIENT_ID", "google-client-id");
     vi.stubEnv("GOOGLE_CLIENT_SECRET", "google-client-secret");

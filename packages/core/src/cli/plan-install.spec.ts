@@ -420,13 +420,13 @@ describe("Plans skills install — materialized output", () => {
         "Default storage for this installation: local files.",
       );
       expect(captured[name], `materialized ${name}/SKILL.md`).toContain(
-        "No sharing, all local.",
+        "no hosted Plan database writes",
       );
       expect(captured[name], `materialized ${name}/SKILL.md`).toContain(
         "plan blocks --out plan-blocks.md",
       );
       expect(captured[name], `materialized ${name}/SKILL.md`).toContain(
-        "plan local preview",
+        "plan local serve",
       );
     }
   });

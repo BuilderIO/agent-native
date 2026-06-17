@@ -550,6 +550,10 @@ function getCoreSourceAliases(
     ),
     "@agent-native/core/usage": path.join(coreSrc, "usage/store.ts"),
     "@agent-native/core/brand-kit": path.join(coreSrc, "brand-kit/index.ts"),
+    "@agent-native/core/data-widgets": path.join(
+      coreSrc,
+      "data-widgets/index.ts",
+    ),
     "@agent-native/core/server/design-token-utils": path.join(
       coreSrc,
       "server/design-token-utils.ts",
@@ -1436,6 +1440,9 @@ export function defineConfig(options: ClientConfigOptions = {}): UserConfig {
     path.resolve(cwd, "../../packages/core"),
     path.resolve(cwd, "../core"),
   ].filter((candidate) => fs.existsSync(path.join(candidate, "package.json")));
+  const monorepoNodeModulesAllow = [
+    path.resolve(cwd, "../../node_modules"),
+  ].filter((candidate) => fs.existsSync(candidate));
 
   // Workspace-core (enterprise monorepo): pull its directory into Vite's
   // file watcher + module graph so edits to its TS sources hot-reload the
@@ -1486,6 +1493,7 @@ export function defineConfig(options: ClientConfigOptions = {}): UserConfig {
         allow: [
           ".",
           ...monorepoCoreAllow,
+          ...monorepoNodeModulesAllow,
           ...workspaceCoreFsAllow,
           ...workspaceNodeModulesAllow,
           ...(options.fsAllow ?? []),

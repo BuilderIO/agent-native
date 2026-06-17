@@ -5,6 +5,7 @@ import {
   useCallback,
   type CSSProperties,
   type FormEvent,
+  type ReactNode,
 } from "react";
 import * as PopoverPrimitive from "@radix-ui/react-popover";
 import * as TooltipPrimitive from "@radix-ui/react-tooltip";
@@ -91,6 +92,11 @@ export interface FeedbackButtonProps {
   chatSessionId?: string | null;
   /** Chat localStorage namespace, when the host uses per-app chat storage. */
   chatStorageKey?: string | null;
+  /** Controlled popover open state for hosts that trigger feedback from a menu. */
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+  /** Optional custom trigger element. */
+  trigger?: ReactNode;
 }
 
 const surfaceStyle: CSSProperties = {
@@ -116,11 +122,22 @@ export function FeedbackButton({
   placeholder,
   chatSessionId,
   chatStorageKey,
+  open: controlledOpen,
+  onOpenChange,
+  trigger: customTrigger,
 }: FeedbackButtonProps) {
   const target = parseTarget(url);
   const { session } = useSession();
 
-  const [open, setOpen] = useState(false);
+  const [uncontrolledOpen, setUncontrolledOpen] = useState(false);
+  const open = controlledOpen ?? uncontrolledOpen;
+  const setOpen = useCallback(
+    (nextOpen: boolean) => {
+      if (controlledOpen === undefined) setUncontrolledOpen(nextOpen);
+      onOpenChange?.(nextOpen);
+    },
+    [controlledOpen, onOpenChange],
+  );
   const [value, setValue] = useState("");
   const [honeypot, setHoneypot] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -218,11 +235,18 @@ export function FeedbackButton({
       session?.email,
       chatSessionId,
       chatStorageKey,
+      setOpen,
     ],
   );
 
   let trigger;
-  if (variant === "icon") {
+  if (customTrigger) {
+    trigger = (
+      <PopoverPrimitive.Trigger asChild>
+        {customTrigger}
+      </PopoverPrimitive.Trigger>
+    );
+  } else if (variant === "icon") {
     trigger = (
       <TooltipPrimitive.Provider delayDuration={200}>
         <TooltipPrimitive.Root>

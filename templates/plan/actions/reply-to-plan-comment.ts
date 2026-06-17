@@ -102,6 +102,9 @@ export default defineAction({
       resolvePlanAccessContext(currentAccess()),
     );
     if (!access) throw new Error(`Plan ${args.planId} not found`);
+    if ((access.resource as typeof schema.plans.$inferSelect).deletedAt) {
+      throw new ForbiddenError(`Plan ${args.planId} not found`);
+    }
 
     const db = getDb();
     const now = nowIso();

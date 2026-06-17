@@ -62,6 +62,9 @@ export default defineAction({
     );
     if (!access) throw new ForbiddenError(`Plan ${args.planId} not found`);
     const plan = access.resource as typeof schema.plans.$inferSelect;
+    if (plan.deletedAt) {
+      throw new ForbiddenError(`Plan ${args.planId} not found`);
+    }
     if (plan.visibility !== "public") {
       throw new ForbiddenError(
         "Only public plans can be reported from the public review surface.",

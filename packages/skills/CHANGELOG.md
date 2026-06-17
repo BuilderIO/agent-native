@@ -1,5 +1,84 @@
 # @agent-native/skills
 
+## 0.2.17
+
+### Patch Changes
+
+- Updated dependencies [78687a1]
+- Updated dependencies [78687a1]
+- Updated dependencies [78687a1]
+- Updated dependencies [78687a1]
+- Updated dependencies [78687a1]
+  - @agent-native/core@0.56.0
+
+## 0.2.16
+
+### Patch Changes
+
+- 364e4be: Expose the updated framework skill bundle through the skills package entrypoint.
+- Updated dependencies [364e4be]
+- Updated dependencies [364e4be]
+- Updated dependencies [364e4be]
+- Updated dependencies [364e4be]
+- Updated dependencies [364e4be]
+- Updated dependencies [364e4be]
+  - @agent-native/core@0.55.0
+
+## 0.2.15
+
+### Patch Changes
+
+- Updated dependencies [cc1e11c]
+  - @agent-native/core@0.54.1
+
+## 0.2.14
+
+### Patch Changes
+
+- Updated dependencies [f81e032]
+- Updated dependencies [f81e032]
+- Updated dependencies [9909dcc]
+- Updated dependencies [f81e032]
+- Updated dependencies [f81e032]
+- Updated dependencies [f81e032]
+- Updated dependencies [f81e032]
+- Updated dependencies [f81e032]
+- Updated dependencies [f81e032]
+- Updated dependencies [f81e032]
+  - @agent-native/core@0.54.0
+
+## 0.2.13
+
+### Patch Changes
+
+- 5a57b60: Fix hosted skills install flows for Codex plus Claude Cowork client selections and make MCP connect polling handle structured device-code failures consistently.
+- Updated dependencies [5a57b60]
+- Updated dependencies [5a57b60]
+- Updated dependencies [5a57b60]
+- Updated dependencies [5a57b60]
+- Updated dependencies [5a57b60]
+- Updated dependencies [5a57b60]
+- Updated dependencies [5a57b60]
+- Updated dependencies [5a57b60]
+- Updated dependencies [5a57b60]
+- Updated dependencies [5a57b60]
+- Updated dependencies [5a57b60]
+- Updated dependencies [5a57b60]
+- Updated dependencies [5a57b60]
+  - @agent-native/core@0.53.0
+
+## 0.2.12
+
+### Patch Changes
+
+- 9dc6ba7: Polish the shared skills CLI prompts, standalone catalog, and install summary.
+  Add MCP install support for more local agent clients and keep the PR Visual
+  Recap GitHub Action prompt available in local-files mode.
+- Updated dependencies [9dc6ba7]
+- Updated dependencies [9dc6ba7]
+- Updated dependencies [9dc6ba7]
+  - @agent-native/core@0.52.0
+
 ## 0.2.11
 
 ### Patch Changes

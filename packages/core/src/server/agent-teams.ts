@@ -86,6 +86,89 @@ import {
   getRequestUserEmail,
   runWithRequestContext,
 } from "./request-context.js";
+import { AsyncLocalStorage } from "node:async_hooks";
+import { resolveMaxSubagentDelegationDepth } from "../agent/runtime-context.js";
+
+/**
+ * Ambient delegation depth for the agent whose run is currently executing.
+ *
+ * `processAgentTeamRun` runs each sub-agent inside `runWithDelegationDepth(d)`
+ * where `d` is that sub-agent's own depth. So if a sub-agent calls `spawnTask`
+ * (e.g. because tool-stripping was bypassed and it was handed the `agent-teams`
+ * tool anyway), the spawn path reads its parent's depth from here and refuses
+ * once the cap is reached — independent of any tool-level guard. The top-level
+ * chat runs outside this storage, so its ambient depth is 0.
+ */
+const delegationDepthStorage = new AsyncLocalStorage<number>();
+
+/**
+ * Run `fn` with `depth` recorded as the ambient delegation depth so any
+ * `spawnTask` call made transitively from `fn` knows the depth of the agent
+ * doing the spawning.
+ */
+function runWithDelegationDepth<T>(
+  depth: number,
+  fn: () => T | Promise<T>,
+): T | Promise<T> {
+  return delegationDepthStorage.run(Math.max(0, Math.floor(depth || 0)), fn);
+}
+
+/** Depth of the agent currently executing (0 = top-level chat). */
+function currentAmbientDelegationDepth(): number {
+  return delegationDepthStorage.getStore() ?? 0;
+}
+
+/**
+ * Public read of the ambient sub-agent delegation depth for the currently
+ * executing agent. 0 = the top-level (user-facing) chat; 1+ = a spawned
+ * sub-agent. Used by the chat plugin to thread the depth into
+ * `buildRuntimeContextPrompt` so a sub-agent at the cap is told it can't
+ * delegate further. Mirrors `currentAmbientDelegationDepth`; exported under a
+ * descriptive name so callers outside this module don't depend on the private
+ * helper or the test-only export object.
+ */
+export function getCurrentDelegationDepth(): number {
+  return currentAmbientDelegationDepth();
+}
+
+export interface SubagentDepthDecision {
+  /** Whether the spawn is allowed under the depth cap. */
+  allowed: boolean;
+  /** Depth of the agent doing the spawning (parent). */
+  parentDepth: number;
+  /** Depth the spawned sub-agent would have (parentDepth + 1). */
+  childDepth: number;
+  /** The effective cap (resolved from env, clamped). */
+  maxDepth: number;
+  /** Human-readable refusal message when `allowed` is false. */
+  error?: string;
+}
+
+/**
+ * Decide whether an agent at `parentDepth` may spawn another sub-agent. The
+ * child would sit at `parentDepth + 1`; a child deeper than `maxDepth` is
+ * refused. Pure + exported so the enforcement is unit-testable and reusable.
+ */
+export function evaluateSubagentDepth(
+  parentDepth: number,
+  env: Record<string, string | undefined> = process.env,
+): SubagentDepthDecision {
+  const safeParentDepth = Number.isFinite(parentDepth)
+    ? Math.max(0, Math.floor(parentDepth))
+    : 0;
+  const childDepth = safeParentDepth + 1;
+  const maxDepth = resolveMaxSubagentDelegationDepth(env);
+  const allowed = childDepth <= maxDepth;
+  return {
+    allowed,
+    parentDepth: safeParentDepth,
+    childDepth,
+    maxDepth,
+    error: allowed
+      ? undefined
+      : `Delegation depth limit reached (max ${maxDepth}); cannot spawn another sub-agent.`,
+  };
+}
 
 /** Framework route the self-fire dispatch targets to run a queued sub-agent in
  * a fresh function invocation. Mounted inside the agent-chat plugin (where the
@@ -112,6 +195,12 @@ export interface AgentTask {
   completedAt?: number;
   runId?: string;
   error?: string;
+  /**
+   * Delegation depth of THIS sub-agent: 1 for a sub-agent spawned by the
+   * top-level chat, 2 for a sub-agent spawned by a depth-1 sub-agent, etc.
+   * Drives the runaway-delegation guardrail (see `evaluateSubagentDepth`).
+   */
+  delegationDepth?: number;
 }
 
 export type AgentTeamBackgroundRun = Omit<
@@ -1142,6 +1231,31 @@ export interface SpawnTaskOptions {
   parentThreadId?: string;
   /** Display name for the sub-agent tab (carried into the dispatch payload). */
   name?: string;
+  /**
+   * Delegation depth of the agent doing the spawning (the parent). Top-level
+   * chat is 0. When omitted, the depth is read from the ambient run context
+   * (set by `processAgentTeamRun` when a sub-agent is itself running), so a
+   * sub-agent that reaches `spawnTask` inherits its own depth automatically.
+   * The spawned sub-agent's depth is `parentDelegationDepth + 1`.
+   */
+  parentDelegationDepth?: number;
+}
+
+/**
+ * Error thrown when a spawn is refused because it would exceed the delegation
+ * depth cap. Carries the structured decision so callers (and the tool layer)
+ * can surface a precise message to the parent agent.
+ */
+export class SubagentDelegationDepthError extends Error {
+  readonly decision: SubagentDepthDecision;
+  constructor(decision: SubagentDepthDecision) {
+    super(
+      decision.error ??
+        `Delegation depth limit reached (max ${decision.maxDepth}); cannot spawn another sub-agent.`,
+    );
+    this.name = "SubagentDelegationDepthError";
+    this.decision = decision;
+  }
 }
 
 /**
@@ -1149,6 +1263,21 @@ export interface SpawnTaskOptions {
  * and emits agent_task events to the parent chat stream.
  */
 export async function spawnTask(opts: SpawnTaskOptions): Promise<AgentTask> {
+  // ── Delegation-depth guardrail ────────────────────────────────────────────
+  // Defensive, server-side enforcement that holds regardless of any tool-level
+  // stripping in the agent-chat plugin: a sub-agent cannot infinitely spawn
+  // sub-agents. The spawning agent's depth comes from the explicit option or,
+  // failing that, the ambient depth recorded while a sub-agent run executes.
+  const parentDepth =
+    typeof opts.parentDelegationDepth === "number"
+      ? opts.parentDelegationDepth
+      : currentAmbientDelegationDepth();
+  const decision = evaluateSubagentDepth(parentDepth);
+  if (!decision.allowed) {
+    throw new SubagentDelegationDepthError(decision);
+  }
+  const childDepth = decision.childDepth;
+
   const taskId = generateTaskId();
 
   // Create a dedicated thread for the sub-agent with the task as the first message
@@ -1205,6 +1334,7 @@ export async function spawnTask(opts: SpawnTaskOptions): Promise<AgentTask> {
     updatedAt: createdAt,
     startedAt: createdAt,
     runId,
+    delegationDepth: childDepth,
   };
 
   await saveTask(task);
@@ -1649,19 +1779,28 @@ export async function processAgentTeamRun(
             };
             await runWithRequestContext(
               { userEmail: ownerEmail || undefined, orgId: orgId ?? undefined },
-              async () => {
-                chunkUsage = await runAgentLoop({
-                  engine: config.engine,
-                  model: config.model,
-                  systemPrompt,
-                  tools,
-                  messages,
-                  actions: messageAwareActions,
-                  send: wrappedSend,
-                  signal,
-                  finalResponseGuard: createTaskMessageFinalGuard(opts.taskId),
-                });
-              },
+              // Record THIS sub-agent's own delegation depth as the ambient
+              // depth for the duration of its agent loop. If a tool call from
+              // within the loop reaches `spawnTask` (even with the team tool not
+              // stripped), the spawn path reads this depth and refuses once the
+              // cap is hit. Fall back to depth 1 for legacy tasks persisted
+              // before delegationDepth was tracked.
+              () =>
+                runWithDelegationDepth(task.delegationDepth ?? 1, async () => {
+                  chunkUsage = await runAgentLoop({
+                    engine: config.engine,
+                    model: config.model,
+                    systemPrompt,
+                    tools,
+                    messages,
+                    actions: messageAwareActions,
+                    send: wrappedSend,
+                    signal,
+                    finalResponseGuard: createTaskMessageFinalGuard(
+                      opts.taskId,
+                    ),
+                  });
+                }),
             );
           },
           async (run) => {
@@ -2049,4 +2188,7 @@ export const _agentTeamsQueueForTests = {
   drainQueuedTaskMessages,
   formatQueuedTaskMessages,
   resolveTaskCompletion,
+  evaluateSubagentDepth,
+  runWithDelegationDepth,
+  currentAmbientDelegationDepth,
 };

@@ -112,7 +112,10 @@ action trio instead:
   docs/spec URLs, placeholders, and examples without exposing secrets.
 - `provider-api-docs`: fetches public provider docs/spec/changelog URLs when
   the exact endpoint, filter operator, payload shape, or pagination contract is
-  uncertain. Registered docs URLs are curated starting points.
+  uncertain. Registered docs URLs are curated starting points. Use
+  `responseMode: "markdown"` for clean readable docs, or
+  `responseMode: "matches"` with `search: { query | terms | regex }` for
+  compact snippets instead of flooding context with raw HTML.
 - `provider-api-request`: makes a constrained authenticated HTTP request to the
   provider host, injects configured credentials, blocks private/internal URLs,
   and redacts secrets.
@@ -150,6 +153,12 @@ teach agents to report source, filters, time window, row/record counts,
 pagination status, truncation, failed pages, and uncovered gaps. They must not
 turn default limits, sampled rows, truncated excerpts, or aborted calls into a
 confident "none found", "all records", or exhaustive conclusion.
+
+For public web pages and docs, prefer the token-efficient path: `web-search`
+to find likely URLs, `web-request` or `provider-api-docs` with clean
+`responseMode` output to read a page, and `run-code` with `webRead()` /
+`webFetch()` when you need to grep, aggregate, or compare many pages before
+returning a small result.
 
 ### The `http` Option
 
@@ -194,6 +203,48 @@ run: async (args) => {
   return JSON.stringify(events, null, 2);
 }
 ```
+
+### Validating Return Values (`outputSchema`)
+
+`schema` validates inputs; `outputSchema` validates what the action **returns**. Pass any Standard Schema-compatible schema (Zod, Valibot, ArkType) and the framework validates the result _after_ `run()` resolves — input validated before `run`, output after.
+
+```ts
+export default defineAction({
+  description: "Summarize a thread.",
+  schema: z.object({ threadId: z.string() }),
+  outputSchema: z.object({ summary: z.string(), messageCount: z.number() }),
+  outputErrorStrategy: "warn", // default; "strict" | "fallback"
+  // outputFallback: { summary: "", messageCount: 0 }, // used only by "fallback"
+  run: async ({ threadId }) => {
+    /* ... */
+  },
+});
+```
+
+- `"warn"` (default) — `console.warn` the issues and return the **original** result unchanged. Non-breaking.
+- `"strict"` — throw a clear error so a buggy action surfaces loudly.
+- `"fallback"` — return `outputFallback` in place of the invalid result.
+
+On success the validated value is returned, so coercion/defaults on `outputSchema` apply. Omit `outputSchema` and behavior is byte-for-byte unchanged (no wrapping).
+
+### Human-in-the-Loop Approval (`needsApproval`)
+
+For high-consequence, outward-facing, hard-to-undo actions (sending an email, charging a card, deleting an account), set `needsApproval` so the agent **cannot** run the action without a human approving the specific call:
+
+```ts
+export default defineAction({
+  description: "Send an email via Gmail.",
+  schema: z.object({ to: z.string(), subject: z.string(), body: z.string() }),
+  needsApproval: true, // boolean, or (args, ctx) => boolean | Promise<boolean>
+  run: async (args) => {
+    /* ...actually send... */
+  },
+});
+```
+
+When the gate is truthy and the call isn't yet approved, the loop emits an `approval_required` event and **stops the turn — `run()` never executes**. A predicate gates conditionally (e.g. only external recipients) and **fails closed**: a throw is treated as "approval required". The human approves via the chat UI's Approve affordance, which re-issues the turn with the call's `approvalKey`, and only then does the action run.
+
+**Keep approvals rare** — the default is off and almost every action should leave it off. The canonical example is Mail's `send-email` (`needsApproval: true`). See the `security` skill and the Human Approval doc.
 
 ## Frontend Hooks
 

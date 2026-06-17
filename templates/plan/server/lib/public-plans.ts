@@ -96,12 +96,13 @@ async function getPublicPlanForEvent(event: H3Event) {
     .select({
       id: schema.plans.id,
       visibility: schema.plans.visibility,
+      deletedAt: schema.plans.deletedAt,
     })
     .from(schema.plans)
     .where(eq(schema.plans.id, id))
     .limit(1);
 
-  return plan?.visibility === "public" ? plan : null;
+  return plan?.visibility === "public" && !plan.deletedAt ? plan : null;
 }
 
 function allowsAnonymousPlanAccessMetadata(event: H3Event): boolean {

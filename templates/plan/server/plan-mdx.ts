@@ -1,5 +1,4 @@
 import matter from "gray-matter";
-import prettier from "prettier";
 import { unified } from "unified";
 import remarkMdx from "remark-mdx";
 import remarkParse from "remark-parse";
@@ -38,7 +37,7 @@ import {
   PLAN_ASSET_MAX_SINGLE_BYTES,
   PLAN_ASSET_MAX_TOTAL_BYTES,
   mimeTypeFromFilename,
-} from "./lib/plan-assets.js";
+} from "../shared/plan-assets.js";
 
 // Server-side plan block registry. Registered specs (currently the editable
 // callout) drive serialize/parse via the registry; every other block type still
@@ -340,6 +339,7 @@ function mdxProcessor() {
 
 async function formatMdx(source: string): Promise<string> {
   try {
+    const prettier = await import("prettier");
     return await prettier.format(source.trim() + "\n", { parser: "mdx" });
   } catch {
     return source.trim() + "\n";
@@ -496,6 +496,35 @@ function frontmatter(data: Record<string, unknown>): string {
     );
   }
   return `---\n${lines.join("\n")}\n---\n\n`;
+}
+
+function parseSimpleFrontmatter(source: string): {
+  data: Record<string, unknown>;
+  content: string;
+} {
+  if (!source.startsWith("---\n")) return { data: {}, content: source };
+
+  const end = source.indexOf("\n---", 4);
+  if (end < 0) return { data: {}, content: source };
+
+  const raw = source.slice(4, end).trim();
+  const content = source.slice(end + 4).replace(/^\r?\n/, "");
+  const data: Record<string, unknown> = {};
+  for (const line of raw.split(/\r?\n/)) {
+    const match = line.match(/^([A-Za-z0-9_-]+):\s*(.*)$/);
+    if (!match) continue;
+    const value = match[2].trim();
+    if (!value) {
+      data[match[1]] = "";
+      continue;
+    }
+    try {
+      data[match[1]] = JSON.parse(value);
+    } catch {
+      data[match[1]] = value.replace(/^['"]|['"]$/g, "").trim();
+    }
+  }
+  return { data, content };
 }
 
 function visualUrlForMdx(input: Pick<ExportPlanMdxInput, "planId" | "url">) {
@@ -1340,7 +1369,7 @@ export async function parsePlanMdxFolder(
   options: { salvageInvalidBlocks?: boolean } = {},
 ): Promise<PlanContent> {
   const files = planMdxFileSchema.parse(folder);
-  const parsedMatter = matter(files["plan.mdx"]);
+  const parsedMatter = parseSimpleFrontmatter(files["plan.mdx"]);
   const planTree = parseMdx(parsedMatter.content);
   const blocks = parseBlocksFromNodes(planTree.children, "plan-block");
 

@@ -2,14 +2,20 @@
  * Plan helper commands.
  *
  * The `plan local` commands are intentionally separate from the Plan app
- * actions. They do not call MCP, HTTP, SQLite, or the Plan template runtime;
- * they only read and write local files so privacy-focused users have an
- * auditable no-DB path. The top-level `plan blocks` command is a schema-only,
- * no-auth helper for fetching the public block catalog before authoring local
- * MDX; it never sends plan content.
+ * actions. They do not call MCP, hosted write actions, SQLite, or hosted
+ * storage; they only read local files or serve them from a localhost bridge so
+ * privacy-focused users have an auditable no-DB path. The top-level
+ * `plan blocks` command is a schema-only, no-auth helper for fetching the
+ * public block catalog before authoring local MDX; it never sends plan content.
  */
 
 import fs from "node:fs";
+import crypto from "node:crypto";
+import http, {
+  type IncomingMessage,
+  type Server,
+  type ServerResponse,
+} from "node:http";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { pathToFileURL } from "node:url";
@@ -29,6 +35,13 @@ type LocalPlanFiles = {
   canvasMdx?: string;
   prototypeMdx?: string;
   stateJson?: string;
+  assets?: Record<string, string>;
+};
+
+export type LocalPlanValidationIssue = {
+  file: string;
+  line: number;
+  message: string;
 };
 
 type LocalPlanPreviewInput = {
@@ -52,11 +65,95 @@ type LocalPlanPreviewResult = {
   openError?: string;
 };
 
+type LocalPlanBridgeMdxFolder = {
+  "plan.mdx": string;
+  "canvas.mdx"?: string;
+  "prototype.mdx"?: string;
+  ".plan-state.json"?: string;
+  "assets/"?: Record<string, string>;
+};
+
+export type LocalPlanBridgePayload = {
+  ok: true;
+  version: 1;
+  source: "agent-native-local-bridge";
+  localOnly: true;
+  slug: string;
+  dir: string;
+  title: string;
+  brief: string;
+  kind: LocalPlanKind;
+  updatedAt: string;
+  files: string[];
+  mdx: LocalPlanBridgeMdxFolder;
+};
+
+export type LocalPlanServeResult = {
+  ok: true;
+  dir: string;
+  url: string;
+  urlFile?: string;
+  bridgeUrl: string;
+  appUrl: string;
+  title: string;
+  kind: LocalPlanKind;
+  files: string[];
+  host: string;
+  port: number;
+  opened?: boolean;
+  openCommand?: string;
+  openError?: string;
+};
+
+export type LocalPlanBridgeServer = {
+  server: Server;
+  result: LocalPlanServeResult;
+};
+
+export type LocalPlanVerifyResult = {
+  ok: boolean;
+  dir: string;
+  url: string;
+  urlFile?: string;
+  bridgeUrl: string;
+  appUrl: string;
+  title: string;
+  kind: LocalPlanKind;
+  files: string[];
+  preflight: {
+    status: number;
+    allowOrigin: string | null;
+    allowPrivateNetwork: string | null;
+  };
+  bridge: {
+    status: number;
+    ok: boolean;
+    source?: string;
+    localOnly?: boolean;
+    files?: string[];
+    mdxFiles?: string[];
+    error?: string;
+  };
+  warnings: string[];
+};
+
 type OpenLocalUrlResult = {
   ok: boolean;
   command: string;
   error?: string;
 };
+
+const LOCAL_PLAN_ASSET_MAX_SINGLE_BYTES = 2 * 1024 * 1024;
+const LOCAL_PLAN_ASSET_MAX_TOTAL_BYTES = 10 * 1024 * 1024;
+const AGENT_NATIVE_MANIFEST_FILE = "agent-native.json";
+const LOCAL_PLAN_ASSET_EXTENSIONS = new Set([
+  "png",
+  "jpg",
+  "jpeg",
+  "gif",
+  "webp",
+  "svg",
+]);
 
 function parseArgs(argv: string[]): Record<string, string | boolean> {
   const out: Record<string, string | boolean> = {};
@@ -115,8 +212,96 @@ function normalizeKind(value: string | undefined): LocalPlanKind {
   throw new Error(`Invalid --kind "${value}" (expected plan or recap)`);
 }
 
+function normalizeSlash(filePath: string): string {
+  return filePath.replace(/\\/g, "/");
+}
+
+function normalizeRelativePath(filePath: string): string | null {
+  if (!filePath.trim() || path.isAbsolute(filePath)) return null;
+  const normalized = path.posix
+    .normalize(normalizeSlash(filePath.trim()))
+    .replace(/\/+$/, "");
+  if (
+    !normalized ||
+    normalized === "." ||
+    normalized === ".." ||
+    normalized.startsWith("../") ||
+    normalized.split("/").some((part) => !part || part === "." || part === "..")
+  ) {
+    return null;
+  }
+  return normalized;
+}
+
+function findUpward(startDir: string, filename: string): string | null {
+  let current = path.resolve(startDir);
+  for (;;) {
+    const candidate = path.join(current, filename);
+    if (fs.existsSync(candidate)) return candidate;
+    const parent = path.dirname(current);
+    if (parent === current) return null;
+    current = parent;
+  }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === "object" && !Array.isArray(value);
+}
+
+function manifestRootPath(value: unknown): string | null {
+  if (typeof value === "string") return normalizeRelativePath(value);
+  if (isRecord(value) && typeof value.path === "string") {
+    return normalizeRelativePath(value.path);
+  }
+  return null;
+}
+
+function planManifestConfig(): { rootDir: string; plansPath: string } | null {
+  const configuredManifest =
+    process.env.AGENT_NATIVE_MANIFEST?.trim() ||
+    process.env.AGENT_NATIVE_MANIFEST_PATH?.trim();
+  const manifestPath = configuredManifest
+    ? path.resolve(configuredManifest)
+    : findUpward(process.cwd(), AGENT_NATIVE_MANIFEST_FILE);
+  if (!manifestPath) return null;
+
+  try {
+    const parsed = JSON.parse(
+      fs.readFileSync(manifestPath, "utf-8"),
+    ) as unknown;
+    const apps = isRecord(parsed) && isRecord(parsed.apps) ? parsed.apps : null;
+    const planApp = apps && isRecord(apps.plan) ? apps.plan : null;
+    const roots = planApp && Array.isArray(planApp.roots) ? planApp.roots : [];
+    const plansPath = roots
+      .map(manifestRootPath)
+      .find((item): item is string => Boolean(item));
+    return plansPath
+      ? { rootDir: path.dirname(manifestPath), plansPath }
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function localPlanWorkspaceRoot(startDir = process.cwd()): string {
+  const manifestPath = findUpward(startDir, AGENT_NATIVE_MANIFEST_FILE);
+  if (manifestPath) return path.dirname(manifestPath);
+  const gitDir = findUpward(startDir, ".git");
+  if (gitDir) return path.dirname(gitDir);
+
+  const configuredManifest =
+    process.env.AGENT_NATIVE_MANIFEST?.trim() ||
+    process.env.AGENT_NATIVE_MANIFEST_PATH?.trim();
+  if (configuredManifest) return path.dirname(path.resolve(configuredManifest));
+  return process.cwd();
+}
+
 function defaultPlansDir(): string {
-  return path.resolve(process.env.PLAN_LOCAL_DIR || "plans");
+  const configured = process.env.PLAN_LOCAL_DIR;
+  if (configured?.trim()) return path.resolve(configured.trim());
+  const manifest = planManifestConfig();
+  if (manifest) return path.resolve(manifest.rootDir, manifest.plansPath);
+  return path.resolve("plans");
 }
 
 function defaultLocalPlanAppUrl(): string {
@@ -127,21 +312,66 @@ function defaultLocalPlanAppUrl(): string {
   );
 }
 
+function defaultLocalPlanBridgeAppUrl(): string {
+  return (
+    process.env.PLAN_LOCAL_BRIDGE_APP_URL ||
+    process.env.PLAN_BASE_URL ||
+    DEFAULT_PLAN_APP_URL
+  );
+}
+
 function normalizeAppUrl(value: string | undefined): string {
   return (value || defaultLocalPlanAppUrl()).replace(/\/+$/, "");
 }
 
-function localPlanPreviewUrl(dir: string, appUrl?: string): string {
-  return `${normalizeAppUrl(appUrl)}/local-plans/${encodeURIComponent(
-    path.basename(path.resolve(dir)),
-  )}`;
+function normalizeBridgeAppUrl(value: string | undefined): string {
+  return (value || defaultLocalPlanBridgeAppUrl()).replace(/\/+$/, "");
 }
 
-function openLocalUrl(url: string): OpenLocalUrlResult {
-  const platform = process.platform;
-  const command =
-    platform === "darwin" ? "open" : platform === "win32" ? "cmd" : "xdg-open";
-  const args = platform === "win32" ? ["/c", "start", "", url] : [url];
+function localPlanPreviewUrl(dir: string, appUrl?: string): string {
+  const base = `${normalizeAppUrl(appUrl)}/local-plans/${encodeURIComponent(
+    path.basename(path.resolve(dir)),
+  )}`;
+  const repoPath = repoRelativePlanPath(dir);
+  if (!repoPath) return base;
+  return `${base}?${new URLSearchParams({ path: repoPath }).toString()}`;
+}
+
+function realpathIfExists(filePath: string): string {
+  try {
+    return fs.realpathSync.native(filePath);
+  } catch {
+    return path.resolve(filePath);
+  }
+}
+
+function repoRelativePlanPath(dir: string): string | null {
+  const resolved = realpathIfExists(dir);
+  const root = realpathIfExists(localPlanWorkspaceRoot(resolved));
+  const relative = path.relative(root, resolved);
+  if (!relative || relative.startsWith("..") || path.isAbsolute(relative)) {
+    return null;
+  }
+  return normalizeSlash(relative);
+}
+
+function localPlanBridgePageUrl(input: {
+  dir: string;
+  bridgeUrl: string;
+  appUrl?: string;
+}): string {
+  return `${normalizeBridgeAppUrl(input.appUrl)}/local-plans/${encodeURIComponent(
+    path.basename(path.resolve(input.dir)),
+  )}?bridge=${encodeURIComponent(input.bridgeUrl)}`;
+}
+
+function writeLocalPlanUrlFile(dir: string, url: string, urlFile?: string) {
+  const file = path.resolve(urlFile || path.join(dir, ".plan-url"));
+  fs.writeFileSync(file, `${url}\n`, { encoding: "utf-8", mode: 0o600 });
+  return file;
+}
+
+function runOpenCommand(command: string, args: string[]): OpenLocalUrlResult {
   const result = spawnSync(command, args, {
     stdio: "ignore",
     windowsHide: true,
@@ -162,6 +392,26 @@ function openLocalUrl(url: string): OpenLocalUrlResult {
     };
   }
   return { ok: true, command: commandDisplay };
+}
+
+function openLocalUrl(url: string): OpenLocalUrlResult {
+  const platform = process.platform;
+  if (platform === "darwin") {
+    for (const appName of [
+      "Google Chrome",
+      "Chromium",
+      "Microsoft Edge",
+      "Brave Browser",
+    ]) {
+      const result = runOpenCommand("open", ["-a", appName, url]);
+      if (result.ok) return result;
+    }
+    return runOpenCommand("open", [url]);
+  }
+  if (platform === "win32") {
+    return runOpenCommand("cmd", ["/c", "start", "", url]);
+  }
+  return runOpenCommand("xdg-open", [url]);
 }
 
 function escapeHtml(value: string): string {
@@ -326,6 +576,32 @@ function renderMarkdownish(source: string): string {
   return html.join("\n");
 }
 
+function readLocalPlanAssets(dir: string): Record<string, string> | undefined {
+  const assetsDir = path.join(dir, "assets");
+  if (!fs.existsSync(assetsDir)) return undefined;
+
+  const assets: Record<string, string> = {};
+  let totalBytes = 0;
+  for (const entry of fs.readdirSync(assetsDir, { withFileTypes: true })) {
+    if (!entry.isFile()) continue;
+    const filename = path.basename(entry.name);
+    if (!filename || filename !== entry.name) continue;
+    const ext = filename.split(".").pop()?.toLowerCase() ?? "";
+    if (!LOCAL_PLAN_ASSET_EXTENSIONS.has(ext)) continue;
+
+    const abs = path.join(assetsDir, filename);
+    const bytes = fs.readFileSync(abs);
+    if (bytes.byteLength > LOCAL_PLAN_ASSET_MAX_SINGLE_BYTES) continue;
+    if (totalBytes + bytes.byteLength > LOCAL_PLAN_ASSET_MAX_TOTAL_BYTES) {
+      continue;
+    }
+    totalBytes += bytes.byteLength;
+    assets[filename] = bytes.toString("base64");
+  }
+
+  return Object.keys(assets).length > 0 ? assets : undefined;
+}
+
 export function readLocalPlanFiles(dir: string): LocalPlanFiles {
   const resolved = path.resolve(dir);
   const planPath = path.join(resolved, "plan.mdx");
@@ -342,13 +618,753 @@ export function readLocalPlanFiles(dir: string): LocalPlanFiles {
     canvasMdx: readOptional("canvas.mdx"),
     prototypeMdx: readOptional("prototype.mdx"),
     stateJson: readOptional(".plan-state.json"),
+    assets: readLocalPlanAssets(resolved),
   };
+}
+
+function localPlanMdxFolder(files: LocalPlanFiles): LocalPlanBridgeMdxFolder {
+  return {
+    "plan.mdx": files.planMdx,
+    ...(files.canvasMdx ? { "canvas.mdx": files.canvasMdx } : {}),
+    ...(files.prototypeMdx ? { "prototype.mdx": files.prototypeMdx } : {}),
+    ...(files.stateJson ? { ".plan-state.json": files.stateJson } : {}),
+    ...(files.assets ? { "assets/": files.assets } : {}),
+  };
+}
+
+function localPlanFileList(files: LocalPlanFiles): string[] {
+  return [
+    "plan.mdx",
+    ...(files.canvasMdx ? ["canvas.mdx"] : []),
+    ...(files.prototypeMdx ? ["prototype.mdx"] : []),
+    ...(files.stateJson ? [".plan-state.json"] : []),
+    ...Object.keys(files.assets ?? {}).map((filename) => `assets/${filename}`),
+  ];
+}
+
+function localPlanSourceEntries(files: LocalPlanFiles): Array<{
+  file: string;
+  source: string;
+}> {
+  return [
+    { file: "plan.mdx", source: files.planMdx },
+    ...(files.canvasMdx
+      ? [{ file: "canvas.mdx", source: files.canvasMdx }]
+      : []),
+    ...(files.prototypeMdx
+      ? [{ file: "prototype.mdx", source: files.prototypeMdx }]
+      : []),
+  ];
+}
+
+function lineNumberAt(source: string, index: number): number {
+  let line = 1;
+  for (let i = 0; i < index; i += 1) {
+    if (source.charCodeAt(i) === 10) line += 1;
+  }
+  return line;
+}
+
+function maskFencedCode(source: string): string {
+  return source.replace(
+    /(^|\n)(```|~~~)[\s\S]*?(\n\2[^\n]*(?=\n|$))/g,
+    (match) => match.replace(/[^\n]/g, " "),
+  );
+}
+
+function findJsxOpeningTagEnd(source: string, start: number): number {
+  let quote: string | null = null;
+  let braceDepth = 0;
+  for (let i = start; i < source.length; i += 1) {
+    const char = source[i];
+    if (quote) {
+      if (char === "\\" && i + 1 < source.length) {
+        i += 1;
+        continue;
+      }
+      if (char === quote) quote = null;
+      continue;
+    }
+    if (char === '"' || char === "'" || char === "`") {
+      quote = char;
+      continue;
+    }
+    if (char === "{") {
+      braceDepth += 1;
+      continue;
+    }
+    if (char === "}") {
+      braceDepth = Math.max(0, braceDepth - 1);
+      continue;
+    }
+    if (char === ">" && braceDepth === 0) return i;
+  }
+  return -1;
+}
+
+function addValidationIssue(
+  issues: LocalPlanValidationIssue[],
+  file: string,
+  source: string,
+  index: number,
+  message: string,
+) {
+  issues.push({ file, line: lineNumberAt(source, index), message });
+}
+
+const ENTITY_RE = /&(?:[a-z][a-z0-9]+|#[0-9]+|#x[0-9a-f]+);/gi;
+const HTML_TEXT_ATTR_RE =
+  /\b(?:aria-label|alt|placeholder|title|value)=\s*(?:"([^"]*)"|'([^']*)'|`([^`]*)`)/gi;
+const WIREFRAME_TEXT_ATTR_RE =
+  /\b(?:text|value|label|placeholder|title|note|due)=\s*(?:"([^"]*)"|'([^']*)'|`([^`]*)`)/gi;
+
+function normalizeVisibleText(value: string): string {
+  return value
+    .replace(/&nbsp;|&#160;|&#x0*a0;/gi, " ")
+    .replace(ENTITY_RE, "x")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function meaningfulTextLength(value: string | undefined): number {
+  return normalizeVisibleText(value ?? "").length;
+}
+
+function htmlMeaningfulTextLength(html: string): number {
+  let length = 0;
+  for (const match of html.matchAll(HTML_TEXT_ATTR_RE)) {
+    length += meaningfulTextLength(match[1] ?? match[2] ?? match[3]);
+  }
+
+  const visibleText = html
+    .replace(/<!--[\s\S]*?-->/g, " ")
+    .replace(/<script\b[\s\S]*?<\/script>/gi, " ")
+    .replace(/<style\b[\s\S]*?<\/style>/gi, " ")
+    .replace(/<[^>]+>/g, " ");
+  length += meaningfulTextLength(visibleText);
+
+  return length;
+}
+
+function hasSkeletonGeometry(html: string): boolean {
+  return (
+    /<(?:div|span|section|main|article|ul|li)\b/i.test(html) &&
+    /\b(?:height|width|background|border|padding|wf-card|wf-box|wf-pill|wf-chip)\b/i.test(
+      html,
+    )
+  );
+}
+
+function stringAttributeValues(source: string, name: string): string[] {
+  const values: string[] = [];
+  const re = new RegExp(
+    `\\b${name}\\s*=\\s*(?:\\{\\s*\`([\\s\\S]*?)\`\\s*\\}|\\{\\s*"([^"]*)"\\s*\\}|\\{\\s*'([^']*)'\\s*\\}|"([^"]*)"|'([^']*)')`,
+    "g",
+  );
+  for (const match of source.matchAll(re)) {
+    const value = match[1] ?? match[2] ?? match[3] ?? match[4] ?? match[5];
+    if (value !== undefined) values.push(value);
+  }
+  return values;
+}
+
+function hasUnparsedAttributeExpression(source: string, name: string): boolean {
+  return new RegExp(`\\b${name}\\s*=\\s*\\{`).test(source);
+}
+
+function hasMeaningfulWireframeHtml(screenOpening: string): boolean | null {
+  const htmlValues = stringAttributeValues(screenOpening, "html");
+  if (htmlValues.length === 0) {
+    return hasUnparsedAttributeExpression(screenOpening, "html") ? null : false;
+  }
+  return htmlValues.some(
+    (html) => htmlMeaningfulTextLength(html) >= 2 || hasSkeletonGeometry(html),
+  );
+}
+
+function hasMeaningfulKitScreen(screenSource: string): boolean {
+  for (const match of screenSource.matchAll(WIREFRAME_TEXT_ATTR_RE)) {
+    if (meaningfulTextLength(match[1] ?? match[2] ?? match[3]) >= 2) {
+      return true;
+    }
+  }
+  if (/\bitems\s*=\s*\{[\s\S]*?\blabel\s*:/i.test(screenSource)) return true;
+  if (/\brows\s*=\s*\{[\s\S]*?\b[klv]\s*:/i.test(screenSource)) return true;
+  return false;
+}
+
+function hasMeaningfulWireframeScreen(blockSource: string): boolean | null {
+  const screenMatch = /<Screen\b/.exec(blockSource);
+  if (!screenMatch) return false;
+  const screenStart = screenMatch.index;
+  const screenOpeningEnd = findJsxOpeningTagEnd(blockSource, screenStart);
+  if (screenOpeningEnd < 0) return false;
+  const screenOpening = blockSource.slice(screenStart, screenOpeningEnd + 1);
+  const htmlMeaningful = hasMeaningfulWireframeHtml(screenOpening);
+  if (htmlMeaningful === true) return true;
+
+  const selfClosing = /\/\s*>$/.test(screenOpening);
+  const closeIndex = selfClosing
+    ? -1
+    : blockSource.indexOf("</Screen>", screenOpeningEnd + 1);
+  const screenSource =
+    closeIndex >= 0
+      ? blockSource.slice(screenStart, closeIndex + "</Screen>".length)
+      : screenOpening;
+  if (hasMeaningfulKitScreen(screenSource)) return true;
+
+  return htmlMeaningful === null ? null : false;
+}
+
+function lintWireframeBlocks(
+  file: string,
+  source: string,
+  issues: LocalPlanValidationIssue[],
+) {
+  const scanSource = maskFencedCode(source);
+  const re = /<WireframeBlock\b/g;
+  let match: RegExpExecArray | null;
+  while ((match = re.exec(scanSource))) {
+    const start = match.index;
+    const openingEnd = findJsxOpeningTagEnd(scanSource, start);
+    if (openingEnd < 0) {
+      addValidationIssue(
+        issues,
+        file,
+        source,
+        start,
+        "WireframeBlock opening tag is not closed.",
+      );
+      continue;
+    }
+
+    const opening = scanSource.slice(start, openingEnd + 1);
+    const unsupportedAttr = opening.match(
+      /\b(data|screens|screen|elements)\s*=/,
+    );
+    if (unsupportedAttr) {
+      addValidationIssue(
+        issues,
+        file,
+        source,
+        start,
+        `WireframeBlock uses unsupported "${unsupportedAttr[1]}" prop. Put content inside a <Screen> child instead.`,
+      );
+    }
+
+    const selfClosing = /\/\s*>$/.test(opening);
+    const closeTag = "</WireframeBlock>";
+    const closeIndex = selfClosing
+      ? -1
+      : scanSource.indexOf(closeTag, openingEnd + 1);
+    const blockSource = selfClosing
+      ? opening
+      : closeIndex >= 0
+        ? scanSource.slice(start, closeIndex + closeTag.length)
+        : scanSource.slice(start, openingEnd + 1);
+
+    if (!selfClosing && closeIndex < 0) {
+      addValidationIssue(
+        issues,
+        file,
+        source,
+        start,
+        "WireframeBlock must have a closing </WireframeBlock> tag.",
+      );
+    }
+
+    if (selfClosing || !/<Screen\b/.test(blockSource)) {
+      addValidationIssue(
+        issues,
+        file,
+        source,
+        start,
+        'WireframeBlock must wrap a <Screen> child; self-closing wireframes render empty. Use <WireframeBlock><Screen surface="browser">...</Screen></WireframeBlock>.',
+      );
+      continue;
+    }
+
+    const meaningfulScreen = hasMeaningfulWireframeScreen(blockSource);
+    if (meaningfulScreen === false) {
+      addValidationIssue(
+        issues,
+        file,
+        source,
+        start,
+        'WireframeBlock contains an empty <Screen>; local previews render blank wireframes. Add visible html text/controls or kit nodes such as <Title text="Checkout" /> and <Btn label="Pay" />.',
+      );
+    }
+  }
+}
+
+function lintColumnsBlocks(
+  file: string,
+  source: string,
+  issues: LocalPlanValidationIssue[],
+) {
+  const scanSource = maskFencedCode(source);
+  const re = /<Columns\b/g;
+  let match: RegExpExecArray | null;
+  while ((match = re.exec(scanSource))) {
+    const start = match.index;
+    const openingEnd = findJsxOpeningTagEnd(scanSource, start);
+    if (openingEnd < 0) continue;
+    const opening = scanSource.slice(start, openingEnd + 1);
+    if (/\bcolumns\s*=/.test(opening)) {
+      addValidationIssue(
+        issues,
+        file,
+        source,
+        start,
+        'Columns must use <Column> children, not a columns= prop. Use <Columns><Column label="Before">...</Column><Column label="After">...</Column></Columns>.',
+      );
+    }
+  }
+}
+
+type JsxAttributeValue = {
+  name: string;
+  kind: "expression" | "string" | "bare" | "boolean";
+  value: string;
+  start: number;
+};
+
+function findBalancedEnd(
+  source: string,
+  start: number,
+  open: string,
+  close: string,
+): number {
+  let depth = 0;
+  let quote: string | null = null;
+  for (let i = start; i < source.length; i += 1) {
+    const char = source[i];
+    if (quote) {
+      if (char === "\\" && i + 1 < source.length) {
+        i += 1;
+        continue;
+      }
+      if (char === quote) quote = null;
+      continue;
+    }
+    if (char === '"' || char === "'" || char === "`") {
+      quote = char;
+      continue;
+    }
+    if (char === open) {
+      depth += 1;
+      continue;
+    }
+    if (char === close) {
+      depth -= 1;
+      if (depth === 0) return i;
+    }
+  }
+  return -1;
+}
+
+function readJsxAttribute(
+  opening: string,
+  name: string,
+): JsxAttributeValue | null {
+  let i = 0;
+  while (i < opening.length) {
+    if (!/[A-Za-z_:]/.test(opening[i] ?? "")) {
+      i += 1;
+      continue;
+    }
+    const nameStart = i;
+    i += 1;
+    while (/[\w:.-]/.test(opening[i] ?? "")) i += 1;
+    const attrName = opening.slice(nameStart, i);
+    while (/\s/.test(opening[i] ?? "")) i += 1;
+    if (opening[i] !== "=") {
+      if (attrName === name) {
+        return { name, kind: "boolean", value: "true", start: nameStart };
+      }
+      continue;
+    }
+    i += 1;
+    while (/\s/.test(opening[i] ?? "")) i += 1;
+    const valueStart = i;
+    const quote = opening[i];
+    if (quote === '"' || quote === "'" || quote === "`") {
+      i += 1;
+      while (i < opening.length) {
+        if (opening[i] === "\\" && i + 1 < opening.length) {
+          i += 2;
+          continue;
+        }
+        if (opening[i] === quote) break;
+        i += 1;
+      }
+      const value = opening.slice(valueStart + 1, i);
+      i += 1;
+      if (attrName === name) {
+        return { name, kind: "string", value, start: valueStart + 1 };
+      }
+      continue;
+    }
+    if (quote === "{") {
+      const end = findBalancedEnd(opening, i, "{", "}");
+      if (end < 0) {
+        if (attrName === name) {
+          return {
+            name,
+            kind: "expression",
+            value: opening.slice(valueStart + 1),
+            start: valueStart + 1,
+          };
+        }
+        break;
+      }
+      const value = opening.slice(valueStart + 1, end);
+      i = end + 1;
+      if (attrName === name) {
+        return { name, kind: "expression", value, start: valueStart + 1 };
+      }
+      continue;
+    }
+    while (i < opening.length && !/[\s>]/.test(opening[i] ?? "")) i += 1;
+    if (attrName === name) {
+      return {
+        name,
+        kind: "bare",
+        value: opening.slice(valueStart, i),
+        start: valueStart,
+      };
+    }
+  }
+  return null;
+}
+
+function expressionOffset(expression: string): number {
+  return expression.search(/\S/);
+}
+
+function extractTopLevelObjectLiterals(expression: string): Array<{
+  source: string;
+  start: number;
+}> | null {
+  const leading = expressionOffset(expression);
+  if (leading < 0 || expression[leading] !== "[") return null;
+  const arrayEnd = findBalancedEnd(expression, leading, "[", "]");
+  if (arrayEnd < 0) return null;
+  const objects: Array<{ source: string; start: number }> = [];
+  let i = leading + 1;
+  while (i < arrayEnd) {
+    const char = expression[i];
+    if (/\s|,/.test(char ?? "")) {
+      i += 1;
+      continue;
+    }
+    if (char !== "{") {
+      return null;
+    }
+    const objectEnd = findBalancedEnd(expression, i, "{", "}");
+    if (objectEnd < 0 || objectEnd > arrayEnd) return null;
+    objects.push({
+      source: expression.slice(i, objectEnd + 1),
+      start: i,
+    });
+    i = objectEnd + 1;
+  }
+  return objects;
+}
+
+function findValueEnd(source: string, start: number): number {
+  let i = start;
+  let quote: string | null = null;
+  let depth = 0;
+  while (i < source.length) {
+    const char = source[i];
+    if (quote) {
+      if (char === "\\" && i + 1 < source.length) {
+        i += 2;
+        continue;
+      }
+      if (char === quote) quote = null;
+      i += 1;
+      continue;
+    }
+    if (char === '"' || char === "'" || char === "`") {
+      quote = char;
+      i += 1;
+      continue;
+    }
+    if (char === "{" || char === "[" || char === "(") {
+      depth += 1;
+      i += 1;
+      continue;
+    }
+    if (char === "}" || char === "]" || char === ")") {
+      if (depth === 0) return i;
+      depth -= 1;
+      i += 1;
+      continue;
+    }
+    if (char === "," && depth === 0) return i;
+    i += 1;
+  }
+  return source.length;
+}
+
+function readObjectKey(
+  source: string,
+  start: number,
+): {
+  key: string;
+  keyStart: number;
+  colon: number;
+} | null {
+  let i = start;
+  while (/\s|,/.test(source[i] ?? "")) i += 1;
+  const keyStart = i;
+  const quote = source[i];
+  let key = "";
+  if (quote === '"' || quote === "'") {
+    i += 1;
+    const valueStart = i;
+    while (i < source.length) {
+      if (source[i] === "\\" && i + 1 < source.length) {
+        i += 2;
+        continue;
+      }
+      if (source[i] === quote) break;
+      i += 1;
+    }
+    key = source.slice(valueStart, i);
+    i += 1;
+  } else if (/[A-Za-z_$]/.test(quote ?? "")) {
+    i += 1;
+    while (/[\w$]/.test(source[i] ?? "")) i += 1;
+    key = source.slice(keyStart, i);
+  } else {
+    return null;
+  }
+  while (/\s/.test(source[i] ?? "")) i += 1;
+  if (source[i] !== ":") return null;
+  return { key, keyStart, colon: i };
+}
+
+function readTopLevelObjectProperty(
+  objectSource: string,
+  name: string,
+): { value: string; valueStart: number } | null {
+  const body = objectSource.trim().startsWith("{")
+    ? objectSource.slice(1, objectSource.lastIndexOf("}"))
+    : objectSource;
+  let i = 0;
+  while (i < body.length) {
+    const key = readObjectKey(body, i);
+    if (!key) {
+      i += 1;
+      continue;
+    }
+    const valueStart = key.colon + 1;
+    const valueEnd = findValueEnd(body, valueStart);
+    if (key.key === name) {
+      return { value: body.slice(valueStart, valueEnd), valueStart };
+    }
+    i = valueEnd + 1;
+  }
+  return null;
+}
+
+function isStaticNonEmptyStringLiteral(value: string): boolean {
+  const trimmed = value.trim();
+  const quote = trimmed[0];
+  if (quote !== '"' && quote !== "'" && quote !== "`") return false;
+  if (!trimmed.endsWith(quote)) return false;
+  if (quote === "`" && /\$\{/.test(trimmed)) return false;
+  return trimmed.slice(1, -1).trim().length > 0;
+}
+
+function hasRequiredStaticId(objectSource: string): boolean {
+  const prop = readTopLevelObjectProperty(objectSource, "id");
+  return prop ? isStaticNonEmptyStringLiteral(prop.value) : false;
+}
+
+function lintChecklistShape(
+  file: string,
+  source: string,
+  issues: LocalPlanValidationIssue[],
+) {
+  const scanSource = maskCodeRegions(source);
+  const re = /<Checklist\b/g;
+  let match: RegExpExecArray | null;
+  while ((match = re.exec(scanSource))) {
+    const start = match.index;
+    const openingEnd = findJsxOpeningTagEnd(scanSource, start);
+    if (openingEnd < 0) continue;
+    const opening = source.slice(start, openingEnd + 1);
+    const items = readJsxAttribute(opening, "items");
+    if (!items) continue;
+    if (items.kind !== "expression") {
+      addValidationIssue(
+        issues,
+        file,
+        source,
+        start + items.start,
+        "Checklist items must be an inline array expression with stable item ids.",
+      );
+      continue;
+    }
+    const objects = extractTopLevelObjectLiterals(items.value);
+    if (!objects) {
+      addValidationIssue(
+        issues,
+        file,
+        source,
+        start + items.start,
+        "Checklist items must be an inline array of object literals so local check can validate the renderer schema.",
+      );
+      continue;
+    }
+    objects.forEach((item, index) => {
+      if (hasRequiredStaticId(item.source)) return;
+      addValidationIssue(
+        issues,
+        file,
+        source,
+        start + items.start + item.start,
+        `Checklist items[${index}].id is required by the Plan renderer schema; add a stable string id.`,
+      );
+    });
+  }
+}
+
+function lintQuestionFormShape(
+  file: string,
+  source: string,
+  issues: LocalPlanValidationIssue[],
+) {
+  const scanSource = maskCodeRegions(source);
+  const re = /<(QuestionForm|VisualQuestions)\b/g;
+  let match: RegExpExecArray | null;
+  while ((match = re.exec(scanSource))) {
+    const start = match.index;
+    const tag = match[1] ?? "QuestionForm";
+    const openingEnd = findJsxOpeningTagEnd(scanSource, start);
+    if (openingEnd < 0) continue;
+    const opening = source.slice(start, openingEnd + 1);
+    const questions = readJsxAttribute(opening, "questions");
+    if (!questions) {
+      addValidationIssue(
+        issues,
+        file,
+        source,
+        start,
+        `${tag} requires a questions array with at least one question object.`,
+      );
+      continue;
+    }
+    if (questions.kind !== "expression") {
+      addValidationIssue(
+        issues,
+        file,
+        source,
+        start + questions.start,
+        `${tag} questions must be an inline array expression with stable question ids.`,
+      );
+      continue;
+    }
+    const questionObjects = extractTopLevelObjectLiterals(questions.value);
+    if (!questionObjects || questionObjects.length === 0) {
+      addValidationIssue(
+        issues,
+        file,
+        source,
+        start + questions.start,
+        `${tag} questions must be a non-empty inline array of object literals.`,
+      );
+      continue;
+    }
+    questionObjects.forEach((question, questionIndex) => {
+      if (!hasRequiredStaticId(question.source)) {
+        addValidationIssue(
+          issues,
+          file,
+          source,
+          start + questions.start + question.start,
+          `${tag} questions[${questionIndex}].id is required by the Plan renderer schema; add a stable string id.`,
+        );
+      }
+      const options = readTopLevelObjectProperty(question.source, "options");
+      if (!options) return;
+      const optionObjects = extractTopLevelObjectLiterals(options.value);
+      if (!optionObjects) {
+        addValidationIssue(
+          issues,
+          file,
+          source,
+          start + questions.start + question.start + options.valueStart,
+          `${tag} questions[${questionIndex}].options must be an inline array of object literals.`,
+        );
+        return;
+      }
+      optionObjects.forEach((option, optionIndex) => {
+        if (hasRequiredStaticId(option.source)) return;
+        addValidationIssue(
+          issues,
+          file,
+          source,
+          start +
+            questions.start +
+            question.start +
+            options.valueStart +
+            option.start,
+          `${tag} questions[${questionIndex}].options[${optionIndex}].id is required by the Plan renderer schema; add a stable string id.`,
+        );
+      });
+    });
+  }
+}
+
+// Blank out fenced code blocks and inline code spans (preserving newlines and
+// length) so block-tag linters don't trip on documentation examples written in
+// prose — e.g. an inline `<WireframeBlock><Screen>...</Screen></WireframeBlock>`
+// example is not a real block to validate. Real blocks (outside code) are left
+// intact, so their offsets/line numbers stay correct. Without this the default
+// `plan local init` scaffold fails its own `plan local check`/`serve` lint.
+function maskCodeRegions(source: string): string {
+  const blank = (s: string) => s.replace(/[^\n]/g, " ");
+  return source.replace(/```[\s\S]*?```/g, blank).replace(/`[^`\n]*`/g, blank);
+}
+
+export function validateLocalPlanFiles(
+  files: LocalPlanFiles,
+): LocalPlanValidationIssue[] {
+  const issues: LocalPlanValidationIssue[] = [];
+  for (const entry of localPlanSourceEntries(files)) {
+    const source = maskCodeRegions(entry.source);
+    lintWireframeBlocks(entry.file, source, issues);
+    lintColumnsBlocks(entry.file, source, issues);
+    lintChecklistShape(entry.file, entry.source, issues);
+    lintQuestionFormShape(entry.file, entry.source, issues);
+  }
+  return issues;
+}
+
+export function assertLocalPlanFilesValid(files: LocalPlanFiles): void {
+  const issues = validateLocalPlanFiles(files);
+  if (issues.length === 0) return;
+  const details = issues
+    .slice(0, 8)
+    .map((issue) => `${issue.file}:${issue.line} ${issue.message}`)
+    .join("\n");
+  const overflow =
+    issues.length > 8 ? `\n...plus ${issues.length - 8} more issues` : "";
+  throw new Error(
+    `Local plan source validation failed:\n${details}${overflow}\nRun \`npx @agent-native/core@latest plan blocks --out plan-blocks.md\` and update the MDX to the documented block shapes.`,
+  );
 }
 
 export function buildLocalPlanPreviewHtml(
   input: LocalPlanPreviewInput,
 ): string {
   const files = readLocalPlanFiles(input.dir);
+  assertLocalPlanFilesValid(files);
   const parsed = stripFrontmatter(files.planMdx);
   const title =
     input.title ||
@@ -467,7 +1483,9 @@ export function writeLocalPlanPreview(input: {
   openUrl?: (url: string) => OpenLocalUrlResult;
 }): LocalPlanPreviewResult {
   const dir = path.resolve(input.dir);
-  const parsed = stripFrontmatter(readLocalPlanFiles(dir).planMdx);
+  const files = readLocalPlanFiles(dir);
+  assertLocalPlanFilesValid(files);
+  const parsed = stripFrontmatter(files.planMdx);
   const kind = input.kind || normalizeKind(parsed.frontmatter.kind);
   const title =
     input.title ||
@@ -479,12 +1497,6 @@ export function writeLocalPlanPreview(input: {
     fs.mkdirSync(path.dirname(out), { recursive: true });
     fs.writeFileSync(out, buildLocalPlanPreviewHtml({ ...input, dir, kind }));
   }
-  const files = [
-    "plan.mdx",
-    "canvas.mdx",
-    "prototype.mdx",
-    ".plan-state.json",
-  ].filter((file) => fs.existsSync(path.join(dir, file)));
   const result: LocalPlanPreviewResult = {
     ok: true,
     dir,
@@ -492,7 +1504,7 @@ export function writeLocalPlanPreview(input: {
     url: out ? pathToFileURL(out).href : localPlanPreviewUrl(dir, input.appUrl),
     title,
     kind,
-    files,
+    files: localPlanFileList(files),
   };
   if (!input.open) return result;
 
@@ -503,6 +1515,318 @@ export function writeLocalPlanPreview(input: {
     openCommand: openResult.command,
     ...(openResult.error ? { openError: openResult.error } : {}),
   };
+}
+
+function buildLocalPlanBridgePayload(input: {
+  dir: string;
+  kind?: LocalPlanKind;
+  title?: string;
+  brief?: string;
+}): LocalPlanBridgePayload {
+  const dir = path.resolve(input.dir);
+  const files = readLocalPlanFiles(dir);
+  assertLocalPlanFilesValid(files);
+  const parsed = stripFrontmatter(files.planMdx);
+  const kind = input.kind || normalizeKind(parsed.frontmatter.kind);
+  const title =
+    input.title ||
+    parsed.frontmatter.title ||
+    firstHeading(parsed.body) ||
+    path.basename(dir);
+  const brief = input.brief || parsed.frontmatter.brief || "";
+
+  return {
+    ok: true,
+    version: 1,
+    source: "agent-native-local-bridge",
+    localOnly: true,
+    slug: path.basename(dir),
+    dir,
+    title,
+    brief,
+    kind,
+    updatedAt: latestLocalPlanMtime(dir, files),
+    files: localPlanFileList(files),
+    mdx: localPlanMdxFolder(files),
+  };
+}
+
+function latestLocalPlanMtime(dir: string, files: LocalPlanFiles): string {
+  const candidates = [
+    path.join(dir, "plan.mdx"),
+    ...(files.canvasMdx ? [path.join(dir, "canvas.mdx")] : []),
+    ...(files.prototypeMdx ? [path.join(dir, "prototype.mdx")] : []),
+    ...(files.stateJson ? [path.join(dir, ".plan-state.json")] : []),
+    ...Object.keys(files.assets ?? {}).map((filename) =>
+      path.join(dir, "assets", filename),
+    ),
+  ];
+  let latest = 0;
+  for (const file of candidates) {
+    try {
+      latest = Math.max(latest, fs.statSync(file).mtimeMs);
+    } catch {
+      // Ignore files deleted between the read and stat passes.
+    }
+  }
+  return new Date(latest || Date.now()).toISOString();
+}
+
+function sendBridgeJson(
+  res: ServerResponse,
+  status: number,
+  payload: unknown,
+): void {
+  res.writeHead(status, {
+    "access-control-allow-origin": "*",
+    "access-control-allow-methods": "GET, OPTIONS",
+    "access-control-allow-headers": "content-type",
+    // Required when the hosted HTTPS Plan UI fetches this localhost bridge.
+    "access-control-allow-private-network": "true",
+    "cache-control": "no-store",
+    "content-type": "application/json; charset=utf-8",
+    "x-agent-native-local-bridge": "1",
+  });
+  res.end(`${JSON.stringify(payload)}\n`);
+}
+
+function bridgeRequestUrl(req: IncomingMessage): URL {
+  return new URL(req.url || "/", "http://127.0.0.1");
+}
+
+function bridgeHostForUrl(host: string): string {
+  if (host === "0.0.0.0" || host === "::") return "127.0.0.1";
+  return host;
+}
+
+export async function startLocalPlanBridge(input: {
+  dir: string;
+  kind?: LocalPlanKind;
+  title?: string;
+  brief?: string;
+  appUrl?: string;
+  host?: string;
+  port?: number;
+  token?: string;
+  open?: boolean;
+  urlFile?: string | false;
+  openUrl?: (url: string) => OpenLocalUrlResult;
+}): Promise<LocalPlanBridgeServer> {
+  const dir = path.resolve(input.dir);
+  const initialPayload = buildLocalPlanBridgePayload({
+    dir,
+    kind: input.kind,
+    title: input.title,
+    brief: input.brief,
+  });
+  const token = input.token || crypto.randomBytes(24).toString("base64url");
+  const host = input.host || "127.0.0.1";
+  const appUrl = normalizeBridgeAppUrl(input.appUrl);
+  const server = http.createServer((req, res) => {
+    if (req.method === "OPTIONS") {
+      sendBridgeJson(res, 204, "");
+      return;
+    }
+    if (req.method !== "GET") {
+      sendBridgeJson(res, 405, { ok: false, error: "Method not allowed." });
+      return;
+    }
+
+    const url = bridgeRequestUrl(req);
+    if (url.pathname !== "/local-plan.json") {
+      sendBridgeJson(res, 404, { ok: false, error: "Not found." });
+      return;
+    }
+    if (url.searchParams.get("token") !== token) {
+      sendBridgeJson(res, 403, { ok: false, error: "Invalid bridge token." });
+      return;
+    }
+
+    try {
+      sendBridgeJson(
+        res,
+        200,
+        buildLocalPlanBridgePayload({
+          dir,
+          kind: input.kind,
+          title: input.title,
+          brief: input.brief,
+        }),
+      );
+    } catch (error) {
+      sendBridgeJson(res, 500, {
+        ok: false,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  });
+
+  await new Promise<void>((resolve, reject) => {
+    const onError = (error: Error) => {
+      server.off("listening", onListening);
+      reject(error);
+    };
+    const onListening = () => {
+      server.off("error", onError);
+      resolve();
+    };
+    server.once("error", onError);
+    server.once("listening", onListening);
+    server.listen(input.port ?? 0, host);
+  });
+
+  const address = server.address();
+  if (!address || typeof address === "string") {
+    server.close();
+    throw new Error("Local plan bridge did not bind to a TCP port.");
+  }
+
+  const bridgeUrl = `http://${bridgeHostForUrl(host)}:${address.port}/local-plan.json?token=${encodeURIComponent(
+    token,
+  )}`;
+  const url = localPlanBridgePageUrl({ dir, bridgeUrl, appUrl });
+  const urlFile =
+    input.urlFile === false
+      ? undefined
+      : writeLocalPlanUrlFile(dir, url, input.urlFile);
+  const openResult = input.open
+    ? (input.openUrl || openLocalUrl)(url)
+    : undefined;
+
+  return {
+    server,
+    result: {
+      ok: true,
+      dir,
+      url,
+      ...(urlFile ? { urlFile } : {}),
+      bridgeUrl,
+      appUrl,
+      title: initialPayload.title,
+      kind: initialPayload.kind,
+      files: initialPayload.files,
+      host,
+      port: address.port,
+      ...(openResult
+        ? {
+            opened: openResult.ok,
+            openCommand: openResult.command,
+            ...(openResult.error ? { openError: openResult.error } : {}),
+          }
+        : {}),
+    },
+  };
+}
+
+function localPlanBridgeWarnings(input: {
+  appUrl: string;
+  bridgeUrl: string;
+}): string[] {
+  const warnings: string[] = [];
+  try {
+    const appUrl = new URL(input.appUrl);
+    const bridgeUrl = new URL(input.bridgeUrl);
+    if (appUrl.protocol === "https:" && bridgeUrl.protocol === "http:") {
+      warnings.push(
+        "Safari may block the hosted HTTPS Plan UI from reading the HTTP localhost bridge. Use Chrome/Chromium/Edge, or pass --app-url http://localhost:8096 when running a local Plan app.",
+      );
+    }
+  } catch {
+    // The URLs were normalized earlier; ignore defensive parse failures.
+  }
+  return warnings;
+}
+
+export async function verifyLocalPlanBridge(input: {
+  dir: string;
+  kind?: LocalPlanKind;
+  title?: string;
+  brief?: string;
+  appUrl?: string;
+  host?: string;
+  port?: number;
+  token?: string;
+  urlFile?: string | false;
+  fetchFn?: typeof fetch;
+}): Promise<LocalPlanVerifyResult> {
+  const fetchFn = input.fetchFn ?? fetch;
+  const bridge = await startLocalPlanBridge({
+    dir: input.dir,
+    kind: input.kind,
+    title: input.title,
+    brief: input.brief,
+    appUrl: input.appUrl,
+    host: input.host,
+    port: input.port,
+    token: input.token,
+    urlFile: input.urlFile,
+  });
+
+  try {
+    const preflight = await fetchFn(bridge.result.bridgeUrl, {
+      method: "OPTIONS",
+      headers: {
+        origin: bridge.result.appUrl,
+        "access-control-request-method": "GET",
+        "access-control-request-private-network": "true",
+      },
+    });
+    const response = await fetchFn(bridge.result.bridgeUrl, {
+      method: "GET",
+      headers: { accept: "application/json" },
+    });
+    const payload = (await response.json().catch(() => null)) as
+      | (LocalPlanBridgePayload & { mdx?: LocalPlanBridgeMdxFolder })
+      | null;
+    const mdxFiles = payload?.mdx
+      ? Object.keys(payload.mdx).filter((file) => file !== "assets/")
+      : undefined;
+    const bridgeOk =
+      response.ok &&
+      payload?.ok === true &&
+      payload.source === "agent-native-local-bridge" &&
+      payload.localOnly === true &&
+      Boolean(payload.mdx?.["plan.mdx"]);
+    const preflightOk =
+      preflight.status === 204 &&
+      preflight.headers.get("access-control-allow-origin") === "*" &&
+      preflight.headers.get("access-control-allow-private-network") === "true";
+    return {
+      ok: bridgeOk && preflightOk,
+      dir: bridge.result.dir,
+      url: bridge.result.url,
+      ...(bridge.result.urlFile ? { urlFile: bridge.result.urlFile } : {}),
+      bridgeUrl: bridge.result.bridgeUrl,
+      appUrl: bridge.result.appUrl,
+      title: bridge.result.title,
+      kind: bridge.result.kind,
+      files: bridge.result.files,
+      preflight: {
+        status: preflight.status,
+        allowOrigin: preflight.headers.get("access-control-allow-origin"),
+        allowPrivateNetwork: preflight.headers.get(
+          "access-control-allow-private-network",
+        ),
+      },
+      bridge: {
+        status: response.status,
+        ok: bridgeOk,
+        ...(payload?.source ? { source: payload.source } : {}),
+        ...(typeof payload?.localOnly === "boolean"
+          ? { localOnly: payload.localOnly }
+          : {}),
+        ...(Array.isArray(payload?.files) ? { files: payload.files } : {}),
+        ...(mdxFiles ? { mdxFiles } : {}),
+        ...(payload?.error ? { error: payload.error } : {}),
+      },
+      warnings: localPlanBridgeWarnings({
+        appUrl: bridge.result.appUrl,
+        bridgeUrl: bridge.result.bridgeUrl,
+      }),
+    };
+  } finally {
+    await new Promise<void>((resolve) => bridge.server.close(() => resolve()));
+  }
 }
 
 function writeLocalPlanSkeleton(input: {
@@ -543,9 +1867,9 @@ function writeLocalPlanSkeleton(input: {
     "## Review Surface",
     "",
     "Author the structured plan or recap here. You can add Agent-Native Plan MDX",
-    "blocks such as `<WireframeBlock />`, `<Diagram />`, `<TabsBlock />`,",
-    "`<FileTree />`, or `<Diff />`; the local preview will show the source",
-    "without publishing it to the Plan app.",
+    'blocks such as `<WireframeBlock><Screen surface="browser">...</Screen></WireframeBlock>`,',
+    "`<Diagram />`, `<TabsBlock />`, `<FileTree />`, or `<Diff />`; the local",
+    "preview will show the source without publishing it to the Plan app.",
     "",
   ].join("\n");
   fs.writeFileSync(planPath, mdx, "utf-8");
@@ -580,10 +1904,12 @@ function runInit(args: Record<string, string | boolean>): void {
 function runCheck(args: Record<string, string | boolean>): void {
   const dir = stringArg(args, "dir");
   const files = readLocalPlanFiles(dir);
+  assertLocalPlanFilesValid(files);
   const parsed = stripFrontmatter(files.planMdx);
   const result = {
     ok: true,
     noDb: true,
+    validation: "passed",
     dir: files.dir,
     title: parsed.frontmatter.title || firstHeading(parsed.body),
     kind: normalizeKind(parsed.frontmatter.kind),
@@ -597,6 +1923,14 @@ function runCheck(args: Record<string, string | boolean>): void {
         : {}),
       ...(files.stateJson
         ? { ".plan-state.json": Buffer.byteLength(files.stateJson) }
+        : {}),
+      ...(files.assets
+        ? Object.fromEntries(
+            Object.entries(files.assets).map(([filename, base64]) => [
+              `assets/${filename}`,
+              Buffer.byteLength(base64, "base64"),
+            ]),
+          )
         : {}),
     },
   };
@@ -616,6 +1950,78 @@ function runPreview(args: Record<string, string | boolean>): void {
       : undefined,
   });
   process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+}
+
+async function runServe(args: Record<string, string | boolean>): Promise<void> {
+  const portValue = optionalArg(args, "port");
+  const port = portValue ? Number(portValue) : undefined;
+  if (portValue && (!Number.isInteger(port) || port! < 0 || port! > 65535)) {
+    throw new Error("--port must be an integer between 0 and 65535.");
+  }
+
+  const bridge = await startLocalPlanBridge({
+    dir: stringArg(args, "dir"),
+    appUrl: optionalArg(args, "app-url"),
+    title: optionalArg(args, "title"),
+    brief: optionalArg(args, "brief"),
+    host: optionalArg(args, "host"),
+    port,
+    open: boolArg(args, "open"),
+    urlFile: optionalArg(args, "url-file") || optionalArg(args, "out"),
+    kind: optionalArg(args, "kind")
+      ? normalizeKind(optionalArg(args, "kind"))
+      : undefined,
+  });
+
+  process.stdout.write(`${JSON.stringify(bridge.result, null, 2)}\n`);
+  process.stderr.write(
+    [
+      `Local Plan bridge running at ${bridge.result.bridgeUrl}`,
+      bridge.result.urlFile
+        ? `Open URL written to ${bridge.result.urlFile}`
+        : "",
+      ...localPlanBridgeWarnings({
+        appUrl: bridge.result.appUrl,
+        bridgeUrl: bridge.result.bridgeUrl,
+      }),
+      "Press Ctrl+C to stop.",
+    ]
+      .filter(Boolean)
+      .join("\n") + "\n",
+  );
+
+  await new Promise<void>((resolve) => {
+    const stop = () => {
+      bridge.server.close(() => resolve());
+    };
+    process.once("SIGINT", stop);
+    process.once("SIGTERM", stop);
+  });
+}
+
+async function runVerify(
+  args: Record<string, string | boolean>,
+): Promise<void> {
+  const portValue = optionalArg(args, "port");
+  const port = portValue ? Number(portValue) : undefined;
+  if (portValue && (!Number.isInteger(port) || port! < 0 || port! > 65535)) {
+    throw new Error("--port must be an integer between 0 and 65535.");
+  }
+
+  const result = await verifyLocalPlanBridge({
+    dir: stringArg(args, "dir"),
+    appUrl: optionalArg(args, "app-url"),
+    title: optionalArg(args, "title"),
+    brief: optionalArg(args, "brief"),
+    host: optionalArg(args, "host"),
+    port,
+    urlFile: optionalArg(args, "url-file") || optionalArg(args, "out") || false,
+    kind: optionalArg(args, "kind")
+      ? normalizeKind(optionalArg(args, "kind"))
+      : undefined,
+  });
+  process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+  if (!result.ok) process.exit(1);
 }
 
 async function runBlocks(
@@ -678,6 +2084,8 @@ Usage:
   agent-native plan blocks [--format reference|schema] [--app-url <url>] [--out <file>] [--json]
   agent-native plan local init --title <title> [--brief <text>] [--kind plan|recap] [--dir <folder>] [--force]
   agent-native plan local check --dir <folder>
+  agent-native plan local serve --dir <folder> [--app-url <url>] [--kind plan|recap] [--open] [--port <port>] [--url-file <file>]
+  agent-native plan local verify --dir <folder> [--app-url <url>] [--kind plan|recap] [--port <port>]
   agent-native plan local preview --dir <folder> [--app-url <url>] [--kind plan|recap] [--open] [--out preview.html]
 
 The blocks command fetches the no-auth, read-only get-plan-blocks catalog from
@@ -694,11 +2102,17 @@ write actions, hosted storage, or SQLite.
 Common flow:
   agent-native plan blocks --out plan-blocks.md
   agent-native plan local init --title "Checkout review" --kind plan
-  agent-native plan local preview --dir plans/checkout-review --open
+  agent-native plan local serve --dir plans/checkout-review --open
 
-\`plan local preview\` opens the local Plan app route by default. Pass
-\`--app-url\` when your local Plan app is on a non-default port. \`--out\` is a
-legacy/debug escape hatch that writes a standalone static HTML file.
+\`plan local serve\` starts a tiny localhost bridge and opens the hosted Plan UI
+against that local-only source. The hosted app fetches the MDX from localhost in
+the browser; it does not write plan content to the hosted database. The served
+URL is written to \`.plan-url\` by default; pass \`--url-file\` to choose a
+different local-only file. On macOS, \`--open\` prefers Chromium browsers because
+Safari may block the hosted HTTPS page from reading the HTTP localhost bridge.
+Use \`plan local verify\` for headless bridge/CORS diagnostics that exit cleanly.
+Use \`plan local preview\` for a local Plan dev server route. \`preview --out\` is
+a legacy/debug escape hatch that writes a standalone static HTML file.
 `;
 
 export async function runPlan(argv: string[]): Promise<void> {
@@ -727,6 +2141,12 @@ export async function runPlan(argv: string[]): Promise<void> {
     process.exit(1);
   }
   const args = parseArgs(rest);
+  // `plan local <sub> --help` / `-h` shows help instead of running the
+  // subcommand (e.g. `plan local init --help` must not scaffold a folder).
+  if (args.help === true || args.h === true) {
+    process.stdout.write(HELP);
+    return;
+  }
   switch (sub) {
     case "init":
       runInit(args);
@@ -736,6 +2156,12 @@ export async function runPlan(argv: string[]): Promise<void> {
       return;
     case "preview":
       runPreview(args);
+      return;
+    case "serve":
+      await runServe(args);
+      return;
+    case "verify":
+      await runVerify(args);
       return;
     case "help":
     case "--help":

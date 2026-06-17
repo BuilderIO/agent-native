@@ -1125,6 +1125,23 @@ export function createAgentChatAdapter(
         typeof runConfig.custom === "object" &&
         (runConfig.custom as { trackInRunsTray?: unknown }).trackInRunsTray ===
           true;
+      // Human-in-the-loop approval keys (opt-in `needsApproval` actions). When
+      // the user approves a paused tool call, the turn is re-issued with the
+      // approval key so the server lets that specific call run.
+      const approvedToolCalls = (() => {
+        const raw =
+          runConfig?.custom &&
+          typeof runConfig.custom === "object" &&
+          "approvedToolCalls" in runConfig.custom
+            ? (runConfig.custom as { approvedToolCalls?: unknown })
+                .approvedToolCalls
+            : undefined;
+        if (!Array.isArray(raw)) return undefined;
+        const keys = raw.filter(
+          (key): key is string => typeof key === "string" && key.length > 0,
+        );
+        return keys.length > 0 ? keys : undefined;
+      })();
       const requestMode =
         runConfigRequestMode === "act" || runConfigRequestMode === "plan"
           ? runConfigRequestMode
@@ -1789,6 +1806,7 @@ export function createAgentChatAdapter(
                   ...(includeReferences && runConfig?.custom?.references
                     ? { references: runConfig.custom.references }
                     : {}),
+                  ...(approvedToolCalls ? { approvedToolCalls } : {}),
                 }),
               },
               STARTUP_RESPONSE_TIMEOUT_MS,

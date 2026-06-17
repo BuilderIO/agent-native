@@ -86,10 +86,22 @@ import {
   writeLedgerEntry,
   readLedgerEntry,
   clearLedgerForThread,
+  getCurrentTurnEventsForThread,
 } from "./run-store.js";
+import {
+  classifyToolCallJournal,
+  findCompletedJournalEntry,
+  type ToolCallJournal,
+} from "./tool-call-journal.js";
 import { preUploadAttachments } from "../file-upload/pre-upload-attachments.js";
 import { extensionIdFromPathname } from "../extensions/path.js";
 import { applyContextDirectives } from "./context-xray/apply-directives.js";
+import {
+  ProcessorChain,
+  TripWire,
+  toolCallsFromContent,
+  type Processor,
+} from "./processors.js";
 import {
   completeRun as completeProgressRun,
   startRun as startProgressRun,
@@ -101,6 +113,12 @@ import {
   writeContextManifest,
 } from "./context-xray/manifest.js";
 import { computeProtectedSegmentIds } from "./context-xray/segments.js";
+import {
+  maybeCompactThread,
+  buildObservationalContext,
+  hasObservationalMemory,
+  serializeObservationalMemoryBlock,
+} from "./observational-memory/index.js";
 
 // Register built-in engines on first import
 registerBuiltinEngines();
@@ -327,6 +345,8 @@ export interface ActionEntry {
    *  app iframes. CLI/non-UI hosts still receive the normal tool result and
    *  any deep link from `link`. */
   mcpApp?: import("../action.js").ActionMcpAppConfig;
+  /** Optional native Agent-Native chat renderer for this action's result. */
+  chatUI?: import("../action-ui.js").ActionChatUIConfig;
   /**
    * Per-tool timeout override in milliseconds. When set, the agent loop uses
    * this value instead of the global TOOL_TIMEOUT_MS (60 s) for this action.
@@ -338,6 +358,19 @@ export interface ActionEntry {
    * the result to this many characters instead of the global 50 000 cap.
    */
   maxResultChars?: number;
+  /**
+   * Opt-in human-in-the-loop approval gate (default off). When truthy (or a
+   * predicate that resolves truthy for the call's args), the loop emits
+   * `approval_required` and stops the turn instead of executing this action,
+   * until a human approves the specific call. Set by `defineAction`'s
+   * `needsApproval` option. See `packages/core/docs/content/actions.md`.
+   */
+  needsApproval?:
+    | boolean
+    | ((
+        args: any,
+        ctx?: import("../action.js").ActionRunContext,
+      ) => boolean | Promise<boolean>);
 }
 
 /** @deprecated Use `ActionEntry` instead */
@@ -1558,6 +1591,99 @@ function findCurrentTurnStartForContinuation(
   return 0;
 }
 
+/**
+ * First message index that is safe to start a trimmed window on. A window must
+ * not begin with a tool-result-only user message — that would orphan it from
+ * the assistant tool-call turn it answers and break Anthropic's tool_use /
+ * tool_result pairing. We walk forward from `desiredStart` to the first
+ * non-orphaned boundary; if none exists we refuse to trim (return -1).
+ */
+function findSafeWindowStart(
+  messages: EngineMessage[],
+  desiredStart: number,
+): number {
+  for (let i = Math.max(0, desiredStart); i < messages.length; i++) {
+    if (!isToolResultOnlyUserMessage(messages[i])) return i;
+  }
+  return -1;
+}
+
+/**
+ * Observational Memory consumer (threshold-gated, conservative).
+ *
+ * Builds the three-tier OM context for a thread and, ONLY when the thread has
+ * already crossed the compaction threshold (i.e. it has at least one persisted
+ * observation/reflection), returns a rewritten message list that:
+ *   - prepends a single system-role "Observational Memory" block holding the
+ *     reflections + observations, and
+ *   - replaces the raw older history with just the recent-raw-message window,
+ *     keeping the current user turn and any pending tool results intact.
+ *
+ * For threads with NO OM entries (every short thread) it returns the input
+ * array unchanged by reference, so the common path is byte-for-byte identical.
+ *
+ * Best-effort: any failure returns the input unchanged so OM can never break a
+ * normal turn.
+ */
+async function applyObservationalMemoryToContext(
+  messages: EngineMessage[],
+  opts: {
+    threadId: string;
+    ownerEmail?: string | null;
+    orgId?: string | null;
+  },
+): Promise<EngineMessage[]> {
+  if (!opts.ownerEmail) return messages;
+
+  try {
+    const context = await buildObservationalContext({
+      threadId: opts.threadId,
+      ownerEmail: opts.ownerEmail,
+      orgId: opts.orgId ?? null,
+      messages,
+    });
+
+    // No compacted memory yet → short thread, leave context untouched.
+    if (!hasObservationalMemory(context)) return messages;
+
+    const block = serializeObservationalMemoryBlock(context);
+    if (!block.trim()) return messages;
+
+    // EngineMessage has no "system" role; the framework injects auxiliary
+    // context as leading user messages (same convention as the continuation
+    // nudge and the resume journal note), and the serialized block is clearly
+    // self-labeled "[Observational Memory]".
+    const omMessage: EngineMessage = {
+      role: "user",
+      content: [{ type: "text", text: block }],
+    };
+
+    // Trim the raw prefix to only the recent-raw window. The window is the tail
+    // of `messages`, so it always contains the latest user turn and any pending
+    // tool results. Guard the boundary so we never start mid tool_use/result
+    // pair; if a safe boundary can't be found, additively inject the memory
+    // block WITHOUT trimming (the conservative fallback) so we never drop a
+    // pending tool result.
+    const recentCount = context.recentMessages.length;
+    if (recentCount === 0 || recentCount >= messages.length) {
+      return [omMessage, ...messages];
+    }
+    const desiredStart = messages.length - recentCount;
+    const safeStart = findSafeWindowStart(messages, desiredStart);
+    if (safeStart < 0) {
+      // Whole tail is tool-result-only (degenerate) — don't trim.
+      return [omMessage, ...messages];
+    }
+    return [omMessage, ...messages.slice(safeStart)];
+  } catch (err) {
+    console.warn(
+      "[observational-memory] context injection skipped:",
+      err instanceof Error ? err.message : String(err),
+    );
+    return messages;
+  }
+}
+
 function seedReadOnlyToolResultsFromHistory(
   messages: EngineMessage[],
   actions: Record<string, ActionEntry>,
@@ -1989,6 +2115,22 @@ export async function runAgentLoop(opts: {
    * ActionEntry overrides them with its own timeoutMs / maxResultChars.
    */
   toolLimits?: { timeoutMs?: number; maxResultChars?: number };
+  /**
+   * Stable approval keys granted by a human for actions declared
+   * `needsApproval`. A call whose key is present here runs even though the
+   * action requires approval; otherwise the loop pauses with
+   * `approval_required`. See `AgentChatRequest.approvedToolCalls`.
+   */
+  approvedToolCalls?: string[];
+  /**
+   * In-loop processor seam (see `processors.ts`). Each processor can observe
+   * streamed chunks, observe model responses around tool execution, and
+   * `abort()` the run. Loop-internal config, NOT a tool/authoring surface —
+   * processors only observe/mutate-stream/abort; they never define app
+   * behavior or replace actions. When omitted or empty, none of the seam code
+   * runs and the loop is byte-for-byte unchanged (zero overhead).
+   */
+  processors?: Processor[];
 }): Promise<AgentLoopUsage> {
   const {
     engine,
@@ -2000,6 +2142,13 @@ export async function runAgentLoop(opts: {
     send,
     signal,
   } = opts;
+
+  // Build the processor chain only when at least one processor is supplied so
+  // the common (no-processors) path is unchanged and carries zero overhead.
+  const processorChain =
+    opts.processors && opts.processors.length > 0
+      ? new ProcessorChain(opts.processors)
+      : null;
 
   const usage: AgentLoopUsage = {
     inputTokens: 0,
@@ -2037,9 +2186,53 @@ export async function runAgentLoop(opts: {
     messages,
     actions,
   );
+
+  // Tool-call journal hard-block (resume safety). Snapshot the per-turn journal
+  // ONCE here, before any tool runs in this chunk, so it reflects only PRIOR
+  // run chunks of this logical turn. A write tool whose exact call already
+  // completed in an earlier interrupted chunk must not re-fire its side effect;
+  // when matched, runToolCall returns the journaled result instead of executing.
+  // Loaded eagerly (not lazily mid-loop) so the current chunk's own
+  // asynchronously-persisted tool_done events can never leak in and make a
+  // same-chunk call wrongly short-circuit. Best-effort: any ledger failure
+  // leaves the journal empty and all calls run normally. Fresh first-turn calls
+  // see an empty journal and are unaffected.
+  let toolCallJournal: ToolCallJournal | null = null;
+  const consumedJournalKeys = new Set<string>();
+  if (opts.threadId) {
+    try {
+      const priorEvents = await getCurrentTurnEventsForThread(opts.threadId);
+      if (priorEvents.length > 0) {
+        toolCallJournal = classifyToolCallJournal(priorEvents);
+      }
+    } catch {
+      // Journal is a hardening layer, never a gate — a failed ledger read just
+      // means no hard-block this turn.
+    }
+  }
+
   const bufferTextUntilFinalGuard = Boolean(opts.finalResponseGuard);
   let finalGuardRetries = 0;
   let iterations = 0;
+
+  // Set when an in-loop processor aborts via `abort()` / throws a `TripWire`.
+  // The loop emits the `tripwire` event, surfaces the reason as a final
+  // assistant message, and stops cleanly.
+  let tripwire: TripWire | null = null;
+  const emitTripwire = (err: TripWire) => {
+    tripwire = err;
+    send({
+      type: "tripwire",
+      reason: err.message,
+      ...(err.processor ? { processor: err.processor } : {}),
+    });
+    send({ type: "text", text: err.message });
+    messages.push({
+      role: "assistant",
+      content: [{ type: "text", text: err.message }],
+    });
+  };
+
   while (true) {
     if (signal.aborted) break;
     if (++iterations > maxIterations) {
@@ -2093,6 +2286,25 @@ export async function runAgentLoop(opts: {
           err instanceof Error ? err.message : String(err),
         );
       }
+
+      // Observational Memory (consumer): for long threads that have already been
+      // compacted, fold the reflections+observations in as a leading context
+      // block and prefer the recent-raw-message window over the full raw
+      // history. No-op (returns the same array) for short threads with no OM
+      // entries, so the common path is unchanged. Runs after the context-xray
+      // transform so the two compose; best-effort inside the helper. Gated on an
+      // authenticated owner so anonymous threads never read OM scoped to a
+      // shared default identity.
+      if (opts.ownerEmail) {
+        contextMessages = await applyObservationalMemoryToContext(
+          contextMessages,
+          {
+            threadId: opts.threadId,
+            ownerEmail: opts.ownerEmail,
+            orgId: opts.orgId ?? null,
+          },
+        );
+      }
     }
 
     for (let retry = 0; ; retry++) {
@@ -2141,6 +2353,21 @@ export async function runAgentLoop(opts: {
         };
 
         for await (const event of eventStream) {
+          // In-loop processor seam (stream hook). Each chunk is offered to every
+          // processor's `processOutputStream` before the loop handles it. A
+          // processor `abort()` throws a TripWire; catch it locally so it is not
+          // mistaken for a retryable engine error, then break out cleanly.
+          if (processorChain) {
+            try {
+              await processorChain.runStream(event);
+            } catch (err) {
+              if (err instanceof TripWire) {
+                emitTripwire(err);
+                break;
+              }
+              throw err;
+            }
+          }
           if (event.type === "text-delta") {
             if (bufferTextUntilFinalGuard) {
               bufferedAssistantText += event.text;
@@ -2228,6 +2455,10 @@ export async function runAgentLoop(opts: {
       }
     }
 
+    // A processor aborted mid-stream. The tripwire event + final message were
+    // already emitted; halt the loop without sending a normal `done`.
+    if (tripwire) break;
+
     if (!assistantContent && toolCallErrors.size > 0) {
       assistantContent = [];
     }
@@ -2273,6 +2504,32 @@ export async function runAgentLoop(opts: {
       (p): p is import("./engine/types.js").EngineToolCallPart =>
         p.type === "tool-call",
     );
+
+    // In-loop processor seam (step hook). Fires once per model response, around
+    // tool execution, with the tool calls the model just requested (empty for a
+    // final answer) plus the stop reason and cumulative usage. A coverage gate
+    // can inspect what the model is about to do and `abort()` before tools run.
+    if (processorChain) {
+      try {
+        await processorChain.runStep({
+          toolCalls: toolCallsFromContent(assistantContent),
+          ...(terminalStopReason ? { finishReason: terminalStopReason } : {}),
+          usage: {
+            inputTokens: usage.inputTokens,
+            outputTokens: usage.outputTokens,
+            cacheReadTokens: usage.cacheReadTokens,
+            cacheWriteTokens: usage.cacheWriteTokens,
+          },
+        });
+      } catch (err) {
+        if (err instanceof TripWire) {
+          emitTripwire(err);
+          break;
+        }
+        throw err;
+      }
+    }
+
     const flushBufferedAssistantText = () => {
       if (!bufferTextUntilFinalGuard) return;
       const text =
@@ -2346,6 +2603,12 @@ export async function runAgentLoop(opts: {
 
     let requestedActionStop: { message: string; errorCode?: string } | null =
       null;
+
+    // Human-in-the-loop approvals granted by the user for this turn (opt-in;
+    // empty for the overwhelming majority of turns). Keyed by the stable
+    // tool-call approval key so a re-issued continuation can let an approved
+    // call run. The model cannot populate this — it comes from the request.
+    const approvedToolCallKeys = new Set<string>(opts.approvedToolCalls ?? []);
 
     const runToolCall = async (
       toolCall: import("./engine/types.js").EngineToolCallPart,
@@ -2441,6 +2704,63 @@ export async function runAgentLoop(opts: {
         };
       }
 
+      // Human-in-the-loop approval gate (opt-in via defineAction
+      // `needsApproval`; default off). When an action requires approval and
+      // this specific call has NOT been approved by a human, pause the turn
+      // instead of executing. The action's side effect never happens until a
+      // human re-issues the turn approving this call's stable key.
+      const approvalKey = toolCallCacheKey(toolCall.name, toolCall.input);
+      if (actionEntry.needsApproval && !approvedToolCallKeys.has(approvalKey)) {
+        let mustApprove = false;
+        try {
+          mustApprove =
+            typeof actionEntry.needsApproval === "function"
+              ? Boolean(
+                  await actionEntry.needsApproval(toolCall.input, {
+                    userEmail: getRequestUserEmail(),
+                    orgId: getRequestOrgId() ?? null,
+                    caller: "tool",
+                  }),
+                )
+              : actionEntry.needsApproval === true;
+        } catch {
+          // Fail closed: a throwing predicate means we require approval rather
+          // than silently running a high-consequence action.
+          mustApprove = true;
+        }
+        if (mustApprove) {
+          send({
+            type: "tool_start",
+            tool: toolCall.name,
+            input: toolCall.input as Record<string, string>,
+          });
+          send({
+            type: "approval_required",
+            tool: toolCall.name,
+            input: toolCall.input as Record<string, string>,
+            approvalKey,
+            ...(toolCall.id ? { toolCallId: toolCall.id } : {}),
+          });
+          const result =
+            `Awaiting human approval to run "${toolCall.name}". This action did ` +
+            `NOT execute — a human must approve this specific call before it ` +
+            `can run. The turn is paused; do not retry.`;
+          send({ type: "tool_done", tool: toolCall.name, result });
+          recordToolResult(result, false);
+          requestedActionStop ??= {
+            message: `Waiting for your approval to run ${toolCall.name}.`,
+            errorCode: "needs-approval",
+          };
+          return {
+            type: "tool-result" as const,
+            toolCallId: toolCall.id,
+            toolName: toolCall.name,
+            toolInput: wireToolInput,
+            content: result,
+          };
+        }
+      }
+
       const cacheKey =
         actionEntry.readOnly === true
           ? toolCallCacheKey(toolCall.name, toolCall.input)
@@ -2476,6 +2796,47 @@ export async function runAgentLoop(opts: {
         };
       }
 
+      // TOOL-CALL JOURNAL HARD-BLOCK (resume safety, tool-layer enforcement).
+      // The prompt-level resume journal already TELLS a resuming model not to
+      // re-run completed tool calls; this enforces it at the tool layer so a
+      // re-dispatched write call whose exact (tool name + input) already
+      // completed in an earlier interrupted chunk of this turn does NOT execute
+      // its side effect again — we return the journaled result instead and emit
+      // the normal tool_start/tool_done so the transcript stays coherent.
+      //
+      // Gated on a non-readOnly tool + an existing prior-chunk journal (so fresh
+      // calls with no completed journal entry are completely unaffected). The
+      // snapshot was taken before this chunk's tools ran, so it can only match a
+      // PRIOR completion, never one from the current chunk.
+      if (!actionEntry.readOnly && toolCallJournal) {
+        const journaled = findCompletedJournalEntry(
+          toolCallJournal,
+          toolCall.name,
+          toolCall.input,
+          consumedJournalKeys,
+        );
+        if (journaled) {
+          const recordedResult = journaled.result ?? "";
+          const result =
+            `(Already completed in an earlier interrupted attempt - not re-run to avoid a duplicate side effect.)\n\n` +
+            recordedResult;
+          send({
+            type: "tool_start",
+            tool: toolCall.name,
+            input: toolCall.input as Record<string, string>,
+          });
+          send({ type: "tool_done", tool: toolCall.name, result });
+          recordToolResult(result, false);
+          return {
+            type: "tool-result" as const,
+            toolCallId: toolCall.id,
+            toolName: toolCall.name,
+            toolInput: wireToolInput,
+            content: result,
+          };
+        }
+      }
+
       // Guard against write tools that have been interrupted too many times in
       // this turn (connection drop mid-execution → agent retries → repeat).
       // A write tool that keeps failing likely has a timeout / large-payload
@@ -2506,7 +2867,12 @@ export async function runAgentLoop(opts: {
               tool: toolCall.name,
               input: toolCall.input as Record<string, string>,
             });
-            send({ type: "tool_done", tool: toolCall.name, result });
+            send({
+              type: "tool_done",
+              tool: toolCall.name,
+              result,
+              ...(actionEntry.chatUI ? { chatUI: actionEntry.chatUI } : {}),
+            });
             recordToolResult(result, false);
             return {
               type: "tool-result" as const,
@@ -2759,6 +3125,7 @@ export async function runAgentLoop(opts: {
         tool: toolCall.name,
         result,
         ...(mcpApp ? { mcpApp } : {}),
+        ...(actionEntry.chatUI ? { chatUI: actionEntry.chatUI } : {}),
       });
       recordToolResult(result, isError);
       if (!isError) {
@@ -2837,13 +3204,69 @@ export async function runAgentLoop(opts: {
     }
   }
 
+  // A processor halted the run: the `tripwire` event and final message were
+  // already emitted at the abort site. Do NOT send the normal `done` — the run
+  // ended on a guardrail, not a clean turn. The result hook still fires below
+  // so processors can observe the (halted) final text.
+  if (tripwire) {
+    if (processorChain) {
+      try {
+        await processorChain.runResult(
+          collectTextParts(
+            messages.flatMap((m) => (m.role === "assistant" ? m.content : [])),
+          ),
+        );
+      } catch (err) {
+        if (!(err instanceof TripWire)) throw err;
+        // A result-hook abort is a no-op: the run is already halting.
+      }
+    }
+    return usage;
+  }
+
   if (!signal.aborted) {
+    // In-loop processor seam (result hook). Fires once at clean run end with the
+    // final assistant text so processors (e.g. a proof-of-done gate) can record
+    // a verdict. A result-hook abort cannot un-finish a completed run, so a
+    // TripWire here is swallowed.
+    if (processorChain) {
+      try {
+        await processorChain.runResult(
+          collectTextParts(
+            messages.flatMap((m) => (m.role === "assistant" ? m.content : [])),
+          ),
+        );
+      } catch (err) {
+        if (!(err instanceof TripWire)) throw err;
+      }
+    }
     send({ type: "done" });
     // Clean up any zombie-completion ledger entries for this thread now that
     // the turn completed normally. If the run was aborted the ledger must stay
     // intact so the next continuation chunk can still recover from it.
     if (opts.threadId) {
       void clearLedgerForThread(opts.threadId).catch(() => {});
+
+      // Observational Memory (producer): after a clean turn, run a best-effort
+      // compaction pass so long threads accrue observations/reflections that the
+      // consumer above will surface on later turns. Both the Observer and the
+      // Reflector no-op below their token thresholds, so this is cheap for short
+      // threads. Fire-and-forget; any failure is swallowed so OM never affects
+      // the user-visible turn.
+      if (opts.ownerEmail) {
+        const compactThreadId = opts.threadId;
+        void maybeCompactThread({
+          threadId: compactThreadId,
+          ownerEmail: opts.ownerEmail,
+          orgId: opts.orgId ?? null,
+          messages,
+        }).catch((err) => {
+          console.warn(
+            "[observational-memory] post-turn compaction skipped:",
+            err instanceof Error ? err.message : String(err),
+          );
+        });
+      }
     }
   }
   return usage;
@@ -3900,6 +4323,13 @@ export function createProductionAgentHandler(
           // Experiments module unavailable — use default model
         }
 
+        // TODO(processor-seam): thread `processors` from ProductionAgentOptions
+        // through to runAgentLoop here once the handler exposes a way to
+        // configure them (e.g. a `processors` field on ProductionAgentOptions
+        // or a per-request resolver). The loop-level seam (runAgentLoop's
+        // `processors` opt + ProcessorChain/TripWire) is the deliverable and is
+        // already callable directly by sub-agents, A2A, MCP, and tests; this is
+        // only the HTTP-handler convenience plumbing.
         const agentLoopOpts = {
           engine,
           model: effectiveModel,
@@ -3920,6 +4350,16 @@ export function createProductionAgentHandler(
           ...(options.toolLimits ? { toolLimits: options.toolLimits } : {}),
           ...(threadId
             ? { threadId: effectiveThreadId, turnId: effectiveTurnId }
+            : {}),
+          // Human-in-the-loop approval grants for this turn (sanitized — the
+          // request is untrusted; accept only a bounded list of string keys).
+          ...(Array.isArray(body.approvedToolCalls) &&
+          body.approvedToolCalls.length
+            ? {
+                approvedToolCalls: body.approvedToolCalls
+                  .filter((k: unknown): k is string => typeof k === "string")
+                  .slice(0, 200),
+              }
             : {}),
         };
 

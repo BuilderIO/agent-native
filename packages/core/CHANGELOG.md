@@ -1,5 +1,246 @@
 # @agent-native/core
 
+## 0.56.0
+
+### Minor Changes
+
+- 78687a1: Add an explicit native tool-render registry plus built-in chat data table and
+  chart widgets, with same-app widget action links that navigate through the
+  shared chat view-transition path. Add an app chat option for typed-action-only
+  agent surfaces that disables raw database tools while preserving rich native
+  widget rendering from action results. Add server-safe helpers for constructing
+  typed data widget action outputs.
+
+### Patch Changes
+
+- 78687a1: Clarify the Getting Started docs: restore per-template doc links in the grouped
+  template list, remove the duplicated `create` command block from the
+  add-apps section, and move "Common next moves" to the end so the page closes on
+  next steps instead of mid-page.
+- 78687a1: Relax hero chat composer padding for a roomier full-page chat input.
+- 78687a1: Add provider API corpus recipes and provider corpus job source summaries so agents can audit which raw provider record body a broad search actually covered.
+- 78687a1: Simplify the missing AI connection prompt and render it below the chat composer.
+
+## 0.55.0
+
+### Minor Changes
+
+- 364e4be: Add reusable chat-home and chat view-transition primitives for chat-first apps,
+  including centered empty-state layout, sidebar storage-key sharing, and opt-in
+  sidebar reopening while active chats continue across route handoffs.
+- 364e4be: Add an explicit native tool-render registry plus built-in chat data table and
+  chart widgets, with same-app widget action links that navigate through the
+  shared chat view-transition path. Add an app chat option for typed-action-only
+  agent surfaces that disables raw database tools while preserving rich native
+  widget rendering from action results.
+
+### Patch Changes
+
+- 364e4be: Chat: stop re-probing the server for a thread that already returned 404. The
+  mount-time restore effect now caches known-absent thread ids for the page
+  session, so navigating between routes no longer re-spams
+  `GET /_agent-native/agent-chat/threads/:id` with 404s for a freshly created,
+  not-yet-sent chat. Behavior is unchanged otherwise — a missing thread still
+  falls back to an empty chat.
+- 364e4be: Harden local Plan cold starts by validating checklist/question-form IDs, writing local serve URLs to `.plan-url`, adding headless bridge verification, and documenting Chromium/Safari guidance.
+- 364e4be: Polish the skills CLI auth transcript so embedded connect output renders as one Clack guide block and shows spinner feedback during slow auth startup.
+- 364e4be: Include tripwire abort text in processor result hooks and harden local plan repo-path containment against symlinks.
+
+## 0.54.1
+
+### Patch Changes
+
+- cc1e11c: Fix workspace dev gateway losing the app prefix on root-relative redirects (e.g. Google OAuth flows). Path-only redirect `Location` headers are now rewritten to include the `/{app.id}` mount prefix, matching the repo `dev-lazy` gateway.
+
+## 0.54.0
+
+### Minor Changes
+
+- f81e032: Add optional `outputSchema` to `defineAction` — validate an action's RETURN
+  value (warn/strict/fallback). Pass a Standard Schema-compatible `outputSchema`
+  (Zod, Valibot, ArkType — same surface as the input `schema`) and the framework
+  validates the result AFTER `run()` resolves, composing with the existing input
+  validation (input validated before `run`, output validated after). The
+  `outputErrorStrategy` (default `"warn"`) controls the mismatch behavior:
+  `"strict"` throws a clear error so a buggy action surfaces loudly, `"warn"`
+  `console.warn`s the issues and returns the ORIGINAL result unchanged
+  (non-breaking), and `"fallback"` returns the provided `outputFallback`. When no
+  `outputSchema` is supplied, behavior is byte-for-byte unchanged (no wrapping).
+  Borrowed from Mastra/Flue structured-output and kept dependency-free on the
+  action layer.
+- f81e032: Add an in-loop processor seam (`processOutputStream` / `processOutputStep` +
+  `abort()` / `TripWire`) for real-time guardrails. `runAgentLoop` now accepts an
+  optional `processors: Processor[]`. Each processor exposes optional hooks —
+  `processOutputStream` (per streamed chunk), `processOutputStep` (once per model
+  response, around tool execution, with the requested tool calls), and
+  `processOutputResult` (once at run end) — and a per-processor mutable `state`
+  that persists across hooks and is isolated between processors. A processor can
+  call `abort(reason, meta?)` (throws an exported `TripWire`) to halt the run
+  gracefully; the loop catches it, emits a new `{ type: "tripwire"; reason;
+processor? }` agent-chat event, surfaces the reason as a final message, and
+  stops. This is the structural prerequisite for real-time guardrails and a
+  proof-of-done / coverage gate. Borrowed from Mastra's output processors and
+  kept loop-internal configuration (processors only observe/mutate-stream/abort;
+  they do not define app behavior or replace actions). When no processors are
+  passed the loop is byte-for-byte unchanged with zero overhead.
+- f81e032: Add token-efficient web content fetching for agents. `web-request` and `provider-api-docs` can now return extracted markdown, plain text, metadata, links, or bounded search matches instead of raw HTML, and `run-code` exposes `webRead()` plus pass-through options on `webFetch()` for compact web/document reduction.
+
+### Patch Changes
+
+- f81e032: Docs: document the agent-runtime features added since the first docs sweep.
+  New pages: Human-in-the-Loop Approvals (`needsApproval` gate + `approval_required`
+  / `approvedToolCalls` flow), Observational Memory (background three-tier
+  compaction with `AGENT_NATIVE_OM_*` config), In-Loop Processors (the
+  `processOutput*` guardrail seam + `TripWire` / `tripwire` event), and Durable
+  Resume (tool-call journal — prompt note + tool-layer hard-block against
+  re-running completed side effects). Folded action `outputSchema` /
+  `outputErrorStrategy` and the `needsApproval` gate into the Actions page, and
+  added an optional OpenTelemetry-spans section to Observability. All wired into
+  the docs sidebar nav; no runtime behavior changes.
+- 9909dcc: Avoid bundling native canvas from web content extraction in template SSR builds.
+- f81e032: Allow the hosted Plan local-files UI to read the localhost bridge in Chromium by
+  answering Private Network Access preflights.
+- f81e032: Include repo-relative paths in direct local Plan preview URLs so local Plan app
+  routes can reopen and edit MDX folders from the current repository.
+- f81e032: Improve provider corpus jobs with a read-only status/results action helper and better multi-term snippet windows for durable provider searches.
+- f81e032: Add app/template and agent-native-specific app/template properties to Better Auth signup tracking events.
+- f81e032: Add VS Code extension open URLs to MCP open-link metadata.
+
+## 0.53.0
+
+### Minor Changes
+
+- 5a57b60: Add a first-class evals primitive and an `agent-native eval` CLI runner that
+  doubles as a CI deploy gate. Define test cases with `defineEval({ name, input,
+scorers, threshold })` and compose scorers with the Mastra-style 4-step
+  pipeline `createScorer({ preprocess, analyze, generateScore, generateReason })`.
+  Built-in scorers ship for the common cases — `exactMatch`, `contains`,
+  `usesTool`, and a provider-agnostic `llmJudge` (the judge model is resolved
+  from the engine registry, never hardcoded). The runner discovers `**/*.eval.ts`
+  and `evals/*.ts`, actually runs the agent loop for each input, scores the
+  output, prints a readable scored table (or `--json` for CI), and exits
+  non-zero when any eval scores below its threshold. Results are written to the
+  observability eval store, with a documented seam for future live sampled
+  scoring of production traffic through the same scorers.
+- 5a57b60: Add opt-in per-action human-in-the-loop approvals. Actions can now declare
+  `needsApproval` (a boolean or an `(args, ctx) => boolean | Promise<boolean>`
+  predicate) on `defineAction`. When the gate resolves truthy, the agent loop does
+  NOT execute `run()`: it emits an `approval_required` event carrying the tool
+  name, a compact view of the input, and a stable `approvalKey`, then pauses the
+  turn. A human approves by re-issuing the turn with that key in
+  `AgentChatRequest.approvedToolCalls`, which lets the specific call run. The gate
+  is default-off and fail-closed (a throwing predicate requires approval). The
+  mail template's `send-email` action opts in as the canonical example.
+- 5a57b60: Add the core of Observational Memory (OM): background compaction of a long
+  agent thread into a dated, three-tier context (recent raw messages → dense
+  "observations" → higher-level "reflections") so long-running threads cost far
+  fewer tokens and stay prompt-cache stable.
+
+  This ships the store (a new ownable, dialect-agnostic `observational_memory`
+  table + additive migrations), the Observer and Reflector compaction passes
+  (provider-agnostic internal agent calls — no hardcoded model), the
+  `maybeCompactThread` compactor entry point, and the `buildObservationalContext`
+  read API returning the three tiers ready for prompt injection, all exported
+  from `@agent-native/core/agent/observational-memory`.
+
+  The read API and compactor are intentionally not yet wired into the agent loop:
+  injecting `buildObservationalContext` output into `production-agent.ts` (and
+  registering the migration plugin in the default plugin set) is a follow-up so it
+  does not collide with concurrent agent-loop changes. The store creates its table
+  lazily on first use, so OM is fully functional in the meantime.
+
+- 5a57b60: Wire Observational Memory into the agent loop (compaction + long-thread context
+  injection). The OM migration plugin is now registered alongside the other
+  framework migration plugins so its table is created on startup. After a clean
+  turn the loop runs a best-effort, fire-and-forget compaction pass
+  (`maybeCompactThread`) so long threads accrue dated observations and
+  reflections. On subsequent turns, threads that have already crossed the
+  compaction threshold get their reflections+observations folded in as a leading
+  context block while the recent raw-message window is preserved verbatim - short
+  threads with no OM entries are left byte-for-byte unchanged.
+- 5a57b60: Add `agent-native add <kind> [name|url]`, a blueprint installer. Instead of
+  scaffolding files, it prints a curated Markdown integration blueprint to stdout
+  so you can pipe it into your own coding agent (`agent-native add provider stripe
+| claude`). A URL instead of a name emits a generic research-and-integrate
+  blueprint with the URL as the research seed. Ships seeded blueprints for
+  provider-api integrations, inbound channel adapters, custom sandbox adapters,
+  and multi-surface actions; `--list` browses what's available.
+
+### Patch Changes
+
+- 5a57b60: Fix hosted skills install flows for Codex plus Claude Cowork client selections and make MCP connect polling handle structured device-code failures consistently.
+- 5a57b60: Add an optional OpenTelemetry export to the agent loop. `instrumentAgentLoop`
+  now wraps the run, each tool call, and the model call in OTel spans
+  (`agent.run`, `tool.call`, `llm.call`) carrying tool name, model, token usage,
+  and error attributes. The export is fully no-op unless a host installs
+  `@opentelemetry/api` (a new optional dependency) and registers a tracer
+  provider, so there is zero overhead by default and no heavy SDK is added to
+  core.
+- 5a57b60: Add a hard delegation-depth guardrail so sub-agents cannot infinitely spawn
+  sub-agents. Each sub-agent now carries its delegation depth (top-level chat is
+  0); `spawnTask` refuses server-side once a spawn would exceed the cap, returning
+  a clear "Delegation depth limit reached" error to the parent agent. Enforcement
+  lives in `agent-teams.ts` and reads the spawning agent's depth from the ambient
+  run context, so it holds even if the team tool is not stripped. The cap defaults
+  to 2 and is configurable via the `AGENT_NATIVE_MAX_SUBAGENT_DEPTH` env var
+  (parsed and clamped, falling back to the default on invalid values).
+- 5a57b60: Document four newly-landed framework features in the published docs content:
+  pluggable sandbox adapters for the `run-code` tool (`SandboxAdapter`,
+  `AGENT_NATIVE_SANDBOX`, `registerSandboxAdapter`), the first-class evals CI gate
+  (`defineEval`, `createScorer`, built-in scorers, and the `agent-native eval`
+  command), the sub-agent delegation depth guard
+  (`AGENT_NATIVE_MAX_SUBAGENT_DEPTH`), and the `agent-native add` blueprint
+  installer. Adds `sandbox-adapters`, `evals`, and `blueprint-installer` pages, a
+  delegation-depth section in the Agent Teams doc, and surgical pointers in the
+  harness-agents, observability, and external-agents skills.
+- 5a57b60: Add an opt-out for agent-chat MCP mounting so apps can provide a dedicated stable MCP route.
+- 5a57b60: Surface the current sub-agent delegation depth in the runtime-context prompt.
+  The chat plugin now reads the ambient delegation depth and passes it into
+  `buildRuntimeContextPrompt`, so a sub-agent already at the delegation cap is
+  told it cannot spawn further sub-agents. The cap was already enforced
+  server-side; this only makes it visible to the model.
+- 5a57b60: Tool-call journal hard-block: skip re-executing journaled-complete tool calls on
+  resume. The per-turn tool-call journal (derived from the durable run-event
+  ledger) previously only added a prompt-level "already completed, don't re-run"
+  note. The agent loop now enforces this at the tool layer: when a non-read-only
+  tool call's exact (tool name + input) already completed in an earlier
+  interrupted chunk of the same turn, `runToolCall` returns the recorded result
+  instead of re-executing the side effect, while still emitting the normal
+  tool_start/tool_done so the transcript stays coherent. Fresh calls with no prior
+  completed journal entry are unaffected.
+- 5a57b60: Add a per-turn tool-call journal that hardens the run-resume path against
+  duplicate side effects. When a run resumes after an interruption (gateway or
+  transport drop, cold start, or soft-timeout auto-continue), the journal is
+  derived from the existing run-event ledger and injected into the resume nudge:
+  tool calls that already completed are listed with their results and flagged as
+  "do NOT re-run", and any tool call that started but never recorded a result is
+  surfaced as "interrupted / unknown outcome" so the model can decide rather than
+  blindly re-executing (e.g. re-sending an email or re-creating a ticket). The
+  journal is read-only over the ledger (no new recording hook), best-effort, and a
+  no-op for turns with no completed or interrupted tool calls, so normal resumes
+  are unchanged.
+
+## 0.52.0
+
+### Minor Changes
+
+- 9dc6ba7: Add a pluggable sandbox-adapter seam for the `run-code` tool. The
+  code-execution sandbox now runs behind a `SandboxAdapter` interface so the
+  execution backend can be swapped without changing agent code, the localhost
+  bridge, the env scrub, or output formatting. The default
+  `LocalChildProcessAdapter` preserves the existing spawned child-process behavior
+  byte-for-byte. A different backend (e.g. a Docker or remote/durable runner) can
+  be plugged in via `registerSandboxAdapter()` or the `AGENT_NATIVE_SANDBOX` env
+  var — the documented lever for exceeding the hosted execution ceiling on long
+  jobs.
+
+### Patch Changes
+
+- 9dc6ba7: Polish the shared skills CLI prompts, standalone catalog, and install summary.
+  Add MCP install support for more local agent clients and keep the PR Visual
+  Recap GitHub Action prompt available in local-files mode.
+- 9dc6ba7: Store pasted agent chat provider API keys in scoped encrypted app secrets instead of deployment env vars.
+
 ## 0.51.15
 
 ### Patch Changes

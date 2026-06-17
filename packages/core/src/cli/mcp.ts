@@ -289,9 +289,20 @@ function serverNameFor(appId: string): string {
   return `${SERVER_NAME_PREFIX}-${appId}`;
 }
 
+// Clients advertised in usage/help and listed by status. Excludes the legacy
+// `claude-code-cli` alias so only a single "Claude Code" appears (it is still
+// accepted via --client and collapses to claude-code).
+const SELECTABLE_CLIENTS: ClientId[] = CLIENTS.filter(
+  (c) => c !== "claude-code-cli",
+);
+
 function normalizeClientId(raw: string | undefined): ClientId | null {
   const value = (raw ?? "").toLowerCase();
-  if (value === "claude" || value === "claude-code-desktop") {
+  if (
+    value === "claude" ||
+    value === "claude-code-desktop" ||
+    value === "claude-code-cli"
+  ) {
     return "claude-code";
   }
   if (value === "open-code") return "opencode";
@@ -376,7 +387,7 @@ async function cmdInstall(p: ParsedArgs): Promise<void> {
   const client = normalizeClientId(p.client);
   if (!client) {
     logErr(
-      `Usage: npx @agent-native/core@latest mcp install --client ${CLIENTS.join("|")} ` +
+      `Usage: npx @agent-native/core@latest mcp install --client ${SELECTABLE_CLIENTS.join("|")} ` +
         `[--app <id>] [--scope user|project]`,
     );
     process.exit(1);
@@ -437,7 +448,7 @@ function cmdUninstall(p: ParsedArgs): void {
   const client = normalizeClientId(p.client);
   if (!client) {
     logErr(
-      `Usage: npx @agent-native/core@latest mcp uninstall --client ${CLIENTS.join("|")} ` +
+      `Usage: npx @agent-native/core@latest mcp uninstall --client ${SELECTABLE_CLIENTS.join("|")} ` +
         `[--app <id>]`,
     );
     process.exit(1);
@@ -489,7 +500,7 @@ async function cmdStatus(): Promise<void> {
   logOut(`  ACCESS_TOKEN: ${hasToken ? "set" : "not set"} (.env)`);
   logOut(`  A2A_SECRET:   ${hasA2A ? "set" : "not set"}`);
   logOut(`  Clients:`);
-  for (const client of CLIENTS) {
+  for (const client of SELECTABLE_CLIENTS) {
     const present = clientHasEntry(client, appId, cwd);
     logOut(`    ${client.padEnd(18)} ${present ? "configured" : "—"}`);
   }
@@ -523,7 +534,7 @@ Usage:
 
   npx @agent-native/core@latest mcp install --client <c> [--app <id>] [--scope user|project]
       Provision a token and write the client's MCP config (idempotent).
-      Clients: claude-code, claude-code-cli, codex, cowork, cursor, opencode, github-copilot
+      Clients: claude-code, codex, cowork, cursor, opencode, github-copilot
 
   npx @agent-native/core@latest mcp uninstall --client <c> [--app <id>]
       Remove the named MCP entry from a client's config (idempotent).

@@ -1997,8 +1997,13 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
         label: "Open in Mail",
       },
     });
-    expect(out.result._meta["agent-native/openLink"].desktopUrl).toContain(
-      "view=thing&id=thing-42",
+    const openLink = out.result._meta["agent-native/openLink"] as Record<
+      string,
+      string
+    >;
+    expect(openLink.desktopUrl).toContain("view=thing&id=thing-42");
+    expect(new URL(openLink.vscodeUrl).searchParams.get("url")).toBe(
+      openLink.webUrl,
     );
   });
 
@@ -2108,6 +2113,12 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       desktopUrl:
         "agentnative://open?app=mail&view=&to=%2Finbox&agentSidebar=closed",
     });
+    expect(
+      new URL(
+        (out.result._meta["agent-native/openLink"] as Record<string, string>)
+          .vscodeUrl,
+      ).searchParams.get("url"),
+    ).toBe("https://mail.agent-native.com/inbox");
     expect(out.result._meta["agent-native/embedStart"]).toMatchObject({
       startUrl:
         "https://mail.agent-native.com/_agent-native/embed/start?ticket=test-ticket&__an_mcp_chat_bridge=1",

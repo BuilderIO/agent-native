@@ -228,9 +228,21 @@ export async function getCallDetail(
   };
 }
 
+export async function getCallTranscripts(callIds: string[]): Promise<unknown> {
+  const ids = Array.from(
+    new Set(
+      callIds
+        .map((id) => (typeof id === "string" ? id.trim() : ""))
+        .filter(Boolean),
+    ),
+  );
+  if (!ids.length) return { callTranscripts: [] };
+  const body = { filter: { callIds: ids } };
+  return apiPost("/calls/transcript", body, `transcripts:${ids.join(",")}`);
+}
+
 export async function getCallTranscript(callId: string): Promise<unknown> {
-  const body = { filter: { callIds: [callId] } };
-  return apiPost("/calls/transcript", body, `transcript:${callId}`);
+  return getCallTranscripts([callId]);
 }
 
 export async function getEnrichedTranscript(

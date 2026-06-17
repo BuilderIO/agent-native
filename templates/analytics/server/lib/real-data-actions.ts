@@ -467,6 +467,164 @@ export function hasFailedCorpusWorkflowEvidence(
   });
 }
 
+type SourceRecordKind =
+  | "transcript"
+  | "message"
+  | "ticket"
+  | "issue"
+  | "document"
+  | "note"
+  | "conversation";
+
+const SOURCE_RECORD_KINDS: Array<{
+  kind: SourceRecordKind;
+  request: RegExp;
+  evidence: RegExp;
+}> = [
+  {
+    kind: "transcript",
+    request: /\b(?:transcripts?|call transcripts?)\b/i,
+    evidence:
+      /\b(?:transcripts?|calltranscripts?|transcriptsearch)\b|\/calls\/transcript\b/i,
+  },
+  {
+    kind: "message",
+    request: /\b(?:messages?|slack messages?|chat messages?)\b/i,
+    evidence: /\b(?:messages?|message_id|messageid|search\.messages)\b/i,
+  },
+  {
+    kind: "ticket",
+    request: /\b(?:tickets?|support tickets?)\b/i,
+    evidence: /\b(?:tickets?|ticket_id|ticketid)\b/i,
+  },
+  {
+    kind: "issue",
+    request: /\b(?:issues?|jira issues?|pylon issues?)\b/i,
+    evidence: /\b(?:issues?|issue_id|issueid)\b/i,
+  },
+  {
+    kind: "document",
+    request: /\b(?:documents?|docs?|pages?)\b/i,
+    evidence: /\b(?:documents?|document_id|documentid|pages?)\b/i,
+  },
+  {
+    kind: "note",
+    request: /\b(?:notes?)\b/i,
+    evidence: /\b(?:notes?|note_id|noteid)\b/i,
+  },
+  {
+    kind: "conversation",
+    request: /\b(?:conversations?|conversation logs?)\b/i,
+    evidence: /\b(?:conversations?|conversation_id|conversationid)\b/i,
+  },
+];
+
+function requestedSourceRecordKinds(text: string): SourceRecordKind[] {
+  const requestText = stripInjectedAnalyticsGuardContext(text);
+  return SOURCE_RECORD_KINDS.filter(({ request }) =>
+    request.test(requestText),
+  ).map(({ kind }) => kind);
+}
+
+function sourceRecordEvidenceRegexes(kinds: SourceRecordKind[]): RegExp[] {
+  return SOURCE_RECORD_KINDS.filter(({ kind }) => kinds.includes(kind)).map(
+    ({ evidence }) => evidence,
+  );
+}
+
+function textHasAnyEvidenceTerm(text: string, kinds: SourceRecordKind[]) {
+  return sourceRecordEvidenceRegexes(kinds).some((regex) => regex.test(text));
+}
+
+function corpusJobSourceEvidenceText(parsed: unknown): string {
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return "";
+  const record = parsed as Record<string, unknown>;
+  return JSON.stringify({
+    source: record.source,
+    hits: record.hits,
+    sampleHits: record.sampleHits,
+  });
+}
+
+function providerRequestEvidenceText(parsed: unknown): string {
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return "";
+  const record = parsed as Record<string, unknown>;
+  return JSON.stringify({
+    request: record.request,
+    responseJson:
+      (record.response as Record<string, unknown> | undefined)?.json ?? null,
+    dataset: record.dataset,
+    columns: record.columns,
+    sampleRows: record.sampleRows,
+  });
+}
+
+function queryStagedDatasetEvidenceText(parsed: unknown): string {
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return "";
+  const record = parsed as Record<string, unknown>;
+  return JSON.stringify({
+    rows: record.rows,
+    columns: record.columns,
+    aggregate: record.aggregate,
+    groups: record.groups,
+    sampleRows: record.sampleRows,
+  });
+}
+
+function actionEvidenceTextForSourceRecords(result: {
+  name?: string;
+  content?: string;
+}): string {
+  const name = String(result.name ?? "");
+  const content = String(result.content ?? "");
+  const parsed = tryParseJsonContent(content);
+
+  if (name === "provider-corpus-job") {
+    return corpusJobSourceEvidenceText(parsed);
+  }
+  if (name === "provider-api-request") {
+    return providerRequestEvidenceText(parsed);
+  }
+  if (name === "query-staged-dataset") {
+    return queryStagedDatasetEvidenceText(parsed);
+  }
+  if (name === "gong-calls") {
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return "";
+    }
+    const record = parsed as Record<string, unknown>;
+    return JSON.stringify({
+      transcript: record.transcript,
+      transcriptText: record.transcriptText,
+      transcriptSearch: record.transcriptSearch,
+      transcripts: record.transcripts,
+    });
+  }
+  if (name === "run-code") {
+    return content;
+  }
+  if (isCorpusCapableMcpTool(name)) {
+    return `${name}\n${content}`;
+  }
+  return content;
+}
+
+export function hasRequestedSourceRecordEvidence(
+  userText: string,
+  toolResults:
+    | Array<{ name?: string; isError?: boolean; content?: string }>
+    | undefined,
+): boolean {
+  const kinds = requestedSourceRecordKinds(userText);
+  if (!kinds.length) return true;
+  return (toolResults ?? []).some((result) => {
+    if (result.isError) return false;
+    if (isProviderErrorOnlyContent(result.content)) return false;
+    const evidenceText = actionEvidenceTextForSourceRecords(result);
+    return textHasAnyEvidenceTerm(evidenceText, kinds);
+  });
+}
+
 export function needsCorpusWorkflowForCoverageSensitiveRequest({
   userText,
   finalText,
@@ -483,4 +641,23 @@ export function needsCorpusWorkflowForCoverageSensitiveRequest({
   if (hasCorpusWorkflowAttempt(toolResults)) return false;
   if (hasExplicitPartialDisclosure(finalText)) return false;
   return true;
+}
+
+export function needsSourceRecordBodyWorkflowForCoverageSensitiveRequest({
+  userText,
+  finalText,
+  toolResults,
+}: {
+  userText: string;
+  finalText: string;
+  toolResults:
+    | Array<{ name?: string; isError?: boolean; content?: string }>
+    | undefined;
+}): boolean {
+  if (!looksLikeCoverageSensitiveAnalyticsRequest(userText)) return false;
+  if (!requestedSourceRecordKinds(userText).length) return false;
+  if (!looksLikeStrongCoverageClaim(finalText)) return false;
+  if (hasExplicitPartialDisclosure(finalText)) return false;
+  if (!hasCorpusWorkflowAttempt(toolResults)) return false;
+  return !hasRequestedSourceRecordEvidence(userText, toolResults);
 }

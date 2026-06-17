@@ -1,0 +1,49 @@
+---
+title: "Durable Resume"
+description: "When a hosted agent run is interrupted and resumes, completed side-effecting tool calls are not re-run — a tool-call journal derived from the durable ledger blocks duplicate sends, charges, and tickets."
+---
+
+# Durable Resume
+
+Hosted agent runs get interrupted: a serverless function hits its hard timeout mid-stream, a gateway drops the connection at 45s, a socket hangs up, the platform cold-starts. The framework already recovers from these by saving the conversation prefix and re-running the LLM call ("continue from where you left off"). But recovery alone has a sharp edge: if the interrupted attempt **already sent an email or created a ticket**, a naive resume could do it again.
+
+Durable resume closes that gap. On resume, the framework knows which side-effecting tool calls already completed and refuses to re-run them — at two layers.
+
+## The tool-call journal {#journal}
+
+The journal is a **pure read over the durable run-event ledger** — there is no new recording hook in the hot path. It classifies the tool calls already recorded for the current turn:
+
+- **Completed** — a `tool_start` with a matching `tool_done`. The call ran, its side effect happened, and its result was recorded. **Do not re-run.**
+- **Interrupted** — a `tool_start` with **no** matching `tool_done`. The call began, its side effect may or may not have landed, and the interruption ate the result. Outcome unknown.
+
+Matching mirrors how durable turns are rebuilt elsewhere: a `tool_done` pairs with the oldest still-open `tool_start` for the same tool name (FIFO per tool). A `clear` event (discarded partial output) resets the per-turn tally so abandoned partials don't leave phantom open calls.
+
+## Layer 1: prompt-level journal note {#prompt-note}
+
+When a run resumes (soft timeout, gateway timeout, or any resumable transport error), the framework appends a **structured journal note** to the resume prompt, right after the "continue from where you left off" nudge. The note tells the model, in plain text:
+
+- which tool calls **already completed** (with short results) so it reuses them and does **not** re-run them, and
+- which tool calls were **interrupted with unknown outcome** so it verifies state before assuming success or failure.
+
+When the journal is empty (a turn with no tool activity, or a clean continuation), nothing extra is appended and resume behavior is byte-for-byte what it was before. The note is best-effort: a failed ledger read never blocks a recovery that would otherwise succeed.
+
+## Layer 2: tool-layer hard-block {#hard-block}
+
+The prompt note is advisory — a well-behaved model heeds it, but a model isn't a guarantee. So the loop also enforces it at the tool layer.
+
+Before the loop runs in a resumed chunk, it snapshots the journal once (capturing only **prior** chunks of this logical turn). When the model re-dispatches a **write** tool whose tool name **and input** match a completed journal entry, the loop short-circuits: it returns the journaled result instead of executing the action, with a note that the call already completed in an earlier interrupted attempt and was not re-run to avoid a duplicate side effect.
+
+Key properties:
+
+- **Write tools only.** Read-only (`readOnly` / GET) actions are never blocked — re-reading is safe and idempotent.
+- **Content-addressed.** The match is on tool name + input signature, so a resumed call sitting at a different position in the turn still matches; a _different_ call (different args) is treated as fresh and runs normally.
+- **Consume-once.** Each completed entry is claimed when matched, so two genuinely-distinct identical fresh calls in the same turn don't both short-circuit on one journaled completion.
+- **Fresh calls untouched.** A first-turn call sees an empty journal; nothing changes for normal runs.
+
+Together the two layers mean an interrupted run that already had a real side effect resumes without repeating it — no duplicate emails, charges, or tickets — while genuinely new work still runs.
+
+## Related
+
+- [**Real-Time Sync**](/docs/real-time-collaboration) — how the durable run ledger streams to the client and replays on reconnect.
+- [**Actions**](/docs/actions) — `readOnly` marks reads as safe to re-run; everything else is treated as side-effecting.
+- [**In-Loop Processors**](/docs/processors) — another loop-internal hardening seam.

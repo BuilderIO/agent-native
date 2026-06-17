@@ -197,7 +197,7 @@ path is obvious.
 `defineAction` accepts an optional `link` builder. When set, every MCP/A2A
 result for that tool auto-appends a markdown `[label →](absoluteUrl)` block and
 a structured `_meta["agent-native/openLink"] = { label, view, webUrl,
-desktopUrl }`; `tools/list` adds
+desktopUrl, vscodeUrl }`; `tools/list` adds
 `annotations["agent-native/producesOpenLink"]` plus a description suffix so the
 external agent knows the tool yields an openable link.
 
@@ -285,9 +285,11 @@ ngrok/prod testing caveats are documented in
 
 `buildDeepLink(...)` returns the app-relative path
 `/_agent-native/open?app=…&view=…&<recordId>=…`. The MCP layer turns that into
-an absolute web URL (`toAbsoluteOpenUrl`, using the request origin) and a
-desktop `agentnative://open?…` URL (`toDesktopOpenUrl`). When the user clicks
-it in any browser or inline webview, `GET /_agent-native/open`
+an absolute web URL (`toAbsoluteOpenUrl`, using the request origin), a
+desktop `agentnative://open?…` URL (`toDesktopOpenUrl`), and a VS Code
+extension URL (`toVsCodeOpenUrl`) for
+`vscode://builderio.agent-native/open?url=…`. When the user clicks the web
+link in any browser or inline webview, `GET /_agent-native/open`
 (`createOpenRouteHandler`, mounted by the core routes plugin, gated by
 `disableOpenRoute`, customizable via `resolveOpenPath`):
 
@@ -416,3 +418,13 @@ before telling the user they are unauthenticated.
 - **a2a-protocol** — the `ask-agent` meta-tool and JSON-RPC peer calls
 - **adding-a-feature** — the four-area checklist (add a `link` builder when a
   feature produces a navigable resource)
+
+## Blueprint installer
+
+To add a whole new integration the agent-native way, `agent-native add <kind>
+<name|url>` prints a curated Markdown blueprint to stdout — pipe it into the
+external coding agent you connected (`agent-native add provider stripe |
+claude`) and it applies the changes against the live repo. A URL emits a
+generic research-and-integrate blueprint instead. Seeded kinds:
+`provider` / `channel` / `sandbox` / `action`. Add your own by dropping a
+`.md` in `packages/core/blueprints/<kind>/`. See the Blueprint Installer doc.

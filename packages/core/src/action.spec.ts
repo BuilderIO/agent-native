@@ -168,6 +168,46 @@ describe("defineAction", () => {
     });
   });
 
+  it("preserves a boolean needsApproval flag on the returned entry", () => {
+    const action = defineAction({
+      description: "send an email",
+      parameters: { to: { type: "string" } },
+      needsApproval: true,
+      run: async () => "sent",
+    });
+    expect(action.needsApproval).toBe(true);
+  });
+
+  it("preserves a predicate needsApproval gate on the returned entry", () => {
+    const gate = (args: { to: string }) => args.to.endsWith("@external.com");
+    const action = defineAction({
+      description: "send an email",
+      parameters: { to: { type: "string" } },
+      needsApproval: gate,
+      run: async () => "sent",
+    });
+    expect(action.needsApproval).toBe(gate);
+  });
+
+  it("leaves needsApproval undefined when not specified (default off)", () => {
+    const action = defineAction({
+      description: "send an email",
+      parameters: { to: { type: "string" } },
+      run: async () => "sent",
+    });
+    expect(action.needsApproval).toBeUndefined();
+  });
+
+  it("drops a wrong-typed needsApproval value instead of threading it through", () => {
+    const action = defineAction({
+      description: "send an email",
+      parameters: { to: { type: "string" } },
+      needsApproval: "yes" as any,
+      run: async () => "sent",
+    } as any);
+    expect(action.needsApproval).toBeUndefined();
+  });
+
   it("omits http from the entry when http is not specified", () => {
     const action = defineAction({
       description: "no http",
@@ -349,6 +389,133 @@ describe("defineAction schema mode — runtime validation wrapper", () => {
     // The truncation ellipsis is appended; the full 2000-char blob is not echoed.
     expect(message).toContain("…");
     expect(message.length).toBeLessThan(1000);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// outputSchema — validate the action's RETURN value (Mastra/Flue-style
+// structured output). Default "warn" never alters behavior; "strict" throws;
+// "fallback" substitutes a safe value.
+// ---------------------------------------------------------------------------
+describe("defineAction — outputSchema (return-value validation)", () => {
+  it("passes the result through untouched when no outputSchema is provided", async () => {
+    const original = { id: "abc", extra: 123 };
+    const action = defineAction({
+      description: "no output schema",
+      schema: z.object({ x: z.string() }),
+      run: async () => original,
+    });
+    const out = await action.run({ x: "hi" });
+    // Same reference: zero wrapping when outputSchema is absent.
+    expect(out).toBe(original);
+    expect("outputSchema" in action).toBe(false);
+    expect(action.outputErrorStrategy).toBeUndefined();
+  });
+
+  it("returns the validated result when it matches the outputSchema", async () => {
+    const action = defineAction({
+      description: "valid output",
+      schema: z.object({ x: z.string() }),
+      outputSchema: z.object({ id: z.string(), count: z.number() }),
+      run: async () => ({ id: "abc", count: 2 }),
+    });
+    const out = await action.run({ x: "hi" });
+    expect(out).toEqual({ id: "abc", count: 2 });
+    // Defaults to the non-breaking "warn" strategy.
+    expect(action.outputErrorStrategy).toBe("warn");
+    expect(action.outputSchema).toBeDefined();
+  });
+
+  it('warns and returns the ORIGINAL result on mismatch under the default "warn" strategy', async () => {
+    const bad = { id: "abc", count: "not-a-number" };
+    const warnings: unknown[][] = [];
+    const original = console.warn;
+    console.warn = (...inputArgs: unknown[]) => {
+      warnings.push(inputArgs);
+    };
+    try {
+      const action = defineAction({
+        description: "warn output",
+        schema: z.object({ x: z.string() }),
+        outputSchema: z.object({ id: z.string(), count: z.number() }),
+        run: async () => bad,
+      });
+      const out = await action.run({ x: "hi" });
+      // Unchanged result — behavior is never altered under "warn".
+      expect(out).toBe(bad);
+    } finally {
+      console.warn = original;
+    }
+    expect(warnings.length).toBe(1);
+    expect(String(warnings[0][0])).toMatch(/did not match outputSchema/);
+    expect(String(warnings[0][0])).toContain("count");
+  });
+
+  it('throws a clear error on mismatch under the "strict" strategy', async () => {
+    const action = defineAction({
+      description: "strict output",
+      schema: z.object({ x: z.string() }),
+      outputSchema: z.object({ id: z.string() }),
+      outputErrorStrategy: "strict",
+      run: async () => ({ wrong: true }),
+    });
+    await expect(action.run({ x: "hi" })).rejects.toThrow(
+      /did not match outputSchema/,
+    );
+    expect(action.outputErrorStrategy).toBe("strict");
+  });
+
+  it('returns the configured fallback on mismatch under the "fallback" strategy', async () => {
+    const fallback = { id: "fallback", count: 0 };
+    const action = defineAction({
+      description: "fallback output",
+      schema: z.object({ x: z.string() }),
+      outputSchema: z.object({ id: z.string(), count: z.number() }),
+      outputErrorStrategy: "fallback",
+      outputFallback: fallback,
+      run: async () => ({ id: "abc", count: "nope" }),
+    });
+    const out = await action.run({ x: "hi" });
+    expect(out).toBe(fallback);
+    expect(action.outputErrorStrategy).toBe("fallback");
+    expect(action.outputFallback).toBe(fallback);
+  });
+
+  it("validates INPUT before run() and OUTPUT after — both compose", async () => {
+    let ran = false;
+    const action = defineAction({
+      description: "compose input + output validation",
+      schema: z.object({ title: z.string() }),
+      outputSchema: z.object({ ok: z.boolean() }),
+      outputErrorStrategy: "strict",
+      run: async (args: { title: string }) => {
+        ran = true;
+        return { ok: args.title.length > 0 };
+      },
+    });
+
+    // Bad input is rejected before run() ever executes (input path unchanged).
+    await expect(action.run({} as any)).rejects.toThrow(
+      /Invalid action parameters/,
+    );
+    expect(ran).toBe(false);
+
+    // Valid input → run() executes → valid output passes through.
+    const out = await action.run({ title: "Hi" });
+    expect(ran).toBe(true);
+    expect(out).toEqual({ ok: true });
+  });
+
+  it("works in legacy parameters mode (no input schema, output validated)", async () => {
+    const action = defineAction({
+      description: "legacy params with output schema",
+      parameters: { id: { type: "string" } },
+      outputSchema: z.object({ count: z.number() }),
+      outputErrorStrategy: "strict",
+      run: async () => ({ count: 5 }),
+    });
+    const out = await action.run({ id: "x" });
+    expect(out).toEqual({ count: 5 });
   });
 });
 

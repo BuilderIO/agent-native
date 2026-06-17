@@ -22,11 +22,15 @@ const readLedgerMock = vi.hoisted(() =>
   vi.fn<() => Promise<string | null>>(() => Promise.resolve(null)),
 );
 const clearLedgerMock = vi.hoisted(() => vi.fn<() => Promise<void>>());
+const currentTurnEventsMock = vi.hoisted(() =>
+  vi.fn<() => Promise<any[]>>(() => Promise.resolve([])),
+);
 
 vi.mock("./run-store.js", () => ({
   writeLedgerEntry: writeLedgerMock,
   readLedgerEntry: readLedgerMock,
   clearLedgerForThread: clearLedgerMock,
+  getCurrentTurnEventsForThread: currentTurnEventsMock,
   // Other run-store functions used by production-agent during abort handling:
   insertRun: vi.fn(),
   updateRunHeartbeat: vi.fn(),
@@ -119,6 +123,7 @@ describe("tool-call result ledger", () => {
     readLedgerMock.mockResolvedValue(null);
     clearLedgerMock.mockResolvedValue(undefined);
     writeLedgerMock.mockResolvedValue(undefined);
+    currentTurnEventsMock.mockResolvedValue([]);
   });
 
   it("writes a ledger entry when a zombie write-tool call completes", async () => {
@@ -221,6 +226,47 @@ describe("tool-call result ledger", () => {
     expect(toolDone?.result).toContain(
       "Recovered from prior interrupted chunk",
     );
+  });
+
+  it("returns a completed journal result without re-executing a write tool", async () => {
+    currentTurnEventsMock.mockResolvedValue([
+      {
+        type: "tool_start",
+        tool: "save-data",
+        input: { content: "already-done" },
+      },
+      {
+        type: "tool_done",
+        tool: "save-data",
+        result: "journaled-result",
+      },
+    ]);
+
+    const action = makeWriteAction();
+    const events: any[] = [];
+
+    await runAgentLoop({
+      engine: singleToolEngine("save-data", { content: "already-done" }),
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions: { "save-data": action },
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+      threadId: "thread-journal-hard-block",
+    });
+
+    expect(action.run).not.toHaveBeenCalled();
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "tool_done",
+        tool: "save-data",
+        result: expect.stringContaining("journaled-result"),
+      }),
+    );
+    const toolDone = events.find((e: any) => e.type === "tool_done");
+    expect(toolDone?.result).toContain("Already completed");
   });
 
   it("executes normally when the ledger has no entry for the tool input", async () => {

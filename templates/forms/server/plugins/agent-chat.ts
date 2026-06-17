@@ -8,11 +8,13 @@ import { getOrgContext } from "@agent-native/core/org";
 export default createAgentChatPlugin({
   appId: "forms",
   actions: loadActionsFromStaticRegistry(actionsRegistry),
+  nativeActionsInDev: true,
+  databaseTools: false,
   resolveOrgId: async (event) => (await getOrgContext(event)).orgId,
   mentionProviders: async () => {
     const { getDb } = await import("../db/index.js");
     const { forms, formShares } = await import("../db/schema.js");
-    const { like, desc, and } = await import("drizzle-orm");
+    const { desc, and, isNull, sql } = await import("drizzle-orm");
     const { accessFilter } = await import("@agent-native/core/sharing");
     return {
       forms: {
@@ -21,16 +23,34 @@ export default createAgentChatPlugin({
         search: async (query: string) => {
           const db = getDb();
           const access = accessFilter(forms, formShares);
-          const rows = query
+          const normalizedQuery = query.trim().toLowerCase();
+          const where = normalizedQuery
+            ? and(
+                access,
+                isNull(forms.deletedAt),
+                sql`lower(${forms.title}) like ${`%${normalizedQuery}%`}`,
+              )
+            : and(access, isNull(forms.deletedAt));
+          const rows = normalizedQuery
             ? await db
-                .select()
+                .select({
+                  id: forms.id,
+                  title: forms.title,
+                  status: forms.status,
+                  updatedAt: forms.updatedAt,
+                })
                 .from(forms)
-                .where(and(access, like(forms.title, `%${query}%`)))
+                .where(where)
                 .limit(15)
             : await db
-                .select()
+                .select({
+                  id: forms.id,
+                  title: forms.title,
+                  status: forms.status,
+                  updatedAt: forms.updatedAt,
+                })
                 .from(forms)
-                .where(access)
+                .where(where)
                 .orderBy(desc(forms.updatedAt))
                 .limit(15);
           return rows.map((form) => ({

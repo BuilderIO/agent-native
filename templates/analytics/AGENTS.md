@@ -182,6 +182,9 @@ or questions where absence matters:
    without flooding chat context. Write temporary files under `scratch/`; write
    durable, user-facing files under a descriptive Resources folder only when
    they should remain visible after the analysis.
+   Give durable corpus jobs descriptive, source-neutral names and preserve the
+   `jobId`; completed, quota-waiting, and failed jobs are surfaced in the app
+   with their coverage counts so the user can resume or inspect the exact run.
 4. Report coverage: source, filters, time window, row/record counts, joins,
    failed/aborted pages, truncation, and any remaining gaps.
 

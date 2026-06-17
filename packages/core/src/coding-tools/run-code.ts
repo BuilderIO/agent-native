@@ -95,8 +95,10 @@ export function createRunCodeEntry(
         "  - `providerFetchAll(provider, path, init?)` — generic pagination helper for cursor, page, and offset APIs. Pass `pagination: { itemsPath, cursorPath or nextCursorPath, cursorParam or cursorBodyPath, pageParam, offsetParam, pageSize, maxPages }`. Returns `{ items, pages, pageCount, itemCount, hasMore, lastCursor, stoppedReason }`.",
         "  - `providerSearchAll(provider, path, init?, options?)` — streaming search helper for broad provider corpora such as transcripts, messages, tickets, issues, notes, events, or documents. Use this before hand-written loops when searching many provider records for terms/phrases/regexes or proving absence. Pass the same `pagination` config as `providerFetchAll`, plus options like `{ query, queries, terms, regex, textPaths, idPaths, metadataPaths, maxHits }`. Returns structured hits with item ids, paths, snippets, page/item indexes, and coverage fields (`pageCount`, `itemCount`, `hasMore`, `stoppedReason`).",
         "  - `webFetch(url, init?)` — outbound HTTP request via the web-request action.",
-        "    Returns `{ status, body }` where body is the response text.",
-        "    Example: `const { body } = await webFetch('https://api.example.com/data');`",
+        "    Returns `{ status, body }` where body is the response text. Supports responseMode, extract, includeLinks, search, maxChars, and saveToFile.",
+        "    Example: `const { body } = await webFetch('https://api.example.com/data', { responseMode: 'raw' });`",
+        "  - `webRead(url, init?)` — convenience wrapper for webFetch with `responseMode: 'auto'` and extracted HTML/markdown or bounded matches.",
+        "    Example: `const docs = await webRead('https://docs.example.com/api', { search: { query: 'pagination' } });`",
         "  - `workspaceRead(path, opts?)` — read a Resources-backed workspace file by path. Returns content string or null. opts: { offset?, maxChars? }.",
         "  - `workspaceReadMeta(path, opts?)` — read a workspace file with metadata such as sizeBytes, truncated, and nextOffset.",
         "  - `workspaceWrite(path, content, contentType?)` — create or overwrite a workspace file. Use `scratch/...` for temporary staging; use durable folders only for files the user should keep.",
@@ -1097,6 +1099,12 @@ async function webFetch(url, init = {}) {
     method,
     ...(init.headers ? { headers: typeof init.headers === "string" ? init.headers : JSON.stringify(init.headers) } : {}),
     ...(init.body ? { body: typeof init.body === "string" ? init.body : JSON.stringify(init.body) } : {}),
+    ...(init.responseMode ? { responseMode: init.responseMode } : {}),
+    ...(init.extract ? { extract: init.extract } : {}),
+    ...(init.includeLinks !== undefined ? { includeLinks: init.includeLinks } : {}),
+    ...(init.search ? { search: init.search } : {}),
+    ...(init.maxChars ? { maxChars: init.maxChars } : {}),
+    ...(init.saveToFile ? { saveToFile: init.saveToFile } : {}),
   });
   // rawResult is "HTTP <status> <statusText>\\n\\n<body>"
   const statusMatch = typeof rawResult === "string" ? rawResult.match(/^HTTP (\\d+) [^\\n]*\\n\\n/) : null;
@@ -1107,6 +1115,14 @@ async function webFetch(url, init = {}) {
     };
   }
   return { status: 0, body: rawResult };
+}
+
+async function webRead(url, init = {}) {
+  return webFetch(url, {
+    responseMode: "auto",
+    includeLinks: true,
+    ...init,
+  });
 }
 
 /**

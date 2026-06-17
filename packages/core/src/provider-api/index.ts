@@ -8,6 +8,12 @@ import {
   isBlockedExtensionUrlWithDns,
 } from "../extensions/url-safety.js";
 import {
+  processWebContent,
+  type WebContentSearchOptions,
+  type WebExtractMode,
+  type WebResponseMode,
+} from "../extensions/web-content.js";
+import {
   deleteOAuthTokens,
   listOAuthAccountsByOwner,
   saveOAuthTokens,
@@ -133,6 +139,17 @@ export interface ProviderApiRequestArgs {
   fetchAllPages?: FetchAllPagesConfig;
 }
 
+export interface ProviderApiDocsOptions {
+  provider: ProviderApiId | string;
+  url?: string;
+  maxBytes?: number;
+  maxChars?: number;
+  responseMode?: WebResponseMode;
+  extract?: WebExtractMode;
+  includeLinks?: boolean;
+  search?: WebContentSearchOptions;
+}
+
 export type ProviderApiAuthKind =
   | { type: "none" }
   | {
@@ -184,6 +201,7 @@ export interface ProviderApiConfig {
   placeholders?: readonly ProviderApiPlaceholder[];
   examples?: readonly ProviderApiExample[];
   notes?: readonly string[];
+  corpusRecipes?: readonly ProviderApiCorpusRecipe[];
   templateUses?: readonly WorkspaceConnectionTemplateUse[];
 }
 
@@ -198,6 +216,40 @@ export interface ProviderApiExample {
   method: ProviderApiMethod;
   path: string;
   body?: unknown;
+}
+
+export interface ProviderApiCorpusRecipe {
+  label: string;
+  useWhen: string;
+  workflow: readonly string[];
+  request: {
+    method: ProviderApiMethod;
+    path: string;
+    body?: unknown;
+    query?: unknown;
+  };
+  pagination?: {
+    itemsPath?: string;
+    nextCursorPath?: string;
+    cursorParam?: string;
+    cursorBodyPath?: string;
+    pageParam?: string;
+    offsetParam?: string;
+    pageSize?: number;
+    maxPages?: number;
+  };
+  batch?: {
+    inputValuePath?: string;
+    itemBodyPath?: string;
+    itemQueryParam?: string;
+    responseItemsPath?: string;
+    batchSize?: number;
+  };
+  search?: {
+    textPaths?: readonly string[];
+    idPaths?: readonly string[];
+    metadataPaths?: readonly string[];
+  };
 }
 
 export interface ProviderApiResolvedCredential {
@@ -251,11 +303,7 @@ interface ProviderApiRuntime {
   listCatalog(
     provider?: ProviderApiId | string,
   ): ReturnType<typeof listProviderApiCatalog> | Promise<unknown[]>;
-  fetchDocs(options: {
-    provider: ProviderApiId | string;
-    url?: string;
-    maxBytes?: number;
-  }): Promise<unknown>;
+  fetchDocs(options: ProviderApiDocsOptions): Promise<unknown>;
   executeRequest(args: ProviderApiRequestArgs): Promise<unknown>;
 }
 
@@ -625,6 +673,59 @@ const PROVIDER_CONFIGS: Record<ProviderApiId, ProviderApiConfig> = {
     notes: [
       "For broad corpus work, call /calls/extensive with provider-api-request and stageAs/saveToFile. Gong returns the next cursor at records.cursor and expects the next cursor in the POST body at cursor, so use pagination { nextCursorPath: 'records.cursor', cursorBodyPath: 'cursor' } for stageAs or fetchAllPages { cursorPath: 'records.cursor', cursorBodyPath: 'cursor' } for saveToFile.",
       "Batch transcripts with POST /calls/transcript and body { filter: { callIds: [...] } } after narrowing or staging call ids.",
+    ],
+    corpusRecipes: [
+      {
+        label: "Batch-search Gong call transcripts from staged call ids",
+        useWhen:
+          "Use when the user asks to search, count, or prove absence across Gong transcript text for a bounded cohort of call ids.",
+        workflow: [
+          "Stage or otherwise collect the exact call ids in scope first.",
+          "Start provider-corpus-job with mode=batch-search against /calls/transcript.",
+          "Inject each batch into body path filter.callIds and search responseItemsPath callTranscripts.",
+          "Search transcript.sentence text fields, then report call-id coverage, batches processed, matches, and gaps.",
+        ],
+        request: {
+          method: "POST",
+          path: "/calls/transcript",
+          body: { filter: { callIds: [] } },
+        },
+        batch: {
+          inputValuePath: "id",
+          itemBodyPath: "filter.callIds",
+          responseItemsPath: "callTranscripts",
+          batchSize: 20,
+        },
+        search: {
+          textPaths: ["transcript.sentences.text", "transcript"],
+          idPaths: ["callId"],
+          metadataPaths: ["callId"],
+        },
+      },
+      {
+        label: "Stage Gong calls with parties/content",
+        useWhen:
+          "Use when the user needs a complete Gong call cohort before a transcript/message join or coverage-sensitive search.",
+        workflow: [
+          "Call provider-api-request with stageAs and pagination.",
+          "Use /calls/extensive when party fields or content summaries are needed; use /calls for lightweight metadata.",
+          "Do not treat staged call metadata as transcript text.",
+        ],
+        request: {
+          method: "POST",
+          path: "/calls/extensive",
+          body: {
+            filter: { fromDateTime: "<iso-date-time>" },
+            contentSelector: { exposedFields: { parties: true } },
+          },
+        },
+        pagination: {
+          itemsPath: "calls",
+          nextCursorPath: "records.cursor",
+          cursorBodyPath: "cursor",
+          maxPages: 200,
+        },
+      },
     ],
   },
   google_calendar: {
@@ -1018,6 +1119,7 @@ export function listProviderApiCatalog(
     defaultHeaders: config.defaultHeaders ?? {},
     examples: config.examples ?? [],
     notes: config.notes ?? [],
+    corpusRecipes: config.corpusRecipes ?? [],
     templateUses: config.templateUses ?? [],
   }));
 }
@@ -1049,11 +1151,7 @@ export function createProviderApiRuntime(
 }
 
 export async function fetchProviderApiDocs(
-  options: {
-    provider: ProviderApiId | string;
-    url?: string;
-    maxBytes?: number;
-  },
+  options: ProviderApiDocsOptions,
   runtime: ProviderApiRuntimeOptions = { appId: "app" },
 ) {
   await assertProviderAllowedAsync(options.provider, runtime);
@@ -1105,11 +1203,42 @@ export async function fetchProviderApiDocs(
     method: "GET",
     maxBytes: clampMaxBytes(options.maxBytes),
   });
+
+  const responseBody =
+    response.text ??
+    (response.json !== undefined ? JSON.stringify(response.json, null, 2) : "");
+  const content = processWebContent({
+    url: url.href,
+    body: responseBody,
+    contentType: response.contentType,
+    responseMode: options.responseMode ?? "auto",
+    extract: options.extract ?? "readability",
+    includeLinks: options.includeLinks ?? true,
+    search: options.search,
+    maxChars: options.maxChars,
+  });
+  const responseForOutput =
+    content.mode === "raw" ? response : compactProviderDocsResponse(response);
+
   return {
     provider: options.provider,
     catalog,
     request: { url: url.href },
-    response,
+    response: responseForOutput,
+    ...(content.mode === "raw" ? {} : { content }),
+  };
+}
+
+function compactProviderDocsResponse(response: ProviderApiHttpResponse) {
+  return {
+    status: response.status,
+    statusText: response.statusText,
+    ok: response.ok,
+    elapsedMs: response.elapsedMs,
+    headers: response.headers,
+    contentType: response.contentType,
+    size: response.size,
+    truncated: response.truncated,
   };
 }
 
@@ -1684,6 +1813,7 @@ function customProviderToCatalogEntry(config: CustomProviderConfig) {
     defaultHeaders: config.defaultHeaders,
     examples: [] as unknown[],
     notes: config.notes ? [config.notes] : ([] as string[]),
+    corpusRecipes: [] as unknown[],
     templateUses: [] as string[],
     custom: true,
   };

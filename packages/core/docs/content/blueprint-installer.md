@@ -1,0 +1,73 @@
+---
+title: "Blueprint Installer"
+description: "agent-native add prints a curated Markdown integration recipe to stdout — pipe it into your coding agent, which applies the changes against your live repo."
+---
+
+# Blueprint Installer
+
+`agent-native add` is **not** a dumb scaffolder that writes files for you. It emits a curated Markdown _integration blueprint_ to stdout. You pipe that blueprint into your own coding agent (Claude Code, Codex, …), which applies the changes against the live repo with full context.
+
+This fits the agent-applies-changes, filesystem-first house style: the framework supplies the recipe (the canonical files to touch, the rules to honor, the verification step), and the coding agent does the editing.
+
+```bash
+agent-native add provider stripe | claude
+agent-native add channel discord  | codex
+```
+
+## Usage {#usage}
+
+```bash
+agent-native add <kind> <name>            # print a curated blueprint
+agent-native add <kind> <https://docs…>   # research-and-integrate from a URL
+agent-native add --list                   # list available kinds and blueprints
+```
+
+- A bare **name** resolves a curated blueprint from `blueprints/<kind>/<name>.md`.
+- A **URL** instead of a name emits a generic _research-and-integrate_ blueprint for that kind, with the URL embedded as the research starting point (a URL is a research seed, not a known recipe).
+- The blueprint goes to **stdout**; diagnostics go to stderr, so `… | claude` only ever receives the blueprint.
+
+## Seeded blueprints {#seeded}
+
+`agent-native add --list` shows what ships in the box:
+
+| Kind       | Name      | What it sets up                                                                    |
+| ---------- | --------- | ---------------------------------------------------------------------------------- |
+| `provider` | `stripe`  | Wire a provider into the `provider-api` substrate (catalog / docs / request trio). |
+| `channel`  | `discord` | Implement a `PlatformAdapter` inbound webhook channel and register it.             |
+| `sandbox`  | `docker`  | Implement the `SandboxAdapter` seam to run `run-code` in a Docker container.       |
+| `action`   | `crud`    | Add a single multi-surface `defineAction` with a Zod schema (one `update` over N). |
+
+Each blueprint is self-contained: the coding agent reading it gets the files to touch, the framework rules to honor (actions are the single source of truth, never hardcode secrets, scope ownable data, add a changeset for `packages/*` source), and a concrete **Verify** section.
+
+## URL → research blueprint {#url}
+
+When you pass a URL the kind doesn't have a curated recipe for (or want a fresh integration), `add` emits a generic "research-and-integrate" blueprint with the URL as the seed:
+
+```bash
+agent-native add provider https://docs.example.com/api | claude
+```
+
+The generated blueprint tells the coding agent to fetch the URL (and the pages it links to) for the real endpoints, auth model, payload shapes, and signature/verification requirements — _not_ to guess from training data — then implement and verify. It also carries kind-specific guidance (e.g. a `provider` URL is steered toward the `provider-api` substrate; a `channel` URL toward a `PlatformAdapter`).
+
+## Adding your own blueprint {#authoring}
+
+Drop a Markdown file into `packages/core/blueprints/<kind>/<name>.md`. The kind is the subdirectory; the name is the filename without `.md`. It is picked up automatically — `--list`, name resolution, and the catalog all read the directory at runtime. No code change is needed to register it.
+
+Blueprint `.md` files ship in the published package via the `blueprints` entry in `package.json` `files`, so they resolve at `node_modules/@agent-native/core/blueprints/**` for end users.
+
+Write each blueprint as an instruction set for a coding agent with no other context. A good blueprint has:
+
+1. **A one-line goal** and a "you are a coding agent in an agent-native app, apply these as real source changes" framing.
+2. **Read first** — the exact files that _are_ the contract.
+3. **Files to touch** — concrete paths and what each change does.
+4. **Framework rules to honor** — actions-first, no hardcoded secrets, scope ownable data, add a changeset for publishable-package source.
+5. **Verify** — typecheck, a focused `*.spec.ts`, and an end-to-end check.
+
+> [!TIP]
+> A new curated blueprint under an existing kind needs no code — but if you create a brand-new kind directory, that kind shows up in `--list` automatically too.
+
+## What's next
+
+- [**Sandbox Adapters**](/docs/sandbox-adapters) — the seam the `add sandbox docker` blueprint targets
+- [**Actions**](/docs/actions) — the single source of truth every blueprint builds on
+- [**External Agents**](/docs/external-agents) — connecting the coding agent you pipe blueprints into
