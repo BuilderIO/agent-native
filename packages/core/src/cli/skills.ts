@@ -2314,6 +2314,15 @@ const CLIENT_HINTS: Record<ClientId, string> = {
   cowork: "~/.cowork/mcp.json",
 };
 
+const SKILLS_CLIENTS: ClientId[] = ["claude-code", "codex", "cowork"];
+const SKILL_INSTRUCTION_CLIENTS: ClientId[] = ["claude-code", "codex"];
+const SKILL_INSTRUCTION_CLIENT_HINTS: Record<ClientId, string> = {
+  "claude-code": ".claude/skills or .claude/commands",
+  "claude-code-cli": ".claude/skills or .claude/commands",
+  codex: ".agents/skills or ~/.codex/skills",
+  cowork: "MCP only",
+};
+
 type SkillsCommand = "list" | "add" | "status" | "update" | "help";
 type PlanInstallMode = "hosted" | "local-files" | "self-hosted";
 
@@ -2533,6 +2542,7 @@ export interface RunSkillsOptions {
 interface SkillsClientPromptContext {
   initialClients: ClientId[];
   options: Array<{ value: ClientId; label: string; hint: string }>;
+  installsMcp: boolean;
 }
 
 interface SkillsTargetPromptContext {
@@ -3055,11 +3065,43 @@ function normalizeClientIds(values: unknown): ClientId[] {
   return out;
 }
 
-function clientPromptOptions(): SkillsClientPromptContext["options"] {
-  return CLIENTS.map((client) => ({
+function normalizeSkillsClientIds(values: unknown): ClientId[] {
+  const seen = new Set<ClientId>();
+  const out: ClientId[] = [];
+  for (const client of normalizeClientIds(values)) {
+    const normalized = client === "claude-code-cli" ? "claude-code" : client;
+    if (seen.has(normalized)) continue;
+    seen.add(normalized);
+    out.push(normalized);
+  }
+  return out;
+}
+
+function resolveSkillsClientArg(client: string): ClientId[] {
+  return normalizeSkillsClientIds(resolveClients(client));
+}
+
+function skillsClients(installsMcp: boolean): ClientId[] {
+  return installsMcp ? SKILLS_CLIENTS : SKILL_INSTRUCTION_CLIENTS;
+}
+
+function filterSkillsClients(
+  clients: ClientId[],
+  installsMcp: boolean,
+): ClientId[] {
+  if (installsMcp) return clients;
+  return clients.filter((client) => SKILL_INSTRUCTION_CLIENTS.includes(client));
+}
+
+function clientPromptOptions(
+  installsMcp: boolean,
+): SkillsClientPromptContext["options"] {
+  return skillsClients(installsMcp).map((client) => ({
     value: client,
     label: CLIENT_LABELS[client],
-    hint: CLIENT_HINTS[client],
+    hint: installsMcp
+      ? CLIENT_HINTS[client]
+      : SKILL_INSTRUCTION_CLIENT_HINTS[client],
   }));
 }
 
@@ -3140,6 +3182,13 @@ function skillPromptOptions(
   ];
 }
 
+function defaultSkillPromptTargets(options: RunSkillsOptions): string[] {
+  return [
+    ...DEFAULT_SKILL_PROMPT_TARGETS,
+    ...publicSkillEntries(options).map((entry) => entry.name),
+  ];
+}
+
 function publicSkillSelectionTarget(skillNames: string[]): string {
   return `${PUBLIC_SKILL_TARGET_PREFIX}${skillNames.join(",")}`;
 }
@@ -3201,10 +3250,13 @@ async function promptForClients(
   context: SkillsClientPromptContext,
 ): Promise<ClientId[] | null> {
   const clack = await import("@clack/prompts");
+  const message = context.installsMcp
+    ? "Install the MCP connector and skills for which local agents?\n" +
+      "  (space toggles, enter confirms; saved for next time)"
+    : "Install skill instructions for which local agents?\n" +
+      "  (space toggles, enter confirms; saved for next time)";
   const result = await clack.multiselect({
-    message:
-      "Install the MCP connector for which local agents?\n" +
-      "  (space toggles, enter confirms; saved for next time)",
+    message,
     options: context.options,
     initialValues: context.initialClients,
     required: true,
@@ -3333,16 +3385,27 @@ async function promptForSkills(
 async function resolveSkillsClients(
   parsed: ParsedSkillsArgs,
   options: RunSkillsOptions,
+  installsMcp: boolean,
 ): Promise<ClientId[] | null> {
   if (parsed.clientExplicit || !shouldPrompt(parsed, options)) {
-    return resolveClients(parsed.client);
+    const clients = filterSkillsClients(
+      resolveSkillsClientArg(parsed.client),
+      installsMcp,
+    );
+    if (clients.length === 0) {
+      throw new Error(
+        "Local-file skill instructions only support Codex or Claude Code clients.",
+      );
+    }
+    return clients;
   }
-  const initialClients = resolveClients("all");
+  const initialClients = skillsClients(installsMcp);
   const prompt = options.promptClients ?? promptForClients;
-  const selected = normalizeClientIds(
+  const selected = normalizeSkillsClientIds(
     await prompt({
       initialClients,
-      options: clientPromptOptions(),
+      options: clientPromptOptions(installsMcp),
+      installsMcp,
     }),
   );
   if (selected.length === 0) return null;
@@ -3477,7 +3540,7 @@ async function resolveSkillTargets(
     available: promptOptions.map((option) => option.value).join(","),
   });
   const selected = await prompt({
-    initialTargets: DEFAULT_SKILL_PROMPT_TARGETS,
+    initialTargets: defaultSkillPromptTargets(options),
     options: promptOptions,
   });
   if (!selected || selected.length === 0) return null;
@@ -3717,7 +3780,7 @@ function dryRunInstallCommand(
   parsed: ParsedSkillsArgs,
   target: string,
 ): string {
-  const clients = parsed.clients ?? resolveClients(parsed.client);
+  const clients = parsed.clients ?? resolveSkillsClientArg(parsed.client);
   const args = [
     "@agent-native/core@latest",
     "skills",
@@ -3862,17 +3925,20 @@ function agentNativeSkillsInstallArgs(
   parsed: ParsedSkillsArgs,
   target: string,
   clients: ClientId[],
+  baseDir: string | undefined,
 ): string[] {
   const args = [
     "--yes",
     "@agent-native/skills@latest",
     "add",
+    "--copy",
     target,
     "--client",
     clientArgForClients(clients),
     "--scope",
     parsed.scope,
   ];
+  if (baseDir) args.push("--cwd", baseDir);
   if (parsed.withGithubAction) args.push("--with-github-action");
   if (parsed.force) args.push("--force");
   if (parsed.planMode) args.push("--mode", parsed.planMode);
@@ -3906,7 +3972,7 @@ async function addPlainSkillRepo(
     );
   }
 
-  const clients = parsed.clients ?? resolveClients(parsed.client);
+  const clients = parsed.clients ?? resolveSkillsClientArg(parsed.client);
   const skillsAgents = skillsAgentsForClients(clients);
   const selectedSkillNames = parsed.plainSkillNames ?? [];
   if (skillsAgents.length === 0) {
@@ -3914,7 +3980,12 @@ async function addPlainSkillRepo(
       "Plain skill repositories can only install instructions for Codex or Claude Code clients.",
     );
   }
-  const args = agentNativeSkillsInstallArgs(parsed, target, clients);
+  const args = agentNativeSkillsInstallArgs(
+    parsed,
+    target,
+    clients,
+    options.baseDir,
+  );
   if (!parsed.dryRun) {
     const code = await (options.runCommand ?? runCommand)("npx", args, {
       stdio: parsed.yes ? "silent" : "inherit",
@@ -4010,13 +4081,26 @@ async function connectAfterEnsure(
   options.log?.(`Authenticating ${installTarget.displayName}…`);
   options.telemetry?.track("skills_cli connect started");
   try {
-    await (options.runConnect ?? runConnect)([
+    const connectArgs = [
       hostedUrl,
       "--client",
       clientArgForClients(clients),
       "--scope",
       parsed.scope,
-    ]);
+    ];
+    if (options.runConnect) {
+      await options.runConnect(connectArgs);
+    } else {
+      await runConnect(connectArgs, {
+        isInteractive: options.isInteractive,
+        logOut: (message) => {
+          if (message.trim()) options.log?.(message);
+        },
+        logErr: (message) => {
+          if (message.trim()) options.log?.(message);
+        },
+      });
+    }
     options.telemetry?.track("skills_cli connect completed");
     return { connected: true, connectCommand: "" };
   } catch (err: any) {
@@ -4094,7 +4178,7 @@ export async function addAgentNativeSkill(
         "Context X-Ray does not need MCP config yet. Run without --mcp-only.",
       );
     }
-    const clients = parsed.clients ?? resolveClients(parsed.client);
+    const clients = parsed.clients ?? resolveSkillsClientArg(parsed.client);
     const skillsAgents = skillsAgentsForClients(clients);
     if (parsed.dryRun) {
       const githubActionPath =
@@ -4150,7 +4234,7 @@ export async function addAgentNativeSkill(
   if (parsed.mcpUrl) {
     installTarget = withMcpUrlOverride(installTarget, parsed.mcpUrl);
   }
-  const clients = parsed.clients ?? resolveClients(parsed.client);
+  const clients = parsed.clients ?? resolveSkillsClientArg(parsed.client);
   installTarget = preserveMcpUrlAppPathOverride(installTarget, parsed.mcpUrl);
   const skillsAgents = skillsAgentsForClients(clients);
   if (parsed.dryRun) {
@@ -4195,6 +4279,7 @@ export async function addAgentNativeSkill(
   let instructionsWritten: string[] | undefined;
   let connected = false;
   let connectCommand: string | undefined;
+  let registeredMcpClients: ClientId[] = shouldRegisterMcp ? clients : [];
 
   try {
     if (parsed.instructions) {
@@ -4264,7 +4349,7 @@ export async function addAgentNativeSkill(
         `npx @agent-native/core@latest app-skill ensure --manifest ${installTarget.loaded.file} --client ${parsed.client} --scope ${parsed.scope} --yes`,
       );
       if (!parsed.dryRun) {
-        await ensureAppSkill(installTarget.loaded, {
+        const ensureResult = await ensureAppSkill(installTarget.loaded, {
           clients,
           scope: parsed.scope,
           baseDir: options.baseDir,
@@ -4272,6 +4357,9 @@ export async function addAgentNativeSkill(
           confirm: true,
           log: options.log,
         });
+        registeredMcpClients = ensureResult.written.map(
+          (written) => written.client,
+        );
         options.telemetry?.track("skills_cli mcp registered", {
           skills: installTarget.skillNames.join(","),
         });
@@ -4289,7 +4377,20 @@ export async function addAgentNativeSkill(
           );
           connected = result.connected;
           connectCommand = result.connectCommand || undefined;
+          if (connected) registeredMcpClients = clients;
           if (connectCommand) commands.push(connectCommand);
+        } else {
+          const pendingClients = clients.filter(
+            (client) => !registeredMcpClients.includes(client),
+          );
+          if (pendingClients.length > 0) {
+            connectCommand = connectCommandFor(
+              installTarget.loaded.manifest.hosted.url,
+              pendingClients,
+              parsed.scope,
+            );
+            commands.push(connectCommand);
+          }
         }
       }
     }
@@ -4357,7 +4458,7 @@ export async function addAgentNativeSkill(
         knownTarget === "visual-plans" && planMode === "local-files"
           ? ""
           : installTarget.loaded.manifest.hosted.mcpUrl,
-      mcpClients: shouldRegisterMcp ? clients : [],
+      mcpClients: registeredMcpClients,
       dryRun: parsed.dryRun,
       commands,
       written: instructionsWritten,
@@ -4434,6 +4535,27 @@ function planModeSummary(mode: PlanInstallMode): string {
   if (mode === "local-files") return "Local files - No sharing, all local.";
   if (mode === "self-hosted") return "Self-hosted/custom Plan app";
   return "Hosted Plans - shareable links and comments";
+}
+
+function targetInstallsMcp(
+  target: string,
+  parsed: Pick<ParsedSkillsArgs, "mcp" | "planMode">,
+): boolean {
+  if (!parsed.mcp) return false;
+  if (publicSkillSelectionNames(target)) return false;
+  const knownTarget = normalizeKnownSkillTarget(target);
+  if (knownTarget === "visual-plans") return parsed.planMode !== "local-files";
+  if (knownTarget) {
+    return !isLocalOnlyBuiltInSkill(BUILT_IN_APP_SKILLS[knownTarget]);
+  }
+  return true;
+}
+
+function targetsInstallMcp(
+  targets: string[],
+  parsed: ParsedSkillsArgs,
+): boolean {
+  return targets.some((target) => targetInstallsMcp(target, parsed));
 }
 
 function instructionContentForSkill(skillName: string): string | null {
@@ -4560,9 +4682,15 @@ export async function runSkills(
   if (parsed.baseDir) {
     options = { ...options, baseDir: path.resolve(parsed.baseDir) };
   }
+  const clackForLog = parsed.printJson
+    ? undefined
+    : await import("@clack/prompts");
   const log = parsed.printJson
     ? undefined
-    : (message: string) => process.stdout.write(`${message}\n`);
+    : (message: string) => {
+        if (!message.trim()) return;
+        clackForLog?.log.info(message);
+      };
 
   if (parsed.command === "help") {
     process.stdout.write(`${HELP}\n`);
@@ -4680,7 +4808,12 @@ export async function runSkills(
       });
     }
 
-    const clients = await resolveSkillsClients(parsed, optionsWithTelemetry);
+    const installsMcp = targetsInstallMcp(targets, parsed);
+    const clients = await resolveSkillsClients(
+      parsed,
+      optionsWithTelemetry,
+      installsMcp,
+    );
     if (!clients) {
       telemetry.track("skills_cli cancelled", { step: "clients" });
       return;
@@ -4891,11 +5024,11 @@ export async function runSkills(
     for (const line of [githubActionLine, githubActionSuggestionLine].filter(
       Boolean,
     )) {
-      process.stdout.write(`${line}\n`);
+      clack.log.info(line);
     }
 
     const slashCommands = completedSkills.map((name) => `/${name}`).join("  ");
-    const configuredEveryClient = CLIENTS.every((client) =>
+    const configuredEveryClient = SKILLS_CLIENTS.every((client) =>
       clients.includes(client),
     );
     const clientHint = configuredEveryClient

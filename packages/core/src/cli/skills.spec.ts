@@ -138,6 +138,43 @@ describe("agent-native skills", () => {
     expect(result.connected).toBe(false);
   });
 
+  it("reports pending connect when --no-connect skips Codex MCP config", async () => {
+    const root = tmpDir();
+    const codexHome = path.join(root, "codex-home");
+    fs.mkdirSync(codexHome, { recursive: true });
+    const previousCodexHome = process.env.CODEX_HOME;
+    process.env.CODEX_HOME = codexHome;
+
+    try {
+      const result = await addAgentNativeSkill(
+        parseSkillsArgs([
+          "add",
+          "visual-plan",
+          "--client",
+          "codex",
+          "--scope",
+          "user",
+          "--no-connect",
+        ]),
+        {
+          baseDir: root,
+          isInteractive: () => true,
+          promptPlanMode: async () => "hosted",
+          runCommand: async () => 0,
+        },
+      );
+
+      expect(result.mcpClients).toEqual([]);
+      expect(result.connectCommand).toBe(
+        "npx @agent-native/core@latest connect https://plan.agent-native.com --client codex --scope user",
+      );
+      expect(fs.existsSync(path.join(codexHome, "config.toml"))).toBe(false);
+    } finally {
+      if (previousCodexHome === undefined) delete process.env.CODEX_HOME;
+      else process.env.CODEX_HOME = previousCodexHome;
+    }
+  });
+
   it("prints the connect command instead of auth in a non-interactive shell", async () => {
     const root = tmpDir();
     const runConnect = vi.fn(async () => {});
@@ -184,7 +221,7 @@ describe("agent-native skills", () => {
     expect(runConnect).toHaveBeenCalledWith([
       "https://assets.agent-native.com",
       "--client",
-      "all",
+      "claude-code,codex,cowork",
       "--scope",
       "project",
     ]);
@@ -700,6 +737,8 @@ describe("agent-native skills", () => {
         "codex",
         "--scope",
         "project",
+        "--cwd",
+        root,
         "--update-instructions",
         "--with-github-action",
         "--no-connect",
@@ -723,6 +762,7 @@ describe("agent-native skills", () => {
       expect.arrayContaining([
         "@agent-native/skills@latest",
         "add",
+        "--copy",
         "BuilderIO/skills",
         "--skill",
         "quick-recap",
@@ -776,10 +816,13 @@ describe("agent-native skills", () => {
       expect(promptClients).toHaveBeenCalledTimes(1);
       expect(promptClients.mock.calls[0]?.[0].initialClients).toEqual([
         "claude-code",
-        "claude-code-cli",
         "codex",
         "cowork",
       ]);
+      expect(
+        promptClients.mock.calls[0]?.[0].options.map((o) => o.value),
+      ).toEqual(["claude-code", "codex", "cowork"]);
+      expect(promptClients.mock.calls[0]?.[0].installsMcp).toBe(true);
       // Built-in instructions are written in-process for each selected client.
       expect(
         fs.existsSync(path.join(codexHome, "skills", "assets", "SKILL.md")),
@@ -1088,7 +1131,74 @@ describe("agent-native skills", () => {
       "context-xray",
       "quick-recap",
     ]);
-    expect(allContext?.initialTargets).toEqual(["visual-plan", "visual-recap"]);
+    expect(allContext?.initialTargets).toEqual([
+      "visual-plan",
+      "visual-recap",
+      "quick-recap",
+    ]);
+  });
+
+  it("asks for plan mode before clients and skips MCP for local-files", async () => {
+    const root = tmpDir();
+    const calls: string[] = [];
+    const runConnect = vi.fn(async () => {});
+    const promptClients = vi.fn(
+      async (context: {
+        installsMcp: boolean;
+        options: Array<{ value: string }>;
+      }) => {
+        calls.push(`clients:${context.installsMcp}`);
+        return ["codex" as const];
+      },
+    );
+    vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+
+    await runSkills(["add"], {
+      baseDir: root,
+      isInteractive: () => true,
+      promptSkills: async () => {
+        calls.push("skills");
+        return ["visual-plan", "visual-recap"];
+      },
+      promptPlanMode: async () => {
+        calls.push("plan-mode");
+        return "local-files";
+      },
+      promptClients,
+      promptScope: async () => {
+        calls.push("scope");
+        return "project";
+      },
+      promptGithubAction: async () => {
+        calls.push("github-action");
+        return false;
+      },
+      runConnect,
+      runCommand: async () => 0,
+    });
+
+    expect(calls).toEqual([
+      "skills",
+      "plan-mode",
+      "clients:false",
+      "scope",
+      "github-action",
+    ]);
+    expect(runConnect).not.toHaveBeenCalled();
+    expect(
+      promptClients.mock.calls[0]?.[0].options.map((o) => o.value),
+    ).toEqual(["claude-code", "codex"]);
+    expect(fs.existsSync(path.join(root, ".codex", "config.toml"))).toBe(false);
+    expect(
+      fs.existsSync(
+        path.join(root, ".agents", "skills", "visual-plan", "SKILL.md"),
+      ),
+    ).toBe(true);
+    expect(
+      fs.existsSync(
+        path.join(root, ".agents", "skills", "visual-recap", "SKILL.md"),
+      ),
+    ).toBe(true);
   });
 
   it("runs public skills through the same prompt flow before delegating the copy", async () => {
@@ -1137,6 +1247,7 @@ describe("agent-native skills", () => {
       expect.arrayContaining([
         "@agent-native/skills@latest",
         "add",
+        "--copy",
         "BuilderIO/skills",
         "--skill",
         "quick-recap",
@@ -1144,6 +1255,8 @@ describe("agent-native skills", () => {
         "codex",
         "--scope",
         "project",
+        "--cwd",
+        root,
         "--update-instructions",
       ]),
     );
@@ -1230,7 +1343,7 @@ describe("agent-native skills", () => {
     );
 
     expect(result.commands).toEqual([
-      "npx @agent-native/core@latest skills add assets --client all --scope project --yes",
+      "npx @agent-native/core@latest skills add assets --client claude-code,codex,cowork --scope project --yes",
     ]);
     expect(result.commands.join("\n")).not.toContain(os.tmpdir());
     expect(fs.existsSync(path.join(root, ".mcp.json"))).toBe(false);
@@ -1252,7 +1365,7 @@ describe("agent-native skills", () => {
     );
 
     expect(result.commands).toEqual([
-      "npx @agent-native/core@latest skills add visual-recap --client all --scope project --with-github-action --yes",
+      "npx @agent-native/core@latest skills add visual-recap --client claude-code,codex,cowork --scope project --with-github-action --yes",
     ]);
     expect(result.githubActionPath).toBe(
       path.join(".github", "workflows", "pr-visual-recap.yml"),

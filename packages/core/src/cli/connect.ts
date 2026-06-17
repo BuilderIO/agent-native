@@ -99,11 +99,14 @@ const REMOTE_MCP_OAUTH_CLIENTS = new Set<ClientId>([
   "claude-code-cli",
 ]);
 
+let logOutImpl = (msg: string) => process.stdout.write(`${msg}\n`);
+let logErrImpl = (msg: string) => process.stderr.write(`${msg}\n`);
+
 function logOut(msg: string): void {
-  process.stdout.write(`${msg}\n`);
+  logOutImpl(msg);
 }
 function logErr(msg: string): void {
-  process.stderr.write(`${msg}\n`);
+  logErrImpl(msg);
 }
 
 // ---------------------------------------------------------------------------
@@ -644,6 +647,9 @@ export interface ConnectDeps {
   preferencesFile?: string;
   /** Override the saved dev/prod profile file. */
   profilesFile?: string;
+  /** Optional output hooks used when another clack-based command embeds connect. */
+  logOut?: (message: string) => void;
+  logErr?: (message: string) => void;
 }
 
 function realSleep(ms: number): Promise<void> {
@@ -2467,14 +2473,18 @@ export async function runConnect(
   args: string[],
   deps: ConnectDeps = {},
 ): Promise<void> {
-  if (args[0] === "--help" || args[0] === "-h" || args[0] === "help") {
-    logOut(HELP);
-    return;
-  }
-
-  const parsed = parseConnectArgs(args);
-
+  const previousLogOut = logOutImpl;
+  const previousLogErr = logErrImpl;
+  logOutImpl = deps.logOut ?? previousLogOut;
+  logErrImpl = deps.logErr ?? previousLogErr;
   try {
+    if (args[0] === "--help" || args[0] === "-h" || args[0] === "help") {
+      logOut(HELP);
+      return;
+    }
+
+    const parsed = parseConnectArgs(args);
+
     if (parsed.mode) {
       let ok: boolean;
       if (parsed.mode === "reconnect" || parsed.mode === "reauth") {
@@ -2531,5 +2541,8 @@ export async function runConnect(
   } catch (err: any) {
     logErr(`  ${err?.message ?? err}`);
     process.exitCode = 1;
+  } finally {
+    logOutImpl = previousLogOut;
+    logErrImpl = previousLogErr;
   }
 }
