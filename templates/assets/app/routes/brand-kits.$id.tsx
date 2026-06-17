@@ -23,6 +23,7 @@ import {
   useActionQuery,
 } from "@agent-native/core/client";
 import {
+  IconCopy,
   IconDotsVertical,
   IconArchive,
   IconFolder,
@@ -314,6 +315,7 @@ export default function LibraryPage() {
   const { data } = useActionQuery("get-library", { id: libraryId }) as any;
   const updateLibrary = useActionMutation("update-library");
   const archiveLibrary = useActionMutation("archive-library");
+  const duplicateLibrary = useActionMutation("duplicate-library");
   const saveGenerated = useActionMutation("save-generated-image");
   const updateAsset = useActionMutation("update-asset");
   const rerunGeneration = useActionMutation("rerun-generation-run");
@@ -873,6 +875,23 @@ export default function LibraryPage() {
     }
   }
 
+  async function duplicateCurrentLibrary() {
+    if (!library || duplicateLibrary.isPending) return;
+    try {
+      const copy = (await duplicateLibrary.mutateAsync({
+        id: library.id,
+      })) as any;
+      toast.success("Private brand kit copy created");
+      navigate(`/brand-kits/${copy.id}`);
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Could not duplicate brand kit.",
+      );
+    }
+  }
+
   function generate(prompt: string, options: GenerateOptions) {
     const selectedPreset = options.presetId
       ? generationPresets.find((preset) => preset.id === options.presetId)
@@ -1051,7 +1070,9 @@ export default function LibraryPage() {
                   variant="outline"
                   size="icon"
                   aria-label="Brand kit actions"
-                  disabled={archiveLibrary.isPending}
+                  disabled={
+                    archiveLibrary.isPending || duplicateLibrary.isPending
+                  }
                 >
                   <IconDotsVertical className="h-4 w-4" />
                 </Button>
@@ -1068,6 +1089,17 @@ export default function LibraryPage() {
                   New folder
                 </DropdownMenuItem>
                 <DropdownMenuSeparator className="xl:hidden" />
+                <DropdownMenuItem
+                  disabled={duplicateLibrary.isPending}
+                  onSelect={(event) => {
+                    event.preventDefault();
+                    void duplicateCurrentLibrary();
+                  }}
+                >
+                  <IconCopy className="mr-2 h-4 w-4 shrink-0" />
+                  {duplicateLibrary.isPending ? "Duplicating..." : "Duplicate"}
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
                 <DropdownMenuItem
                   onSelect={(event) => {
                     event.preventDefault();
