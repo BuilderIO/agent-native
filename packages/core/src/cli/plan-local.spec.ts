@@ -90,6 +90,32 @@ function writeEmptyWireframe(dir: string) {
   );
 }
 
+function writeScaffoldExamplePlan(dir: string) {
+  // Mirrors the `plan local init` scaffold prose, which documents block usage
+  // with an inline-code example. That example must NOT be linted as a real
+  // block (it previously tripped the wireframe linter → init → serve failed).
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(
+    path.join(dir, "plan.mdx"),
+    [
+      "---",
+      'title: "Scaffold"',
+      'kind: "plan"',
+      "localOnly: true",
+      "---",
+      "",
+      "# Scaffold",
+      "",
+      "Author the structured plan or recap here. You can add Agent-Native Plan MDX",
+      'blocks such as `<WireframeBlock><Screen surface="browser">...</Screen></WireframeBlock>`,',
+      "`<Diagram />`, `<TabsBlock />`, `<FileTree />`, or `<Diff />`; the local",
+      "preview will show the source without publishing it to the Plan app.",
+      "",
+    ].join("\n"),
+    "utf-8",
+  );
+}
+
 describe("local plan CLI helpers", () => {
   it("builds the same safe folder names as the Plan app local mirror", () => {
     expect(localPlanFolderName("Private / no-DB recap!")).toBe(
@@ -185,6 +211,16 @@ describe("local plan CLI helpers", () => {
     await expect(startLocalPlanBridge({ dir })).rejects.toThrow(
       /empty <Screen>/,
     );
+  });
+
+  it("does not lint block tags written inside inline code (init scaffold passes)", () => {
+    const dir = path.join(tmpDir(), "scaffold");
+    writeScaffoldExamplePlan(dir);
+    // The scaffold's `<WireframeBlock><Screen>...` is a documentation example in
+    // inline code, not a real block — validation must not trip on it so the
+    // default `init` → `serve`/`check` flow works out of the box.
+    expect(() => writeLocalPlanPreview({ dir })).not.toThrow();
+    await expect(startLocalPlanBridge({ dir })).resolves.toBeTruthy();
   });
 
   it("serves a tokened localhost bridge for the hosted local plan UI", async () => {

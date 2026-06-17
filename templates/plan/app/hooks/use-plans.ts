@@ -183,6 +183,61 @@ export type DeletePlanCommentResult = {
   deletedAt: string;
 };
 
+export type ListPlansInput = {
+  status?: PlanStatus;
+  limit?: number;
+  deleted?: "active" | "deleted" | "all";
+};
+
+export const ACTIVE_PLANS_QUERY_ARGS = {};
+export const ACTIVE_PLANS_QUERY_KEY = [
+  "action",
+  "list-visual-plans",
+  ACTIVE_PLANS_QUERY_ARGS,
+] as const;
+export const ALL_PLANS_QUERY_ARGS = { deleted: "all" as const };
+export const ALL_PLANS_QUERY_KEY = [
+  "action",
+  "list-visual-plans",
+  ALL_PLANS_QUERY_ARGS,
+] as const;
+
+export type DeletePlanInput = {
+  planId: string;
+  mode?: "soft" | "restore" | "hard";
+  confirmation?: string;
+};
+
+export type DeletePlanResult =
+  | {
+      planId: string;
+      mode: "soft";
+      deletedAt: string;
+      hardDeleted: false;
+    }
+  | {
+      planId: string;
+      mode: "restore";
+      restoredAt: string;
+      hardDeleted: false;
+    }
+  | {
+      planId: string;
+      mode: "hard";
+      deletedAt: string;
+      hardDeleted: true;
+      deletedCounts: {
+        comments: number;
+        sections: number;
+        events: number;
+        reports: number;
+        versions: number;
+        shares: number;
+        assets: number;
+        plans: number;
+      };
+    };
+
 function usePlanInvalidation() {
   const qc = useQueryClient();
   return () => {
@@ -209,8 +264,29 @@ type UsePlansOptions = Omit<
   "queryKey" | "queryFn"
 >;
 
-export function usePlans(options?: UsePlansOptions) {
-  return useActionQuery<PlanSummary[]>("list-visual-plans", {}, options);
+function isListPlansInput(value: unknown): value is ListPlansInput {
+  if (!value || typeof value !== "object") return false;
+  return "status" in value || "limit" in value || "deleted" in value;
+}
+
+export function usePlans(
+  options?: UsePlansOptions,
+): ReturnType<typeof useActionQuery<PlanSummary[]>>;
+export function usePlans(
+  args: ListPlansInput,
+  options?: UsePlansOptions,
+): ReturnType<typeof useActionQuery<PlanSummary[]>>;
+export function usePlans(
+  argsOrOptions?: ListPlansInput | UsePlansOptions,
+  options?: UsePlansOptions,
+) {
+  const args = isListPlansInput(argsOrOptions)
+    ? argsOrOptions
+    : ACTIVE_PLANS_QUERY_ARGS;
+  const queryOptions = isListPlansInput(argsOrOptions)
+    ? options
+    : (argsOrOptions as UsePlansOptions | undefined);
+  return useActionQuery<PlanSummary[]>("list-visual-plans", args, queryOptions);
 }
 
 export function planBundleQueryParams(id: string) {
@@ -400,6 +476,17 @@ export function useDeletePlanComment() {
     {
       onSuccess: invalidate,
       onError: showActionError("Failed to delete comment"),
+    },
+  );
+}
+
+export function useDeletePlan() {
+  const invalidate = usePlanInvalidation();
+  return useActionMutation<DeletePlanResult, DeletePlanInput>(
+    "delete-visual-plan",
+    {
+      onSuccess: invalidate,
+      onError: showActionError("Failed to delete plan"),
     },
   );
 }

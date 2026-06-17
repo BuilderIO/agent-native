@@ -762,13 +762,25 @@ function lintColumnsBlocks(
   }
 }
 
+// Blank out fenced code blocks and inline code spans (preserving newlines and
+// length) so block-tag linters don't trip on documentation examples written in
+// prose — e.g. an inline `<WireframeBlock><Screen>...</Screen></WireframeBlock>`
+// example is not a real block to validate. Real blocks (outside code) are left
+// intact, so their offsets/line numbers stay correct. Without this the default
+// `plan local init` scaffold fails its own `plan local check`/`serve` lint.
+function maskCodeRegions(source: string): string {
+  const blank = (s: string) => s.replace(/[^\n]/g, " ");
+  return source.replace(/```[\s\S]*?```/g, blank).replace(/`[^`\n]*`/g, blank);
+}
+
 export function validateLocalPlanFiles(
   files: LocalPlanFiles,
 ): LocalPlanValidationIssue[] {
   const issues: LocalPlanValidationIssue[] = [];
   for (const entry of localPlanSourceEntries(files)) {
-    lintWireframeBlocks(entry.file, entry.source, issues);
-    lintColumnsBlocks(entry.file, entry.source, issues);
+    const source = maskCodeRegions(entry.source);
+    lintWireframeBlocks(entry.file, source, issues);
+    lintColumnsBlocks(entry.file, source, issues);
   }
   return issues;
 }

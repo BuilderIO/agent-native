@@ -93,6 +93,7 @@ export default defineAction({
             approvedAt: schema.plans.approvedAt,
             deletedAt: schema.plans.deletedAt,
             deletedBy: schema.plans.deletedBy,
+            ownerEmail: schema.plans.ownerEmail,
           })
           .from(schema.plans)
           .where(

@@ -822,8 +822,10 @@ export async function summarizePlans(
       | "approvedAt"
       | "deletedAt"
       | "deletedBy"
+      | "ownerEmail"
     >
   >,
+  options: { deleteOwnerEmail?: string | null } = {},
 ): Promise<PlanSummary[]> {
   if (plans.length === 0) return [];
   const ids = plans.map((plan) => plan.id);
@@ -878,6 +880,9 @@ export async function summarizePlans(
       approvedAt: plan.approvedAt,
       deletedAt: plan.deletedAt,
       deletedBy: plan.deletedBy,
+      canDelete: Boolean(
+        options.deleteOwnerEmail && plan.ownerEmail === options.deleteOwnerEmail,
+      ),
       ...summarizePlan(sections, comments),
     };
   });

@@ -396,8 +396,7 @@ export default function Home() {
                 </h2>
                 <p className="mb-5 max-w-xl text-base leading-relaxed text-[var(--fg-secondary)]">
                   Agent-Native is an open-source framework for building robust
-                  agents that can act inside real apps, not just chat next to
-                  them.
+                  agents that can also ship with rich UX, not just chat.
                 </p>
                 <p className="mb-5 max-w-xl text-base leading-relaxed text-[var(--fg-secondary)]">
                   It gives you primitives for product-grade agentic software:
@@ -405,8 +404,8 @@ export default function Home() {
                   jobs, observability, and UI surfaces that all work together.
                 </p>
                 <p className="mb-6 max-w-xl text-base leading-relaxed text-[var(--fg-secondary)]">
-                  Backend agnostic: bring your own database, hosting provider,
-                  model stack, and app code.
+                  Bring your own database, hosting provider, model stack, and
+                  app code.
                 </p>
                 <Link
                   data-an-prefetch="render"
@@ -450,13 +449,11 @@ export default function Home() {
                     className="rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)] p-5"
                   >
                     <div className="mb-2 flex items-center gap-3">
-                      <span className="flex size-7 shrink-0 items-center justify-center rounded-md border border-[var(--docs-border)] bg-[var(--bg)] text-[var(--docs-accent)]">
-                        <PrimitiveIcon
-                          className="size-3.5"
-                          stroke={1.8}
-                          aria-hidden="true"
-                        />
-                      </span>
+                      <PrimitiveIcon
+                        className="size-4 shrink-0 text-[var(--docs-accent)]"
+                        stroke={1.8}
+                        aria-hidden="true"
+                      />
                       <h3 className="m-0 text-base font-semibold">
                         {primitive.title}
                       </h3>
