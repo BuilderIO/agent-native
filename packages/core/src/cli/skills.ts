@@ -3457,6 +3457,13 @@ function planSkillNamesSelected(skillNames: string[] | undefined): boolean {
   );
 }
 
+function shouldForwardPlanModeFlag(
+  target: string,
+  skillNames: string[] | undefined,
+): boolean {
+  return targetIncludesPlans(target) || planSkillNamesSelected(skillNames);
+}
+
 function recapSkillNamesSelected(skillNames: string[] | undefined): boolean {
   return Boolean(
     skillNames?.some((name) => {
@@ -3791,7 +3798,12 @@ function dryRunInstallCommand(
     "--scope",
     parsed.scope,
   ];
-  if (parsed.planMode) args.push("--mode", parsed.planMode);
+  const forwardsPlanFlags = shouldForwardPlanModeFlag(
+    target,
+    parsed.plainSkillNames,
+  );
+  if (forwardsPlanFlags && parsed.planMode)
+    args.push("--mode", parsed.planMode);
   if (parsed.mcpUrl) args.push("--mcp-url", parsed.mcpUrl);
   if (parsed.instructions && !parsed.mcp) args.push("--instructions-only");
   if (!parsed.instructions && parsed.mcp) args.push("--mcp-only");
@@ -3941,8 +3953,13 @@ function agentNativeSkillsInstallArgs(
   if (baseDir) args.push("--cwd", baseDir);
   if (parsed.withGithubAction) args.push("--with-github-action");
   if (parsed.force) args.push("--force");
-  if (parsed.planMode) args.push("--mode", parsed.planMode);
-  if (parsed.mcpUrl) args.push("--mcp-url", parsed.mcpUrl);
+  const forwardsPlanFlags = shouldForwardPlanModeFlag(
+    target,
+    parsed.plainSkillNames,
+  );
+  if (forwardsPlanFlags && parsed.planMode)
+    args.push("--mode", parsed.planMode);
+  if (forwardsPlanFlags && parsed.mcpUrl) args.push("--mcp-url", parsed.mcpUrl);
   if (!parsed.mcp) args.push("--no-mcp");
   if (!parsed.connect) args.push("--no-connect");
   for (const skill of parsed.plainSkillNames ?? []) {
