@@ -124,6 +124,10 @@ sync-guarded skills (not just one stored plan) so the improvement sticks.
 
 - Use `export-visual-plan` or `read-visual-plan-source` when a user or external
   agent wants plan files to check into a repo.
+- Use `get-local-plan-folder` to read a DB-free local MDX folder from
+  `PLAN_LOCAL_DIR`, and `update-local-plan-folder` to apply structured
+  `contentPatches` back to that same folder. These local-folder actions do not
+  read or write SQL.
 - Use `import-visual-plan-source` to create or replace a plan from an MDX folder.
 - Use `patch-visual-plan-source` for small source edits by stable semantic IDs.
   It patches the MDX AST, runs formatting, parses back to normalized JSON, and
@@ -158,6 +162,10 @@ sync-guarded skills (not just one stored plan) so the improvement sticks.
 - Prose in `rich-text` blocks is edited inline with the shared
   `RichMarkdownEditor`, autosaved through `update-visual-plan` with
   `contentPatches: [{ op: "update-rich-text", blockId, markdown }]`.
+- Local `/local-plans/:slug` folders opened from `PLAN_LOCAL_DIR` use the same
+  Notion-style browser editor, but autosave through `update-local-plan-folder`
+  so changes are written to `plan.mdx`, `canvas.mdx`, and `prototype.mdx`
+  without touching the Plan database.
 - Review annotation mode makes prose temporarily read-only so clicks can pin
   feedback. Leaving review mode restores inline prose editing.
 - Canvas, artboard, wireframe, diagram, and custom visual edits remain driven by

@@ -13,8 +13,13 @@ import { accessFilter, currentAccess } from "@agent-native/core/sharing";
 import { and, desc, isNull } from "drizzle-orm";
 import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
-import { resolvePlanAccessContext } from "../server/lib/local-identity.js";
+import {
+  isLocalPlanRuntime,
+  resolvePlanAccessContext,
+} from "../server/lib/local-identity.js";
+import { readPlanLocalFolder } from "../server/lib/local-plan-files.js";
 import { loadPlanBundle, summarizePlans } from "../server/plans.js";
+import type { PlanContent } from "../shared/plan-content.js";
 
 export default defineAction({
   description:
@@ -27,9 +32,44 @@ export default defineAction({
 
     const screen: Record<string, unknown> = {};
     if (navigation) screen.navigation = navigation;
-    const nav = navigation as { planId?: string; view?: string } | null;
+    const nav = navigation as {
+      planId?: string;
+      localPlanSlug?: string;
+      view?: string;
+    } | null;
 
-    if (nav?.planId) {
+    if (nav?.localPlanSlug && isLocalPlanRuntime()) {
+      try {
+        const local = await readPlanLocalFolder(nav.localPlanSlug);
+        screen.visualPlan = {
+          localOnly: true,
+          slug: local.slug,
+          folder: local.folder,
+          plan: {
+            id: `local-${local.slug}`,
+            title: local.content.title ?? local.slug,
+            brief: local.content.brief ?? "Local files preview.",
+            repoPath: local.folder,
+            currentFocus: "local-files editing",
+            content: local.content,
+            markdown: local.mdx["plan.mdx"],
+          },
+          summary: {
+            sectionCounts: countLocalPlanBlocks(local.content.blocks),
+            commentCount: 0,
+            openCommentCount: 0,
+          },
+          contentBlockCount: local.content.blocks.length,
+          hasCanvas: Boolean(local.content.canvas),
+          hasPrototype: Boolean(local.content.prototype),
+          files: Object.keys(local.mdx),
+          agentWorkflow:
+            "This is a DB-free local MDX folder. Read it with get-local-plan-folder and edit it with update-local-plan-folder contentPatches; writes go back to plan.mdx/canvas.mdx/prototype.mdx in PLAN_LOCAL_DIR without touching SQL.",
+        };
+      } catch {
+        screen.visualPlanError = `Could not load local plan ${nav.localPlanSlug}`;
+      }
+    } else if (nav?.planId) {
       try {
         const bundle = await loadPlanBundle(nav.planId);
         screen.visualPlan = {
@@ -120,3 +160,19 @@ export default defineAction({
     return screen;
   },
 });
+
+function countLocalPlanBlocks(blocks: PlanContent["blocks"]) {
+  const counts: Record<string, number> = {};
+  const visitBlocks = (items: PlanContent["blocks"]) => {
+    for (const block of items) {
+      counts[block.type] = (counts[block.type] ?? 0) + 1;
+      if (block.type === "tabs") {
+        for (const tab of block.data.tabs) visitBlocks(tab.blocks);
+      } else if (block.type === "columns") {
+        for (const column of block.data.columns) visitBlocks(column.blocks);
+      }
+    }
+  };
+  visitBlocks(blocks);
+  return counts;
+}

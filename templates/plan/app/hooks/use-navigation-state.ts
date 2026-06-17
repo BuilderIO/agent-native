@@ -7,6 +7,7 @@ import { TAB_ID } from "@/lib/tab-id";
 export interface NavigationState {
   view: string;
   planId?: string;
+  localPlanSlug?: string;
   _writeId?: string;
 }
 
@@ -21,11 +22,17 @@ export function useNavigationState() {
     const state: NavigationState = {
       view: viewForPath(location.pathname),
     };
+    const localPlanMatch = location.pathname.match(/^\/local-plans\/([^/]+)/);
     const planMatch =
       location.pathname.match(/^\/plans\/([^/]+)/) ??
-      location.pathname.match(/^\/recaps\/([^/]+)/) ??
-      location.pathname.match(/^\/local-plans\/([^/]+)/);
-    if (planMatch) state.planId = decodeURIComponent(planMatch[1]);
+      location.pathname.match(/^\/recaps\/([^/]+)/);
+    if (localPlanMatch) {
+      const slug = decodeURIComponent(localPlanMatch[1] ?? "");
+      state.planId = `local-${slug}`;
+      state.localPlanSlug = slug;
+    } else if (planMatch) {
+      state.planId = decodeURIComponent(planMatch[1] ?? "");
+    }
 
     fetch(agentNativePath("/_agent-native/application-state/navigation"), {
       method: "PUT",
@@ -65,6 +72,7 @@ export function useNavigationState() {
       JSON.stringify({
         view: cmd.view,
         planId: cmd.planId,
+        localPlanSlug: cmd.localPlanSlug,
       });
     const deleteCommand = () =>
       fetch(agentNativePath("/_agent-native/application-state/navigate"), {
@@ -114,6 +122,9 @@ function viewForPath(pathname: string): string {
 }
 
 function pathForCommand(command: NavigationState): string {
+  if (command.localPlanSlug) {
+    return `/local-plans/${encodeURIComponent(command.localPlanSlug)}`;
+  }
   if (command.planId) {
     return `/plans/${encodeURIComponent(command.planId)}`;
   }

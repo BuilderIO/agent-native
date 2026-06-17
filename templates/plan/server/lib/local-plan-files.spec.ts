@@ -14,6 +14,7 @@ import {
   localPlanFolder,
   localPlansDir,
   readPlanLocalFolder,
+  writePlanLocalFolder,
   writePlanLocalFiles,
 } from "./local-plan-files.js";
 
@@ -198,6 +199,50 @@ describe("local-plan-files", () => {
       "utf-8",
     );
     expect(second).toBe(first);
+  });
+
+  it("writes directly back to the opened local slug even when the title changes", async () => {
+    const content = sampleContent();
+    await writePlanLocalFiles({
+      planId: "plan_slug",
+      title: content.title ?? "Untitled",
+      brief: content.brief,
+      content,
+      url: "/plans/plan_slug",
+    });
+
+    const updated = planContentSchema.parse({
+      ...content,
+      title: "Renamed in browser",
+      blocks: [
+        {
+          id: "summary",
+          type: "rich-text",
+          title: "Summary",
+          data: { markdown: "Edited from the local browser route." },
+        },
+      ],
+    });
+    const result = await writePlanLocalFolder({
+      slug: "local-sync-flow",
+      planId: "local-local-sync-flow",
+      title: updated.title ?? "Renamed",
+      brief: updated.brief,
+      content: updated,
+      url: "/local-plans/local-sync-flow",
+    });
+
+    expect(result.written).toBe(true);
+    expect(result.folder).toBe(path.join(tmpDir, "local-sync-flow"));
+    await expect(
+      fs.stat(path.join(tmpDir, "renamed-in-browser")),
+    ).rejects.toThrow();
+
+    const reread = await readPlanLocalFolder("local-sync-flow");
+    expect(reread.content.title).toBe("Renamed in browser");
+    expect(reread.mdx["plan.mdx"]).toContain(
+      "Edited from the local browser route.",
+    );
   });
 
   it("adds a numeric suffix only when a readable folder name collides", async () => {

@@ -45,6 +45,10 @@ export interface LocalPlanWriteInput {
   url?: string;
 }
 
+export interface LocalPlanFolderWriteInput extends LocalPlanWriteInput {
+  slug: string;
+}
+
 export interface LocalPlanReadResult {
   slug: string;
   folder: string;
@@ -192,6 +196,80 @@ async function resolveLocalPlanFolderForWrite(
   }
 }
 
+async function writePlanMdxFolderToDisk(
+  folder: string,
+  mdx: PlanMdxFolder,
+  existingFolders: string[] = [],
+): Promise<{ written: boolean; folder: string; files: string[] }> {
+  await fs.mkdir(folder, { recursive: true });
+  const written: string[] = [];
+
+  // plan.mdx is always present.
+  await fs.writeFile(path.join(folder, "plan.mdx"), mdx["plan.mdx"], "utf-8");
+  written.push("plan.mdx");
+
+  // canvas.mdx, prototype.mdx, and .plan-state.json are optional.
+  if (mdx["canvas.mdx"]) {
+    await fs.writeFile(
+      path.join(folder, "canvas.mdx"),
+      mdx["canvas.mdx"],
+      "utf-8",
+    );
+    written.push("canvas.mdx");
+  } else {
+    // Remove a stale canvas file if the plan no longer has a board, so the
+    // mirror stays an accurate round-trip of the current content.
+    await fs.rm(path.join(folder, "canvas.mdx"), { force: true });
+  }
+
+  if (mdx["prototype.mdx"]) {
+    await fs.writeFile(
+      path.join(folder, "prototype.mdx"),
+      mdx["prototype.mdx"],
+      "utf-8",
+    );
+    written.push("prototype.mdx");
+  } else {
+    await fs.rm(path.join(folder, "prototype.mdx"), { force: true });
+  }
+
+  if (mdx[".plan-state.json"]) {
+    await fs.writeFile(
+      path.join(folder, ".plan-state.json"),
+      mdx[".plan-state.json"],
+      "utf-8",
+    );
+    written.push(".plan-state.json");
+  } else {
+    await fs.rm(path.join(folder, ".plan-state.json"), { force: true });
+  }
+
+  // Write binary assets to the local assets/ directory.
+  const assetEntries = Object.entries(mdx["assets/"] ?? {});
+  if (assetEntries.length > 0) {
+    const assetsDir = path.join(folder, "assets");
+    await fs.mkdir(assetsDir, { recursive: true });
+    for (const [filename, base64] of assetEntries) {
+      // Sanitize: no path traversal, no absolute paths.
+      const safe = path.basename(filename);
+      if (!safe || safe !== filename) continue;
+      const bytes = Buffer.from(base64, "base64");
+      await fs.writeFile(path.join(assetsDir, safe), bytes);
+      written.push(`assets/${safe}`);
+    }
+  }
+
+  await Promise.all(
+    existingFolders
+      .filter((existingFolder) => existingFolder !== folder)
+      .map((existingFolder) =>
+        fs.rm(existingFolder, { recursive: true, force: true }),
+      ),
+  );
+
+  return { written: true, folder, files: written };
+}
+
 /**
  * Write a plan's MDX folder to the local filesystem. Idempotent and best-effort:
  * filesystem errors are caught and returned as `{ written: false }` so a plan
@@ -214,78 +292,39 @@ export async function writePlanLocalFiles(
       url: input.url ?? `/plans/${encodeURIComponent(input.planId)}`,
     });
 
-    await fs.mkdir(folder, { recursive: true });
-    const written: string[] = [];
-
-    // plan.mdx is always present.
-    await fs.writeFile(path.join(folder, "plan.mdx"), mdx["plan.mdx"], "utf-8");
-    written.push("plan.mdx");
-
-    // canvas.mdx, prototype.mdx, and .plan-state.json are optional.
-    if (mdx["canvas.mdx"]) {
-      await fs.writeFile(
-        path.join(folder, "canvas.mdx"),
-        mdx["canvas.mdx"],
-        "utf-8",
-      );
-      written.push("canvas.mdx");
-    } else {
-      // Remove a stale canvas file if the plan no longer has a board, so the
-      // mirror stays an accurate round-trip of the current content.
-      await fs.rm(path.join(folder, "canvas.mdx"), { force: true });
-    }
-
-    if (mdx["prototype.mdx"]) {
-      await fs.writeFile(
-        path.join(folder, "prototype.mdx"),
-        mdx["prototype.mdx"],
-        "utf-8",
-      );
-      written.push("prototype.mdx");
-    } else {
-      await fs.rm(path.join(folder, "prototype.mdx"), { force: true });
-    }
-
-    if (mdx[".plan-state.json"]) {
-      await fs.writeFile(
-        path.join(folder, ".plan-state.json"),
-        mdx[".plan-state.json"],
-        "utf-8",
-      );
-      written.push(".plan-state.json");
-    } else {
-      await fs.rm(path.join(folder, ".plan-state.json"), { force: true });
-    }
-
-    // Write binary assets to the local assets/ directory.
-    const assetEntries = Object.entries(mdx["assets/"] ?? {});
-    if (assetEntries.length > 0) {
-      const assetsDir = path.join(folder, "assets");
-      await fs.mkdir(assetsDir, { recursive: true });
-      for (const [filename, base64] of assetEntries) {
-        // Sanitize: no path traversal, no absolute paths.
-        const safe = path.basename(filename);
-        if (!safe || safe !== filename) continue;
-        const bytes = Buffer.from(base64, "base64");
-        await fs.writeFile(path.join(assetsDir, safe), bytes);
-        written.push(`assets/${safe}`);
-      }
-    }
-
-    await Promise.all(
-      resolved.existingFolders
-        .filter((existingFolder) => existingFolder !== folder)
-        .map((existingFolder) =>
-          fs.rm(existingFolder, { recursive: true, force: true }),
-        ),
+    return await writePlanMdxFolderToDisk(
+      folder,
+      mdx,
+      resolved.existingFolders,
     );
-
-    return { written: true, folder, files: written };
   } catch {
     // Read-only FS, permissions, or a sandboxed runtime: never break the
     // underlying plan operation just because the local mirror failed.
     return { written: false, folder, files: [] };
   }
+}
+
+/**
+ * Write directly back to an already-opened local plan folder. Unlike the local
+ * mirror path above, this preserves the folder slug even when the plan title
+ * changes and lets filesystem errors surface to the caller.
+ */
+export async function writePlanLocalFolder(
+  input: LocalPlanFolderWriteInput,
+): Promise<{ written: boolean; folder: string; files: string[] }> {
+  const safeSlug = assertLocalPlanSlug(input.slug);
+  const folder = assertInsideLocalPlansDir(
+    path.join(localPlansDir(), safeSlug),
+  );
+  const mdx = await exportPlanContentToMdxFolder({
+    content: input.content,
+    title: input.title,
+    brief: input.brief,
+    planId: input.planId,
+    url: input.url ?? `/local-plans/${encodeURIComponent(safeSlug)}`,
+  });
+
+  return await writePlanMdxFolderToDisk(folder, mdx);
 }
 
 export async function readPlanLocalFolder(

@@ -159,6 +159,8 @@ import type {
 } from "@/components/plan/CanvasArea";
 import {
   planBundleQueryKey,
+  localPlanBundleQueryKey,
+  localPlanBundleQueryParams,
   ALL_PLANS_QUERY_ARGS,
   ALL_PLANS_QUERY_KEY,
   ACTIVE_PLANS_QUERY_KEY,
@@ -171,6 +173,7 @@ import {
   useReportVisualPlan,
   useRestorePlanVersion,
   useUpdatePlan,
+  useUpdateLocalPlan,
   useUpdatePlanComments,
   useUpdatePlanStatus,
   useDeletePlan,
@@ -2726,7 +2729,7 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
   });
   const localPlanQuery = useActionQuery<LocalPlanBundle>(
     "get-local-plan-folder",
-    { slug: localPlanSlug ?? "" },
+    localPlanBundleQueryParams(localPlanSlug ?? ""),
     {
       enabled: localPlanMode && Boolean(localPlanSlug) && !localPlanBridgeUrl,
       refetchInterval: false,
@@ -2933,8 +2936,12 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
   const queryClient = useQueryClient();
   const selectedPlanQueryKey = useMemo(
     () =>
-      selectedId && !localPlanMode ? planBundleQueryKey(selectedId) : null,
-    [localPlanMode, selectedId],
+      selectedId && !localPlanMode
+        ? planBundleQueryKey(selectedId)
+        : localPlanMode && localPlanSlug && !localPlanBridgeUrl
+          ? localPlanBundleQueryKey(localPlanSlug)
+          : null,
+    [localPlanBridgeUrl, localPlanMode, localPlanSlug, selectedId],
   );
   // Reflect a structural block edit (drag-to-columns, reorder) into the
   // `get-visual-plan` cache IMMEDIATELY so the editor's authoritative content
@@ -2968,10 +2975,16 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
   // affordances key off `bundle`/`session`, not `canEditPlanContent`.
   const isRecap = bundle?.plan.kind === "recap";
   const effectivePlanAccessRole = bundle?.access?.role ?? null;
-  const canEditPlanContent =
-    !localPlanMode &&
+  const canEditLocalPlanContent =
+    localPlanMode &&
+    !localPlanBridgeUrl &&
     !isRecap &&
-    canEditPlanContentRole(effectivePlanAccessRole);
+    Boolean(localPlanSlug && bundle?.plan.content);
+  const canEditPlanContent =
+    canEditLocalPlanContent ||
+    (!localPlanMode &&
+      !isRecap &&
+      canEditPlanContentRole(effectivePlanAccessRole));
   const canManagePlan =
     !localPlanMode && canEditPlanContentRole(effectivePlanAccessRole);
   const canDeleteCurrentPlan =
@@ -3143,6 +3156,7 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
     });
   }, [runtimeCommentThreads]);
   const updatePlan = useUpdatePlan();
+  const updateLocalPlan = useUpdateLocalPlan();
   // Stable ref so closures (e.g. message-event handler) always call the latest
   // mutate without needing to be in a dependency array.
   const updatePlanMutateRef = useRef(updatePlan.mutate);
@@ -4327,6 +4341,15 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
 
   const updateStructuredContent = async (content: PlanContent) => {
     if (!bundle) return;
+    if (localPlanMode) {
+      if (!localPlanSlug || localPlanBridgeUrl) return;
+      await updateLocalPlan.mutateAsync({
+        slug: localPlanSlug,
+        content,
+        note: "Updated local structured visual plan content.",
+      });
+      return;
+    }
     await updatePlan.mutateAsync({
       planId: bundle.plan.id,
       content,
@@ -4341,6 +4364,21 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
     // instead of spamming toast.error on every retry.
     const silentError = patch.op === "replace-blocks";
     try {
+      if (localPlanMode) {
+        if (!localPlanSlug || localPlanBridgeUrl) return;
+        await updateLocalPlan.mutateAsync(
+          {
+            slug: localPlanSlug,
+            contentPatches: [patch],
+            note:
+              patch.op === "update-rich-text"
+                ? `Edited local markdown block ${patch.blockId}.`
+                : "Patched local structured visual plan content.",
+          },
+          silentError ? { onError: () => {} } : undefined,
+        );
+        return;
+      }
       await updatePlan.mutateAsync(
         {
           planId: bundle.plan.id,
@@ -4364,6 +4402,17 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
     brief?: string;
   }) => {
     if (!bundle) return;
+    if (localPlanMode) {
+      if (!localPlanSlug || localPlanBridgeUrl) return;
+      await updateLocalPlan.mutateAsync({
+        slug: localPlanSlug,
+        ...(patch.title !== undefined ? { title: patch.title } : {}),
+        ...(patch.brief !== undefined ? { brief: patch.brief } : {}),
+        contentPatches: [{ op: "set-metadata", ...patch }],
+        note: "Updated local plan title and brief.",
+      });
+      return;
+    }
     await updatePlan.mutateAsync({
       planId: bundle.plan.id,
       ...(patch.title !== undefined ? { title: patch.title } : {}),

@@ -149,6 +149,15 @@ export type UpdatePlanInput = {
   note?: string;
 };
 
+export type UpdateLocalPlanInput = {
+  slug: string;
+  title?: string;
+  brief?: string;
+  content?: PlanContent;
+  contentPatches?: PlanContentPatch[];
+  note?: string;
+};
+
 export type ConvertVisualPlanToPrototypeInput = {
   planId: string;
   title?: string;
@@ -243,6 +252,9 @@ function usePlanInvalidation() {
   return () => {
     void qc.invalidateQueries({ queryKey: ["action", "list-visual-plans"] });
     void qc.invalidateQueries({ queryKey: ["action", "get-visual-plan"] });
+    void qc.invalidateQueries({
+      queryKey: ["action", "get-local-plan-folder"],
+    });
     void qc.invalidateQueries({ queryKey: ["action", "get-plan-feedback"] });
     void qc.invalidateQueries({ queryKey: ["action", "list-plan-versions"] });
     void qc.invalidateQueries({ queryKey: ["action", "get-plan-version"] });
@@ -295,6 +307,18 @@ export function planBundleQueryParams(id: string) {
 
 export function planBundleQueryKey(id: string) {
   return ["action", "get-visual-plan", planBundleQueryParams(id)] as const;
+}
+
+export function localPlanBundleQueryParams(slug: string) {
+  return { slug } as const;
+}
+
+export function localPlanBundleQueryKey(slug: string) {
+  return [
+    "action",
+    "get-local-plan-folder",
+    localPlanBundleQueryParams(slug),
+  ] as const;
 }
 
 export function usePlan(
@@ -433,6 +457,30 @@ export function useUpdatePlan() {
       onError: showActionError("Failed to update visual plan"),
     },
   );
+}
+
+export function useUpdateLocalPlan() {
+  const qc = useQueryClient();
+  const invalidate = usePlanInvalidation();
+  return useActionMutation<
+    PlanBundle & {
+      localOnly: true;
+      slug: string;
+      folder: string;
+      path?: string;
+      url?: string;
+      html?: string;
+      mdx?: PlanMdxFolder;
+      localFiles?: { written: boolean; folder: string; files: string[] };
+    },
+    UpdateLocalPlanInput
+  >("update-local-plan-folder", {
+    onSuccess: (data, variables) => {
+      qc.setQueryData(localPlanBundleQueryKey(variables.slug), data);
+      invalidate();
+    },
+    onError: showActionError("Failed to update local plan files"),
+  });
 }
 
 /**
