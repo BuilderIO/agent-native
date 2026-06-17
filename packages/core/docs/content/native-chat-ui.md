@@ -208,6 +208,29 @@ export function SupportChat() {
 }
 ```
 
+If your endpoint already streams a common agent protocol, use the matching
+connector and skip writing a custom mapper:
+
+```ts
+import {
+  createAgUiChatRuntime,
+  createOpenAIAgentsChatRuntime,
+  createOpenAIResponsesChatRuntime,
+} from "@agent-native/core/client/chat";
+
+const openAiAgentsRuntime = createOpenAIAgentsChatRuntime({
+  endpoint: "/api/openai-agents/chat",
+});
+
+const openAiResponsesRuntime = createOpenAIResponsesChatRuntime({
+  endpoint: "/api/openai-responses/chat",
+});
+
+const agUiRuntime = createAgUiChatRuntime({
+  endpoint: "/api/ag-ui/chat",
+});
+```
+
 The endpoint may stream the normalized event shape directly:
 
 ```txt
@@ -241,8 +264,7 @@ assistant-ui adapter control. Use `PromptComposer` by itself when your product
 owns the entire external transcript and only wants Agent-Native's composer
 field.
 
-AG-UI is still an adapter target: it can be mapped into `AgentChatRuntime`
-events, actions, context, and native renderers over time. ACP remains
+AG-UI event streams can use `createAgUiChatRuntime()`. ACP remains
 coding-agent/editor interoperability, not the general app-chat runtime for end
 users. A2UI is not claimed as supported here; if it matures, it should adapt
 into this same explicit runtime/widget contract.

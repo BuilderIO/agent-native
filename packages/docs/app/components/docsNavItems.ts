@@ -122,6 +122,7 @@ export const NAV_SECTIONS: NavSection[] = [
         to: "/docs/migration-workbench" as const,
       },
       { label: "Agent-Native Code UI", to: "/docs/code-agents-ui" as const },
+      { label: "Harness Agents", to: "/docs/harness-agents" as const },
       { label: "CLI Adapters", to: "/docs/cli-adapters" as const },
       { label: "Sandbox Adapters", to: "/docs/sandbox-adapters" as const },
       { label: "In-Loop Processors", to: "/docs/processors" as const },

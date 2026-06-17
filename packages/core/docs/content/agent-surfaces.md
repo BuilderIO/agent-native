@@ -153,6 +153,20 @@ export function SupportAgentChat() {
 }
 ```
 
+Use `createOpenAIAgentsChatRuntime()`,
+`createOpenAIResponsesChatRuntime()`, or `createAgUiChatRuntime()` when your
+endpoint already streams one of those event shapes. Use
+`createHttpAgentChatRuntime()` when your agent streams Agent-Native's
+normalized event shape directly:
+
+```ts
+import { createOpenAIAgentsChatRuntime } from "@agent-native/core/client/chat";
+
+const runtime = createOpenAIAgentsChatRuntime({
+  endpoint: "/api/openai-agent/chat",
+});
+```
+
 The endpoint can stream SSE or NDJSON events:
 
 ```txt
@@ -168,10 +182,11 @@ integrations, stream `message-*`, `tool-*`, `approval-request`, `status`,
 `chatUI` metadata so the same native table/chart/card renderers work with your
 agent too.
 
-This is the right place to adapt Mastra, Flue, Eve, LangGraph, a custom service,
-or an AG-UI-compatible event stream. Do not use ACP as the default end-user app
-chat protocol; ACP is better framed as coding-agent/editor interoperability.
-Agent-Native does not currently claim A2UI support.
+This is the right place to adapt the OpenAI Agents SDK, Mastra, Flue, Eve,
+LangGraph, a custom service, or an AG-UI-compatible event stream. Do not use ACP
+as the default end-user app chat protocol; ACP is better framed as
+coding-agent/editor interoperability. Agent-Native does not currently claim A2UI
+support.
 
 ## Embedded sidecar {#embedded-sidecar}
 
