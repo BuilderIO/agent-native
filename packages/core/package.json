@@ -141,7 +141,9 @@
     "./tsconfig.base.json": "./tsconfig.base.json"
   },
   "sideEffects": [
-    "*.css"
+    "*.css",
+    "dist/client/chat/widgets/builtin-tool-renderers.js",
+    "dist/client/dev-overlay/builtins.js"
   ],
   "files": [
     "bin",

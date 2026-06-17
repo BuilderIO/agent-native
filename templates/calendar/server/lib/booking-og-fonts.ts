@@ -43,8 +43,12 @@ export function bytesFromStorageValue(value: unknown): Buffer | undefined {
 }
 
 function sourceFontFiles(): string[] | undefined {
-  const files = BOOKING_OG_FONT_ASSETS.map((font) => font.sourcePath);
-  return files.every((fontFile) => existsSync(fontFile)) ? files : undefined;
+  try {
+    const files = BOOKING_OG_FONT_ASSETS.map((font) => font.sourcePath);
+    return files.every((fontFile) => existsSync(fontFile)) ? files : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 async function readFontBytes(
@@ -59,7 +63,7 @@ async function readFontBytes(
 }
 
 export async function loadBundledOgFontFiles(
-  storage: BookingOgAssetStorage,
+  storage?: BookingOgAssetStorage,
   options: {
     preferSourceFiles?: boolean;
     tmpRoot?: string;
@@ -70,6 +74,8 @@ export async function loadBundledOgFontFiles(
     const sourceFiles = sourceFontFiles();
     if (sourceFiles) return sourceFiles;
   }
+
+  if (!storage) return undefined;
 
   try {
     const fonts = [];
