@@ -34,6 +34,8 @@ const AUTHORING_RULES_NOTE = `
 
 **Before/After columns**: compose a \`columns\` block from \`<Column>\` CHILDREN — never a \`columns=\` attribute or inline JSON array. Author it as \`<Columns><Column label="Before">…child block(s)…</Column><Column label="After">…child block(s)…</Column></Columns>\`. Each \`<Column>\` wraps real nested blocks (e.g. a \`Wireframe\`); the parser fills in column ids and child-block \`data\` from that markup, whereas a \`columns=\` attribute array leaves them missing and FAILS schema validation. For UI state comparisons put one \`wireframe\` block in each side and label the columns \`Before\` and \`After\`; the renderer draws labels as headings and lays narrow surfaces side by side. Never bake Before/After labels inside the wireframe HTML or hand-stack the pair.
 
+**MDX component syntax**: every capitalized block component must be either self-closing (\`<RichText id="..." data={{ ... }} />\`) or have a matching closing tag around children (\`<RichText id="...">…</RichText>\`). Never write a bare opening tag like \`<RichText ...>\` as a paragraph; the MDX parser treats it as unclosed JSX and import fails before the plan can render.
+
 **File maps**: prefer \`annotated-code\` blocks (real code + line-anchored notes) grouped in a vertical \`tabs\` block, one tab per key file. Drop to a plain \`code\` block only for throwaway snippets with nothing to call out.
 
 **Tabs grouping**: use horizontal \`TabsBlock\` groups for multiple related diffs so each split diff gets full document width.

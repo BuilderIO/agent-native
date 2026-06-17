@@ -97,6 +97,36 @@ describe("@agent-native/skills", () => {
     });
   });
 
+  it("parses Plan mode flags", () => {
+    expect(
+      parseSkillsCliArgs([
+        "add",
+        "--skill",
+        "visual-plan",
+        "--mode",
+        "self-hosted",
+        "--mcp-url",
+        "https://plans.example.com",
+      ]),
+    ).toMatchObject({
+      skillNames: ["visual-plan"],
+      planMode: "self-hosted",
+      mcpUrl: "https://plans.example.com",
+    });
+
+    expect(() =>
+      parseSkillsCliArgs([
+        "add",
+        "--skill",
+        "visual-plan",
+        "--mode",
+        "local-files",
+        "--mcp-url",
+        "https://plans.example.com",
+      ]),
+    ).toThrow("--mcp-url can only be used with --mode self-hosted");
+  });
+
   it("copies selected local skills into project client folders", async () => {
     const repo = tmpDir();
     const project = tmpDir();
@@ -308,6 +338,7 @@ describe("@agent-native/skills", () => {
       promptSkills: async () => ["visual-recap"],
       promptClients: async () => ["codex"],
       promptScope: async () => "project",
+      promptPlanMode: async () => "hosted",
       promptUpdateInstructions: async () => false,
       promptGithubAction,
     });
@@ -322,7 +353,7 @@ describe("@agent-native/skills", () => {
     ).toBe(true);
   });
 
-  it("installs public-repo-backed app skills directly when explicitly selected", async () => {
+  it("installs copied public-repo-backed app skills directly when explicitly selected", async () => {
     const repo = tmpDir();
     const project = tmpDir();
     writeSkill(repo, "visual-plan", "Live visual plan body");
@@ -367,6 +398,105 @@ describe("@agent-native/skills", () => {
         "utf-8",
       ),
     ).toContain("Live visual plan body");
+  });
+
+  it("delegates default visual-plan installs to agent-native core", async () => {
+    const project = tmpDir();
+    const previousDirect = process.env.AGENT_NATIVE_SKILLS_DIRECT;
+    delete process.env.AGENT_NATIVE_SKILLS_DIRECT;
+
+    try {
+      await runSkillsCli(
+        [
+          "add",
+          "--skill",
+          "visual-plan",
+          "--client",
+          "codex",
+          "--scope",
+          "project",
+          "--mode",
+          "local-files",
+          "--yes",
+          "--json",
+        ],
+        { baseDir: project, isInteractive: () => false },
+      );
+    } finally {
+      if (previousDirect === undefined)
+        delete process.env.AGENT_NATIVE_SKILLS_DIRECT;
+      else process.env.AGENT_NATIVE_SKILLS_DIRECT = previousDirect;
+    }
+
+    expect(runCoreSkills).toHaveBeenCalledWith(
+      [
+        "add",
+        "visual-plan",
+        "--client",
+        "codex",
+        "--scope",
+        "project",
+        "--yes",
+        "--json",
+        "--mode",
+        "local-files",
+      ],
+      {
+        baseDir: project,
+        isInteractive: expect.any(Function),
+      },
+    );
+  });
+
+  it("skips MCP registration for direct visual-plan local-files mode", async () => {
+    const repo = tmpDir();
+    const project = tmpDir();
+    writeSkill(repo, "visual-plan");
+
+    const result = await installSkills({
+      source: repo,
+      skillNames: ["visual-plan"],
+      clients: ["codex"],
+      scope: "project",
+      baseDir: project,
+      planMode: "local-files",
+      updateInstructions: false,
+      yes: true,
+    });
+
+    expect(result.planMode).toBe("local-files");
+    expect(result.mcpServers).toEqual([]);
+    expect(
+      fs.existsSync(
+        path.join(project, ".agents", "skills", "visual-plan", "SKILL.md"),
+      ),
+    ).toBe(true);
+  });
+
+  it("registers direct visual-plan installs against a self-hosted MCP URL", async () => {
+    const repo = tmpDir();
+    const project = tmpDir();
+    writeSkill(repo, "visual-plan");
+
+    const result = await installSkills({
+      source: repo,
+      skillNames: ["visual-plan"],
+      clients: ["claude-code"],
+      scope: "project",
+      baseDir: project,
+      planMode: "self-hosted",
+      mcpUrl: "https://plans.example.com/team",
+      updateInstructions: false,
+      connect: false,
+      yes: true,
+    });
+
+    expect(result.planMode).toBe("self-hosted");
+    expect(result.mcpServers).toHaveLength(1);
+    expect(result.mcpServers[0]).toMatchObject({
+      serverName: "plan",
+      mcpUrl: "https://plans.example.com/team/_agent-native/mcp",
+    });
   });
 
   it("describes skipped codex MCP auth as pending in the final output", async () => {
@@ -610,6 +740,7 @@ describe("@agent-native/skills", () => {
       },
       promptClients: async () => ["codex"],
       promptScope: async () => "project",
+      promptPlanMode: async () => "hosted",
       promptUpdateInstructions: async () => false,
     });
 

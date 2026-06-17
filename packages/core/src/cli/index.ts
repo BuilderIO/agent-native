@@ -804,8 +804,9 @@ Usage:
                                 Recap workflow into .github/workflows/.
   agent-native recap <cmd>      PR visual recap setup and GitHub Action helpers.
                                 Run 'agent-native recap help' for subcommands.
-  agent-native plan local <cmd> DB-free local plan helpers.
-                                cmds: init | check | preview
+  agent-native plan <cmd>       Plan helpers for block catalogs and local files.
+                                cmds: blocks | local init | local check |
+                                local preview
   agent-native migrate <source> Create an Agent-Native Code /migrate session, or use
                                 --emit for a portable own-agent dossier.
   agent-native add-app [name]   Add one or more apps to the current workspace
