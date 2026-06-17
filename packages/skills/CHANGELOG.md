@@ -1,5 +1,13 @@
 # @agent-native/skills
 
+## 0.2.6
+
+### Patch Changes
+
+- 914c8db: Unify the skills CLI flow so `@agent-native/skills` delegates normal user-facing
+  list/add flows to the core skills CLI with an expanded public skills catalog,
+  while `agent-native skills` keeps the Agent Native-only catalog.
+
 ## 0.2.5
 
 ### Patch Changes
