@@ -1,5 +1,26 @@
 # @agent-native/core
 
+## 0.56.0
+
+### Minor Changes
+
+- 78687a1: Add an explicit native tool-render registry plus built-in chat data table and
+  chart widgets, with same-app widget action links that navigate through the
+  shared chat view-transition path. Add an app chat option for typed-action-only
+  agent surfaces that disables raw database tools while preserving rich native
+  widget rendering from action results. Add server-safe helpers for constructing
+  typed data widget action outputs.
+
+### Patch Changes
+
+- 78687a1: Clarify the Getting Started docs: restore per-template doc links in the grouped
+  template list, remove the duplicated `create` command block from the
+  add-apps section, and move "Common next moves" to the end so the page closes on
+  next steps instead of mid-page.
+- 78687a1: Relax hero chat composer padding for a roomier full-page chat input.
+- 78687a1: Add provider API corpus recipes and provider corpus job source summaries so agents can audit which raw provider record body a broad search actually covered.
+- 78687a1: Simplify the missing AI connection prompt and render it below the chat composer.
+
 ## 0.55.0
 
 ### Minor Changes
