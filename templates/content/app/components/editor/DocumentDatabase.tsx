@@ -3175,6 +3175,38 @@ type DatabaseSettingsPanel =
   | "property_visibility"
   | "group";
 
+// One step in the Sources drill-down: Sources (root, empty stack) → provider
+// (Builder) → space → model leaf. The model step carries the full summary so
+// the leaf can attach without re-fetching.
+type SourceNavStep =
+  | { kind: "provider"; providerId: "builder" }
+  | { kind: "space"; spaceId: string; spaceName: string }
+  | { kind: "model"; model: BuilderCmsModelSummary };
+
+function sourceNavTitle(stack: SourceNavStep[]): string {
+  const top = stack[stack.length - 1];
+  if (!top) return "Sources";
+  if (top.kind === "provider") return "Builder";
+  if (top.kind === "space") return top.spaceName;
+  return top.model.displayName;
+}
+
+// The Builder "B" brand mark (first glyph of the wordmark), drawn with
+// currentColor so it themes against the panel background.
+function BuilderLogoMark({ className }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 71 80"
+      fill="currentColor"
+      xmlns="http://www.w3.org/2000/svg"
+      className={className}
+      aria-hidden="true"
+    >
+      <path d="M70.86 24C70.86 10.69 60.06 0 46.86 0H6.31995C2.81995 0 0 2.84031 0 6.32031C0 12.8003 13.71 17.71 13.71 40C13.71 62.29 0 67.2102 0 73.6802C0 77.1602 2.81995 80 6.31995 80H46.86C60.06 80 70.86 69.31 70.86 56C70.86 46.22 64.98 40.25 64.75 40C64.98 39.75 70.86 33.78 70.86 24ZM8.37 6.86035H46.87C51.45 6.86035 55.75 8.64037 58.99 11.8804C62.23 15.1204 64.01 19.42 64.01 24C64.01 28.58 62.3199 32.62 59.3199 35.79L8.37 6.86035ZM58.99 68.1304C55.75 71.3704 51.45 73.1504 46.87 73.1504H8.37L59.3199 44.2202C62.3199 47.3902 64.01 51.5703 64.01 56.0103C64.01 60.4503 62.23 64.8904 58.99 68.1304ZM15.83 61.02C16.24 60.17 20.58 51.74 20.58 40C20.58 28.26 16.24 19.83 15.83 18.98L52.85 40L15.83 61.02Z" />
+    </svg>
+  );
+}
+
 function DatabaseSettingsPanelSheet({
   open,
   panel,
@@ -3246,10 +3278,32 @@ function DatabaseSettingsPanelSheet({
   onHideEmptyGroupsChange: (hideEmptyGroups: boolean) => void;
   onGroupsCollapsedChange: (groupIds: string[], collapsed: boolean) => void;
 }) {
+  // Local drill-down path *within* the Source(s) panel. Kept here (not in the
+  // flat panel enum) because the levels are dynamic — space/model names aren't
+  // known at compile time. The sheet's back button pops this stack first.
+  const [sourceNavStack, setSourceNavStack] = useState<SourceNavStep[]>([]);
+  useEffect(() => {
+    // Always re-enter the Sources panel at its root, and don't retain a path
+    // across close/reopen.
+    if (!open || panel !== "source") setSourceNavStack([]);
+  }, [open, panel]);
+
   if (!open) return null;
 
   const title =
-    panel === "main" ? "Database settings" : databaseSettingsPanelTitle(panel);
+    panel === "main"
+      ? "Database settings"
+      : panel === "source"
+        ? sourceNavTitle(sourceNavStack)
+        : databaseSettingsPanelTitle(panel);
+
+  const handleBack = () => {
+    if (panel === "source" && sourceNavStack.length > 0) {
+      setSourceNavStack((stack) => stack.slice(0, -1));
+      return;
+    }
+    onPanelChange("main");
+  };
 
   return (
     <aside
@@ -3261,9 +3315,9 @@ function DatabaseSettingsPanelSheet({
         {panel === "main" ? null : (
           <button
             type="button"
-            aria-label="Back to database settings"
+            aria-label="Back"
             className="flex size-7 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            onClick={() => onPanelChange("main")}
+            onClick={handleBack}
           >
             <IconArrowLeft className="size-4" />
           </button>
@@ -3294,6 +3348,10 @@ function DatabaseSettingsPanelSheet({
             source={source}
             itemCount={items.length}
             canEdit={canEdit}
+            nav={sourceNavStack}
+            onNavPush={(step) =>
+              setSourceNavStack((stack) => [...stack, step])
+            }
             onAttachBuilderSource={onAttachBuilderSource}
             onRefreshSource={onRefreshSource}
             onDisconnectSource={onDisconnectSource}
@@ -3379,8 +3437,8 @@ function DatabaseSettingsMainPanel({
       <div className="grid gap-1">
         <DatabaseSettingsRow
           icon={<IconPlugConnected className="size-4" />}
-          label="Source"
-          value={source ? source.sourceName : "Local / no source"}
+          label="Sources"
+          value={source ? "1 connected" : "None"}
           badgeCount={sourceBadgeCount}
           onClick={() => onPanelChange("source")}
         />
@@ -3838,6 +3896,8 @@ function DatabaseSettingsSourcePanel({
   source,
   itemCount,
   canEdit,
+  nav,
+  onNavPush,
   onAttachBuilderSource,
   onRefreshSource,
   onDisconnectSource,
@@ -3853,6 +3913,8 @@ function DatabaseSettingsSourcePanel({
   source: ContentDatabaseSource | null;
   itemCount: number;
   canEdit: boolean;
+  nav: SourceNavStep[];
+  onNavPush: (step: SourceNavStep) => void;
   onAttachBuilderSource: (model: BuilderCmsModelSummary) => void;
   onRefreshSource: () => void;
   onDisconnectSource: () => void;
@@ -3890,6 +3952,21 @@ function DatabaseSettingsSourcePanel({
   const builderStatus = useBuilderStatus();
   const builderConfigured = builderStatus.status?.configured === true;
   const builderOrgName = builderStatus.status?.orgName ?? null;
+  // Real space name(s) from the Admin API, falling back to the generic org
+  // name (then a constant) so the drill-down never renders a blank label.
+  const builderSpaces =
+    builderStatus.status?.spaces && builderStatus.status.spaces.length > 0
+      ? builderStatus.status.spaces
+      : builderOrgName
+        ? [{ id: "builder-space", name: builderOrgName }]
+        : [{ id: "builder-space", name: "Builder space" }];
+  const builderSpaceLabel = builderSpaces[0]?.name ?? builderOrgName;
+  const connect = useBuilderConnectFlow({
+    trackingSource: "database_source_panel",
+    onConnected: () => {
+      void builderStatus.refetch();
+    },
+  });
   const builderSyncFailed =
     isBuilderSource &&
     (source?.syncState === "error" || Boolean(source?.lastError));
@@ -3916,26 +3993,139 @@ function DatabaseSettingsSourcePanel({
     return () => window.removeEventListener("focus", onFocus);
   }, [autoSyncEnabled]);
 
-  return (
-    <div className="grid min-w-0 gap-4">
-      {!source ? (
-        <div className="min-w-0 rounded-lg border border-border bg-muted/30 p-3">
-          <div className="text-sm font-medium">Local / no source</div>
-          <div className="mt-1 break-words text-xs text-muted-foreground">
-            This database is local. Attach Builder CMS to inspect row identity,
-            field provenance, freshness, and source-aware changes.
+  const top = nav[nav.length - 1];
+
+  // ── Sources list (root) ───────────────────────────────────────────────
+  if (!top) {
+    return (
+      <SourcesListView
+        source={source}
+        builderConfigured={builderConfigured}
+        builderSpaceLabel={builderSpaceLabel}
+        reviewableCount={reviewableBuilderChangeSets.length}
+        onOpenBuilder={() =>
+          onNavPush({ kind: "provider", providerId: "builder" })
+        }
+      />
+    );
+  }
+
+  // ── Builder provider → space list ─────────────────────────────────────
+  if (top.kind === "provider") {
+    if (!builderConfigured) {
+      // Don't flash "Connect Builder" at an already-connected user while the
+      // status is still loading — show a checking state until we actually know.
+      if (!builderStatus.status && builderStatus.loading) {
+        return (
+          <div className="flex min-w-0 items-center gap-2 text-xs text-muted-foreground">
+            <Spinner className="size-3.5" />
+            Checking Builder connection
           </div>
-          <div className="mt-3">
-            <BuilderCmsModelAttachControl
-              canEdit={canEdit}
-              sourceActionPending={sourceActionPending}
-              onAttachBuilderSource={onAttachBuilderSource}
-            />
+        );
+      }
+      return (
+        <div className="grid min-w-0 gap-3">
+          <div className="min-w-0 break-words text-xs text-muted-foreground">
+            Connect your Builder account to browse its spaces and models.
+          </div>
+          <div>
+            <Button
+              type="button"
+              size="sm"
+              disabled={!canEdit || connect.connecting}
+              onClick={() => connect.start()}
+            >
+              {connect.connecting ? (
+                <Spinner className="mr-1.5 size-3.5" />
+              ) : (
+                <IconExternalLink className="mr-1.5 size-3.5" />
+              )}
+              Connect Builder
+            </Button>
           </div>
         </div>
-      ) : null}
+      );
+    }
+    return (
+      <div className="grid min-w-0 gap-1.5">
+        {builderSpaces.map((space) => (
+          <DatabaseSettingsRow
+            key={space.id}
+            icon={<IconLayoutGrid className="size-4" />}
+            label={space.name}
+            onClick={() =>
+              onNavPush({
+                kind: "space",
+                spaceId: space.id,
+                spaceName: space.name,
+              })
+            }
+          />
+        ))}
+      </div>
+    );
+  }
 
-      {source ? (
+  // ── Space → model list ────────────────────────────────────────────────
+  if (top.kind === "space") {
+    return (
+      <BuilderSpaceModelsView
+        attachedModelName={
+          isBuilderSource ? (source?.sourceTable ?? null) : null
+        }
+        onOpenModel={(model) => onNavPush({ kind: "model", model })}
+      />
+    );
+  }
+
+  // ── Model leaf ────────────────────────────────────────────────────────
+  const model = top.model;
+  const isAttachedModel =
+    Boolean(source) && isBuilderSource && source?.sourceTable === model.name;
+
+  // Unattached model → the attach affordance (the model is already chosen by
+  // drilling in, so there's no model picker here).
+  if (!isAttachedModel || !source) {
+    return (
+      <div className="grid min-w-0 gap-3">
+        <div className="grid min-w-0 gap-1.5 rounded-lg border border-border bg-background p-3 text-sm">
+          <div className="truncate font-medium" title={model.displayName}>
+            {model.displayName}
+          </div>
+          <div className="flex min-w-0 flex-wrap items-center gap-1.5 text-[11px] text-muted-foreground">
+            <span className="rounded border border-border px-1.5 py-0.5">
+              {model.name}
+            </span>
+            <span className="rounded border border-border px-1.5 py-0.5">
+              {model.fields.length} fields
+            </span>
+            <span className="rounded border border-border px-1.5 py-0.5">
+              read-only
+            </span>
+          </div>
+        </div>
+        <div>
+          <Button
+            type="button"
+            size="sm"
+            disabled={!canEdit || sourceActionPending}
+            onClick={() => onAttachBuilderSource(model)}
+          >
+            {sourceActionPending ? (
+              <Spinner className="mr-1.5 size-3.5" />
+            ) : (
+              <IconPlugConnected className="mr-1.5 size-3.5" />
+            )}
+            Attach
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  // Attached model → the minimal read-only leaf panel.
+  return (
+    <div className="grid min-w-0 gap-4">
         <>
           <div className="grid min-w-0 gap-1.5 rounded-lg border border-border bg-background p-3 text-sm">
             <div className="flex min-w-0 items-center justify-between gap-2">
@@ -3973,7 +4163,7 @@ function DatabaseSettingsSourcePanel({
                 </button>
               ) : isBuilderSource ? (
                 [
-                  builderConfigured ? (builderOrgName ?? "Connected") : null,
+                  builderConfigured ? (builderSpaceLabel ?? "Connected") : null,
                   source.lastRefreshedAt
                     ? `synced ${
                         formatRelativeSyncTime(source.lastRefreshedAt) ??
@@ -4085,41 +4275,84 @@ function DatabaseSettingsSourcePanel({
             </Button>
           </div>
         </>
-      ) : null}
     </div>
   );
 }
 
-function BuilderCmsModelAttachControl({
-  canEdit,
-  sourceActionPending,
-  onAttachBuilderSource,
+// Root of the Sources drill-down: third-party integrations + Agent-Native apps,
+// each provider a row. Builder is live; the rest are disabled "coming soon".
+function SourcesListView({
+  source,
+  builderConfigured,
+  builderSpaceLabel,
+  reviewableCount,
+  onOpenBuilder,
 }: {
-  canEdit: boolean;
-  sourceActionPending: boolean;
-  onAttachBuilderSource: (model: BuilderCmsModelSummary) => void;
+  source: ContentDatabaseSource | null;
+  builderConfigured: boolean;
+  builderSpaceLabel: string | null;
+  reviewableCount: number;
+  onOpenBuilder: () => void;
+}) {
+  const isBuilderSource = source?.sourceType === "builder-cms";
+  return (
+    <div className="grid min-w-0 gap-4">
+      {!source ? (
+        <div className="min-w-0 break-words text-xs text-muted-foreground">
+          This database is local. Connect a source to map its columns onto
+          these rows.
+        </div>
+      ) : null}
+      <div className="grid min-w-0 gap-1.5">
+        <div className="px-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+          Integrations
+        </div>
+        <DatabaseSettingsRow
+          icon={<BuilderLogoMark className="size-4" />}
+          label="Builder"
+          value={
+            isBuilderSource
+              ? (builderSpaceLabel ?? "Connected")
+              : builderConfigured
+                ? "Connected"
+                : undefined
+          }
+          badgeCount={reviewableCount}
+          onClick={onOpenBuilder}
+        />
+        <DatabaseSettingsRow
+          icon={<IconFileText className="size-4" />}
+          label="Notion"
+          value="Coming soon"
+          disabled
+        />
+      </div>
+      <div className="grid min-w-0 gap-1.5">
+        <div className="px-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+          Agent-Native apps
+        </div>
+        <DatabaseSettingsRow
+          icon={<IconTimeline className="size-4" />}
+          label="Analytics"
+          value="Coming soon"
+          disabled
+        />
+      </div>
+    </div>
+  );
+}
+
+// A Builder space's data models, as drill-in rows. The attached model (if any)
+// is marked; selecting a row opens that model's leaf.
+function BuilderSpaceModelsView({
+  attachedModelName,
+  onOpenModel,
+}: {
+  attachedModelName: string | null;
+  onOpenModel: (model: BuilderCmsModelSummary) => void;
 }) {
   const modelsQuery = useBuilderCmsModels(true);
-  const connect = useBuilderConnectFlow({
-    trackingSource: "database_source_panel",
-    onConnected: () => {
-      void modelsQuery.refetch();
-    },
-  });
   const models = modelsQuery.data?.models ?? [];
-  const [selectedModelName, setSelectedModelName] = useState("");
-  const selectedModel =
-    models.find((model) => model.name === selectedModelName) ??
-    models[0] ??
-    null;
-
-  useEffect(() => {
-    if (selectedModelName || models.length === 0) return;
-    const testModel = models.find(
-      (model) => model.name === BUILDER_CMS_SAFE_WRITE_MODEL,
-    );
-    setSelectedModelName((testModel ?? models[0]).name);
-  }, [models, selectedModelName]);
 
   if (modelsQuery.isLoading) {
     return (
@@ -4132,26 +4365,8 @@ function BuilderCmsModelAttachControl({
 
   if (modelsQuery.data?.state === "unconfigured") {
     return (
-      <div className="grid min-w-0 gap-2">
-        <div className="text-xs text-muted-foreground">
-          Connect your Builder account to read live CMS entries. Until you
-          connect, no Builder models are available here.
-        </div>
-        <div className="flex min-w-0 items-center gap-2">
-          <Button
-            type="button"
-            size="sm"
-            disabled={!canEdit || connect.connecting}
-            onClick={() => connect.start()}
-          >
-            {connect.connecting ? (
-              <Spinner className="mr-1.5 size-3.5" />
-            ) : (
-              <IconExternalLink className="mr-1.5 size-3.5" />
-            )}
-            Connect Builder
-          </Button>
-        </div>
+      <div className="min-w-0 break-words text-xs text-muted-foreground">
+        Builder isn’t connected. Go back to connect your account first.
       </div>
     );
   }
@@ -4179,72 +4394,13 @@ function BuilderCmsModelAttachControl({
     return (
       <div className="grid min-w-0 gap-2">
         <div className="text-xs text-muted-foreground">
-          No Builder models were found.
+          No Builder models were found in this space.
         </div>
         <Button
           type="button"
           size="sm"
           variant="outline"
-          onClick={() => modelsQuery.refetch()}
-        >
-          <IconRefresh className="mr-1.5 size-3.5" />
-          Refresh
-        </Button>
-      </div>
-    );
-  }
-
-  return (
-    <div className="grid min-w-0 gap-2">
-      <label className="grid min-w-0 gap-1 text-xs">
-        <span className="font-medium text-foreground">Builder model</span>
-        <select
-          className="h-9 min-w-0 rounded-md border border-input bg-background px-2 text-sm text-foreground shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          value={selectedModel?.name ?? ""}
-          onChange={(event) => setSelectedModelName(event.target.value)}
-          disabled={!canEdit || sourceActionPending}
-        >
-          {models.map((model) => (
-            <option key={model.id} value={model.name}>
-              {model.displayName} ({model.kind})
-            </option>
-          ))}
-        </select>
-      </label>
-      {selectedModel ? (
-        <div className="flex min-w-0 flex-wrap items-center gap-1.5 text-[11px] text-muted-foreground">
-          <span className="rounded border border-border px-1.5 py-0.5">
-            {selectedModel.name}
-          </span>
-          <span className="rounded border border-border px-1.5 py-0.5">
-            {selectedModel.fields.length} fields
-          </span>
-          <span className="rounded border border-border px-1.5 py-0.5">
-            read-only
-          </span>
-        </div>
-      ) : null}
-      <div className="flex min-w-0 items-center gap-2">
-        <Button
-          type="button"
-          size="sm"
-          disabled={!canEdit || sourceActionPending || !selectedModel}
-          onClick={() => {
-            if (selectedModel) onAttachBuilderSource(selectedModel);
-          }}
-        >
-          {sourceActionPending ? (
-            <Spinner className="mr-1.5 size-3.5" />
-          ) : (
-            <IconPlugConnected className="mr-1.5 size-3.5" />
-          )}
-          Attach
-        </Button>
-        <Button
-          type="button"
-          size="sm"
-          variant="ghost"
-          disabled={sourceActionPending || modelsQuery.isFetching}
+          disabled={modelsQuery.isFetching}
           onClick={() => modelsQuery.refetch()}
         >
           {modelsQuery.isFetching ? (
@@ -4255,6 +4411,20 @@ function BuilderCmsModelAttachControl({
           Refresh
         </Button>
       </div>
+    );
+  }
+
+  return (
+    <div className="grid min-w-0 gap-1.5">
+      {models.map((model) => (
+        <DatabaseSettingsRow
+          key={model.id}
+          icon={<IconList className="size-4" />}
+          label={model.displayName}
+          value={attachedModelName === model.name ? "Attached" : model.kind}
+          onClick={() => onOpenModel(model)}
+        />
+      ))}
     </div>
   );
 }
