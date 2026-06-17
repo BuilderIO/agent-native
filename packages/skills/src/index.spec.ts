@@ -72,7 +72,11 @@ describe("@agent-native/skills", () => {
       ),
     );
 
+<<<<<<< HEAD
     expect(pkg.dependencies["@agent-native/core"]).toBe("workspace:*");
+=======
+    expect(pkg.dependencies["@agent-native/core"]).toBe(">=0.51.11");
+>>>>>>> origin/main
     expect(pkg.peerDependencies?.["@agent-native/core"]).toBeUndefined();
   });
 
