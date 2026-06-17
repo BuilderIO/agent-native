@@ -324,16 +324,16 @@ The local template is useful when you are developing Plans itself, testing local
 
 Schema lives in `templates/plan/server/db/schema.ts`. Core tables:
 
-| Table              | What it holds                                                                                                                                                |
-| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Table              | What it holds                                                                                                                                                                           |
+| ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `plans`            | Each plan or recap — `title`, `brief`, `kind` (plan/recap), `status`, `source`, `html`/`markdown`/`content`, `hosted_plan_id/url`, usage stats, `source_url`, `deleted_at`/`deleted_by` |
-| `plan_sections`    | Ordered sections within a plan — `type`, `title`, `body`, `html`, `sort_order`, `created_by`                                                                 |
-| `plan_comments`    | Threaded comments — `kind`, `status`, `anchor`, `message`, `resolution_target`, `mentions_json`, `resolved_by`                                               |
-| `plan_events`      | Audit log of agent/human events on a plan                                                                                                                    |
-| `plan_versions`    | Point-in-time snapshots for version history                                                                                                                  |
-| `plan_shares`      | Per-principal share grants (viewer / editor / admin)                                                                                                         |
-| `plan_guest_mints` | Rate-limit records for guest session issuance                                                                                                                |
-| `plan_assets`      | Inline image assets stored as base64 (fallback when no upload provider)                                                                                      |
+| `plan_sections`    | Ordered sections within a plan — `type`, `title`, `body`, `html`, `sort_order`, `created_by`                                                                                            |
+| `plan_comments`    | Threaded comments — `kind`, `status`, `anchor`, `message`, `resolution_target`, `mentions_json`, `resolved_by`                                                                          |
+| `plan_events`      | Audit log of agent/human events on a plan                                                                                                                                               |
+| `plan_versions`    | Point-in-time snapshots for version history                                                                                                                                             |
+| `plan_shares`      | Per-principal share grants (viewer / editor / admin)                                                                                                                                    |
+| `plan_guest_mints` | Rate-limit records for guest session issuance                                                                                                                                           |
+| `plan_assets`      | Inline image assets stored as base64 (fallback when no upload provider)                                                                                                                 |
 
 ### Key actions
 

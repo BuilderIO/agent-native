@@ -881,7 +881,8 @@ export async function summarizePlans(
       deletedAt: plan.deletedAt,
       deletedBy: plan.deletedBy,
       canDelete: Boolean(
-        options.deleteOwnerEmail && plan.ownerEmail === options.deleteOwnerEmail,
+        options.deleteOwnerEmail &&
+        plan.ownerEmail === options.deleteOwnerEmail,
       ),
       ...summarizePlan(sections, comments),
     };
