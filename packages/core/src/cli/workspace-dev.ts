@@ -9,6 +9,11 @@ import { fileURLToPath } from "node:url";
 import * as Sentry from "@sentry/node";
 import { extractOAuthStateAppId } from "../shared/oauth-state.js";
 import {
+  normalizeOrigin,
+  rewriteRedirectLocation,
+  escapeHtml,
+} from "./gateway-helpers.js";
+import {
   DEFAULT_WORKSPACE_APP_AUDIENCE,
   workspaceAppAudienceFromPackageJson,
   workspaceAppRouteAccessFromPackageJson,
@@ -81,15 +86,6 @@ const STARTING_APP_RESPONSE_HEADERS: http.OutgoingHttpHeaders = {
   pragma: "no-cache",
   expires: "0",
 };
-
-function normalizeOrigin(value: string | undefined): string | undefined {
-  if (!value) return undefined;
-  try {
-    return new URL(value).origin;
-  } catch {
-    return undefined;
-  }
-}
 
 function workspaceOAuthOrigin(
   env: NodeJS.ProcessEnv,
@@ -529,23 +525,6 @@ function renderStartingApp(app: WorkspaceApp): string {
     </main>
   </body>
 </html>`;
-}
-
-function escapeHtml(value: string): string {
-  return value.replace(/[&<>"']/g, (char) => {
-    switch (char) {
-      case "&":
-        return "&amp;";
-      case "<":
-        return "&lt;";
-      case ">":
-        return "&gt;";
-      case '"':
-        return "&quot;";
-      default:
-        return "&#39;";
-    }
-  });
 }
 
 function renderIndex(apps: WorkspaceApp[]): string {
@@ -1057,7 +1036,16 @@ export async function runWorkspaceDev(
           settled = true;
           clearTimeout(responseTimer);
           app.ready = true;
-          res.writeHead(proxyRes.statusCode ?? 502, proxyRes.headers);
+          const statusCode = proxyRes.statusCode ?? 502;
+          const responseHeaders = { ...proxyRes.headers };
+          if (statusCode >= 300 && statusCode < 400) {
+            const rewritten = rewriteRedirectLocation(
+              app,
+              firstHeaderValue(responseHeaders.location),
+            );
+            if (rewritten) responseHeaders.location = rewritten;
+          }
+          res.writeHead(statusCode, responseHeaders);
           proxyRes.pipe(res);
         },
       );
