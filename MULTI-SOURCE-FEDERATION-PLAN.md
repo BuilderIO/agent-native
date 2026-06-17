@@ -36,6 +36,51 @@ side by side — as long as they share a key.
 - **Column provenance** — every column is bound to a source field and knows its
   origin (already modeled in `content_database_source_fields`).
 
+### Two join types: identity vs reference
+A single database can join sources in **two distinct ways**, and both should be
+expressible at once (e.g. articles federated across Builder/Notion/Analytics by
+URL, *and* author data pulled from a `blog-authors` table by the `Author` field):
+
+- **Identity join (federation).** Sources describe the *same entity* (a blog
+  article). Join on the **canonical key** (URL); their columns **merge onto one
+  row**. Cardinality 1:1. The key defines the row's identity. (This is the whole
+  "Core model" above.)
+- **Reference join (lookup).** A source describes a *different entity* (an
+  author). A field on the row (`Author`) is a **foreign key** into that
+  collection; matching rows' columns are **pulled in as derived columns**.
+  Cardinality N:1 (many articles → one author). This mirrors Notion's
+  *relation + rollup* / Airtable's *linked record + lookup field*.
+
+Unify both as a typed join record so the reference case drops in without a
+schema change:
+
+```
+join = {
+  kind: "identity" | "reference",
+  collection,            // any source: integration, AN app, OR a local table
+  localExpr,             // identity → the canonical key; reference → e.g. "Author"
+  remoteKeyField,        // the collection's own key
+  normalizationFormula,  // same normalize-then-exact matching as identity joins
+}
+```
+
+- **No relation column needed.** Unlike Notion (which stores an explicit per-row
+  link in a dedicated relation column), ours is a **value join**: the existing
+  `Author` field's *value* is matched against the authors' key. The join is
+  configured in the **Sources** UX, not as a column. The field you already have
+  doubles as the foreign key. Trade-off: a value join can be ambiguous (two
+  authors normalize alike, or a typo matches nothing) where an explicit link
+  can't — covered later by multi-value handling + the manual-pin escape hatch.
+- **Order of operations** — build the federated identity row first (URL), *then*
+  resolve reference joins against the row's fields (the `localExpr` may itself be
+  a federated column).
+- **Single-value only for v1.** A single-valued `Author` is a clean 1:1 lookup.
+  Multi-value (co-authors, `multiple-blog-authors`) makes it N:M → the looked-up
+  columns become lists needing an aggregation/display rule. **Deferred.**
+- **Local tables are a source too.** Any local content database can act as a
+  source (identity *or* reference), mirroring Notion — indexed by one of its
+  properties as its key. See the third Sources group below.
+
 ## Design decisions
 
 ### Progressive key disclosure (don't introduce complexity until needed)
@@ -113,11 +158,15 @@ Sources (N)                              ← plural; count of connected sources
     └ Notion  [logo]  (coming soon)
   Agent-Native apps  (opt-in ecosystem)
     └ Analytics  [logo]  (coming soon)   ← the agent-native analytics template
+  Local tables  (later)
+    └ <other database in this workspace> ← any local table can be a source
 ```
 
-- Two groups: **third-party integrations** (Builder, Notion, …) and
-  **Agent-Native apps** (Analytics, …) which require opting into the
-  open-source AN ecosystem.
+- Three groups: **third-party integrations** (Builder, Notion, …),
+  **Agent-Native apps** (Analytics, …) which require opting into the open-source
+  AN ecosystem, and **local tables** (any other content database in the
+  workspace — this is what makes "any table is a source" / Notion-style relations
+  work without a relation column; the join is configured here).
 - Each integration has **provider-specific specifics** behind a common adapter.
   Deriving the Builder *space* display name is a Builder-only call: there is **no
   public-key path** to a space name — it comes from the **Admin GraphQL API**
@@ -152,7 +201,7 @@ implement it; the federation/join/merge logic stays provider-agnostic.
   working with zero key ceremony.
 - No join/merge logic yet — proves the model + navigation end to end.
 
-### NEXT — read-side federation (this PR)
+### NEXT — read-side federation, identity joins only (this PR)
 - **Canonical key** as an explicit (but progressively-disclosed) property.
 - **Per-source key-normalization formula**; AI-suggested key + similarity
   fallback; formula-language string extensions.
@@ -162,8 +211,17 @@ implement it; the federation/join/merge logic stays provider-agnostic.
   display columns from >1 source on the same row. (Use a real second source if
   one's ready; otherwise validate with Builder + a fixture/local source.)
 - Store the column model (primary + optional mirror bindings); display primary.
+- **Design the typed `join` record now** (`kind: identity | reference`, see Core
+  model) even though only `identity` is built — so reference joins drop in later
+  with no schema change. Identity-only here.
 
 ### LATER — truly later (separate PRs)
+- **Reference joins (lookups)** — its own sub-phase: match a row field against a
+  related collection's key, pull derived columns. Single-value first; the
+  relation/cardinality machinery is what makes this bigger than NEXT.
+- **Local tables as sources** — let any workspace database be a source (identity
+  or reference); the third Sources group.
+- **Multi-value reference joins** (co-authors → list columns + aggregation).
 - Additional adapters: **Notion**, **Analytics** (AN analytics template), Sigma.
 - **Merged/synced columns** write fan-out — depends on the live-write layer.
 - Conflict UX for diverged mirrors.
