@@ -338,6 +338,19 @@ export interface ActionEntry {
    * the result to this many characters instead of the global 50 000 cap.
    */
   maxResultChars?: number;
+  /**
+   * Opt-in human-in-the-loop approval gate (default off). When truthy (or a
+   * predicate that resolves truthy for the call's args), the loop emits
+   * `approval_required` and stops the turn instead of executing this action,
+   * until a human approves the specific call. Set by `defineAction`'s
+   * `needsApproval` option. See `packages/core/docs/content/actions.md`.
+   */
+  needsApproval?:
+    | boolean
+    | ((
+        args: any,
+        ctx?: import("../action.js").ActionRunContext,
+      ) => boolean | Promise<boolean>);
 }
 
 /** @deprecated Use `ActionEntry` instead */
@@ -1989,6 +2002,13 @@ export async function runAgentLoop(opts: {
    * ActionEntry overrides them with its own timeoutMs / maxResultChars.
    */
   toolLimits?: { timeoutMs?: number; maxResultChars?: number };
+  /**
+   * Stable approval keys granted by a human for actions declared
+   * `needsApproval`. A call whose key is present here runs even though the
+   * action requires approval; otherwise the loop pauses with
+   * `approval_required`. See `AgentChatRequest.approvedToolCalls`.
+   */
+  approvedToolCalls?: string[];
 }): Promise<AgentLoopUsage> {
   const {
     engine,
@@ -2347,6 +2367,12 @@ export async function runAgentLoop(opts: {
     let requestedActionStop: { message: string; errorCode?: string } | null =
       null;
 
+    // Human-in-the-loop approvals granted by the user for this turn (opt-in;
+    // empty for the overwhelming majority of turns). Keyed by the stable
+    // tool-call approval key so a re-issued continuation can let an approved
+    // call run. The model cannot populate this — it comes from the request.
+    const approvedToolCallKeys = new Set<string>(opts.approvedToolCalls ?? []);
+
     const runToolCall = async (
       toolCall: import("./engine/types.js").EngineToolCallPart,
     ): Promise<EngineContentPart> => {
@@ -2439,6 +2465,63 @@ export async function runAgentLoop(opts: {
           content: result,
           isError: true,
         };
+      }
+
+      // Human-in-the-loop approval gate (opt-in via defineAction
+      // `needsApproval`; default off). When an action requires approval and
+      // this specific call has NOT been approved by a human, pause the turn
+      // instead of executing. The action's side effect never happens until a
+      // human re-issues the turn approving this call's stable key.
+      const approvalKey = toolCallCacheKey(toolCall.name, toolCall.input);
+      if (actionEntry.needsApproval && !approvedToolCallKeys.has(approvalKey)) {
+        let mustApprove = false;
+        try {
+          mustApprove =
+            typeof actionEntry.needsApproval === "function"
+              ? Boolean(
+                  await actionEntry.needsApproval(toolCall.input, {
+                    userEmail: getRequestUserEmail(),
+                    orgId: getRequestOrgId() ?? null,
+                    caller: "tool",
+                  }),
+                )
+              : actionEntry.needsApproval === true;
+        } catch {
+          // Fail closed: a throwing predicate means we require approval rather
+          // than silently running a high-consequence action.
+          mustApprove = true;
+        }
+        if (mustApprove) {
+          send({
+            type: "tool_start",
+            tool: toolCall.name,
+            input: toolCall.input as Record<string, string>,
+          });
+          send({
+            type: "approval_required",
+            tool: toolCall.name,
+            input: toolCall.input as Record<string, string>,
+            approvalKey,
+            ...(toolCall.id ? { toolCallId: toolCall.id } : {}),
+          });
+          const result =
+            `Awaiting human approval to run "${toolCall.name}". This action did ` +
+            `NOT execute — a human must approve this specific call before it ` +
+            `can run. The turn is paused; do not retry.`;
+          send({ type: "tool_done", tool: toolCall.name, result });
+          recordToolResult(result, false);
+          requestedActionStop ??= {
+            message: `Waiting for your approval to run ${toolCall.name}.`,
+            errorCode: "needs-approval",
+          };
+          return {
+            type: "tool-result" as const,
+            toolCallId: toolCall.id,
+            toolName: toolCall.name,
+            toolInput: wireToolInput,
+            content: result,
+          };
+        }
       }
 
       const cacheKey =
@@ -3920,6 +4003,16 @@ export function createProductionAgentHandler(
           ...(options.toolLimits ? { toolLimits: options.toolLimits } : {}),
           ...(threadId
             ? { threadId: effectiveThreadId, turnId: effectiveTurnId }
+            : {}),
+          // Human-in-the-loop approval grants for this turn (sanitized — the
+          // request is untrusted; accept only a bounded list of string keys).
+          ...(Array.isArray(body.approvedToolCalls) &&
+          body.approvedToolCalls.length
+            ? {
+                approvedToolCalls: body.approvedToolCalls
+                  .filter((k: unknown): k is string => typeof k === "string")
+                  .slice(0, 200),
+              }
             : {}),
         };
 

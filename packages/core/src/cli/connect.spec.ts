@@ -200,10 +200,9 @@ describe("normalizeUrl", () => {
 });
 
 describe("resolveClients", () => {
-  it("expands 'all' to every supported client", () => {
+  it("expands 'all' to every selectable client", () => {
     expect(resolveClients("all")).toEqual([
       "claude-code",
-      "claude-code-cli",
       "codex",
       "cowork",
       "cursor",

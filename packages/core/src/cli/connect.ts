@@ -5,7 +5,7 @@
  * browser device-code flow: open the verification URL, approve in the browser,
  * and the minted HTTP MCP server entry is written idempotently.
  *
- *   agent-native connect <url> [--client all|claude-code|claude-code-cli|
+ *   agent-native connect <url> [--client all|claude-code|
  *                               codex|cowork|cursor|opencode|github-copilot]
  *                               [--scope user|project]
  *                               [--name <serverName>]
@@ -129,7 +129,7 @@ export interface ParsedConnectArgs {
   mode?: "dev" | "prod" | "reauth" | "reconnect";
   /** Positional URL (the deployed app origin). Undefined for `--all`. */
   url?: string;
-  /** all | claude-code | claude-code-cli | codex | cowork | cursor | opencode | github-copilot (default "all"). */
+  /** all | claude-code | codex | cowork | cursor | opencode | github-copilot (default "all"). claude-code-cli is accepted as a legacy alias for claude-code. */
   client: string;
   /** True when the user passed --client explicitly, so we skip the picker. */
   clientExplicit: boolean;
@@ -251,10 +251,17 @@ export function normalizeUrl(raw: string): string {
   return base;
 }
 
+// Clients offered in the interactive picker and expanded by "all". Excludes
+// the `claude-code-cli` alias so users only ever see a single "Claude Code"
+// option (it still works if passed explicitly via --client).
+const SELECTABLE_CLIENTS: ClientId[] = CLIENTS.filter(
+  (c) => c !== "claude-code-cli",
+);
+
 /** Resolve the requested clients list. "all" → every supported client. */
 export function resolveClients(client: string): ClientId[] {
   const c = normalizeClientAlias(client ?? "all");
-  if (c === "all" || c === "") return [...CLIENTS];
+  if (c === "all" || c === "") return [...SELECTABLE_CLIENTS];
   if (c.includes(",")) {
     const clients = normalizeClientIds(c.split(",").map((part) => part.trim()));
     if (clients.length > 0) return clients;
@@ -267,7 +274,15 @@ export function resolveClients(client: string): ClientId[] {
 
 function normalizeClientAlias(value: string): string {
   const id = value.trim().toLowerCase();
-  if (id === "claude" || id === "claude-code-desktop") return "claude-code";
+  // The Claude Code CLI and desktop share ~/.claude.json, so they are one
+  // client. `claude-code-cli` stays accepted for back-compat but collapses to
+  // the single "Claude Code" option everywhere it surfaces.
+  if (
+    id === "claude" ||
+    id === "claude-code-desktop" ||
+    id === "claude-code-cli"
+  )
+    return "claude-code";
   if (id === "copilot" || id === "vscode" || id === "vs-code") {
     return "github-copilot";
   }
@@ -348,7 +363,7 @@ export interface ConnectHostedAppsPromptContext {
 }
 
 function clientPromptOptions(): ConnectClientPromptContext["options"] {
-  return CLIENTS.map((client) => ({
+  return SELECTABLE_CLIENTS.map((client) => ({
     value: client,
     label: CLIENT_LABELS[client],
     hint: CLIENT_HINTS[client],
@@ -2570,7 +2585,7 @@ Developer:
   npx @agent-native/core@latest connect prod [--apps mail,calendar] [--client <c>]
       Restore production MCP entries saved before the dev switch.
 
-Clients:  all (default), claude-code, claude-code-cli, codex, cowork, cursor, opencode, github-copilot
+Clients:  all (default), claude-code, codex, cowork, cursor, opencode, github-copilot
 Scope:    user (default, ~/.claude.json) or project (.mcp.json)`;
 
 /**

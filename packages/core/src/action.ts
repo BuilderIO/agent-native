@@ -325,6 +325,28 @@ interface DefineActionWithSchema<
    *  interactive app iframes. Text/deep-link tool results remain the fallback
    *  for CLI and non-UI hosts. */
   mcpApp?: ActionMcpAppConfig;
+  /**
+   * Opt-in human-in-the-loop approval gate. **Default off** — the framework
+   * intentionally keeps HITL approvals rare; almost every action should run
+   * without one. Set this only for high-consequence, outward-facing,
+   * hard-to-undo operations (the canonical example is actually sending an
+   * email). When `needsApproval` resolves truthy and the agent calls this
+   * action, the loop does NOT execute `run()`: it emits an `approval_required`
+   * event and stops the turn, waiting for a human to approve. The action runs
+   * only once the human re-issues the turn approving this specific call.
+   *
+   * - `true` — always require approval.
+   * - `(args, ctx) => boolean | Promise<boolean>` — require approval only when
+   *   the predicate returns true (e.g. only for external recipients, only
+   *   above a dollar threshold). Keep it pure + fast; thrown errors are treated
+   *   as "approval required" (fail closed).
+   */
+  needsApproval?:
+    | boolean
+    | ((
+        args: StandardSchemaV1.InferOutput<TSchema>,
+        ctx?: ActionRunContext,
+      ) => boolean | Promise<boolean>);
 }
 
 // ---------------------------------------------------------------------------
@@ -371,6 +393,14 @@ interface DefineActionWithParams<
   link?: ActionLinkBuilder;
   /** Optional MCP Apps UI resource. See schema overload above. */
   mcpApp?: ActionMcpAppConfig;
+  /** Opt-in human-in-the-loop approval gate (default off). See the schema
+   *  overload above for full semantics. */
+  needsApproval?:
+    | boolean
+    | ((
+        args: InferParams<TParams>,
+        ctx?: ActionRunContext,
+      ) => boolean | Promise<boolean>);
 }
 
 // ---------------------------------------------------------------------------
@@ -410,6 +440,12 @@ export interface ActionDefinition<TInput, TReturn> {
   readonly publicAgent?: PublicAgentActionConfig;
   readonly link?: ActionLinkBuilder;
   readonly mcpApp?: ActionMcpAppConfig;
+  /** Opt-in human-in-the-loop approval gate (default off). When truthy, the
+   *  agent loop emits `approval_required` and pauses instead of executing this
+   *  action until a human approves the specific call. */
+  readonly needsApproval?:
+    | boolean
+    | ((args: TInput, ctx?: ActionRunContext) => boolean | Promise<boolean>);
 }
 
 // ---------------------------------------------------------------------------
@@ -574,6 +610,10 @@ export function defineAction(options: any) {
     ...(publicAgent ? { publicAgent } : {}),
     ...(link ? { link } : {}),
     ...(mcpApp ? { mcpApp } : {}),
+    ...(typeof options.needsApproval === "boolean" ||
+    typeof options.needsApproval === "function"
+      ? { needsApproval: options.needsApproval }
+      : {}),
   };
 }
 

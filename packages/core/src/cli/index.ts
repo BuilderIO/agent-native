@@ -813,8 +813,8 @@ Usage:
   agent-native code serve       Run the Agent-Native Code remote connector.
   agent-native mcp <cmd>        Connect external coding agents over MCP.
                                 cmds: serve | install | uninstall | status |
-                                token (--client claude-code|claude-code-cli|
-                                codex|cowork)
+                                token (--client claude-code|codex|cowork|
+                                cursor|opencode|github-copilot)
   agent-native connect <url>    Authenticate your coding agent to a DEPLOYED app.
                                 OAuth-capable clients (Claude Code) get a /mcp
                                 authenticate prompt; Codex / Cowork use the

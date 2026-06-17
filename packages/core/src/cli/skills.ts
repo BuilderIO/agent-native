@@ -38,7 +38,7 @@ Usage:
   npx @agent-native/core@latest skills list
   npx @agent-native/core@latest skills status [assets|design-exploration|visual-plan|visual-recap|context-xray] [--client codex|claude-code|pi|all] [--scope user|project] [--json]
   npx @agent-native/core@latest skills update [assets|design-exploration|visual-plan|visual-recap|context-xray] [--client codex|claude-code|pi|all] [--scope user|project] [--dry-run] [--json]
-  npx @agent-native/core@latest skills add assets|design-exploration|visual-plan|visual-recap|context-xray [--client codex|claude-code|claude-code-cli|cowork|cursor|opencode|github-copilot|all] [--scope user|project] [--mode hosted|local-files|self-hosted] [--mcp-url <url>] [--no-connect] [--with-github-action] [--yes] [--dry-run] [--json]
+  npx @agent-native/core@latest skills add assets|design-exploration|visual-plan|visual-recap|context-xray [--client codex|claude-code|cowork|cursor|opencode|github-copilot|all] [--scope user|project] [--mode hosted|local-files|self-hosted] [--mcp-url <url>] [--no-connect] [--with-github-action] [--yes] [--dry-run] [--json]
   npx @agent-native/core@latest skills add <manifest-or-app-dir|skill-repo> [--skill <name>] [--client ...] [--yes]
 
 Examples:
