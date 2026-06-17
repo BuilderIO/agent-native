@@ -465,6 +465,7 @@ export {
   type ChatThreadData,
   type UseChatThreadsOptions,
 } from "./use-chat-threads.js";
+export { AgentChatHome, type AgentChatHomeProps } from "./AgentChatHome.js";
 export {
   AgentChatSurface,
   AgentPanel,
@@ -477,11 +478,50 @@ export {
   type AgentSidebarProps,
 } from "./AgentPanel.js";
 export {
+  AGENT_CHAT_VIEW_TRANSITION_CLASS,
+  AGENT_CHAT_VIEW_TRANSITION_NAME,
+  getAgentChatViewTransitionStyle,
+  startAgentChatViewTransition,
+  supportsAgentChatViewTransition,
+  type AgentChatViewTransition,
+  type AgentChatViewTransitionOptions,
+} from "./chat-view-transition.js";
+export {
+  requestAgentSidebarOpen,
   SIDEBAR_STATE_CHANGE_EVENT,
+  setAgentSidebarOpenPreference,
   type AgentSidebarStateChangeDetail,
   type AgentSidebarStateMode,
   type AgentSidebarStateSource,
 } from "./agent-sidebar-state.js";
+export {
+  clearReservedToolRenderersForTests,
+  clearToolRenderersForTests,
+  registerReservedToolRenderer,
+  registerToolRenderer,
+  resolveToolRenderer,
+  type ToolRendererComponent,
+  type ToolRendererContext,
+  type ToolRendererMatch,
+  type ToolRendererProps,
+  type ToolRendererRegistration,
+} from "./chat/tool-render-registry.js";
+export {
+  DATA_CHART_WIDGET,
+  DATA_INSIGHTS_WIDGET,
+  DATA_TABLE_WIDGET,
+  isDataChartWidget,
+  isDataTableWidget,
+  isDataWidgetResult,
+  normalizeDataWidgetKind,
+  normalizeDataWidgetResult,
+  type DataChartSeriesDefinition,
+  type DataChartWidget,
+  type DataTableColumn,
+  type DataTableWidget,
+  type DataWidgetKind,
+  type DataWidgetResult,
+} from "./chat/widgets/data-widget-types.js";
 export { AgentNativeIcon } from "./components/icons/AgentNativeIcon.js";
 export { SettingsPanel, type SettingsPanelProps } from "./settings/index.js";
 export { useBuilderStatus } from "./settings/useBuilderStatus.js";

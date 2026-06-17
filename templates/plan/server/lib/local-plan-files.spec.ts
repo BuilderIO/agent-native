@@ -335,6 +335,35 @@ describe("local-plan-files", () => {
     );
   });
 
+  it("rejects repo-relative paths that escape through symlinks", async () => {
+    const repoRoot = path.join(tmpDir, "repo");
+    const outsideRoot = path.join(tmpDir, "outside");
+    await fs.mkdir(path.join(repoRoot, "docs/plans"), { recursive: true });
+    await fs.mkdir(outsideRoot, { recursive: true });
+    await fs.symlink(outsideRoot, path.join(repoRoot, "docs/plans/current"));
+    process.env.PLAN_REPO_ROOT = repoRoot;
+
+    const content = sampleContent();
+    await writePlanLocalFolder({
+      slug: "checkout-review",
+      planId: "local-checkout-review",
+      title: content.title ?? "Checkout review",
+      brief: content.brief,
+      content,
+      url: "/local-plans/checkout-review",
+    });
+
+    await expect(
+      promotePlanLocalFolder({
+        slug: "checkout-review",
+        targetPath: "docs/plans/current",
+        overwrite: true,
+      }),
+    ).rejects.toThrow(/escaped the repo root/);
+
+    await expect(fs.stat(path.join(outsideRoot, "plan.mdx"))).rejects.toThrow();
+  });
+
   it("adds a numeric suffix only when a readable folder name collides", async () => {
     const content = sampleContent();
     const taken = path.join(tmpDir, "checkout-review-flow");

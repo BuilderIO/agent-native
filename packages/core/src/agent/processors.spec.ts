@@ -121,12 +121,16 @@ describe("processor seam — no processors", () => {
 describe("processor seam — processOutputStream abort", () => {
   it("halts the run and emits a tripwire when a stream processor aborts", async () => {
     const events: AgentChatEvent[] = [];
+    let resultText: string | undefined;
     const processor: Processor = {
       name: "no-secrets",
       processOutputStream({ part, abort }) {
         if (part.type === "text-delta" && part.text.includes("secret")) {
           abort("Blocked: secret detected", { matched: "secret" });
         }
+      },
+      processOutputResult({ text }) {
+        resultText = text;
       },
     };
 
@@ -151,6 +155,7 @@ describe("processor seam — processOutputStream abort", () => {
     });
     // A tripwired run does NOT end with a normal `done`.
     expect(events.some((e) => e.type === "done")).toBe(false);
+    expect(resultText).toBe("Blocked: secret detected");
   });
 });
 

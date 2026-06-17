@@ -101,6 +101,10 @@ import {
   subscribeAgentSidebarUrlChanges,
 } from "./agent-sidebar-state.js";
 import { AgentNativeRouteWarmup } from "./route-warmup.js";
+import {
+  AGENT_CHAT_VIEW_TRANSITION_CLASS,
+  getAgentChatViewTransitionStyle,
+} from "./chat-view-transition.js";
 
 // Lazy-load AgentTerminal to avoid bundling xterm.js when not needed
 const AgentTerminal = lazy(() =>
@@ -406,6 +410,8 @@ export interface AgentPanelProps extends Omit<
   defaultMode?: "chat" | "cli";
   /** CSS class for the outer container */
   className?: string;
+  /** Inline styles for the outer container. */
+  style?: React.CSSProperties;
   /** Called when the user clicks the collapse button. If provided, a collapse button appears in the header. */
   onCollapse?: () => void;
   /** Whether the panel is currently in fullscreen (Claude-style centered) mode. */
@@ -532,6 +538,7 @@ function CodeAccessUnavailablePanel({
 function AgentPanelInner({
   defaultMode = "chat",
   className,
+  style,
   apiUrl,
   emptyStateText,
   emptyStateAddon,
@@ -1417,7 +1424,7 @@ function AgentPanelInner({
         "agent-panel-root flex flex-1 flex-col min-h-0 h-full text-[13px] leading-[1.2] antialiased",
         className,
       )}
-      style={AGENT_PANEL_ROOT_STYLE}
+      style={{ ...AGENT_PANEL_ROOT_STYLE, ...style }}
       data-agent-fullscreen={isFullscreen ? "true" : undefined}
     >
       {/* Tailwind group-hover/tab doesn't work in core package — inject directly.
@@ -2054,6 +2061,12 @@ export interface AgentChatSurfaceProps extends AgentPanelProps {
    * Default: "panel".
    */
   mode?: AgentChatSurfaceMode;
+  /**
+   * Apply the shared chat view-transition marker/name to this surface. Pair
+   * with `AgentSidebar chatViewTransition` and navigate via
+   * `startAgentChatViewTransition` or `useAgentRouteState`.
+   */
+  chatViewTransition?: boolean;
 }
 
 /**
@@ -2068,6 +2081,8 @@ export function AgentChatSurface({
   className,
   defaultMode = "chat",
   isFullscreen,
+  style,
+  chatViewTransition = false,
   ...props
 }: AgentChatSurfaceProps) {
   const pageMode = mode === "page";
@@ -2079,8 +2094,12 @@ export function AgentChatSurface({
       isFullscreen={isFullscreen ?? pageMode}
       className={cn(
         pageMode && "h-full min-h-0 w-full overflow-hidden bg-background",
+        chatViewTransition && AGENT_CHAT_VIEW_TRANSITION_CLASS,
         className,
       )}
+      style={
+        chatViewTransition ? getAgentChatViewTransitionStyle(style) : style
+      }
     />
   );
 }
@@ -2107,6 +2126,15 @@ export interface AgentSidebarProps {
   /** Animate the mobile overlay in a sheet-style slide transition. */
   animateMobile?: boolean;
   /**
+   * Apply the shared chat view-transition marker/name to the sidebar panel so a
+   * page-level AgentChatSurface can morph into it on navigation.
+   */
+  chatViewTransition?: boolean;
+  /** Namespace for persisted chat state. Use the same key as AgentChatHome. */
+  storageKey?: string;
+  /** Open the sidebar when a chat run is active or reconnects. */
+  openOnChatRunning?: boolean;
+  /**
    * Bind chats to a resource. When set, every chat started here is
    * scoped to `{type, id}`, the tab bar/history partition by that scope,
    * and a "Working on {label}" badge appears with a Detach option.
@@ -2131,6 +2159,9 @@ export function AgentSidebar({
   position = "right",
   defaultOpen = false,
   animateMobile = false,
+  chatViewTransition = false,
+  storageKey,
+  openOnChatRunning = false,
   scope,
   browserTabId,
 }: AgentSidebarProps) {
@@ -2275,6 +2306,7 @@ export function AgentSidebar({
           : "__default__";
 
       if (detail?.isRunning === true) {
+        if (openOnChatRunning) setOpenPersisted(true);
         setRunningTabIds((prev) => {
           const next = new Set(prev);
           next.add(tabId);
@@ -2300,7 +2332,7 @@ export function AgentSidebar({
       window.removeEventListener(AGENT_PANEL_PREPARE_EVENT, preparePanel);
       window.removeEventListener(AGENT_CHAT_RUNNING_EVENT, handleChatRunning);
     };
-  }, []);
+  }, [openOnChatRunning, setOpenPersisted]);
 
   useEffect(() => {
     const replayAfterMount = (type: string, event: Event) => {
@@ -2574,11 +2606,16 @@ export function AgentSidebar({
       <div
         className={cn(
           "agent-sidebar-panel flex shrink-0 flex-col overflow-hidden text-[13px] leading-[1.2] antialiased",
+          chatViewTransition && AGENT_CHAT_VIEW_TRANSITION_CLASS,
           animateMobile &&
             isMobile &&
             "shadow-2xl transition-transform duration-[260ms] ease-[cubic-bezier(0.32,0.72,0,1)] motion-reduce:transition-none",
         )}
-        style={panelStyle}
+        style={
+          chatViewTransition
+            ? getAgentChatViewTransitionStyle(panelStyle)
+            : panelStyle
+        }
         inert={isMobile && !open ? true : undefined}
         aria-hidden={isMobile && !open ? true : undefined}
       >
@@ -2589,6 +2626,7 @@ export function AgentSidebar({
           onCollapse={() => setOpenPersisted(false)}
           isFullscreen={effectiveFullscreen}
           onToggleFullscreen={isMobile ? undefined : toggleFullscreen}
+          storageKey={storageKey}
           scope={scope}
           browserTabId={browserTabId}
         />

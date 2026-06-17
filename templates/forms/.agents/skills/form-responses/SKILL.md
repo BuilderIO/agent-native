@@ -17,6 +17,35 @@ pnpm action list-responses --form <form-id> [--limit 50]
 
 This shows each response with field labels and values, ordered by submission date (newest first).
 
+For chart/table analytics, prefer `response-insights`:
+
+```bash
+# All recent accessible forms
+pnpm action response-insights
+
+# One form
+pnpm action response-insights --formId <form-id> --days 30 --limit 300
+```
+
+`response-insights` returns an explicit first-party widget payload:
+
+- `widget: "data-insights"`
+- `chartSeries` for submissions by day
+- `table` for recent response rows
+- `summary` with total, sampled, and truncation details
+
+Native chat renderers should use that contract for first-party tables/charts.
+MCP Apps/iframe rendering is only a fallback for external hosts.
+
+For form setup/configuration previews, use `preview-form`:
+
+```bash
+pnpm action preview-form --formId <form-id>
+```
+
+It returns a native inline summary/table with the form fields, response count,
+status, visibility, and an "Open editor" action.
+
 ## Exporting Responses
 
 Use `export-responses` to export to CSV or JSON:
@@ -35,12 +64,12 @@ The CSV includes headers derived from field labels. Array values (multiselect) a
 
 Each response is stored in the `responses` SQL table:
 
-| Column       | Type   | Description                          |
-| ------------ | ------ | ------------------------------------ |
-| `id`         | text   | Unique response ID                   |
-| `formId`     | text   | Foreign key to the form              |
-| `data`       | text   | JSON string of field ID -> value map |
-| `submittedAt`| text   | ISO timestamp                        |
+| Column        | Type | Description                          |
+| ------------- | ---- | ------------------------------------ |
+| `id`          | text | Unique response ID                   |
+| `formId`      | text | Foreign key to the form              |
+| `data`        | text | JSON string of field ID -> value map |
+| `submittedAt` | text | ISO timestamp                        |
 
 The `data` JSON maps field IDs to values:
 
@@ -58,27 +87,24 @@ The `data` JSON maps field IDs to values:
 To analyze responses, the workflow is:
 
 1. `list-forms` to find the form ID
-2. `list-responses --form <id>` to get the data
-3. Analyze patterns, calculate statistics, identify trends
-4. Report findings to the user
-
-For advanced queries, use the core `db-query` script:
-
-```bash
-pnpm action db-query --sql "SELECT data FROM responses WHERE formId = '<id>'"
-```
+2. `preview-form --formId <id>` when the question is about setup or fields
+3. `response-insights --formId <id>` for counts, daily submissions, and table data
+4. Use `list-responses --formId <id>` only when exact row-level inspection is needed
+5. Report whether the answer is exact or sampled, including row counts and truncation
 
 ## Common Tasks
 
-| User request             | What to do                                    |
-| ------------------------ | --------------------------------------------- |
-| "How many responses?"    | `list-responses --form <id> --limit 1` (shows total count) |
-| "Export to CSV"          | `export-responses --form <id> --output data/export.csv` |
-| "Summarize feedback"     | `list-responses`, then analyze the data       |
-| "Average rating"         | `list-responses`, compute from rating fields  |
-| "Who submitted today?"   | `list-responses`, filter by submittedAt       |
+| User request           | What to do                                                                   |
+| ---------------------- | ---------------------------------------------------------------------------- |
+| "@Form setup?"         | `preview-form --formId <id>` and answer from the returned fields/settings    |
+| "How many responses?"  | `response-insights --formId <id>` and report `summary.responses`             |
+| "Export to CSV"        | `export-responses --form <id> --output data/export.csv`                      |
+| "Submissions by day"   | `response-insights --formId <id> --days 30`                                  |
+| "Summarize feedback"   | `response-insights`, then `list-responses` if more detail is needed          |
+| "Average rating"       | `list-responses`, compute from rating fields and state the sampled row count |
+| "Who submitted today?" | `list-responses`, filter by submittedAt                                      |
 
 ## Related Skills
 
 - **form-building** — Understanding the form structure and field types
-- **scripts** — All response operations go through scripts
+- **actions** — All response operations go through actions

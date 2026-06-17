@@ -312,6 +312,36 @@ describe("runDeviceFlow", () => {
     );
   });
 
+  it("can wrap browser launch with an embedded spinner hook", async () => {
+    const open = vi.fn();
+    const withBrowserOpenSpinner = vi.fn(async (_message, openBrowser) => {
+      await openBrowser();
+    });
+
+    const grant = await runDeviceFlow("https://app.example.com", "app", "all", {
+      fetchImpl: makeFetch([
+        {
+          status: "approved",
+          token: "tok-abc",
+          mcpUrl: "https://app.example.com/_agent-native/mcp",
+          serverName: "agent-native-app",
+        },
+      ]),
+      sleep: noopSleep,
+      openBrowser: open,
+      withBrowserOpenSpinner,
+    });
+
+    expect(grant?.token).toBe("tok-abc");
+    expect(withBrowserOpenSpinner).toHaveBeenCalledWith(
+      "Opening browser for approval",
+      expect.any(Function),
+    );
+    expect(open).toHaveBeenCalledWith(
+      "https://app.example.com/connect?code=WXYZ-1234",
+    );
+  });
+
   it("accepts an approved local entry without a bearer token", async () => {
     const grant = await runDeviceFlow(
       "http://localhost:4321",

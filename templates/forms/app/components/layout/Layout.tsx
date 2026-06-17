@@ -1,17 +1,18 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { useLocation } from "react-router";
 import { Sidebar } from "./Sidebar";
 import { Header } from "./Header";
 import { HeaderActionsProvider } from "./HeaderActions";
 import { AgentSidebar } from "@agent-native/core/client";
 import { InvitationBanner } from "@agent-native/core/client/org";
+import { consumeFormsChatHomeHandoff } from "@/lib/chat-home-handoff";
 
 const BARE_ROUTES = new Set(["/form-preview"]);
 
 // Routes whose page renders its own custom toolbar (with AgentToggleButton).
 // Layout still mounts Sidebar + AgentSidebar, but skips its own Header so
 // there's no double-header.
-const NO_HEADER_PREFIXES = ["/forms/", "/extensions"];
+const NO_HEADER_PREFIXES = ["/forms/", "/extensions", "/response-insights"];
 
 interface LayoutProps {
   children: React.ReactNode;
@@ -19,6 +20,7 @@ interface LayoutProps {
 
 export function Layout({ children }: LayoutProps) {
   const location = useLocation();
+  const [startedFromChatHome] = useState(() => consumeFormsChatHomeHandoff());
 
   // Bind chat to the currently-open form. The `/forms/:id` URL covers
   // both the builder and the responses sub-page (`/forms/:id/responses`);
@@ -48,10 +50,13 @@ export function Layout({ children }: LayoutProps) {
         <AgentSidebar
           position="right"
           defaultOpen
+          chatViewTransition
+          storageKey="forms"
+          openOnChatRunning={startedFromChatHome}
           emptyStateText="Ask me anything about your forms"
           suggestions={[
             "Build a customer feedback survey",
-            "Summarize this week's responses",
+            "Show submissions by day",
             "Export responses to CSV",
           ]}
           scope={formScope}

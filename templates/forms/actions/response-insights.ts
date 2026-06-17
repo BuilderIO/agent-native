@@ -1,10 +1,22 @@
-import { defineAction, embedApp } from "@agent-native/core";
+import { defineAction } from "@agent-native/core";
 import { buildDeepLink } from "@agent-native/core/server";
 import { accessFilter, resolveAccess } from "@agent-native/core/sharing";
-import { desc, eq, inArray, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
-import type { FormField } from "../shared/types.js";
+import type {
+  FormField,
+  ResponseInsightsChartSeries,
+  ResponseInsightsTable,
+  ResponseInsightsWidgetResult,
+} from "../shared/types.js";
+
+const MAX_FORMS_TO_ANALYZE = 100;
+const DEFAULT_FORMS_TO_ANALYZE = 50;
+const MAX_RESPONSE_SAMPLE = 500;
+const DEFAULT_RESPONSE_SAMPLE = 300;
+const MAX_TABLE_ROWS = 100;
+const DEFAULT_TABLE_ROWS = 40;
 
 const responseInsightsSchema = z.object({
   formId: z.string().optional().describe("Analyze a specific form by ID"),
@@ -21,18 +33,28 @@ const responseInsightsSchema = z.object({
     .number()
     .int()
     .min(1)
-    .max(1000)
+    .max(MAX_RESPONSE_SAMPLE)
     .optional()
-    .default(500)
+    .default(DEFAULT_RESPONSE_SAMPLE)
     .describe("Maximum recent responses to sample"),
   tableLimit: z.coerce
     .number()
     .int()
     .min(1)
-    .max(100)
+    .max(MAX_TABLE_ROWS)
     .optional()
-    .default(50)
+    .default(DEFAULT_TABLE_ROWS)
     .describe("Maximum rows to include in the preview table"),
+  formLimit: z.coerce
+    .number()
+    .int()
+    .min(1)
+    .max(MAX_FORMS_TO_ANALYZE)
+    .optional()
+    .default(DEFAULT_FORMS_TO_ANALYZE)
+    .describe(
+      "Maximum recent accessible forms to include when formId is not set",
+    ),
 });
 
 type ResponseInsightsArgs = z.infer<typeof responseInsightsSchema>;
@@ -120,7 +142,8 @@ function buildSpecificFormTable(
   form: FormRow,
   responses: ResponseRow[],
   tableLimit: number,
-) {
+  totalRows: number,
+): ResponseInsightsTable {
   const fields = safeJson<FormField[]>(form.fields, []).slice(0, 7);
   const hasSubmitter = responses.some((row) => row.submitterEmail);
   const columns = [
@@ -143,10 +166,12 @@ function buildSpecificFormTable(
   });
 
   return {
+    title: `Recent responses for ${form.title}`,
     columns,
     rows,
-    totalRows: responses.length,
-    truncated: responses.length > tableLimit,
+    totalRows,
+    sampledRows: responses.length,
+    truncated: totalRows > rows.length,
   };
 }
 
@@ -155,7 +180,8 @@ function buildAllFormsTable(
   fieldsByForm: Map<string, FormField[]>,
   responses: ResponseRow[],
   tableLimit: number,
-) {
+  totalRows: number,
+): ResponseInsightsTable {
   const hasSubmitter = responses.some((row) => row.submitterEmail);
   const columns = [
     { key: "submittedAt", label: "Submitted" },
@@ -173,10 +199,12 @@ function buildAllFormsTable(
   }));
 
   return {
+    title: "Recent responses across forms",
     columns,
     rows,
-    totalRows: responses.length,
-    truncated: responses.length > tableLimit,
+    totalRows,
+    sampledRows: responses.length,
+    truncated: totalRows > rows.length,
   };
 }
 
@@ -196,32 +224,40 @@ async function loadForms(args: ResponseInsightsArgs) {
   }
 
   const rows = await db
-    .select()
+    .select({
+      id: schema.forms.id,
+      title: schema.forms.title,
+      description: schema.forms.description,
+      slug: schema.forms.slug,
+      fields: schema.forms.fields,
+      settings: schema.forms.settings,
+      status: schema.forms.status,
+      visibility: schema.forms.visibility,
+      ownerEmail: schema.forms.ownerEmail,
+      orgId: schema.forms.orgId,
+      deletedAt: schema.forms.deletedAt,
+      createdAt: schema.forms.createdAt,
+      updatedAt: schema.forms.updatedAt,
+    })
     .from(schema.forms)
-    .where(accessFilter(schema.forms, schema.formShares))
-    .orderBy(desc(schema.forms.updatedAt));
+    .where(
+      and(
+        accessFilter(schema.forms, schema.formShares),
+        isNull(schema.forms.deletedAt),
+      ),
+    )
+    .orderBy(desc(schema.forms.updatedAt))
+    .limit(args.formLimit);
 
-  return rows.filter((form) => !form.deletedAt);
+  return rows;
 }
 
 export default defineAction({
   description:
-    "Analyze form response data and return SQL-backed summary, chart, table, and embeddable response-insights UI data.",
+    "Analyze form response data and return SQL-backed summary plus native widget-discriminated chart and table data.",
   schema: responseInsightsSchema,
   http: { method: "GET" },
   readOnly: true,
-  mcpApp: {
-    compactCatalog: true,
-    resource: embedApp({
-      title: "Response insights",
-      description:
-        "Open a Forms response analytics view with charts and a response table.",
-      iframeTitle: "Agent-Native Forms",
-      openLabel: "Open response insights",
-      embedByDefault: true,
-      height: 620,
-    }),
-  },
   link: ({ args, result }) => {
     const resultFormId =
       result && typeof result === "object"
@@ -250,35 +286,39 @@ export default defineAction({
       throw new Error(`Form ${formId} not found`);
     }
 
-    const responses =
-      formIds.length > 0
-        ? await db
-            .select()
-            .from(schema.responses)
-            .where(
-              formIds.length === 1
-                ? eq(schema.responses.formId, formIds[0]!)
-                : inArray(schema.responses.formId, formIds),
-            )
-            .orderBy(desc(schema.responses.submittedAt))
-            .limit(args.limit)
-        : [];
+    const responseFilter =
+      formIds.length === 0
+        ? null
+        : formIds.length === 1
+          ? eq(schema.responses.formId, formIds[0]!)
+          : inArray(schema.responses.formId, formIds);
 
-    const counts =
-      formIds.length > 0
-        ? await db
-            .select({
-              formId: schema.responses.formId,
-              count: sql<number>`count(*)`,
-            })
-            .from(schema.responses)
-            .where(
-              formIds.length === 1
-                ? eq(schema.responses.formId, formIds[0]!)
-                : inArray(schema.responses.formId, formIds),
-            )
-            .groupBy(schema.responses.formId)
-        : [];
+    const responses = responseFilter
+      ? await db
+          .select({
+            id: schema.responses.id,
+            formId: schema.responses.formId,
+            data: schema.responses.data,
+            submittedAt: schema.responses.submittedAt,
+            ip: schema.responses.ip,
+            submitterEmail: schema.responses.submitterEmail,
+          })
+          .from(schema.responses)
+          .where(responseFilter)
+          .orderBy(desc(schema.responses.submittedAt))
+          .limit(args.limit)
+      : [];
+
+    const counts = responseFilter
+      ? await db
+          .select({
+            formId: schema.responses.formId,
+            count: sql<number>`count(*)`,
+          })
+          .from(schema.responses)
+          .where(responseFilter)
+          .groupBy(schema.responses.formId)
+      : [];
 
     const responseCountByForm = new Map(
       counts.map((row) => [row.formId, Number(row.count) || 0]),
@@ -296,22 +336,50 @@ export default defineAction({
     for (const response of responses) {
       const key = dateKey(response.submittedAt);
       if (!key || !buckets.has(key)) continue;
-      const submittedAt = new Date(response.submittedAt);
-      if (submittedAt < start || submittedAt > end) continue;
       buckets.set(key, (buckets.get(key) ?? 0) + 1);
     }
 
     const targetForm = formId ? forms[0] : undefined;
     const table = targetForm
-      ? buildSpecificFormTable(targetForm, responses, args.tableLimit)
-      : buildAllFormsTable(formsById, fieldsByForm, responses, args.tableLimit);
+      ? buildSpecificFormTable(
+          targetForm,
+          responses,
+          args.tableLimit,
+          totalResponses,
+        )
+      : buildAllFormsTable(
+          formsById,
+          fieldsByForm,
+          responses,
+          args.tableLimit,
+          totalResponses,
+        );
+    const dailySubmissions = Array.from(buckets.entries()).map(
+      ([date, submissions]) => ({
+        date,
+        submissions,
+      }),
+    );
+    const chartSeries: ResponseInsightsChartSeries = {
+      type: "bar",
+      title: "Submissions by day",
+      xKey: "date",
+      yKey: "submissions",
+      series: [{ key: "submissions", label: "Submissions" }],
+      data: dailySubmissions,
+      sampled: totalResponses > responses.length,
+    };
+    const title = targetForm?.title ?? "All forms";
 
-    return {
+    const result: ResponseInsightsWidgetResult = {
+      widget: "data-insights",
+      widgetId: "forms.responseInsights.v1",
       scope: {
-        formId: targetForm?.id,
-        title: targetForm?.title ?? "All forms",
+        ...(targetForm ? { formId: targetForm.id } : {}),
+        title,
         days: args.days,
         sampledLimit: args.limit,
+        formLimit: args.formLimit,
       },
       summary: {
         forms: forms.length,
@@ -320,6 +388,7 @@ export default defineAction({
         truncated: totalResponses > responses.length,
         rangeStart: start.toISOString().slice(0, 10),
         rangeEnd: end.toISOString().slice(0, 10),
+        scopeCapped: !targetForm && forms.length >= args.formLimit,
       },
       forms: forms.map((form) => ({
         id: form.id,
@@ -329,20 +398,22 @@ export default defineAction({
         responseCount: responseCountByForm.get(form.id) ?? 0,
         url: `/forms/${encodeURIComponent(form.id)}`,
       })),
-      dailySubmissions: Array.from(buckets.entries()).map(
-        ([date, submissions]) => ({
-          date,
-          submissions,
-        }),
-      ),
+      chartSeries,
       table,
-      embed: {
-        src: insightsPath(targetForm?.id),
+      display: {
         title: targetForm
           ? `${targetForm.title} response insights`
           : "Forms response insights",
-        height: 620,
+        route: insightsPath(targetForm?.id),
+        primaryAction: {
+          label: targetForm ? "Open responses" : "Open forms",
+          href: targetForm
+            ? `/forms/${encodeURIComponent(targetForm.id)}/responses`
+            : "/forms",
+        },
       },
     };
+
+    return result;
   },
 });

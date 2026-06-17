@@ -86,6 +86,7 @@ describe("route-state client helpers", () => {
     for (const container of containers) {
       container.remove();
     }
+    Reflect.deleteProperty(document, "startViewTransition");
     vi.unstubAllGlobals();
   });
 
@@ -235,5 +236,59 @@ describe("route-state client helpers", () => {
       view: "detail/123",
       label: null,
     });
+  });
+
+  it("can wrap navigate commands in the shared chat view transition", async () => {
+    const { fetchMock } = makeAppStateFetch({
+      navigate: { view: "detail", id: "123", _writeId: "cmd-1" },
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const startViewTransition = vi.fn((callback: () => void) => {
+      callback();
+      return {
+        ready: Promise.resolve(),
+        finished: Promise.resolve(),
+        updateCallbackDone: Promise.resolve(),
+        skipTransition: vi.fn(),
+      };
+    });
+    Object.defineProperty(document, "startViewTransition", {
+      configurable: true,
+      value: startViewTransition,
+    });
+
+    function Harness() {
+      const location = useLocation();
+      useAgentRouteState<
+        { view: string },
+        { view: string; id?: string; _writeId?: string }
+      >({
+        refetchInterval: false,
+        getNavigationState: ({ pathname }) => ({
+          view: pathname === "/" ? "home" : pathname.slice(1),
+        }),
+        getCommandPath: (command) =>
+          command.view === "detail" && command.id
+            ? `/detail/${command.id}`
+            : null,
+        agentChatViewTransition: true,
+      });
+      return <div>{location.pathname}</div>;
+    }
+
+    const rendered = renderWithQueryClient(
+      <MemoryRouter initialEntries={["/"]}>
+        <Routes>
+          <Route path="*" element={<Harness />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+    roots.push(rendered.root);
+    containers.push(rendered.container);
+    await act(flush);
+    await act(flush);
+
+    expect(startViewTransition).toHaveBeenCalledOnce();
+    expect(rendered.container.textContent).toBe("/detail/123");
   });
 });

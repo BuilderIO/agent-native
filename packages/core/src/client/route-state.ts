@@ -11,6 +11,10 @@ import {
   readClientAppState,
   setClientAppState,
 } from "./application-state.js";
+import {
+  startAgentChatViewTransition,
+  type AgentChatViewTransitionOptions,
+} from "./chat-view-transition.js";
 
 const SAFE_BROWSER_TAB_ID_RE = /^[A-Za-z0-9_-]{1,96}$/;
 
@@ -135,6 +139,17 @@ export interface UseAgentRouteStateOptions<
   navigateOptions?:
     | NavigateOptions
     | ((command: NavigateCommand) => NavigateOptions | undefined);
+  /**
+   * Wrap agent-authored route commands in the shared chat view transition.
+   * Use this when a page-level chat surface should morph into AgentSidebar.
+   */
+  agentChatViewTransition?:
+    | boolean
+    | AgentChatViewTransitionOptions
+    | ((
+        command: NavigateCommand,
+        path: string,
+      ) => boolean | AgentChatViewTransitionOptions | undefined);
   /** Called after a command is consumed and before React Router navigation. */
   onNavigate?: (command: NavigateCommand, path: string) => void;
   /** Optional sink for best-effort navigation write/read/delete errors. */
@@ -188,6 +203,21 @@ function stringifyForWriteDedup(value: unknown): string {
   } catch {
     return "";
   }
+}
+
+function resolveAgentChatViewTransitionOption<NavigateCommand>(
+  option: UseAgentRouteStateOptions<
+    unknown,
+    NavigateCommand
+  >["agentChatViewTransition"],
+  command: NavigateCommand,
+  path: string,
+): false | AgentChatViewTransitionOptions {
+  const resolved =
+    typeof option === "function" ? option(command, path) : option;
+  if (!resolved) return false;
+  if (resolved === true) return {};
+  return resolved;
 }
 
 /**
@@ -408,7 +438,17 @@ export function useAgentRouteState<
         typeof navigateOptions === "function"
           ? navigateOptions(command)
           : navigateOptions;
-      navigate(path, resolvedOptions);
+      const transitionOptions = resolveAgentChatViewTransitionOption(
+        options.agentChatViewTransition,
+        command,
+        path,
+      );
+      const runNavigate = () => navigate(path, resolvedOptions);
+      if (transitionOptions) {
+        startAgentChatViewTransition(runNavigate, transitionOptions);
+        return;
+      }
+      runNavigate();
     },
   });
 }

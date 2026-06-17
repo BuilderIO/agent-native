@@ -1436,6 +1436,9 @@ export function defineConfig(options: ClientConfigOptions = {}): UserConfig {
     path.resolve(cwd, "../../packages/core"),
     path.resolve(cwd, "../core"),
   ].filter((candidate) => fs.existsSync(path.join(candidate, "package.json")));
+  const monorepoNodeModulesAllow = [
+    path.resolve(cwd, "../../node_modules"),
+  ].filter((candidate) => fs.existsSync(candidate));
 
   // Workspace-core (enterprise monorepo): pull its directory into Vite's
   // file watcher + module graph so edits to its TS sources hot-reload the
@@ -1486,6 +1489,7 @@ export function defineConfig(options: ClientConfigOptions = {}): UserConfig {
         allow: [
           ".",
           ...monorepoCoreAllow,
+          ...monorepoNodeModulesAllow,
           ...workspaceCoreFsAllow,
           ...workspaceNodeModulesAllow,
           ...(options.fsAllow ?? []),

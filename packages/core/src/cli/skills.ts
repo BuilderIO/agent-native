@@ -2540,6 +2540,11 @@ export interface PublicSkillCatalogEntry {
   description?: string;
 }
 
+interface ConnectSpinner {
+  start(message?: string): void;
+  clear(): void;
+}
+
 export interface RunSkillsOptions {
   baseDir?: string;
   /**
@@ -2565,6 +2570,17 @@ export interface RunSkillsOptions {
   hiddenBuiltInSkillTargets?: string[];
   isInteractive?: () => boolean;
   log?: (message: string) => void;
+  /**
+   * Optional output hook for the embedded `agent-native connect` transcript.
+   * Defaults to `log`; the clack-based CLI uses this to render the multi-line
+   * auth details as one continuous guide block instead of separate status logs.
+   */
+  connectLog?: (message: string) => void;
+  /**
+   * Optional spinner factory for the embedded connect flow. The default CLI only
+   * enables this for real TTYs so captured/test output stays deterministic.
+   */
+  createConnectSpinner?: () => ConnectSpinner | undefined;
   promptClients?: (
     context: SkillsClientPromptContext,
   ) => Promise<SkillInstructionClientId[] | null>;
@@ -4282,6 +4298,40 @@ function canRunInteractiveConnect(options: RunSkillsOptions): boolean {
   return !!process.stdin.isTTY && !!process.stdout.isTTY;
 }
 
+function normalizeConnectLogMessage(message: string): string {
+  return message
+    .split("\n")
+    .map((line) => (line.startsWith("  ") ? line.slice(2) : line))
+    .join("\n");
+}
+
+function createClackConnectLog(
+  clack: typeof import("@clack/prompts"),
+): (message: string) => void {
+  return (message) => {
+    clack.log.message(normalizeConnectLogMessage(message), {
+      symbol: clack.S_BAR,
+      secondarySymbol: clack.S_BAR,
+      spacing: 0,
+    });
+  };
+}
+
+async function runWithConnectSpinner<T>(
+  options: RunSkillsOptions,
+  message: string,
+  task: () => T | Promise<T>,
+): Promise<T> {
+  const spinner = options.createConnectSpinner?.();
+  if (!spinner) return await task();
+  spinner.start(message);
+  try {
+    return await task();
+  } finally {
+    spinner.clear();
+  }
+}
+
 /** Build the `npx @agent-native/core@latest connect <url> --client … --scope …` command. */
 function connectCommandFor(
   hostedUrl: string,
@@ -4332,7 +4382,32 @@ async function connectAfterEnsure(
     return { connected: false, connectCommand };
   }
 
-  options.log?.(`Authenticating ${installTarget.displayName}…`);
+  const authMessage = `Authenticating ${installTarget.displayName}…`;
+  const connectLog = options.connectLog ?? options.log;
+  const spinner = options.createConnectSpinner?.();
+  let spinnerActive = false;
+  let wroteAuthMessage = false;
+  const clearSpinner = () => {
+    if (!spinnerActive) return;
+    spinner.clear();
+    spinnerActive = false;
+  };
+  const writeAuthMessage = () => {
+    if (wroteAuthMessage) return;
+    connectLog?.(authMessage);
+    wroteAuthMessage = true;
+  };
+  const writeConnectLog = (message: string) => {
+    clearSpinner();
+    writeAuthMessage();
+    connectLog?.(message);
+  };
+  if (spinner) {
+    spinner.start(authMessage);
+    spinnerActive = true;
+  } else {
+    writeAuthMessage();
+  }
   options.telemetry?.track("skills_cli connect started");
   try {
     const connectArgs = [
@@ -4347,22 +4422,24 @@ async function connectAfterEnsure(
     } else {
       await runConnect(connectArgs, {
         isInteractive: options.isInteractive,
-        logOut: (message) => {
-          if (message.trim()) options.log?.(message);
-        },
-        logErr: (message) => {
-          if (message.trim()) options.log?.(message);
-        },
+        logOut: writeConnectLog,
+        logErr: writeConnectLog,
+        withBrowserOpenSpinner: (message, openBrowser) =>
+          runWithConnectSpinner(options, message, openBrowser),
       });
     }
+    clearSpinner();
+    writeAuthMessage();
     options.telemetry?.track("skills_cli connect completed");
     return { connected: true, connectCommand: "" };
   } catch (err: any) {
+    clearSpinner();
+    writeAuthMessage();
     // Non-fatal: the MCP connector is registered. Surface the manual command.
     options.telemetry?.track("skills_cli connect failed", {
       error: err?.message ?? String(err),
     });
-    options.log?.(
+    connectLog?.(
       `Could not finish authentication automatically (${err?.message ?? err}). ` +
         `Run it later with: ${connectCommand}`,
     );
@@ -4967,6 +5044,14 @@ export async function runSkills(
         if (!message.trim()) return;
         clackForLog?.log.info(message);
       };
+  const connectLog =
+    !parsed.printJson && clackForLog
+      ? createClackConnectLog(clackForLog)
+      : undefined;
+  const createConnectSpinner =
+    !parsed.printJson && clackForLog && process.stdout.isTTY
+      ? () => clackForLog.spinner({ indicator: "timer" })
+      : undefined;
 
   if (parsed.command === "help") {
     process.stdout.write(`${HELP}\n`);
@@ -4993,7 +5078,12 @@ export async function runSkills(
       command: parsed.command,
       interactive: shouldPrompt(parsed, options),
     });
-  const optionsWithTelemetry: RunSkillsOptions = { ...options, telemetry };
+  const optionsWithTelemetry: RunSkillsOptions = {
+    ...options,
+    telemetry,
+    connectLog: options.connectLog ?? connectLog,
+    createConnectSpinner: options.createConnectSpinner ?? createConnectSpinner,
+  };
 
   try {
     telemetry.track("skills_cli started");

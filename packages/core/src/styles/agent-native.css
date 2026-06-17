@@ -248,3 +248,58 @@
     display: none;
   }
 }
+
+.agent-composer-area--hero {
+  padding-inline: 0;
+  padding-block: 0.5rem;
+}
+
+.agent-composer-root--hero {
+  min-height: 7.5rem;
+  border-radius: 1rem;
+  border-color: hsl(var(--border) / 0.75);
+  background: hsl(var(--background) / 0.96);
+  box-shadow:
+    0 18px 55px hsl(var(--foreground) / 0.08),
+    0 1px 0 hsl(var(--foreground) / 0.04);
+}
+
+.agent-composer-root--hero:focus-within {
+  box-shadow:
+    0 20px 60px hsl(var(--foreground) / 0.1),
+    0 0 0 1px hsl(var(--ring) / 0.22);
+}
+
+.agent-composer-root--hero [data-agent-composer-slot="editor-wrap"] {
+  padding-inline: 0.375rem;
+  padding-top: 0.375rem;
+}
+
+.agent-composer-root--hero [data-agent-composer-slot="editor-input"] {
+  min-height: 4rem;
+  font-size: 1rem;
+  line-height: 1.75rem;
+}
+
+[data-agent-empty-state="centered"] {
+  justify-content: center;
+}
+
+[data-agent-empty-state="centered"] > .agent-chat-scroll {
+  flex: 0 0 auto;
+  overflow: visible;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  @supports (view-transition-name: agent-native-chat) {
+    .agent-native-chat-view-transition {
+      contain: layout;
+    }
+
+    ::view-transition-old(agent-native-chat),
+    ::view-transition-new(agent-native-chat) {
+      animation-duration: 340ms;
+      animation-timing-function: cubic-bezier(0.2, 0.8, 0.2, 1);
+    }
+  }
+}

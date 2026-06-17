@@ -190,21 +190,40 @@ See [Context Awareness](/docs/context-awareness) for the full pattern: navigatio
 
 Agent-native supports a lot of agent-facing protocols because different hosts standardize different pieces of the same workflow. App authors should not have to choose among them or rebuild the same operation for each client. The center of gravity stays the action system.
 
-| Surface                 | What agent-native provides                                                                                             | What you write                          |
-| ----------------------- | ---------------------------------------------------------------------------------------------------------------------- | --------------------------------------- |
-| Agent tool calling      | The in-app agent sees actions as function tools with zod-derived JSON Schema.                                          | `defineAction()`                        |
-| UI actions              | React calls the same action through `useActionMutation()` / `useActionQuery()`.                                        | The same action                         |
-| HTTP and CLI            | Actions auto-mount at `/_agent-native/actions/:name` and run via `pnpm action <name>`.                                 | The same action                         |
-| MCP server              | External MCP hosts get Streamable HTTP tools, the `ask-agent` meta-tool, and optional MCP Apps resources.              | The same action, plus optional `mcpApp` |
-| MCP Auth                | Remote MCP OAuth, PKCE, dynamic client registration, refresh tokens, and `mcp:read` / `mcp:write` / `mcp:apps` scopes. | Nothing per action                      |
-| A2A                     | Other agents discover the agent card and call the app over JSON-RPC tasks.                                             | The same actions and agent config       |
-| Deep links              | Action results can round-trip users into the running UI through `/_agent-native/open` and `agentnative://open`.        | Optional `link` metadata                |
-| MCP clients             | The app can also consume local, remote, or hub-shared MCP servers as `mcp__...` tools.                                 | `mcp.config.json` or settings           |
-| Instructions and skills | `AGENTS.md`, skills, memory, slash commands, sub-agents, jobs, and automations live in the SQL-backed workspace.       | Workspace resources, not protocol glue  |
-| Agent Web               | Public pages can publish `robots.txt`, `sitemap.xml`, `llms.txt`, markdown mirrors, and structured metadata.           | Route access plus `agentWeb` config     |
-| Extensions              | Sandboxed mini-apps call app actions, persist extension data, and use proxied fetch helpers.                           | Extension HTML using `appAction()`      |
+| Surface                 | Status           | What agent-native provides                                                                                             | What you write                          |
+| ----------------------- | ---------------- | ---------------------------------------------------------------------------------------------------------------------- | --------------------------------------- |
+| Agent tool calling      | Shipping         | The in-app agent sees actions as function tools with zod-derived JSON Schema.                                          | `defineAction()`                        |
+| UI actions              | Shipping         | React calls the same action through `useActionMutation()` / `useActionQuery()`.                                        | The same action                         |
+| Native chat widgets     | Shipping         | Tool results with explicit widget discriminants can render native tables, charts, approvals, and setup cards in chat.  | Structured action results               |
+| HTTP and CLI            | Shipping         | Actions auto-mount at `/_agent-native/actions/:name` and run via `pnpm action <name>`.                                 | The same action                         |
+| MCP server              | Shipping         | External MCP hosts get Streamable HTTP tools, the `ask-agent` meta-tool, and optional MCP Apps resources.              | The same action, plus optional `mcpApp` |
+| MCP Auth                | Shipping         | Remote MCP OAuth, PKCE, dynamic client registration, refresh tokens, and `mcp:read` / `mcp:write` / `mcp:apps` scopes. | Nothing per action                      |
+| MCP Apps                | Shipping         | External hosts that support app resources can render iframe/native-host widgets, with deep-link fallback elsewhere.    | Optional `mcpApp` metadata              |
+| A2A                     | Shipping         | Other agents discover the agent card and call the app over JSON-RPC tasks.                                             | The same actions and agent config       |
+| Deep links              | Shipping         | Action results can round-trip users into the running UI through `/_agent-native/open` and `agentnative://open`.        | Optional `link` metadata                |
+| MCP clients             | Shipping         | The app can also consume local, remote, or hub-shared MCP servers as `mcp__...` tools.                                 | `mcp.config.json` or settings           |
+| Instructions and skills | Shipping         | `AGENTS.md`, skills, memory, slash commands, sub-agents, jobs, and automations live in the SQL-backed workspace.       | Workspace resources, not protocol glue  |
+| Agent Web               | Shipping         | Public pages can publish `robots.txt`, `sitemap.xml`, `llms.txt`, markdown mirrors, and structured metadata.           | Route access plus `agentWeb` config     |
+| Extensions              | Shipping         | Sandboxed mini-apps call app actions, persist extension data, and use proxied fetch helpers.                           | Extension HTML using `appAction()`      |
+| AG-UI                   | Adapter target   | A good fit for connecting an external agent runtime to an agent-native chat/UI shell through event streams.            | An adapter, not duplicate actions       |
+| A2UI                    | Watch / future   | A promising declarative UI wire format for agent-generated cross-platform widgets.                                     | A renderer/adapter when it matures      |
+| ACP                     | Coding-agent IDE | Useful for coding agents inside editors/IDEs; not the general app-agent UI contract.                                   | Editor/agent adapter work               |
 
-The practical rule is simple: implement domain operations as actions, add `readOnly`, `publicAgent`, `link`, or `mcpApp` metadata only when the surface needs it, and use skills/instructions for behavior. MCP, A2A, MCP Apps, MCP Auth, UI mutations, CLI commands, and deep-link handoffs are adapters around that same core.
+The practical rule is simple: implement domain operations as actions, add `readOnly`, `publicAgent`, `link`, `mcpApp`, or an explicit native widget result only when a surface needs it, and use skills/instructions for behavior. MCP, A2A, MCP Apps, MCP Auth, UI mutations, native chat widgets, CLI commands, and deep-link handoffs are adapters around that same core.
+
+Adapter horizon: [AG-UI](https://docs.ag-ui.com/introduction) is a strong fit for connecting external agent runtimes to Agent-Native chat and app shells through events. [A2UI](https://developers.googleblog.com/introducing-a2ui-an-open-project-for-agent-driven-interfaces/) is a promising declarative UI format for generated widgets. [ACP](https://zed.dev/acp) is important for coding-agent/editor interoperability, but it is not the general BYO app-agent UI contract.
+
+## Three product shapes {#three-product-shapes}
+
+Those protocol adapters let the same app grow across three product shapes:
+
+| Shape                 | User experience                                                                                                        | Best for                                                       |
+| --------------------- | ---------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------- |
+| **Headless agent**    | Call actions and the agent from your code, another app, MCP, A2A, HTTP, or CLI.                                        | Automation, integrations, background jobs, developer workflows |
+| **Rich chat agent**   | A standalone or embedded chat can guide setup, call tools, request approvals, and render native tables/charts/results. | Agent-first workflows that still need inspectable output       |
+| **Whole application** | Chat starts central when helpful, then becomes a sidebar next to forms, dashboards, editors, calendars, or documents.  | Durable products where humans and agents share state over time |
+
+You should be able to start with the headless contract, add rich chat, and then grow a full app around the same actions and SQL state instead of rebuilding.
 
 ## Agent modifies code {#agent-modifies-code}
 
