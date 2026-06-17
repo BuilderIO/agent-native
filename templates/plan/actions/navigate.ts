@@ -7,6 +7,7 @@
  *   pnpm action navigate --view=plans
  *   pnpm action navigate --view=plan --planId=plan_...
  *   pnpm action navigate --view=plan --localPlanSlug=checkout-review
+ *   pnpm action navigate --view=plan --localPlanSlug=checkout-review --localPlanPath=plans/checkout-review
  *
  * Options:
  *   --view   View name to navigate to
@@ -30,6 +31,10 @@ export default defineAction({
       .string()
       .optional()
       .describe("Local MDX plan folder slug to open under /local-plans/:slug"),
+    localPlanPath: z
+      .string()
+      .optional()
+      .describe("Optional repo-relative folder path for a local MDX plan"),
   }),
   http: false,
   run: async (args) => {
@@ -40,6 +45,7 @@ export default defineAction({
     nav.view = args.view ?? "plan";
     if (args.planId) nav.planId = args.planId;
     if (args.localPlanSlug) nav.localPlanSlug = args.localPlanSlug;
+    if (args.localPlanPath) nav.localPlanPath = args.localPlanPath;
     nav._writeId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     await writeAppState("navigate", nav);
     return `Navigating to ${nav.view}${

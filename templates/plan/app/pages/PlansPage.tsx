@@ -29,6 +29,7 @@ import {
   IconFlag,
   IconFolder,
   IconDotsVertical,
+  IconHelpCircle,
   IconHistory,
   IconLayoutSidebarRight,
   IconLock,
@@ -72,6 +73,7 @@ import {
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -169,6 +171,7 @@ import {
   usePlans,
   usePlanVersion,
   usePlanVersions,
+  usePromoteLocalPlan,
   usePublishVisualPlan,
   useReportVisualPlan,
   useRestorePlanVersion,
@@ -287,6 +290,8 @@ const ENABLE_PLAN_STATUS_FEATURE = false;
 const GITHUB_LIGHT_CANVAS_BACKGROUND = "#ffffff";
 const GITHUB_DARK_CANVAS_BACKGROUND = "#0d1117";
 const LOCAL_PLAN_OWNER_EMAIL = "local@agent-native.local";
+const LOCAL_FILES_DOCS_URL =
+  "https://www.agent-native.com/docs/template-plan#local-files";
 const AUTO_DEV_COMMENT_EMAILS = new Set(["dev@local.test", "dev@local"]);
 const CURRENT_USER_FALLBACK_NAME = "You";
 const CURRENT_USER_FALLBACK_INITIALS = "You";
@@ -470,6 +475,8 @@ type LocalPlanBundle = PlanBundle & {
   localOnly: true;
   slug: string;
   folder: string;
+  repoPath?: string | null;
+  suggestedRepoPath?: string;
   path?: string;
   url?: string;
   html?: string;
@@ -528,12 +535,15 @@ function assertLocalBridgeUrl(value: string): string {
   return url.toString();
 }
 
-function localPlanRoutePath(slug: string): string {
-  return appPath(`/local-plans/${encodeURIComponent(slug)}`);
+function localPlanRoutePath(slug: string, repoPath?: string | null): string {
+  const base = appPath(`/local-plans/${encodeURIComponent(slug)}`);
+  if (!repoPath) return base;
+  const params = new URLSearchParams({ path: repoPath });
+  return `${base}?${params.toString()}`;
 }
 
-function localPlanRouteUrl(slug: string): string {
-  const path = localPlanRoutePath(slug);
+function localPlanRouteUrl(slug: string, repoPath?: string | null): string {
+  const path = localPlanRoutePath(slug, repoPath);
   return typeof window === "undefined"
     ? path
     : `${window.location.origin}${path}`;
@@ -2674,6 +2684,11 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
   const [createOpen, setCreateOpen] = useState(false);
   const [annotationsOpen, setAnnotationsOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [promoteLocalPlanOpen, setPromoteLocalPlanOpen] = useState(false);
+  const [promoteLocalPlanTargetPath, setPromoteLocalPlanTargetPath] =
+    useState("");
+  const [promoteLocalPlanOverwrite, setPromoteLocalPlanOverwrite] =
+    useState(false);
   const [planFullscreen, setPlanFullscreen] = useState(true);
   const [annotateMode, setAnnotateMode] = useState(false);
   const [canvasMarkupMode, setCanvasMarkupMode] =
@@ -2719,6 +2734,9 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
   const localPlanBridgeUrl = localPlanMode
     ? routeSearchParams.get("bridge")
     : null;
+  const localPlanRepoPath = localPlanMode
+    ? routeSearchParams.get("path")
+    : null;
   const routeSelectedId = params.id;
   const localPlanBridgeQuery = useQuery<LocalPlanBundle>({
     queryKey: ["local-plan-bridge", localPlanSlug, localPlanBridgeUrl],
@@ -2729,7 +2747,7 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
   });
   const localPlanQuery = useActionQuery<LocalPlanBundle>(
     "get-local-plan-folder",
-    localPlanBundleQueryParams(localPlanSlug ?? ""),
+    localPlanBundleQueryParams(localPlanSlug ?? "", localPlanRepoPath),
     {
       enabled: localPlanMode && Boolean(localPlanSlug) && !localPlanBridgeUrl,
       refetchInterval: false,
@@ -2859,6 +2877,10 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
     commentMutationPendingRef,
   );
   const bundle = localPlanMode ? localPlanData : planQuery.data;
+  const localPlanBundle =
+    localPlanMode && bundle && "localOnly" in bundle
+      ? (bundle as LocalPlanBundle)
+      : null;
   const localPlanDisplayFolder =
     localPlanMode &&
     bundle &&
@@ -2867,6 +2889,9 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
     bundle.folder
       ? bundle.folder
       : (localPlanSlug ?? "local plan files");
+  const localPlanSuggestedRepoPath =
+    localPlanBundle?.suggestedRepoPath ??
+    (localPlanSlug ? `plans/${localPlanSlug}` : "plans");
   const planAccessStatusQuery = usePlanAccessStatus(
     selectedId,
     Boolean(selectedId && !bundle && !localPlanMode),
@@ -2939,9 +2964,15 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
       selectedId && !localPlanMode
         ? planBundleQueryKey(selectedId)
         : localPlanMode && localPlanSlug && !localPlanBridgeUrl
-          ? localPlanBundleQueryKey(localPlanSlug)
+          ? localPlanBundleQueryKey(localPlanSlug, localPlanRepoPath)
           : null,
-    [localPlanBridgeUrl, localPlanMode, localPlanSlug, selectedId],
+    [
+      localPlanBridgeUrl,
+      localPlanMode,
+      localPlanRepoPath,
+      localPlanSlug,
+      selectedId,
+    ],
   );
   // Reflect a structural block edit (drag-to-columns, reorder) into the
   // `get-visual-plan` cache IMMEDIATELY so the editor's authoritative content
@@ -3157,6 +3188,7 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
   }, [runtimeCommentThreads]);
   const updatePlan = useUpdatePlan();
   const updateLocalPlan = useUpdateLocalPlan();
+  const promoteLocalPlan = usePromoteLocalPlan();
   // Stable ref so closures (e.g. message-event handler) always call the latest
   // mutate without needing to be in a dependency array.
   const updatePlanMutateRef = useRef(updatePlan.mutate);
@@ -3495,7 +3527,7 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
   const planAgentContext = useMemo(() => {
     if (!bundle) return "";
     if (localPlanMode) {
-      const url = localPlanRouteUrl(localPlanSlug ?? "");
+      const url = localPlanRouteUrl(localPlanSlug ?? "", localPlanRepoPath);
       return buildPlanAgentContext({ bundle, documentHtml, url });
     }
     const base = bundle.plan.kind === "recap" ? "recaps" : "plans";
@@ -3503,15 +3535,30 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
     const url =
       typeof window === "undefined" ? path : `${window.location.origin}${path}`;
     return buildPlanAgentContext({ bundle, documentHtml, url });
-  }, [bundle, documentHtml, localPlanMode, localPlanSlug, selectedId]);
+  }, [
+    bundle,
+    documentHtml,
+    localPlanMode,
+    localPlanRepoPath,
+    localPlanSlug,
+    selectedId,
+  ]);
 
   const planShareUrl = useMemo(() => {
     if (typeof window === "undefined") return undefined;
-    if (localPlanMode) return localPlanRouteUrl(localPlanSlug ?? "");
+    if (localPlanMode) {
+      return localPlanRouteUrl(localPlanSlug ?? "", localPlanRepoPath);
+    }
     if (!selectedId) return undefined;
     const base = bundle?.plan.kind === "recap" ? "recaps" : "plans";
     return `${window.location.origin}${appPath(`/${base}/${selectedId}`)}`;
-  }, [bundle?.plan.kind, localPlanMode, localPlanSlug, selectedId]);
+  }, [
+    bundle?.plan.kind,
+    localPlanMode,
+    localPlanRepoPath,
+    localPlanSlug,
+    selectedId,
+  ]);
 
   useEffect(() => {
     const onSidebarState = (event: Event) => {
@@ -3838,6 +3885,40 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
     toast.success("Local path copied");
   };
 
+  const openPromoteLocalPlanDialog = () => {
+    setPromoteLocalPlanTargetPath(
+      localPlanBundle?.repoPath || localPlanSuggestedRepoPath,
+    );
+    setPromoteLocalPlanOverwrite(false);
+    setPromoteLocalPlanOpen(true);
+  };
+
+  const submitPromoteLocalPlan = async (event?: FormEvent) => {
+    event?.preventDefault();
+    if (!localPlanSlug || localPlanBridgeUrl) return;
+    const targetPath = promoteLocalPlanTargetPath.trim();
+    if (!targetPath) {
+      toast.error("Enter a repo-relative folder path.");
+      return;
+    }
+
+    const result = await promoteLocalPlan.mutateAsync({
+      slug: localPlanSlug,
+      ...(localPlanRepoPath ? { path: localPlanRepoPath } : {}),
+      targetPath,
+      overwrite: promoteLocalPlanOverwrite,
+    });
+    setPromoteLocalPlanOpen(false);
+    toast.success(
+      result.alreadyPromoted
+        ? "Local plan is already saved in the repo"
+        : `Saved ${result.localFiles?.files.length ?? 0} local files to ${
+            result.targetPath ?? targetPath
+          }`,
+    );
+    navigate(localPlanRoutePath(result.slug, result.repoPath ?? targetPath));
+  };
+
   const openPrototypeWindow = () => {
     if (typeof window === "undefined") return;
     const url = new URL(window.location.href);
@@ -3881,11 +3962,13 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
         path:
           localBundle.path ??
           (localPlanSlug
-            ? localPlanRoutePath(localPlanSlug)
+            ? localPlanRoutePath(localPlanSlug, localPlanRepoPath)
             : window.location.pathname),
         url:
           localBundle.url ??
-          (localPlanSlug ? localPlanRouteUrl(localPlanSlug) : planShareUrl),
+          (localPlanSlug
+            ? localPlanRouteUrl(localPlanSlug, localPlanRepoPath)
+            : planShareUrl),
       };
     }
     const result = await exportPlan.refetch();
@@ -3899,6 +3982,7 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
     documentHtml,
     exportPlan,
     localPlanMode,
+    localPlanRepoPath,
     localPlanSlug,
     planShareUrl,
   ]);
@@ -4345,6 +4429,7 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
       if (!localPlanSlug || localPlanBridgeUrl) return;
       await updateLocalPlan.mutateAsync({
         slug: localPlanSlug,
+        ...(localPlanRepoPath ? { path: localPlanRepoPath } : {}),
         content,
         note: "Updated local structured visual plan content.",
       });
@@ -4369,6 +4454,7 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
         await updateLocalPlan.mutateAsync(
           {
             slug: localPlanSlug,
+            ...(localPlanRepoPath ? { path: localPlanRepoPath } : {}),
             contentPatches: [patch],
             note:
               patch.op === "update-rich-text"
@@ -4406,6 +4492,7 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
       if (!localPlanSlug || localPlanBridgeUrl) return;
       await updateLocalPlan.mutateAsync({
         slug: localPlanSlug,
+        ...(localPlanRepoPath ? { path: localPlanRepoPath } : {}),
         ...(patch.title !== undefined ? { title: patch.title } : {}),
         ...(patch.brief !== undefined ? { brief: patch.brief } : {}),
         contentPatches: [{ op: "set-metadata", ...patch }],
@@ -5353,6 +5440,42 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
                           <IconFolder className="size-4" />
                           Copy local path
                         </DropdownMenuItem>
+                        {!localPlanBridgeUrl && (
+                          <DropdownMenuItem
+                            onClick={() =>
+                              preservePlanReaderScroll(
+                                openPromoteLocalPlanDialog,
+                              )
+                            }
+                            disabled={promoteLocalPlan.isPending}
+                            className="gap-2"
+                          >
+                            {promoteLocalPlan.isPending ? (
+                              <IconLoader2 className="size-4 animate-spin" />
+                            ) : (
+                              <IconFolder className="size-4" />
+                            )}
+                            Save to repo...
+                          </DropdownMenuItem>
+                        )}
+                        {localPlanBridgeUrl && desktopPlanFilesAvailable && (
+                          <DropdownMenuItem
+                            onClick={() =>
+                              runPlanExportAction(async () => {
+                                await syncPlanToDesktopFolder({ choose: true });
+                              })
+                            }
+                            disabled={desktopPlanSyncing}
+                            className="gap-2"
+                          >
+                            {desktopPlanSyncing ? (
+                              <IconLoader2 className="size-4 animate-spin" />
+                            ) : (
+                              <IconFolder className="size-4" />
+                            )}
+                            Save source to folder...
+                          </DropdownMenuItem>
+                        )}
                         <DropdownMenuSeparator />
                       </>
                     )}
@@ -5909,6 +6032,80 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
         canCreate={Boolean(session)}
         onRequireSignIn={() => openSignIn("/plans?create=1")}
       />
+
+      <Dialog
+        open={promoteLocalPlanOpen}
+        onOpenChange={(open) => {
+          if (promoteLocalPlan.isPending) return;
+          if (open && !promoteLocalPlanTargetPath) {
+            setPromoteLocalPlanTargetPath(localPlanSuggestedRepoPath);
+          }
+          setPromoteLocalPlanOpen(open);
+        }}
+      >
+        <DialogContent className="sm:max-w-md">
+          <form
+            onSubmit={(event) => {
+              void submitPromoteLocalPlan(event).catch(() => {});
+            }}
+            className="space-y-4"
+          >
+            <DialogHeader>
+              <DialogTitle>Save local plan to repo</DialogTitle>
+              <DialogDescription>
+                Choose a repo-relative folder for these MDX files.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-2">
+              <Label htmlFor="local-plan-repo-path">Repo folder</Label>
+              <Input
+                id="local-plan-repo-path"
+                value={promoteLocalPlanTargetPath}
+                onChange={(event) =>
+                  setPromoteLocalPlanTargetPath(event.target.value)
+                }
+                placeholder={localPlanSuggestedRepoPath}
+                autoFocus
+              />
+            </div>
+            <label
+              htmlFor="local-plan-overwrite"
+              className="flex items-center gap-2 text-sm"
+            >
+              <Checkbox
+                id="local-plan-overwrite"
+                checked={promoteLocalPlanOverwrite}
+                onCheckedChange={(checked) =>
+                  setPromoteLocalPlanOverwrite(checked === true)
+                }
+              />
+              Replace existing folder
+            </label>
+            <DialogFooter>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setPromoteLocalPlanOpen(false)}
+                disabled={promoteLocalPlan.isPending}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="submit"
+                disabled={
+                  promoteLocalPlan.isPending ||
+                  !promoteLocalPlanTargetPath.trim()
+                }
+              >
+                {promoteLocalPlan.isPending && (
+                  <IconLoader2 className="mr-2 size-4 animate-spin" />
+                )}
+                Save
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
 
       {bundle && (
         <PlanHistorySheet

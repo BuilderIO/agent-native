@@ -5095,7 +5095,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
         !canToggle && resolvedProdCodeExec !== "off"
           ? resolvedProdCodeExec === "trusted"
             ? "\n\n<code-execution-mode>Full shell access is enabled (trusted mode). You have bash, read, edit, write, and run-code tools available. Use bash for file discovery, running tests and builds, and project CLIs. Use run-code for sandboxed JavaScript data processing: provider/API pagination, joins, classification, aggregation, and large-response reduction. Use `pnpm action <name>` in bash to invoke registered app actions from the shell.</code-execution-mode>"
-            : "\n\n<code-execution-mode>Sandboxed code execution is enabled. The run-code tool lets you execute isolated JavaScript (ESM, top-level await) to fetch, aggregate, and reduce data. Use providerFetch(), providerFetchAll(), providerRequest(), and webFetch() inside run-code for authenticated provider calls.</code-execution-mode>"
+            : "\n\n<code-execution-mode>Sandboxed code execution is enabled. The run-code tool lets you execute isolated JavaScript (ESM, top-level await) to fetch, aggregate, and reduce data. Use providerFetch(), providerFetchAll(), providerRequest(), webRead(), and webFetch() inside run-code for authenticated provider calls and compact web/document reduction.</code-execution-mode>"
           : "";
 
       const prodHandler = createProductionAgentHandler({

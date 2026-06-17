@@ -223,9 +223,10 @@ The returned URL opens the hosted Plan UI while the browser reads the recap MDX
 from a localhost bridge. Recap content is not written to the hosted Plan
 database, and the URL only works on the machine running the bridge. If you run
 the Plan app locally with the same `PLAN_LOCAL_DIR`, the
-`/local-plans/pr-123-visual-recap` route is also valid. This mode disables the
-hosted sticky PR comment, inline screenshot upload, usage attachment, and
-browser comments until you explicitly publish.
+`/local-plans/pr-123-visual-recap` route is also valid. Repo-backed folders can
+open as `/local-plans/pr-123-visual-recap?path=plans%2Fpr-123-visual-recap`.
+This mode disables the hosted sticky PR comment, inline screenshot upload,
+usage attachment, and browser comments until you explicitly publish.
 
 ## It's informational, not a gate
 

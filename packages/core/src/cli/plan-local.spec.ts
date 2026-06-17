@@ -13,8 +13,19 @@ import {
 import { fetchPlanBlockCatalog } from "./plan-blocks.js";
 
 const tmpRoots: string[] = [];
+const originalCwd = process.cwd();
+const originalEnv = {
+  PLAN_LOCAL_DIR: process.env.PLAN_LOCAL_DIR,
+  AGENT_NATIVE_MANIFEST: process.env.AGENT_NATIVE_MANIFEST,
+  AGENT_NATIVE_MANIFEST_PATH: process.env.AGENT_NATIVE_MANIFEST_PATH,
+};
 
 afterEach(() => {
+  process.chdir(originalCwd);
+  for (const [key, value] of Object.entries(originalEnv)) {
+    if (value === undefined) delete process.env[key];
+    else process.env[key] = value;
+  }
   for (const root of tmpRoots.splice(0)) {
     fs.rmSync(root, { recursive: true, force: true });
   }
@@ -158,6 +169,25 @@ describe("local plan CLI helpers", () => {
     expect(result.files).toContain("plan.mdx");
     expect(result.out).toBeUndefined();
     expect(result.url).toBe("http://localhost:8096/local-plans/checkout");
+  });
+
+  it("includes a repo-relative path for direct local Plan app routes", () => {
+    const repo = tmpDir();
+    fs.mkdirSync(path.join(repo, ".git"));
+    const dir = path.join(repo, "plans", "checkout");
+    writeSamplePlan(dir);
+    process.chdir(repo);
+    delete process.env.AGENT_NATIVE_MANIFEST;
+    delete process.env.AGENT_NATIVE_MANIFEST_PATH;
+
+    const result = writeLocalPlanPreview({
+      dir,
+      appUrl: "http://localhost:8096",
+    });
+
+    expect(result.url).toBe(
+      "http://localhost:8096/local-plans/checkout?path=plans%2Fcheckout",
+    );
   });
 
   it("writes standalone HTML only when --out is provided", () => {

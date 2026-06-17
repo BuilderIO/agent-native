@@ -5303,8 +5303,7 @@ export async function runSkills(
     if (
       !authConnected &&
       mcpClients.some(
-        (client) =>
-          client === "claude-code" || client === "claude-code-cli",
+        (client) => client === "claude-code" || client === "claude-code-cli",
       )
     ) {
       clack.log.info(

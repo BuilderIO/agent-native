@@ -1675,7 +1675,9 @@ function firstTermHitInField(
   return hit ? { ...hit, term, field } : null;
 }
 
-function isInlineTermHit(hit: InlineTermHit | null): hit is InlineTermHit {
+function isInlineTermHit(
+  hit: InlineTermHit | null | undefined,
+): hit is InlineTermHit {
   return Boolean(hit);
 }
 

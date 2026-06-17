@@ -117,6 +117,7 @@ type OpenLocalUrlResult = {
 
 const LOCAL_PLAN_ASSET_MAX_SINGLE_BYTES = 2 * 1024 * 1024;
 const LOCAL_PLAN_ASSET_MAX_TOTAL_BYTES = 10 * 1024 * 1024;
+const AGENT_NATIVE_MANIFEST_FILE = "agent-native.json";
 const LOCAL_PLAN_ASSET_EXTENSIONS = new Set([
   "png",
   "jpg",
@@ -183,8 +184,96 @@ function normalizeKind(value: string | undefined): LocalPlanKind {
   throw new Error(`Invalid --kind "${value}" (expected plan or recap)`);
 }
 
+function normalizeSlash(filePath: string): string {
+  return filePath.replace(/\\/g, "/");
+}
+
+function normalizeRelativePath(filePath: string): string | null {
+  if (!filePath.trim() || path.isAbsolute(filePath)) return null;
+  const normalized = path.posix
+    .normalize(normalizeSlash(filePath.trim()))
+    .replace(/\/+$/, "");
+  if (
+    !normalized ||
+    normalized === "." ||
+    normalized === ".." ||
+    normalized.startsWith("../") ||
+    normalized.split("/").some((part) => !part || part === "." || part === "..")
+  ) {
+    return null;
+  }
+  return normalized;
+}
+
+function findUpward(startDir: string, filename: string): string | null {
+  let current = path.resolve(startDir);
+  for (;;) {
+    const candidate = path.join(current, filename);
+    if (fs.existsSync(candidate)) return candidate;
+    const parent = path.dirname(current);
+    if (parent === current) return null;
+    current = parent;
+  }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === "object" && !Array.isArray(value);
+}
+
+function manifestRootPath(value: unknown): string | null {
+  if (typeof value === "string") return normalizeRelativePath(value);
+  if (isRecord(value) && typeof value.path === "string") {
+    return normalizeRelativePath(value.path);
+  }
+  return null;
+}
+
+function planManifestConfig(): { rootDir: string; plansPath: string } | null {
+  const configuredManifest =
+    process.env.AGENT_NATIVE_MANIFEST?.trim() ||
+    process.env.AGENT_NATIVE_MANIFEST_PATH?.trim();
+  const manifestPath = configuredManifest
+    ? path.resolve(configuredManifest)
+    : findUpward(process.cwd(), AGENT_NATIVE_MANIFEST_FILE);
+  if (!manifestPath) return null;
+
+  try {
+    const parsed = JSON.parse(
+      fs.readFileSync(manifestPath, "utf-8"),
+    ) as unknown;
+    const apps = isRecord(parsed) && isRecord(parsed.apps) ? parsed.apps : null;
+    const planApp = apps && isRecord(apps.plan) ? apps.plan : null;
+    const roots = planApp && Array.isArray(planApp.roots) ? planApp.roots : [];
+    const plansPath = roots
+      .map(manifestRootPath)
+      .find((item): item is string => Boolean(item));
+    return plansPath
+      ? { rootDir: path.dirname(manifestPath), plansPath }
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function localPlanWorkspaceRoot(startDir = process.cwd()): string {
+  const manifestPath = findUpward(startDir, AGENT_NATIVE_MANIFEST_FILE);
+  if (manifestPath) return path.dirname(manifestPath);
+  const gitDir = findUpward(startDir, ".git");
+  if (gitDir) return path.dirname(gitDir);
+
+  const configuredManifest =
+    process.env.AGENT_NATIVE_MANIFEST?.trim() ||
+    process.env.AGENT_NATIVE_MANIFEST_PATH?.trim();
+  if (configuredManifest) return path.dirname(path.resolve(configuredManifest));
+  return process.cwd();
+}
+
 function defaultPlansDir(): string {
-  return path.resolve(process.env.PLAN_LOCAL_DIR || "plans");
+  const configured = process.env.PLAN_LOCAL_DIR;
+  if (configured?.trim()) return path.resolve(configured.trim());
+  const manifest = planManifestConfig();
+  if (manifest) return path.resolve(manifest.rootDir, manifest.plansPath);
+  return path.resolve("plans");
 }
 
 function defaultLocalPlanAppUrl(): string {
@@ -212,9 +301,30 @@ function normalizeBridgeAppUrl(value: string | undefined): string {
 }
 
 function localPlanPreviewUrl(dir: string, appUrl?: string): string {
-  return `${normalizeAppUrl(appUrl)}/local-plans/${encodeURIComponent(
+  const base = `${normalizeAppUrl(appUrl)}/local-plans/${encodeURIComponent(
     path.basename(path.resolve(dir)),
   )}`;
+  const repoPath = repoRelativePlanPath(dir);
+  if (!repoPath) return base;
+  return `${base}?${new URLSearchParams({ path: repoPath }).toString()}`;
+}
+
+function realpathIfExists(filePath: string): string {
+  try {
+    return fs.realpathSync.native(filePath);
+  } catch {
+    return path.resolve(filePath);
+  }
+}
+
+function repoRelativePlanPath(dir: string): string | null {
+  const resolved = realpathIfExists(dir);
+  const root = realpathIfExists(localPlanWorkspaceRoot(resolved));
+  const relative = path.relative(root, resolved);
+  if (!relative || relative.startsWith("..") || path.isAbsolute(relative)) {
+    return null;
+  }
+  return normalizeSlash(relative);
 }
 
 function localPlanBridgePageUrl(input: {

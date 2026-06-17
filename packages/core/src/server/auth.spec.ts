@@ -79,6 +79,42 @@ describe("server/auth", () => {
     });
   });
 
+  describe("resolveSignupTrackingIdentity", () => {
+    it("uses explicit app and template environment values", async () => {
+      vi.stubEnv("AGENT_NATIVE_APP", "agent-native-mail");
+      vi.stubEnv("AGENT_NATIVE_TEMPLATE", "mail");
+      const { resolveSignupTrackingIdentity } =
+        await import("./better-auth-instance.js");
+
+      expect(resolveSignupTrackingIdentity()).toEqual({
+        app: "agent-native-mail",
+        template: "mail",
+      });
+    });
+
+    it("infers first-party template identity from agent-native production URLs", async () => {
+      vi.stubEnv("APP_URL", "https://content.agent-native.com");
+      vi.stubEnv("npm_package_name", "@agent-native/framework");
+      const { resolveSignupTrackingIdentity } =
+        await import("./better-auth-instance.js");
+
+      expect(resolveSignupTrackingIdentity()).toEqual({
+        app: "content",
+        template: "content",
+      });
+    });
+
+    it("keeps custom app ids without inventing a built-in template", async () => {
+      vi.stubEnv("npm_package_name", "customer-crm");
+      const { resolveSignupTrackingIdentity } =
+        await import("./better-auth-instance.js");
+
+      expect(resolveSignupTrackingIdentity()).toEqual({
+        app: "customer-crm",
+      });
+    });
+  });
+
   describe("autoMountAuth", () => {
     it("throws when app is null/undefined in production mode", async () => {
       vi.stubEnv("NODE_ENV", "production");

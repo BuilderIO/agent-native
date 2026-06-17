@@ -85,7 +85,9 @@ function shouldNotify(entry: ProviderCorpusJobEntry): boolean {
     return false;
   }
   const updatedAt = Date.parse(entry.job.updatedAt);
-  return Number.isFinite(updatedAt) && Date.now() - updatedAt <= RECENT_WINDOW_MS;
+  return (
+    Number.isFinite(updatedAt) && Date.now() - updatedAt <= RECENT_WINDOW_MS
+  );
 }
 
 function notificationKey(entry: ProviderCorpusJobEntry): string {
@@ -110,7 +112,9 @@ function showJobToast(entry: ProviderCorpusJobEntry, openAsk: () => void) {
   const description = [
     `${entry.job.name} (${entry.job.provider})`,
     coverageSummary(entry),
-    entry.nextResumeAt ? `Resume after ${formatDateTime(entry.nextResumeAt)}` : "",
+    entry.nextResumeAt
+      ? `Resume after ${formatDateTime(entry.nextResumeAt)}`
+      : "",
     entry.error ?? "",
     `Job ${entry.job.id}`,
   ]
@@ -174,7 +178,10 @@ function writeSeenJobs(seen: Record<string, string>) {
   if (typeof window === "undefined") return;
   const entries = Object.entries(seen).slice(-100);
   try {
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(Object.fromEntries(entries)));
+    window.localStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify(Object.fromEntries(entries)),
+    );
   } catch {
     // Best effort only; duplicate toasts are preferable to hiding job results.
   }

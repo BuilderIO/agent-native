@@ -20,6 +20,7 @@ const LOCAL_MODE_ACTION_PATHS: string[] = isLocalPlanRuntime()
       "/_agent-native/actions/list-visual-plans",
       "/_agent-native/actions/get-local-plan-folder",
       "/_agent-native/actions/update-local-plan-folder",
+      "/_agent-native/actions/promote-local-plan-folder",
       "/_agent-native/actions/navigate",
       "/_agent-native/actions/view-screen",
     ]

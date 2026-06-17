@@ -8,6 +8,12 @@ import {
   isBlockedExtensionUrlWithDns,
 } from "../extensions/url-safety.js";
 import {
+  processWebContent,
+  type WebContentSearchOptions,
+  type WebExtractMode,
+  type WebResponseMode,
+} from "../extensions/web-content.js";
+import {
   deleteOAuthTokens,
   listOAuthAccountsByOwner,
   saveOAuthTokens,
@@ -133,6 +139,17 @@ export interface ProviderApiRequestArgs {
   fetchAllPages?: FetchAllPagesConfig;
 }
 
+export interface ProviderApiDocsOptions {
+  provider: ProviderApiId | string;
+  url?: string;
+  maxBytes?: number;
+  maxChars?: number;
+  responseMode?: WebResponseMode;
+  extract?: WebExtractMode;
+  includeLinks?: boolean;
+  search?: WebContentSearchOptions;
+}
+
 export type ProviderApiAuthKind =
   | { type: "none" }
   | {
@@ -251,11 +268,7 @@ interface ProviderApiRuntime {
   listCatalog(
     provider?: ProviderApiId | string,
   ): ReturnType<typeof listProviderApiCatalog> | Promise<unknown[]>;
-  fetchDocs(options: {
-    provider: ProviderApiId | string;
-    url?: string;
-    maxBytes?: number;
-  }): Promise<unknown>;
+  fetchDocs(options: ProviderApiDocsOptions): Promise<unknown>;
   executeRequest(args: ProviderApiRequestArgs): Promise<unknown>;
 }
 
@@ -1049,11 +1062,7 @@ export function createProviderApiRuntime(
 }
 
 export async function fetchProviderApiDocs(
-  options: {
-    provider: ProviderApiId | string;
-    url?: string;
-    maxBytes?: number;
-  },
+  options: ProviderApiDocsOptions,
   runtime: ProviderApiRuntimeOptions = { appId: "app" },
 ) {
   await assertProviderAllowedAsync(options.provider, runtime);
@@ -1105,11 +1114,42 @@ export async function fetchProviderApiDocs(
     method: "GET",
     maxBytes: clampMaxBytes(options.maxBytes),
   });
+
+  const responseBody =
+    response.text ??
+    (response.json !== undefined ? JSON.stringify(response.json, null, 2) : "");
+  const content = processWebContent({
+    url: url.href,
+    body: responseBody,
+    contentType: response.contentType,
+    responseMode: options.responseMode ?? "auto",
+    extract: options.extract ?? "readability",
+    includeLinks: options.includeLinks ?? true,
+    search: options.search,
+    maxChars: options.maxChars,
+  });
+  const responseForOutput =
+    content.mode === "raw" ? response : compactProviderDocsResponse(response);
+
   return {
     provider: options.provider,
     catalog,
     request: { url: url.href },
-    response,
+    response: responseForOutput,
+    ...(content.mode === "raw" ? {} : { content }),
+  };
+}
+
+function compactProviderDocsResponse(response: ProviderApiHttpResponse) {
+  return {
+    status: response.status,
+    statusText: response.statusText,
+    ok: response.ok,
+    elapsedMs: response.elapsedMs,
+    headers: response.headers,
+    contentType: response.contentType,
+    size: response.size,
+    truncated: response.truncated,
   };
 }
 

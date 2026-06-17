@@ -223,11 +223,37 @@ not sent through hosted Plan actions. Keep the bridge process running while you
 review; the URL is local to your machine and is not a shareable team link.
 
 If you run the Plan app locally with the same `PLAN_LOCAL_DIR`, you can also
-open the read-only app route:
+open the editable app route:
 
 ```text
 http://localhost:<port>/local-plans/<slug>
 ```
+
+For repo-backed folders, the direct local route can carry the repo-relative
+folder path so browser edits keep writing to that folder:
+
+```text
+http://localhost:<port>/local-plans/<slug>?path=plans%2F<slug>
+```
+
+The Plan app uses `apps.plan.roots[0].path` in `agent-native.json` as the
+default repo location for promoted local plans, falling back to `plans/`:
+
+```json
+{
+  "version": 1,
+  "apps": {
+    "plan": {
+      "mode": "local-files",
+      "roots": [{ "name": "Plans", "path": "plans", "kind": "plans" }]
+    }
+  }
+}
+```
+
+Direct local Plan routes include a menu action to save a temporary local folder
+into that repo location. After promotion, the page reopens with `?path=...` and
+continues autosaving MDX edits to the repo folder.
 
 Local-files mode prevents plan or recap content from going to the Agent-Native
 Plan database. It also disables hosted sharing, browser comments, plan history,

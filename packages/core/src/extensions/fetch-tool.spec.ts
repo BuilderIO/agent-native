@@ -141,4 +141,91 @@ describe("createFetchToolEntry", () => {
     // Other browser defaults still fill in for headers the caller didn't set.
     expect(sentHeaders["Sec-Fetch-Mode"]).toBe("navigate");
   });
+
+  it("extracts HTML responses to readable markdown by default", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        `<!doctype html>
+        <html>
+          <head><title>API Docs</title></head>
+          <body>
+            <nav>Navigation noise</nav>
+            <main>
+              <article>
+                <h1>Widget API</h1>
+                <p>Use the list widgets endpoint for pagination.</p>
+                <a href="/reference/widgets">Widget reference</a>
+              </article>
+            </main>
+          </body>
+        </html>`,
+        {
+          status: 200,
+          statusText: "OK",
+          headers: { "content-type": "text/html; charset=utf-8" },
+        },
+      ),
+    );
+
+    const result = await runWebRequest("https://93.184.216.34/api");
+
+    expect(result).toContain("HTTP 200 OK");
+    expect(result).toContain("# Widget API");
+    expect(result).toContain("Use the list widgets endpoint");
+    expect(result).toContain(
+      "[Widget reference](https://93.184.216.34/reference/widgets)",
+    );
+    expect(result).not.toContain("<html>");
+  });
+
+  it("returns bounded matches from extracted HTML content", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        `<!doctype html><html><body><main>
+          <h1>Endpoints</h1>
+          <p>GET /v1/widgets returns widgets.</p>
+          <p>POST /v1/widgets creates widgets.</p>
+        </main></body></html>`,
+        {
+          status: 200,
+          statusText: "OK",
+          headers: { "content-type": "text/html" },
+        },
+      ),
+    );
+
+    const entry = createFetchToolEntry()["web-request"];
+    const result = await entry.run({
+      url: "https://93.184.216.34/api",
+      responseMode: "matches",
+      search: {
+        regex: "\\b(GET|POST) /v1/widgets\\b",
+        maxMatches: 1,
+        contextChars: 24,
+      },
+    });
+
+    expect(result).toContain("Matches: 1 shown of 2");
+    expect(result).toContain("GET /v1/widgets");
+    expect(result).toContain("1 omitted");
+  });
+
+  it("rejects unsafe regex searches before running them over fetched content", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response("aaaaaaaaaaaaaaaaaaaa!", {
+        status: 200,
+        statusText: "OK",
+        headers: { "content-type": "text/plain" },
+      }),
+    );
+
+    const entry = createFetchToolEntry()["web-request"];
+    const result = await entry.run({
+      url: "https://93.184.216.34/logs",
+      responseMode: "matches",
+      search: { regex: "(a+)+$" },
+    });
+
+    expect(result).toContain("Unsafe regex rejected");
+  });
 });

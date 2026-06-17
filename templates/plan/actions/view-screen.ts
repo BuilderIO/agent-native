@@ -35,16 +35,21 @@ export default defineAction({
     const nav = navigation as {
       planId?: string;
       localPlanSlug?: string;
+      localPlanPath?: string;
       view?: string;
     } | null;
 
     if (nav?.localPlanSlug && isLocalPlanRuntime()) {
       try {
-        const local = await readPlanLocalFolder(nav.localPlanSlug);
+        const local = await readPlanLocalFolder({
+          slug: nav.localPlanSlug,
+          path: nav.localPlanPath,
+        });
         screen.visualPlan = {
           localOnly: true,
           slug: local.slug,
           folder: local.folder,
+          repoPath: local.repoPath,
           plan: {
             id: `local-${local.slug}`,
             title: local.content.title ?? local.slug,
@@ -64,7 +69,7 @@ export default defineAction({
           hasPrototype: Boolean(local.content.prototype),
           files: Object.keys(local.mdx),
           agentWorkflow:
-            "This is a DB-free local MDX folder. Read it with get-local-plan-folder and edit it with update-local-plan-folder contentPatches; writes go back to plan.mdx/canvas.mdx/prototype.mdx in PLAN_LOCAL_DIR without touching SQL.",
+            "This is a DB-free local MDX folder. Read it with get-local-plan-folder and edit it with update-local-plan-folder contentPatches; pass localPlanPath/path when present so writes go back to this repo folder without touching SQL.",
         };
       } catch {
         screen.visualPlanError = `Could not load local plan ${nav.localPlanSlug}`;

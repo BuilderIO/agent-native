@@ -151,11 +151,19 @@ export type UpdatePlanInput = {
 
 export type UpdateLocalPlanInput = {
   slug: string;
+  path?: string;
   title?: string;
   brief?: string;
   content?: PlanContent;
   contentPatches?: PlanContentPatch[];
   note?: string;
+};
+
+export type PromoteLocalPlanInput = {
+  slug: string;
+  path?: string;
+  targetPath?: string;
+  overwrite?: boolean;
 };
 
 export type ConvertVisualPlanToPrototypeInput = {
@@ -309,15 +317,15 @@ export function planBundleQueryKey(id: string) {
   return ["action", "get-visual-plan", planBundleQueryParams(id)] as const;
 }
 
-export function localPlanBundleQueryParams(slug: string) {
-  return { slug } as const;
+export function localPlanBundleQueryParams(slug: string, path?: string | null) {
+  return path ? ({ slug, path } as const) : ({ slug } as const);
 }
 
-export function localPlanBundleQueryKey(slug: string) {
+export function localPlanBundleQueryKey(slug: string, path?: string | null) {
   return [
     "action",
     "get-local-plan-folder",
-    localPlanBundleQueryParams(slug),
+    localPlanBundleQueryParams(slug, path),
   ] as const;
 }
 
@@ -467,6 +475,8 @@ export function useUpdateLocalPlan() {
       localOnly: true;
       slug: string;
       folder: string;
+      repoPath?: string | null;
+      suggestedRepoPath?: string;
       path?: string;
       url?: string;
       html?: string;
@@ -476,10 +486,50 @@ export function useUpdateLocalPlan() {
     UpdateLocalPlanInput
   >("update-local-plan-folder", {
     onSuccess: (data, variables) => {
-      qc.setQueryData(localPlanBundleQueryKey(variables.slug), data);
+      qc.setQueryData(
+        localPlanBundleQueryKey(variables.slug, variables.path),
+        data,
+      );
       invalidate();
     },
     onError: showActionError("Failed to update local plan files"),
+  });
+}
+
+export function usePromoteLocalPlan() {
+  const qc = useQueryClient();
+  const invalidate = usePlanInvalidation();
+  return useActionMutation<
+    PlanBundle & {
+      localOnly: true;
+      slug: string;
+      folder: string;
+      repoPath?: string | null;
+      suggestedRepoPath?: string;
+      targetPath?: string;
+      alreadyPromoted?: boolean;
+      path?: string;
+      url?: string;
+      html?: string;
+      mdx?: PlanMdxFolder;
+      localFiles?: { written: boolean; folder: string; files: string[] };
+    },
+    PromoteLocalPlanInput
+  >("promote-local-plan-folder", {
+    onSuccess: (data, variables) => {
+      qc.setQueryData(
+        localPlanBundleQueryKey(variables.slug, variables.path),
+        data,
+      );
+      if (data.repoPath) {
+        qc.setQueryData(
+          localPlanBundleQueryKey(data.slug, data.repoPath),
+          data,
+        );
+      }
+      invalidate();
+    },
+    onError: showActionError("Failed to save local plan to repo"),
   });
 }
 

@@ -23,7 +23,7 @@ const localPlanKindSchema = z.enum(["plan", "recap"]);
 
 export default defineAction({
   description:
-    "Update a DB-free local Agent-Native Plan MDX folder from PLAN_LOCAL_DIR. Applies the same structured contentPatches used by update-visual-plan, writes plan.mdx/canvas.mdx/prototype.mdx back to the same local folder slug, and never writes to the database.",
+    "Update a DB-free local Agent-Native Plan MDX folder from PLAN_LOCAL_DIR or an optional repo-relative path. Applies the same structured contentPatches used by update-visual-plan, writes plan.mdx/canvas.mdx/prototype.mdx back to the same local folder, and never writes to the database.",
   schema: z.object({
     slug: z
       .string()
@@ -31,6 +31,12 @@ export default defineAction({
       .regex(/^[A-Za-z0-9._-]+$/)
       .describe(
         "Folder name under PLAN_LOCAL_DIR, for example checkout-review.",
+      ),
+    path: z
+      .string()
+      .optional()
+      .describe(
+        "Optional repo-relative folder path, for example plans/checkout-review.",
       ),
     title: z.string().optional().describe("Plan title."),
     brief: z
@@ -59,7 +65,7 @@ export default defineAction({
     isConsequential: true,
     title: "Update Local Plan Folder",
     description:
-      "Edit a local MDX-backed plan folder without touching the Plan app database.",
+      "Edit a local MDX-backed plan folder by slug or repo-relative path without touching the Plan app database.",
   },
   run: async (args) => {
     if (!isLocalPlanRuntime()) {
@@ -68,7 +74,10 @@ export default defineAction({
       );
     }
 
-    const current = await readPlanLocalFolder(args.slug);
+    const current = await readPlanLocalFolder({
+      slug: args.slug,
+      path: args.path,
+    });
     const kind = resolveLocalPlanKind(args.kind, current.mdx) as PlanKind;
     if (kind === "recap") {
       throw new Error("Local recap folders are read-only in the browser.");
@@ -103,17 +112,21 @@ export default defineAction({
     const planId = `local-${current.slug}`;
     const localFiles = await writePlanLocalFolder({
       slug: current.slug,
+      path: current.repoPath,
       planId,
       title,
       brief,
       content: nextContent,
-      url: `/local-plans/${encodeURIComponent(current.slug)}`,
+      url: current.routePath,
     });
     if (!localFiles.written) {
       throw new Error("Local plan folder could not be written.");
     }
 
-    const updated = await readPlanLocalFolder(current.slug);
+    const updated = await readPlanLocalFolder({
+      slug: current.slug,
+      path: current.repoPath,
+    });
     const now = nowIso();
     const bundle: PlanBundle = {
       plan: {
@@ -154,22 +167,28 @@ export default defineAction({
       localOnly: true,
       slug: updated.slug,
       folder: updated.folder,
-      path: `/local-plans/${encodeURIComponent(updated.slug)}`,
-      url: `/local-plans/${encodeURIComponent(updated.slug)}`,
+      repoPath: updated.repoPath,
+      path: updated.routePath,
+      url: updated.url,
+      suggestedRepoPath: updated.suggestedRepoPath,
       html: buildPlanHtml(bundle),
       mdx: await exportPlanContentToMdxFolder({
         content: bundle.plan.content,
         title: bundle.plan.title,
         brief: bundle.plan.brief,
         planId,
-        url: `/local-plans/${encodeURIComponent(updated.slug)}`,
+        url: updated.routePath,
       }),
       localFiles,
       note: args.note,
     };
   },
   link: ({ args }) => ({
-    url: `/local-plans/${encodeURIComponent(args.slug)}`,
+    url: args.path
+      ? `/local-plans/${encodeURIComponent(args.slug)}?${new URLSearchParams({
+          path: args.path,
+        }).toString()}`
+      : `/local-plans/${encodeURIComponent(args.slug)}`,
     label: "Open Local Plan",
     view: "plan",
   }),
