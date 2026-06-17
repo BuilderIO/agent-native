@@ -1,5 +1,11 @@
 # @agent-native/skills
 
+## 0.2.9
+
+### Patch Changes
+
+- e9709bf: Fix the published skills CLI package metadata so npm installs resolve the shared core dependency from a published package version.
+
 ## 0.2.8
 
 ### Patch Changes
