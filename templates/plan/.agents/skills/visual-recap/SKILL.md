@@ -42,8 +42,8 @@ In local-files mode:
   optional `canvas.mdx`, optional `prototype.mdx`, and optional
   `.plan-state.json`. Set `kind: "recap"` and `localOnly: true` in
   frontmatter/state when authoring the source.
-- Run `npx @agent-native/core@latest plan local preview --dir plans/<slug> --kind recap` after
-  writing or updating the folder. Report the returned local URL or the
+- Run `npx @agent-native/core@latest plan local preview --dir plans/<slug> --kind recap --open`
+  after writing or updating the folder. Report the returned local URL or the
   `/local-plans/<slug>` route if the local Plan app is running with the same
   `PLAN_LOCAL_DIR`.
 - Do **not** call `create-visual-recap`, `create-visual-plan`,

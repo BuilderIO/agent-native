@@ -364,8 +364,8 @@ The local-files contract is:
 - Write the plan as a local MDX folder under `plans/<slug>/`: `plan.mdx`,
   optional `canvas.mdx`, optional `prototype.mdx`, and optional
   `.plan-state.json`.
-- Run `npx @agent-native/core@latest plan local preview --dir plans/<slug> --kind plan` after
-  writing or updating the folder. Report the returned local URL or the
+- Run `npx @agent-native/core@latest plan local preview --dir plans/<slug> --kind plan --open`
+  after writing or updating the folder. Report the returned local URL or the
   `/local-plans/<slug>` route if the local Plan app is running with the same
   `PLAN_LOCAL_DIR`.
 - Do **not** call `create-visual-plan`, `create-ui-plan`,

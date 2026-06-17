@@ -11,6 +11,7 @@
 
 import fs from "node:fs";
 import path from "node:path";
+import { spawnSync } from "node:child_process";
 import { pathToFileURL } from "node:url";
 
 import {
@@ -45,6 +46,15 @@ type LocalPlanPreviewResult = {
   title: string;
   kind: LocalPlanKind;
   files: string[];
+  opened?: boolean;
+  openCommand?: string;
+  openError?: string;
+};
+
+type OpenLocalUrlResult = {
+  ok: boolean;
+  command: string;
+  error?: string;
 };
 
 function parseArgs(argv: string[]): Record<string, string | boolean> {
@@ -106,6 +116,33 @@ function normalizeKind(value: string | undefined): LocalPlanKind {
 
 function defaultPlansDir(): string {
   return path.resolve(process.env.PLAN_LOCAL_DIR || "plans");
+}
+
+function openLocalUrl(url: string): OpenLocalUrlResult {
+  const platform = process.platform;
+  const command =
+    platform === "darwin" ? "open" : platform === "win32" ? "cmd" : "xdg-open";
+  const args = platform === "win32" ? ["/c", "start", "", url] : [url];
+  const result = spawnSync(command, args, {
+    stdio: "ignore",
+    windowsHide: true,
+  });
+  const commandDisplay = [command, ...args].join(" ");
+  if (result.error) {
+    return {
+      ok: false,
+      command: commandDisplay,
+      error: result.error.message,
+    };
+  }
+  if (typeof result.status === "number" && result.status !== 0) {
+    return {
+      ok: false,
+      command: commandDisplay,
+      error: `exit code ${result.status}`,
+    };
+  }
+  return { ok: true, command: commandDisplay };
 }
 
 function escapeHtml(value: string): string {
@@ -406,6 +443,8 @@ export function writeLocalPlanPreview(input: {
   kind?: LocalPlanKind;
   title?: string;
   brief?: string;
+  open?: boolean;
+  openUrl?: (url: string) => OpenLocalUrlResult;
 }): LocalPlanPreviewResult {
   const dir = path.resolve(input.dir);
   const parsed = stripFrontmatter(readLocalPlanFiles(dir).planMdx);
@@ -424,7 +463,7 @@ export function writeLocalPlanPreview(input: {
     "prototype.mdx",
     ".plan-state.json",
   ].filter((file) => fs.existsSync(path.join(dir, file)));
-  return {
+  const result: LocalPlanPreviewResult = {
     ok: true,
     dir,
     out,
@@ -432,6 +471,15 @@ export function writeLocalPlanPreview(input: {
     title,
     kind,
     files,
+  };
+  if (!input.open) return result;
+
+  const openResult = (input.openUrl || openLocalUrl)(result.url);
+  return {
+    ...result,
+    opened: openResult.ok,
+    openCommand: openResult.command,
+    ...(openResult.error ? { openError: openResult.error } : {}),
   };
 }
 
@@ -539,6 +587,7 @@ function runPreview(args: Record<string, string | boolean>): void {
     out: optionalArg(args, "out"),
     title: optionalArg(args, "title"),
     brief: optionalArg(args, "brief"),
+    open: boolArg(args, "open"),
     kind: optionalArg(args, "kind")
       ? normalizeKind(optionalArg(args, "kind"))
       : undefined,
@@ -606,7 +655,7 @@ Usage:
   agent-native plan blocks [--format reference|schema] [--app-url <url>] [--out <file>] [--json]
   agent-native plan local init --title <title> [--brief <text>] [--kind plan|recap] [--dir <folder>] [--force]
   agent-native plan local check --dir <folder>
-  agent-native plan local preview --dir <folder> [--out preview.html] [--kind plan|recap]
+  agent-native plan local preview --dir <folder> [--out preview.html] [--kind plan|recap] [--open]
 
 The blocks command fetches the no-auth, read-only get-plan-blocks catalog from
 the Plan app and writes plan-blocks.md (or plan-blocks.schema.json). It sends no
@@ -622,7 +671,7 @@ write actions, hosted storage, or SQLite.
 Common flow:
   agent-native plan blocks --out plan-blocks.md
   agent-native plan local init --title "Checkout review" --kind plan
-  agent-native plan local preview --dir plans/checkout-review
+  agent-native plan local preview --dir plans/checkout-review --open
 `;
 
 export async function runPlan(argv: string[]): Promise<void> {

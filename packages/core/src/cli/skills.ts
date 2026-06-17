@@ -1368,8 +1368,8 @@ The local-files contract is:
 - Write the plan as a local MDX folder under \`plans/<slug>/\`: \`plan.mdx\`,
   optional \`canvas.mdx\`, optional \`prototype.mdx\`, and optional
   \`.plan-state.json\`.
-- Run \`npx @agent-native/core@latest plan local preview --dir plans/<slug> --kind plan\` after
-  writing or updating the folder. Report the returned local URL or the
+- Run \`npx @agent-native/core@latest plan local preview --dir plans/<slug> --kind plan --open\`
+  after writing or updating the folder. Report the returned local URL or the
   \`/local-plans/<slug>\` route if the local Plan app is running with the same
   \`PLAN_LOCAL_DIR\`.
 - Do **not** call \`create-visual-plan\`, \`create-ui-plan\`,
@@ -1518,8 +1518,8 @@ In local-files mode:
   optional \`canvas.mdx\`, optional \`prototype.mdx\`, and optional
   \`.plan-state.json\`. Set \`kind: "recap"\` and \`localOnly: true\` in
   frontmatter/state when authoring the source.
-- Run \`npx @agent-native/core@latest plan local preview --dir plans/<slug> --kind recap\` after
-  writing or updating the folder. Report the returned local URL or the
+- Run \`npx @agent-native/core@latest plan local preview --dir plans/<slug> --kind recap --open\`
+  after writing or updating the folder. Report the returned local URL or the
   \`/local-plans/<slug>\` route if the local Plan app is running with the same
   \`PLAN_LOCAL_DIR\`.
 - Do **not** call \`create-visual-recap\`, \`create-visual-plan\`,
@@ -2153,7 +2153,7 @@ export const BUILT_IN_APP_SKILLS = {
       auth: {
         mode: "oauth",
         setup:
-          "Install with the Agent-Native CLI to add the /visual-plan and /visual-recap skills plus the Plan MCP connector. Authenticate only for hosted/account-backed sharing.",
+          "The marketplace plugin uses hosted Agent-Native Plans by default. To choose local-files or self-hosted mode, install with the Agent-Native CLI. Authenticate only for hosted/account-backed sharing.",
       },
       surfaces: [
         {
@@ -2648,7 +2648,7 @@ Default storage for this installation: local files. Create and update plans and
 recaps as MDX folders under \`plans/<slug>/\`. Before authoring structured MDX,
 run \`npx @agent-native/core@latest plan blocks --out plan-blocks.md\` and read
 the no-auth block catalog; it sends no plan content. Then run
-\`npx @agent-native/core@latest plan local preview --dir plans/<slug> --kind plan|recap\`,
+\`npx @agent-native/core@latest plan local preview --dir plans/<slug> --kind plan|recap --open\`,
 and report the local preview URL or path. No sharing, all local. Use a hosted
 or self-hosted Plan MCP connector only if the user explicitly asks to publish or
 share.`;

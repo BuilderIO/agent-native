@@ -266,7 +266,8 @@ async function expectedFiles(): Promise<GeneratedFile[]> {
           shortDescription: manifest.description,
           longDescription:
             `${manifest.displayName} packages agent instructions, app actions, ` +
-            "an MCP connector, and inline UI surfaces as an installable skill.",
+            "an MCP connector, and inline UI surfaces as an installable skill. " +
+            "The plugin connects to hosted Plans by default; use the Agent-Native CLI to choose local-files or self-hosted mode.",
           developerName: "Agent-Native",
           category: "Productivity",
           capabilities: ["Interactive", "Read", "Write"],

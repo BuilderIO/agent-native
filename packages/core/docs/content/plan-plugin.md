@@ -37,7 +37,7 @@ the Plan MCP connector. They write `plans/<slug>/plan.mdx` plus optional
 `canvas.mdx`, `prototype.mdx`, and `.plan-state.json`, then preview locally with:
 
 ```bash
-npx @agent-native/core@latest plan local preview --dir plans/<slug> --kind plan
+npx @agent-native/core@latest plan local preview --dir plans/<slug> --kind plan --open
 ```
 
 This keeps plan content out of the Agent-Native Plan database. Hosted sharing,
@@ -54,7 +54,7 @@ is no Plan DB writes.
 
 ## Install routes {#install}
 
-There are three ways in. The **universal CLI route** is the one we recommend by default, because it installs the skills **and** registers and authenticates the MCP connector in a single step. The plugin routes are for hosts with a first-class plugin/marketplace system.
+There are three ways in. The **universal CLI route** is the one we recommend by default, because it installs the skills **and** lets you choose hosted, local-files, or self-hosted mode in one flow. The plugin routes are for hosts with a first-class plugin/marketplace system and use hosted Plans by default.
 
 ### Universal skill route (any MCP host) {#universal}
 
@@ -68,6 +68,7 @@ This installs `visual-plan` plus the companion `visual-recap` skill, then regist
 
 - `--client codex|claude-code|claude-code-cli|cowork|all` — which local agents to write the MCP config for (default `all`).
 - `--no-connect` — register the connector without authenticating; run `npx @agent-native/core@latest connect https://plan.agent-native.com --client all` later, or choose a narrower `--client`.
+- `--mode hosted|local-files|self-hosted` — choose hosted sharing, all-local MDX files, or your own Plan app.
 - `--mcp-url <url>` — point the connector at a custom origin (an ngrok tunnel, a local dev server, or a self-hosted deployment) instead of the hosted default.
 - `--with-github-action` — also write the PR Visual Recap GitHub Action (see [PR Visual Recap](/docs/pr-visual-recap)).
 
@@ -99,7 +100,7 @@ The public `BuilderIO/agent-native` repo is itself a Claude Code plugin marketpl
 /mcp        # authenticate the Plan connector (one OAuth approval)
 ```
 
-`/plugin install` adds both Plan skills and a **URL-only** MCP config (no secrets in the package); `/mcp` → **Authenticate** completes the OAuth handshake.
+`/plugin install` adds both Plan skills and a **URL-only** MCP config (no secrets in the package); `/mcp` → **Authenticate** completes the OAuth handshake. Use the universal CLI route instead when you want local-files or self-hosted mode.
 
 > The marketplace catalog is named `agent-native-apps` and the Plan plugin is `agent-native-visual-plans`, so the install target is always `agent-native-visual-plans@agent-native-apps`.
 
@@ -113,7 +114,7 @@ codex plugin add agent-native-visual-plans@agent-native-apps
 codex mcp login plan   # OAuth in the browser
 ```
 
-After install, **start a new Codex thread** so the skills and MCP tools load into the session. The plugin ships a URL-only connector (`[mcp_servers.plan]` → `https://plan.agent-native.com/_agent-native/mcp`); `codex mcp login plan` runs the OAuth flow. The universal CLI route above also works for Codex (`npx @agent-native/core@latest skills add visual-plan --client codex`) if you prefer one command that installs and authenticates together.
+After install, **start a new Codex thread** so the skills and MCP tools load into the session. The plugin ships a URL-only connector (`[mcp_servers.plan]` → `https://plan.agent-native.com/_agent-native/mcp`); `codex mcp login plan` runs the OAuth flow. The universal CLI route above also works for Codex (`npx @agent-native/core@latest skills add visual-plan --client codex`) if you prefer one command that installs and authenticates together, or when you want local-files or self-hosted mode.
 
 > **Older installs:** if your config still has an `agent-native-plans` entry pointing at the same URL, running `npx -y @agent-native/core@latest reconnect https://plan.agent-native.com --client codex` for Codex, or the same command with your target `--client`, consolidates it to the canonical `plan` name.
 
