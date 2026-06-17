@@ -272,6 +272,16 @@ export function resolveSignupTrackingIdentity(): {
   };
 }
 
+/** @internal */
+export function resolveSignupTrackingProperties(): Record<string, string> {
+  const identity = resolveSignupTrackingIdentity();
+  return {
+    ...identity,
+    ...(identity.app ? { agent_native_app: identity.app } : {}),
+    ...(identity.template ? { agent_native_template: identity.template } : {}),
+  };
+}
+
 export function shouldSkipEmailVerification(): boolean {
   const value = process.env.AUTH_SKIP_EMAIL_VERIFICATION;
   if (value == null) {
@@ -877,7 +887,7 @@ async function createBetterAuthInstance(
             track(
               "signup",
               {
-                ...resolveSignupTrackingIdentity(),
+                ...resolveSignupTrackingProperties(),
                 auth_provider: "better-auth",
                 auth_user_id: user.id,
               },
