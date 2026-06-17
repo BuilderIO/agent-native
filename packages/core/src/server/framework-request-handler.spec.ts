@@ -20,6 +20,9 @@ async function dispatch(nitroApp: any, pathname: string) {
     url: new URL(`http://example.test${pathname}`),
     path: pathname,
     context: {},
+    // Minimal h3-v2 response shape so handlers that call setResponseStatus /
+    // setResponseHeader (e.g. the init-failure 503 fallback) work under test.
+    res: { status: 200, headers: new Headers() },
   };
   let index = 0;
   const next = async (): Promise<unknown> => {
