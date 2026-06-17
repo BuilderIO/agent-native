@@ -4353,6 +4353,7 @@ function BuilderSpaceModelsView({
 }) {
   const modelsQuery = useBuilderCmsModels(true);
   const models = modelsQuery.data?.models ?? [];
+  const [query, setQuery] = useState("");
 
   if (modelsQuery.isLoading) {
     return (
@@ -4414,17 +4415,81 @@ function BuilderSpaceModelsView({
     );
   }
 
+  const normalizedQuery = query.trim().toLowerCase();
+  const matchesQuery = (model: BuilderCmsModelSummary) =>
+    !normalizedQuery ||
+    model.displayName.toLowerCase().includes(normalizedQuery) ||
+    model.name.toLowerCase().includes(normalizedQuery);
+  const filtered = models.filter(matchesQuery);
+  const attachedModels = filtered.filter(
+    (model) => attachedModelName === model.name,
+  );
+  const otherModels = filtered.filter(
+    (model) => attachedModelName !== model.name,
+  );
+
+  const renderRow = (model: BuilderCmsModelSummary) => {
+    const isAttached = attachedModelName === model.name;
+    return (
+      <button
+        key={model.id}
+        type="button"
+        className="flex h-9 w-full items-center gap-2 rounded-md px-2 text-left text-sm text-foreground transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        onClick={() => onOpenModel(model)}
+      >
+        <span className="flex size-5 shrink-0 items-center justify-center text-muted-foreground">
+          <IconList className="size-4" />
+        </span>
+        <span className="min-w-0 flex-1 truncate" title={model.displayName}>
+          {model.displayName}
+        </span>
+        {isAttached ? (
+          <span className="inline-flex shrink-0 items-center gap-1 rounded-full border border-border px-1.5 py-0.5 text-[10px] font-medium text-foreground">
+            <IconCheck className="size-3" />
+            Attached
+          </span>
+        ) : null}
+        <IconChevronRight className="size-4 shrink-0 text-muted-foreground" />
+      </button>
+    );
+  };
+
   return (
-    <div className="grid min-w-0 gap-1.5">
-      {models.map((model) => (
-        <DatabaseSettingsRow
-          key={model.id}
-          icon={<IconList className="size-4" />}
-          label={model.displayName}
-          value={attachedModelName === model.name ? "Attached" : model.kind}
-          onClick={() => onOpenModel(model)}
+    <div className="grid min-w-0 gap-2">
+      <div className="relative min-w-0">
+        <IconSearch className="pointer-events-none absolute left-2 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+        <Input
+          type="search"
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+          placeholder="Search models"
+          aria-label="Search Builder models"
+          className="h-8 min-w-0 pl-7 text-sm"
         />
-      ))}
+      </div>
+
+      {attachedModels.length > 0 ? (
+        <div className="grid min-w-0 gap-1.5">
+          <div className="px-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+            Already attached
+          </div>
+          {attachedModels.map(renderRow)}
+        </div>
+      ) : null}
+
+      <div className="grid min-w-0 gap-1.5">
+        {attachedModels.length > 0 && otherModels.length > 0 ? (
+          <div className="px-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+            All models
+          </div>
+        ) : null}
+        {otherModels.map(renderRow)}
+        {filtered.length === 0 ? (
+          <div className="px-2 py-1 text-xs text-muted-foreground">
+            No models match “{query.trim()}”.
+          </div>
+        ) : null}
+      </div>
     </div>
   );
 }
