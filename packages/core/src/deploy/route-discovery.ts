@@ -148,6 +148,7 @@ export const DEFAULT_PLUGIN_REGISTRY: Record<string, string> = {
   "context-xray": "defaultContextXrayPlugin",
   "core-routes": "defaultCoreRoutesPlugin",
   integrations: "defaultIntegrationsPlugin",
+  "observational-memory": "defaultObservationalMemoryPlugin",
   onboarding: "defaultOnboardingPlugin",
   org: "defaultOrgPlugin",
   resources: "defaultResourcesPlugin",

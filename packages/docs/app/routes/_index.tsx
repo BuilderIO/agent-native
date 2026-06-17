@@ -1,5 +1,6 @@
 import { Link } from "react-router";
 import { useEffect, useRef, useState } from "react";
+import { AgentNativeDemoVideo } from "../components/AgentNativeDemoVideo";
 import CodeBlock from "../components/CodeBlock";
 import Seascape from "../components/Seascape";
 import {
@@ -16,6 +17,17 @@ pnpm dev`;
 
 const skillInstallCode = `# Add agent-native planning to a coding agent you already use
 npx @agent-native/core@latest skills add visual-plan`;
+
+const frameworkCode = `// One action powers UI, agent, HTTP, MCP, A2A, and CLI.
+export default defineAction({
+  schema: z.object({
+    emailId: z.string(),
+    body: z.string(),
+  }),
+  run: async ({ emailId, body }) => {
+    await db.insert(replies).values({ emailId, body });
+  },
+});`;
 
 function TerminalCommand() {
   const [copied, setCopied] = useState(false);
@@ -101,6 +113,41 @@ const bidirectionalTabs = [
       "https://cdn.builder.io/o/assets%2FYJIGb4i01jvw0SRdL5Bt%2F39c6b297895843708938b097d8e3eb2c?alt=media&token=c5fdf84c-d4fb-45b0-b220-ef7aab01e99f&apiKey=YJIGb4i01jvw0SRdL5Bt",
   },
 ];
+
+const frameworkPrimitives = [
+  {
+    title: "Actions",
+    description: "Define work once. Use it from UI, agent, API, MCP, and A2A.",
+  },
+  {
+    title: "Shared state",
+    description:
+      "SQL-backed app state keeps humans, agents, and sessions in sync.",
+  },
+  {
+    title: "Agent runtime",
+    description:
+      "Chat, tools, skills, memory, jobs, observability, and handoffs ship together.",
+  },
+  {
+    title: "Backend agnostic",
+    description:
+      "Plug in any Drizzle-supported SQL database and Nitro-compatible host.",
+  },
+];
+
+const homepageTemplateSlugs = [
+  "calendar",
+  "content",
+  "plan",
+  "slides",
+  "analytics",
+  "clips",
+];
+
+const homepageTemplates = homepageTemplateSlugs.flatMap((slug) =>
+  featuredTemplates.filter((template) => template.slug === slug),
+);
 
 function BidirectionalTabs() {
   const [activeTab, setActiveTab] = useState(0);
@@ -329,84 +376,156 @@ export default function Home() {
           </div>
         </section>
 
-        {/* Try it with a skill - above templates */}
+        {/* Framework */}
         <section className="border-t border-[var(--docs-border)] px-6 py-20">
-          <div className="mb-12 text-center">
-            <h2 className="mb-3 text-3xl font-bold tracking-tight md:text-4xl">
-              Try it with a skill
-            </h2>
-            <p className="mx-auto max-w-2xl text-base leading-relaxed text-[var(--fg-secondary)]">
-              Not ready to scaffold a whole app? Add agent-native superpowers to
-              a coding agent you already use — Claude Code, Codex, Cursor, Pi,
-              OpenCode, GitHub Copilot / VS Code, and similar agents — with one
-              command. It installs the skills, writes shared .agents skill
-              folders for agents that support them, registers the hosted MCP
-              connector for supported local clients, and signs you in in one
-              step.
-            </p>
-          </div>
+          <div className="mx-auto max-w-[1200px]">
+            <div className="grid gap-10 lg:grid-cols-[0.92fr_1.08fr] lg:items-center">
+              <div>
+                <p className="mb-3 text-sm font-semibold text-[var(--docs-accent)]">
+                  Open source framework
+                </p>
+                <h2 className="mb-4 text-3xl font-bold tracking-tight md:text-4xl">
+                  The framework for agent-native apps
+                </h2>
+                <p className="mb-5 max-w-xl text-base leading-relaxed text-[var(--fg-secondary)]">
+                  Agent-Native is an open-source framework for building robust
+                  agents that can act inside real apps, not just chat next to
+                  them.
+                </p>
+                <p className="mb-5 max-w-xl text-base leading-relaxed text-[var(--fg-secondary)]">
+                  It gives you primitives for product-grade agentic software:
+                  shared actions, SQL-backed state, identity, tools, skills,
+                  jobs, observability, and UI surfaces that all work together.
+                </p>
+                <p className="mb-6 max-w-xl text-base leading-relaxed text-[var(--fg-secondary)]">
+                  Backend agnostic: bring your own database, hosting provider,
+                  model stack, and app code.
+                </p>
+                <Link
+                  data-an-prefetch="render"
+                  to="/docs/what-is-agent-native"
+                  className="inline-flex items-center gap-2 rounded-full border border-[var(--docs-border)] px-5 py-2.5 text-sm font-medium text-[var(--fg)] no-underline transition hover:border-[var(--fg-secondary)] hover:no-underline"
+                  onClick={() =>
+                    trackEvent("click cta", {
+                      label: "framework_guide",
+                      location: "framework_section",
+                    })
+                  }
+                >
+                  Read the framework guide
+                  <svg
+                    width="16"
+                    height="16"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <line x1="5" y1="12" x2="19" y2="12" />
+                    <polyline points="12 5 19 12 12 19" />
+                  </svg>
+                </Link>
+              </div>
 
-          <div className="mx-auto max-w-2xl">
-            <CodeBlock code={skillInstallCode} lang="bash" />
-          </div>
-
-          <div className="mx-auto mt-8 grid max-w-3xl gap-5 sm:grid-cols-2">
-            <div className="rounded-xl border border-[var(--docs-border)] p-6">
-              <h3 className="mb-2 font-mono text-base font-semibold text-[var(--docs-accent)]">
-                /visual-plan
-              </h3>
-              <p className="m-0 text-sm leading-relaxed text-[var(--fg-secondary)]">
-                Before the agent writes code, it opens a structured, reviewable
-                plan instead of a wall of text — inline diagrams, UI wireframes
-                and prototypes, file-by-file implementation maps, and
-                annotations you can comment on and approve.
-              </p>
+              <div className="min-w-0">
+                <CodeBlock code={frameworkCode} lang="typescript" />
+              </div>
             </div>
-            <div className="rounded-xl border border-[var(--docs-border)] p-6">
-              <h3 className="mb-2 font-mono text-base font-semibold text-[var(--docs-accent)]">
-                /visual-recap
-              </h3>
-              <p className="m-0 text-sm leading-relaxed text-[var(--fg-secondary)]">
-                After changes land, it turns a PR or git diff into a
-                high-altitude visual recap — schema, API, and file changes as
-                grounded before/after blocks with a shareable review link,
-                instead of scrolling a raw diff.
-              </p>
+
+            <div className="mt-10 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              {frameworkPrimitives.map((primitive) => (
+                <div
+                  key={primitive.title}
+                  className="rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)] p-5"
+                >
+                  <h3 className="mb-2 text-base font-semibold">
+                    {primitive.title}
+                  </h3>
+                  <p className="m-0 text-sm leading-relaxed text-[var(--fg-secondary)]">
+                    {primitive.description}
+                  </p>
+                </div>
+              ))}
             </div>
           </div>
+        </section>
 
-          <div className="mt-8 text-center">
-            <Link
-              data-an-prefetch="render"
-              to="/docs/skills-guide"
-              className="inline-flex items-center gap-2 rounded-full border border-[var(--docs-border)] px-6 py-3 text-sm font-medium text-[var(--fg)] no-underline transition hover:border-[var(--fg-secondary)] hover:no-underline"
-              onClick={() =>
-                trackEvent("click cta", {
-                  label: "skills_guide",
-                  location: "skills_section",
-                })
-              }
-            >
-              Browse the Skills Guide
-              <svg
-                width="16"
-                height="16"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <line x1="5" y1="12" x2="19" y2="12" />
-                <polyline points="12 5 19 12 12 19" />
-              </svg>
-            </Link>
+        {/* Try it with a skill */}
+        <section className="border-t border-[var(--docs-border)] px-6 py-16">
+          <div className="mx-auto grid max-w-[1100px] gap-8 lg:grid-cols-[minmax(0,1fr)_minmax(320px,0.82fr)] lg:items-center">
+            <div>
+              <h2 className="mb-3 text-3xl font-bold tracking-tight md:text-4xl">
+                Try it with a skill
+              </h2>
+              <p className="mb-5 max-w-xl text-base leading-relaxed text-[var(--fg-secondary)]">
+                Add visual planning and PR recaps to Claude Code, Codex, Cursor,
+                Pi, OpenCode, or VS Code with one command.
+              </p>
+
+              <CodeBlock code={skillInstallCode} lang="bash" />
+
+              <div className="mt-6 grid gap-3 sm:grid-cols-2">
+                <div className="rounded-xl border border-[var(--docs-border)] p-5">
+                  <h3 className="mb-2 font-mono text-sm font-semibold text-[var(--docs-accent)]">
+                    /visual-plan
+                  </h3>
+                  <p className="m-0 text-sm leading-relaxed text-[var(--fg-secondary)]">
+                    Reviewable plans with diagrams, wireframes, file maps, and
+                    comments before code changes.
+                  </p>
+                </div>
+                <div className="rounded-xl border border-[var(--docs-border)] p-5">
+                  <h3 className="mb-2 font-mono text-sm font-semibold text-[var(--docs-accent)]">
+                    /visual-recap
+                  </h3>
+                  <p className="m-0 text-sm leading-relaxed text-[var(--fg-secondary)]">
+                    A visual summary of a PR or diff so reviewers see the shape
+                    before the raw lines.
+                  </p>
+                </div>
+              </div>
+
+              <div className="mt-6">
+                <Link
+                  data-an-prefetch="render"
+                  to="/docs/skills-guide"
+                  className="inline-flex items-center gap-2 rounded-full border border-[var(--docs-border)] px-5 py-2.5 text-sm font-medium text-[var(--fg)] no-underline transition hover:border-[var(--fg-secondary)] hover:no-underline"
+                  onClick={() =>
+                    trackEvent("click cta", {
+                      label: "skills_guide",
+                      location: "skills_section",
+                    })
+                  }
+                >
+                  Browse the Skills Guide
+                  <svg
+                    width="16"
+                    height="16"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <line x1="5" y1="12" x2="19" y2="12" />
+                    <polyline points="12 5 19 12 12 19" />
+                  </svg>
+                </Link>
+              </div>
+            </div>
+
+            <AgentNativeDemoVideo className="aspect-square w-full" />
           </div>
         </section>
 
         {/* Templates - breaks out of max-width on ultra-wide screens */}
-        <section id="templates" className="py-20 px-6">
+        <section
+          id="templates"
+          className="border-t border-[var(--docs-border)] py-20 px-6"
+        >
           <div className="mb-12 text-center">
             <h2 className="mb-3 text-3xl font-bold tracking-tight md:text-4xl">
               Start with a full featured template
@@ -422,7 +541,7 @@ export default function Home() {
           </div>
 
           <div className="mx-auto grid max-w-[1200px] grid-cols-1 gap-5 md:grid-cols-2 lg:grid-cols-3">
-            {featuredTemplates.map((t) => (
+            {homepageTemplates.map((t) => (
               <TemplateCard key={t.name} template={t} />
             ))}
           </div>
@@ -558,72 +677,6 @@ export default function Home() {
                     </tbody>
                   </table>
                 </div>
-              </div>
-            </div>
-          </section>
-
-          {/* Value props */}
-          <section className="border-t border-[var(--docs-border)] py-20">
-            <div className="mb-12 text-center">
-              <h2 className="mb-3 text-3xl font-bold tracking-tight md:text-4xl">
-                How it works
-              </h2>
-              <p className="mx-auto max-w-2xl text-base leading-relaxed text-[var(--fg-secondary)]">
-                The agent and the UI are equal partners out of the box.
-                Everything the UI can do, the agent can do — and vice versa.
-              </p>
-            </div>
-
-            <div className="mx-auto grid max-w-4xl gap-6 sm:grid-cols-2 lg:grid-cols-3">
-              <div className="rounded-xl border border-[var(--docs-border)] p-6">
-                <h3 className="mb-2 text-base font-semibold">
-                  Everything syncs
-                </h3>
-                <p className="m-0 text-sm leading-relaxed text-[var(--fg-secondary)]">
-                  Agent and UI share one database and one state. Changes from
-                  either side show up instantly on the other.
-                </p>
-              </div>
-              <div className="rounded-xl border border-[var(--docs-border)] p-6">
-                <h3 className="mb-2 text-base font-semibold">Context-aware</h3>
-                <p className="m-0 text-sm leading-relaxed text-[var(--fg-secondary)]">
-                  The agent knows what you're looking at. Select text, hit
-                  Cmd+I, and tell it what to do.
-                </p>
-              </div>
-              <div className="rounded-xl border border-[var(--docs-border)] p-6">
-                <h3 className="mb-2 text-base font-semibold">
-                  Agents call agents
-                </h3>
-                <p className="m-0 text-sm leading-relaxed text-[var(--fg-secondary)]">
-                  Tag another agent from any app. They discover each other over
-                  A2A and take action across your stack.
-                </p>
-              </div>
-              <div className="rounded-xl border border-[var(--docs-border)] p-6">
-                <h3 className="mb-2 text-base font-semibold">
-                  Any database, any host
-                </h3>
-                <p className="m-0 text-sm leading-relaxed text-[var(--fg-secondary)]">
-                  Any SQL database Drizzle supports. Any hosting target Nitro
-                  supports. No lock-in.
-                </p>
-              </div>
-              <div className="rounded-xl border border-[var(--docs-border)] p-6">
-                <h3 className="mb-2 text-base font-semibold">Any AI agent</h3>
-                <p className="m-0 text-sm leading-relaxed text-[var(--fg-secondary)]">
-                  Claude Code, Codex, Cursor, Pi, OpenCode, GitHub Copilot / VS
-                  Code, or Builder.io. Use whichever agent you prefer.
-                </p>
-              </div>
-              <div className="rounded-xl border border-[var(--docs-border)] p-6">
-                <h3 className="mb-2 text-base font-semibold">
-                  Apps that improve themselves
-                </h3>
-                <p className="m-0 text-sm leading-relaxed text-[var(--fg-secondary)]">
-                  Your apps get better on their own. The agent can add features,
-                  fix bugs, and refine the UI over time.
-                </p>
               </div>
             </div>
           </section>

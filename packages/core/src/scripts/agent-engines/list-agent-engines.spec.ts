@@ -5,6 +5,8 @@ describe("list-agent-engines", () => {
     vi.resetModules();
     vi.unstubAllEnvs();
     delete process.env.AGENT_ENGINE;
+    delete process.env.AGENT_NATIVE_WORKSPACE;
+    delete process.env.VITE_AGENT_NATIVE_WORKSPACE;
     delete process.env.ANTHROPIC_API_KEY;
     delete process.env.OPENAI_API_KEY;
     delete process.env.GOOGLE_GENERATIVE_AI_API_KEY;
@@ -15,6 +17,9 @@ describe("list-agent-engines", () => {
     }));
     vi.doMock("../../agent/app-model-defaults.js", () => ({
       getAgentAppModelDefaultForCurrentRequest: vi.fn().mockResolvedValue(null),
+    }));
+    vi.doMock("../../secrets/storage.js", () => ({
+      readAppSecret: vi.fn().mockResolvedValue(null),
     }));
   });
 
@@ -43,5 +48,65 @@ describe("list-agent-engines", () => {
         (engine: any) => engine.name === "ai-sdk:missing-provider",
       )?.packageInstalled,
     ).toBe(false);
+  });
+
+  it("does not report AGENT_ENGINE as current when only blocked hosted deploy credentials exist", async () => {
+    vi.stubEnv("AGENT_NATIVE_WORKSPACE", "1");
+    vi.stubEnv("AGENT_ENGINE", "test:openai");
+    vi.stubEnv("OPENAI_API_KEY", "sk-test-example");
+
+    const { registerAgentEngine } = await import("../../agent/engine/index.js");
+    const { runWithRequestContext } =
+      await import("../../server/request-context.js");
+    const { run } = await import("./list-agent-engines.js");
+
+    registerAgentEngine({
+      name: "test:openai",
+      label: "OpenAI Test",
+      description: "",
+      capabilities: {} as any,
+      defaultModel: "gpt-test",
+      supportedModels: ["gpt-test"],
+      requiredEnvVars: ["OPENAI_API_KEY"],
+      create: vi.fn() as any,
+    });
+
+    const result = JSON.parse(
+      await runWithRequestContext({ userEmail: "hosted@example.com" }, () =>
+        run(),
+      ),
+    );
+
+    expect(result.current).toBeNull();
+  });
+
+  it("does not auto-detect hosted deploy provider env as the current engine", async () => {
+    vi.stubEnv("AGENT_NATIVE_WORKSPACE", "1");
+    vi.stubEnv("OPENAI_API_KEY", "sk-test-example");
+
+    const { registerAgentEngine } = await import("../../agent/engine/index.js");
+    const { runWithRequestContext } =
+      await import("../../server/request-context.js");
+    const { run } = await import("./list-agent-engines.js");
+
+    registerAgentEngine({
+      name: "test:openai",
+      label: "OpenAI Test",
+      description: "",
+      capabilities: {} as any,
+      defaultModel: "gpt-test",
+      supportedModels: ["gpt-test"],
+      requiredEnvVars: ["OPENAI_API_KEY"],
+      create: vi.fn() as any,
+    });
+
+    const result = JSON.parse(
+      await runWithRequestContext({ userEmail: "hosted@example.com" }, () =>
+        run(),
+      ),
+    );
+
+    expect(result.current?.engine).not.toBe("test:openai");
+    expect(result.current?.model).not.toBe("gpt-test");
   });
 });

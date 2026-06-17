@@ -122,6 +122,13 @@ export default defineAction({
         "Files to attach. Each entry must reference a previously-uploaded file by its server-side `filename`. The upload must have been created via the media-upload endpoint before calling this action.",
       ),
   }),
+  // Human-in-the-loop gate: actually sending an email is outward-facing and
+  // hard to undo, so the agent can never send without a human approving the
+  // specific call. The loop pauses with `approval_required`; the user approves
+  // before the message goes out. Drafting/queueing is unaffected — only the
+  // real send is gated. This is the canonical (and intentionally rare) use of
+  // `needsApproval` in the framework.
+  needsApproval: true,
   run: async (args) => {
     const ownerEmail = getRequestUserEmail();
     if (!ownerEmail) throw new Error("no authenticated user");

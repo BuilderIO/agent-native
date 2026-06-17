@@ -180,22 +180,34 @@ or set the convention for your agent environment:
 export AGENT_NATIVE_PLANS_MODE=local-files
 ```
 
-In this mode the agent writes a local MDX folder under `plans/<slug>/` and must
-not call the hosted Plan MCP tools. The durable files are:
+In this mode the agent writes a local MDX folder and must not call the hosted
+Plan MCP tools. Use a repo folder such as `plans/<slug>/` when you want the plan
+checked in with the code. Use a temp or ignored folder, such as
+`/tmp/agent-native-plans/<slug>/` or `.agent-native/plans/<slug>/`, when the
+plan should stay out of git. The folder contains:
 
 - `plan.mdx`
 - optional `canvas.mdx`
 - optional `prototype.mdx`
 - optional `.plan-state.json`
 
-After writing the folder, the agent validates and previews it locally:
+After writing the folder, the agent starts a tiny localhost bridge and opens the
+hosted Plan UI against that local-only source:
 
 ```bash
-npx @agent-native/core@latest plan local preview --dir plans/<slug> --kind plan --open
+npx @agent-native/core@latest plan local serve --dir plans/<slug> --kind plan --open
 ```
 
-If you run the Plan app locally with the same `PLAN_LOCAL_DIR`, you can open the
-read-only app route:
+The bridge URL looks like
+`https://plan.agent-native.com/local-plans/<slug>?bridge=http://127.0.0.1:...`.
+The page is the normal Plan viewer, but the browser fetches `plan.mdx`,
+`canvas.mdx`, `prototype.mdx`, `.plan-state.json`, and local image assets from
+the localhost bridge. Plan content is not written to the hosted database and is
+not sent through hosted Plan actions. Keep the bridge process running while you
+review; the URL is local to your machine and is not a shareable team link.
+
+If you run the Plan app locally with the same `PLAN_LOCAL_DIR`, you can also
+open the read-only app route:
 
 ```text
 http://localhost:<port>/local-plans/<slug>
@@ -206,8 +218,8 @@ Plan database. It also disables hosted sharing, browser comments, plan history,
 and publish/export receipts until you explicitly opt into publishing. To move a
 local plan into the hosted database, call `publish-visual-plan` with the local
 MDX folder path; this uploads the plan, assigns it a hosted ID, enables sharing
-and commenting, and returns the hosted URL. It does
-not automatically make your coding agent's LLM local; choose a local or approved
+and commenting, and returns the hosted URL. Local-files mode does not
+automatically make your coding agent's LLM local; choose a local or approved
 model if that privacy boundary matters too.
 
 ## Desktop local file sync {#desktop-local-sync}

@@ -428,13 +428,18 @@ async function runDeviceFlow(
         { device_code: start.device_code },
       );
       if (status < 200 || status >= 300) {
-        log(
-          `  Connect polling failed (HTTP ${status}): ` +
-            responseMessage(json, "server returned an error."),
-        );
-        return null;
+        if (isTerminalPollBody(json)) {
+          poll = json as DevicePollResponse;
+        } else {
+          log(
+            `  Connect polling failed (HTTP ${status}): ` +
+              responseMessage(json, "server returned an error."),
+          );
+          return null;
+        }
+      } else {
+        poll = (json ?? { status: "pending" }) as DevicePollResponse;
       }
-      poll = (json ?? { status: "pending" }) as DevicePollResponse;
     } catch {
       // Transient network error — keep polling until the deadline.
       poll = { status: "pending" };
@@ -489,6 +494,15 @@ async function runDeviceFlow(
     log("  Timed out waiting for approval. Run the command again to retry.");
   }
   return null;
+}
+
+function isTerminalPollBody(json: any): boolean {
+  return (
+    json?.status === "not_found" ||
+    json?.status === "error" ||
+    json?.status === "expired" ||
+    json?.status === "consumed"
+  );
 }
 
 // ---------------------------------------------------------------------------

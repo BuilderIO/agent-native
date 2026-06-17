@@ -16,6 +16,7 @@ import {
 import { DEFAULT_MODEL } from "../../agent/default-model.js";
 import { getAgentAppModelDefaultForCurrentRequest } from "../../agent/app-model-defaults.js";
 import { getSetting } from "../../settings/index.js";
+import { canUseDeployCredentialFallbackForRequest } from "../../server/credential-provider.js";
 
 export const tool: ActionTool = {
   description:
@@ -60,16 +61,23 @@ export async function run(args: Record<string, string> = {}): Promise<string> {
   const envEntry = process.env.AGENT_ENGINE
     ? getAgentEngineEntry(process.env.AGENT_ENGINE)
     : undefined;
-  const envUnavailable = !!envEntry && !isAgentEnginePackageInstalled(envEntry);
+  const envUsable =
+    !!envEntry &&
+    (await isStoredEngineUsableForRequest({ engine: envEntry.name }, envEntry));
+  const envUnavailable = !!envEntry && !envUsable;
+  const detectedFromEnv = canUseDeployCredentialFallbackForRequest()
+    ? detectEngineFromEnv()
+    : null;
+  const envSelectedEntry = envUsable ? envEntry : undefined;
 
   const currentEntry = envUnavailable
     ? undefined
-    : (envEntry ??
+    : (envSelectedEntry ??
       (appDefaultUsable ? appDefaultEntry : undefined) ??
       (detectedFromUser?.name === "builder" ? detectedFromUser : undefined) ??
       (storedUsable ? storedEntry : undefined) ??
       detectedFromUser ??
-      detectEngineFromEnv() ??
+      detectedFromEnv ??
       undefined);
   const currentModelCandidate =
     appDefaultUsable && currentEntry?.name === appDefault?.engine

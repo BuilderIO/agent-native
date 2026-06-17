@@ -7,6 +7,7 @@ import {
   buildLocalPlanPreviewHtml,
   localPlanFolderName,
   readLocalPlanFiles,
+  startLocalPlanBridge,
   writeLocalPlanPreview,
 } from "./plan-local.js";
 import { fetchPlanBlockCatalog } from "./plan-blocks.js";
@@ -40,7 +41,49 @@ function writeSamplePlan(dir: string) {
       "",
       "This plan stays local.",
       "",
-      '<WireframeBlock id="wf" title="Checkout" data={{ surface: "browser", html: "<div>Pay</div>" }} />',
+      '<WireframeBlock id="wf" title="Checkout">',
+      '  <Screen surface="browser" html={`<div>Pay</div>`} />',
+      "</WireframeBlock>",
+      "",
+    ].join("\n"),
+    "utf-8",
+  );
+}
+
+function writeInvalidSelfClosingWireframe(dir: string) {
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(
+    path.join(dir, "plan.mdx"),
+    [
+      "---",
+      'title: "Invalid Wireframe"',
+      'kind: "plan"',
+      "---",
+      "",
+      "# Invalid Wireframe",
+      "",
+      '<WireframeBlock id="wf" screens={[{ name: "Checkout", elements: [] }]} />',
+      "",
+    ].join("\n"),
+    "utf-8",
+  );
+}
+
+function writeEmptyWireframe(dir: string) {
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(
+    path.join(dir, "plan.mdx"),
+    [
+      "---",
+      'title: "Empty Wireframe"',
+      'kind: "recap"',
+      "---",
+      "",
+      "# Empty Wireframe",
+      "",
+      '<WireframeBlock id="wf" title="Checkout">',
+      '  <Screen surface="browser" />',
+      "</WireframeBlock>",
       "",
     ].join("\n"),
     "utf-8",
@@ -122,23 +165,68 @@ describe("local plan CLI helpers", () => {
     expect(result.openCommand).toBe("test-open");
   });
 
-  it("can open the generated preview when requested", () => {
+  it("rejects self-closing local wireframes before opening a preview", async () => {
+    const dir = path.join(tmpDir(), "bad-wireframe");
+    writeInvalidSelfClosingWireframe(dir);
+
+    expect(() => writeLocalPlanPreview({ dir })).toThrow(
+      /WireframeBlock must wrap a <Screen> child/,
+    );
+    await expect(startLocalPlanBridge({ dir })).rejects.toThrow(
+      /WireframeBlock must wrap a <Screen> child/,
+    );
+  });
+
+  it("rejects empty local wireframes before opening a preview", async () => {
+    const dir = path.join(tmpDir(), "empty-wireframe");
+    writeEmptyWireframe(dir);
+
+    expect(() => writeLocalPlanPreview({ dir })).toThrow(/empty <Screen>/);
+    await expect(startLocalPlanBridge({ dir })).rejects.toThrow(
+      /empty <Screen>/,
+    );
+  });
+
+  it("serves a tokened localhost bridge for the hosted local plan UI", async () => {
     const dir = path.join(tmpDir(), "checkout");
     writeSamplePlan(dir);
-    let openedUrl = "";
 
-    const result = writeLocalPlanPreview({
+    const bridge = await startLocalPlanBridge({
       dir,
-      open: true,
-      openUrl: (url) => {
-        openedUrl = url;
-        return { ok: true, command: "test-open" };
-      },
+      appUrl: "https://plan.example.com",
+      token: "test-token",
     });
 
-    expect(openedUrl).toBe(result.url);
-    expect(result.opened).toBe(true);
-    expect(result.openCommand).toBe("test-open");
+    try {
+      expect(bridge.result.url).toBe(
+        `https://plan.example.com/local-plans/checkout?bridge=${encodeURIComponent(
+          bridge.result.bridgeUrl,
+        )}`,
+      );
+      expect(bridge.result.bridgeUrl).toContain("127.0.0.1");
+      expect(bridge.result.files).toContain("plan.mdx");
+
+      const response = await fetch(bridge.result.bridgeUrl);
+      expect(response.ok).toBe(true);
+      expect(response.headers.get("x-agent-native-local-bridge")).toBe("1");
+      const payload = (await response.json()) as {
+        ok: boolean;
+        source: string;
+        mdx: { "plan.mdx": string };
+      };
+      expect(payload.ok).toBe(true);
+      expect(payload.source).toBe("agent-native-local-bridge");
+      expect(payload.mdx["plan.mdx"]).toContain("Private Checkout Plan");
+
+      const denied = await fetch(
+        bridge.result.bridgeUrl.replace("test-token", "wrong-token"),
+      );
+      expect(denied.status).toBe(403);
+    } finally {
+      await new Promise<void>((resolve) =>
+        bridge.server.close(() => resolve()),
+      );
+    }
   });
 
   it("fetches the no-auth block catalog for local authoring", async () => {

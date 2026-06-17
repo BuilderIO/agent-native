@@ -12,6 +12,8 @@ import {
   runAgentLoopDirectWithSoftTimeout,
   MAX_RUN_LOOP_CONTINUATIONS,
 } from "./run-loop-with-resume.js";
+import { getCurrentTurnEventsForThread } from "./run-store.js";
+import type { AgentChatEvent } from "./types.js";
 
 vi.mock("./production-agent.js", async () => {
   const actual = await vi.importActual<typeof import("./production-agent.js")>(
@@ -23,16 +25,32 @@ vi.mock("./production-agent.js", async () => {
   };
 });
 
+// The journal reads the durable run-event ledger. Mock just the read-only
+// helper used on the resume path so tests don't need a live DB; keep the rest
+// of run-store real (run-manager pulls several other exports from it).
+vi.mock("./run-store.js", async () => {
+  const actual =
+    await vi.importActual<typeof import("./run-store.js")>("./run-store.js");
+  return {
+    ...actual,
+    getCurrentTurnEventsForThread: vi.fn(async () => [] as AgentChatEvent[]),
+  };
+});
+
 const mockRunAgentLoop = vi.mocked(runAgentLoop);
+const mockGetCurrentTurnEventsForThread = vi.mocked(
+  getCurrentTurnEventsForThread,
+);
 
 function makeOpts(
   messages: EngineMessage[],
   signal: AbortSignal,
   send?: (event: import("./types.js").AgentChatEvent) => void,
+  threadId?: string,
 ): Parameters<typeof runAgentLoopDirectWithSoftTimeout>[0] {
   return {
-    // The wrapper only inspects messages, signal, and model. Cast the rest —
-    // the mocked runAgentLoop ignores them.
+    // The wrapper only inspects messages, signal, model, and threadId. Cast the
+    // rest — the mocked runAgentLoop ignores them.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     engine: {} as any,
     model: "test-model",
@@ -43,6 +61,7 @@ function makeOpts(
     actions: {},
     send: send ?? (() => {}),
     signal,
+    ...(threadId ? { threadId } : {}),
   } as Parameters<typeof runAgentLoopDirectWithSoftTimeout>[0];
 }
 
@@ -170,6 +189,8 @@ describe("runAgentLoopDirectWithSoftTimeout", () => {
   beforeEach(() => {
     vi.stubEnv("AGENT_RUN_SOFT_TIMEOUT_MS", "60000");
     mockRunAgentLoop.mockReset();
+    mockGetCurrentTurnEventsForThread.mockReset();
+    mockGetCurrentTurnEventsForThread.mockResolvedValue([]);
   });
 
   afterEach(() => {
@@ -416,5 +437,165 @@ describe("runAgentLoopDirectWithSoftTimeout", () => {
     );
 
     expect(sentEvents.filter((e) => e.type === "clear")).toHaveLength(0);
+  });
+
+  // ─── Per-turn tool-call journal on resume ─────────────────────────────────
+
+  it("injects a structured journal note on resume listing completed and interrupted tool calls", async () => {
+    // Ledger from the interrupted attempt: sendEmail completed, createTicket
+    // started but never recorded a result.
+    mockGetCurrentTurnEventsForThread.mockResolvedValue([
+      { type: "tool_start", tool: "sendEmail", input: { to: "a@example.com" } },
+      { type: "tool_done", tool: "sendEmail", result: "Email sent (msg_123)" },
+      { type: "tool_start", tool: "createTicket", input: { title: "Bug" } },
+    ]);
+
+    let attempts = 0;
+    const messages: EngineMessage[] = [
+      { role: "user", content: [{ type: "text", text: "go" }] },
+    ];
+    mockRunAgentLoop.mockImplementation(async () => {
+      attempts++;
+      if (attempts === 1) {
+        throw new EngineError("Builder gateway timed out", {
+          errorCode: "builder_gateway_timeout",
+        });
+      }
+      return {
+        inputTokens: 1,
+        outputTokens: 1,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+        model: "test-model",
+      };
+    });
+
+    await runAgentLoopDirectWithSoftTimeout(
+      makeOpts(messages, new AbortController().signal, undefined, "thread-1"),
+      60_000,
+    );
+
+    expect(attempts).toBe(2);
+    expect(mockGetCurrentTurnEventsForThread).toHaveBeenCalledWith("thread-1");
+
+    const journalNote = messages
+      .map((m) => (m.content[0]?.type === "text" ? m.content[0].text : ""))
+      .find((t) =>
+        t.includes("Tool-call journal from the interrupted attempt"),
+      );
+    expect(journalNote).toBeDefined();
+    const text = journalNote as string;
+    expect(text).toContain("Already completed");
+    expect(text).toContain("do NOT re-run");
+    expect(text).toContain("sendEmail");
+    expect(text).toContain("Email sent (msg_123)");
+    expect(text).toContain("Interrupted / unknown outcome");
+    expect(text).toContain("createTicket");
+
+    // The standard continuation nudge must still be present (journal is additive).
+    const continuationNote = messages
+      .map((m) => (m.content[0]?.type === "text" ? m.content[0].text : ""))
+      .find((t) => t.startsWith(AGENT_INTERNAL_CONTINUE_PROMPT));
+    expect(continuationNote).toBeDefined();
+  });
+
+  it("does not inject a journal note on resume when the turn had no tool calls", async () => {
+    // No tool activity in the ledger → no structured note, so resume behavior is
+    // unchanged from before this feature.
+    mockGetCurrentTurnEventsForThread.mockResolvedValue([
+      { type: "text", text: "partial answer" },
+    ]);
+
+    let attempts = 0;
+    const messages: EngineMessage[] = [
+      { role: "user", content: [{ type: "text", text: "go" }] },
+    ];
+    mockRunAgentLoop.mockImplementation(async () => {
+      attempts++;
+      if (attempts === 1) throw new Error("socket hang up");
+      return {
+        inputTokens: 1,
+        outputTokens: 1,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+        model: "test-model",
+      };
+    });
+
+    await runAgentLoopDirectWithSoftTimeout(
+      makeOpts(messages, new AbortController().signal, undefined, "thread-2"),
+      60_000,
+    );
+
+    expect(attempts).toBe(2);
+    const journalNote = messages
+      .map((m) => (m.content[0]?.type === "text" ? m.content[0].text : ""))
+      .find((t) =>
+        t.includes("Tool-call journal from the interrupted attempt"),
+      );
+    expect(journalNote).toBeUndefined();
+
+    // Exactly the standard continuation nudge was appended (one extra message).
+    expect(messages).toHaveLength(2);
+  });
+
+  it("does not read the journal when no threadId is provided", async () => {
+    let attempts = 0;
+    mockRunAgentLoop.mockImplementation(async () => {
+      attempts++;
+      if (attempts === 1) throw new Error("socket hang up");
+      return {
+        inputTokens: 1,
+        outputTokens: 1,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+        model: "test-model",
+      };
+    });
+
+    await runAgentLoopDirectWithSoftTimeout(
+      makeOpts(
+        [{ role: "user", content: [{ type: "text", text: "go" }] }],
+        new AbortController().signal,
+      ),
+      60_000,
+    );
+
+    expect(attempts).toBe(2);
+    expect(mockGetCurrentTurnEventsForThread).not.toHaveBeenCalled();
+  });
+
+  it("still resumes when the journal ledger read throws", async () => {
+    mockGetCurrentTurnEventsForThread.mockRejectedValue(
+      new Error("db unavailable"),
+    );
+
+    let attempts = 0;
+    const messages: EngineMessage[] = [
+      { role: "user", content: [{ type: "text", text: "go" }] },
+    ];
+    mockRunAgentLoop.mockImplementation(async () => {
+      attempts++;
+      if (attempts === 1) throw new Error("socket hang up");
+      return {
+        inputTokens: 1,
+        outputTokens: 1,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+        model: "test-model",
+      };
+    });
+
+    // A failed ledger read must not break the recovery — the resume still runs.
+    await runAgentLoopDirectWithSoftTimeout(
+      makeOpts(messages, new AbortController().signal, undefined, "thread-3"),
+      60_000,
+    );
+
+    expect(attempts).toBe(2);
+    const continuationNote = messages
+      .map((m) => (m.content[0]?.type === "text" ? m.content[0].text : ""))
+      .find((t) => t.startsWith(AGENT_INTERNAL_CONTINUE_PROMPT));
+    expect(continuationNote).toBeDefined();
   });
 });

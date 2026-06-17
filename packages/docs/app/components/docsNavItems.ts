@@ -39,6 +39,7 @@ export const NAV_SECTIONS: NavSection[] = [
       { label: "Sharing & Privacy", to: "/docs/sharing" as const },
       { label: "Tracking & Analytics", to: "/docs/tracking" as const },
       { label: "Observability", to: "/docs/observability" as const },
+      { label: "Evals (CI Gate)", to: "/docs/evals" as const },
     ],
   },
   {
@@ -116,6 +117,11 @@ export const NAV_SECTIONS: NavSection[] = [
       },
       { label: "Agent-Native Code UI", to: "/docs/code-agents-ui" as const },
       { label: "CLI Adapters", to: "/docs/cli-adapters" as const },
+      { label: "Sandbox Adapters", to: "/docs/sandbox-adapters" as const },
+      {
+        label: "Blueprint Installer",
+        to: "/docs/blueprint-installer" as const,
+      },
     ],
   },
   {

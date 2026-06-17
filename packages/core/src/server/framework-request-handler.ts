@@ -25,6 +25,7 @@ const APP_SHIM_KEY = "_agentNativeH3Shim";
 const BOOTSTRAP_PROMISE_KEY = "_agentNativeBootstrapPromise";
 const PLUGIN_READY_KEY = "_agentNativePluginReadyPromise";
 const PLUGIN_READY_PLACEHOLDERS_KEY = "_agentNativePluginReadyPlaceholders";
+const PLUGIN_FAILED_KEY = "_agentNativePluginInitFailures";
 const PROVIDED_PLUGIN_STEMS_KEY = "_agentNativeProvidedPluginStems";
 const MIDDLEWARE_DISPATCHER_PATCHED_KEY =
   "_agentNativeMiddlewareDispatcherPatched";
@@ -270,6 +271,19 @@ export function trackPluginInit(
       "[agent-native] Plugin init failed:",
       (err as Error).message || err,
     );
+    // Record the failure so the readiness gate can return a retryable 503 for
+    // this plugin's routes instead of letting them fall through to a bare
+    // "Cannot find any route matching" 404. That bare 404 is what kept biting
+    // external MCP clients (pi/codex/claude) and the connect flow on cold /
+    // propagating instances whose async init rejected (e.g. DB not yet
+    // reachable): the route never registered, so the placeholder released into
+    // a 404 the client couldn't recover from. A 503 is at least retryable.
+    const failures = (nitroApp[PLUGIN_FAILED_KEY] ??= new Map<
+      string,
+      string
+    >());
+    const msg = (err as Error)?.message || String(err);
+    for (const p of options.paths?.filter(Boolean) ?? []) failures.set(p, msg);
   });
   const entry: PluginReadyEntry = {
     promise: safe,
@@ -303,10 +317,27 @@ function installPluginReadyPlaceholders(
       path,
       (async (event: H3Event) => {
         const eventAny = event as any;
-        await awaitFrameworkRoutesReadyForRequest(
-          nitroApp,
-          eventAny.context?._mountedPathname ?? event.url?.pathname ?? path,
-        );
+        const reqPath =
+          eventAny.context?._mountedPathname ?? event.url?.pathname ?? path;
+        await awaitFrameworkRoutesReadyForRequest(nitroApp, reqPath);
+        // If this plugin's async init failed, its real route was never
+        // registered. Return a retryable 503 instead of releasing into a bare
+        // 404 (external MCP clients can't recover from a 404; a 503 is at least
+        // a "try again" the client / next instance can act on).
+        const failures = nitroApp[PLUGIN_FAILED_KEY] as
+          | Map<string, string>
+          | undefined;
+        if (failures?.size) {
+          for (const [failedPath, msg] of failures) {
+            if (resolveMountMatch(reqPath, failedPath)) {
+              setResponseStatus(event, 503);
+              setResponseHeader(event, "retry-after", "5");
+              return {
+                error: `agent-native route is initializing or unavailable: ${msg}`,
+              };
+            }
+          }
+        }
         return undefined;
       }) as EventHandler,
       {
@@ -546,6 +577,8 @@ async function bootstrapDefaultPlugins(nitroApp: any): Promise<void> {
     const terminalModule = await import("../terminal/terminal-plugin.js");
     const integrationsModule = await import("../integrations/plugin.js");
     const contextXrayModule = await import("../agent/context-xray/plugin.js");
+    const observationalMemoryModule =
+      await import("../agent/observational-memory/plugin.js");
     const orgModule = await import("../org/plugin.js");
     const onboardingModule = await import("../onboarding/plugin.js");
 
@@ -558,6 +591,8 @@ async function bootstrapDefaultPlugins(nitroApp: any): Promise<void> {
       "context-xray": (contextXrayModule as any).defaultContextXrayPlugin,
       "core-routes": (serverModule as any).defaultCoreRoutesPlugin,
       integrations: (integrationsModule as any).defaultIntegrationsPlugin,
+      "observational-memory": (observationalMemoryModule as any)
+        .defaultObservationalMemoryPlugin,
       onboarding: (onboardingModule as any).defaultOnboardingPlugin,
       org: (orgModule as any).defaultOrgPlugin,
       resources: (serverModule as any).defaultResourcesPlugin,

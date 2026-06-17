@@ -508,6 +508,9 @@ importers:
         specifier: ^8.18.0
         version: 8.20.0
     optionalDependencies:
+      '@opentelemetry/api':
+        specifier: ^1.9.1
+        version: 1.9.1
       playwright:
         specifier: ^1.60.0
         version: 1.60.0

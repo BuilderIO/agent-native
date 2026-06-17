@@ -5,7 +5,7 @@
  * browser device-code flow: open the verification URL, approve in the browser,
  * and the minted HTTP MCP server entry is written idempotently.
  *
- *   agent-native connect <url> [--client all|claude-code|claude-code-cli|
+ *   agent-native connect <url> [--client all|claude-code|
  *                               codex|cowork|cursor|opencode|github-copilot]
  *                               [--scope user|project]
  *                               [--name <serverName>]
@@ -129,7 +129,7 @@ export interface ParsedConnectArgs {
   mode?: "dev" | "prod" | "reauth" | "reconnect";
   /** Positional URL (the deployed app origin). Undefined for `--all`. */
   url?: string;
-  /** all | claude-code | claude-code-cli | codex | cowork | cursor | opencode | github-copilot (default "all"). */
+  /** all | claude-code | codex | cowork | cursor | opencode | github-copilot (default "all"). claude-code-cli is accepted as a legacy alias for claude-code. */
   client: string;
   /** True when the user passed --client explicitly, so we skip the picker. */
   clientExplicit: boolean;
@@ -251,10 +251,17 @@ export function normalizeUrl(raw: string): string {
   return base;
 }
 
+// Clients offered in the interactive picker and expanded by "all". Excludes
+// the `claude-code-cli` alias so users only ever see a single "Claude Code"
+// option (it still works if passed explicitly via --client).
+const SELECTABLE_CLIENTS: ClientId[] = CLIENTS.filter(
+  (c) => c !== "claude-code-cli",
+);
+
 /** Resolve the requested clients list. "all" → every supported client. */
 export function resolveClients(client: string): ClientId[] {
   const c = normalizeClientAlias(client ?? "all");
-  if (c === "all" || c === "") return [...CLIENTS];
+  if (c === "all" || c === "") return [...SELECTABLE_CLIENTS];
   if (c.includes(",")) {
     const clients = normalizeClientIds(c.split(",").map((part) => part.trim()));
     if (clients.length > 0) return clients;
@@ -267,7 +274,15 @@ export function resolveClients(client: string): ClientId[] {
 
 function normalizeClientAlias(value: string): string {
   const id = value.trim().toLowerCase();
-  if (id === "claude" || id === "claude-code-desktop") return "claude-code";
+  // The Claude Code CLI and desktop share ~/.claude.json, so they are one
+  // client. `claude-code-cli` stays accepted for back-compat but collapses to
+  // the single "Claude Code" option everywhere it surfaces.
+  if (
+    id === "claude" ||
+    id === "claude-code-desktop" ||
+    id === "claude-code-cli"
+  )
+    return "claude-code";
   if (id === "copilot" || id === "vscode" || id === "vs-code") {
     return "github-copilot";
   }
@@ -348,7 +363,7 @@ export interface ConnectHostedAppsPromptContext {
 }
 
 function clientPromptOptions(): ConnectClientPromptContext["options"] {
-  return CLIENTS.map((client) => ({
+  return SELECTABLE_CLIENTS.map((client) => ({
     value: client,
     label: CLIENT_LABELS[client],
     hint: CLIENT_HINTS[client],
@@ -834,33 +849,49 @@ export async function runDeviceFlow(
   const open = deps.openBrowser ?? openInBrowser;
   const now = deps.now ?? (() => Date.now());
 
-  let start: DeviceStartResponse;
-  try {
-    const { status, json } = await postJson(
-      fetchImpl,
-      `${baseUrl}${DEVICE_START_PATH}`,
-      {
-        client: clientArg,
-        app: appSlug,
-        ...(options.fullCatalog ? { fullCatalog: true } : {}),
-      },
-    );
-    if (status < 200 || status >= 300 || !json?.device_code) {
+  let start: DeviceStartResponse | null = null;
+  // A cold/propagating Plan instance can briefly 404/5xx before its connect
+  // route is registered (async plugin init). Retry a few times so a recoverable
+  // blip doesn't kill the connect before polling even begins.
+  const START_ATTEMPTS = 4;
+  for (let attempt = 0; attempt < START_ATTEMPTS; attempt++) {
+    try {
+      const { status, json } = await postJson(
+        fetchImpl,
+        `${baseUrl}${DEVICE_START_PATH}`,
+        {
+          client: clientArg,
+          app: appSlug,
+          ...(options.fullCatalog ? { fullCatalog: true } : {}),
+        },
+      );
+      if (status >= 200 && status < 300 && json?.device_code) {
+        start = json as DeviceStartResponse;
+        break;
+      }
+      if ((status === 404 || status >= 500) && attempt < START_ATTEMPTS - 1) {
+        await sleep(1000 * (attempt + 1));
+        continue;
+      }
       logErr(
         `  Could not start the connect flow on ${baseUrl} ` +
           `(HTTP ${status}). Is this an agent-native app, and is it ` +
           `deployed with the connect endpoint enabled?`,
       );
       return null;
+    } catch (err: any) {
+      if (attempt < START_ATTEMPTS - 1) {
+        await sleep(1000 * (attempt + 1));
+        continue;
+      }
+      logErr(
+        `  Could not reach ${baseUrl} (${err?.message ?? err}). ` +
+          `Check the URL and your network.`,
+      );
+      return null;
     }
-    start = json as DeviceStartResponse;
-  } catch (err: any) {
-    logErr(
-      `  Could not reach ${baseUrl} (${err?.message ?? err}). ` +
-        `Check the URL and your network.`,
-    );
-    return null;
   }
+  if (!start) return null;
 
   const interval = Math.max(1, Number(start.interval) || 5);
   const expiresIn = Math.max(interval, Number(start.expires_in) || 600);
@@ -876,9 +907,15 @@ export async function runDeviceFlow(
   open(start.verification_uri_complete);
 
   let spin = 0;
+  let transientStreak = 0;
+  // Ride out brief cold-instance blips, but don't poll a persistently-dead
+  // endpoint forever: give up after this many consecutive transient (404/5xx
+  // or network-error) polls. Reset as soon as one poll responds normally.
+  const MAX_TRANSIENT_POLLS = 20;
   const isTTY = !!process.stdout.isTTY;
   while (now() < deadline) {
     let poll: DevicePollResponse;
+    let transient = false;
     try {
       const { status, json } = await postJson(
         fetchImpl,
@@ -886,17 +923,45 @@ export async function runDeviceFlow(
         { device_code: start.device_code },
       );
       if (status < 200 || status >= 300) {
+        if (isTerminalPollBody(json)) {
+          poll = json as DevicePollResponse;
+        } else if (status === 404 || status >= 500) {
+          // Transient: a cold/propagating Plan instance can briefly serve a
+          // bare 404 (the MCP route isn't registered until async plugin init
+          // settles) or a 5xx before it's healthy. The next poll usually lands
+          // on a warm instance, so keep polling until the deadline instead of
+          // hard-failing the whole connect on a recoverable blip. (This is the
+          // recurring "Cannot find any route matching [POST] .../mcp" case.)
+          poll = { status: "pending" };
+          transient = true;
+        } else {
+          if (isTTY) process.stdout.write("\r\x1b[K");
+          logErr(
+            `  Connect polling failed (HTTP ${status}): ` +
+              responseMessage(json, "server returned an error."),
+          );
+          return null;
+        }
+      } else {
+        poll = (json ?? { status: "pending" }) as DevicePollResponse;
+      }
+    } catch {
+      // Transient network error — keep polling.
+      poll = { status: "pending" };
+      transient = true;
+    }
+
+    if (transient) {
+      if (++transientStreak > MAX_TRANSIENT_POLLS) {
         if (isTTY) process.stdout.write("\r\x1b[K");
         logErr(
-          `  Connect polling failed (HTTP ${status}): ` +
-            responseMessage(json, "server returned an error."),
+          "  Connect endpoint is not responding (repeated 404/5xx). It may be " +
+            "mid-deploy — wait a minute and run the command again.",
         );
         return null;
       }
-      poll = (json ?? { status: "pending" }) as DevicePollResponse;
-    } catch {
-      // Transient network error — keep polling until the deadline.
-      poll = { status: "pending" };
+    } else {
+      transientStreak = 0;
     }
 
     if (poll.status === "approved") {
@@ -949,6 +1014,15 @@ export async function runDeviceFlow(
   if (isTTY) process.stdout.write("\r\x1b[K");
   logErr("  Timed out waiting for approval. Run the command again to retry.");
   return null;
+}
+
+function isTerminalPollBody(json: any): boolean {
+  return (
+    json?.status === "not_found" ||
+    json?.status === "error" ||
+    json?.status === "expired" ||
+    json?.status === "consumed"
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -2511,7 +2585,7 @@ Developer:
   npx @agent-native/core@latest connect prod [--apps mail,calendar] [--client <c>]
       Restore production MCP entries saved before the dev switch.
 
-Clients:  all (default), claude-code, claude-code-cli, codex, cowork, cursor, opencode, github-copilot
+Clients:  all (default), claude-code, codex, cowork, cursor, opencode, github-copilot
 Scope:    user (default, ~/.claude.json) or project (.mcp.json)`;
 
 /**

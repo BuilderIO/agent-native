@@ -204,6 +204,112 @@ describe("registerMcpServer", () => {
     expect(result.authenticated).toBe(true);
   });
 
+  it("writes Codex and Cowork bearer entries from one approved device flow", async () => {
+    const { codexHome, home } = isolateHome();
+    const baseDir = tmpDir();
+    const descriptor: McpDescriptor = {
+      serverName: "plan",
+      mcpUrl: "https://plan.agent-native.com/_agent-native/mcp",
+      authMode: "device",
+      hostedUrl: "https://plan.agent-native.com",
+    };
+
+    const fetchImpl = mockFetch([
+      {
+        match: "/device/start",
+        json: {
+          device_code: "dev-123",
+          user_code: "ABCD-EFGH",
+          verification_uri: "https://plan.agent-native.com/connect",
+          verification_uri_complete:
+            "https://plan.agent-native.com/connect?code=ABCD-EFGH",
+          interval: 1,
+          expires_in: 600,
+        },
+      },
+      {
+        match: "/device/poll",
+        json: {
+          status: "approved",
+          token: "minted-bearer-token",
+          mcpUrl: "https://plan.agent-native.com/_agent-native/mcp",
+          serverName: "plan",
+        },
+      },
+    ]);
+
+    const result = await registerMcpServer({
+      descriptor,
+      clients: ["codex", "cowork"],
+      scope: "user",
+      baseDir,
+      interactive: true,
+      deps: { fetchImpl, sleep: noSleep, now: () => 0 },
+    });
+
+    const toml = fs.readFileSync(path.join(codexHome, "config.toml"), "utf-8");
+    expect(toml).toContain('[mcp_servers."plan"]');
+    expect(toml).toContain("Bearer minted-bearer-token");
+
+    const coworkConfig = JSON.parse(
+      fs.readFileSync(path.join(home, ".cowork", "mcp.json"), "utf-8"),
+    );
+    expect(coworkConfig.mcpServers.plan.headers.Authorization).toBe(
+      "Bearer minted-bearer-token",
+    );
+    expect(result.written.map((entry) => entry.client).sort()).toEqual([
+      "codex",
+      "cowork",
+    ]);
+    expect(result.authenticated).toBe(true);
+  });
+
+  it("uses a structured not_found poll body even when the HTTP status is 404", async () => {
+    isolateHome();
+    const baseDir = tmpDir();
+    const logs: string[] = [];
+    const descriptor: McpDescriptor = {
+      serverName: "plan",
+      mcpUrl: "https://plan.agent-native.com/_agent-native/mcp",
+      authMode: "device",
+      hostedUrl: "https://plan.agent-native.com",
+    };
+
+    const fetchImpl = mockFetch([
+      {
+        match: "/device/start",
+        json: {
+          device_code: "dev-123",
+          user_code: "ABCD-EFGH",
+          verification_uri: "https://plan.agent-native.com/connect",
+          verification_uri_complete:
+            "https://plan.agent-native.com/connect?code=ABCD-EFGH",
+          interval: 1,
+          expires_in: 600,
+        },
+      },
+      {
+        match: "/device/poll",
+        status: 404,
+        json: { status: "not_found", message: "unknown code" },
+      },
+    ]);
+
+    const result = await registerMcpServer({
+      descriptor,
+      clients: ["codex"],
+      scope: "user",
+      baseDir,
+      interactive: true,
+      log: (message) => logs.push(message),
+      deps: { fetchImpl, sleep: noSleep, now: () => 0 },
+    });
+
+    expect(result.written).toHaveLength(0);
+    expect(logs.join("\n")).toContain("unknown code");
+    expect(logs.join("\n")).not.toContain("HTTP 404");
+  });
+
   it("stops device polling at the configured timeout without oversleeping", async () => {
     isolateHome();
     const baseDir = tmpDir();

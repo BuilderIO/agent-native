@@ -52,6 +52,24 @@ describe("db/client dialect detection", () => {
     const { getDialect } = await import("./client.js");
     expect(getDialect()).toBe("sqlite");
   });
+
+  it("uses Netlify's runtime database URL when DATABASE_URL is not exported", async () => {
+    vi.stubEnv("DATABASE_URL", "");
+    vi.stubEnv("NETLIFY_DATABASE_URL", "postgres://netlify.example/db");
+    const { getDatabaseUrl, getDialect } = await import("./client.js");
+    expect(getDatabaseUrl("file:./data/app.db")).toBe(
+      "postgres://netlify.example/db",
+    );
+    expect(getDialect()).toBe("postgres");
+  });
+
+  it("keeps app-specific database URLs ahead of Netlify's shared env", async () => {
+    vi.stubEnv("APP_NAME", "plan");
+    vi.stubEnv("PLAN_DATABASE_URL", "postgres://plan.example/db");
+    vi.stubEnv("NETLIFY_DATABASE_URL", "postgres://netlify.example/db");
+    const { getDatabaseUrl } = await import("./client.js");
+    expect(getDatabaseUrl()).toBe("postgres://plan.example/db");
+  });
 });
 
 describe("getMigrationDatabaseUrl", () => {

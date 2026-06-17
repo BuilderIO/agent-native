@@ -82,7 +82,7 @@ describe("@agent-native/skills", () => {
       "--skill",
       "quick-recap",
       "--client",
-      "codex",
+      "codex,cowork",
       "--scope",
       "project",
       "--update-instructions",
@@ -92,7 +92,7 @@ describe("@agent-native/skills", () => {
     expect(parsed).toMatchObject({
       command: "add",
       skillNames: ["quick-recap"],
-      clients: ["codex"],
+      clients: ["codex", "cowork"],
       scope: "project",
       updateInstructions: true,
     });
@@ -370,6 +370,56 @@ describe("@agent-native/skills", () => {
     ).toBe(true);
     expect(
       fs.existsSync(path.join(project, ".agents", "skills", "efficient-fable")),
+    ).toBe(false);
+  });
+
+  it("accepts Cowork in direct mode without writing Claude skill files for it", async () => {
+    const repo = tmpDir();
+    const project = tmpDir();
+    const home = tmpDir();
+    const codexHome = path.join(home, ".codex");
+    const previousHome = process.env.HOME;
+    const previousCodexHome = process.env.CODEX_HOME;
+    process.env.HOME = home;
+    process.env.CODEX_HOME = codexHome;
+    writeSkill(repo, "quick-recap");
+    vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+    const restoreDirect = enableDirectSkillsMode();
+
+    try {
+      await runSkillsCli(
+        [
+          "add",
+          "--copy",
+          repo,
+          "--skill",
+          "quick-recap",
+          "--client",
+          "codex,cowork",
+          "--scope",
+          "user",
+          "--no-update-instructions",
+        ],
+        {
+          baseDir: project,
+          isInteractive: () => false,
+        },
+      );
+    } finally {
+      restoreDirect();
+      if (previousHome === undefined) delete process.env.HOME;
+      else process.env.HOME = previousHome;
+      if (previousCodexHome === undefined) delete process.env.CODEX_HOME;
+      else process.env.CODEX_HOME = previousCodexHome;
+    }
+
+    expect(
+      fs.existsSync(path.join(codexHome, "skills", "quick-recap", "SKILL.md")),
+    ).toBe(true);
+    expect(
+      fs.existsSync(
+        path.join(home, ".claude", "skills", "quick-recap", "SKILL.md"),
+      ),
     ).toBe(false);
   });
 
@@ -766,6 +816,7 @@ describe("@agent-native/skills", () => {
     expect(result.clients).toEqual([
       "codex",
       "claude-code",
+      "cowork",
       "pi",
       "cursor",
       "opencode",

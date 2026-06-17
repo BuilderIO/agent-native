@@ -2,14 +2,20 @@
  * Plan helper commands.
  *
  * The `plan local` commands are intentionally separate from the Plan app
- * actions. They do not call MCP, HTTP, SQLite, or the Plan template runtime;
- * they only read and write local files so privacy-focused users have an
- * auditable no-DB path. The top-level `plan blocks` command is a schema-only,
- * no-auth helper for fetching the public block catalog before authoring local
- * MDX; it never sends plan content.
+ * actions. They do not call MCP, hosted write actions, SQLite, or hosted
+ * storage; they only read local files or serve them from a localhost bridge so
+ * privacy-focused users have an auditable no-DB path. The top-level
+ * `plan blocks` command is a schema-only, no-auth helper for fetching the
+ * public block catalog before authoring local MDX; it never sends plan content.
  */
 
 import fs from "node:fs";
+import crypto from "node:crypto";
+import http, {
+  type IncomingMessage,
+  type Server,
+  type ServerResponse,
+} from "node:http";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { pathToFileURL } from "node:url";
@@ -29,6 +35,13 @@ type LocalPlanFiles = {
   canvasMdx?: string;
   prototypeMdx?: string;
   stateJson?: string;
+  assets?: Record<string, string>;
+};
+
+export type LocalPlanValidationIssue = {
+  file: string;
+  line: number;
+  message: string;
 };
 
 type LocalPlanPreviewInput = {
@@ -52,11 +65,66 @@ type LocalPlanPreviewResult = {
   openError?: string;
 };
 
+type LocalPlanBridgeMdxFolder = {
+  "plan.mdx": string;
+  "canvas.mdx"?: string;
+  "prototype.mdx"?: string;
+  ".plan-state.json"?: string;
+  "assets/"?: Record<string, string>;
+};
+
+export type LocalPlanBridgePayload = {
+  ok: true;
+  version: 1;
+  source: "agent-native-local-bridge";
+  localOnly: true;
+  slug: string;
+  dir: string;
+  title: string;
+  brief: string;
+  kind: LocalPlanKind;
+  updatedAt: string;
+  files: string[];
+  mdx: LocalPlanBridgeMdxFolder;
+};
+
+export type LocalPlanServeResult = {
+  ok: true;
+  dir: string;
+  url: string;
+  bridgeUrl: string;
+  appUrl: string;
+  title: string;
+  kind: LocalPlanKind;
+  files: string[];
+  host: string;
+  port: number;
+  opened?: boolean;
+  openCommand?: string;
+  openError?: string;
+};
+
+export type LocalPlanBridgeServer = {
+  server: Server;
+  result: LocalPlanServeResult;
+};
+
 type OpenLocalUrlResult = {
   ok: boolean;
   command: string;
   error?: string;
 };
+
+const LOCAL_PLAN_ASSET_MAX_SINGLE_BYTES = 2 * 1024 * 1024;
+const LOCAL_PLAN_ASSET_MAX_TOTAL_BYTES = 10 * 1024 * 1024;
+const LOCAL_PLAN_ASSET_EXTENSIONS = new Set([
+  "png",
+  "jpg",
+  "jpeg",
+  "gif",
+  "webp",
+  "svg",
+]);
 
 function parseArgs(argv: string[]): Record<string, string | boolean> {
   const out: Record<string, string | boolean> = {};
@@ -127,14 +195,36 @@ function defaultLocalPlanAppUrl(): string {
   );
 }
 
+function defaultLocalPlanBridgeAppUrl(): string {
+  return (
+    process.env.PLAN_LOCAL_BRIDGE_APP_URL ||
+    process.env.PLAN_BASE_URL ||
+    DEFAULT_PLAN_APP_URL
+  );
+}
+
 function normalizeAppUrl(value: string | undefined): string {
   return (value || defaultLocalPlanAppUrl()).replace(/\/+$/, "");
+}
+
+function normalizeBridgeAppUrl(value: string | undefined): string {
+  return (value || defaultLocalPlanBridgeAppUrl()).replace(/\/+$/, "");
 }
 
 function localPlanPreviewUrl(dir: string, appUrl?: string): string {
   return `${normalizeAppUrl(appUrl)}/local-plans/${encodeURIComponent(
     path.basename(path.resolve(dir)),
   )}`;
+}
+
+function localPlanBridgePageUrl(input: {
+  dir: string;
+  bridgeUrl: string;
+  appUrl?: string;
+}): string {
+  return `${normalizeBridgeAppUrl(input.appUrl)}/local-plans/${encodeURIComponent(
+    path.basename(path.resolve(input.dir)),
+  )}?bridge=${encodeURIComponent(input.bridgeUrl)}`;
 }
 
 function openLocalUrl(url: string): OpenLocalUrlResult {
@@ -326,6 +416,32 @@ function renderMarkdownish(source: string): string {
   return html.join("\n");
 }
 
+function readLocalPlanAssets(dir: string): Record<string, string> | undefined {
+  const assetsDir = path.join(dir, "assets");
+  if (!fs.existsSync(assetsDir)) return undefined;
+
+  const assets: Record<string, string> = {};
+  let totalBytes = 0;
+  for (const entry of fs.readdirSync(assetsDir, { withFileTypes: true })) {
+    if (!entry.isFile()) continue;
+    const filename = path.basename(entry.name);
+    if (!filename || filename !== entry.name) continue;
+    const ext = filename.split(".").pop()?.toLowerCase() ?? "";
+    if (!LOCAL_PLAN_ASSET_EXTENSIONS.has(ext)) continue;
+
+    const abs = path.join(assetsDir, filename);
+    const bytes = fs.readFileSync(abs);
+    if (bytes.byteLength > LOCAL_PLAN_ASSET_MAX_SINGLE_BYTES) continue;
+    if (totalBytes + bytes.byteLength > LOCAL_PLAN_ASSET_MAX_TOTAL_BYTES) {
+      continue;
+    }
+    totalBytes += bytes.byteLength;
+    assets[filename] = bytes.toString("base64");
+  }
+
+  return Object.keys(assets).length > 0 ? assets : undefined;
+}
+
 export function readLocalPlanFiles(dir: string): LocalPlanFiles {
   const resolved = path.resolve(dir);
   const planPath = path.join(resolved, "plan.mdx");
@@ -342,13 +458,340 @@ export function readLocalPlanFiles(dir: string): LocalPlanFiles {
     canvasMdx: readOptional("canvas.mdx"),
     prototypeMdx: readOptional("prototype.mdx"),
     stateJson: readOptional(".plan-state.json"),
+    assets: readLocalPlanAssets(resolved),
   };
+}
+
+function localPlanMdxFolder(files: LocalPlanFiles): LocalPlanBridgeMdxFolder {
+  return {
+    "plan.mdx": files.planMdx,
+    ...(files.canvasMdx ? { "canvas.mdx": files.canvasMdx } : {}),
+    ...(files.prototypeMdx ? { "prototype.mdx": files.prototypeMdx } : {}),
+    ...(files.stateJson ? { ".plan-state.json": files.stateJson } : {}),
+    ...(files.assets ? { "assets/": files.assets } : {}),
+  };
+}
+
+function localPlanFileList(files: LocalPlanFiles): string[] {
+  return [
+    "plan.mdx",
+    ...(files.canvasMdx ? ["canvas.mdx"] : []),
+    ...(files.prototypeMdx ? ["prototype.mdx"] : []),
+    ...(files.stateJson ? [".plan-state.json"] : []),
+    ...Object.keys(files.assets ?? {}).map((filename) => `assets/${filename}`),
+  ];
+}
+
+function localPlanSourceEntries(files: LocalPlanFiles): Array<{
+  file: string;
+  source: string;
+}> {
+  return [
+    { file: "plan.mdx", source: files.planMdx },
+    ...(files.canvasMdx
+      ? [{ file: "canvas.mdx", source: files.canvasMdx }]
+      : []),
+    ...(files.prototypeMdx
+      ? [{ file: "prototype.mdx", source: files.prototypeMdx }]
+      : []),
+  ];
+}
+
+function lineNumberAt(source: string, index: number): number {
+  let line = 1;
+  for (let i = 0; i < index; i += 1) {
+    if (source.charCodeAt(i) === 10) line += 1;
+  }
+  return line;
+}
+
+function maskFencedCode(source: string): string {
+  return source.replace(
+    /(^|\n)(```|~~~)[\s\S]*?(\n\2[^\n]*(?=\n|$))/g,
+    (match) => match.replace(/[^\n]/g, " "),
+  );
+}
+
+function findJsxOpeningTagEnd(source: string, start: number): number {
+  let quote: string | null = null;
+  let braceDepth = 0;
+  for (let i = start; i < source.length; i += 1) {
+    const char = source[i];
+    if (quote) {
+      if (char === "\\" && i + 1 < source.length) {
+        i += 1;
+        continue;
+      }
+      if (char === quote) quote = null;
+      continue;
+    }
+    if (char === '"' || char === "'" || char === "`") {
+      quote = char;
+      continue;
+    }
+    if (char === "{") {
+      braceDepth += 1;
+      continue;
+    }
+    if (char === "}") {
+      braceDepth = Math.max(0, braceDepth - 1);
+      continue;
+    }
+    if (char === ">" && braceDepth === 0) return i;
+  }
+  return -1;
+}
+
+function addValidationIssue(
+  issues: LocalPlanValidationIssue[],
+  file: string,
+  source: string,
+  index: number,
+  message: string,
+) {
+  issues.push({ file, line: lineNumberAt(source, index), message });
+}
+
+const ENTITY_RE = /&(?:[a-z][a-z0-9]+|#[0-9]+|#x[0-9a-f]+);/gi;
+const HTML_TEXT_ATTR_RE =
+  /\b(?:aria-label|alt|placeholder|title|value)=\s*(?:"([^"]*)"|'([^']*)'|`([^`]*)`)/gi;
+const WIREFRAME_TEXT_ATTR_RE =
+  /\b(?:text|value|label|placeholder|title|note|due)=\s*(?:"([^"]*)"|'([^']*)'|`([^`]*)`)/gi;
+
+function normalizeVisibleText(value: string): string {
+  return value
+    .replace(/&nbsp;|&#160;|&#x0*a0;/gi, " ")
+    .replace(ENTITY_RE, "x")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function meaningfulTextLength(value: string | undefined): number {
+  return normalizeVisibleText(value ?? "").length;
+}
+
+function htmlMeaningfulTextLength(html: string): number {
+  let length = 0;
+  for (const match of html.matchAll(HTML_TEXT_ATTR_RE)) {
+    length += meaningfulTextLength(match[1] ?? match[2] ?? match[3]);
+  }
+
+  const visibleText = html
+    .replace(/<!--[\s\S]*?-->/g, " ")
+    .replace(/<script\b[\s\S]*?<\/script>/gi, " ")
+    .replace(/<style\b[\s\S]*?<\/style>/gi, " ")
+    .replace(/<[^>]+>/g, " ");
+  length += meaningfulTextLength(visibleText);
+
+  return length;
+}
+
+function hasSkeletonGeometry(html: string): boolean {
+  return (
+    /<(?:div|span|section|main|article|ul|li)\b/i.test(html) &&
+    /\b(?:height|width|background|border|padding|wf-card|wf-box|wf-pill|wf-chip)\b/i.test(
+      html,
+    )
+  );
+}
+
+function stringAttributeValues(source: string, name: string): string[] {
+  const values: string[] = [];
+  const re = new RegExp(
+    `\\b${name}\\s*=\\s*(?:\\{\\s*\`([\\s\\S]*?)\`\\s*\\}|\\{\\s*"([^"]*)"\\s*\\}|\\{\\s*'([^']*)'\\s*\\}|"([^"]*)"|'([^']*)')`,
+    "g",
+  );
+  for (const match of source.matchAll(re)) {
+    const value = match[1] ?? match[2] ?? match[3] ?? match[4] ?? match[5];
+    if (value !== undefined) values.push(value);
+  }
+  return values;
+}
+
+function hasUnparsedAttributeExpression(source: string, name: string): boolean {
+  return new RegExp(`\\b${name}\\s*=\\s*\\{`).test(source);
+}
+
+function hasMeaningfulWireframeHtml(screenOpening: string): boolean | null {
+  const htmlValues = stringAttributeValues(screenOpening, "html");
+  if (htmlValues.length === 0) {
+    return hasUnparsedAttributeExpression(screenOpening, "html") ? null : false;
+  }
+  return htmlValues.some(
+    (html) => htmlMeaningfulTextLength(html) >= 2 || hasSkeletonGeometry(html),
+  );
+}
+
+function hasMeaningfulKitScreen(screenSource: string): boolean {
+  for (const match of screenSource.matchAll(WIREFRAME_TEXT_ATTR_RE)) {
+    if (meaningfulTextLength(match[1] ?? match[2] ?? match[3]) >= 2) {
+      return true;
+    }
+  }
+  if (/\bitems\s*=\s*\{[\s\S]*?\blabel\s*:/i.test(screenSource)) return true;
+  if (/\brows\s*=\s*\{[\s\S]*?\b[klv]\s*:/i.test(screenSource)) return true;
+  return false;
+}
+
+function hasMeaningfulWireframeScreen(blockSource: string): boolean | null {
+  const screenMatch = /<Screen\b/.exec(blockSource);
+  if (!screenMatch) return false;
+  const screenStart = screenMatch.index;
+  const screenOpeningEnd = findJsxOpeningTagEnd(blockSource, screenStart);
+  if (screenOpeningEnd < 0) return false;
+  const screenOpening = blockSource.slice(screenStart, screenOpeningEnd + 1);
+  const htmlMeaningful = hasMeaningfulWireframeHtml(screenOpening);
+  if (htmlMeaningful === true) return true;
+
+  const selfClosing = /\/\s*>$/.test(screenOpening);
+  const closeIndex = selfClosing
+    ? -1
+    : blockSource.indexOf("</Screen>", screenOpeningEnd + 1);
+  const screenSource =
+    closeIndex >= 0
+      ? blockSource.slice(screenStart, closeIndex + "</Screen>".length)
+      : screenOpening;
+  if (hasMeaningfulKitScreen(screenSource)) return true;
+
+  return htmlMeaningful === null ? null : false;
+}
+
+function lintWireframeBlocks(
+  file: string,
+  source: string,
+  issues: LocalPlanValidationIssue[],
+) {
+  const scanSource = maskFencedCode(source);
+  const re = /<WireframeBlock\b/g;
+  let match: RegExpExecArray | null;
+  while ((match = re.exec(scanSource))) {
+    const start = match.index;
+    const openingEnd = findJsxOpeningTagEnd(scanSource, start);
+    if (openingEnd < 0) {
+      addValidationIssue(
+        issues,
+        file,
+        source,
+        start,
+        "WireframeBlock opening tag is not closed.",
+      );
+      continue;
+    }
+
+    const opening = scanSource.slice(start, openingEnd + 1);
+    const unsupportedAttr = opening.match(
+      /\b(data|screens|screen|elements)\s*=/,
+    );
+    if (unsupportedAttr) {
+      addValidationIssue(
+        issues,
+        file,
+        source,
+        start,
+        `WireframeBlock uses unsupported "${unsupportedAttr[1]}" prop. Put content inside a <Screen> child instead.`,
+      );
+    }
+
+    const selfClosing = /\/\s*>$/.test(opening);
+    const closeTag = "</WireframeBlock>";
+    const closeIndex = selfClosing
+      ? -1
+      : scanSource.indexOf(closeTag, openingEnd + 1);
+    const blockSource = selfClosing
+      ? opening
+      : closeIndex >= 0
+        ? scanSource.slice(start, closeIndex + closeTag.length)
+        : scanSource.slice(start, openingEnd + 1);
+
+    if (!selfClosing && closeIndex < 0) {
+      addValidationIssue(
+        issues,
+        file,
+        source,
+        start,
+        "WireframeBlock must have a closing </WireframeBlock> tag.",
+      );
+    }
+
+    if (selfClosing || !/<Screen\b/.test(blockSource)) {
+      addValidationIssue(
+        issues,
+        file,
+        source,
+        start,
+        'WireframeBlock must wrap a <Screen> child; self-closing wireframes render empty. Use <WireframeBlock><Screen surface="browser">...</Screen></WireframeBlock>.',
+      );
+      continue;
+    }
+
+    const meaningfulScreen = hasMeaningfulWireframeScreen(blockSource);
+    if (meaningfulScreen === false) {
+      addValidationIssue(
+        issues,
+        file,
+        source,
+        start,
+        'WireframeBlock contains an empty <Screen>; local previews render blank wireframes. Add visible html text/controls or kit nodes such as <Title text="Checkout" /> and <Btn label="Pay" />.',
+      );
+    }
+  }
+}
+
+function lintColumnsBlocks(
+  file: string,
+  source: string,
+  issues: LocalPlanValidationIssue[],
+) {
+  const scanSource = maskFencedCode(source);
+  const re = /<Columns\b/g;
+  let match: RegExpExecArray | null;
+  while ((match = re.exec(scanSource))) {
+    const start = match.index;
+    const openingEnd = findJsxOpeningTagEnd(scanSource, start);
+    if (openingEnd < 0) continue;
+    const opening = scanSource.slice(start, openingEnd + 1);
+    if (/\bcolumns\s*=/.test(opening)) {
+      addValidationIssue(
+        issues,
+        file,
+        source,
+        start,
+        'Columns must use <Column> children, not a columns= prop. Use <Columns><Column label="Before">...</Column><Column label="After">...</Column></Columns>.',
+      );
+    }
+  }
+}
+
+export function validateLocalPlanFiles(
+  files: LocalPlanFiles,
+): LocalPlanValidationIssue[] {
+  const issues: LocalPlanValidationIssue[] = [];
+  for (const entry of localPlanSourceEntries(files)) {
+    lintWireframeBlocks(entry.file, entry.source, issues);
+    lintColumnsBlocks(entry.file, entry.source, issues);
+  }
+  return issues;
+}
+
+export function assertLocalPlanFilesValid(files: LocalPlanFiles): void {
+  const issues = validateLocalPlanFiles(files);
+  if (issues.length === 0) return;
+  const details = issues
+    .slice(0, 8)
+    .map((issue) => `${issue.file}:${issue.line} ${issue.message}`)
+    .join("\n");
+  const overflow =
+    issues.length > 8 ? `\n...plus ${issues.length - 8} more issues` : "";
+  throw new Error(
+    `Local plan source validation failed:\n${details}${overflow}\nRun \`npx @agent-native/core@latest plan blocks --out plan-blocks.md\` and update the MDX to the documented block shapes.`,
+  );
 }
 
 export function buildLocalPlanPreviewHtml(
   input: LocalPlanPreviewInput,
 ): string {
   const files = readLocalPlanFiles(input.dir);
+  assertLocalPlanFilesValid(files);
   const parsed = stripFrontmatter(files.planMdx);
   const title =
     input.title ||
@@ -467,7 +910,9 @@ export function writeLocalPlanPreview(input: {
   openUrl?: (url: string) => OpenLocalUrlResult;
 }): LocalPlanPreviewResult {
   const dir = path.resolve(input.dir);
-  const parsed = stripFrontmatter(readLocalPlanFiles(dir).planMdx);
+  const files = readLocalPlanFiles(dir);
+  assertLocalPlanFilesValid(files);
+  const parsed = stripFrontmatter(files.planMdx);
   const kind = input.kind || normalizeKind(parsed.frontmatter.kind);
   const title =
     input.title ||
@@ -479,12 +924,6 @@ export function writeLocalPlanPreview(input: {
     fs.mkdirSync(path.dirname(out), { recursive: true });
     fs.writeFileSync(out, buildLocalPlanPreviewHtml({ ...input, dir, kind }));
   }
-  const files = [
-    "plan.mdx",
-    "canvas.mdx",
-    "prototype.mdx",
-    ".plan-state.json",
-  ].filter((file) => fs.existsSync(path.join(dir, file)));
   const result: LocalPlanPreviewResult = {
     ok: true,
     dir,
@@ -492,7 +931,7 @@ export function writeLocalPlanPreview(input: {
     url: out ? pathToFileURL(out).href : localPlanPreviewUrl(dir, input.appUrl),
     title,
     kind,
-    files,
+    files: localPlanFileList(files),
   };
   if (!input.open) return result;
 
@@ -502,6 +941,199 @@ export function writeLocalPlanPreview(input: {
     opened: openResult.ok,
     openCommand: openResult.command,
     ...(openResult.error ? { openError: openResult.error } : {}),
+  };
+}
+
+function buildLocalPlanBridgePayload(input: {
+  dir: string;
+  kind?: LocalPlanKind;
+  title?: string;
+  brief?: string;
+}): LocalPlanBridgePayload {
+  const dir = path.resolve(input.dir);
+  const files = readLocalPlanFiles(dir);
+  assertLocalPlanFilesValid(files);
+  const parsed = stripFrontmatter(files.planMdx);
+  const kind = input.kind || normalizeKind(parsed.frontmatter.kind);
+  const title =
+    input.title ||
+    parsed.frontmatter.title ||
+    firstHeading(parsed.body) ||
+    path.basename(dir);
+  const brief = input.brief || parsed.frontmatter.brief || "";
+
+  return {
+    ok: true,
+    version: 1,
+    source: "agent-native-local-bridge",
+    localOnly: true,
+    slug: path.basename(dir),
+    dir,
+    title,
+    brief,
+    kind,
+    updatedAt: latestLocalPlanMtime(dir, files),
+    files: localPlanFileList(files),
+    mdx: localPlanMdxFolder(files),
+  };
+}
+
+function latestLocalPlanMtime(dir: string, files: LocalPlanFiles): string {
+  const candidates = [
+    path.join(dir, "plan.mdx"),
+    ...(files.canvasMdx ? [path.join(dir, "canvas.mdx")] : []),
+    ...(files.prototypeMdx ? [path.join(dir, "prototype.mdx")] : []),
+    ...(files.stateJson ? [path.join(dir, ".plan-state.json")] : []),
+    ...Object.keys(files.assets ?? {}).map((filename) =>
+      path.join(dir, "assets", filename),
+    ),
+  ];
+  let latest = 0;
+  for (const file of candidates) {
+    try {
+      latest = Math.max(latest, fs.statSync(file).mtimeMs);
+    } catch {
+      // Ignore files deleted between the read and stat passes.
+    }
+  }
+  return new Date(latest || Date.now()).toISOString();
+}
+
+function sendBridgeJson(
+  res: ServerResponse,
+  status: number,
+  payload: unknown,
+): void {
+  res.writeHead(status, {
+    "access-control-allow-origin": "*",
+    "access-control-allow-methods": "GET, OPTIONS",
+    "access-control-allow-headers": "content-type",
+    "cache-control": "no-store",
+    "content-type": "application/json; charset=utf-8",
+    "x-agent-native-local-bridge": "1",
+  });
+  res.end(`${JSON.stringify(payload)}\n`);
+}
+
+function bridgeRequestUrl(req: IncomingMessage): URL {
+  return new URL(req.url || "/", "http://127.0.0.1");
+}
+
+function bridgeHostForUrl(host: string): string {
+  if (host === "0.0.0.0" || host === "::") return "127.0.0.1";
+  return host;
+}
+
+export async function startLocalPlanBridge(input: {
+  dir: string;
+  kind?: LocalPlanKind;
+  title?: string;
+  brief?: string;
+  appUrl?: string;
+  host?: string;
+  port?: number;
+  token?: string;
+  open?: boolean;
+  openUrl?: (url: string) => OpenLocalUrlResult;
+}): Promise<LocalPlanBridgeServer> {
+  const dir = path.resolve(input.dir);
+  const initialPayload = buildLocalPlanBridgePayload({
+    dir,
+    kind: input.kind,
+    title: input.title,
+    brief: input.brief,
+  });
+  const token = input.token || crypto.randomBytes(24).toString("base64url");
+  const host = input.host || "127.0.0.1";
+  const appUrl = normalizeBridgeAppUrl(input.appUrl);
+  const server = http.createServer((req, res) => {
+    if (req.method === "OPTIONS") {
+      sendBridgeJson(res, 204, "");
+      return;
+    }
+    if (req.method !== "GET") {
+      sendBridgeJson(res, 405, { ok: false, error: "Method not allowed." });
+      return;
+    }
+
+    const url = bridgeRequestUrl(req);
+    if (url.pathname !== "/local-plan.json") {
+      sendBridgeJson(res, 404, { ok: false, error: "Not found." });
+      return;
+    }
+    if (url.searchParams.get("token") !== token) {
+      sendBridgeJson(res, 403, { ok: false, error: "Invalid bridge token." });
+      return;
+    }
+
+    try {
+      sendBridgeJson(
+        res,
+        200,
+        buildLocalPlanBridgePayload({
+          dir,
+          kind: input.kind,
+          title: input.title,
+          brief: input.brief,
+        }),
+      );
+    } catch (error) {
+      sendBridgeJson(res, 500, {
+        ok: false,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  });
+
+  await new Promise<void>((resolve, reject) => {
+    const onError = (error: Error) => {
+      server.off("listening", onListening);
+      reject(error);
+    };
+    const onListening = () => {
+      server.off("error", onError);
+      resolve();
+    };
+    server.once("error", onError);
+    server.once("listening", onListening);
+    server.listen(input.port ?? 0, host);
+  });
+
+  const address = server.address();
+  if (!address || typeof address === "string") {
+    server.close();
+    throw new Error("Local plan bridge did not bind to a TCP port.");
+  }
+
+  const bridgeUrl = `http://${bridgeHostForUrl(host)}:${address.port}/local-plan.json?token=${encodeURIComponent(
+    token,
+  )}`;
+  const url = localPlanBridgePageUrl({ dir, bridgeUrl, appUrl });
+  const openResult = input.open
+    ? (input.openUrl || openLocalUrl)(url)
+    : undefined;
+
+  return {
+    server,
+    result: {
+      ok: true,
+      dir,
+      url,
+      bridgeUrl,
+      appUrl,
+      title: initialPayload.title,
+      kind: initialPayload.kind,
+      files: initialPayload.files,
+      host,
+      port: address.port,
+      ...(openResult
+        ? {
+            opened: openResult.ok,
+            openCommand: openResult.command,
+            ...(openResult.error ? { openError: openResult.error } : {}),
+          }
+        : {}),
+    },
   };
 }
 
@@ -543,9 +1175,9 @@ function writeLocalPlanSkeleton(input: {
     "## Review Surface",
     "",
     "Author the structured plan or recap here. You can add Agent-Native Plan MDX",
-    "blocks such as `<WireframeBlock />`, `<Diagram />`, `<TabsBlock />`,",
-    "`<FileTree />`, or `<Diff />`; the local preview will show the source",
-    "without publishing it to the Plan app.",
+    'blocks such as `<WireframeBlock><Screen surface="browser">...</Screen></WireframeBlock>`,',
+    "`<Diagram />`, `<TabsBlock />`, `<FileTree />`, or `<Diff />`; the local",
+    "preview will show the source without publishing it to the Plan app.",
     "",
   ].join("\n");
   fs.writeFileSync(planPath, mdx, "utf-8");
@@ -580,10 +1212,12 @@ function runInit(args: Record<string, string | boolean>): void {
 function runCheck(args: Record<string, string | boolean>): void {
   const dir = stringArg(args, "dir");
   const files = readLocalPlanFiles(dir);
+  assertLocalPlanFilesValid(files);
   const parsed = stripFrontmatter(files.planMdx);
   const result = {
     ok: true,
     noDb: true,
+    validation: "passed",
     dir: files.dir,
     title: parsed.frontmatter.title || firstHeading(parsed.body),
     kind: normalizeKind(parsed.frontmatter.kind),
@@ -597,6 +1231,14 @@ function runCheck(args: Record<string, string | boolean>): void {
         : {}),
       ...(files.stateJson
         ? { ".plan-state.json": Buffer.byteLength(files.stateJson) }
+        : {}),
+      ...(files.assets
+        ? Object.fromEntries(
+            Object.entries(files.assets).map(([filename, base64]) => [
+              `assets/${filename}`,
+              Buffer.byteLength(base64, "base64"),
+            ]),
+          )
         : {}),
     },
   };
@@ -616,6 +1258,40 @@ function runPreview(args: Record<string, string | boolean>): void {
       : undefined,
   });
   process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+}
+
+async function runServe(args: Record<string, string | boolean>): Promise<void> {
+  const portValue = optionalArg(args, "port");
+  const port = portValue ? Number(portValue) : undefined;
+  if (portValue && (!Number.isInteger(port) || port! < 0 || port! > 65535)) {
+    throw new Error("--port must be an integer between 0 and 65535.");
+  }
+
+  const bridge = await startLocalPlanBridge({
+    dir: stringArg(args, "dir"),
+    appUrl: optionalArg(args, "app-url"),
+    title: optionalArg(args, "title"),
+    brief: optionalArg(args, "brief"),
+    host: optionalArg(args, "host"),
+    port,
+    open: boolArg(args, "open"),
+    kind: optionalArg(args, "kind")
+      ? normalizeKind(optionalArg(args, "kind"))
+      : undefined,
+  });
+
+  process.stdout.write(`${JSON.stringify(bridge.result, null, 2)}\n`);
+  process.stderr.write(
+    `Local Plan bridge running at ${bridge.result.bridgeUrl}\nPress Ctrl+C to stop.\n`,
+  );
+
+  await new Promise<void>((resolve) => {
+    const stop = () => {
+      bridge.server.close(() => resolve());
+    };
+    process.once("SIGINT", stop);
+    process.once("SIGTERM", stop);
+  });
 }
 
 async function runBlocks(
@@ -678,6 +1354,7 @@ Usage:
   agent-native plan blocks [--format reference|schema] [--app-url <url>] [--out <file>] [--json]
   agent-native plan local init --title <title> [--brief <text>] [--kind plan|recap] [--dir <folder>] [--force]
   agent-native plan local check --dir <folder>
+  agent-native plan local serve --dir <folder> [--app-url <url>] [--kind plan|recap] [--open] [--port <port>]
   agent-native plan local preview --dir <folder> [--app-url <url>] [--kind plan|recap] [--open] [--out preview.html]
 
 The blocks command fetches the no-auth, read-only get-plan-blocks catalog from
@@ -694,10 +1371,12 @@ write actions, hosted storage, or SQLite.
 Common flow:
   agent-native plan blocks --out plan-blocks.md
   agent-native plan local init --title "Checkout review" --kind plan
-  agent-native plan local preview --dir plans/checkout-review --open
+  agent-native plan local serve --dir plans/checkout-review --open
 
-\`plan local preview\` opens the local Plan app route by default. Pass
-\`--app-url\` when your local Plan app is on a non-default port. \`--out\` is a
+\`plan local serve\` starts a tiny localhost bridge and opens the hosted Plan UI
+against that local-only source. The hosted app fetches the MDX from localhost in
+the browser; it does not write plan content to the hosted database. Use
+\`plan local preview\` for a local Plan dev server route. \`preview --out\` is a
 legacy/debug escape hatch that writes a standalone static HTML file.
 `;
 
@@ -736,6 +1415,9 @@ export async function runPlan(argv: string[]): Promise<void> {
       return;
     case "preview":
       runPreview(args);
+      return;
+    case "serve":
+      await runServe(args);
       return;
     case "help":
     case "--help":

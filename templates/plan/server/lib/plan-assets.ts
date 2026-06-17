@@ -16,31 +16,17 @@ import { randomUUID } from "node:crypto";
 import { and, eq, sum } from "drizzle-orm";
 import { getDb, schema } from "../db/index.js";
 import { uploadFile } from "@agent-native/core/file-upload";
+import {
+  PLAN_ASSET_MAX_SINGLE_BYTES,
+  PLAN_ASSET_MAX_TOTAL_BYTES,
+  mimeTypeFromFilename,
+} from "../../shared/plan-assets.js";
 
-/** 2 MB in bytes. */
-export const PLAN_ASSET_MAX_SINGLE_BYTES = 2 * 1024 * 1024;
-
-/** 10 MB in bytes. */
-export const PLAN_ASSET_MAX_TOTAL_BYTES = 10 * 1024 * 1024;
-
-/** Allowed filename extensions → MIME types. */
-const EXT_MIME: Record<string, string> = {
-  png: "image/png",
-  jpg: "image/jpeg",
-  jpeg: "image/jpeg",
-  gif: "image/gif",
-  webp: "image/webp",
-  svg: "image/svg+xml",
-};
-
-/**
- * Derive the MIME type from a filename extension.
- * Returns `null` for unsupported/disallowed extensions (reject on null).
- */
-export function mimeTypeFromFilename(filename: string): string | null {
-  const ext = filename.split(".").pop()?.toLowerCase() ?? "";
-  return EXT_MIME[ext] ?? null;
-}
+export {
+  PLAN_ASSET_MAX_SINGLE_BYTES,
+  PLAN_ASSET_MAX_TOTAL_BYTES,
+  mimeTypeFromFilename,
+} from "../../shared/plan-assets.js";
 
 /** The route prefix under which plan assets are served. */
 export const PLAN_ASSET_ROUTE_PREFIX = "/_agent-native/plan-asset";

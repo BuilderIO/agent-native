@@ -124,6 +124,7 @@ import nodePath from "node:path";
 import { readBody } from "./h3-helpers.js";
 import {
   AGENT_TEAM_PROCESS_RUN_PATH,
+  getCurrentDelegationDepth,
   processAgentTeamRun,
   reconcileAgentTeamRunsForOwner,
 } from "./agent-teams.js";
@@ -2340,6 +2341,16 @@ export interface AgentChatPluginOptions {
   connectorCatalog?: string[];
 
   /**
+   * Skip mounting the remote MCP protocol route.
+   *
+   * Most apps should leave this off so agent chat, A2A, and MCP share one
+   * runtime. Hosted apps with a dedicated early MCP plugin can set this to
+   * true so their external connector does not depend on the heavier chat
+   * plugin initialization path.
+   */
+  disableMcp?: boolean;
+
+  /**
    * Code-execution capability for the production agent.
    *
    * - `"off"` (default) — no code-execution tools in production.
@@ -4310,133 +4321,135 @@ export function createAgentChatPlugin(
       // Keep legacy names for the composition below
       const basePrompt = prodPrompt;
 
-      // Mount MCP remote server — same action registry as A2A + agent chat
-      const { mountMCP } = await import("../mcp/server.js");
-      mountMCP(nitroApp, {
-        name: options?.appId
-          ? options.appId.charAt(0).toUpperCase() + options.appId.slice(1)
-          : "Agent",
-        title: options?.mcpServerInfo?.title,
-        appId: options?.appId,
-        description:
-          options?.mcpServerInfo?.description ??
-          `Agent-native ${options?.appId ?? "app"} agent`,
-        websiteUrl: options?.mcpServerInfo?.websiteUrl,
-        icons: options?.mcpServerInfo?.icons,
-        actions: allScripts,
-        productionActions: mcpFullActions,
-        ...(options?.connectorCatalog
-          ? { connectorCatalog: options.connectorCatalog }
-          : {}),
-        askAgent: async (message: string) => {
-          const mcpEngine = await resolveEngine({
-            engineOption: options?.engine,
-            apiKey: options?.apiKey,
-            appId: options?.appId,
-          });
-          const mcpModelCandidate =
-            options?.model ??
-            (await getStoredModelForEngine(mcpEngine, {
+      if (options?.disableMcp !== true) {
+        // Mount MCP remote server — same action registry as A2A + agent chat
+        const { mountMCP } = await import("../mcp/server.js");
+        mountMCP(nitroApp, {
+          name: options?.appId
+            ? options.appId.charAt(0).toUpperCase() + options.appId.slice(1)
+            : "Agent",
+          title: options?.mcpServerInfo?.title,
+          appId: options?.appId,
+          description:
+            options?.mcpServerInfo?.description ??
+            `Agent-native ${options?.appId ?? "app"} agent`,
+          websiteUrl: options?.mcpServerInfo?.websiteUrl,
+          icons: options?.mcpServerInfo?.icons,
+          actions: allScripts,
+          productionActions: mcpFullActions,
+          ...(options?.connectorCatalog
+            ? { connectorCatalog: options.connectorCatalog }
+            : {}),
+          askAgent: async (message: string) => {
+            const mcpEngine = await resolveEngine({
+              engineOption: options?.engine,
+              apiKey: options?.apiKey,
               appId: options?.appId,
-            })) ??
-            mcpEngine.defaultModel;
-          const model = normalizeModelForEngine(mcpEngine, mcpModelCandidate);
+            });
+            const mcpModelCandidate =
+              options?.model ??
+              (await getStoredModelForEngine(mcpEngine, {
+                appId: options?.appId,
+              })) ??
+              mcpEngine.defaultModel;
+            const model = normalizeModelForEngine(mcpEngine, mcpModelCandidate);
 
-          // Same actions as A2A — without call-agent to prevent loops.
-          // In dev mode, template actions go through bash, not native tools.
-          const devActiveMcp = isDevMode();
-          const mcpActions = attachToolSearch(
-            devActiveMcp
-              ? {
-                  ...resourceScripts,
-                  ...docsScripts,
-                  ...(lazyContext ? frameworkContextTool : {}),
-                  ...urlTools,
-                  ...chatScripts,
-                  ...fetchTool,
-                  ...webSearchTool,
-                  ...workspaceFilesTool,
-                  ...toolActions,
-                  ...mcpActionEntries,
-                  ...devScriptsForA2A,
-                  ...devRunCodeTool,
-                }
-              : {
-                  ...templateScripts,
-                  ...resourceScripts,
-                  ...docsScripts,
-                  ...dbScripts,
-                  ...refreshScreenTool,
-                  ...(lazyContext ? frameworkContextTool : {}),
-                  ...urlTools,
-                  ...chatScripts,
-                  ...fetchTool,
-                  ...webSearchTool,
-                  ...workspaceFilesTool,
-                  ...toolActions,
-                  ...mcpActionEntries,
-                  ...(resolvedProdCodeExec !== "off" ? runCodeTool : {}),
-                  ...prodCodingTools,
+            // Same actions as A2A — without call-agent to prevent loops.
+            // In dev mode, template actions go through bash, not native tools.
+            const devActiveMcp = isDevMode();
+            const mcpActions = attachToolSearch(
+              devActiveMcp
+                ? {
+                    ...resourceScripts,
+                    ...docsScripts,
+                    ...(lazyContext ? frameworkContextTool : {}),
+                    ...urlTools,
+                    ...chatScripts,
+                    ...fetchTool,
+                    ...webSearchTool,
+                    ...workspaceFilesTool,
+                    ...toolActions,
+                    ...mcpActionEntries,
+                    ...devScriptsForA2A,
+                    ...devRunCodeTool,
+                  }
+                : {
+                    ...templateScripts,
+                    ...resourceScripts,
+                    ...docsScripts,
+                    ...dbScripts,
+                    ...refreshScreenTool,
+                    ...(lazyContext ? frameworkContextTool : {}),
+                    ...urlTools,
+                    ...chatScripts,
+                    ...fetchTool,
+                    ...webSearchTool,
+                    ...workspaceFilesTool,
+                    ...toolActions,
+                    ...mcpActionEntries,
+                    ...(resolvedProdCodeExec !== "off" ? runCodeTool : {}),
+                    ...prodCodingTools,
+                  },
+            );
+
+            const mcpTools = actionsToEngineTools(mcpActions);
+
+            const resources = await loadResourcesForPrompt(
+              SHARED_OWNER,
+              lazyContext,
+              options?.appId,
+            );
+            const schemaBlock = lazyContext
+              ? ""
+              : await buildSchemaBlock(SHARED_OWNER, devActiveMcp);
+            // Build the MCP handler's own prompt — always use the bash-based
+            // dev prompt in dev mode because mcpActions routes template actions
+            // through bash (`devScriptsForA2A`), regardless of `nativeActionsInDev`.
+            const mcpDevPrompt =
+              (options?.devSystemPrompt
+                ? options.devSystemPrompt +
+                  (options?.systemPrompt ??
+                    (lazyContext
+                      ? PROD_FRAMEWORK_PROMPT_COMPACT
+                      : PROD_FRAMEWORK_PROMPT))
+                : lazyContext
+                  ? DEV_FRAMEWORK_PROMPT_COMPACT
+                  : DEV_FRAMEWORK_PROMPT) + devActionsPrompt;
+            const systemPrompt = devActiveMcp
+              ? mcpDevPrompt +
+                buildRuntimeContextPrompt() +
+                resources +
+                schemaBlock
+              : basePrompt +
+                buildRuntimeContextPrompt() +
+                resources +
+                schemaBlock;
+
+            let accumulatedText = "";
+            const controller = new AbortController();
+
+            await runAgentLoopDirectWithSoftTimeout(
+              {
+                engine: mcpEngine,
+                model,
+                systemPrompt,
+                tools: mcpTools,
+                messages: [
+                  { role: "user", content: [{ type: "text", text: message }] },
+                ],
+                actions: mcpActions,
+                send: (event) => {
+                  if (event.type === "text") accumulatedText += event.text;
                 },
-          );
-
-          const mcpTools = actionsToEngineTools(mcpActions);
-
-          const resources = await loadResourcesForPrompt(
-            SHARED_OWNER,
-            lazyContext,
-            options?.appId,
-          );
-          const schemaBlock = lazyContext
-            ? ""
-            : await buildSchemaBlock(SHARED_OWNER, devActiveMcp);
-          // Build the MCP handler's own prompt — always use the bash-based
-          // dev prompt in dev mode because mcpActions routes template actions
-          // through bash (`devScriptsForA2A`), regardless of `nativeActionsInDev`.
-          const mcpDevPrompt =
-            (options?.devSystemPrompt
-              ? options.devSystemPrompt +
-                (options?.systemPrompt ??
-                  (lazyContext
-                    ? PROD_FRAMEWORK_PROMPT_COMPACT
-                    : PROD_FRAMEWORK_PROMPT))
-              : lazyContext
-                ? DEV_FRAMEWORK_PROMPT_COMPACT
-                : DEV_FRAMEWORK_PROMPT) + devActionsPrompt;
-          const systemPrompt = devActiveMcp
-            ? mcpDevPrompt +
-              buildRuntimeContextPrompt() +
-              resources +
-              schemaBlock
-            : basePrompt +
-              buildRuntimeContextPrompt() +
-              resources +
-              schemaBlock;
-
-          let accumulatedText = "";
-          const controller = new AbortController();
-
-          await runAgentLoopDirectWithSoftTimeout(
-            {
-              engine: mcpEngine,
-              model,
-              systemPrompt,
-              tools: mcpTools,
-              messages: [
-                { role: "user", content: [{ type: "text", text: message }] },
-              ],
-              actions: mcpActions,
-              send: (event) => {
-                if (event.type === "text") accumulatedText += event.text;
+                signal: controller.signal,
               },
-              signal: controller.signal,
-            },
-            options?.runSoftTimeoutMs,
-          );
+              options?.runSoftTimeoutMs,
+            );
 
-          return accumulatedText || "(no response)";
-        },
-      });
+            return accumulatedText || "(no response)";
+          },
+        });
+      }
 
       type OwnerContext = {
         owner: string;
@@ -5041,7 +5054,13 @@ export function createAgentChatPlugin(
           tzRaw.trim().length < 64
             ? tzRaw.trim()
             : undefined;
-        return buildRuntimeContextPrompt({ timezone });
+        // Thread the ambient sub-agent delegation depth so a sub-agent running
+        // at the depth cap is told in its runtime context that it cannot
+        // delegate further. The depth-guard already enforces the cap
+        // server-side (`evaluateSubagentDepth`); this only surfaces it to the
+        // model. 0 (the top-level chat) emits no delegation line.
+        const delegationDepth = getCurrentDelegationDepth();
+        return buildRuntimeContextPrompt({ timezone, delegationDepth });
       };
 
       // The app-rendered sidebar must never edit the app's source code

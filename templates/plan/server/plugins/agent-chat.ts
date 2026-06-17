@@ -6,6 +6,7 @@ import { getOrgContext } from "@agent-native/core/org";
 import { registerEvent } from "@agent-native/core/event-bus";
 import { z } from "zod";
 import actionsRegistry from "../../.generated/actions-registry.js";
+import { PLAN_CONNECTOR_CATALOG } from "../lib/plan-connector-catalog.js";
 import { resolvePlanAnonymousOwner } from "../lib/public-plans.js";
 
 // ---------------------------------------------------------------------------
@@ -105,74 +106,13 @@ registerEvent({
   },
 });
 
-/**
- * Curated connector catalog for hosted multi-tenant deployments.
- *
- * Active when AGENT_NATIVE_CONNECTOR_CATALOG=1 is set (hosted plan.agent-native.com).
- * External coding agents (Claude Code, Codex, Cursor, etc.) connecting via MCP
- * see only these tools plus the builtin cross-app tools (list_apps, open_app,
- * ask_app, create_embed_session). Tools outside this list are not callable.
- *
- * Callers who need the full surface (db-exec, seed-*, extension tools, etc.)
- * can opt up with `agent-native connect --full-catalog`.
- *
- * EXCLUDED intentionally:
- *   - seed-kitchen-sink, seed-vertical-tabs  (destructive demo scripts)
- *   - get-local-plan-folder                  (filesystem path, not useful remotely)
- *   - context-manifest-get/pin/evict/restore/report  (context-xray internals)
- *   - visualize-plan                         (internal alias, superseded)
- */
-export const PLAN_CONNECTOR_CATALOG = [
-  // Plan CRUD
-  "create-visual-plan",
-  "create-ui-plan",
-  "create-prototype-plan",
-  "create-plan-design",
-  "create-visual-questions",
-  "create-visual-recap",
-  "get-visual-plan",
-  "list-visual-plans",
-  "update-visual-plan",
-  "get-plan-blocks",
-  "get-plan-feedback",
-  "consume-plan-feedback",
-  "reply-to-plan-comment",
-  "resolve-plan-comment",
-  "delete-plan-comment",
-  // Plan versioning
-  "list-plan-versions",
-  "get-plan-version",
-  "restore-plan-version",
-  // Plan source / export
-  "read-visual-plan-source",
-  "export-visual-plan",
-  "import-visual-plan-source",
-  "patch-visual-plan-source",
-  // Plan publish & convert
-  "publish-visual-plan",
-  "convert-visual-plan-to-prototype",
-  // Record recap
-  "record-recap-usage",
-  // Sharing
-  "set-resource-visibility",
-  "share-resource",
-  "unshare-resource",
-  "list-resource-shares",
-  // Media
-  "upload-image",
-  // Navigation & screen
-  "navigate",
-  "view-screen",
-  // Automations (users configure plan event notifications from external agents)
-  "manage-automations",
-  // Tool discovery
-  "tool-search",
-];
-
-export default createAgentChatPlugin({
+const planAgentChatOptions = {
   appId: "plan",
   actions: loadActionsFromStaticRegistry(actionsRegistry),
   anonymousOwner: resolvePlanAnonymousOwner,
   resolveOrgId: async (event) => (await getOrgContext(event)).orgId,
   connectorCatalog: PLAN_CONNECTOR_CATALOG,
-});
+  disableMcp: true,
+};
+
+export default createAgentChatPlugin(planAgentChatOptions);

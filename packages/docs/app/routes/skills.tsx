@@ -1,6 +1,7 @@
 import { Link } from "react-router";
 import { useState } from "react";
 import { trackEvent } from "@agent-native/core/client";
+import { AgentNativeDemoVideo } from "../components/AgentNativeDemoVideo";
 import { withDefaultSocialImage } from "../seo";
 
 export const meta = () =>
@@ -11,7 +12,7 @@ export const meta = () =>
     {
       name: "description",
       content:
-        "Install app-backed skills your coding agent runs as slash commands. /visual-plan opens structured visual plans before you build; /visual-recap turns a PR diff into a high-altitude review. One install, free and open source.",
+        "Install Agent-Native app-backed skills your coding agent runs as slash commands. /visual-plan opens structured plans; /visual-recap turns a PR diff into a high-altitude review.",
     },
     {
       property: "og:title",
@@ -20,7 +21,7 @@ export const meta = () =>
     {
       property: "og:description",
       content:
-        "Give your coding agent new superpowers: structured visual plans and high-altitude PR recaps, hosted and shareable. One install, free and open source.",
+        "Give your coding agent slash commands powered by Agent-Native apps you can host, inspect, and customize.",
     },
     {
       name: "keywords",
@@ -30,7 +31,6 @@ export const meta = () =>
   ]);
 
 const INSTALL_COMMAND = "npx @agent-native/core@latest skills add";
-const DEMO_URL = "https://plan.agent-native.com";
 
 type Skill = {
   command: string;
@@ -45,69 +45,28 @@ const SKILLS: Skill[] = [
   {
     command: "/visual-plan",
     name: "Visual Plan",
-    tagline: "Plan before you implement",
+    tagline: "Review before code",
     description:
-      "Structured visual planning mode for coding agents. The plan you'd normally write in Markdown, but as a scannable document with editable blocks — and an optional visual review surface for anything UI.",
+      "Turns a coding task into a shareable plan with diagrams, file notes, and optional UI sketches.",
     features: [
-      "Inline diagrams and data-model maps near each claim",
-      "Annotated code for the key files you'll touch",
-      "Optional wireframe canvas plus a clickable prototype",
-      "Comments, annotations, and a shareable review link",
+      "See the implementation shape before changes land",
+      "Comment, revise, approve, or hand off",
     ],
     docsTo: "/docs/template-plan",
   },
   {
     command: "/visual-recap",
     name: "Visual Recap",
-    tagline: "Review a diff at a higher altitude",
+    tagline: "Review after changes",
     description:
-      "The reverse of forward planning: turn a PR or git diff into a structured recap — schema, API, file, and before/after changes as grounded blocks instead of a wall of diff a reviewer has to read line by line.",
+      "Turns a PR or git diff into a shareable recap of what changed and why.",
     features: [
-      "Schema, API, file-tree, and diagram blocks built from the diff",
-      "High-altitude shape of the change before the literal lines",
-      "Optional GitHub Action recaps every pull request",
-      "Posts one sticky PR comment with an inline screenshot",
+      "Summarizes schema, API, and file changes",
+      "Optionally posts one sticky PR comment",
     ],
     docsTo: "/docs/pr-visual-recap",
   },
 ];
-
-function CheckIcon() {
-  return (
-    <svg
-      className="mt-0.5 shrink-0 text-[var(--docs-accent)]"
-      width="16"
-      height="16"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <polyline points="20 6 9 17 4 12" />
-    </svg>
-  );
-}
-
-function ExternalIcon() {
-  return (
-    <svg
-      width="16"
-      height="16"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
-      <polyline points="15 3 21 3 21 9" />
-      <line x1="10" y1="14" x2="21" y2="3" />
-    </svg>
-  );
-}
 
 function CliCopy({
   command,
@@ -170,7 +129,7 @@ function CliCopy({
 
 function SkillCard({ skill }: { skill: Skill }) {
   return (
-    <article className="flex flex-col rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)] p-6">
+    <article className="flex flex-col rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)] p-5 sm:p-6">
       <div className="mb-3 flex items-center gap-3">
         <span className="rounded-md border border-[var(--code-border)] bg-[var(--code-bg)] px-2 py-1 font-mono text-sm text-[var(--fg)]">
           {skill.command}
@@ -183,16 +142,13 @@ function SkillCard({ skill }: { skill: Skill }) {
       <h3 className="mb-2 text-lg font-semibold tracking-tight">
         {skill.name}
       </h3>
-      <p className="mb-5 text-sm leading-relaxed text-[var(--fg-secondary)]">
+      <p className="mb-4 text-sm leading-relaxed text-[var(--fg-secondary)]">
         {skill.description}
       </p>
 
-      <ul className="m-0 mb-5 list-none space-y-2 p-0 text-sm text-[var(--fg-secondary)]">
+      <ul className="m-0 mb-4 list-disc space-y-1.5 pl-5 text-sm text-[var(--fg-secondary)]">
         {skill.features.map((f) => (
-          <li key={f} className="flex items-start gap-2">
-            <CheckIcon />
-            {f}
-          </li>
+          <li key={f}>{f}</li>
         ))}
       </ul>
 
@@ -211,21 +167,6 @@ function SkillCard({ skill }: { skill: Skill }) {
           Read the docs
           <span aria-hidden>→</span>
         </Link>
-        <a
-          href={DEMO_URL}
-          target="_blank"
-          rel="noopener noreferrer"
-          onClick={() =>
-            trackEvent("skill try demo", {
-              skill: skill.command,
-              location: "skills_card",
-            })
-          }
-          className="inline-flex items-center gap-1 text-sm text-[var(--fg-secondary)] no-underline hover:text-[var(--fg)]"
-        >
-          Live demo
-          <ExternalIcon />
-        </a>
       </div>
     </article>
   );
@@ -243,21 +184,15 @@ export default function SkillsPage() {
             </h1>
 
             <p className="mb-6 text-base leading-7 text-[var(--fg-secondary)] sm:text-lg sm:leading-relaxed">
-              Install app-backed skills your coding agent runs as slash commands
-              — structured visual plans before you build, and high-altitude
-              recaps of any diff. Hosted, shareable, and 100% open source.
+              Install slash commands powered by Agent-Native apps you can fully
+              customize. Start with visual plans before you build and
+              high-altitude recaps after each diff.
             </p>
 
             <CliCopy command={INSTALL_COMMAND} location="skills_hero" />
           </div>
 
-          <div className="overflow-hidden rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)]">
-            <img
-              src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fb6f4213ac7cc42eeb10c12e8ccda8936?format=webp&width=1000"
-              alt="An Agent-Native visual plan with inline diagrams and structured blocks"
-              className="w-full object-cover object-top"
-            />
-          </div>
+          <AgentNativeDemoVideo className="aspect-square w-full" />
         </div>
       </section>
 

@@ -932,4 +932,46 @@ describe("SSE event processor tool id matching", () => {
     );
     expect(part?.toolCallId).toBe("srv-99");
   });
+
+  it("attaches approval metadata to the matching tool-call on approval_required", async () => {
+    // The server emits tool_start, then approval_required (the gate paused the
+    // turn), then a paused tool_done — the call never executed.
+    const content: any[] = [];
+    await drain(
+      readSSEStream(
+        eventStream([
+          {
+            type: "tool_start",
+            tool: "send-email",
+            id: "approve-1",
+            input: { to: "a@b.com" },
+          },
+          {
+            type: "approval_required",
+            tool: "send-email",
+            id: "approve-1",
+            approvalKey: 'send-email:{"to":"a@b.com"}',
+            input: { to: "a@b.com" },
+          },
+          {
+            type: "tool_done",
+            tool: "send-email",
+            id: "approve-1",
+            result: "Awaiting human approval — did NOT execute.",
+          },
+          { type: "done" },
+        ]),
+        content,
+        { value: 0 },
+        undefined,
+      ),
+    );
+
+    const part = content.find(
+      (p: any) => p.type === "tool-call" && p.toolCallId === "approve-1",
+    );
+    expect(part?.approval).toEqual({
+      approvalKey: 'send-email:{"to":"a@b.com"}',
+    });
+  });
 });

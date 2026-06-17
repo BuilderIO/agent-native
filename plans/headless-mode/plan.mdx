@@ -1,0 +1,804 @@
+---
+title: "Agent-Native Headless Mode"
+brief: "A first-cut plan for making Agent-Native apps usable as headless agent runtimes while preserving actions, SQL, MCP/A2A, and optional UI parity."
+kind: "plan"
+localOnly: true
+---
+
+# Agent-Native Headless Mode
+
+## Product Snapshot
+
+A developer creates a support triage agent with no product UI:
+
+```bash
+npx @agent-native/core@latest create support-triage --template headless
+cd support-triage
+pnpm dev
+```
+
+The app still gets the Agent-Native runtime contract: actions in `actions/`,
+SQL for durable state, the same agent loop, `/_agent-native/actions/*`,
+`/_agent-native/agent-chat`, `/_agent-native/mcp`, `/_agent-native/a2a`, run
+history, secrets, and skills. What it does not require is a custom React
+product surface on day one. A team can later add a UI route without changing
+how the agent works.
+
+<Callout id="decision-positive-model" tone="decision">
+
+Headless mode is an Agent-Native app profile, not a replacement framework. The
+core capability surface remains `defineAction`; headless apps simply start from
+a server/agent-first scaffold where the product UI is optional.
+
+</Callout>
+
+## Objective
+
+Make Agent-Native credible for Eve/Mastra/Flue-shaped backend agents while
+preserving the framework thesis: actions are the shared capability surface, SQL
+is the source of durable app state, and UI can be added later without rewriting
+the agent.
+
+Done means a developer can scaffold a headless app, define actions and skills,
+call it through CLI/HTTP/MCP/A2A, run it locally and in a workspace, inspect run
+status, read the docs-site guide for the mode, and later add UI without
+migrating the core app contract.
+
+## Research Signals
+
+Flue is useful because it separates ongoing agent sessions from bounded workflow
+runs. Mastra is useful because it treats standalone server/runtime mode as
+normal, with workflows, memory, observability, and external protocol adapters
+around the same agent core. Agent-Native should borrow that shape, not their
+tool APIs.
+
+<Table
+  id="research-to-agent-native"
+  columns={["Signal", "Borrow", "Agent-Native translation"]}
+  rows={[
+    [
+      "Flue continuing agents",
+      "An agent instance has durable identity and session history",
+      "Use existing chat threads, agent_runs, run events, and A2A/MCP endpoints",
+    ],
+    [
+      "Flue/Mastra workflows",
+      "Finite runs are different from open-ended chat",
+      "Model bounded workflow runs as a second headless primitive, initially deferred behind existing runs/progress",
+    ],
+    [
+      "Mastra server adapters",
+      "Agent runtime can be embedded or standalone",
+      "Keep Nitro/plugin architecture; add headless scaffold metadata and docs",
+    ],
+    [
+      "Mastra approvals",
+      "Approvals are useful only for consequential actions",
+      "Keep HITL opt-in; email send/payment/delete remain explicit cases",
+    ],
+    [
+      "Mastra Responses-style routes",
+      "Compatibility adapters lower integration cost",
+      "Defer POST /v1/responses adapter until the headless scaffold is stable",
+    ],
+  ]}
+/>
+
+## Core Shape
+
+The first cut should avoid new primitives where the framework already has them.
+The headless app should mostly be a different scaffold and metadata profile over
+the current runtime.
+
+<Diagram
+  id="headless-runtime-map"
+  data={{
+    html: '<div class="diagram-panel headless-map" data-rough><div class="diagram-card clients"><strong>Callers</strong><span>CLI</span><span>HTTP clients</span><span>MCP hosts</span><span>A2A agents</span><span>Optional React UI</span></div><div class="diagram-card runtime"><strong>Agent-Native server</strong><span>agent-chat plugin</span><span>core routes</span><span>auth/secrets</span><span>run-manager</span></div><div class="diagram-card app"><strong>Headless app code</strong><span>actions/</span><span>.agents/skills/</span><span>server/plugins/</span><span>SQL schema</span></div><div class="diagram-card durable"><strong>Durable state</strong><span>application_state</span><span>chat threads</span><span>agent_runs</span><span>agent_tool_ledger</span><span>progress_runs</span></div></div>',
+    css: ".headless-map { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; align-items: stretch; } .headless-map .diagram-card { display: grid; align-content: start; gap: 8px; min-height: 190px; padding: 14px; } .headless-map strong { font-size: 15px; } .headless-map span { border: 1px solid var(--wf-line); border-radius: 7px; padding: 6px 8px; background: var(--wf-card); color: var(--wf-ink); } .headless-map .runtime { background: var(--wf-accent-soft); } @media (max-width: 860px) { .headless-map { grid-template-columns: 1fr; } }",
+    caption:
+      "Headless mode reuses the existing runtime; the app-specific delta is scaffold shape, metadata, and docs.",
+  }}
+/>
+
+## Key Decisions
+
+<Callout id="decision-scaffold" tone="decision">
+
+Use a hidden, explicit `headless` scaffold plus package metadata for v1. Do not
+overload `agent-native.json`; that file already describes local artifact/data
+mode behavior. The durable app profile belongs in template metadata and
+`package.json["agent-native"]`/workspace app metadata.
+
+</Callout>
+
+<Callout id="decision-no-parallel-tool-surface" tone="decision">
+
+Do not add `defineTool`. Headless apps still define `defineAction` files.
+Actions already supply agent tools, HTTP routes, frontend hooks if a UI appears
+later, MCP/A2A exposure metadata, links, read-only flags, and safety flags.
+
+</Callout>
+
+<Callout id="decision-two-primitives" tone="decision">
+
+Name two headless concepts early, but implement them in phases: continuing agent
+sessions in v1 using existing chat/run infrastructure, bounded workflow runs in
+v2 using the same run/progress substrate instead of a separate store.
+
+</Callout>
+
+## Scope
+
+In v1, ship the headless app profile, not a full workflow DSL.
+
+<Table
+  id="v1-scope-table"
+  columns={["Area", "In v1", "Deferred"]}
+  rows={[
+    [
+      "Scaffold",
+      "templates/headless or a generated headless profile from starter",
+      "Public picker exposure after dogfood",
+    ],
+    [
+      "Runtime",
+      "Existing createAgentChatPlugin, core routes, actions, MCP, A2A",
+      "New standalone runtime package",
+    ],
+    [
+      "UI",
+      "No product UI required; optional minimal status/help page is acceptable",
+      "Rich admin console",
+    ],
+    [
+      "Workflows",
+      "Document the finite-run shape and reuse progress_runs/agent_runs",
+      "defineWorkflow and /workflows/:name/runs",
+    ],
+    [
+      "Protocols",
+      "Existing action HTTP, MCP, A2A, agent chat",
+      "OpenAI Responses-compatible adapter",
+    ],
+    [
+      "Approvals",
+      "Default off; action-level opt-in only for consequential operations",
+      "Global HITL policy layer",
+    ],
+  ]}
+/>
+
+## Current Code Reuse
+
+<FileTree
+  id="current-code-reuse"
+  title="Current surfaces to reuse"
+  entries={[
+    {
+      path: "packages/core/src/action.ts",
+      change: "checked",
+      note: "defineAction already carries HTTP, auth, agent tool, read-only, parallelSafe, MCP App, publicAgent, and link metadata.",
+    },
+    {
+      path: "packages/core/src/server/action-routes.ts",
+      change: "checked",
+      note: "Actions already mount at /_agent-native/actions/:name with method/auth/read-only behavior.",
+    },
+    {
+      path: "packages/core/src/server/agent-chat-plugin.ts",
+      change: "checked",
+      note: "Main plugin already mounts agent chat, filters agent-visible tools, wires MCP/A2A, loads resources, and builds prompts.",
+    },
+    {
+      path: "packages/core/src/agent/production-agent.ts",
+      change: "checked",
+      note: "runAgentLoop is transport-free and actionsToEngineTools is the canonical action-to-tool conversion.",
+    },
+    {
+      path: "packages/core/src/agent/run-manager.ts",
+      change: "checked",
+      note: "Continuing sessions can reuse run IDs, events, soft-timeout continuation, SQL persistence, and cross-isolate reconnect.",
+    },
+    {
+      path: "packages/core/src/agent/run-store.ts",
+      change: "checked",
+      note: "agent_runs, agent_run_events, and agent_tool_ledger already cover durable event history and uncertain tool results.",
+    },
+    {
+      path: "packages/core/src/progress/routes.ts",
+      change: "checked",
+      note: "/_agent-native/runs already exposes user-facing task status for dashboards and headless monitoring.",
+    },
+    {
+      path: "packages/core/src/a2a/server.ts",
+      change: "checked",
+      note: "A2A endpoints and agent-card generation already exist; headless apps should make this path first-class.",
+    },
+    {
+      path: "packages/core/src/mcp/server.ts",
+      change: "checked",
+      note: "mountMCP is already stateless Streamable HTTP and serverless-safe.",
+    },
+    {
+      path: "packages/core/src/mcp/stdio.ts",
+      change: "checked",
+      note: "CLI stdio proxy/standalone MCP mode can be the headless local-connection story.",
+    },
+    {
+      path: "packages/core/src/scripts/runner.ts",
+      change: "checked",
+      note: "Direct action CLI invocation already exists with caller: cli.",
+    },
+    {
+      path: "packages/shared-app-config/templates.ts",
+      change: "modified",
+      note: "First-party template metadata is the right place to add a hidden scaffoldable headless template/profile.",
+    },
+    {
+      path: "packages/core/src/cli/create.ts",
+      change: "modified",
+      note: "Scaffolding already handles hidden explicit templates and workspace/standalone flows.",
+    },
+    {
+      path: "packages/dispatch/src/server/lib/app-creation-store.ts",
+      change: "modified",
+      note: "Dispatch has a separate addable-template list that must not drift if headless apps can be created from Dispatch.",
+    },
+    {
+      path: "packages/core/src/mcp/builtin-tools.ts",
+      change: "modified",
+      note: "MCP create-app tooling currently validates against visible templates, so explicit headless creation needs a safe allow path.",
+    },
+    {
+      path: "packages/core/docs/content/pure-agent-apps.md",
+      change: "modified",
+      note: "Existing concept page should either become the headless-mode guide or point readers to it so terminology does not split.",
+    },
+    {
+      path: "packages/docs/app/components/docsNavItems.ts",
+      change: "modified",
+      note: "Docs sidebar is explicit; add Headless Mode/Pure-Agent Apps navigation intentionally.",
+    },
+    {
+      path: "packages/docs/app/components/docs-content.ts",
+      change: "checked",
+      note: "Markdown docs are loaded by glob today, but verify the new docs page is indexed and searchable.",
+    },
+  ]}
+/>
+
+## Data Model
+
+V1 should avoid a schema migration. The existing tables are enough for continuing
+headless agent sessions and task status.
+
+<DataModel
+  id="headless-existing-data"
+  entities={[
+    {
+      id: "chat_threads",
+      name: "chat_threads",
+      note: "Existing durable conversation identity",
+      fields: [
+        { name: "id", type: "text", pk: true },
+        { name: "owner", type: "text", note: "Scoped to the user/org context" },
+        {
+          name: "data",
+          type: "json/text",
+          note: "Thread messages and metadata",
+        },
+      ],
+    },
+    {
+      id: "agent_runs",
+      name: "agent_runs",
+      note: "Internal agent-chat turn lifecycle",
+      fields: [
+        { name: "id", type: "text", pk: true },
+        { name: "thread_id", type: "text", fk: "chat_threads.id" },
+        { name: "status", type: "text" },
+        { name: "turn_id", type: "text" },
+        { name: "heartbeat_at", type: "int" },
+        { name: "last_progress_at", type: "int" },
+      ],
+    },
+    {
+      id: "agent_run_events",
+      name: "agent_run_events",
+      note: "Ordered persisted event stream",
+      fields: [
+        { name: "run_id", type: "text", fk: "agent_runs.id", pk: true },
+        { name: "seq", type: "int", pk: true },
+        { name: "event_data", type: "text/json" },
+      ],
+    },
+    {
+      id: "agent_tool_ledger",
+      name: "agent_tool_ledger",
+      note: "Recovered write-tool completions after continuation boundaries",
+      fields: [
+        { name: "thread_id", type: "text", pk: true },
+        { name: "tool_key", type: "text", pk: true },
+        { name: "result_summary", type: "text" },
+        { name: "completed_at", type: "int" },
+      ],
+    },
+    {
+      id: "progress_runs",
+      name: "progress_runs",
+      note: "User-facing run/task status",
+      fields: [
+        { name: "id", type: "text", pk: true },
+        { name: "owner", type: "text" },
+        { name: "title", type: "text" },
+        { name: "status", type: "text" },
+        { name: "metadata", type: "text/json" },
+      ],
+    },
+  ]}
+  relations={[
+    {
+      from: "chat_threads",
+      to: "agent_runs",
+      kind: "1-n",
+      label: "thread runs",
+    },
+    {
+      from: "agent_runs",
+      to: "agent_run_events",
+      kind: "1-n",
+      label: "event stream",
+    },
+    {
+      from: "chat_threads",
+      to: "agent_tool_ledger",
+      kind: "1-n",
+      label: "side-effect recovery",
+    },
+  ]}
+/>
+
+## Target Runtime Contract
+
+These are the endpoints a headless app should document and smoke-test. Most
+already exist.
+
+<Endpoint
+  id="endpoint-agent-chat"
+  method="POST"
+  path="/_agent-native/agent-chat"
+  summary="Run or continue a headless agent session"
+  auth="Session or configured external auth"
+>
+
+Continuing session entrypoint. Uses `threadId`/`turnId`, streams events, records
+`agent_runs`, and can auto-continue across hosted timeout boundaries.
+
+</Endpoint>
+
+<Endpoint
+  id="endpoint-actions"
+  method="POST"
+  path="/_agent-native/actions/:name"
+  summary="Invoke an action over HTTP"
+  auth="Action auth policy"
+>
+
+Shared action transport. GET actions remain read-only; writes emit action-change
+events. Headless docs should teach this as the programmatic API instead of
+adding bespoke `/api/*` wrappers.
+
+</Endpoint>
+
+<Endpoint
+  id="endpoint-mcp"
+  method="POST"
+  path="/_agent-native/mcp"
+  summary="Expose the app to MCP hosts"
+  auth="Remote MCP OAuth/session auth"
+>
+
+External coding agents and MCP clients can call the same action surface.
+Headless apps should make this a primary setup path, not a hidden power-user
+path.
+
+</Endpoint>
+
+<Endpoint
+  id="endpoint-a2a"
+  method="POST"
+  path="/_agent-native/a2a"
+  summary="Expose the app to other Agent-Native/A2A agents"
+  auth="A2A_SECRET/JWT or dev-only unauthenticated mode"
+>
+
+Cross-agent protocol entrypoint. Public agent-card skills should remain filtered
+to explicitly public-safe actions.
+
+</Endpoint>
+
+<Endpoint
+  id="endpoint-runs"
+  method="GET"
+  path="/_agent-native/runs"
+  summary="List active or historical progress runs"
+  auth="Session auth"
+>
+
+Monitoring surface for headless work. Existing route supports `active=true` and
+`limit`; v1 should document it and include a CLI smoke.
+
+</Endpoint>
+
+## Implementation Plan
+
+### 1. Add headless metadata without touching `agent-native.json`
+
+Extend template/app metadata so a template can say it has no product UI
+expectation and can use a different dev/display policy.
+
+<AnnotatedCode
+  id="metadata-shape"
+  filename="packages/shared-app-config/templates.ts"
+  language="ts"
+  code={
+    'export interface TemplateMeta {\n  name: string;\n  label: string;\n  hint: string;\n  hidden?: boolean;\n  core?: boolean;\n  defaultAgent?: boolean;\n  /** Server/agent-first app. Product UI is optional and dev tooling should not assume a Vite page is the primary surface. */\n  headless?: boolean;\n  /** Optional command or mode hint for workspace dev when the app is not a standard UI-first template. */\n  devProfile?: "ui" | "headless";\n}\n'
+  }
+  annotations={[
+    {
+      lines: "6-9",
+      label: "New profile",
+      note: "Keep headless in template/package metadata, not agent-native.json, which currently owns local artifact data mode.",
+    },
+    {
+      lines: "10-11",
+      label: "Dev hint",
+      note: "Workspace dev and Dispatch app creation need a non-UI signal without hardcoding template names.",
+    },
+  ]}
+/>
+
+Mirror this in `packages/core/src/cli/templates-meta.ts` and any
+generated/duplicated metadata checks.
+
+### 2. Scaffold a hidden headless template/profile
+
+Create the smallest useful first-party scaffold. It can be a stripped
+starter-derived template, but its source should teach the headless contract
+explicitly:
+
+- `server/plugins/agent-chat.ts` using `createAgentChatPlugin` and static action
+  registry.
+- `server/plugins/auth.ts` or documented auth mode, depending on
+  standalone/workspace target.
+- `actions/hello.ts`, `actions/run.ts`, `actions/view-screen.ts`, and one
+  example long-running/action-backed task.
+- `.agents/skills/headless/SKILL.md` explaining how the agent should treat
+  actions, no-UI state, run IDs, MCP/A2A, and optional UI additions.
+- A minimal route only if required by the current React/Nitro build; it should
+  be a status/help page, not a product dashboard.
+
+### 3. Wire scaffold creation paths consistently
+
+Update all creation surfaces that currently know about template lists.
+
+<FileTree
+  id="scaffold-touch-points"
+  title="Scaffold wiring"
+  entries={[
+    {
+      path: "packages/core/src/cli/create.ts",
+      change: "modified",
+      note: "Allow explicit --template headless; preserve hidden status in interactive pickers.",
+    },
+    {
+      path: "packages/shared-app-config/templates.ts",
+      change: "modified",
+      note: "Add headless metadata and keep it hidden until dogfooded.",
+    },
+    {
+      path: "packages/core/src/cli/templates-meta.ts",
+      change: "modified",
+      note: "Keep CLI template metadata in sync.",
+    },
+    {
+      path: "packages/dispatch/src/server/lib/app-creation-store.ts",
+      change: "modified",
+      note: "Decide whether Dispatch can create headless apps; if yes, add an explicit allow path so hidden does not mean impossible.",
+    },
+    {
+      path: "packages/core/src/mcp/builtin-tools.ts",
+      change: "modified",
+      note: "Let MCP create-app tooling accept hidden-but-explicit templates where safe.",
+    },
+    {
+      path: "scripts/guard-template-list.mjs",
+      change: "modified",
+      note: "Prevent future drift across template lists.",
+    },
+  ]}
+/>
+
+### 4. Add docs-site coverage for headless mode
+
+Ship the docs with the scaffold, not after it. A developer should be able to
+land on `/docs/headless-mode` and understand the mental model, the scaffold
+command, the supported transports, where durable state lives, what auth/safety
+rules apply, and how to add a UI later.
+
+<FileTree
+  id="docs-site-touch-points"
+  title="Docs-site touch points"
+  entries={[
+    {
+      path: "packages/core/docs/content/headless-mode.md",
+      change: "added",
+      note: "Primary docs-site guide for the scaffold command, runtime contract, endpoint map, auth/safety defaults, MCP/A2A setup, and optional UI path.",
+    },
+    {
+      path: "packages/core/docs/content/pure-agent-apps.md",
+      change: "modified",
+      note: "Either fold this into the new guide or keep it as a conceptual page that links clearly to /docs/headless-mode.",
+    },
+    {
+      path: "packages/core/docs/content/creating-templates.md",
+      change: "modified",
+      note: "Explain headless/devProfile metadata for template authors.",
+    },
+    {
+      path: "packages/docs/app/components/docsNavItems.ts",
+      change: "modified",
+      note: "Add Headless Mode to the docs sidebar near Pure-Agent Apps/Getting Started.",
+    },
+    {
+      path: "packages/docs/app/components/docs-content.ts",
+      change: "checked",
+      note: "Confirm the glob-based docs loader indexes the new Markdown page for routes and search.",
+    },
+    {
+      path: "templates/headless/AGENTS.md",
+      change: "added",
+      note: "Tell coding agents there is no default product UI and every new capability should start as a defineAction file.",
+    },
+    {
+      path: "templates/headless/.agents/skills/headless/SKILL.md",
+      change: "added",
+      note: "Teach the app-local pattern: actions first, no-UI state, run IDs, MCP/A2A, and optional UI additions.",
+    },
+  ]}
+/>
+
+The docs page should include one copy-pastable smoke path:
+
+```bash
+npx @agent-native/core@latest create support-triage --template headless
+cd support-triage
+pnpm install
+pnpm dev
+```
+
+Then show the calls a developer can make first: direct action invocation,
+agent-chat continuation, MCP connection, A2A discovery, and run-status
+inspection. Keep the page practical; the conceptual "pure-agent" argument can
+stay in `pure-agent-apps.md` if it still earns its place.
+
+### 5. Add durable workflow language without shipping the DSL yet
+
+In docs and template examples, call out two execution shapes.
+
+<Table
+  id="continuing-vs-finite"
+  columns={["Shape", "Use for", "V1 implementation", "Later"]}
+  rows={[
+    [
+      "Continuing agent session",
+      "Open-ended chat, triage, investigation, async agent work",
+      "/_agent-native/agent-chat + chat_threads + agent_runs",
+      "Optional Responses-compatible adapter",
+    ],
+    [
+      "Finite workflow run",
+      "A known business process: sync inbox, classify leads, publish report",
+      "Action or trigger starts work and records progress in progress_runs",
+      "defineWorkflow and /workflows/:name/runs",
+    ],
+    [
+      "Deterministic action",
+      "Direct API operation or UI parity operation",
+      "defineAction with HTTP/MCP/A2A metadata",
+      "No separate tool API",
+    ],
+  ]}
+/>
+
+This gets the vocabulary right now while keeping v1 implementation
+conservative.
+
+### 6. Verification
+
+V1 should be proven with a fresh scaffold, not only unit tests.
+
+<Checklist
+  id="verification-checklist"
+  items={[
+    {
+      id: "scaffold",
+      label:
+        "Scaffold npx @agent-native/core@latest create support-triage --template headless into a temp dir",
+      checked: false,
+    },
+    {
+      id: "install-build",
+      label: "Run install, typecheck, and build for the scaffolded app",
+      checked: false,
+    },
+    {
+      id: "action-http",
+      label:
+        "Call an example action through /_agent-native/actions/:name and verify auth/read-only behavior",
+      checked: false,
+    },
+    {
+      id: "agent-chat",
+      label:
+        "POST a message to /_agent-native/agent-chat and verify run events land in agent_runs/agent_run_events",
+      checked: false,
+    },
+    {
+      id: "mcp",
+      label:
+        "Connect over /_agent-native/mcp and confirm only agent-visible actions appear",
+      checked: false,
+    },
+    {
+      id: "a2a",
+      label:
+        "Fetch /.well-known/agent-card.json and smoke an A2A call in dev mode",
+      checked: false,
+    },
+    {
+      id: "workspace",
+      label:
+        "Create a workspace with a headless app and confirm Dispatch/app creation surfaces do not drift",
+      checked: false,
+    },
+    {
+      id: "docs-site",
+      label:
+        "Open /docs/headless-mode in the docs site and verify sidebar nav, search indexing, links, and scaffold snippets",
+      checked: false,
+    },
+    {
+      id: "optional-ui",
+      label:
+        "Add one React route later and verify the app can become UI-capable without changing actions",
+      checked: false,
+    },
+  ]}
+/>
+
+## Risks
+
+<Callout id="risk-hidden-template-drift" tone="risk">
+
+Hidden scaffoldable templates can drift from CLI, Dispatch, MCP create-app tools,
+and docs. The implementation should add one explicit hidden-template allow path
+and a guard test, not one-off exceptions in each caller.
+
+</Callout>
+
+<Callout id="risk-fake-headless" tone="risk">
+
+A template that still requires a Vite product page for every dev/build path is
+only cosmetically headless. V1 can keep a tiny status page if the current build
+requires it, but docs and dev tooling should make the agent/server surfaces
+primary.
+
+</Callout>
+
+<Callout id="risk-public-agent-safety" tone="risk">
+
+Headless apps are easier to expose publicly because there is no obvious UI
+boundary. MCP/A2A/OpenAPI surfaces must continue to filter by `agentTool`,
+`publicAgent`, read-only, auth, and consequential-action metadata.
+
+</Callout>
+
+## Non-Goals
+
+- No `defineTool` parallel surface.
+- No new connection/capability-pack system.
+- No runtime manifest work in `agent-native.json`.
+- No default HITL approval policy.
+- No full workflow DSL in the first cut.
+- No public picker placement until the profile has been dogfooded.
+
+## Rollout
+
+1. Internal hidden scaffold: `--template headless` only.
+2. Dogfood with one real app that has actions, scheduled/event work, MCP, and
+   A2A but no product UI.
+3. Ship docs-site coverage with the hidden scaffold; add richer examples once
+   the scaffold survives workspace creation and deploy.
+4. Consider exposing in Dispatch/app creation UI as "Agent runtime" or
+   "Headless agent" after the template no longer needs caveats.
+5. Later: add `defineWorkflow`, Responses-compatible adapter, and a richer run
+   inspector if the v1 contract proves useful.
+
+### Open Questions
+
+<QuestionForm
+  id="open-questions"
+  submitLabel="Submit direction"
+  questions={[
+    {
+      id: "scaffold-shape",
+      title: "How should v1 expose headless creation?",
+      mode: "single",
+      required: true,
+      options: [
+        {
+          id: "hidden-template",
+          label: "Hidden template",
+          detail:
+            "Add explicit --template headless; fastest to prove and easiest to keep out of public pickers.",
+          recommended: true,
+        },
+        {
+          id: "profile-flag",
+          label: "Profile flag",
+          detail:
+            "Add --profile headless or --headless; nicer API but touches more CLI semantics.",
+        },
+        {
+          id: "metadata-only",
+          label: "Metadata only",
+          detail:
+            "No new template; let existing apps mark themselves headless. Smaller runtime change, weaker product story.",
+        },
+      ],
+    },
+    {
+      id: "workflow-scope",
+      title: "Should bounded workflows ship in v1 or v2?",
+      mode: "single",
+      required: true,
+      options: [
+        {
+          id: "v2",
+          label: "Defer to v2",
+          detail:
+            "Document the concept now and reuse actions/progress for v1. Lowest risk.",
+          recommended: true,
+        },
+        {
+          id: "minimal-v1",
+          label: "Minimal v1",
+          detail:
+            "Add file-discovered workflows/*.ts and a run endpoint now. More compelling, more surface area.",
+        },
+      ],
+    },
+    {
+      id: "responses-adapter",
+      title: "When should a Responses-compatible adapter land?",
+      mode: "single",
+      required: true,
+      options: [
+        {
+          id: "after-scaffold",
+          label: "After scaffold",
+          detail:
+            "First prove native agent-chat/MCP/A2A. Then add compatibility once the headless contract is stable.",
+          recommended: true,
+        },
+        {
+          id: "same-cut",
+          label: "Same cut",
+          detail:
+            "Makes headless easier to call from existing clients, but creates a hard-to-reverse public API immediately.",
+        },
+      ],
+    },
+  ]}
+/>

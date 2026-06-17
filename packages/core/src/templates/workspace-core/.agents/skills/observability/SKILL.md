@@ -75,6 +75,26 @@ const criteria: EvalCriteria = {
 };
 ```
 
+#### Evals (CI gate)
+
+The three layers above score *real production runs* after the fact. For an active, deterministic gate, use the first-class `*.eval.ts` primitive from `@agent-native/core/eval` (source: `packages/core/src/eval/*`). It runs the actual agent loop against fixed inputs and exits non-zero below threshold, so it gates CI/deploys.
+
+```ts
+// evals/faq.eval.ts
+import { defineEval, contains, llmJudge } from "@agent-native/core/eval";
+
+export default defineEval({
+  name: "answers the FAQ",
+  input: { prompt: "What is your return policy?" },
+  threshold: 0.7,
+  scorers: [contains("30 days"), llmJudge({ criteria: "accuracy" })],
+});
+```
+
+- Built-in scorers: `exactMatch` / `contains` / `usesTool` (pure JS) and `llmJudge` (provider-agnostic judge).
+- Custom scorers: `createScorer` with the 4-step `preprocess → analyze → generateScore → generateReason` pipeline (only `generateScore` is required).
+- Run as a gate: `agent-native eval [pattern] [--json] [--threshold N]` — discovers `**/*.eval.ts` and `evals/*.ts`, runs the agent, and exits non-zero if any eval is below its threshold. An app with no eval files exits `0`. Complements (does not replace) the post-hoc scoring in `evals.ts`. See the Evals doc.
+
 ### 4. Experiments
 
 A/B testing with sticky user-level assignment:

@@ -41,10 +41,26 @@ import {
   IconSearch,
   IconArrowsMaximize,
   IconArrowsMinimize,
+  IconShieldCheck,
+  IconX,
 } from "@tabler/icons-react";
 
 // Exported so AssistantChatInner can provide a context value.
 export const ChatRunningContext = React.createContext(false);
+
+/**
+ * Human-in-the-loop approval bridge. `AssistantChatInner` provides a value that
+ * re-issues the turn approving a specific paused tool call (opt-in
+ * `needsApproval` actions). When null, the Approve button is not rendered.
+ * Deny is handled locally in the affordance, so it needs no bridge.
+ */
+export type ApprovalContextValue = {
+  /** Re-issue the turn so the server runs the approved call. */
+  onApprove: (approvalKey: string) => void;
+};
+export const ApprovalContext = React.createContext<ApprovalContextValue | null>(
+  null,
+);
 
 // ─── Tool-payload formatting ──────────────────────────────────────────────────
 
@@ -310,6 +326,78 @@ function ToolDetailViewer({ payload }: { payload: ToolDetailPayload }) {
   );
 }
 
+// ─── Human-in-the-loop approval affordance ────────────────────────────────────
+
+/**
+ * Inline Approve/Deny prompt rendered when a `needsApproval` action paused the
+ * turn. Approve re-issues the turn with the call's `approvalKey`; Deny dismisses
+ * the prompt locally (the action stays un-run).
+ */
+function ApprovalAffordance({
+  toolName,
+  approval,
+}: {
+  toolName: string;
+  approval: { approvalKey: string; dismissed?: boolean };
+}) {
+  const ctx = React.useContext(ApprovalContext);
+  const [approved, setApproved] = useState(false);
+  const [denied, setDenied] = useState(false);
+
+  // Once approved, the turn is re-issued; collapse to a quiet note so the user
+  // can't double-fire the approval.
+  if (approved) {
+    return (
+      <div className="mt-1.5 text-xs text-muted-foreground">
+        Approved. Re-running {toolName}...
+      </div>
+    );
+  }
+  // Deny is local-only: the action simply stays un-run.
+  if (denied) {
+    return (
+      <div className="mt-1.5 text-xs text-muted-foreground">
+        Denied. {toolName} did not run.
+      </div>
+    );
+  }
+  return (
+    <div className="mt-1.5 flex items-center gap-2 rounded-md border border-border bg-muted/40 px-2.5 py-1.5">
+      <IconShieldCheck className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+      <span className="mr-auto text-xs text-muted-foreground">
+        Approve to run {toolName}?
+      </span>
+      {ctx && (
+        <button
+          type="button"
+          onClick={() => {
+            setApproved(true);
+            ctx.onApprove(approval.approvalKey);
+          }}
+          className={cn(
+            "inline-flex items-center gap-1 rounded-md px-2.5 py-1 text-xs font-medium transition-colors",
+            "bg-foreground text-background hover:bg-foreground/90",
+          )}
+        >
+          <IconCheck className="h-3.5 w-3.5" />
+          Approve
+        </button>
+      )}
+      <button
+        type="button"
+        onClick={() => setDenied(true)}
+        className={cn(
+          "inline-flex items-center gap-1 rounded-md border border-border px-2.5 py-1 text-xs font-medium transition-colors",
+          "text-foreground hover:bg-muted",
+        )}
+      >
+        <IconX className="h-3.5 w-3.5" />
+        Deny
+      </button>
+    </div>
+  );
+}
+
 // ─── ToolCallDisplay ──────────────────────────────────────────────────────────
 
 export function ToolCallDisplay({
@@ -320,6 +408,7 @@ export function ToolCallDisplay({
   mcpApp,
   isRunning,
   structuredMeta,
+  approval,
 }: {
   toolName: string;
   argsText?: string;
@@ -328,6 +417,7 @@ export function ToolCallDisplay({
   mcpApp?: AgentMcpAppPayload;
   isRunning: boolean;
   structuredMeta?: Record<string, unknown>;
+  approval?: { approvalKey: string; dismissed?: boolean };
 }) {
   // Delegate to bespoke cells when structured metadata is present.
   // These must be separate components so hook order in ToolCallDisplayGeneric
@@ -372,6 +462,7 @@ export function ToolCallDisplay({
       result={result}
       mcpApp={mcpApp}
       isRunning={isRunning}
+      approval={approval}
     />
   );
 }
@@ -383,6 +474,7 @@ function ToolCallDisplayGeneric({
   result,
   mcpApp,
   isRunning,
+  approval,
 }: {
   toolName: string;
   argsText?: string;
@@ -390,6 +482,7 @@ function ToolCallDisplayGeneric({
   result?: string;
   mcpApp?: AgentMcpAppPayload;
   isRunning: boolean;
+  approval?: { approvalKey: string; dismissed?: boolean };
 }) {
   const streamRef = useRef<HTMLDivElement>(null);
 
@@ -547,6 +640,9 @@ function ToolCallDisplayGeneric({
           {resultPayload && <ToolDetailViewer payload={resultPayload} />}
         </div>
       )}
+      {approval && (
+        <ApprovalAffordance toolName={toolName} approval={approval} />
+      )}
     </div>
   );
 }
@@ -562,6 +658,7 @@ export function ToolCallFallback({
 }: ToolCallMessagePartProps & {
   mcpApp?: AgentMcpAppPayload;
   structuredMeta?: Record<string, unknown>;
+  approval?: { approvalKey: string; dismissed?: boolean };
 }) {
   const chatRunning = React.useContext(ChatRunningContext);
   const isRunning = result === undefined && chatRunning;
@@ -580,6 +677,7 @@ export function ToolCallFallback({
       mcpApp={rest.mcpApp}
       structuredMeta={rest.structuredMeta}
       isRunning={isRunning}
+      approval={rest.approval}
     />
   );
 }
@@ -621,6 +719,7 @@ export function ReconnectStreamMessage({
                 mcpApp={part.mcpApp}
                 structuredMeta={part.structuredMeta}
                 isRunning={part.result === undefined && chatRunning}
+                approval={part.approval}
               />
             );
           }

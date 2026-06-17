@@ -50,6 +50,10 @@ const SITE_BY_NAME = new Map(TEMPLATE_SITES.map((site) => [site.name, site]));
 const DEFAULT_SOURCES = [".env", ".env.local"];
 const DEFAULT_SCOPES = ["builds", "functions", "runtime"];
 const DEFAULT_CONTEXT = "production";
+const BLOCKED_TEMPLATE_ENV_KEYS = new Set([
+  "ANTHROPIC_API_KEY",
+  "OPENAI_API_KEY",
+]);
 const PUBLIC_KEY_EXACT = new Set([
   "APP_URL",
   "BETTER_AUTH_URL",
@@ -420,7 +424,12 @@ async function main() {
     if (!site) throw new Error(`Missing site mapping for ${template}.`);
 
     const { foundSources, values } = loadTemplateEnv(template, options.sources);
-    const entries = [...values.entries()].filter(([, value]) => value !== "");
+    const blockedKeys = [...values.keys()]
+      .filter((key) => BLOCKED_TEMPLATE_ENV_KEYS.has(key))
+      .sort();
+    const entries = [...values.entries()].filter(
+      ([key, value]) => value !== "" && !BLOCKED_TEMPLATE_ENV_KEYS.has(key),
+    );
     const keys = entries.map(([key]) => key).sort();
 
     console.log("");
@@ -429,6 +438,11 @@ async function main() {
       `  sources: ${foundSources.length > 0 ? foundSources.join(", ") : "(none)"}`,
     );
     console.log(`  keys: ${redactedKeyList(keys)}`);
+    if (blockedKeys.length > 0) {
+      console.log(
+        `  skipped blocked hosted LLM key(s): ${blockedKeys.join(", ")}`,
+      );
+    }
 
     if (entries.length === 0) {
       console.log("  skipped: no non-empty env values found");

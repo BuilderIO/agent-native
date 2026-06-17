@@ -5,6 +5,7 @@
  */
 import { getDbExec, intType, isPostgres } from "../db/client.js";
 import { captureError } from "../server/capture-error.js";
+import type { AgentChatEvent } from "./types.js";
 
 let _initPromise: Promise<void> | undefined;
 
@@ -551,6 +552,61 @@ export async function getRunByThread(
     lastProgressAt:
       r.last_progress_at == null ? null : Number(r.last_progress_at),
   };
+}
+
+/**
+ * Read the current logical turn's recorded events for a thread, parsed into
+ * `AgentChatEvent`s in seq order, for per-turn tool-call journal classification
+ * (see `tool-call-journal.ts`). Read-only and additive — reuses the existing
+ * `agent_runs` / `agent_run_events` ledger with no schema change.
+ *
+ * A logical turn may span several continuation runs (each chunk is its own run
+ * sharing one `turn_id`), so we union the events of every run that belongs to
+ * the latest turn for this thread. Events are ordered by (started_at, seq) so
+ * earlier chunks come before later ones and the positional `tool_start` →
+ * `tool_done` matching in the classifier stays correct across chunk boundaries.
+ *
+ * Returns an empty array when the thread has no run yet or no parseable events.
+ * Best-effort on parse: malformed ledger rows are skipped rather than thrown.
+ */
+export async function getCurrentTurnEventsForThread(
+  threadId: string,
+): Promise<AgentChatEvent[]> {
+  await ensureRunTables();
+  const client = getDbExec();
+  // Find the latest run for this thread (terminal or running) to learn the
+  // logical turn id. The journal is consulted on the resume path, where the
+  // just-interrupted run is typically already terminal.
+  const latest = await client.execute({
+    sql: `SELECT id, turn_id FROM agent_runs WHERE thread_id = ? ORDER BY started_at DESC LIMIT 1`,
+    args: [threadId],
+  });
+  if (latest.rows.length === 0) return [];
+  const latestRow = latest.rows[0] as { id: string; turn_id: string | null };
+  const turnId = latestRow.turn_id ?? latestRow.id;
+  // Gather every run that belongs to this logical turn, oldest chunk first, and
+  // read their events in seq order. COALESCE(turn_id, id) folds older rows that
+  // predate the turn_id backfill into a turn keyed by their own run id.
+  const { rows } = await client.execute({
+    sql: `SELECT e.event_data AS event_data
+          FROM agent_run_events e
+          JOIN agent_runs r ON r.id = e.run_id
+          WHERE r.thread_id = ?
+            AND COALESCE(r.turn_id, r.id) = ?
+          ORDER BY r.started_at ASC, e.seq ASC`,
+    args: [threadId, turnId],
+  });
+  const events: AgentChatEvent[] = [];
+  for (const r of rows) {
+    const raw = (r as { event_data?: string }).event_data;
+    if (!raw) continue;
+    try {
+      events.push(JSON.parse(raw) as AgentChatEvent);
+    } catch {
+      // Skip malformed ledger rows — the journal is best-effort.
+    }
+  }
+  return events;
 }
 
 /**

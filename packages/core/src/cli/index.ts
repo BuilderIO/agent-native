@@ -739,9 +739,39 @@ switch (command) {
     break;
   }
 
+  case "add": {
+    // Blueprint installer (à la Flue's `flue add`): instead of scaffolding
+    // files, emit a curated Markdown integration blueprint to stdout so it can
+    // be piped into a coding agent — `agent-native add provider stripe | claude`.
+    // A URL instead of a name yields a generic research-and-integrate blueprint.
+    import("./add.js")
+      .then((m) => {
+        const code = m.runAdd(args);
+        if (code !== 0) process.exit(code);
+      })
+      .catch((err) => {
+        console.error(err?.message ?? err);
+        process.exit(1);
+      });
+    break;
+  }
+
   case "audit-agent-web": {
     import("./audit-agent-web.js")
       .then((m) => m.runAuditAgentWeb(args))
+      .catch((err) => {
+        console.error(err?.message ?? err);
+        process.exit(1);
+      });
+    break;
+  }
+
+  case "eval": {
+    // Discover and run the app's evals (**/*.eval.ts, evals/*.ts), score the
+    // agent's output, and exit non-zero if any eval falls below its threshold.
+    // Doubles as a CI deploy gate. `--json` emits a machine-readable report.
+    import("./eval.js")
+      .then((m) => m.runEval(args))
       .catch((err) => {
         console.error(err?.message ?? err);
         process.exit(1);
@@ -783,8 +813,8 @@ Usage:
   agent-native code serve       Run the Agent-Native Code remote connector.
   agent-native mcp <cmd>        Connect external coding agents over MCP.
                                 cmds: serve | install | uninstall | status |
-                                token (--client claude-code|claude-code-cli|
-                                codex|cowork)
+                                token (--client claude-code|codex|cowork|
+                                cursor|opencode|github-copilot)
   agent-native connect <url>    Authenticate your coding agent to a DEPLOYED app.
                                 OAuth-capable clients (Claude Code) get a /mcp
                                 authenticate prompt; Codex / Cowork use the
@@ -806,7 +836,7 @@ Usage:
                                 Run 'agent-native recap help' for subcommands.
   agent-native plan <cmd>       Plan helpers for block catalogs and local files.
                                 cmds: blocks | local init | local check |
-                                local preview
+                                local serve | local preview
   agent-native migrate <source> Create an Agent-Native Code /migrate session, or use
                                 --emit for a portable own-agent dossier.
   agent-native add-app [name]   Add one or more apps to the current workspace
@@ -816,7 +846,19 @@ Usage:
   agent-native setup-agents     Create symlinks for all agent tools
   agent-native info <pkg>       Print info about an installed package:
                                 exports, source paths, and docs links.
+  agent-native add <kind> <name|url>
+                                Emit an integration blueprint to stdout for your
+                                coding agent to apply. Pipe it in:
+                                'agent-native add provider stripe | claude'.
+                                kinds: provider | channel | sandbox | action.
+                                Pass a URL instead of a name for a generic
+                                research-and-integrate blueprint. --list to
+                                browse available blueprints.
   agent-native audit-agent-web  Audit a public URL for agent-readable surfaces
+  agent-native eval [pattern]   Run the app's evals (**/*.eval.ts, evals/*.ts)
+                                and exit non-zero if any scores below its
+                                threshold. A CI deploy gate. --json for CI,
+                                --threshold N to override all thresholds.
 
 Options:
   -h, --help                    Show this help message

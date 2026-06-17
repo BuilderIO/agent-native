@@ -74,6 +74,7 @@
     "./agent/context-xray/actions/context-evict": "./dist/agent/context-xray/actions/context-evict.js",
     "./agent/context-xray/actions/context-restore": "./dist/agent/context-xray/actions/context-restore.js",
     "./agent/context-xray/actions/context-report": "./dist/agent/context-xray/actions/context-report.js",
+    "./agent/observational-memory": "./dist/agent/observational-memory/index.js",
     "./resources": "./dist/resources/index.js",
     "./resources/store": "./dist/resources/store.js",
     "./resources/metadata": "./dist/resources/metadata.js",
@@ -135,6 +136,7 @@
     "./styles/agent-native.css": "./dist/styles/agent-native.css",
     "./agent/engine": "./dist/agent/engine/index.js",
     "./agent/harness": "./dist/agent/harness/index.js",
+    "./eval": "./dist/eval/index.js",
     "./tsconfig.base.json": "./tsconfig.base.json"
   },
   "sideEffects": [
@@ -142,6 +144,7 @@
   ],
   "files": [
     "bin",
+    "blueprints",
     "dist",
     "docs",
     "tsconfig.base.json",
@@ -272,6 +275,7 @@
     "ws": ">=8"
   },
   "optionalDependencies": {
+    "@opentelemetry/api": "^1.9.1",
     "playwright": "^1.60.0"
   },
   "peerDependenciesMeta": {

@@ -168,6 +168,46 @@ describe("defineAction", () => {
     });
   });
 
+  it("preserves a boolean needsApproval flag on the returned entry", () => {
+    const action = defineAction({
+      description: "send an email",
+      parameters: { to: { type: "string" } },
+      needsApproval: true,
+      run: async () => "sent",
+    });
+    expect(action.needsApproval).toBe(true);
+  });
+
+  it("preserves a predicate needsApproval gate on the returned entry", () => {
+    const gate = (args: { to: string }) => args.to.endsWith("@external.com");
+    const action = defineAction({
+      description: "send an email",
+      parameters: { to: { type: "string" } },
+      needsApproval: gate,
+      run: async () => "sent",
+    });
+    expect(action.needsApproval).toBe(gate);
+  });
+
+  it("leaves needsApproval undefined when not specified (default off)", () => {
+    const action = defineAction({
+      description: "send an email",
+      parameters: { to: { type: "string" } },
+      run: async () => "sent",
+    });
+    expect(action.needsApproval).toBeUndefined();
+  });
+
+  it("drops a wrong-typed needsApproval value instead of threading it through", () => {
+    const action = defineAction({
+      description: "send an email",
+      parameters: { to: { type: "string" } },
+      needsApproval: "yes" as any,
+      run: async () => "sent",
+    } as any);
+    expect(action.needsApproval).toBeUndefined();
+  });
+
   it("omits http from the entry when http is not specified", () => {
     const action = defineAction({
       description: "no http",

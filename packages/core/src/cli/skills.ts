@@ -38,7 +38,7 @@ Usage:
   npx @agent-native/core@latest skills list
   npx @agent-native/core@latest skills status [assets|design-exploration|visual-plan|visual-recap|context-xray] [--client codex|claude-code|pi|all] [--scope user|project] [--json]
   npx @agent-native/core@latest skills update [assets|design-exploration|visual-plan|visual-recap|context-xray] [--client codex|claude-code|pi|all] [--scope user|project] [--dry-run] [--json]
-  npx @agent-native/core@latest skills add assets|design-exploration|visual-plan|visual-recap|context-xray [--client codex|claude-code|claude-code-cli|cowork|cursor|opencode|github-copilot|all] [--scope user|project] [--mode hosted|local-files|self-hosted] [--mcp-url <url>] [--no-connect] [--with-github-action] [--yes] [--dry-run] [--json]
+  npx @agent-native/core@latest skills add assets|design-exploration|visual-plan|visual-recap|context-xray [--client codex|claude-code|cowork|cursor|opencode|github-copilot|all] [--scope user|project] [--mode hosted|local-files|self-hosted] [--mcp-url <url>] [--no-connect] [--with-github-action] [--yes] [--dry-run] [--json]
   npx @agent-native/core@latest skills add <manifest-or-app-dir|skill-repo> [--skill <name>] [--client ...] [--yes]
 
 Examples:
@@ -86,7 +86,7 @@ plans and recaps should live: hosted Plans for shareable links/comments, local
 files for "No sharing, all local.", or a self-hosted/custom Plan app URL.
 Pass --mode to choose directly. Local-files mode skips MCP registration and
 auth and installs instructions that default to a no-auth block catalog fetch,
-MDX folders, and local preview.
+MDX folders, and the localhost bridge viewer.
 
 When installing visual-recap interactively, the CLI offers to add the optional PR
 Visual Recap GitHub Action. Pass --with-github-action to write it directly, then
@@ -294,10 +294,10 @@ npx @agent-native/core@latest skills add visual-plan --mode local-files
 This mode does not register the Plan MCP connector. Before authoring structured
 MDX, fetch the no-auth, schema-only block catalog with
 \`npx @agent-native/core@latest plan blocks --out plan-blocks.md\`, read that file,
-write \`plans/<slug>/plan.mdx\` locally, then run \`plan local preview\`. Plain
-text skill installs (Vercel Skills CLI, copied GitHub files, etc.) can follow
-that same local flow if \`@agent-native/core\` is available. Text alone cannot
-register MCP tools; hosted/shareable Plans still need the Agent-Native CLI
+write the MDX folder locally, then run \`plan local serve\`. Plain text skill
+installs (Vercel Skills CLI, copied GitHub files, etc.) can follow that same
+local flow if \`@agent-native/core\` is available. Text alone cannot register
+MCP tools; hosted/shareable Plans still need the Agent-Native CLI
 install/reconnect step above.
 
 **Browser (people you share with).** Open the Plans editor and create & edit
@@ -307,10 +307,10 @@ share; signing in claims the plans you made as a guest into your account.
 Sharing and commenting require an account: public/shared plans are viewable by
 anyone with the link, but commenting on them needs an agent-native account.
 
-For fully offline, no-account use, use local-files mode and the local preview
-command. The optional \`plan blocks\` lookup reads only public schema metadata; if
-network access is unavailable, use the bundled references and validate with
-\`plan local preview\`.
+For no-account, no-DB plan storage, use local-files mode and the local bridge
+command. The optional \`plan blocks\` lookup reads only public schema metadata.
+If network access is unavailable, use the bundled references and a local Plan
+app/runtime for validation.
 
 If a Plans tool returns \`needs auth\`, \`Unauthorized\`, or \`Session terminated\`,
 do not keep retrying the tool. Stop and give the user the reconnect step for the
@@ -1349,7 +1349,7 @@ skill — never hand-edit one stored plan. Turn feedback into better guidance.
 ## Local-Files Privacy Mode
 
 Use local-files privacy mode when the user explicitly asks for no DB writes,
-no hosted Plan app, no Plan MCP publish, fully local files, offline/private
+no hosted Plan database writes, no Plan MCP publish, fully local files, offline/private
 planning, repo-owned/source-controlled planning artifacts, or when
 \`AGENT_NATIVE_PLANS_MODE=local-files\` is set. Also use it when a user or repo
 policy says a plan must stay under their own brand, domain, source control, or
@@ -1367,21 +1367,24 @@ The local-files contract is:
   \`plan blocks\` command calls the public no-auth \`get-plan-blocks\` route and
   writes only registry metadata to disk; use \`--format schema\` if exact nested
   fields are needed. If network access is unavailable, use the bundled
-  references and rely on \`plan local preview\` to catch invalid tags.
-- Write the plan as a local MDX folder under \`plans/<slug>/\`: \`plan.mdx\`,
-  optional \`canvas.mdx\`, optional \`prototype.mdx\`, and optional
-  \`.plan-state.json\`.
-- Run \`npx @agent-native/core@latest plan local preview --dir plans/<slug> --kind plan --open\`
-  after writing or updating the folder. Report the returned local URL or the
-  \`/local-plans/<slug>\` route if the local Plan app is running with the same
-  \`PLAN_LOCAL_DIR\`.
+  references and rely on \`plan local serve\` to catch invalid tags.
+- Write the plan as a local MDX folder: use \`plans/<slug>/\` when the user
+  wants the artifact checked into the repo, or use a repo-ignored/temporary
+  folder such as \`.agent-native/plans/<slug>/\` or \`/tmp/agent-native-plans/<slug>/\`
+  when it should not be checked in. The folder contains \`plan.mdx\`, optional
+  \`canvas.mdx\`, optional \`prototype.mdx\`, and optional \`.plan-state.json\`.
+- Run \`npx @agent-native/core@latest plan local serve --dir plans/<slug> --kind plan --open\`
+  after writing or updating the folder. Report the returned local bridge URL. It opens the hosted Plan UI but reads
+  from the localhost bridge on this machine, so it is not shareable across
+  machines. If the Plan app itself is running locally with the same
+  \`PLAN_LOCAL_DIR\`, the \`/local-plans/<slug>\` route is also valid.
 - Do **not** call \`create-visual-plan\`, \`create-ui-plan\`,
   \`create-prototype-plan\`, \`create-plan-design\`, \`import-visual-plan-source\`,
   \`update-visual-plan\`, \`patch-visual-plan-source\`, \`get-plan-feedback\`,
   \`export-visual-plan\`, or any hosted Plan tool for that plan except the
   schema-only block catalog lookup above.
 - Treat feedback as file or chat feedback: update the MDX files directly, rerun
-  the local preview command, and summarize the new local URL/path. Hosted
+  the local bridge command, and summarize the new local bridge URL. Hosted
   comments, sharing, history, and publish/export receipts are unavailable until
   the user explicitly opts into publishing.
 
@@ -1501,7 +1504,7 @@ before spending attention on the literal lines.
 ## Local-Files Privacy Mode Exception
 
 Use local-files privacy mode when the user explicitly asks for no DB writes,
-no hosted Plan app, no Plan MCP publish, fully local files, offline/private
+no hosted Plan database writes, no Plan MCP publish, fully local files, offline/private
 recaps, or when \`AGENT_NATIVE_PLANS_MODE=local-files\` is set. This is the only
 exception to the hosted publish rule below.
 
@@ -1516,22 +1519,26 @@ In local-files mode:
   MCP connector is not registered; it calls the public no-auth
   \`get-plan-blocks\` route and sends no recap content. If network access is
   unavailable, use the bundled references and validate with
-  \`plan local preview\`.
-- Write the recap as a local MDX folder under \`plans/<slug>/\`: \`plan.mdx\`,
-  optional \`canvas.mdx\`, optional \`prototype.mdx\`, and optional
-  \`.plan-state.json\`. Set \`kind: "recap"\` and \`localOnly: true\` in
-  frontmatter/state when authoring the source.
-- Run \`npx @agent-native/core@latest plan local preview --dir plans/<slug> --kind recap --open\`
-  after writing or updating the folder. Report the returned local URL or the
-  \`/local-plans/<slug>\` route if the local Plan app is running with the same
-  \`PLAN_LOCAL_DIR\`.
+  \`plan local serve\`.
+- Write the recap as a local MDX folder: use \`plans/<slug>/\` when the user
+  wants the artifact checked into the repo, or use a repo-ignored/temporary
+  folder such as \`.agent-native/plans/<slug>/\` or \`/tmp/agent-native-plans/<slug>/\`
+  when it should not be checked in. The folder contains \`plan.mdx\`, optional
+  \`canvas.mdx\`, optional \`prototype.mdx\`, and optional \`.plan-state.json\`. Set
+  \`kind: "recap"\` and \`localOnly: true\` in frontmatter/state when authoring
+  the source.
+- Run \`npx @agent-native/core@latest plan local serve --dir plans/<slug> --kind recap --open\`
+  after writing or updating the folder. Report the returned local bridge URL. It opens the hosted Plan UI but reads
+  from the localhost bridge on this machine, so it is not shareable across
+  machines. If the Plan app itself is running locally with the same
+  \`PLAN_LOCAL_DIR\`, the \`/local-plans/<slug>\` route is also valid.
 - Do **not** call \`create-visual-recap\`, \`create-visual-plan\`,
   \`import-visual-plan-source\`, \`update-visual-plan\`,
   \`patch-visual-plan-source\`, \`get-plan-feedback\`, \`export-visual-plan\`,
   \`set-resource-visibility\`, or any hosted Plan tool for that recap except the
   schema-only block catalog lookup above.
 - Treat review feedback as file or chat feedback: update the MDX files directly,
-  rerun the local preview command, and summarize the new local URL/path.
+  rerun the local bridge command, and summarize the new local bridge URL.
   Hosted comments, sharing, screenshots, usage attachment, and PR sticky comment
   publishing are unavailable until the user explicitly opts into publishing.
 
@@ -1742,10 +1749,13 @@ a headless CI agent), state that in the recap handoff instead.
 
 ## Open And Report The Recap
 
-In local-files privacy mode, report the local preview URL/path from
-\`npx @agent-native/core@latest plan local preview\` or the \`/local-plans/<slug>\` route for a local
-Plan app using the same \`PLAN_LOCAL_DIR\`. Do not invent a hosted URL and do not
-publish just to get an absolute Plan link.
+In local-files privacy mode, report the local bridge URL from
+\`npx @agent-native/core@latest plan local serve --dir plans/<slug> --kind recap --open\`.
+It opens the hosted Plan UI but reads from the localhost bridge on this machine,
+so it is not shareable across machines. If the Plan app itself is running
+locally with the same \`PLAN_LOCAL_DIR\`, the \`/local-plans/<slug>\` route is also
+valid. Do not invent a hosted database URL and do not publish just to get an
+absolute Plan link.
 
 After creating the recap, link the reviewer to the rendered plan with an
 **absolute URL on the origin whose database actually holds the plan**. That
@@ -1899,7 +1909,7 @@ was installed as plain text and no MCP tools are registered, run
 \`npx @agent-native/core@latest plan blocks --out plan-blocks.md\` and read that
 file first. The CLI command calls the public no-auth \`get-plan-blocks\` route and
 sends no plan/recap content. If network access is unavailable, use the bundled
-references and validate with \`plan local preview\`.
+references and validate with \`plan local serve\`.
 
 The catalog returns the authoritative, always-current block vocabulary generated
 live from the app's own block registry — the same config the renderer and MDX
@@ -2692,13 +2702,16 @@ function planModeInstructionBlock(input: {
     return `## Installed Mode
 
 Default storage for this installation: local files. Create and update plans and
-recaps as MDX folders under \`plans/<slug>/\`. Before authoring structured MDX,
-run \`npx @agent-native/core@latest plan blocks --out plan-blocks.md\` and read
-the no-auth block catalog; it sends no plan content. Then run
-\`npx @agent-native/core@latest plan local preview --dir plans/<slug> --kind plan|recap --open\`,
-and report the local preview URL or path. No sharing, all local. Use a hosted
-or self-hosted Plan MCP connector only if the user explicitly asks to publish or
-share.`;
+recaps as MDX folders under \`plans/<slug>/\` when they should be checked in, or
+under a repo-ignored/temp folder when they should stay private scratch. Before
+authoring structured MDX, run
+\`npx @agent-native/core@latest plan blocks --out plan-blocks.md\` and read the
+no-auth block catalog; it sends no plan content. Then run
+\`npx @agent-native/core@latest plan local serve --dir plans/<slug> --kind plan|recap --open\`,
+and report the local bridge URL. It opens the hosted Plan UI but reads from the
+localhost bridge on this machine, so it is not shareable across machines. No
+sharing, all local. Use a hosted or self-hosted Plan MCP connector only if the
+user explicitly asks to publish or share.`;
   }
   if (input.mode === "self-hosted") {
     return `## Installed Mode
@@ -3280,16 +3293,6 @@ const PUBLIC_SKILL_TARGET_PREFIX = "public-skills:";
 
 const BUILT_IN_SKILL_PROMPT_OPTIONS: SkillsTargetPromptContext["options"] = [
   {
-    value: "assets",
-    label: "assets",
-    hint: BUILT_IN_APP_SKILLS.assets.manifest.description,
-  },
-  {
-    value: "design-exploration",
-    label: "design-exploration",
-    hint: BUILT_IN_APP_SKILLS.design.manifest.description,
-  },
-  {
     value: "visual-plan",
     label: "visual-plan",
     hint: "Rich interactive visual plan that turns ordinary text plans into diagrams, file maps, annotated code, questions, and UI/prototype review.",
@@ -3298,6 +3301,16 @@ const BUILT_IN_SKILL_PROMPT_OPTIONS: SkillsTargetPromptContext["options"] = [
     value: "visual-recap",
     label: "visual-recap",
     hint: "Interactive visual recap that maps PRs/diffs with diagrams, annotated diffs, API/schema summaries, and review notes.",
+  },
+  {
+    value: "assets",
+    label: "assets",
+    hint: BUILT_IN_APP_SKILLS.assets.manifest.description,
+  },
+  {
+    value: "design-exploration",
+    label: "design-exploration",
+    hint: BUILT_IN_APP_SKILLS.design.manifest.description,
   },
   {
     value: "context-xray",
@@ -3370,10 +3383,10 @@ function skillPromptOptions(
 }
 
 function defaultSkillPromptTargets(options: RunSkillsOptions): string[] {
-  return [
-    ...DEFAULT_SKILL_PROMPT_TARGETS,
-    ...publicSkillEntries(options).map((entry) => entry.name),
-  ];
+  const available = new Set(
+    skillPromptOptions(options).map((entry) => entry.value),
+  );
+  return DEFAULT_SKILL_PROMPT_TARGETS.filter((target) => available.has(target));
 }
 
 function publicSkillSelectionTarget(skillNames: string[]): string {
@@ -3501,7 +3514,7 @@ async function promptForPlanMode(
       {
         value: "local-files",
         label: "Local files only",
-        hint: "Writes plans/<name>/plan.mdx in this repo and opens a local preview. No sharing, all local.",
+        hint: "Writes local MDX, starts a localhost bridge, and opens the hosted Plan UI. No sharing, all local.",
       },
       {
         value: "self-hosted",
@@ -3921,8 +3934,10 @@ function loadSkillTarget(
   };
 }
 
-function skillsAgentsForClients(clients: SkillInstructionClientId[]): string[] {
-  const agents = new Set<string>();
+function skillsAgentsForClients(
+  clients: SkillInstructionClientId[],
+): SkillInstructionClientId[] {
+  const agents = new Set<SkillInstructionClientId>();
   for (const client of clients) {
     if (client === "codex") agents.add("codex");
     if (client === "claude-code" || client === "claude-code-cli") {
@@ -4198,7 +4213,7 @@ async function addPlainSkillRepo(
   const args = agentNativeSkillsInstallArgs(
     parsed,
     target,
-    clients,
+    skillsAgents,
     options.baseDir,
   );
   if (!parsed.dryRun) {

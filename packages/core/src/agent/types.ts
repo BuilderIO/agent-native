@@ -137,6 +137,16 @@ export interface AgentChatRequest {
   scope?: AgentChatScope | null;
   /** When true, expose this chat turn as a user-visible run in RunsTray. */
   trackInRunsTray?: boolean;
+  /**
+   * Approval grants for human-in-the-loop actions. Each entry is a stable
+   * approval key (see the `approval_required` event's `approvalKey`). When the
+   * agent calls an action declared `needsApproval`, the loop pauses and emits
+   * `approval_required`; the client re-issues the turn (typically an empty
+   * continuation) with the approved call's key here so the gate lets it run.
+   * Keys not present here keep the action paused. The model never sees or sets
+   * this — it is supplied by the human's approve affordance.
+   */
+  approvedToolCalls?: string[];
 }
 
 export type AgentChatEvent =
@@ -149,6 +159,21 @@ export type AgentChatEvent =
       tool: string;
       result: string;
       mcpApp?: AgentMcpAppPayload;
+    }
+  | {
+      /**
+       * The agent tried to call an action declared `needsApproval` and the loop
+       * paused instead of executing it. The client should surface an
+       * approve/deny affordance; on approve, re-issue the turn with
+       * `approvedToolCalls: [approvalKey]` so the gate lets this call run.
+       */
+      type: "approval_required";
+      tool: string;
+      input: Record<string, string>;
+      /** Stable key the client echoes back in `approvedToolCalls` to approve. */
+      approvalKey: string;
+      /** The model-side tool-call id for this paused call, when available. */
+      toolCallId?: string;
     }
   | {
       type: "agent_call";
