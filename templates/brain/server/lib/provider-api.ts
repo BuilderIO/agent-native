@@ -2,6 +2,7 @@ import {
   PROVIDER_API_IDS,
   createProviderApiRuntime,
   type ProviderApiCredentialResolver,
+  type ProviderApiDocsOptions,
   type ProviderApiId,
   type ProviderApiMethod,
   type ProviderApiRequestArgs,
@@ -57,11 +58,9 @@ export function listProviderApiCatalog(provider?: BrainProviderApiId) {
   return runtime.listCatalog(provider);
 }
 
-export function fetchProviderApiDocs(options: {
-  provider: BrainProviderApiId;
-  url?: string;
-  maxBytes?: number;
-}) {
+export function fetchProviderApiDocs(
+  options: ProviderApiDocsOptions & { provider: BrainProviderApiId },
+) {
   return runtime.fetchDocs(options);
 }
 

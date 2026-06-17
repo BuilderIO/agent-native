@@ -287,7 +287,7 @@ export function createWebSearchToolEntry(
     "web-search": {
       tool: {
         description:
-          "Search the public web. Use to find API documentation, endpoints, current information, or any topic. Returns ranked results from BYOK providers or a grounded Builder-managed summary. Follow up with web-request or provider-api-docs to fetch the full content of promising URLs. Requires either Connect Builder.io or one of: BRAVE_SEARCH_API_KEY, TAVILY_API_KEY, or EXA_API_KEY.",
+          "Search the public web. Use to find API documentation, endpoints, current information, or any topic. Returns ranked results from BYOK providers or a grounded Builder-managed summary. Follow up with web-request or provider-api-docs using responseMode:'markdown' or responseMode:'matches' to fetch clean text, links, or compact snippets from promising URLs. Requires either Connect Builder.io or one of: BRAVE_SEARCH_API_KEY, TAVILY_API_KEY, or EXA_API_KEY.",
         parameters: {
           type: "object" as const,
           properties: {
@@ -363,7 +363,7 @@ export function createWebSearchToolEntry(
             "",
             managedText,
             "",
-            "Use web-request or provider-api-docs to fetch full content from cited or promising URLs.",
+            "Use web-request or provider-api-docs with responseMode:'markdown' for readable docs or responseMode:'matches' plus search for compact snippets.",
           ].join("\n");
         }
 
@@ -386,7 +386,7 @@ export function createWebSearchToolEntry(
           lines.push("");
         }
         lines.push(
-          "Use web-request or provider-api-docs to fetch full content from promising URLs.",
+          "Use web-request or provider-api-docs with responseMode:'markdown' for readable docs or responseMode:'matches' plus search for compact snippets.",
         );
         return lines.join("\n");
       },

@@ -97,6 +97,22 @@ connector, so use the Agent-Native CLI path when you want the one-command setup.
 > Plan skills _and_ the connector in one install and auto-updates as the skills
 > improve — see [Plan plugin & marketplace](/docs/plan-plugin).
 
+### Open Plans inside VS Code {#vscode-extension}
+
+If you live in VS Code, the Agent Native VS Code extension can open the same
+Plan review surface in a side panel instead of sending you to a separate browser
+tab. Plans tools still return the normal web link, and the MCP metadata also
+includes a VS Code handoff URL:
+
+```text
+vscode://builderio.agent-native/open?url=<encoded-plan-url>
+```
+
+The extension handles that URI, opens the decoded Plan URL in a VS Code webview,
+and includes a command to run the existing Agent Native MCP connect flow for VS
+Code / GitHub Copilot. This is especially useful from Claude Code or another
+coding-agent workflow where the plan should stay next to the files being edited.
+
 ## Use it from your coding agent
 
 After installation, ask your agent for the command that fits the work:
@@ -110,9 +126,9 @@ After installation, ask your agent for the command that fits the work:
   before/after blocks instead of a wall of raw diff.
 
 The agent should inspect the codebase first, then create the visual plan when a
-wrong direction would be costly. The returned Plans link opens the review UI so
-you can annotate, correct, choose options, and ask for updates before code
-changes begin.
+wrong direction would be costly. The returned Plans link opens the review UI in
+the browser or VS Code, so you can annotate, correct, choose options, and ask for
+updates before code changes begin.
 
 When a Codex, Claude Code, Markdown, or pasted plan already exists, use
 `/visual-plan`; the agent preserves that source plan and builds the richer review
@@ -207,11 +223,37 @@ not sent through hosted Plan actions. Keep the bridge process running while you
 review; the URL is local to your machine and is not a shareable team link.
 
 If you run the Plan app locally with the same `PLAN_LOCAL_DIR`, you can also
-open the read-only app route:
+open the editable app route:
 
 ```text
 http://localhost:<port>/local-plans/<slug>
 ```
+
+For repo-backed folders, the direct local route can carry the repo-relative
+folder path so browser edits keep writing to that folder:
+
+```text
+http://localhost:<port>/local-plans/<slug>?path=plans%2F<slug>
+```
+
+The Plan app uses `apps.plan.roots[0].path` in `agent-native.json` as the
+default repo location for promoted local plans, falling back to `plans/`:
+
+```json
+{
+  "version": 1,
+  "apps": {
+    "plan": {
+      "mode": "local-files",
+      "roots": [{ "name": "Plans", "path": "plans", "kind": "plans" }]
+    }
+  }
+}
+```
+
+Direct local Plan routes include a menu action to save a temporary local folder
+into that repo location. After promotion, the page reopens with `?path=...` and
+continues autosaving MDX edits to the repo folder.
 
 Local-files mode prevents plan or recap content from going to the Agent-Native
 Plan database. It also disables hosted sharing, browser comments, plan history,
@@ -243,6 +285,27 @@ then:
 This path does not require cloning the Plan app or running a CLI. It is for
 file-first review/editing around a hosted plan, not for keeping plan content out
 of the hosted database.
+
+## Deleting hosted plan data {#delete-data}
+
+Signed-in owners can delete their hosted plans and recaps from the Plans list or
+the plan action menu.
+
+- **Soft delete** moves the plan to the **Deleted** tab, makes normal plan
+  views/direct links stop working, and removes public access by making the row
+  private. The SQL rows are retained so the owner can restore the plan later.
+- **Restore** is available from the **Deleted** tab for soft-deleted plans.
+- **Permanent delete** removes the hosted plan row and plan-scoped comments,
+  sections, activity events, version snapshots, share grants, abuse reports, and
+  SQL asset records. The UI requires typing `DELETE <plan-id>` before the final
+  button enables.
+
+Permanent delete removes the Plan app's database records and SQL-backed asset
+bytes/references. If a deployment uses an external upload provider, provider
+object retention follows that provider's lifecycle because the shared upload
+abstraction does not currently expose object deletion. Local-files privacy mode
+keeps the source in your local MDX folder instead; deleting hosted data does not
+touch local files.
 
 ## Useful prompts
 
@@ -287,16 +350,16 @@ The local template is useful when you are developing Plans itself, testing local
 
 Schema lives in `templates/plan/server/db/schema.ts`. Core tables:
 
-| Table              | What it holds                                                                                                                                                |
-| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `plans`            | Each plan or recap — `title`, `brief`, `kind` (plan/recap), `status`, `source`, `html`/`markdown`/`content`, `hosted_plan_id/url`, usage stats, `source_url` |
-| `plan_sections`    | Ordered sections within a plan — `type`, `title`, `body`, `html`, `sort_order`, `created_by`                                                                 |
-| `plan_comments`    | Threaded comments — `kind`, `status`, `anchor`, `message`, `resolution_target`, `mentions_json`, `resolved_by`                                               |
-| `plan_events`      | Audit log of agent/human events on a plan                                                                                                                    |
-| `plan_versions`    | Point-in-time snapshots for version history                                                                                                                  |
-| `plan_shares`      | Per-principal share grants (viewer / editor / admin)                                                                                                         |
-| `plan_guest_mints` | Rate-limit records for guest session issuance                                                                                                                |
-| `plan_assets`      | Inline image assets stored as base64 (fallback when no upload provider)                                                                                      |
+| Table              | What it holds                                                                                                                                                                           |
+| ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `plans`            | Each plan or recap — `title`, `brief`, `kind` (plan/recap), `status`, `source`, `html`/`markdown`/`content`, `hosted_plan_id/url`, usage stats, `source_url`, `deleted_at`/`deleted_by` |
+| `plan_sections`    | Ordered sections within a plan — `type`, `title`, `body`, `html`, `sort_order`, `created_by`                                                                                            |
+| `plan_comments`    | Threaded comments — `kind`, `status`, `anchor`, `message`, `resolution_target`, `mentions_json`, `resolved_by`                                                                          |
+| `plan_events`      | Audit log of agent/human events on a plan                                                                                                                                               |
+| `plan_versions`    | Point-in-time snapshots for version history                                                                                                                                             |
+| `plan_shares`      | Per-principal share grants (viewer / editor / admin)                                                                                                                                    |
+| `plan_guest_mints` | Rate-limit records for guest session issuance                                                                                                                                           |
+| `plan_assets`      | Inline image assets stored as base64 (fallback when no upload provider)                                                                                                                 |
 
 ### Key actions
 
@@ -304,6 +367,7 @@ Actions in `templates/plan/actions/`:
 
 - **Creation** — `create-visual-plan`, `create-visual-recap`, `create-ui-plan`, `create-prototype-plan`, `create-plan-design`, `create-visual-questions`
 - **Reading & editing** — `get-visual-plan`, `update-visual-plan`, `list-visual-plans`, `import-visual-plan-source`, `patch-visual-plan-source`, `read-visual-plan-source`, `export-visual-plan`
+- **Lifecycle** — `delete-visual-plan` for owner-only soft delete, restore, and typed-confirmation permanent delete
 - **Publishing & sharing** — `publish-visual-plan`
 - **Versions** — `list-plan-versions`, `get-plan-version`, `restore-plan-version`
 - **Comments & feedback** — `get-plan-feedback`, `reply-to-plan-comment`, `resolve-plan-comment`, `consume-plan-feedback`, `delete-plan-comment`

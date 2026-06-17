@@ -38,6 +38,7 @@ import {
   buildDeepLink,
   toAbsoluteOpenUrl,
   toDesktopOpenUrl,
+  toVsCodeOpenUrl,
 } from "../server/deep-link.js";
 import {
   isAgentNativeOpenDeepLink,
@@ -509,6 +510,7 @@ function mcpAppEmbedOpenLinkMeta(
             ...(view ? { view } : {}),
             webUrl: safeOpenUrl,
             desktopUrl: desktopDeepLinkUrl ?? safeOpenUrl,
+            vscodeUrl: toVsCodeOpenUrl(safeOpenUrl),
           },
         }
       : {}),
@@ -603,6 +605,7 @@ export function buildLinkArtifacts(
       : lk.url;
     const webUrl = toAbsoluteOpenUrl(linkUrl, meta?.origin);
     const desktopUrl = toDesktopOpenUrl(linkUrl);
+    const vscodeUrl = toVsCodeOpenUrl(webUrl);
     const markdownUrl = meta?.target === "desktop" ? desktopUrl : webUrl;
     return {
       block: { type: "text", text: `\n\n[${lk.label} →](${markdownUrl})` },
@@ -612,6 +615,7 @@ export function buildLinkArtifacts(
           view: lk.view,
           webUrl,
           desktopUrl,
+          vscodeUrl,
         },
       },
     };

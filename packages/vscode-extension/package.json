@@ -1,0 +1,66 @@
+{
+  "name": "agent-native",
+  "displayName": "Agent Native",
+  "description": "Open Agent Native apps and MCP handoff links inside VS Code.",
+  "version": "0.0.1",
+  "private": true,
+  "publisher": "builderio",
+  "license": "MIT",
+  "type": "commonjs",
+  "engines": {
+    "vscode": "^1.120.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onUri",
+    "onCommand:agentNative.openDefaultApp",
+    "onCommand:agentNative.openUrl",
+    "onCommand:agentNative.connectWorkspace"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "agentNative.openDefaultApp",
+        "title": "Open Agent Native",
+        "category": "Agent Native"
+      },
+      {
+        "command": "agentNative.openUrl",
+        "title": "Open Agent Native URL",
+        "category": "Agent Native"
+      },
+      {
+        "command": "agentNative.connectWorkspace",
+        "title": "Connect Workspace to Agent Native MCP",
+        "category": "Agent Native"
+      }
+    ],
+    "configuration": {
+      "title": "Agent Native",
+      "properties": {
+        "agentNative.defaultAppUrl": {
+          "type": "string",
+          "default": "https://dispatch.agent-native.com",
+          "description": "The Agent Native app URL opened by the Open Agent Native command."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "vitest --run src --passWithNoTests",
+    "test:e2e": "pnpm run build && node dist/test/runTest.js",
+    "vscode:prepublish": "pnpm run build"
+  },
+  "devDependencies": {
+    "@types/node": "^25.9.3",
+    "@types/vscode": "1.120.0",
+    "@vscode/test-electron": "3.0.0",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  }
+}

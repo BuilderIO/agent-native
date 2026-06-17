@@ -2,6 +2,7 @@ import {
   createProviderApiRuntime,
   listProviderApiIdsForTemplateUse,
   type ProviderApiCredentialResolver,
+  type ProviderApiDocsOptions,
   type ProviderApiId,
   type ProviderApiMethod,
   type ProviderApiRequestArgs,
@@ -58,11 +59,9 @@ export function listProviderApiCatalog(provider?: AnalyticsProviderApiId) {
   return runtime.listCatalog(provider);
 }
 
-export function fetchProviderApiDocs(options: {
-  provider: AnalyticsProviderApiId;
-  url?: string;
-  maxBytes?: number;
-}) {
+export function fetchProviderApiDocs(
+  options: ProviderApiDocsOptions & { provider: AnalyticsProviderApiId },
+) {
   return runtime.fetchDocs(options);
 }
 

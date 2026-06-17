@@ -20,4 +20,13 @@ export {
   type MentionProvider,
   type MentionProviderItem,
 } from "./types.js";
+export {
+  TripWire,
+  type Processor,
+  type ProcessorState,
+  type ProcessorAbort,
+  type ProcessOutputStreamArgs,
+  type ProcessOutputStepArgs,
+  type ProcessOutputResultArgs,
+} from "./processors.js";
 export { DEFAULT_MODEL } from "./default-model.js";

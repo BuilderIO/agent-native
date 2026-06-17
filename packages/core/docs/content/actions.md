@@ -49,6 +49,35 @@ That's it. The framework auto-discovers every file in `actions/` and mounts them
 
 The schema is converted to JSON Schema for the Claude API tool definition, _and_ used at runtime to validate inputs before `run()` fires. Invalid inputs never reach your handler.
 
+### Validating the return value {#output-schema}
+
+`schema` validates _inputs_. To also validate what an action **returns**, pass an `outputSchema` (any Standard Schema-compatible schema — Zod, Valibot, ArkType, same surface as `schema`). The framework validates the result _after_ `run()` resolves, composing with input validation: input validated before `run`, output validated after.
+
+```ts
+export default defineAction({
+  description: "Summarize a thread.",
+  schema: z.object({ threadId: z.string() }),
+  outputSchema: z.object({
+    summary: z.string(),
+    messageCount: z.number(),
+  }),
+  outputErrorStrategy: "warn", // default
+  run: async ({ threadId }) => {
+    /* ...returns { summary, messageCount } ... */
+  },
+});
+```
+
+`outputErrorStrategy` controls what happens on a mismatch:
+
+| Strategy     | Behavior on mismatch                                                                               |
+| ------------ | -------------------------------------------------------------------------------------------------- |
+| `"warn"`     | **Default.** `console.warn` the issues and return the **original** result unchanged. Non-breaking. |
+| `"strict"`   | Throw a clear error so a buggy action surfaces loudly.                                             |
+| `"fallback"` | Return the provided `outputFallback` value in place of the invalid result.                         |
+
+On success, the **validated** value is returned, so any coercion or defaults defined on the `outputSchema` take effect (mirroring the input path). When no `outputSchema` is supplied, behavior is byte-for-byte unchanged — there is no wrapping. This is borrowed from Mastra/Flue structured-output and kept dependency-free on the action layer.
+
 ### HTTP config {#http}
 
 By default every action is exposed as `POST /_agent-native/actions/<name>`. Override with the `http` option:
@@ -221,6 +250,26 @@ export default defineAction({
 
 For list and read actions, use `accessFilter` to scope the query to the current user and org. For actions that update or delete a specific row, use `assertAccess` to confirm the caller is allowed before writing. See [Security](/docs/security#access-guards) and [Sharing](/docs/sharing) for the full helper API.
 
+### Human-in-the-loop approval {#needs-approval}
+
+A handful of actions are too consequential to let the agent run autonomously — sending an email, charging a card, deleting an account. For those, set `needsApproval` to pause the loop and require a human to approve the specific call before `run()` executes:
+
+```ts
+export default defineAction({
+  description: "Send an email via Gmail.",
+  schema: z.object({ to: z.string(), subject: z.string(), body: z.string() }),
+  needsApproval: true, // pause; a human must approve this specific send
+  run: async (args) => {
+    /* ...actually send... */
+  },
+});
+```
+
+`needsApproval` accepts a boolean or a predicate `(args, ctx) => boolean | Promise<boolean>` to gate conditionally (e.g. only external recipients, only above a threshold). The predicate **fails closed**: a throw is treated as "approval required". When the gate is truthy and the call isn't yet approved, the loop emits an `approval_required` event and stops the turn — the side effect never happens — and the action runs only once a human approves via the chat UI's Approve affordance.
+
+> [!WARNING]
+> Keep approvals rare. Each gated action is a hard stop in the agent loop. The default is **off**, and almost every action should leave it off. See [Human-in-the-Loop Approvals](/docs/human-approval) for the full flow.
+
 ## Calling it from the UI {#ui}
 
 Two hooks, both in `@agent-native/core/client`. Types are inferred from your `defineAction` schemas — no manual type declarations.
@@ -390,6 +439,7 @@ const args = parseArgs(["--name", "Steve", "--verbose", "--count=3"]);
 
 ## What's next
 
+- [**Human-in-the-Loop Approvals**](/docs/human-approval) — the `needsApproval` gate in depth
 - [**Drop-in Agent**](/docs/drop-in-agent) — `useActionMutation` / `useActionQuery` in React
 - [**Context Awareness**](/docs/context-awareness) — the `view-screen` + `navigate` pattern in depth
 - [**A2A Protocol**](/docs/a2a-protocol) — how other agents discover and call your actions

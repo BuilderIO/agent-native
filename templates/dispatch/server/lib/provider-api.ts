@@ -1,6 +1,7 @@
 import {
   PROVIDER_API_IDS,
   createProviderApiRuntime,
+  type ProviderApiDocsOptions,
   type ProviderApiId,
   type ProviderApiMethod,
   type ProviderApiRequestArgs,
@@ -30,11 +31,9 @@ export function listProviderApiCatalog(provider?: DispatchProviderApiId) {
   return runtime.listCatalog(provider);
 }
 
-export function fetchProviderApiDocs(options: {
-  provider: DispatchProviderApiId;
-  url?: string;
-  maxBytes?: number;
-}) {
+export function fetchProviderApiDocs(
+  options: ProviderApiDocsOptions & { provider: DispatchProviderApiId },
+) {
   return runtime.fetchDocs(options);
 }
 

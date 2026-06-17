@@ -206,7 +206,21 @@ const ProviderCorpusJobSchema = z.object({
     .describe("Results/list limit."),
 });
 
+const ProviderCorpusJobReadSchema = z.object({
+  operation: z.enum(["list", "status", "results"]).default("list"),
+  jobId: z.string().optional().describe("Existing job id for status/results."),
+  offset: z.coerce.number().int().min(0).optional().describe("Results offset."),
+  limit: z.coerce
+    .number()
+    .int()
+    .min(1)
+    .max(1_000)
+    .optional()
+    .describe("Results/list limit."),
+});
+
 type ProviderCorpusJobArgs = z.infer<typeof ProviderCorpusJobSchema>;
+type ProviderCorpusJobReadArgs = z.infer<typeof ProviderCorpusJobReadSchema>;
 type ProviderRequest = z.infer<typeof ProviderRequestSchema>;
 type PaginationConfig = z.infer<typeof PaginationSchema>;
 type BatchConfig = z.infer<typeof BatchSchema>;
@@ -222,6 +236,7 @@ interface SearchHit {
   query: string;
   match: string;
   snippet: string;
+  matchedTerms?: string[];
   metadata?: Record<string, unknown>;
   pageIndex?: number;
   pageItemIndex?: number;
@@ -239,6 +254,16 @@ interface SearchPageResult {
 interface ProviderBodyResult {
   body: unknown;
   quota?: { retryAt: string; retryAfterMs: number; reason: string };
+}
+
+interface MatchRecord {
+  kind: string;
+  query: string;
+  index: number;
+  endIndex?: number;
+  match: string;
+  matchedTerms?: string[];
+  snippet?: string;
 }
 
 const DEFAULT_PAGE_BUDGET = 25;
@@ -261,6 +286,21 @@ export function createProviderCorpusJobAction(
     schema: ProviderCorpusJobSchema,
     http: false,
     run: async (args) => runProviderCorpusJobAction(args, options),
+  });
+}
+
+export function createProviderCorpusJobReadAction(
+  options: Pick<CreateProviderCorpusJobActionOptions, "appId">,
+) {
+  return defineAction({
+    description:
+      "Read provider corpus job status and stored results for the current user. " +
+      "This read-only companion is for UI polling and status surfaces; it cannot start or continue provider requests.",
+    schema: ProviderCorpusJobReadSchema,
+    http: { method: "GET" },
+    readOnly: true,
+    agentTool: false,
+    run: async (args) => runProviderCorpusJobReadAction(args, options),
   });
 }
 
@@ -335,6 +375,53 @@ async function runProviderCorpusJobAction(
   }
 
   throw new Error(`Unsupported provider corpus operation ${args.operation}.`);
+}
+
+async function runProviderCorpusJobReadAction(
+  args: ProviderCorpusJobReadArgs,
+  options: Pick<CreateProviderCorpusJobActionOptions, "appId">,
+) {
+  const ctx = getCredentialContext();
+  if (!ctx)
+    throw new Error("No authenticated context for provider corpus jobs.");
+
+  if (args.operation === "list") {
+    const jobs = await listProviderCorpusJobs({
+      appId: options.appId,
+      ownerEmail: ctx.userEmail,
+      limit: args.limit,
+    });
+    return { jobs: jobs.map(jobStatus), total: jobs.length };
+  }
+
+  const jobId = args.jobId?.trim();
+  if (!jobId) throw new Error(`${args.operation} requires jobId.`);
+
+  const job = await getProviderCorpusJob({
+    id: jobId,
+    appId: options.appId,
+    ownerEmail: ctx.userEmail,
+  });
+  if (!job) {
+    throw new Error(
+      `Provider corpus job ${jobId} not found or belongs to another owner/app.`,
+    );
+  }
+
+  if (args.operation === "status") return jobStatus(job);
+  const hits = await getProviderCorpusJobHits({
+    jobId,
+    appId: options.appId,
+    ownerEmail: ctx.userEmail,
+    offset: args.offset,
+    limit: args.limit,
+  });
+  return {
+    ...jobStatus(job),
+    hits,
+    offset: args.offset ?? 0,
+    limit: args.limit ?? 100,
+  };
 }
 
 async function startJob(
@@ -896,7 +983,17 @@ function searchItems(
           kind: match.kind,
           query: match.query,
           match: match.match,
-          snippet: makeSnippet(field.text, match.index, search.contextChars),
+          snippet:
+            match.snippet ??
+            makeSnippet(
+              field.text,
+              match.index,
+              search.contextChars,
+              match.endIndex,
+            ),
+          ...(match.matchedTerms?.length
+            ? { matchedTerms: match.matchedTerms }
+            : {}),
           ...(Object.keys(metadata).length ? { metadata } : {}),
         });
       }
@@ -1192,13 +1289,6 @@ interface TextField {
   text: string;
 }
 
-interface MatchRecord {
-  kind: string;
-  query: string;
-  index: number;
-  match: string;
-}
-
 function collectSearchStrings(
   item: unknown,
   textPaths: string[] | undefined,
@@ -1342,21 +1432,69 @@ function findItemWideTermMatch(fields: TextField[], search: SearchConfig) {
   const terms = normalizedTerms(search);
   if (!terms.length || search.matchMode === "anyTerm") return null;
   const caseSensitive = Boolean(search.caseSensitive);
-  const termHits = terms.map((term) => {
-    const needle = caseSensitive ? term : term.toLowerCase();
-    for (const field of fields) {
-      const haystack = caseSensitive ? field.text : field.text.toLowerCase();
-      const index = haystack.indexOf(needle);
-      if (index >= 0) return { term, field, index };
-    }
-    return { term, field: null, index: -1 };
-  });
-  if (termHits.some((hit) => !hit.field || hit.index < 0)) return null;
-  const first = termHits
-    .filter((hit): hit is { term: string; field: TextField; index: number } =>
-      Boolean(hit.field),
+  const fieldWindows = fields
+    .map((field) => {
+      const hits = bestTermClusterInText(field.text, terms, caseSensitive).map(
+        (hit) => ({ ...hit, field }),
+      );
+      if (hits.length !== terms.length) return null;
+      const start = Math.min(...hits.map((hit) => hit.index));
+      const end = Math.max(...hits.map((hit) => hit.end));
+      return {
+        field,
+        hits,
+        start,
+        end,
+        length: end - start,
+      };
+    })
+    .filter(
+      (
+        result,
+      ): result is {
+        field: TextField;
+        hits: TermHit[];
+        start: number;
+        end: number;
+        length: number;
+      } => Boolean(result),
     )
-    .sort((a, b) => a.index - b.index)[0];
+    .sort((a, b) => a.length - b.length || a.start - b.start);
+
+  const bestFieldWindow = fieldWindows[0];
+  if (bestFieldWindow) {
+    const context = boundedNumber(search.contextChars, 180, 20, 1_000);
+    const snippet =
+      bestFieldWindow.length > context * 4
+        ? makeCombinedTermSnippet(bestFieldWindow.hits, search.contextChars)
+        : undefined;
+    return {
+      field: bestFieldWindow.field,
+      match: {
+        kind: "allTerms",
+        query: terms.join(" "),
+        index: bestFieldWindow.start,
+        endIndex: bestFieldWindow.end,
+        match: bestFieldWindow.field.text.slice(
+          bestFieldWindow.start,
+          bestFieldWindow.end,
+        ),
+        matchedTerms: terms,
+        snippet,
+      },
+    };
+  }
+
+  const termHits = terms.map((term) => {
+    for (const field of fields) {
+      const hit = firstTermHitInField(field, term, caseSensitive);
+      if (hit) return hit;
+    }
+    return null;
+  });
+  if (termHits.some((hit) => !hit)) return null;
+  const hits = termHits.filter(isTermHit);
+  const first = hits.sort((a, b) => a.index - b.index)[0];
   if (!first) return null;
   return {
     field: first.field,
@@ -1364,7 +1502,10 @@ function findItemWideTermMatch(fields: TextField[], search: SearchConfig) {
       kind: "allTerms",
       query: terms.join(" "),
       index: first.index,
-      match: first.term,
+      endIndex: first.end,
+      match: first.match,
+      matchedTerms: terms,
+      snippet: makeCombinedTermSnippet(hits, search.contextChars),
     },
   };
 }
@@ -1423,24 +1564,42 @@ function findSearchMatches(
 
   const terms = includeTerms ? normalizedTerms(search) : [];
   if (terms.length) {
-    const hits = terms
-      .map((term) => {
-        const needle = caseSensitive ? term : term.toLowerCase();
-        return { term, index: haystack.indexOf(needle) };
-      })
-      .filter((hit) => hit.index >= 0);
     const mode = search.matchMode === "anyTerm" ? "anyTerm" : "allTerms";
+    const hits =
+      mode === "allTerms"
+        ? bestTermClusterInText(source, terms, caseSensitive)
+        : terms
+            .map((term) =>
+              firstTermHitInText(
+                source,
+                haystack,
+                caseSensitive ? term : term.toLowerCase(),
+                term,
+              ),
+            )
+            .filter(isInlineTermHit)
+            .sort((a, b) => a.index - b.index);
     if (
       (mode === "allTerms" && hits.length === terms.length) ||
       (mode === "anyTerm" && hits.length > 0)
     ) {
-      const first = hits.sort((a, b) => a.index - b.index)[0];
+      const first = hits[0];
       if (first) {
+        const endIndex =
+          mode === "allTerms"
+            ? Math.max(...hits.map((hit) => hit.end))
+            : first.end;
         matches.push({
           kind: mode,
           query: terms.join(" "),
           index: first.index,
-          match: first.term,
+          endIndex,
+          match:
+            mode === "allTerms"
+              ? source.slice(first.index, endIndex)
+              : first.match,
+          matchedTerms:
+            mode === "allTerms" ? terms : hits.map((hit) => hit.term),
         });
       }
     }
@@ -1464,13 +1623,145 @@ function makeSnippet(
   text: string,
   index: number,
   contextChars: number | undefined,
+  endIndex = index,
 ): string {
   const context = boundedNumber(contextChars, 180, 20, 1_000);
   const start = Math.max(0, index - context);
-  const end = Math.min(text.length, index + context);
+  const end = Math.min(text.length, Math.max(index, endIndex) + context);
   const prefix = start > 0 ? "..." : "";
   const suffix = end < text.length ? "..." : "";
   return `${prefix}${text.slice(start, end)}${suffix}`
     .replace(/\s+/g, " ")
     .trim();
+}
+
+interface InlineTermHit {
+  term: string;
+  index: number;
+  end: number;
+  match: string;
+}
+
+interface TermHit extends InlineTermHit {
+  field: TextField;
+}
+
+function firstTermHitInText(
+  source: string,
+  haystack: string,
+  needle: string,
+  term: string,
+): InlineTermHit | null {
+  const index = haystack.indexOf(needle);
+  return index >= 0
+    ? {
+        term,
+        index,
+        end: index + term.length,
+        match: source.slice(index, index + term.length),
+      }
+    : null;
+}
+
+function firstTermHitInField(
+  field: TextField,
+  term: string,
+  caseSensitive: boolean,
+): TermHit | null {
+  const source = field.text;
+  const haystack = caseSensitive ? source : source.toLowerCase();
+  const needle = caseSensitive ? term : term.toLowerCase();
+  const hit = firstTermHitInText(source, haystack, needle, term);
+  return hit ? { ...hit, term, field } : null;
+}
+
+function isInlineTermHit(
+  hit: InlineTermHit | null | undefined,
+): hit is InlineTermHit {
+  return Boolean(hit);
+}
+
+function isTermHit(hit: TermHit | null): hit is TermHit {
+  return Boolean(hit);
+}
+
+function bestTermClusterInText(
+  source: string,
+  terms: string[],
+  caseSensitive: boolean,
+): InlineTermHit[] {
+  const haystack = caseSensitive ? source : source.toLowerCase();
+  const allHits = terms.map((term) => {
+    const needle = caseSensitive ? term : term.toLowerCase();
+    const hits: InlineTermHit[] = [];
+    let from = 0;
+    while (from <= haystack.length) {
+      const index = haystack.indexOf(needle, from);
+      if (index < 0) break;
+      hits.push({
+        term,
+        index,
+        end: index + term.length,
+        match: source.slice(index, index + term.length),
+      });
+      from = index + Math.max(1, needle.length);
+      if (hits.length >= 100) break;
+    }
+    return hits;
+  });
+  if (allHits.some((hits) => hits.length === 0)) return [];
+
+  const flattened = allHits
+    .flat()
+    .sort((a, b) => a.index - b.index || a.end - b.end);
+  let best: InlineTermHit[] | null = null;
+  let bestLength = Infinity;
+
+  for (let start = 0; start < flattened.length; start++) {
+    const selected = new Map<string, InlineTermHit>();
+    for (let end = start; end < flattened.length; end++) {
+      const hit = flattened[end]!;
+      selected.set(hit.term, hit);
+      if (selected.size !== terms.length) continue;
+      const cluster = terms
+        .map((term) => selected.get(term))
+        .filter(isInlineTermHit)
+        .sort((a, b) => a.index - b.index);
+      const length =
+        Math.max(...cluster.map((item) => item.end)) -
+        Math.min(...cluster.map((item) => item.index));
+      if (length < bestLength) {
+        best = cluster;
+        bestLength = length;
+      }
+      break;
+    }
+  }
+
+  return best ?? [];
+}
+
+function makeCombinedTermSnippet(
+  hits: TermHit[],
+  contextChars: number | undefined,
+): string {
+  const context = boundedNumber(contextChars, 180, 20, 1_000);
+  const shownHits = hits.slice(0, 5);
+  const perHitContext = Math.max(
+    20,
+    Math.min(120, Math.floor(context / Math.max(1, Math.min(3, hits.length)))),
+  );
+  const parts = shownHits.map((hit) => {
+    const snippet = makeSnippet(
+      hit.field.text,
+      hit.index,
+      perHitContext,
+      hit.end,
+    );
+    return `${hit.field.path}: ${snippet}`;
+  });
+  if (hits.length > shownHits.length) {
+    parts.push(`... +${hits.length - shownHits.length} more terms`);
+  }
+  return parts.join(" | ");
 }

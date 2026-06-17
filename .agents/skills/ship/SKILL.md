@@ -25,6 +25,13 @@ below pass, unless the user says not to merge. Do not ask again just to merge a
 clean PR. Do not stop after creating the PR; the default `/ship` outcome is a
 merged PR and a fresh post-merge branch.
 
+If the branch updates templates or publishable packages, shipping does not stop
+at merge. Treat the work as shipped only after the affected templates are live in
+production and affected packages have successfully published/released. If a
+production template deploy or package publish fails, retrigger the failed job
+when the existing code already contains the fix; otherwise make the necessary
+code/config fix and ship that follow-up until production is live.
+
 ## Steps
 
 1. **Stay on the current branch**: never create, switch, rebase, reset, or stash
@@ -68,13 +75,27 @@ merged PR and a fresh post-merge branch.
    clean working tree, no unpushed commits, GitHub Actions green, all review
    comments addressed/replied, and mergeable.
 
-9. **Create the next branch after merge**: after the PR is merged and `origin/main`
+9. **Verify production is live when needed**: if the branch changed
+   `templates/*`, docs/sites that publish templates, or any deployment config
+   that affects templates, verify the affected template production deploys finish
+   successfully and the live site is serving the new build. If a deploy fails
+   because of a transient infra/build pickup issue, retrigger it; if it fails
+   because of code, config, dependency, or generated-file problems, fix the
+   issue and ship the follow-up. If the branch changed publishable packages such
+   as `packages/core`, `packages/dispatch`, `packages/scheduling`,
+   `packages/pinpoint`, or `packages/skills`, verify the release/publish
+   workflow completes and the package version is available from the registry or
+   package host. Retrigger transient publish failures; fix and ship code/config
+   failures.
+
+10. **Create the next branch after merge**: after the PR is merged and `origin/main`
    contains the merge commit, run `/new-branch`. Follow that skill’s preflight,
    stash gate, branch naming, and stash-reporting rules. This is the only branch
    movement in the ship flow.
 
-10. **Report**: summarize the PR URL, merge result, new branch name, validation,
-    and any feedback/CI fixes handled.
+11. **Report**: summarize the PR URL, merge result, new branch name, validation,
+    production deploy/publish verification when applicable, and any feedback/CI
+    fixes handled.
 
 ## Important
 
@@ -88,5 +109,8 @@ merged PR and a fresh post-merge branch.
 - Treat `/babysit-pr` as the source of truth for CI/review monitoring cadence,
   comment handling, local-file push discipline, and merge gates. Update
   `babysit-pr` first if the watcher behavior changes.
+- Treat production deploy/publish verification as part of `/ship` whenever
+  templates or publishable packages changed. A green PR is not enough if the
+  affected template build or package publish later fails.
 - Treat `/new-branch` as mandatory after a successful merge so the workspace is
   ready for the next task on fresh `main`.

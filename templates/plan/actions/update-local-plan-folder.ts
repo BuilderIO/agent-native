@@ -1,0 +1,231 @@
+import { defineAction } from "@agent-native/core";
+import { z } from "zod";
+import {
+  applyPlanContentPatches,
+  planContentPatchesSchema,
+  planContentSchema,
+  type PlanContent,
+} from "../shared/plan-content.js";
+import { exportPlanContentToMdxFolder } from "../server/plan-mdx.js";
+import { normalizePlanContent } from "../server/plan-content.js";
+import { buildPlanHtml, nowIso } from "../server/plans.js";
+import {
+  getLocalPlanOwnerEmail,
+  isLocalPlanRuntime,
+} from "../server/lib/local-identity.js";
+import {
+  readPlanLocalFolder,
+  writePlanLocalFolder,
+} from "../server/lib/local-plan-files.js";
+import type { PlanBundle, PlanKind } from "../shared/types.js";
+
+const localPlanKindSchema = z.enum(["plan", "recap"]);
+
+export default defineAction({
+  description:
+    "Update a DB-free local Agent-Native Plan MDX folder from PLAN_LOCAL_DIR or an optional repo-relative path. Applies the same structured contentPatches used by update-visual-plan, writes plan.mdx/canvas.mdx/prototype.mdx back to the same local folder, and never writes to the database.",
+  schema: z.object({
+    slug: z
+      .string()
+      .min(1)
+      .regex(/^[A-Za-z0-9._-]+$/)
+      .describe(
+        "Folder name under PLAN_LOCAL_DIR, for example checkout-review.",
+      ),
+    path: z
+      .string()
+      .optional()
+      .describe(
+        "Optional repo-relative folder path, for example plans/checkout-review.",
+      ),
+    title: z.string().optional().describe("Plan title."),
+    brief: z
+      .string()
+      .optional()
+      .describe("One-line plan summary shown under the title."),
+    kind: localPlanKindSchema.optional(),
+    content: planContentSchema
+      .optional()
+      .describe(
+        "Full structured content replacement. Prefer contentPatches for targeted edits.",
+      ),
+    contentPatches: planContentPatchesSchema
+      .optional()
+      .default([])
+      .describe(
+        "Targeted structured content edits addressed by stable block/prototype/canvas ids.",
+      ),
+    note: z.string().optional().describe("Short audit note for callers."),
+  }),
+  requiresAuth: false,
+  publicAgent: {
+    expose: true,
+    readOnly: false,
+    requiresAuth: false,
+    isConsequential: true,
+    title: "Update Local Plan Folder",
+    description:
+      "Edit a local MDX-backed plan folder by slug or repo-relative path without touching the Plan app database.",
+  },
+  run: async (args) => {
+    if (!isLocalPlanRuntime()) {
+      throw new Error(
+        "Local plan folder editing is only available in local Plan runtime.",
+      );
+    }
+
+    const current = await readPlanLocalFolder({
+      slug: args.slug,
+      path: args.path,
+    });
+    const kind = resolveLocalPlanKind(args.kind, current.mdx) as PlanKind;
+    if (kind === "recap") {
+      throw new Error("Local recap folders are read-only in the browser.");
+    }
+
+    let nextContent: PlanContent =
+      args.content !== undefined
+        ? (normalizePlanContent(args.content) ?? current.content)
+        : current.content;
+    if (args.contentPatches.length > 0) {
+      nextContent = applyPlanContentPatches(nextContent, args.contentPatches);
+    }
+
+    const metadataPatch = args.contentPatches.find(
+      (patch) => patch.op === "set-metadata",
+    );
+    const title =
+      args.title ??
+      metadataPatch?.title ??
+      nextContent.title ??
+      current.content.title ??
+      current.slug;
+    const brief =
+      args.brief ??
+      metadataPatch?.brief ??
+      nextContent.brief ??
+      current.content.brief ??
+      "Local files preview.";
+    nextContent =
+      normalizePlanContent({ ...nextContent, title, brief }) ?? nextContent;
+
+    const planId = `local-${current.slug}`;
+    const localFiles = await writePlanLocalFolder({
+      slug: current.slug,
+      path: current.repoPath,
+      planId,
+      title,
+      brief,
+      content: nextContent,
+      url: current.routePath,
+    });
+    if (!localFiles.written) {
+      throw new Error("Local plan folder could not be written.");
+    }
+
+    const updated = await readPlanLocalFolder({
+      slug: current.slug,
+      path: current.repoPath,
+    });
+    const now = nowIso();
+    const bundle: PlanBundle = {
+      plan: {
+        id: planId,
+        title: updated.content.title || title,
+        brief: updated.content.brief || brief,
+        kind,
+        status: "review",
+        source: "imported",
+        repoPath: updated.folder,
+        currentFocus: "local-files editing",
+        html: null,
+        markdown: updated.mdx["plan.mdx"],
+        content: updated.content,
+        createdAt: now,
+        updatedAt: now,
+        approvedAt: null,
+      },
+      access: {
+        role: "editor",
+        ownerEmail: getLocalPlanOwnerEmail(),
+        orgId: null,
+        visibility: "private",
+      },
+      sections: [],
+      comments: [],
+      events: [],
+      summary: {
+        sectionCounts: countLocalPlanBlocks(updated.content.blocks),
+        commentCount: 0,
+        openCommentCount: 0,
+      },
+    };
+
+    return {
+      ...bundle,
+      planId,
+      localOnly: true,
+      slug: updated.slug,
+      folder: updated.folder,
+      repoPath: updated.repoPath,
+      path: updated.routePath,
+      url: updated.url,
+      suggestedRepoPath: updated.suggestedRepoPath,
+      html: buildPlanHtml(bundle),
+      mdx: await exportPlanContentToMdxFolder({
+        content: bundle.plan.content,
+        title: bundle.plan.title,
+        brief: bundle.plan.brief,
+        planId,
+        url: updated.routePath,
+      }),
+      localFiles,
+      note: args.note,
+    };
+  },
+  link: ({ args }) => ({
+    url: args.path
+      ? `/local-plans/${encodeURIComponent(args.slug)}?${new URLSearchParams({
+          path: args.path,
+        }).toString()}`
+      : `/local-plans/${encodeURIComponent(args.slug)}`,
+    label: "Open Local Plan",
+    view: "plan",
+  }),
+});
+
+function resolveLocalPlanKind(
+  explicit: "plan" | "recap" | undefined,
+  mdx: { "plan.mdx": string; ".plan-state.json"?: string },
+): "plan" | "recap" {
+  if (explicit) return explicit;
+  const frontmatterMatch = mdx["plan.mdx"].match(
+    /^---[\s\S]*?^kind:\s*["']?(plan|recap)["']?\s*$/m,
+  );
+  if (frontmatterMatch) return frontmatterMatch[1] as "plan" | "recap";
+  try {
+    const state = mdx[".plan-state.json"]
+      ? (JSON.parse(mdx[".plan-state.json"]) as { kind?: unknown })
+      : null;
+    if (state?.kind === "plan" || state?.kind === "recap") return state.kind;
+  } catch {
+    // Optional state file.
+  }
+  return "plan";
+}
+
+function countLocalPlanBlocks(blocks: PlanContent["blocks"]) {
+  const counts: Record<string, number> = {};
+  const visitBlocks = (items: PlanContent["blocks"]) => {
+    for (const block of items) {
+      counts[block.type] = (counts[block.type] ?? 0) + 1;
+      if (block.type === "tabs") {
+        for (const tab of block.data.tabs) visitBlocks(tab.blocks);
+      } else if (block.type === "columns") {
+        for (const column of block.data.columns) visitBlocks(column.blocks);
+      }
+    }
+  };
+  visitBlocks(blocks);
+  return counts;
+}

@@ -24,6 +24,11 @@ import {
   createSsrfSafeDispatcher,
   isBlockedExtensionUrlWithDns,
 } from "./url-safety.js";
+import {
+  formatWebContentResult,
+  parseWebContentSearchOptions,
+  processWebContent,
+} from "./web-content.js";
 
 const DEFAULT_TIMEOUT_MS = 15_000;
 
@@ -119,6 +124,47 @@ export function createFetchToolEntry(
               description:
                 "Maximum response body characters to return. Default: 32000. Max: 200000. Increase when you need to read a large document, API response, or dataset.",
             },
+            responseMode: {
+              type: "string",
+              description:
+                "How to return the response. Default: auto (HTML pages become clean markdown; JSON/text stays raw). Use raw for exact bytes, markdown/text for extracted readable content, links for just links, metadata for page metadata, or matches with search.",
+              enum: [
+                "auto",
+                "raw",
+                "text",
+                "markdown",
+                "links",
+                "metadata",
+                "matches",
+              ],
+            },
+            extract: {
+              type: "string",
+              description:
+                "HTML extraction strategy. Default: readability. Use all-visible for visible body text/markdown, or none to convert the full HTML document.",
+              enum: ["readability", "all-visible", "none"],
+            },
+            includeLinks: {
+              type: "boolean",
+              description:
+                "Whether extracted HTML responses should include a compact links list. Default: true for extracted pages.",
+            },
+            search: {
+              type: "object",
+              description:
+                "Optional post-fetch search over extracted content by default. Supports {query, queries, terms, regex, regexFlags, source:'extracted'|'raw', maxMatches, contextChars, caseSensitive}. Regex is safety-checked and bounded; prefer query/terms for simple grep-like searches.",
+              properties: {
+                query: { type: "string" },
+                queries: { type: "array", items: { type: "string" } },
+                terms: { type: "array", items: { type: "string" } },
+                regex: { type: "string" },
+                regexFlags: { type: "string" },
+                source: { type: "string", enum: ["extracted", "raw"] },
+                maxMatches: { type: "number" },
+                contextChars: { type: "number" },
+                caseSensitive: { type: "boolean" },
+              },
+            } as any,
             saveToFile: {
               type: "string",
               description:
@@ -128,15 +174,23 @@ export function createFetchToolEntry(
           required: ["url"],
         },
       },
-      run: async (args: Record<string, string>) => {
+      run: async (args: Record<string, unknown>) => {
         const startTime = Date.now();
-        const rawUrl = args.url;
+        const rawUrl = String(args.url ?? "");
         const method = normalizeExtensionProxyMethod(args.method || "GET");
         if (!method) {
           return "Unsupported HTTP method. Allowed methods: GET, POST, PUT, PATCH, DELETE, HEAD.";
         }
-        const rawHeaders = args.headers || "{}";
-        const rawBody = args.body;
+        const rawHeaders =
+          typeof args.headers === "string"
+            ? args.headers
+            : JSON.stringify(args.headers ?? {});
+        const rawBody =
+          typeof args.body === "string"
+            ? args.body
+            : args.body === undefined || args.body === null
+              ? undefined
+              : JSON.stringify(args.body);
         const timeoutMs = Math.min(
           Number(args.timeout_ms) || DEFAULT_TIMEOUT_MS,
           30_000,
@@ -272,6 +326,30 @@ export function createFetchToolEntry(
             body = "(could not read response body)";
           }
           body = redactString(body, secretValues);
+          const contentType =
+            response.headers.get("content-type")?.split(";")[0].trim() ??
+            "text/plain";
+          let displayBody: string;
+          let processedMode = "raw";
+          try {
+            const processed = processWebContent({
+              url: resolvedUrl,
+              body,
+              contentType,
+              responseMode: String(args.responseMode ?? "auto"),
+              extract: String(args.extract ?? "readability"),
+              includeLinks:
+                args.includeLinks === undefined
+                  ? true
+                  : parseBooleanArg(args.includeLinks),
+              search: parseWebContentSearchOptions(args.search),
+              maxChars,
+            });
+            processedMode = processed.mode;
+            displayBody = formatWebContentResult(processed);
+          } catch (err: any) {
+            return `web-request post-processing error: ${err?.message ?? String(err)}`;
+          }
 
           // Audit log
           console.log(
@@ -294,9 +372,6 @@ export function createFetchToolEntry(
                   : null;
               if (!scope)
                 throw new Error("No authenticated context for saveToFile");
-              const contentType =
-                response.headers.get("content-type")?.split(";")[0].trim() ??
-                "text/plain";
               await writeWorkspaceFile(
                 scope,
                 saveToFilePath,
@@ -307,29 +382,23 @@ export function createFetchToolEntry(
                 },
               );
               const bytes = Buffer.byteLength(body, "utf8");
-              const preview = body.slice(0, 2000);
+              const preview = displayBody.slice(0, 2000);
               return JSON.stringify({
                 savedToFile: true,
                 savedTo: saveToFilePath,
                 status: response.status,
                 bytes,
                 contentType,
-                preview: preview.length < body.length ? `${preview}…` : preview,
+                responseMode: processedMode,
+                preview:
+                  preview.length < displayBody.length ? `${preview}…` : preview,
               });
             } catch (saveErr: any) {
               return `saveToFile error: ${saveErr?.message ?? String(saveErr)}\n\nHTTP ${response.status} ${response.statusText}\n\n${body.slice(0, maxChars)}`;
             }
           }
 
-          // Truncate very long responses for the agent. Default cap is 32 k
-          // chars (~8 k tokens), enough to read a full article or scrape a
-          // stats table without blowing out the model's context window. The
-          // caller may request up to 200 000 chars via the maxChars input.
-          if (body.length > maxChars) {
-            body = body.slice(0, maxChars) + "\n... (truncated)";
-          }
-
-          return `HTTP ${response.status} ${response.statusText}\n\n${body}`;
+          return `HTTP ${response.status} ${response.statusText}\n\n${displayBody}`;
         } catch (err: any) {
           const elapsed = Date.now() - startTime;
           if (err?.name === "AbortError") {
@@ -353,4 +422,10 @@ export function createFetchToolEntry(
       readOnly: true,
     },
   };
+}
+
+function parseBooleanArg(value: unknown): boolean {
+  if (typeof value === "boolean") return value;
+  const normalized = String(value).trim().toLowerCase();
+  return normalized === "true" || normalized === "1" || normalized === "yes";
 }

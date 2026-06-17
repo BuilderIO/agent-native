@@ -3,8 +3,10 @@ import {
   buildDeepLink,
   toAbsoluteOpenUrl,
   toDesktopOpenUrl,
+  toVsCodeOpenUrl,
   OPEN_ROUTE_SUBPATH,
   DESKTOP_OPEN_URL,
+  VSCODE_OPEN_URL,
 } from "../server/deep-link.js";
 
 const ORIGINAL_ENV = { ...process.env };
@@ -154,5 +156,21 @@ describe("toDesktopOpenUrl", () => {
 
   it("returns the bare desktop URL when there is no query string", () => {
     expect(toDesktopOpenUrl("/_agent-native/open")).toBe(DESKTOP_OPEN_URL);
+  });
+});
+
+describe("toVsCodeOpenUrl", () => {
+  it("wraps an absolute web URL for the Agent Native VS Code extension", () => {
+    expect(
+      toVsCodeOpenUrl("https://app.example.com/_agent-native/open?view=inbox"),
+    ).toBe(
+      `${VSCODE_OPEN_URL}?url=https%3A%2F%2Fapp.example.com%2F_agent-native%2Fopen%3Fview%3Dinbox`,
+    );
+  });
+
+  it("wraps a relative path without trying to resolve an origin", () => {
+    expect(toVsCodeOpenUrl("/_agent-native/open?view=inbox")).toBe(
+      `${VSCODE_OPEN_URL}?url=%2F_agent-native%2Fopen%3Fview%3Dinbox`,
+    );
   });
 });

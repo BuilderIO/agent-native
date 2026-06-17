@@ -54,6 +54,8 @@ export const plans = table("plans", {
   // Stable key used by PR Visual Recap publish retries to replace the recap
   // created by an earlier attempt instead of creating duplicate recap rows.
   recapIdempotencyKey: text("recap_idempotency_key"),
+  deletedAt: text("deleted_at"),
+  deletedBy: text("deleted_by"),
   ...ownableColumns(),
 });
 

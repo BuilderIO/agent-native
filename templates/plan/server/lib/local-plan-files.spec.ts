@@ -13,7 +13,9 @@ import {
   localPlanFolderName,
   localPlanFolder,
   localPlansDir,
+  promotePlanLocalFolder,
   readPlanLocalFolder,
+  writePlanLocalFolder,
   writePlanLocalFiles,
 } from "./local-plan-files.js";
 
@@ -36,16 +38,34 @@ function sampleContent(): PlanContent {
 describe("local-plan-files", () => {
   let tmpDir: string;
   let savedDir: string | undefined;
+  let savedRepoRoot: string | undefined;
+  let savedManifest: string | undefined;
+  let savedManifestPath: string | undefined;
 
   beforeEach(async () => {
     tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "plan-local-"));
     savedDir = process.env.PLAN_LOCAL_DIR;
+    savedRepoRoot = process.env.PLAN_REPO_ROOT;
+    savedManifest = process.env.AGENT_NATIVE_MANIFEST;
+    savedManifestPath = process.env.AGENT_NATIVE_MANIFEST_PATH;
     process.env.PLAN_LOCAL_DIR = tmpDir;
+    delete process.env.PLAN_REPO_ROOT;
+    delete process.env.AGENT_NATIVE_MANIFEST;
+    delete process.env.AGENT_NATIVE_MANIFEST_PATH;
   });
 
   afterEach(async () => {
     if (savedDir === undefined) delete process.env.PLAN_LOCAL_DIR;
     else process.env.PLAN_LOCAL_DIR = savedDir;
+    if (savedRepoRoot === undefined) delete process.env.PLAN_REPO_ROOT;
+    else process.env.PLAN_REPO_ROOT = savedRepoRoot;
+    if (savedManifest === undefined) delete process.env.AGENT_NATIVE_MANIFEST;
+    else process.env.AGENT_NATIVE_MANIFEST = savedManifest;
+    if (savedManifestPath === undefined) {
+      delete process.env.AGENT_NATIVE_MANIFEST_PATH;
+    } else {
+      process.env.AGENT_NATIVE_MANIFEST_PATH = savedManifestPath;
+    }
     await fs.rm(tmpDir, { recursive: true, force: true });
   });
 
@@ -198,6 +218,121 @@ describe("local-plan-files", () => {
       "utf-8",
     );
     expect(second).toBe(first);
+  });
+
+  it("writes directly back to the opened local slug even when the title changes", async () => {
+    const content = sampleContent();
+    await writePlanLocalFiles({
+      planId: "plan_slug",
+      title: content.title ?? "Untitled",
+      brief: content.brief,
+      content,
+      url: "/plans/plan_slug",
+    });
+
+    const updated = planContentSchema.parse({
+      ...content,
+      title: "Renamed in browser",
+      blocks: [
+        {
+          id: "summary",
+          type: "rich-text",
+          title: "Summary",
+          data: { markdown: "Edited from the local browser route." },
+        },
+      ],
+    });
+    const result = await writePlanLocalFolder({
+      slug: "local-sync-flow",
+      planId: "local-local-sync-flow",
+      title: updated.title ?? "Renamed",
+      brief: updated.brief,
+      content: updated,
+      url: "/local-plans/local-sync-flow",
+    });
+
+    expect(result.written).toBe(true);
+    expect(result.folder).toBe(path.join(tmpDir, "local-sync-flow"));
+    await expect(
+      fs.stat(path.join(tmpDir, "renamed-in-browser")),
+    ).rejects.toThrow();
+
+    const reread = await readPlanLocalFolder("local-sync-flow");
+    expect(reread.content.title).toBe("Renamed in browser");
+    expect(reread.mdx["plan.mdx"]).toContain(
+      "Edited from the local browser route.",
+    );
+  });
+
+  it("promotes temporary local plans into the configured repo path", async () => {
+    const repoRoot = path.join(tmpDir, "repo");
+    await fs.mkdir(repoRoot, { recursive: true });
+    await fs.writeFile(
+      path.join(repoRoot, "agent-native.json"),
+      JSON.stringify({
+        apps: { plan: { roots: [{ path: "docs/plans" }] } },
+      }),
+      "utf-8",
+    );
+    process.env.PLAN_REPO_ROOT = repoRoot;
+
+    const content = sampleContent();
+    await writePlanLocalFolder({
+      slug: "checkout-review",
+      planId: "local-checkout-review",
+      title: content.title ?? "Checkout review",
+      brief: content.brief,
+      content,
+      url: "/local-plans/checkout-review",
+    });
+
+    const promoted = await promotePlanLocalFolder({
+      slug: "checkout-review",
+    });
+
+    expect(promoted.targetPath).toBe("docs/plans/checkout-review");
+    expect(promoted.alreadyPromoted).toBe(false);
+    expect(promoted.promoted.folder).toBe(
+      path.join(repoRoot, "docs/plans/checkout-review"),
+    );
+    expect(promoted.promoted.repoPath).toBe("docs/plans/checkout-review");
+    expect(promoted.promoted.routePath).toBe(
+      "/local-plans/checkout-review?path=docs%2Fplans%2Fcheckout-review",
+    );
+    await expect(
+      fs.stat(path.join(repoRoot, "docs/plans/checkout-review", "plan.mdx")),
+    ).resolves.toBeTruthy();
+
+    const updated = planContentSchema.parse({
+      ...content,
+      title: "Promoted browser edit",
+      blocks: [
+        {
+          id: "summary",
+          type: "rich-text",
+          title: "Summary",
+          data: { markdown: "Saved into the repo-relative folder." },
+        },
+      ],
+    });
+    await writePlanLocalFolder({
+      slug: "checkout-review",
+      path: promoted.targetPath,
+      planId: "local-checkout-review",
+      title: updated.title ?? "Promoted browser edit",
+      brief: updated.brief,
+      content: updated,
+      url: promoted.promoted.routePath,
+    });
+
+    const reread = await readPlanLocalFolder({
+      slug: "checkout-review",
+      path: promoted.targetPath,
+    });
+    expect(reread.content.title).toBe("Promoted browser edit");
+    expect(reread.mdx["plan.mdx"]).toContain(
+      "Saved into the repo-relative folder.",
+    );
   });
 
   it("adds a numeric suffix only when a readable folder name collides", async () => {

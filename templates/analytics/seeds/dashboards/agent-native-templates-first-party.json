@@ -3,6 +3,47 @@
   "description": "Template engagement and per-app activity recorded through analytics.agent-native.com/track. Source: first-party analytics_events.",
   "panels": [
     {
+      "id": "total-signups",
+      "title": "Signups",
+      "chartType": "metric",
+      "source": "first-party",
+      "width": 1,
+      "sql": "SELECT COUNT(*) AS count FROM analytics_events WHERE event_name = 'signup'",
+      "config": {
+        "yKey": "count",
+        "yFormatter": "number",
+        "description": "Better Auth user creation events from all Agent Native templates"
+      }
+    },
+    {
+      "id": "signups-over-time",
+      "title": "Signups Over Time",
+      "chartType": "area",
+      "source": "first-party",
+      "width": 2,
+      "sql": "SELECT substr(timestamp, 1, 10) AS date, COUNT(*) AS count FROM analytics_events WHERE event_name = 'signup' GROUP BY substr(timestamp, 1, 10) ORDER BY date",
+      "config": {
+        "xKey": "date",
+        "yKey": "count",
+        "color": "#8b5cf6",
+        "description": "Daily signup events across all Agent Native templates"
+      }
+    },
+    {
+      "id": "signups-by-template",
+      "title": "Signups by Template",
+      "chartType": "bar",
+      "source": "first-party",
+      "width": 1,
+      "sql": "SELECT COALESCE(NULLIF(template, ''), NULLIF(app, ''), 'unknown') AS template, COUNT(*) AS count FROM analytics_events WHERE event_name = 'signup' GROUP BY COALESCE(NULLIF(template, ''), NULLIF(app, ''), 'unknown') ORDER BY count DESC LIMIT 20",
+      "config": {
+        "xKey": "template",
+        "yKey": "count",
+        "color": "#8b5cf6",
+        "description": "Signup events grouped by inferred template/app"
+      }
+    },
+    {
       "id": "total-template-clicks",
       "title": "Template Clicks",
       "chartType": "metric",

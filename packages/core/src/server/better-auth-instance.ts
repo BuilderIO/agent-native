@@ -23,6 +23,7 @@ import { acceptPendingInvitationsForEmail } from "../org/accept-pending.js";
 import { autoJoinDomainMatchingOrgs } from "../org/auto-join-domain.js";
 import { saveOAuthTokens } from "../oauth-tokens/store.js";
 import { identify, track } from "../tracking/index.js";
+import { TEMPLATES } from "../cli/templates-meta.js";
 import { resolveAuthCookieNamespace } from "./cookie-namespace.js";
 import { getWorkspaceA2ADerivedSecret } from "./derived-secret.js";
 import {
@@ -176,6 +177,99 @@ function appendEnvLocalSecret(envLocalPath: string, secret: string): void {
   } else {
     fs.writeFileSync(envLocalPath, header + line, { mode: 0o600 });
   }
+}
+
+function normalizeTrackingSlug(value: string | undefined): string | undefined {
+  const trimmed = value?.trim();
+  if (!trimmed) return undefined;
+  const unscoped = trimmed.startsWith("@")
+    ? (trimmed.split("/").pop() ?? trimmed)
+    : trimmed;
+  const slug = unscoped
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  return slug || undefined;
+}
+
+function knownTemplateSlug(value: string | undefined): string | undefined {
+  const slug = normalizeTrackingSlug(value);
+  if (!slug) return undefined;
+  const withoutPrefix = slug.startsWith("agent-native-")
+    ? slug.slice("agent-native-".length)
+    : slug;
+  return TEMPLATES.some((template) => template.name === withoutPrefix)
+    ? withoutPrefix
+    : undefined;
+}
+
+function readPackageName(): string | undefined {
+  try {
+    const pkgPath = path.join(process.cwd(), "package.json");
+    const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf8")) as {
+      name?: string;
+    };
+    return pkg.name;
+  } catch {
+    return undefined;
+  }
+}
+
+function appSlugFromUrl(value: string | undefined): string | undefined {
+  if (!value?.trim()) return undefined;
+  try {
+    const raw = /^[a-z][a-z0-9+.-]*:\/\//i.test(value)
+      ? value
+      : `https://${value}`;
+    const hostname = new URL(raw).hostname.toLowerCase();
+    if (hostname.endsWith(".agent-native.com")) {
+      return normalizeTrackingSlug(
+        hostname.slice(0, -".agent-native.com".length),
+      );
+    }
+    return normalizeTrackingSlug(hostname.split(".")[0]);
+  } catch {
+    return undefined;
+  }
+}
+
+/** @internal */
+export function resolveSignupTrackingIdentity(): {
+  app?: string;
+  template?: string;
+} {
+  const explicitApp =
+    normalizeTrackingSlug(process.env.AGENT_NATIVE_APP) ||
+    normalizeTrackingSlug(process.env.VITE_AGENT_NATIVE_APP);
+  const packageApp =
+    normalizeTrackingSlug(process.env.npm_package_name) ||
+    normalizeTrackingSlug(readPackageName());
+  const urlApp =
+    appSlugFromUrl(process.env.APP_URL) ||
+    appSlugFromUrl(process.env.BETTER_AUTH_URL) ||
+    appSlugFromUrl(process.env.URL) ||
+    appSlugFromUrl(process.env.DEPLOY_URL) ||
+    appSlugFromUrl(process.env.VERCEL_PROJECT_PRODUCTION_URL) ||
+    appSlugFromUrl(process.env.VERCEL_URL);
+  const app =
+    explicitApp ||
+    urlApp ||
+    packageApp ||
+    normalizeTrackingSlug(process.env.APP_NAME);
+
+  const template =
+    knownTemplateSlug(process.env.AGENT_NATIVE_TEMPLATE) ||
+    knownTemplateSlug(process.env.VITE_AGENT_NATIVE_TEMPLATE) ||
+    knownTemplateSlug(process.env.APP_TEMPLATE) ||
+    knownTemplateSlug(process.env.VITE_APP_TEMPLATE) ||
+    knownTemplateSlug(app) ||
+    knownTemplateSlug(packageApp) ||
+    knownTemplateSlug(urlApp);
+
+  return {
+    ...(app ? { app } : {}),
+    ...(template ? { template } : {}),
+  };
 }
 
 export function shouldSkipEmailVerification(): boolean {
@@ -783,6 +877,7 @@ async function createBetterAuthInstance(
             track(
               "signup",
               {
+                ...resolveSignupTrackingIdentity(),
                 auth_provider: "better-auth",
                 auth_user_id: user.id,
               },

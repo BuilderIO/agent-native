@@ -170,6 +170,7 @@ beforeAll(async () => {
       usage_cost_source TEXT,
       usage_recorded_at TEXT,
       source_url TEXT, recap_idempotency_key TEXT,
+      deleted_at TEXT, deleted_by TEXT,
       owner_email TEXT NOT NULL,
       org_id TEXT,
       visibility TEXT NOT NULL DEFAULT 'private'

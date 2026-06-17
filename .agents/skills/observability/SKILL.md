@@ -220,3 +220,14 @@ await putSetting("observability-config", {
 ```
 
 The framework emits `gen_ai.*` semantic convention spans compatible with Langfuse, Datadog, Grafana, New Relic, and any OTel-compatible backend.
+
+## Live OpenTelemetry Spans (Optional)
+
+Separate from the `exporters` config above (which ships the in-house traces to an OTLP endpoint), the agent loop can also emit **live OpenTelemetry spans** for every run, model call, and tool call, so a host that already runs an OTel collector sees agent activity alongside its other distributed traces.
+
+This layer is optional and **no-op by default**:
+
+- `@opentelemetry/api` is an **optional dependency**. If it isn't installed, the span helpers degrade to silent no-ops — they never throw into the agent loop.
+- Even with the api package installed, it ships a default no-op tracer. Spans become real only once the **host registers a `TracerProvider`** (via `@opentelemetry/sdk-node` or similar). The framework deliberately does not depend on the heavy SDK/exporter packages and never registers a provider itself — instrumentation is opt-in by the embedding app.
+
+The loop emits `agent.run` (with `agent.run_id`, `agent.thread_id`, `agent.user_id`, `agent.model`), `tool.call` (`tool.name` + status), and `llm.call` spans, each finished with OK/ERROR status. This is purely additive to the in-house `agent_trace_spans` / `agent_trace_summaries` tables. Source: `packages/core/src/observability/tracing.ts` + `traces.ts`. See the Observability doc for the full table.

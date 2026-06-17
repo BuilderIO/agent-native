@@ -198,7 +198,8 @@ vi.mock("../server/request-context.js", () => ({
   }),
 }));
 
-const { createProviderCorpusJobAction } = await import("./corpus-jobs.js");
+const { createProviderCorpusJobAction, createProviderCorpusJobReadAction } =
+  await import("./corpus-jobs.js");
 const {
   _resetProviderCorpusJobsStoreForTests,
   createProviderCorpusJob,
@@ -387,6 +388,122 @@ describe("provider corpus jobs", () => {
 
     expect(second.job.status).toBe("completed");
     expect(second.coverage.totalHits).toBe(1);
+  });
+
+  it("exposes read-only job status and results for UI surfaces", async () => {
+    const action = createProviderCorpusJobAction({
+      appId: "analytics",
+      getRuntime: () => ({
+        executeRequest: async () =>
+          providerEnvelope({
+            items: [{ id: "m1", text: "alpha beta" }],
+          }),
+      }),
+    });
+    const readAction = createProviderCorpusJobReadAction({
+      appId: "analytics",
+    });
+
+    const started = (await action.run({
+      operation: "start",
+      mode: "paginated-search",
+      request: { provider: "fake", path: "/messages" },
+      pagination: { itemsPath: "items", maxPages: 1 },
+      search: { terms: ["alpha", "beta"], matchMode: "allTerms" },
+    })) as any;
+
+    const list = (await readAction.run({
+      operation: "list",
+      limit: 10,
+    })) as any;
+    expect(list.jobs[0].job.id).toBe(started.job.id);
+    expect(list.jobs[0].job.status).toBe("completed");
+    expect(list.jobs[0].coverage).toMatchObject({
+      itemsProcessed: 1,
+      matchedItems: 1,
+      totalHits: 1,
+    });
+
+    const results = (await readAction.run({
+      operation: "results",
+      jobId: started.job.id,
+    })) as any;
+    expect(results.hits[0]).toMatchObject({
+      id: "m1",
+      kind: "allTerms",
+      matchedTerms: ["alpha", "beta"],
+    });
+  });
+
+  it("uses the shortest all-terms cluster for same-field snippets", async () => {
+    const action = createProviderCorpusJobAction({
+      appId: "analytics",
+      getRuntime: () => ({
+        executeRequest: async () =>
+          providerEnvelope({
+            items: [
+              {
+                id: "m1",
+                text:
+                  `opening alpha ${"filler ".repeat(80)} beta ` +
+                  `${"gap ".repeat(20)} compact alpha near beta ending`,
+              },
+            ],
+          }),
+      }),
+    });
+
+    const started = (await action.run({
+      operation: "start",
+      mode: "paginated-search",
+      request: { provider: "fake", path: "/messages" },
+      pagination: { itemsPath: "items", maxPages: 1 },
+      search: {
+        terms: ["alpha", "beta"],
+        matchMode: "allTerms",
+        textPaths: ["text"],
+        contextChars: 24,
+      },
+    })) as any;
+    const results = (await action.run({
+      operation: "results",
+      jobId: started.job.id,
+    })) as any;
+
+    expect(results.hits[0].snippet).toContain("compact alpha near beta");
+    expect(results.hits[0].snippet).not.toContain("opening alpha");
+  });
+
+  it("joins useful snippets for all-terms matches split across fields", async () => {
+    const action = createProviderCorpusJobAction({
+      appId: "analytics",
+      getRuntime: () => ({
+        executeRequest: async () =>
+          providerEnvelope({
+            items: [{ id: "m1", title: "alpha title", body: "beta body" }],
+          }),
+      }),
+    });
+
+    const started = (await action.run({
+      operation: "start",
+      mode: "paginated-search",
+      request: { provider: "fake", path: "/messages" },
+      pagination: { itemsPath: "items", maxPages: 1 },
+      search: {
+        terms: ["alpha", "beta"],
+        matchMode: "allTerms",
+        textPaths: ["title", "body"],
+        contextChars: 24,
+      },
+    })) as any;
+    const results = (await action.run({
+      operation: "results",
+      jobId: started.job.id,
+    })) as any;
+
+    expect(results.hits[0].snippet).toContain("title: alpha title");
+    expect(results.hits[0].snippet).toContain("body: beta body");
   });
 });
 

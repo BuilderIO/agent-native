@@ -2348,6 +2348,17 @@ const SKILL_INSTRUCTION_CLIENTS: SkillInstructionClientId[] = [
   "claude-code",
   "pi",
 ];
+// Clients that don't write their own instruction files but READ the shared
+// `.agents/skills` path the codex install writes. In instructions/local-files
+// mode they resolve to that shared-agents install instead of being dropped, so
+// `--client cursor --mode local-files` (etc.) installs the skills they read
+// rather than failing with an empty client set.
+const SHARED_AGENTS_READER_CLIENTS = new Set<SkillInstructionClientId>([
+  "cursor",
+  "opencode",
+  "github-copilot",
+  "cowork",
+]);
 const SKILL_INSTRUCTION_CLIENT_LABELS: Record<
   SkillInstructionClientId,
   string
@@ -3269,7 +3280,20 @@ function filterSkillsClients(
         isMcpClientId(client) && SKILLS_CLIENTS.includes(client),
     );
   }
-  return clients.filter((client) => SKILL_INSTRUCTION_CLIENTS.includes(client));
+  // Instructions/local-files mode: keep the first-class instruction writers, and
+  // map shared-`.agents` readers (cursor/opencode/github-copilot/cowork) onto
+  // the shared-agents install (codex) so they install the skills they read
+  // rather than being silently dropped to an empty set.
+  const out: SkillInstructionClientId[] = [];
+  for (const client of clients) {
+    const resolved = SKILL_INSTRUCTION_CLIENTS.includes(client)
+      ? client
+      : SHARED_AGENTS_READER_CLIENTS.has(client)
+        ? "codex"
+        : undefined;
+    if (resolved && !out.includes(resolved)) out.push(resolved);
+  }
+  return out;
 }
 
 function clientPromptOptions(
@@ -3508,8 +3532,8 @@ async function promptForPlanMode(
     options: [
       {
         value: "hosted",
-        label: "Hosted Plans, shareable links (recommended)",
-        hint: "100% free and open source. Stores plans at plan.agent-native.com with sharing, comments, and browser editor. Requires one-time browser sign-in.",
+        label: "Hosted plans, shareable links",
+        hint: "Recommended. 100% free and open source. Stores plans at plan.agent-native.com with sharing, comments, and browser editor. Requires one-time browser sign-in.",
       },
       {
         value: "local-files",
@@ -5272,6 +5296,23 @@ export async function runSkills(
       summary.join("\n"),
       `Installed ${installedNames} skill${results.length === 1 ? "" : "s"}`,
     );
+
+    // OAuth clients (Claude Code) can finish auth in-host via /mcp, not only by
+    // running the connect command — surface that on the no-connect/pending path
+    // so a hosted install isn't left looking "done but unauthenticated".
+    if (
+      !authConnected &&
+      mcpClients.some(
+        (client) => client === "claude-code" || client === "claude-code-cli",
+      )
+    ) {
+      clack.log.info(
+        "Claude Code: reload the client, then open /mcp and choose Authenticate to finish connecting" +
+          (pendingConnectCommands.length
+            ? " (or run the connect command above)."
+            : "."),
+      );
+    }
 
     // GitHub Action follow-ups — kept as exact, copy-pasteable command lines.
     for (const line of [githubActionLine, githubActionSuggestionLine].filter(

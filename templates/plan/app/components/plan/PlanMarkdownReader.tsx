@@ -32,6 +32,21 @@ function extractText(node: ReactNode): string {
   return "";
 }
 
+export function buildPlanMarkdownSectionCopyUrl(
+  href: string,
+  sectionId: string,
+): string {
+  try {
+    const url = new URL(href);
+    url.searchParams.delete("bridge");
+    url.hash = sectionId;
+    return url.toString();
+  } catch {
+    const [base] = href.split("#", 1);
+    return `${base || href}#${sectionId}`;
+  }
+}
+
 /**
  * Read-only renderer for a plan `rich-text` block.
  *
@@ -78,8 +93,12 @@ export function PlanMarkdownReader({
             onClick={(event) => {
               event.preventDefault();
               try {
+                const copyUrl = buildPlanMarkdownSectionCopyUrl(
+                  window.location.href,
+                  id,
+                );
                 history.pushState(null, "", `#${id}`);
-                void navigator.clipboard.writeText(window.location.href);
+                void navigator.clipboard.writeText(copyUrl);
               } catch {
                 // Clipboard or history not available — ignore.
               }

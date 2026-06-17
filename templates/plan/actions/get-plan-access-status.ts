@@ -56,12 +56,13 @@ export default defineAction({
         id: schema.plans.id,
         orgId: schema.plans.orgId,
         visibility: schema.plans.visibility,
+        deletedAt: schema.plans.deletedAt,
       })
       .from(schema.plans)
       .where(eq(schema.plans.id, planId))
       .limit(1);
 
-    if (!plan) {
+    if (!plan || plan.deletedAt) {
       return {
         exists: false as const,
         hasAccess: false,

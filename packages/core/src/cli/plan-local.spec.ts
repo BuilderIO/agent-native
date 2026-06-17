@@ -13,8 +13,19 @@ import {
 import { fetchPlanBlockCatalog } from "./plan-blocks.js";
 
 const tmpRoots: string[] = [];
+const originalCwd = process.cwd();
+const originalEnv = {
+  PLAN_LOCAL_DIR: process.env.PLAN_LOCAL_DIR,
+  AGENT_NATIVE_MANIFEST: process.env.AGENT_NATIVE_MANIFEST,
+  AGENT_NATIVE_MANIFEST_PATH: process.env.AGENT_NATIVE_MANIFEST_PATH,
+};
 
 afterEach(() => {
+  process.chdir(originalCwd);
+  for (const [key, value] of Object.entries(originalEnv)) {
+    if (value === undefined) delete process.env[key];
+    else process.env[key] = value;
+  }
   for (const root of tmpRoots.splice(0)) {
     fs.rmSync(root, { recursive: true, force: true });
   }
@@ -90,6 +101,32 @@ function writeEmptyWireframe(dir: string) {
   );
 }
 
+function writeScaffoldExamplePlan(dir: string) {
+  // Mirrors the `plan local init` scaffold prose, which documents block usage
+  // with an inline-code example. That example must NOT be linted as a real
+  // block (it previously tripped the wireframe linter → init → serve failed).
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(
+    path.join(dir, "plan.mdx"),
+    [
+      "---",
+      'title: "Scaffold"',
+      'kind: "plan"',
+      "localOnly: true",
+      "---",
+      "",
+      "# Scaffold",
+      "",
+      "Author the structured plan or recap here. You can add Agent-Native Plan MDX",
+      'blocks such as `<WireframeBlock><Screen surface="browser">...</Screen></WireframeBlock>`,',
+      "`<Diagram />`, `<TabsBlock />`, `<FileTree />`, or `<Diff />`; the local",
+      "preview will show the source without publishing it to the Plan app.",
+      "",
+    ].join("\n"),
+    "utf-8",
+  );
+}
+
 describe("local plan CLI helpers", () => {
   it("builds the same safe folder names as the Plan app local mirror", () => {
     expect(localPlanFolderName("Private / no-DB recap!")).toBe(
@@ -132,6 +169,25 @@ describe("local plan CLI helpers", () => {
     expect(result.files).toContain("plan.mdx");
     expect(result.out).toBeUndefined();
     expect(result.url).toBe("http://localhost:8096/local-plans/checkout");
+  });
+
+  it("includes a repo-relative path for direct local Plan app routes", () => {
+    const repo = tmpDir();
+    fs.mkdirSync(path.join(repo, ".git"));
+    const dir = path.join(repo, "plans", "checkout");
+    writeSamplePlan(dir);
+    process.chdir(repo);
+    delete process.env.AGENT_NATIVE_MANIFEST;
+    delete process.env.AGENT_NATIVE_MANIFEST_PATH;
+
+    const result = writeLocalPlanPreview({
+      dir,
+      appUrl: "http://localhost:8096",
+    });
+
+    expect(result.url).toBe(
+      "http://localhost:8096/local-plans/checkout?path=plans%2Fcheckout",
+    );
   });
 
   it("writes standalone HTML only when --out is provided", () => {
@@ -187,6 +243,15 @@ describe("local plan CLI helpers", () => {
     );
   });
 
+  it("does not lint block tags written inside inline code (init scaffold passes)", () => {
+    const dir = path.join(tmpDir(), "scaffold");
+    writeScaffoldExamplePlan(dir);
+    // The scaffold's `<WireframeBlock><Screen>...` is a documentation example in
+    // inline code, not a real block — validation must not trip on it so the
+    // default `init` → `serve`/`check` flow works out of the box.
+    expect(() => writeLocalPlanPreview({ dir })).not.toThrow();
+  });
+
   it("serves a tokened localhost bridge for the hosted local plan UI", async () => {
     const dir = path.join(tmpDir(), "checkout");
     writeSamplePlan(dir);
@@ -217,6 +282,20 @@ describe("local plan CLI helpers", () => {
       expect(payload.ok).toBe(true);
       expect(payload.source).toBe("agent-native-local-bridge");
       expect(payload.mdx["plan.mdx"]).toContain("Private Checkout Plan");
+
+      const preflight = await fetch(bridge.result.bridgeUrl, {
+        method: "OPTIONS",
+        headers: {
+          origin: "https://plan.example.com",
+          "access-control-request-method": "GET",
+          "access-control-request-private-network": "true",
+        },
+      });
+      expect(preflight.status).toBe(204);
+      expect(preflight.headers.get("access-control-allow-origin")).toBe("*");
+      expect(
+        preflight.headers.get("access-control-allow-private-network"),
+      ).toBe("true");
 
       const denied = await fetch(
         bridge.result.bridgeUrl.replace("test-token", "wrong-token"),

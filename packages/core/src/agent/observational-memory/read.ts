@@ -36,16 +36,14 @@ function sumTokens(entries: ObservationalMemoryEntry[]): number {
 }
 
 /**
- * SEAM (deferred wire-up): build the three-tier Observational Memory context
- * for a thread. The returned tiers are ready to be injected into the turn's
- * prompt assembly.
+ * Build the three-tier Observational Memory context for a thread. The returned
+ * tiers are ready to be injected into the turn's prompt assembly.
  *
- * TODO(charlie-merge): inject buildObservationalContext output into the turn
- * context assembly in production-agent.ts once the lazy-skill context changes
- * land. The intended shape: replace the older raw-message prefix (everything
- * before `recentMessages`) with the `reflections` + `observations` text, keep
- * `recentMessages` verbatim, and prepend a short "Observational Memory" system
- * section. This module deliberately does not edit production-agent.ts.
+ * This is consumed by the agent loop (`production-agent.ts`): when a thread has
+ * persisted observations/reflections, the older raw-message prefix (everything
+ * before `recentMessages`) is replaced with the `reflections` + `observations`
+ * text, `recentMessages` is kept verbatim, and a short "Observational Memory"
+ * block is prepended. Threads with no OM entries are left unchanged.
  */
 /** True when this thread has at least one persisted observation or reflection. */
 export function hasObservationalMemory(context: ObservationalContext): boolean {

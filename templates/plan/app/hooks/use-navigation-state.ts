@@ -7,6 +7,8 @@ import { TAB_ID } from "@/lib/tab-id";
 export interface NavigationState {
   view: string;
   planId?: string;
+  localPlanSlug?: string;
+  localPlanPath?: string;
   _writeId?: string;
 }
 
@@ -21,11 +23,19 @@ export function useNavigationState() {
     const state: NavigationState = {
       view: viewForPath(location.pathname),
     };
+    const localPlanMatch = location.pathname.match(/^\/local-plans\/([^/]+)/);
     const planMatch =
       location.pathname.match(/^\/plans\/([^/]+)/) ??
-      location.pathname.match(/^\/recaps\/([^/]+)/) ??
-      location.pathname.match(/^\/local-plans\/([^/]+)/);
-    if (planMatch) state.planId = decodeURIComponent(planMatch[1]);
+      location.pathname.match(/^\/recaps\/([^/]+)/);
+    if (localPlanMatch) {
+      const slug = decodeURIComponent(localPlanMatch[1] ?? "");
+      state.planId = `local-${slug}`;
+      state.localPlanSlug = slug;
+      const localPath = new URLSearchParams(location.search).get("path");
+      if (localPath) state.localPlanPath = localPath;
+    } else if (planMatch) {
+      state.planId = decodeURIComponent(planMatch[1] ?? "");
+    }
 
     fetch(agentNativePath("/_agent-native/application-state/navigation"), {
       method: "PUT",
@@ -36,7 +46,7 @@ export function useNavigationState() {
       },
       body: JSON.stringify(state),
     }).catch(() => {});
-  }, [location.pathname]);
+  }, [location.pathname, location.search]);
 
   // Listen for navigate commands from agent
   const { data: navCommand } = useQuery({
@@ -65,6 +75,8 @@ export function useNavigationState() {
       JSON.stringify({
         view: cmd.view,
         planId: cmd.planId,
+        localPlanSlug: cmd.localPlanSlug,
+        localPlanPath: cmd.localPlanPath,
       });
     const deleteCommand = () =>
       fetch(agentNativePath("/_agent-native/application-state/navigate"), {
@@ -114,6 +126,13 @@ function viewForPath(pathname: string): string {
 }
 
 function pathForCommand(command: NavigationState): string {
+  if (command.localPlanSlug) {
+    const path = `/local-plans/${encodeURIComponent(command.localPlanSlug)}`;
+    if (!command.localPlanPath) return path;
+    return `${path}?${new URLSearchParams({
+      path: command.localPlanPath,
+    }).toString()}`;
+  }
   if (command.planId) {
     return `/plans/${encodeURIComponent(command.planId)}`;
   }

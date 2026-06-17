@@ -79,6 +79,16 @@
       ],
       "port": 8088,
       "autoPort": false
+    },
+    {
+      "name": "mail-e2e",
+      "runtimeExecutable": "bash",
+      "runtimeArgs": [
+        "-c",
+        "NODE_ENV=development APP_NAME=mail APP_URL=http://localhost:8092 AGENT_USER_EMAIL=dev@local.test MAIL_DATABASE_URL=file:/tmp/mail-e2e-approvals.db PORT=8092 pnpm --filter mail exec agent-native dev"
+      ],
+      "port": 8092,
+      "autoPort": true
     }
   ]
 }

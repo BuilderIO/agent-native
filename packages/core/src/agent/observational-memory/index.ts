@@ -5,13 +5,13 @@
  * stay prompt-cache stable.
  *
  * Public surface:
- * - `buildObservationalContext` — read API returning the three tiers ready for
- *   prompt injection. NOT yet wired into production-agent.ts (see the
- *   TODO(charlie-merge) seam in `read.ts`).
- * - `maybeCompactThread` — decoupled compactor the agent loop can call after a
- *   turn; runs the Observer then the Reflector. Wired later, not now.
+ * - `buildObservationalContext` — read API returning the three tiers, injected
+ *   into the turn's prompt assembly by the agent loop for long threads.
+ * - `maybeCompactThread` — decoupled compactor the agent loop calls after a
+ *   turn; runs the Observer then the Reflector.
  * - `runObserver` / `runReflector` — the individual compaction passes.
- * - store helpers + the migration plugin factory.
+ * - store helpers + the migration plugin factory (registered as a default
+ *   framework plugin so the table is created on startup).
  */
 
 export {

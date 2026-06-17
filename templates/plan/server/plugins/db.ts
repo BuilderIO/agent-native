@@ -289,6 +289,12 @@ CREATE INDEX IF NOT EXISTS plans_recap_idempotency_key_idx ON plans(recap_idempo
 ON plans(owner_email, COALESCE(org_id, ''), recap_idempotency_key)
 WHERE kind = 'recap' AND recap_idempotency_key IS NOT NULL`,
     },
+    {
+      version: 31,
+      sql: `ALTER TABLE plans ADD COLUMN IF NOT EXISTS deleted_at TEXT;
+ALTER TABLE plans ADD COLUMN IF NOT EXISTS deleted_by TEXT;
+CREATE INDEX IF NOT EXISTS plans_owner_deleted_updated_idx ON plans(owner_email, deleted_at, updated_at)`,
+    },
   ],
   { table: "plans_migrations" },
 );
