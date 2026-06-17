@@ -1,5 +1,13 @@
 # @agent-native/skills
 
+## 0.2.11
+
+### Patch Changes
+
+- ef16690: Open local Plan previews from local-files mode and clarify plugin installs use hosted Plans by default.
+- Updated dependencies [ef16690]
+  - @agent-native/core@0.51.15
+
 ## 0.2.10
 
 ### Patch Changes
