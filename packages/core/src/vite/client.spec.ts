@@ -610,6 +610,43 @@ describe("local-core dev aliases and router dedupe", () => {
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 
+  it("does not pre-optimize packages that are only optional core peers", () => {
+    const tmpDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), "an-vite-optimize-peer-"),
+    );
+    const fakeCore = fs.mkdtempSync(
+      path.join(os.tmpdir(), "an-vite-fake-core-"),
+    );
+    fs.mkdirSync(path.join(fakeCore, "src"));
+    fs.writeFileSync(path.join(fakeCore, "src/index.ts"), "export {};\n");
+    fs.writeFileSync(
+      path.join(fakeCore, "package.json"),
+      JSON.stringify({
+        name: "@agent-native/core",
+        peerDependencies: {
+          sonner: "^2.0.0",
+        },
+        peerDependenciesMeta: {
+          sonner: { optional: true },
+        },
+      }),
+    );
+    fs.writeFileSync(
+      path.join(tmpDir, "package.json"),
+      JSON.stringify({
+        dependencies: {
+          "@agent-native/core": pathToFileURL(fakeCore).href,
+        },
+      }),
+    );
+
+    const deps = _getDefaultOptimizeDeps(tmpDir);
+    expect(deps).not.toContain("sonner");
+
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+    fs.rmSync(fakeCore, { recursive: true, force: true });
+  });
+
   it("keeps react-router inside the dev SSR graph so dedupe applies", () => {
     const previousCwd = process.cwd();
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "an-vite-ssr-"));

@@ -136,11 +136,7 @@ function hasCoreDep(pkg: string, cwd: string): boolean {
     const pkgJson = JSON.parse(
       fs.readFileSync(path.join(coreRoot, "package.json"), "utf-8"),
     );
-    return !!(
-      pkgJson.dependencies?.[pkg] ||
-      pkgJson.devDependencies?.[pkg] ||
-      pkgJson.peerDependencies?.[pkg]
-    );
+    return !!(pkgJson.dependencies?.[pkg] || pkgJson.devDependencies?.[pkg]);
   } catch {
     return false;
   }

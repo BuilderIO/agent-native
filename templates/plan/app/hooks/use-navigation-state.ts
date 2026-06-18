@@ -99,7 +99,7 @@ export function useNavigationState() {
 
     // Delete the one-shot command AFTER reading it.
     deleteCommand();
-    const path = routerPath(pathForCommand(cmd));
+    const path = planNavigateCommandPath(cmd);
     void prewarmPlanRoutePath(path);
     if (path !== "/") markPlanChatHomeHandoff();
     navigate(path, { replace: true, flushSync: true });
@@ -130,6 +130,10 @@ function viewForPath(pathname: string): string {
   if (pathname.startsWith("/extensions")) return "extensions";
   if (pathname.startsWith("/team")) return "team";
   return "plans";
+}
+
+export function planNavigateCommandPath(command: NavigationState): string {
+  return routerPath(pathForCommand(command));
 }
 
 function pathForCommand(command: NavigationState): string {
@@ -185,9 +189,23 @@ function pathForView(view?: string): string {
 function routerPath(path: string): string {
   const basePath = appBasePath();
   if (!basePath) return path;
-  if (path === basePath) return "/";
-  if (path.startsWith(`${basePath}/`)) {
-    return path.slice(basePath.length) || "/";
+  let result = path;
+  // React Router is already scoped to the app basename. Strip mounted URLs so
+  // navigate() receives router-local paths and does not duplicate the prefix.
+  for (let i = 0; i < 4; i += 1) {
+    if (result === basePath) return "/";
+    if (result.startsWith(`${basePath}/`)) {
+      result = result.slice(basePath.length) || "/";
+      continue;
+    }
+    if (
+      result.startsWith(`${basePath}?`) ||
+      result.startsWith(`${basePath}#`)
+    ) {
+      result = `/${result.slice(basePath.length)}`;
+      continue;
+    }
+    break;
   }
-  return path;
+  return result;
 }
