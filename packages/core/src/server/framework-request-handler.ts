@@ -249,7 +249,10 @@ function ensureReadinessOnRequest(nitroApp: any): void {
   const h3 = nitroApp?.h3;
   if (!h3) return;
   const config = h3.config ?? (h3.config = {});
-  if (config.onRequest && config.onRequest === config[ONREQUEST_GATE_PATCHED_KEY])
+  if (
+    config.onRequest &&
+    config.onRequest === config[ONREQUEST_GATE_PATCHED_KEY]
+  )
     return;
 
   const previous =

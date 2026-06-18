@@ -525,10 +525,10 @@ describe("framework request handler", () => {
     let registerRoute!: () => void;
     const ready = new Promise<void>((resolve) => {
       registerRoute = () => {
-        getH3App(nitroApp).use(
-          "/_agent-native/speculation-rules.json",
-          () => ({ prefetch: [], prerender: [] }),
-        );
+        getH3App(nitroApp).use("/_agent-native/speculation-rules.json", () => ({
+          prefetch: [],
+          prerender: [],
+        }));
         resolve();
       };
     });
