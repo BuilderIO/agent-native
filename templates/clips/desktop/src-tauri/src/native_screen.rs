@@ -1410,7 +1410,7 @@ fn saved_recording_from_session(
                 session.mime_type,
                 session.segments.len(),
             );
-            format!("native recording file missing: {e} ({diag})")
+            format!("native recording file missing: {e}")
         })?
         .len();
     if bytes == 0 {
@@ -2188,7 +2188,7 @@ fn prepare_recording_file(
     let metadata = std::fs::metadata(path).map_err(|e| {
         let diag = describe_recording_path(path);
         eprintln!("[clips-tray] native recording file missing at prepare: {e}; {diag}");
-        format!("native recording file missing: {e} ({diag})")
+        format!("native recording file missing: {e}")
     })?;
     let source_bytes = metadata.len();
     if source_bytes == 0 {

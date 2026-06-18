@@ -117,14 +117,14 @@ fn redirect_std_streams(path: &Path) {
     // libc::open maps to the narrow CRT _open, which interprets the path in
     // the active ANSI code page — a profile path with non-ASCII characters
     // (e.g. C:\Users\Müller) then fails to open and silently disables logging.
-    // Build a NUL-terminated UTF-16 path and use the wide _wopen instead.
+    // Build a NUL-terminated UTF-16 path and use the wide wopen instead.
     let wide: Vec<u16> = path
         .as_os_str()
         .encode_wide()
         .chain(std::iter::once(0))
         .collect();
     unsafe {
-        let fd = libc::_wopen(
+        let fd = libc::wopen(
             wide.as_ptr(),
             libc::O_WRONLY | libc::O_CREAT | libc::O_APPEND,
             libc::S_IWRITE,
