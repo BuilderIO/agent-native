@@ -19,6 +19,8 @@ export interface PreUploadedFileAttachment {
   provider: string;
   contentType?: string;
   sizeBytes?: number;
+  referenceOnly?: boolean;
+  securityNote?: string;
 }
 
 export interface PreUploadAttachmentsResult {
@@ -47,6 +49,16 @@ const FILE_DATA_URL_RE = /^data:([^;]+);base64,(.+)$/;
 
 function normalizeContentType(value: string | undefined): string | undefined {
   return value?.split(";")[0]?.trim().toLowerCase() || undefined;
+}
+
+function isSvgAttachment(args: {
+  name?: string;
+  contentType?: string;
+}): boolean {
+  return (
+    normalizeContentType(args.contentType) === "image/svg+xml" ||
+    /\.svg$/i.test(args.name ?? "")
+  );
 }
 
 function escapeXmlAttr(value: string): string {
@@ -123,11 +135,19 @@ export async function preUploadAttachments(opts: {
 
     if ((att as any).url) {
       // Already pre-uploaded earlier in the pipeline — reuse it.
+      const isReferenceOnlySvg = !isImage && isSvgAttachment(att);
       const entry = {
         name: att.name,
         url: (att as any).url as string,
         provider: ((att as any).uploadProvider as string) || "unknown",
         contentType: att.contentType,
+        ...(isReferenceOnlySvg
+          ? {
+              referenceOnly: true,
+              securityNote:
+                "SVG content may contain active markup; use this URL as a file reference unless the target app sanitizes it.",
+            }
+          : {}),
       };
       if (isImage) {
         uploaded.push(entry);
@@ -163,12 +183,21 @@ export async function preUploadAttachments(opts: {
       }
       (att as any).url = result.url;
       (att as any).uploadProvider = result.provider;
+      const isReferenceOnlySvg =
+        !isImage && isSvgAttachment({ name: att.name, contentType: mimeType });
       const entry = {
         name: att.name,
         url: result.url,
         provider: result.provider,
         contentType: mimeType,
         sizeBytes: bytes.byteLength,
+        ...(isReferenceOnlySvg
+          ? {
+              referenceOnly: true,
+              securityNote:
+                "SVG content may contain active markup; use this URL as a file reference unless the target app sanitizes it.",
+            }
+          : {}),
       };
       if (isImage) {
         uploaded.push(entry);
@@ -203,11 +232,20 @@ export async function preUploadAttachments(opts: {
         `url="${escapeXmlAttr(f.url)}"`,
         f.contentType ? `contentType="${escapeXmlAttr(f.contentType)}"` : null,
         `provider="${escapeXmlAttr(f.provider)}"`,
+        f.referenceOnly ? `referenceOnly="true"` : null,
+        f.securityNote
+          ? `securityNote="${escapeXmlAttr(f.securityNote)}"`
+          : null,
       ].filter(Boolean);
       lines.push(`<chat-file-attachment ${attrs.join(" ")} />`);
     }
+    const hasReferenceOnlySvg = uploadedFiles.some(
+      (file) => file.referenceOnly && isSvgAttachment(file),
+    );
     injectedText = [
-      '<chat-attachments note="The user attached these files. They have been uploaded — use the url attribute when embedding in HTML, slide content, or any outbound message.">',
+      hasReferenceOnlySvg
+        ? '<chat-attachments note="The user attached these files. Image attachment URLs may be used for embedding. File attachment URLs are references; SVG files are unsanitized vector source and must not be inlined as HTML or embedded in outbound content unless the target app sanitizes or stores them safely.">'
+        : '<chat-attachments note="The user attached these files. Image attachment URLs may be used for embedding in HTML, slide content, or outbound messages. File attachment URLs are references for reading or attaching in target apps.">',
       ...lines,
       "</chat-attachments>",
     ].join("\n");

@@ -6,7 +6,10 @@ import type {
   PendingAttachment,
   Attachment,
 } from "@assistant-ui/react";
-import { IMAGE_ATTACHMENT_ACCEPT } from "../composer/attachment-accept.js";
+import {
+  IMAGE_ATTACHMENT_ACCEPT,
+  PROMPT_DOCUMENT_ATTACHMENT_ACCEPT,
+} from "../composer/attachment-accept.js";
 
 // Maximum PDF/document size (4 MB). Larger PDFs would bloat the JSON POST
 // body past Vercel's ~4.5 MB limit after base64 encoding (+33% overhead).
@@ -198,7 +201,7 @@ export class DownscalingImageAttachmentAdapter implements AttachmentAdapter {
 }
 
 export class BinaryDocumentAttachmentAdapter implements AttachmentAdapter {
-  public accept = "application/pdf,.pdf";
+  public accept = PROMPT_DOCUMENT_ATTACHMENT_ACCEPT;
 
   public async add(state: { file: File }): Promise<PendingAttachment> {
     return {

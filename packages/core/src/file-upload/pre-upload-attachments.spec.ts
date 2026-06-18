@@ -145,9 +145,18 @@ describe("preUploadAttachments", () => {
 
     expect(result.uploaded).toHaveLength(0);
     expect(result.uploadedFiles).toHaveLength(1);
+    expect(result.uploadedFiles[0]).toMatchObject({
+      referenceOnly: true,
+      securityNote: expect.stringContaining("active markup"),
+    });
     expect(result.injectedText).toContain("chat-file-attachment");
     expect(result.injectedText).not.toContain("chat-image-attachment");
     expect(result.injectedText).toContain('contentType="image/svg+xml"');
+    expect(result.injectedText).toContain('referenceOnly="true"');
+    expect(result.injectedText).toContain("unsanitized vector source");
+    expect(result.injectedText).not.toContain(
+      "use the url attribute when embedding",
+    );
   });
 
   it("does NOT upload file attachments when includeFiles=false (legacy behaviour)", async () => {
