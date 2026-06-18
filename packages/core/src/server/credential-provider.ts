@@ -140,14 +140,25 @@ function allowLocalDevBuilderEnvCredentials(): boolean {
 // reveal whether NODE_ENV is read as "production" inside the bundle despite the
 // test setting "development" (i.e. static inlining at transform time).
 export function __debugCredentialEnv() {
+  const emailA = getRequestUserEmail();
+  const isDeployA = isDeployCredentialFallbackAllowed();
+  const manualCanUseDeploy = (() => {
+    const e = getRequestUserEmail();
+    if (!e) return true;
+    return isDeployCredentialFallbackAllowed();
+  })();
+  const realCanUseDeploy = canUseDeployCredentialFallbackForRequest();
+  const isDeployB = isDeployCredentialFallbackAllowed();
   return {
-    nodeEnvDot: process.env.NODE_ENV,
+    emailA,
+    emailTypeof: typeof emailA,
+    isLocalDatabase: isLocalDatabase(),
     nodeEnvBracket: process.env["NODE_ENV"],
-    allowLocal: allowLocalDevBuilderEnvCredentials(),
-    isDeployFallbackAllowed: isDeployCredentialFallbackAllowed(),
-    canUseDeployFallback: canUseDeployCredentialFallbackForRequest(),
-    canUseBuilderDeployCredentialFallbackForRequest:
-      canUseBuilderDeployCredentialFallbackForRequest(),
+    isDeployA,
+    manualCanUseDeploy,
+    realCanUseDeploy,
+    isDeployB,
+    canUseBuilder: canUseBuilderDeployCredentialFallbackForRequest(),
   };
 }
 
