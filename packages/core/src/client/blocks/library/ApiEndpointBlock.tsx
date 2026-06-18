@@ -7,6 +7,7 @@ import {
   IconTrash,
 } from "@tabler/icons-react";
 import { cn } from "../../utils.js";
+import { ltrCodeBlockProps } from "../code-block-direction.js";
 import type { BlockEditProps, BlockReadProps } from "../types.js";
 import type {
   ApiEndpointChange,
@@ -422,6 +423,7 @@ export function ApiEndpointRead({
     // full-width cards. `an-api-endpoint-card` is the flush-able card surface
     // those rules round/merge at the run's edges.
     <section
+      {...ltrCodeBlockProps}
       className="plan-block"
       data-block-id={blockId}
       data-block-type="api-endpoint"

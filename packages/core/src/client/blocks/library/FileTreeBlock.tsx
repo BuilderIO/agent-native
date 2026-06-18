@@ -8,6 +8,7 @@ import {
   IconTrash,
 } from "@tabler/icons-react";
 import { cn } from "../../utils.js";
+import { ltrCodeBlockProps } from "../code-block-direction.js";
 import type { BlockEditProps, BlockReadProps } from "../types.js";
 import type {
   FileTreeChange,
@@ -472,6 +473,7 @@ export function FileTreeRead({
 
   return (
     <section
+      {...ltrCodeBlockProps}
       ref={rootRef}
       className="plan-block"
       data-block-id={blockId}

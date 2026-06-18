@@ -1,6 +1,7 @@
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { IconArrowsMaximize, IconX } from "@tabler/icons-react";
 import { cn } from "../../utils.js";
+import { ltrCodeBlockProps } from "../code-block-direction.js";
 import { defineBlock } from "../types.js";
 import type {
   BlockReadProps,
@@ -640,7 +641,11 @@ export function DiagramRead({
   ctx,
 }: BlockReadProps<DiagramData>) {
   return (
-    <section className="an-block plan-block" data-block-id={blockId}>
+    <section
+      {...ltrCodeBlockProps}
+      className="an-block plan-block"
+      data-block-id={blockId}
+    >
       {title && <div className="an-block-label plan-block-label">{title}</div>}
       <ExpandableDiagramBody data={data} ctx={ctx} />
       {summary && <p className="mt-5 text-muted-foreground">{summary}</p>}

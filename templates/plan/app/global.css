@@ -1,4 +1,8 @@
 @import url("https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap");
+/* Vazirmatn — open-source (OFL) Persian/Arabic face, scoped to RTL plan content
+ * below via `[data-plan-direction="rtl"]`. @fontsource/vazirmatn is not in the
+ * workspace, so this matches the Inter CDN @import pattern above. */
+@import url("https://fonts.googleapis.com/css2?family=Vazirmatn:wght@300;400;500;600;700&display=swap");
 
 @import "tailwindcss";
 @import "@agent-native/core/styles/agent-native.css";
@@ -110,6 +114,17 @@
     font-family: "Inter", sans-serif;
     font-feature-settings: "cv02", "cv03", "cv04", "cv11";
   }
+}
+
+/* RTL plan content (Persian/Arabic) renders in Vazirmatn; LTR content keeps
+ * Inter. Scoped to the document shell's `data-plan-direction="rtl"` attribute
+ * (set by PlanContentRenderer) so only RTL plans pick it up. Code surfaces and
+ * `font-mono` utilities declare their own monospace stack ("JetBrains Mono", …),
+ * which is a direct font-family on the element and so always beats this inherited
+ * face — code never renders in Vazirmatn (code-like blocks are also pinned to
+ * dir="ltr"). */
+[data-plan-direction="rtl"] {
+  font-family: "Vazirmatn", "Inter", sans-serif;
 }
 
 @layer utilities {

@@ -1,6 +1,7 @@
 import { useId, useMemo, useState } from "react";
 import { IconChevronRight, IconLock } from "@tabler/icons-react";
 import { cn } from "../../utils.js";
+import { ltrCodeBlockProps } from "../code-block-direction.js";
 import type { BlockEditProps, BlockReadProps } from "../types.js";
 import type { OpenApiSpecData } from "./openapi-spec.config.js";
 import { DevInput, DevLabel, DevTextarea } from "./dev-doc-ui.js";
@@ -826,7 +827,11 @@ export function OpenApiSpecRead({
   const renderMarkdown = ctx.renderMarkdown;
 
   return (
-    <section className="plan-block" data-block-id={blockId}>
+    <section
+      {...ltrCodeBlockProps}
+      className="plan-block"
+      data-block-id={blockId}
+    >
       {heading && <div className="plan-block-label">{heading}</div>}
 
       {parsed.ok && parsed.spec ? (
