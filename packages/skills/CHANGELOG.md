@@ -1,5 +1,20 @@
 # @agent-native/skills
 
+## 0.2.24
+
+### Patch Changes
+
+- Updated dependencies [f16980e]
+- Updated dependencies [f16980e]
+- Updated dependencies [f16980e]
+- Updated dependencies [f16980e]
+- Updated dependencies [f16980e]
+- Updated dependencies [f16980e]
+- Updated dependencies [f16980e]
+- Updated dependencies [f16980e]
+- Updated dependencies [f16980e]
+  - @agent-native/core@0.58.4
+
 ## 0.2.23
 
 ### Patch Changes

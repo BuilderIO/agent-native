@@ -1,6 +1,6 @@
 {
   "name": "@agent-native/skills",
-  "version": "0.2.23",
+  "version": "0.2.24",
   "type": "module",
   "description": "Install BuilderIO skills for coding agents.",
   "license": "MIT",

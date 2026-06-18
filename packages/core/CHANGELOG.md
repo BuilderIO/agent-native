@@ -1,5 +1,21 @@
 # @agent-native/core
 
+## 0.58.4
+
+### Patch Changes
+
+- f16980e: Replace the agent chat loading text with a shimmering Agent Native logo lockup
+  with an animated ellipsis, and attach scoped chat context badges directly above
+  the composer.
+- f16980e: Close the current Agent Sidebar chat tab when clearing chat into a replacement.
+- f16980e: Fix active chat follow-up queueing so ordinary sends during a running turn stay queued, keep the thinking indicator attached to the active response, and stabilize built-in data widget renderers to avoid chart remount loops.
+- f16980e: Expose agent-chat plugin options for skipping first-turn workspace inventory and sending a compact starter tool catalog that expands from tool-search results.
+- f16980e: Improve Plan block layout resilience for positioned diagrams and tabbed code surfaces.
+- f16980e: Prevent org-visible resources from being saved without an organization, and let Plan visual recaps resolve the publisher's active org when an older token lacks org context.
+- f16980e: Add Plan visual-answer publishing helpers and pass merged PR metadata through PR visual recap publishing.
+- f16980e: Render native data widgets even when `render-data-widget` echoes truncated JSON.
+- f16980e: Soften the shared chat composer surface color.
+
 ## 0.58.3
 
 ### Patch Changes
