@@ -72,11 +72,11 @@ You don't have to. Every template is also available as a hosted app on `agent-na
 
 ## Try it with a skill {#try-with-a-skill}
 
-Not ready to scaffold? You can add agent-native superpowers to a coding agent you already use with a single command — no app needed. See [Try it with a skill](/docs/getting-started#try-with-a-skill) in Getting Started.
+Not ready to scaffold? You can add agent-native superpowers to a coding agent you already use with a single command — no app needed. See the [Skills Guide](/docs/skills-guide#app-backed-skills).
 
 ## Building on this
 
-- [**Getting Started**](/docs/getting-started) — start headless, choose a template, or install a skill
+- [**Getting Started**](/docs/getting-started) — create a minimal headless action
 - [**Messaging the agent**](/docs/messaging) — how users (and you) talk to the agent that ships with each template
 - [**Multi-App Workspace**](/docs/multi-app-workspace) — bundle several templates into one workspace that shares auth, brand, and agent
 - [**Dispatch**](/docs/template-dispatch) — the workspace control plane template

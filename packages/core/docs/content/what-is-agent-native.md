@@ -139,7 +139,7 @@ Agent-native apps follow a fork-and-customize model. You start from a **template
 
 Because it's _your_ app, not shared infrastructure, the agent can safely evolve the code. Your app keeps improving as you use it. See [Templates](/docs/cloneable-saas) for the full story.
 
-Not ready to fork a whole template? You can also try agent-native by adding a **skill** to a coding agent you already use — install the Plans skill with `npx @agent-native/core@latest skills add visual-plan`. See [Try it with a skill](/docs/getting-started#try-with-a-skill).
+Not ready to fork a whole template? You can also try agent-native by adding a **skill** to a coding agent you already use — install the Plans skill with `npx @agent-native/core@latest skills add visual-plan`. See the [Skills Guide](/docs/skills-guide#app-backed-skills).
 
 ## Composable agents {#composable-agents}
 

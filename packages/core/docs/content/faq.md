@@ -72,7 +72,7 @@ Yes. If you want the smallest action-first app, run `npx @agent-native/core@late
 
 ### Can I try it without forking a template? {#try-with-a-skill}
 
-Yes — install a skill into a coding agent you already use with one command and no scaffold required. See [Try it with a skill](/docs/getting-started#try-with-a-skill) in Getting Started for the full walkthrough.
+Yes — install a skill into a coding agent you already use with one command and no scaffold required. See the [Skills Guide](/docs/skills-guide#app-backed-skills) for the walkthrough.
 
 ## Agent capabilities {#agent-capabilities}
 
