@@ -26,7 +26,11 @@ const SIDEBAR_COLLAPSE_KEY = "chat.sidebar.collapsed";
  * double-stack chrome.
  */
 function routeOwnsToolbar(pathname: string): boolean {
-  return pathname === "/" || pathname.startsWith("/extensions");
+  return (
+    pathname === "/" ||
+    pathname === "/database" ||
+    pathname.startsWith("/extensions")
+  );
 }
 
 export function Layout({ children }: LayoutProps) {
