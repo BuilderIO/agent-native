@@ -31,8 +31,8 @@ export interface AutoJoinDomainOptions {
  * "Join your team" UI in the picker; we use the same opt-in to drive
  * automatic join.
  *
- * Idempotent — skips orgs the user is already a member of and never
- * overwrites an existing `active-org-id` setting.
+ * Idempotent — skips orgs the user is already a member of and, by default,
+ * never overwrites an existing `active-org-id` setting.
  *
  * Safe to call when the org tables don't exist (some templates don't use
  * the org module): it swallows the "no such table" error and returns
