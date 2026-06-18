@@ -220,6 +220,32 @@ pub fn run() {
                         match whisper_model::ensure_model(&app_handle).await {
                             Ok(_) => {
                                 let _ = app_handle.emit("whisper:model-ready", ());
+                                // Warm the in-memory whisper context now, off
+                                // the recording-start path, so the first
+                                // recording doesn't block ~hundreds of ms
+                                // loading the model into memory. Blocking work
+                                // → spawn_blocking
+                                let warm_handle = app_handle.clone();
+                                let _ = tauri::async_runtime::spawn_blocking(move || {
+                                    match whisper_speech::prewarm_context(&warm_handle) {
+                                        Ok(_) => {
+                                            println!(
+                                                "[clips-tray] whisper context prewarm finished"
+                                            );
+                                            let _ = warm_handle.emit("whisper:context-ready", ());
+                                        }
+                                        Err(e) => {
+                                            eprintln!(
+                                                "[clips-tray] whisper context prewarm failed: {e}"
+                                            );
+                                            let _ = warm_handle.emit(
+                                                "whisper:context-error",
+                                                serde_json::json!({ "error": e }),
+                                            );
+                                        }
+                                    }
+                                })
+                                .await;
                             }
                             Err(e) => {
                                 eprintln!("[clips-tray] startup model download failed: {e}");
