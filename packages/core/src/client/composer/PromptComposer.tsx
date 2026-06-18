@@ -36,6 +36,7 @@ import {
   type TiptapComposerHandle,
   type TiptapComposerSubmitOptions,
 } from "./TiptapComposer.js";
+import { IMAGE_ATTACHMENT_ACCEPT } from "./attachment-accept.js";
 import type {
   AgentComposerLayoutVariant,
   Reference,
@@ -191,6 +192,10 @@ class BinaryDocumentAttachmentAdapter implements AttachmentAdapter {
   public async remove() {
     /* noop */
   }
+}
+
+class RasterImageAttachmentAdapter extends SimpleImageAttachmentAdapter {
+  public accept = IMAGE_ATTACHMENT_ACCEPT;
 }
 
 function isInlineableTextFile(file: File): boolean {
@@ -593,7 +598,7 @@ export function PromptComposer(props: PromptComposerProps) {
   const attachmentAdapter = useMemo(
     () =>
       new CompositeAttachmentAdapter([
-        new SimpleImageAttachmentAdapter(),
+        new RasterImageAttachmentAdapter(),
         new BinaryDocumentAttachmentAdapter(),
         new TextAttachmentAdapter(),
       ]),

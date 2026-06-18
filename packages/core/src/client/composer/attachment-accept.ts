@@ -4,9 +4,35 @@ export const PROMPT_DOCUMENT_ATTACHMENT_ACCEPT = [
   "application/pdf",
   "application/vnd.openxmlformats-officedocument.presentationml.presentation",
   "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  "image/svg+xml",
   ".pdf",
   ".pptx",
   ".docx",
+  ".svg",
+].join(",");
+
+export const IMAGE_ATTACHMENT_ACCEPT = [
+  "image/jpeg",
+  "image/jpg",
+  "image/png",
+  "image/gif",
+  "image/webp",
+  "image/heic",
+  "image/heif",
+  "image/avif",
+  "image/bmp",
+  "image/tiff",
+  ".jpg",
+  ".jpeg",
+  ".png",
+  ".gif",
+  ".webp",
+  ".heic",
+  ".heif",
+  ".avif",
+  ".bmp",
+  ".tif",
+  ".tiff",
 ].join(",");
 
 export const TEXT_ATTACHMENT_ACCEPT = [
@@ -18,7 +44,6 @@ export const TEXT_ATTACHMENT_ACCEPT = [
   "text/json",
   "text/css",
   "text/yaml",
-  "image/svg+xml",
   "application/json",
   "application/x-yaml",
   ".txt",
@@ -30,7 +55,6 @@ export const TEXT_ATTACHMENT_ACCEPT = [
   ".htm",
   ".css",
   ".xml",
-  ".svg",
   ".yaml",
   ".yml",
 ].join(",");

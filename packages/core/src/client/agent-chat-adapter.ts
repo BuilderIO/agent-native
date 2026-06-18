@@ -275,18 +275,24 @@ function extractAttachmentsFromMessage(message: {
         const contentType =
           att.contentType ??
           (typeof part.mimeType === "string" ? part.mimeType : undefined);
-        const decodedText = part.data.startsWith("data:")
-          ? decodeTextDataUrl(part.data)
-          : null;
+        const preserveDataUrl =
+          part.data.startsWith("data:") &&
+          shouldPreserveFileDataUrl({ name: att.name, contentType });
+        const decodedText =
+          part.data.startsWith("data:") && !preserveDataUrl
+            ? decodeTextDataUrl(part.data)
+            : null;
         attachments.push({
           type: "file",
           name: att.name,
           contentType,
-          ...(decodedText !== null
-            ? { text: truncateOutboundAttachment(decodedText) }
-            : part.data.startsWith("data:")
-              ? { data: part.data }
-              : { text: truncateOutboundAttachment(part.data) }),
+          ...(preserveDataUrl
+            ? { data: part.data }
+            : decodedText !== null
+              ? { text: truncateOutboundAttachment(decodedText) }
+              : part.data.startsWith("data:")
+                ? { data: part.data }
+                : { text: truncateOutboundAttachment(part.data) }),
         });
       } else if (part.type === "text" && typeof part.text === "string") {
         attachments.push({
@@ -309,6 +315,14 @@ function extractAttachmentsFromMessage(message: {
     }
   }
   return attachments;
+}
+
+function shouldPreserveFileDataUrl(args: {
+  name?: string;
+  contentType?: string;
+}): boolean {
+  const contentType = args.contentType?.split(";")[0]?.trim().toLowerCase();
+  return contentType === "image/svg+xml" || /\.svg$/i.test(args.name ?? "");
 }
 
 function truncateHistoryAttachment(text: string): string {

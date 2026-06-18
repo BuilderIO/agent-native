@@ -6,6 +6,7 @@ import type {
   PendingAttachment,
   Attachment,
 } from "@assistant-ui/react";
+import { IMAGE_ATTACHMENT_ACCEPT } from "../composer/attachment-accept.js";
 
 // Maximum PDF/document size (4 MB). Larger PDFs would bloat the JSON POST
 // body past Vercel's ~4.5 MB limit after base64 encoding (+33% overhead).
@@ -33,33 +34,10 @@ const WEB_SAFE_IMAGE_TYPES = new Set([
   "image/webp",
 ]);
 
-export const IMAGE_ATTACHMENT_ACCEPT = [
-  "image/jpeg",
-  "image/jpg",
-  "image/png",
-  "image/gif",
-  "image/webp",
-  "image/heic",
-  "image/heif",
-  "image/avif",
-  "image/bmp",
-  "image/tiff",
-  ".jpg",
-  ".jpeg",
-  ".png",
-  ".gif",
-  ".webp",
-  ".heic",
-  ".heif",
-  ".avif",
-  ".bmp",
-  ".tif",
-  ".tiff",
-].join(",");
-
 export function inferDocumentContentType(file: File): string {
   if (file.type) return file.type;
   if (file.name.toLowerCase().endsWith(".pdf")) return "application/pdf";
+  if (file.name.toLowerCase().endsWith(".svg")) return "image/svg+xml";
   return "application/octet-stream";
 }
 
@@ -301,11 +279,15 @@ function escapeQueuedAttachmentAttribute(value: string): string {
 
 export function isTextLikeFile(file: File): boolean {
   if (file.type.startsWith("text/")) return true;
-  if (file.type === "image/svg+xml") return true;
   if (file.type === "application/json") return true;
-  return /\.(txt|md|markdown|csv|json|yaml|yml|html?|css|xml|svg)$/i.test(
+  return /\.(txt|md|markdown|csv|json|yaml|yml|html?|css|xml)$/i.test(
     file.name,
   );
+}
+
+function isSvgFile(file: File): boolean {
+  const contentType = file.type.split(";")[0]?.trim().toLowerCase();
+  return contentType === "image/svg+xml" || /\.svg$/i.test(file.name);
 }
 
 export function textFileAttachmentEnvelope(file: File, text: string): string {
@@ -368,7 +350,24 @@ export async function serializeQueuedAttachments(
 
     if (typeof File !== "undefined" && attachment.file instanceof File) {
       const file = attachment.file;
-      if (file.type.startsWith("image/")) {
+      if (isSvgFile(file)) {
+        const contentType = inferDocumentContentType(file);
+        queued.push({
+          id,
+          type: "document",
+          name,
+          contentType,
+          status: { type: "complete" },
+          content: [
+            {
+              type: "file",
+              filename: file.name,
+              data: await getFileDataURL(file),
+              mimeType: contentType,
+            },
+          ],
+        });
+      } else if (file.type.startsWith("image/")) {
         queued.push({
           id,
           type: "image",

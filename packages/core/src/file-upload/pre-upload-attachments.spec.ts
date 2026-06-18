@@ -126,6 +126,30 @@ describe("preUploadAttachments", () => {
     expect(result.injectedText).toContain("chat-file-attachment");
   });
 
+  it("uploads SVG file attachments as files, not vision images", async () => {
+    uploadFileMock.mockResolvedValue({
+      url: "https://cdn.example.com/logo.svg",
+      provider: "builder",
+    });
+
+    const att = makeFileAtt({
+      name: "logo.svg",
+      contentType: "image/svg+xml",
+      data: "data:image/svg+xml;base64,PHN2Zy8+",
+    });
+    const result = await preUploadAttachments({
+      attachments: [att],
+      ownerEmail: "user@example.com",
+      includeFiles: true,
+    });
+
+    expect(result.uploaded).toHaveLength(0);
+    expect(result.uploadedFiles).toHaveLength(1);
+    expect(result.injectedText).toContain("chat-file-attachment");
+    expect(result.injectedText).not.toContain("chat-image-attachment");
+    expect(result.injectedText).toContain('contentType="image/svg+xml"');
+  });
+
   it("does NOT upload file attachments when includeFiles=false (legacy behaviour)", async () => {
     uploadFileMock.mockResolvedValue({
       url: "https://cdn.example.com/report.pdf",
