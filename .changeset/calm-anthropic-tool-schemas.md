@@ -1,6 +1,5 @@
 ---
 "@agent-native/core": patch
-"@agent-native/shared-app-config": patch
 ---
 
 Remove top-level JSON Schema combinators from Anthropic tool input schemas before sending requests so strict provider validation does not reject valid framework tools.
