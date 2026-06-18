@@ -1,5 +1,14 @@
 # @agent-native/core
 
+## 0.59.0
+
+### Minor Changes
+
+- d3e0239: Reliably deliver the first agent-chat message on a cold start (buffer it until a
+  chat thread exists instead of dropping it), and gate prompt boxes up front when
+  no provider key, Builder connection, or BYOK key is configured. New exports:
+  `useAgentEngineConfigured`, `BuilderSetupCard`, `parseSubmitChatMessage`.
+
 ## 0.58.5
 
 ### Patch Changes
