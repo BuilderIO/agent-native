@@ -112,13 +112,20 @@ fn redirect_std_streams(path: &Path) {
 
 #[cfg(all(not(debug_assertions), windows))]
 fn redirect_std_streams(path: &Path) {
-    use std::ffi::CString;
+    use std::os::windows::ffi::OsStrExt;
 
-    let Some(s) = path.to_str() else { return };
-    let Ok(cpath) = CString::new(s) else { return };
+    // libc::open maps to the narrow CRT _open, which interprets the path in
+    // the active ANSI code page — a profile path with non-ASCII characters
+    // (e.g. C:\Users\Müller) then fails to open and silently disables logging.
+    // Build a NUL-terminated UTF-16 path and use the wide _wopen instead.
+    let wide: Vec<u16> = path
+        .as_os_str()
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect();
     unsafe {
-        let fd = libc::open(
-            cpath.as_ptr(),
+        let fd = libc::_wopen(
+            wide.as_ptr(),
             libc::O_WRONLY | libc::O_CREAT | libc::O_APPEND,
             libc::S_IWRITE,
         );
