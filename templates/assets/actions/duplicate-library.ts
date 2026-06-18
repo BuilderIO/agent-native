@@ -5,7 +5,7 @@ import {
   getRequestUserEmail,
 } from "@agent-native/core/server/request-context";
 import { assertAccess } from "@agent-native/core/sharing";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, ne } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
@@ -121,6 +121,7 @@ export default defineAction({
           and(
             eq(schema.assets.libraryId, id),
             inArray(schema.assets.status, ["reference", "saved"]),
+            ne(schema.assets.role, "subject_reference"),
           ),
         ),
     ]);

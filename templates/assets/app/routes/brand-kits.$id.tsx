@@ -221,6 +221,7 @@ function markLibraryAssetSavedStatusInCache(
         return {
           ...asset,
           status: "saved",
+          role: "generated",
           updatedAt: new Date().toISOString(),
         };
       });
@@ -419,24 +420,6 @@ export default function LibraryPage() {
     if (!urlTab) return;
     setActiveTab((current) => (current === urlTab ? current : urlTab));
   }, [urlTab]);
-
-  useEffect(() => {
-    fetch(agentNativePath("/_agent-native/application-state/navigation"), {
-      method: "PUT",
-      headers: {
-        "content-type": "application/json",
-        "x-request-source": "assets-library-ui",
-      },
-      body: JSON.stringify({
-        view: "library",
-        libraryId,
-        activeTab,
-        assetViewMode,
-        assetScope,
-        selectedAssetIds: Array.from(selectedAssetIds),
-      }),
-    }).catch(() => {});
-  }, [activeTab, assetScope, assetViewMode, libraryId, selectedAssetIds]);
 
   const library = data?.library;
   const folders = (data?.folders ?? []) as any[];
@@ -717,6 +700,7 @@ export default function LibraryPage() {
       await updateAsset.mutateAsync({
         id: asset.id,
         status: "saved",
+        role: "generated",
       });
       markLibraryAssetSavedStatusInCache(queryClient, libraryId, asset.id);
       void queryClient.invalidateQueries({
@@ -3325,6 +3309,7 @@ function AssetSwimlaneBoard({
               : {
                   id: asset.id,
                   status: "saved",
+                  role: "generated",
                 },
           ),
         ),

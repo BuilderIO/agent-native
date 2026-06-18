@@ -408,7 +408,7 @@ export async function markAssetSaved(
     .limit(1);
   if (!asset) throw new Error("Asset not found.");
   await assertAccess("asset-library", asset.libraryId, "editor");
-  if (folderId) {
+  if (folderId !== undefined && folderId !== null) {
     await assertFolderBelongsToLibrary(folderId, asset.libraryId);
   }
   const metadata = parseJson<Record<string, unknown>>(asset.metadata, {});

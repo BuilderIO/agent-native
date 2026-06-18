@@ -3,6 +3,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const getDbMock = vi.hoisted(() => vi.fn());
 const assertAccessMock = vi.hoisted(() => vi.fn());
 const nanoidMock = vi.hoisted(() => vi.fn());
+const neMock = vi.hoisted(() =>
+  vi.fn((column, value) => ({ op: "ne", column, value })),
+);
 
 vi.mock("@agent-native/core", () => ({
   defineAction: (entry: unknown) => entry,
@@ -27,6 +30,7 @@ vi.mock("drizzle-orm", () => ({
   and: vi.fn((...conditions) => ({ op: "and", conditions })),
   eq: vi.fn((column, value) => ({ op: "eq", column, value })),
   inArray: vi.fn((column, values) => ({ op: "inArray", column, values })),
+  ne: neMock,
 }));
 
 vi.mock("nanoid", () => ({
@@ -70,6 +74,7 @@ vi.mock("../server/db/index.js", () => ({
     assets: {
       libraryId: "assets.library_id",
       status: "assets.status",
+      role: "assets.role",
     },
   },
 }));
@@ -221,6 +226,7 @@ describe("duplicate-library", () => {
       "source-lib",
       "viewer",
     );
+    expect(neMock).toHaveBeenCalledWith("assets.role", "subject_reference");
     expect(result.id).toBe("copy-lib");
     expect(result.title).toBe("Acme (copy)");
     expect(result.ownerEmail).toBe("designer@example.com");

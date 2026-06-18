@@ -15,7 +15,7 @@ export default defineAction({
   schema: z.object({
     assetId: z.string().optional(),
     slotId: z.string().optional(),
-    folderId: z.string().nullable().optional(),
+    folderId: z.string().min(1).nullable().optional(),
   }),
   run: async ({ assetId, slotId, folderId }) => {
     let resolvedAssetId = assetId;
