@@ -3,8 +3,14 @@ import type { PlatformAdapter } from "./types.js";
 import { createIntegrationsPlugin } from "./plugin.js";
 
 const getSessionMock = vi.hoisted(() => vi.fn());
+const getIntegrationConfigMock = vi.hoisted(() =>
+  vi.fn(async () => ({ configData: { enabled: false } })),
+);
 const saveIntegrationConfigMock = vi.hoisted(() => vi.fn());
 const processIntegrationTaskMock = vi.hoisted(() => vi.fn());
+const handleWebhookMock = vi.hoisted(() =>
+  vi.fn(async () => ({ status: 200, body: "ok" })),
+);
 const resourceGetByPathMock = vi.hoisted(() => vi.fn(async () => null));
 const resourceListMock = vi.hoisted(() => vi.fn(async () => []));
 const resourceListAccessibleMock = vi.hoisted(() => vi.fn(async () => []));
@@ -22,7 +28,7 @@ vi.mock("../server/auth.js", () => ({
 }));
 
 vi.mock("./config-store.js", () => ({
-  getIntegrationConfig: vi.fn(async () => ({ configData: { enabled: false } })),
+  getIntegrationConfig: getIntegrationConfigMock,
   saveIntegrationConfig: saveIntegrationConfigMock,
 }));
 
@@ -60,6 +66,7 @@ vi.mock("./webhook-handler.js", async () => {
   );
   return {
     ...actual,
+    handleWebhook: handleWebhookMock,
     processIntegrationTask: processIntegrationTaskMock,
   };
 });
@@ -151,6 +158,10 @@ describe("integrations plugin routes", () => {
       process.env.A2A_SECRET = originalA2ASecret;
     }
     vi.clearAllMocks();
+    getIntegrationConfigMock.mockImplementation(async () => ({
+      configData: { enabled: false },
+    }));
+    handleWebhookMock.mockResolvedValue({ status: 200, body: "ok" });
     resourceGetByPathMock.mockImplementation(async () => null);
   });
 
@@ -249,7 +260,7 @@ describe("integrations plugin routes", () => {
     });
   });
 
-  it("loads owner resources when processing queued integration tasks", async () => {
+  it("loads compact owner resources when processing queued integration tasks", async () => {
     process.env.NODE_ENV = "development";
     claimPendingTaskMock.mockResolvedValueOnce({
       id: "task-with-resources",
@@ -304,7 +315,71 @@ describe("integrations plugin routes", () => {
     const [, options] = processIntegrationTaskMock.mock.calls[0];
     expect(options.systemPrompt).toContain("Base prompt.");
     expect(options.systemPrompt).toContain("Shared Dispatch instruction");
-    expect(options.systemPrompt).toContain("Personal Dispatch memory");
+    expect(options.systemPrompt).toContain(
+      "Shared learnings (LEARNINGS.md) and your personal memory (memory/MEMORY.md) are available via the `resources` tool",
+    );
+    expect(options.systemPrompt).not.toContain("Personal Dispatch memory");
+    expect(resourceGetByPathMock).not.toHaveBeenCalledWith(
+      "owner+qa@example.com",
+      "memory/MEMORY.md",
+    );
     expect(markTaskCompletedMock).toHaveBeenCalledWith("task-with-resources");
+  });
+
+  it("loads compact owner resources when handling integration webhooks", async () => {
+    getIntegrationConfigMock.mockResolvedValueOnce({
+      configData: { enabled: true },
+    });
+    resourceGetByPathMock.mockImplementation(async (owner, path) => {
+      if (owner === "shared" && path === "AGENTS.md") {
+        return { content: "Shared Dispatch instruction" };
+      }
+      if (owner === "owner+qa@example.com" && path === "AGENTS.md") {
+        return { content: "Personal Dispatch instruction" };
+      }
+      if (owner === "owner+qa@example.com" && path === "memory/MEMORY.md") {
+        return { content: "Personal Dispatch memory" };
+      }
+      return null;
+    });
+    const incomingAdapter: PlatformAdapter = {
+      ...adapter,
+      parseIncomingMessage: async () => ({
+        platform: "fake",
+        externalThreadId: "fake-thread",
+        text: "create an app",
+        senderId: "UQA",
+        platformContext: {},
+        timestamp: Date.now(),
+      }),
+    };
+    const nitroApp = createNitroApp();
+    await createIntegrationsPlugin({
+      adapters: [incomingAdapter],
+      systemPrompt: "Base prompt.",
+      resolveOwner: async () => "owner+qa@example.com",
+    })(nitroApp);
+
+    const result = await dispatch(
+      nitroApp,
+      "/_agent-native/integrations/fake/webhook",
+      "POST",
+      { event: "message" },
+    );
+
+    expect(result.status).toBe(200);
+    expect(handleWebhookMock).toHaveBeenCalledTimes(1);
+    const [, options] = handleWebhookMock.mock.calls[0];
+    expect(options.systemPrompt).toContain("Base prompt.");
+    expect(options.systemPrompt).toContain("Shared Dispatch instruction");
+    expect(options.systemPrompt).toContain(
+      "Shared learnings (LEARNINGS.md) and your personal memory (memory/MEMORY.md) are available via the `resources` tool",
+    );
+    expect(options.systemPrompt).not.toContain("Personal Dispatch memory");
+    expect(options.ownerEmail).toBe("owner+qa@example.com");
+    expect(resourceGetByPathMock).not.toHaveBeenCalledWith(
+      "owner+qa@example.com",
+      "memory/MEMORY.md",
+    );
   });
 });

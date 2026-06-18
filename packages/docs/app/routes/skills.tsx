@@ -1,5 +1,5 @@
 import { Link } from "react-router";
-import { useState } from "react";
+import { useState, type SyntheticEvent } from "react";
 import { trackEvent } from "@agent-native/core/client";
 import { AgentNativeDemoVideo } from "../components/AgentNativeDemoVideo";
 import { withDefaultSocialImage } from "../seo";
@@ -39,6 +39,8 @@ type Skill = {
   description: string;
   features: string[];
   docsTo: string;
+  videoAriaLabel: string;
+  videoUrl: string;
 };
 
 const SKILLS: Skill[] = [
@@ -53,6 +55,9 @@ const SKILLS: Skill[] = [
       "Comment, revise, approve, or hand off",
     ],
     docsTo: "/docs/template-plan",
+    videoAriaLabel: "Visual Plan skill demo video",
+    videoUrl:
+      "https://cdn.builder.io/o/assets%2FYJIGb4i01jvw0SRdL5Bt%2F343345910cf644bcae709e799db839bc?alt=media&token=4d31d6e8-3e7c-4b56-8dd3-3e650847380a&apiKey=YJIGb4i01jvw0SRdL5Bt",
   },
   {
     command: "/visual-recap",
@@ -65,6 +70,9 @@ const SKILLS: Skill[] = [
       "Optionally posts one sticky PR comment",
     ],
     docsTo: "/docs/pr-visual-recap",
+    videoAriaLabel: "Visual Recap skill demo video",
+    videoUrl:
+      "https://cdn.builder.io/o/assets%2FYJIGb4i01jvw0SRdL5Bt%2Ff3b332ce5bc1405091f4e4f63c09e790?alt=media&token=1ec8fb67-a0fc-4c93-91ee-4d46c2d21c77&apiKey=YJIGb4i01jvw0SRdL5Bt",
   },
 ];
 
@@ -127,6 +135,52 @@ function CliCopy({
   );
 }
 
+function SkillVideo({ skill }: { skill: Skill }) {
+  const [isLoaded, setIsLoaded] = useState(false);
+  function handleVideoReady(event: SyntheticEvent<HTMLVideoElement>) {
+    setIsLoaded(true);
+    void event.currentTarget.play().catch(() => {
+      // Muted autoplay can still be blocked by browser settings.
+    });
+  }
+
+  return (
+    <div className="relative mt-5 aspect-[1189/1080] overflow-hidden rounded-lg border border-[var(--docs-border)] bg-black">
+      <video
+        src={skill.videoUrl}
+        aria-label={skill.videoAriaLabel}
+        autoPlay
+        muted
+        loop
+        playsInline
+        preload="auto"
+        onCanPlay={handleVideoReady}
+        onLoadedData={handleVideoReady}
+        onPlaying={() => setIsLoaded(true)}
+        className="block h-full w-full object-cover"
+      />
+      <div
+        aria-hidden
+        className={`pointer-events-none absolute inset-0 bg-[var(--bg-secondary)] transition-opacity duration-300 ${
+          isLoaded ? "opacity-0" : "opacity-100"
+        }`}
+      >
+        <div className="flex h-full w-full animate-pulse flex-col justify-between p-4">
+          <div className="space-y-2">
+            <div className="h-3 w-1/3 rounded-full bg-[var(--docs-border)]" />
+            <div className="h-2.5 w-2/3 rounded-full bg-[var(--docs-border)]" />
+          </div>
+          <div className="grid gap-2">
+            <div className="h-16 rounded-md bg-[var(--docs-border)]/70 sm:h-20" />
+            <div className="h-8 rounded-md bg-[var(--docs-border)]/50 sm:h-10" />
+          </div>
+          <div className="h-7 w-1/4 rounded-full bg-[var(--docs-border)]" />
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function SkillCard({ skill }: { skill: Skill }) {
   return (
     <article className="flex flex-col rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)] p-5 sm:p-6">
@@ -168,6 +222,8 @@ function SkillCard({ skill }: { skill: Skill }) {
           <span aria-hidden>→</span>
         </Link>
       </div>
+
+      <SkillVideo skill={skill} />
     </article>
   );
 }

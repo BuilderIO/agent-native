@@ -554,6 +554,63 @@ export async function getRunByThread(
   };
 }
 
+export interface AgentRunSummary {
+  id: string;
+  threadId: string;
+  turnId: string | null;
+  status: string;
+  startedAt: number;
+  heartbeatAt: number | null;
+  completedAt: number | null;
+  lastProgressAt: number | null;
+  errorCode: string | null;
+  abortReason: string | null;
+}
+
+export async function listRunsForThread(
+  threadId: string,
+  options: { limit?: number } = {},
+): Promise<AgentRunSummary[]> {
+  await ensureRunTables();
+  const limit = Math.min(Math.max(options.limit ?? 10, 1), 50);
+  const client = getDbExec();
+  const { rows } = await client.execute({
+    sql: `SELECT id, thread_id, turn_id, status, started_at, heartbeat_at, completed_at, last_progress_at, error_code, abort_reason
+          FROM agent_runs
+          WHERE thread_id = ?
+          ORDER BY started_at DESC
+          LIMIT ?`,
+    args: [threadId, limit],
+  });
+  return rows.map((r) => {
+    const row = r as {
+      id: string;
+      thread_id: string;
+      turn_id?: string | null;
+      status: string;
+      started_at: number | string;
+      heartbeat_at?: number | string | null;
+      completed_at?: number | string | null;
+      last_progress_at?: number | string | null;
+      error_code?: string | null;
+      abort_reason?: string | null;
+    };
+    return {
+      id: row.id,
+      threadId: row.thread_id,
+      turnId: row.turn_id ?? null,
+      status: row.status,
+      startedAt: Number(row.started_at),
+      heartbeatAt: row.heartbeat_at == null ? null : Number(row.heartbeat_at),
+      completedAt: row.completed_at == null ? null : Number(row.completed_at),
+      lastProgressAt:
+        row.last_progress_at == null ? null : Number(row.last_progress_at),
+      errorCode: row.error_code ?? null,
+      abortReason: row.abort_reason ?? null,
+    };
+  });
+}
+
 /**
  * Read the current logical turn's recorded events for a thread, parsed into
  * `AgentChatEvent`s in seq order, for per-turn tool-call journal classification

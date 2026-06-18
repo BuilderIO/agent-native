@@ -4,6 +4,23 @@ These instructions apply to every app in the {{APP_TITLE}} workspace. Keep
 only rules that should be shared across all apps here. App-specific behavior
 belongs in that app's own `AGENTS.md` or `.agents/skills/` directory.
 
+## Framework Docs Lookup
+
+Version-matched Agent Native docs ship with `@agent-native/core` in
+`node_modules/@agent-native/core/docs`.
+
+- From an app directory, use `pnpm action docs-search --query "<topic>"`,
+  `pnpm action docs-search --slug <slug>`, or `pnpm action docs-search --list`.
+- If the action runner is unavailable, read
+  `node_modules/@agent-native/core/docs/AGENTS.md` and search
+  `node_modules/@agent-native/core/docs/content/` directly with `rg`.
+- For advanced workspace features, start with `workspace`, `multi-app-workspace`,
+  `a2a-protocol`, `pure-agent-apps`, `automations`, `recurring-jobs`,
+  `external-agents`, `mcp-protocol`, `sharing`, and `security`.
+
+Use package docs for framework APIs, and use this `AGENTS.md` plus
+`.agents/skills/` for workspace-specific conventions.
+
 ## Shared Context
 
 Add company, product, compliance, or support-context notes that every app
@@ -55,7 +72,7 @@ become a separate workspace app under `apps/<app-name>`, mounted at
 `/<app-name>`.
 
 Do not implement a new app by adding a route, page, component, or file to
-`apps/starter` or another existing app unless the user explicitly asks to modify
+`apps/chat` or another existing app unless the user explicitly asks to modify
 that existing app.
 
 Dispatch vault access is workspace-wide by default: every saved vault key is
@@ -101,8 +118,8 @@ branch creation; Builder should still scaffold the separate workspace app. The
 workspace dev gateway (`pnpm dev`) detects new `apps/<app-name>` directories
 automatically.
 
-When using the starter template, treat it as scaffolding only. The finished app
+When using the chat template, treat it as scaffolding only. The finished app
 must be branded as the requested app, with its own home screen, navigation,
 package metadata, manifest, and domain workflow. Do not leave visible
-`Starter`, `Blank app`, `Start building`, or `New app` UI in a starter-derived
+`Chat`, `Starter`, `Blank app`, `Start building`, or `New app` UI in a chat-derived
 app.

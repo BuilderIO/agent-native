@@ -13,13 +13,13 @@ application.
 The useful way to choose is not by protocol first. Choose the product surface
 you want, then use the matching primitive.
 
-| Surface                       | Use it when                                                                                                 | Start with                                                         |
-| ----------------------------- | ----------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------ |
-| **Headless agent/actions**    | Code, jobs, scripts, another app, or another agent should call the work directly.                           | `defineAction`, HTTP, CLI, MCP, A2A                                |
-| **Rich chat on Agent-Native** | You want a standalone or embedded chat backed by the built-in agent loop.                                   | `<AgentChatSurface>`, `<AssistantChat>`, `createAgentChatPlugin()` |
-| **Rich chat on your agent**   | You built the agent elsewhere and want Agent-Native's composer, transcript, tool cards, and native widgets. | `AgentChatRuntime`, `<AssistantChat runtime={runtime}>`            |
-| **Embedded sidecar**          | You already have a SaaS app and want an agent beside it with page context and host commands.                | `createAgentNativeEmbeddedPlugin()`, `AgentNativeEmbedded`         |
-| **Full application**          | Humans and agents should share durable screens, data, navigation, and collaboration.                        | Templates, actions, SQL state, context awareness                   |
+| Surface                       | Use it when                                                                                                 | Start with                                                                                  |
+| ----------------------------- | ----------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
+| **Headless agent/actions**    | Code, jobs, scripts, another app, or another agent should call the work directly.                           | `agent-native create --headless`, `defineAction`, `agent-native agent`, HTTP, CLI, MCP, A2A |
+| **Rich chat on Agent-Native** | You want a standalone or embedded chat backed by the built-in agent loop.                                   | [Chat template](/docs/template-chat), `<AgentChatSurface>`, `<AssistantChat>`               |
+| **Rich chat on your agent**   | You built the agent elsewhere and want Agent-Native's composer, transcript, tool cards, and native widgets. | `AgentChatRuntime`, `<AssistantChat runtime={runtime}>`                                     |
+| **Embedded sidecar**          | You already have a SaaS app and want an agent beside it with page context and host commands.                | `createAgentNativeEmbeddedPlugin()`, `AgentNativeEmbedded`                                  |
+| **Full application**          | Humans and agents should share durable screens, data, navigation, and collaboration.                        | Templates, actions, SQL state, context awareness                                            |
 
 Those are stages, not separate products. A workflow can start as a headless
 action, appear in chat as a table or chart, and later become a full screen in an
@@ -31,11 +31,19 @@ Use the headless path when no one needs to stare at a custom app screen while
 the work runs: scheduled jobs, integrations, backend workflows, CLI loops,
 another agent, or an existing product calling into Agent-Native.
 
-Most headless integrations should start with actions:
+The smallest local path is a headless scaffold plus one action:
+
+```bash
+npx @agent-native/core@latest create my-agent --headless
+cd my-agent
+pnpm install
+```
+
+Then define the durable operation:
 
 ```ts
 // actions/summarize-week.ts
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { z } from "zod";
 
 export default defineAction({
@@ -52,14 +60,26 @@ One action is then callable as:
 
 - **HTTP** — `POST /_agent-native/actions/summarize-week`
 - **CLI** — `pnpm action summarize-week --formId form_123`
+- **App-agent CLI** — `pnpm agent "Summarize form_123"`
 - **MCP** — from Claude, ChatGPT, Codex, Cursor, OpenCode, Copilot, and other MCP hosts
 - **A2A** — from another agent-native app or agent peer
 - **UI** — through `useActionQuery`, `useActionMutation`, or `callAction`
 - **Agent tool** — from the built-in chat loop
 
-If you need the whole agent loop headlessly, use the server API from a worker,
-job, integration webhook, or custom host. This is lower-level than actions: you
-provide the engine, model, messages, actions, and event sink yourself.
+This is not a no-database or stateless mode. The app-agent loop stores sessions,
+threads, runs, settings, credentials, application state, and share records in
+SQL. Local development defaults to SQLite; hosted headless apps should use a
+persistent SQL database.
+
+If you need the whole agent loop headlessly from the project folder, use:
+
+```bash
+pnpm agent "Summarize this week's forms."
+```
+
+Workers, jobs, integration webhooks, and custom hosts can use the server API
+directly. This is lower-level than actions: you provide the engine, model,
+messages, actions, and event sink yourself.
 
 ```ts
 import {
@@ -97,10 +117,48 @@ For most apps, scheduled prompts and integration webhooks already call this loop
 for you. Reach for direct `runAgentLoop()` when you are building a custom
 headless host, eval runner, or server-side orchestration surface.
 
+### Running against a folder {#folder-loop}
+
+If your goal is "run an agent against this folder," start with the app-agent
+loop in that folder: scaffold the headless app, add actions/instructions, run
+`pnpm agent "..."`. That keeps the work inside the same action/runtime/state
+contract the app will use in production.
+
+External coding harnesses are a separate product surface for embedding Claude
+Code, Codex, Pi, Cursor, Mastra, or similar runtimes inside an Agent-Native app.
+Use them when you are building a coding-agent product, not as the default way to
+start a local agent-native workflow.
+
+### Cloud repo access {#cloud-repo-access}
+
+For cloud headless apps that need repository access, the planned model is a
+GitHub connector plus token CRUD: list repositories, search files, read files,
+create or edit files, delete files, and revoke access through provider-scoped
+credentials.
+
+Do not treat a VM clone or long-lived sandbox checkout as the primary cloud
+repo-access model. Sandboxes still matter for isolated code execution, but
+repository access should be explicit, permissioned, auditable, and revocable
+through the connector layer.
+
+### Sharing sessions and runs {#sharing-runs}
+
+Headless sessions and runs are durable objects. Shareability should be phased:
+read/share links first, so teammates can inspect sanitized prompts, outputs,
+and run status; permissioned writable collaboration later, so continuing a run,
+approving actions, editing schedules, or changing configuration goes through
+explicit access checks.
+
 ## Rich chat on Agent-Native {#rich-chat}
 
 Use the built-in chat when the user should talk to the agent, see tool calls,
 approve work, inspect native results, and keep a durable thread history.
+
+For a full app starting point, use the [Chat template](/docs/template-chat):
+
+```bash
+npx @agent-native/core@latest create my-chat-app --template chat
+```
 
 The simplest full-page chat:
 
@@ -130,6 +188,9 @@ components in the chat, without iframes. See [Native Chat UI](/docs/native-chat-
 
 Use this path when your agent is already built with another framework or
 runtime and you want Agent-Native's chat UI around it.
+
+The [Chat template](/docs/template-chat) is still useful here: keep its app
+shell and thread UI, then swap the runtime behind the chat plugin or route.
 
 `AgentChatRuntime` is the boundary. Your runtime streams normalized events;
 Agent-Native renders the composer, transcript, tool calls, approvals, native
@@ -245,8 +306,9 @@ Full apps add product UI around the same action and agent contract:
 - **Deep links** — action results can open the right app view.
 - **Native chat widgets** — tables, charts, cards, approvals, and typed results appear inline.
 
-Start from a [template](/docs/cloneable-saas) when you want a complete app, or
-from [Starter](/docs/template-starter) when you want only the framework wiring.
+Start from the [Chat template](/docs/template-chat) when you want a minimal app
+around your actions, or from a domain [template](/docs/cloneable-saas) when you
+want a complete product shape.
 
 ## How to choose {#how-to-choose}
 

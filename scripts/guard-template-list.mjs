@@ -64,13 +64,8 @@ const truth = parseTemplateMetaFile(path.join(repoRoot, SOURCE_OF_TRUTH));
 const cli = parseTemplateMetaFile(path.join(repoRoot, CLI_DUPLICATE));
 
 const allowed = new Set(
-  [...truth.entries()]
-    .filter(([slug, meta]) => !meta.hidden && slug !== "starter")
-    .map(([slug]) => slug),
+  [...truth.entries()].filter(([, meta]) => !meta.hidden).map(([slug]) => slug),
 );
-// Starter is a CLI-only scaffold. It may have a developer docs page, but it
-// must not appear in public marketing/catalog template surfaces.
-const CLI_ONLY_TEMPLATE_DOCS = new Set(["starter"]);
 // Tolerate the legacy "video" alias for "videos" — multiple surfaces
 // link to /templates/video and that alias is documented in
 // `getTemplate()` in templates.ts. Whitelist it here so the guard
@@ -153,8 +148,7 @@ const DOCS_NAV_PATH = "packages/docs/app/components/docsNavItems.ts";
   }
 }
 
-// ── 4. Docs pages (template-*.md) must only exist for allowed slugs, plus
-// explicit CLI-only scaffold references such as template-starter.md.
+// ── 4. Docs pages (template-*.md) must only exist for allowed slugs.
 const DOCS_CONTENT_DIR = "packages/core/docs/content";
 {
   const dir = path.join(repoRoot, DOCS_CONTENT_DIR);
@@ -162,7 +156,7 @@ const DOCS_CONTENT_DIR = "packages/core/docs/content";
     const m = file.match(/^template-([a-z0-9-]+)\.md$/);
     if (!m) continue;
     const slug = m[1];
-    if (!allowed.has(slug) && !CLI_ONLY_TEMPLATE_DOCS.has(slug)) {
+    if (!allowed.has(slug)) {
       errors.push(
         `${DOCS_CONTENT_DIR}/${file}: docs page exists for "${slug}" which is not in the public allow-list. ` +
           `Delete this file, or flip hidden:false in ${SOURCE_OF_TRUTH} (and ${CLI_DUPLICATE}).`,
@@ -198,5 +192,5 @@ const publicTemplateSlugs = [...allowed]
   .sort();
 const allowedList = publicTemplateSlugs.join(", ");
 console.log(
-  `guard-template-list: clean (${publicTemplateSlugs.length} public templates: ${allowedList}; starter is CLI-only).`,
+  `guard-template-list: clean (${publicTemplateSlugs.length} public templates: ${allowedList}).`,
 );

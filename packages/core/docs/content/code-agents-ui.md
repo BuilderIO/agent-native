@@ -67,7 +67,7 @@ That separation matters. The UI can be reused by templates, but native process c
 The old hidden `code` template has been removed. To build a browser-hosted Code surface, create a normal app and mount the shared UI package with a host implementation:
 
 ```bash
-npx @agent-native/core@latest create my-code-ui --template starter
+npx @agent-native/core@latest create my-code-ui --template chat
 cd my-code-ui
 pnpm add @agent-native/code-agents-ui
 pnpm install

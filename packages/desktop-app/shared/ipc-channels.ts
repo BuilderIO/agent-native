@@ -583,7 +583,12 @@ export interface CodeAgentRemoteConnectorPairResult {
   error?: string;
 }
 
-export type CodeAgentProviderId = "builder" | "anthropic" | "openai" | "google";
+export type CodeAgentProviderId =
+  | "builder"
+  | "anthropic"
+  | "openai"
+  | "google"
+  | "codex";
 
 export type CodeAgentProviderCredentialKey =
   | "ANTHROPIC_API_KEY"
@@ -599,7 +604,7 @@ export interface CodeAgentProviderStatus {
   configuredKeys: CodeAgentProviderCredentialKey[];
   missingKeys: CodeAgentProviderCredentialKey[];
   savedKeys: CodeAgentProviderCredentialKey[];
-  source?: "desktop-settings" | "environment" | "mixed";
+  source?: "desktop-settings" | "environment" | "mixed" | "local-codex";
 }
 
 export interface CodeAgentProviderSettings {

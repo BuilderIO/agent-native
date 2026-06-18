@@ -97,10 +97,10 @@ assertSameMembers(
     "design",
     "dispatch",
     "forms",
+    "chat",
     "mail",
     "plan",
     "slides",
-    "starter",
   ],
   "core template set changed; update desktop/default orchestration expectations deliberately",
 );
@@ -125,7 +125,7 @@ const visibleWithoutProdUrl = templates
 assert.deepEqual(
   visibleWithoutProdUrl,
   [],
-  "all public templates should have a production URL; starter is CLI-only",
+  "all public templates should have a production URL",
 );
 
 const appWebview = read(
@@ -198,7 +198,7 @@ assert.ok(
 );
 assert.match(
   desktopShell,
-  /\.platform-darwin\s+\.tabbar\s*\{[^}]*border-left:\s*var\(--macos-traffic-light-safe-area\)\s+solid\s+var\(--tabbar-bg\)/s,
+  /\.tabbar-window-spacer\s*\{[^}]*flex:\s*0\s+0\s+var\(--macos-traffic-light-safe-area\)/s,
   "desktop shell must keep the macOS traffic-light safe area outside the scrollable tab row",
 );
 assert.doesNotMatch(

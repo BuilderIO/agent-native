@@ -1274,7 +1274,11 @@ export function createIntegrationsPlugin(
             setResponseStatus(event, 404);
             return { error: "Unknown platform" };
           }
-          const resources = await loadResourcesForPrompt(task.ownerEmail);
+          const resources = await loadResourcesForPrompt(
+            task.ownerEmail,
+            true,
+            options?.appId,
+          );
           await processIntegrationTask(task, {
             adapter,
             systemPrompt: baseSystemPrompt + resources,
@@ -1517,7 +1521,11 @@ export function createIntegrationsPlugin(
               );
             }
           }
-          const resources = await loadResourcesForPrompt(owner);
+          const resources = await loadResourcesForPrompt(
+            owner,
+            true,
+            options?.appId,
+          );
           const systemPrompt = baseSystemPrompt + resources;
           const result = await handleWebhook(event, {
             adapter,

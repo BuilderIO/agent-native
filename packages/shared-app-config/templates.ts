@@ -45,7 +45,7 @@ export interface TemplateMeta {
   hidden?: boolean;
   /** Include as a built-in connected A2A agent even when hidden from pickers */
   defaultAgent?: boolean;
-  /** Always scaffold without prompting (e.g. starter as fallback) */
+  /** Always scaffold without prompting (e.g. chat as fallback) */
   alwaysAvailable?: boolean;
   /** Internal workspace packages this template depends on (e.g. "scheduling") */
   requiredPackages?: string[];
@@ -216,18 +216,17 @@ export const TEMPLATES: TemplateMeta[] = [
     core: true,
   },
   {
-    name: "starter",
-    label: "Starter",
-    hint: "Minimal scaffold with the agent chat and core architecture wired up",
-    icon: "Code",
-    color: "#71717A",
-    colorRgb: "113 113 122",
+    name: "chat",
+    label: "Chat",
+    hint: "Minimal chat-first app with durable threads, actions, and the app-agent loop",
+    icon: "MessageCircle",
+    color: "#18181B",
+    colorRgb: "24 24 27",
     devPort: 8089,
-    prodUrl: "https://starter.agent-native.com",
+    prodUrl: "https://chat.agent-native.com",
     defaultMode: "prod",
     alwaysAvailable: true,
     core: true,
-    hidden: true,
   },
   {
     name: "macros",
@@ -256,6 +255,7 @@ export function coreTemplates(): TemplateMeta[] {
 /** Lookup by name. Returns undefined for unknown names. */
 export function getTemplate(name: string): TemplateMeta | undefined {
   // Tolerate legacy / renamed aliases.
+  if (name === "starter") name = "chat";
   if (name === "video") name = "videos";
   if (name === "image" || name === "images" || name === "asset") {
     name = "assets";

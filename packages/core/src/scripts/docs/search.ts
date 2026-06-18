@@ -24,12 +24,18 @@ interface DocFull extends DocMeta {
   body: string;
 }
 
-function getDocsDir(): string {
-  // Resolve from the package root: src/scripts/docs/search.ts -> docs/content/
+function getDocsRoot(): string {
+  // Resolve from the package root:
+  //   src/scripts/docs/search.ts -> docs/
+  //   dist/scripts/docs/search.js -> docs/
   return path.resolve(
     path.dirname(new URL(import.meta.url).pathname),
-    "../../../docs/content",
+    "../../../docs",
   );
+}
+
+function getDocsDir(): string {
+  return path.join(getDocsRoot(), "content");
 }
 
 function parseFrontmatter(raw: string): {
@@ -47,22 +53,47 @@ function parseFrontmatter(raw: string): {
   return { data, body: match[2] };
 }
 
+function titleFromBody(body: string): string | null {
+  const heading = body.match(/^#\s+(.+?)\s*$/m);
+  return heading?.[1]?.trim() || null;
+}
+
+function loadMarkdownDoc(filePath: string, slug: string): DocFull {
+  const raw = fs.readFileSync(filePath, "utf-8");
+  const { data, body } = parseFrontmatter(raw);
+  return {
+    slug,
+    title: data.title || data.name || titleFromBody(body) || slug,
+    description: data.description || "",
+    body,
+  };
+}
+
 function loadFilesystemDocs(): DocFull[] {
+  const docs: DocFull[] = [];
+  const rootDocs = [
+    { file: "AGENTS.md", slug: "agent-native-docs" },
+    { file: "SKILL.md", slug: "agent-native-docs-skill" },
+    { file: "README.md", slug: "agent-native-docs-readme" },
+  ];
+  for (const doc of rootDocs) {
+    const filePath = path.join(getDocsRoot(), doc.file);
+    if (fs.existsSync(filePath)) {
+      docs.push(loadMarkdownDoc(filePath, doc.slug));
+    }
+  }
+
   const docsDir = getDocsDir();
-  if (!fs.existsSync(docsDir)) return [];
+  if (!fs.existsSync(docsDir)) return docs;
 
   const files = fs.readdirSync(docsDir).filter((f) => f.endsWith(".md"));
-  return files.map((file) => {
-    const raw = fs.readFileSync(path.join(docsDir, file), "utf-8");
-    const slug = file.replace(/\.md$/, "");
-    const { data, body } = parseFrontmatter(raw);
-    return {
-      slug,
-      title: data.title || slug,
-      description: data.description || "",
-      body,
-    };
-  });
+  docs.push(
+    ...files.map((file) => {
+      const slug = file.replace(/\.md$/, "");
+      return loadMarkdownDoc(path.join(docsDir, file), slug);
+    }),
+  );
+  return docs;
 }
 
 function slugifyDocId(value: string): string {

@@ -66,7 +66,7 @@ This is a pnpm monorepo. Workspaces are defined in `pnpm-workspace.yaml`.
 
 Production-ready template apps that demonstrate the framework. Each template is a standalone app with its own `package.json`, Drizzle schema, actions, and UI.
 
-Templates: `analytics`, `assets`, `brain`, `calendar`, `clips`, `content`, `design`, `dispatch`, `forms`, `macros`, `mail`, `plan`, `slides`, `starter`, `videos`
+Templates: `analytics`, `assets`, `brain`, `calendar`, `chat`, `clips`, `content`, `design`, `dispatch`, `forms`, `macros`, `mail`, `plan`, `slides`, `videos`
 
 Each template uses the same scripts:
 

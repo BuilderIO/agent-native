@@ -113,6 +113,7 @@ import { validateTrackPayload } from "../tracking/route.js";
 import { registerBuiltinNotificationChannels } from "../notifications/channels.js";
 import { createNotificationsHandler } from "../notifications/routes.js";
 import { createProgressHandler } from "../progress/routes.js";
+import { createAutomationsHandler } from "../triggers/routes.js";
 import { createGoogleRealtimeSessionHandler } from "./google-realtime-session.js";
 import { createTranscribeVoiceHandler } from "./transcribe-voice.js";
 import { runWithRequestContext } from "./request-context.js";
@@ -730,6 +731,25 @@ export function createCoreRoutesPlugin(
       // See `csrf.ts` for the threat model and allowlist.
       const { createCsrfMiddleware } = await import("./csrf.js");
       getH3App(nitroApp).use(createCsrfMiddleware(P));
+
+      // Agent discovery primitive — shared by headless CLI/A2A surfaces and
+      // UI shells that need to show connected peer apps without depending on
+      // the chat route namespace.
+      getH3App(nitroApp).use(
+        `${P}/agents`,
+        defineEventHandler(async (event) => {
+          const method = getMethod(event);
+          if (method !== "GET") {
+            setResponseStatus(event, 405);
+            return { error: "Method not allowed" };
+          }
+          const query = getRequestURL(event).searchParams;
+          const selfAppId = query.get("selfAppId") ?? undefined;
+          const { discoverAgents } = await import("./agent-discovery.js");
+          const agents = await discoverAgents(selfAppId);
+          return { agents };
+        }),
+      );
 
       // Demo-mode status — read by the client fetch interceptor and the
       // Demo mode settings toggle. `forced` reflects the DEMO_MODE env (a
@@ -2701,125 +2721,9 @@ export function createCoreRoutesPlugin(
 
       // ─── Automations API ──────────────────────────────────────────────
       // GET  /_agent-native/automations — list all automations (parsed triggers)
+      // PATCH /_agent-native/automations — enable/disable a jobs/*.md automation
       // POST /_agent-native/automations/fire-test — emit test.event.fired
-      getH3App(nitroApp).use(
-        `${P}/automations`,
-        defineEventHandler(async (event: H3Event) => {
-          const method = getMethod(event);
-          const pathname = (event.path || event.url?.pathname || "")
-            .split("?")[0]
-            .replace(/^\/+/, "")
-            .replace(/\/+$/, "");
-
-          // Auth check applies to every method. Without this, any anonymous
-          // caller could `POST /fire-test` to emit unowned events that fan
-          // out across every tenant's matching trigger (the dispatcher
-          // short-circuits its owner check when `eventMeta.owner` is
-          // undefined). See audit 12 / fire-test finding.
-          const session = await getSession(event).catch(() => null);
-          if (!session?.email) {
-            setResponseStatus(event, 401);
-            return { error: "Unauthenticated" };
-          }
-
-          if (
-            (pathname === "fire-test" || pathname.endsWith("/fire-test")) &&
-            method === "POST"
-          ) {
-            try {
-              const { emit } = await import("../event-bus/index.js");
-              const body = (await readBody(event).catch(() => ({}))) as Record<
-                string,
-                unknown
-              >;
-              // Scope the test event to the current user so only their
-              // automations fire, not those owned by other tenants.
-              emit(
-                "test.event.fired",
-                { data: body.data ?? {} },
-                {
-                  owner: session.email,
-                },
-              );
-              return { ok: true };
-            } catch (err: any) {
-              setResponseStatus(event, 500);
-              return { error: err?.message ?? "Failed to emit test event" };
-            }
-          }
-
-          if (method !== "GET") {
-            setResponseStatus(event, 405);
-            return { error: "Method not allowed" };
-          }
-
-          try {
-            const owner = session.email;
-            const { resourceListAllOwners, SHARED_OWNER } =
-              await import("../resources/store.js");
-            const allResources = await resourceListAllOwners("jobs/");
-            const resources = allResources.filter(
-              (r) => r.owner === owner || r.owner === SHARED_OWNER,
-            );
-            const FRONT_RE = /^---\n([\s\S]*?)\n---\n?([\s\S]*)$/;
-            const automations = resources
-              .filter(
-                (r) => r.path.endsWith(".md") && !r.path.endsWith(".keep"),
-              )
-              .map((r) => {
-                const match = r.content.match(FRONT_RE);
-                if (!match)
-                  return {
-                    id: r.id,
-                    name: r.path.replace(/^jobs\//, "").replace(/\.md$/, ""),
-                    path: r.path,
-                    owner: r.owner,
-                    triggerType: "schedule" as const,
-                    enabled: false,
-                    mode: "agentic" as const,
-                    body: r.content,
-                  };
-                const yaml = match[1];
-                const body = match[2].trim();
-                const meta: Record<string, string> = {};
-                for (const line of yaml.split("\n")) {
-                  const ci = line.indexOf(":");
-                  if (ci === -1) continue;
-                  const k = line.slice(0, ci).trim();
-                  let v = line.slice(ci + 1).trim();
-                  if (
-                    (v.startsWith('"') && v.endsWith('"')) ||
-                    (v.startsWith("'") && v.endsWith("'"))
-                  )
-                    v = v.slice(1, -1);
-                  meta[k] = v;
-                }
-                return {
-                  id: r.id,
-                  name: r.path.replace(/^jobs\//, "").replace(/\.md$/, ""),
-                  path: r.path,
-                  owner: r.owner,
-                  triggerType: meta.triggerType || "schedule",
-                  event: meta.event,
-                  schedule: meta.schedule,
-                  condition: meta.condition,
-                  mode: meta.mode || "agentic",
-                  domain: meta.domain,
-                  enabled: meta.enabled !== "false",
-                  lastStatus: meta.lastStatus,
-                  lastRun: meta.lastRun,
-                  lastError: meta.lastError,
-                  createdBy: meta.createdBy,
-                  body,
-                };
-              });
-            return automations;
-          } catch (err: any) {
-            setResponseStatus(event, 500);
-            return { error: err?.message ?? "Failed to list automations" };
-          }
-        }),
-      );
+      getH3App(nitroApp).use(`${P}/automations`, createAutomationsHandler());
 
       // ─── Application State CRUD ──────────────────────────────────────
       // Auto-mounted so templates don't need boilerplate route files.

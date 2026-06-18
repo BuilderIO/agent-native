@@ -206,12 +206,12 @@ jobs:
       - name: Install Playwright Chromium for dev smoke
         run: pnpm exec playwright install --only-shell chromium
 
-      - name: Standalone starter dev smoke (auto-login + SSR render)
+      - name: Standalone chat dev smoke (auto-login + SSR render)
         # Catches Vite dev SSR failures (e.g. Meta outside HydratedRouter) that
         # production build alone does not surface. Also scaffolds + pnpm install.
-        run: pnpm qa:standalone-starter-dev
+        run: pnpm qa:standalone-chat-dev
 
-      - name: Scaffold workspace (starter + calendar + dispatch) and verify pnpm install + build
+      - name: Scaffold workspace (chat + calendar + dispatch) and verify pnpm install + build
         # Dispatch is in the combo because it exercises the
         # workspacify.ts dispatch-rewrite path (workspace:* → "latest" for
         # @agent-native/dispatch, the only published package consumed as a
@@ -220,7 +220,7 @@ jobs:
         # distinct ways a workspace template can break `pnpm install`.
         run: |
           cd "$(mktemp -d)"
-          node "$GITHUB_WORKSPACE/packages/core/dist/cli/index.js" create test-workspace --template starter,calendar,dispatch
+          node "$GITHUB_WORKSPACE/packages/core/dist/cli/index.js" create test-workspace --template chat,calendar,dispatch
           cd test-workspace
           # Required package must be scaffolded
           if [ ! -d "packages/scheduling" ]; then

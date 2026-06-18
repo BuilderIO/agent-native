@@ -70,8 +70,8 @@ const ALLOW_LIST: Array<[string, string, string]> = [
   // chart.tsx — analytics adds the useChartTooltipFlip hook (which only exists
   // in the analytics template's hooks/ dir) and uses `[_, config]` destructuring.
   // forms/mail have a shared variant without that hook and with `[, config]`.
-  // The canonical 8-template version (calendar/clips/design/macros/plan/slides/
-  // starter/videos) has neither analytics-specific hook nor forms/mail style.
+  // The canonical 8-template version (calendar/chat/clips/design/macros/plan/
+  // slides/videos) has neither analytics-specific hook nor forms/mail style.
   [
     "chart.tsx",
     "analytics",

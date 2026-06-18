@@ -25,7 +25,7 @@ jobs:
               ['design',        '1e6bd63d-2972-4272-86bd-7b33f493606d'],
               ['clips',         '7e3f4fee-258d-4d16-9aaf-154a714e87e2'],
               ['videos',        '3f0c2cd2-06cd-4ab8-bfb4-c199430d1dac'],
-              ['starter',       '864ab6ba-0889-4265-99c0-7a18d1888585'],
+              ['chat',          '864ab6ba-0889-4265-99c0-7a18d1888585'],
               ['slides',        'fd5deb5b-5539-47e1-830c-e5fb5e105efd'],
               ['mail',          'dee98bb0-6143-4205-8c04-afe7bf83d5b5'],
               ['macros',        '0700a8ac-6a9f-4834-80dd-734102228132'],

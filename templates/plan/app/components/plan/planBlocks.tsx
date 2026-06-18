@@ -34,6 +34,7 @@ const LazyPlanMarkdownEditor = lazy(() =>
 );
 
 type PlanBlockRenderContextExtras = {
+  textDirection?: "ltr" | "rtl";
   onQuestionFormSubmit?: (summary: string) => void;
   showCodeAnnotationOverlays?: boolean;
   codeAnnotationLayout?: BlockRenderContext["codeAnnotationLayout"];
@@ -147,6 +148,7 @@ registerLibraryBlocks(planBlockRegistry, {
  * unconverted children via the legacy switch (the coexistence seam).
  */
 export function createPlanBlockRenderContext(options: {
+  textDirection?: PlanBlockRenderContextExtras["textDirection"];
   contentUpdatedAt?: string | null;
   planId?: string | null;
   collabUser?: RichMarkdownCollabUser | null;
@@ -163,6 +165,7 @@ export function createPlanBlockRenderContext(options: {
 }): BlockRenderContext {
   const ctx: BlockRenderContext & PlanBlockRenderContextExtras = {
     dialect: "gfm",
+    textDirection: options.textDirection,
     showCodeAnnotationOverlays: options.showCodeAnnotationOverlays,
     codeAnnotationLayout: options.codeAnnotationLayout,
     onQuestionFormSubmit: options.onVisualQuestionsSubmit,

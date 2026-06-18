@@ -13,9 +13,12 @@ vi.mock("./emitter.js", () => ({
 }));
 
 import {
+  createThreadShareLink,
   forkThread,
+  getThreadByShareToken,
   listThreads,
   renameThread,
+  revokeThreadShareLink,
   searchThreads,
   setThreadArchived,
   setThreadPinned,
@@ -80,6 +83,13 @@ describe("chat thread store", () => {
       if (/SELECT id, thread_data, message_count/i.test(sql)) {
         // Legacy message_count backfill probe — no legacy rows in these tests.
         return { rows: [], rowsAffected: 0 };
+      }
+      if (/WHERE thread_data LIKE \?/i.test(sql)) {
+        const pattern = String(args[0] ?? "").replace(/%/g, "");
+        return {
+          rows: row && row.thread_data.includes(pattern) ? [row] : [],
+          rowsAffected: 0,
+        };
       }
       if (/SELECT id, owner_email/i.test(sql)) {
         return {
@@ -223,6 +233,27 @@ describe("chat thread store", () => {
     expect(row!.archived_at).toBeUndefined();
     expect(row!.updated_at).toBe(1);
     expect(emitChatThreadChangeMock).not.toHaveBeenCalled();
+  });
+
+  it("creates, resolves, and revokes read-only share links", async () => {
+    const link = await createThreadShareLink("thread-1", {
+      ownerEmail: "user@example.com",
+    });
+    expect(link?.enabled).toBe(true);
+    expect(link?.token).toEqual(expect.any(String));
+
+    const repo = JSON.parse(row!.thread_data);
+    expect(repo._share.tokenHash).toEqual(expect.any(String));
+    expect(repo._share.tokenHash).not.toBe(link!.token);
+
+    const shared = await getThreadByShareToken(link!.token);
+    expect(shared?.id).toBe("thread-1");
+
+    const revoked = await revokeThreadShareLink("thread-1", {
+      ownerEmail: "user@example.com",
+    });
+    expect(revoked?.enabled).toBe(false);
+    expect(await getThreadByShareToken(link!.token)).toBeNull();
   });
 
   it("searches thread text with literal LIKE metacharacters", async () => {

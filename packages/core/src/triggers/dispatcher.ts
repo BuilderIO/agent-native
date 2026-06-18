@@ -29,7 +29,7 @@ import type { TriggerFrontmatter } from "./types.js";
 // Re-use the job frontmatter parser — triggers extend the same format.
 const FRONTMATTER_RE = /^---\n([\s\S]*?)\n---\n?([\s\S]*)$/;
 
-function parseTriggerFrontmatter(content: string): {
+export function parseTriggerFrontmatter(content: string): {
   meta: TriggerFrontmatter;
   body: string;
 } {
@@ -120,7 +120,10 @@ function parseTriggerFrontmatter(content: string): {
   return { meta, body };
 }
 
-function buildTriggerContent(meta: TriggerFrontmatter, body: string): string {
+export function buildTriggerContent(
+  meta: TriggerFrontmatter,
+  body: string,
+): string {
   const lines = ["---"];
   lines.push(`schedule: "${meta.schedule}"`);
   lines.push(`enabled: ${meta.enabled}`);
@@ -483,5 +486,3 @@ ${body}`;
     },
   );
 }
-
-export { parseTriggerFrontmatter, buildTriggerContent };

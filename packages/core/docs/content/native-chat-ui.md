@@ -38,12 +38,12 @@ Server actions should import the server-safe helpers and schemas from
 `@agent-native/core/client/chat` or `@agent-native/core/client`.
 
 ```ts
+import { defineAction } from "@agent-native/core/action";
+import { ACTION_CHAT_UI_DATA_INSIGHTS_RENDERER } from "@agent-native/core/action-ui";
 import {
-  ACTION_CHAT_UI_DATA_INSIGHTS_RENDERER,
+  createDataInsightsWidgetResult,
   dataInsightsWidgetResultSchema,
-  defineAction,
-} from "@agent-native/core";
-import { createDataInsightsWidgetResult } from "@agent-native/core/data-widgets";
+} from "@agent-native/core/data-widgets";
 
 export default defineAction({
   description: "Analyze form responses.",

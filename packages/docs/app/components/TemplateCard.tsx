@@ -8,6 +8,18 @@ export { trackEvent };
 
 export const templates = [
   {
+    name: "Chat",
+    slug: "chat",
+    replaces: "A minimal ChatGPT-style app for your own agent",
+    cliCommand:
+      "npx @agent-native/core@latest create my-chat-app --template chat",
+    demoUrl: "https://chat.agent-native.com",
+    description:
+      "Chat-first app scaffold with durable threads, a standard sidebar, actions, auth, live sync, and a clean path to add screens or plug in your own agent backend.",
+    color: "#18181B",
+    screenshot: "/screenshots/chat.png",
+  },
+  {
     name: "Calendar",
     slug: "calendar",
     replaces: "Replaces or augments Google Calendar, Calendly",
@@ -180,7 +192,7 @@ export const templates = [
   // ── DO NOT add new templates here directly. ──
   // The public-facing template list is the strict allow-list defined in
   // `packages/shared-app-config/templates.ts` (the entries with
-  // `hidden: false`, excluding the CLI-only starter scaffold). To surface
+  // `hidden: false`). To surface
   // a new template on the homepage, first flip its `hidden` flag in that
   // file. The CI guard
   // `scripts/guard-template-list.mjs` enforces this — adding a slug here

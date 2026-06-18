@@ -138,7 +138,7 @@ Call `track()` from action handlers to record user or agent activity:
 
 ```ts
 // actions/create-project.ts
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { track } from "@agent-native/core/tracking";
 import { z } from "zod";
 

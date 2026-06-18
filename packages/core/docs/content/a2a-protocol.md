@@ -305,7 +305,7 @@ A mail agent needs analytics data. The analytics agent exposes a "run-query" ski
 
 ```ts
 // In the mail agent's actions/get-analytics.ts
-import { defineAction } from "@agent-native/core/server";
+import { defineAction } from "@agent-native/core/action";
 import { callAgent } from "@agent-native/core/a2a";
 import { z } from "zod";
 

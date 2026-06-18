@@ -44,7 +44,7 @@ Use Dispatch when:
 - You want a **messaging hub** that routes Slack or Telegram into the right domain agent.
 - You want **scheduled jobs** that pull data from several apps.
 
-Skip it for a single-app scaffold — use the [Starter template](/docs/template-starter) or any of the domain templates directly.
+Skip it for a single-app scaffold — use the [Chat template](/docs/template-chat) or any of the domain templates directly.
 
 Live demo: [dispatch.agent-native.com](https://dispatch.agent-native.com).
 

@@ -2047,7 +2047,7 @@ function getProviderGate(metadata: CodeAgentHostMetadata | null): {
     return {
       blocked: true,
       description:
-        "Connect Builder.io to start with free credits, or add your own API key instead.",
+        "Connect Builder.io, sign in to Codex CLI, or add your own API key.",
     };
   }
   return {
@@ -3348,7 +3348,7 @@ function RunDetailCard({
           title="Provider needed"
           description={
             builderConnectMessage ??
-            "Connect Builder.io for free credits, or add your own API key."
+            "Connect Builder.io, sign in to Codex CLI, or add your own API key."
           }
           primaryActionLabel={
             builderConnecting ? "Waiting..." : "Connect Builder.io"

@@ -42,7 +42,7 @@ const TEMPLATE_SITES: TemplateSite[] = [
   { name: "mail", siteId: "dee98bb0-6143-4205-8c04-afe7bf83d5b5" },
   { name: "plan", siteId: "9d0d7a73-385d-4da1-ba10-1581ffc4d413" },
   { name: "slides", siteId: "fd5deb5b-5539-47e1-830c-e5fb5e105efd" },
-  { name: "starter", siteId: "864ab6ba-0889-4265-99c0-7a18d1888585" },
+  { name: "chat", siteId: "864ab6ba-0889-4265-99c0-7a18d1888585" },
   { name: "videos", siteId: "3f0c2cd2-06cd-4ab8-bfb4-c199430d1dac" },
 ];
 

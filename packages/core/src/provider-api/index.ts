@@ -139,6 +139,163 @@ export interface ProviderApiRequestArgs {
   fetchAllPages?: FetchAllPagesConfig;
 }
 
+export interface GitHubRepositoryRef {
+  owner: string;
+  repo: string;
+}
+
+export interface GitHubRepositoryFileEntry {
+  name: string;
+  path: string;
+  type: "file" | "dir" | "symlink" | "submodule" | "unknown";
+  sha: string | null;
+  size: number | null;
+  url: string | null;
+  htmlUrl: string | null;
+  downloadUrl: string | null;
+}
+
+export interface GitHubRepositoryFileListArgs extends GitHubRepositoryRef {
+  path?: string;
+  ref?: string;
+  recursive?: boolean;
+  includeDirectories?: boolean;
+  maxFiles?: number;
+  connectionId?: string | null;
+  timeoutMs?: number;
+  maxBytes?: number;
+}
+
+export interface GitHubRepositoryFileSearchArgs extends GitHubRepositoryRef {
+  query?: string;
+  path?: string;
+  filename?: string;
+  extension?: string;
+  language?: string;
+  ref?: string;
+  perPage?: number;
+  page?: number;
+  maxFiles?: number;
+  includeTextMatches?: boolean;
+  connectionId?: string | null;
+  timeoutMs?: number;
+  maxBytes?: number;
+}
+
+export interface GitHubRepositoryFileReadArgs extends GitHubRepositoryRef {
+  path: string;
+  ref?: string;
+  connectionId?: string | null;
+  timeoutMs?: number;
+  maxBytes?: number;
+}
+
+export interface GitHubRepositoryFileWriteArgs extends GitHubRepositoryRef {
+  path: string;
+  content: string;
+  message: string;
+  branch?: string;
+  sha?: string;
+  overwriteExisting?: boolean;
+  committer?: GitHubRepositoryCommitIdentity;
+  author?: GitHubRepositoryCommitIdentity;
+  connectionId?: string | null;
+  timeoutMs?: number;
+  maxBytes?: number;
+}
+
+export interface GitHubRepositoryFileDeleteArgs extends GitHubRepositoryRef {
+  path: string;
+  message: string;
+  branch?: string;
+  sha?: string;
+  committer?: GitHubRepositoryCommitIdentity;
+  author?: GitHubRepositoryCommitIdentity;
+  connectionId?: string | null;
+  timeoutMs?: number;
+  maxBytes?: number;
+}
+
+export interface GitHubRepositoryCommitIdentity {
+  name: string;
+  email: string;
+  date?: string;
+}
+
+export interface GitHubRepositoryFileListResult {
+  repository: GitHubRepositoryRef;
+  ref: string | null;
+  path: string;
+  recursive: boolean;
+  entries: GitHubRepositoryFileEntry[];
+  totalCount: number;
+  truncated: boolean;
+  providerTruncated: boolean;
+  response: Pick<ProviderApiHttpResponse, "status" | "statusText" | "ok">;
+}
+
+export interface GitHubRepositoryFileSearchResult {
+  repository: GitHubRepositoryRef;
+  mode: "code-search" | "tree-filter";
+  query: string | null;
+  ref: string | null;
+  items: GitHubRepositoryFileEntry[];
+  totalCount: number;
+  truncated: boolean;
+  incompleteResults: boolean;
+  response: Pick<ProviderApiHttpResponse, "status" | "statusText" | "ok">;
+}
+
+export interface GitHubRepositoryFileReadResult {
+  repository: GitHubRepositoryRef;
+  path: string;
+  ref: string | null;
+  name: string;
+  type: string;
+  sha: string;
+  size: number;
+  encoding: string | null;
+  content: string | null;
+  contentBase64: string | null;
+  url: string | null;
+  htmlUrl: string | null;
+  downloadUrl: string | null;
+  response: Pick<ProviderApiHttpResponse, "status" | "statusText" | "ok">;
+}
+
+export interface GitHubRepositoryFileWriteResult {
+  repository: GitHubRepositoryRef;
+  path: string;
+  branch: string | null;
+  content: {
+    name: string | null;
+    path: string | null;
+    sha: string | null;
+    url: string | null;
+    htmlUrl: string | null;
+  };
+  commit: {
+    sha: string | null;
+    url: string | null;
+    htmlUrl: string | null;
+    message: string | null;
+  };
+  response: Pick<ProviderApiHttpResponse, "status" | "statusText" | "ok">;
+}
+
+export interface GitHubRepositoryFileDeleteResult {
+  repository: GitHubRepositoryRef;
+  path: string;
+  branch: string | null;
+  commit: {
+    sha: string | null;
+    url: string | null;
+    htmlUrl: string | null;
+    message: string | null;
+  };
+  response: Pick<ProviderApiHttpResponse, "status" | "statusText" | "ok">;
+}
+
 export interface ProviderApiDocsOptions {
   provider: ProviderApiId | string;
   url?: string;
@@ -298,13 +455,28 @@ export interface ProviderApiRuntimeOptions {
   getCustomProviders?: () => Promise<CustomProviderConfig[]>;
 }
 
-interface ProviderApiRuntime {
+export interface ProviderApiRuntime {
   providerIds: readonly ProviderApiId[];
   listCatalog(
     provider?: ProviderApiId | string,
   ): ReturnType<typeof listProviderApiCatalog> | Promise<unknown[]>;
   fetchDocs(options: ProviderApiDocsOptions): Promise<unknown>;
   executeRequest(args: ProviderApiRequestArgs): Promise<unknown>;
+  listGitHubRepositoryFiles(
+    args: GitHubRepositoryFileListArgs,
+  ): Promise<GitHubRepositoryFileListResult>;
+  searchGitHubRepositoryFiles(
+    args: GitHubRepositoryFileSearchArgs,
+  ): Promise<GitHubRepositoryFileSearchResult>;
+  readGitHubRepositoryFile(
+    args: GitHubRepositoryFileReadArgs,
+  ): Promise<GitHubRepositoryFileReadResult>;
+  writeGitHubRepositoryFile(
+    args: GitHubRepositoryFileWriteArgs,
+  ): Promise<GitHubRepositoryFileWriteResult>;
+  deleteGitHubRepositoryFile(
+    args: GitHubRepositoryFileDeleteArgs,
+  ): Promise<GitHubRepositoryFileDeleteResult>;
 }
 
 interface ResolvedAuth {
@@ -1147,6 +1319,16 @@ export function createProviderApiRuntime(
     fetchDocs: (docsOptions) =>
       fetchProviderApiDocs(docsOptions, runtimeOptions),
     executeRequest: (args) => executeProviderApiRequest(args, runtimeOptions),
+    listGitHubRepositoryFiles: (args) =>
+      listGitHubRepositoryFiles(args, runtimeOptions),
+    searchGitHubRepositoryFiles: (args) =>
+      searchGitHubRepositoryFiles(args, runtimeOptions),
+    readGitHubRepositoryFile: (args) =>
+      readGitHubRepositoryFile(args, runtimeOptions),
+    writeGitHubRepositoryFile: (args) =>
+      writeGitHubRepositoryFile(args, runtimeOptions),
+    deleteGitHubRepositoryFile: (args) =>
+      deleteGitHubRepositoryFile(args, runtimeOptions),
   };
 }
 
@@ -1460,6 +1642,672 @@ export async function executeProviderApiRequest(
     guidance:
       "This was a raw provider API request. Use provider docs/spec URLs to choose endpoints and include method/path/status plus relevant filters in the methodology. Prefer this escape hatch whenever canned actions are too narrow.",
   };
+}
+
+const GITHUB_REPO_FILES_DEFAULT_MAX = 1_000;
+const GITHUB_REPO_FILES_MAX = 10_000;
+const GITHUB_CODE_SEARCH_DEFAULT_PER_PAGE = 30;
+const GITHUB_CODE_SEARCH_MAX_PER_PAGE = 100;
+
+export async function listGitHubRepositoryFiles(
+  args: GitHubRepositoryFileListArgs,
+  runtime: ProviderApiRuntimeOptions,
+): Promise<GitHubRepositoryFileListResult> {
+  const repository = normalizeGitHubRepository(args);
+  const pathPrefix = normalizeGitHubFilePath(args.path);
+  const maxFiles = clampPositiveInt(
+    args.maxFiles,
+    GITHUB_REPO_FILES_DEFAULT_MAX,
+    GITHUB_REPO_FILES_MAX,
+  );
+
+  if (args.recursive) {
+    const ref =
+      args.ref?.trim() || (await resolveGitHubDefaultBranch(args, runtime));
+    const { json, response } = await executeGitHubJsonRequest({
+      runtime,
+      label: "list repository tree",
+      args: {
+        provider: "github",
+        path: `${githubRepoApiPath(repository)}/git/trees/${encodeURIComponent(
+          ref,
+        )}`,
+        query: { recursive: "1" },
+        connectionId: args.connectionId,
+        timeoutMs: args.timeoutMs,
+        maxBytes: args.maxBytes,
+      },
+    });
+    const tree = asRecord(json);
+    const rawEntries = Array.isArray(tree.tree) ? tree.tree : [];
+    const entries = rawEntries
+      .map((entry) =>
+        normalizeGitHubTreeEntry(entry, {
+          owner: repository.owner,
+          repo: repository.repo,
+          ref,
+        }),
+      )
+      .filter((entry): entry is GitHubRepositoryFileEntry => !!entry)
+      .filter((entry) => args.includeDirectories || entry.type === "file")
+      .filter((entry) => githubPathMatchesPrefix(entry.path, pathPrefix));
+    const limitedEntries = entries.slice(0, maxFiles);
+
+    return {
+      repository,
+      ref,
+      path: pathPrefix,
+      recursive: true,
+      entries: limitedEntries,
+      totalCount: entries.length,
+      truncated:
+        Boolean(tree.truncated) || entries.length > limitedEntries.length,
+      providerTruncated: Boolean(tree.truncated),
+      response: compactResponseStatus(response),
+    };
+  }
+
+  const { json, response } = await executeGitHubJsonRequest({
+    runtime,
+    label: "list repository contents",
+    args: {
+      provider: "github",
+      path: githubContentsApiPath(repository, pathPrefix),
+      query: args.ref ? { ref: args.ref } : undefined,
+      connectionId: args.connectionId,
+      timeoutMs: args.timeoutMs,
+      maxBytes: args.maxBytes,
+    },
+  });
+  const rawEntries = Array.isArray(json) ? json : [json];
+  const entries = rawEntries
+    .map(normalizeGitHubContentsEntry)
+    .filter((entry): entry is GitHubRepositoryFileEntry => !!entry)
+    .filter((entry) => args.includeDirectories || entry.type === "file");
+  const limitedEntries = entries.slice(0, maxFiles);
+
+  return {
+    repository,
+    ref: args.ref?.trim() || null,
+    path: pathPrefix,
+    recursive: false,
+    entries: limitedEntries,
+    totalCount: entries.length,
+    truncated: entries.length > limitedEntries.length,
+    providerTruncated: false,
+    response: compactResponseStatus(response),
+  };
+}
+
+export async function searchGitHubRepositoryFiles(
+  args: GitHubRepositoryFileSearchArgs,
+  runtime: ProviderApiRuntimeOptions,
+): Promise<GitHubRepositoryFileSearchResult> {
+  const repository = normalizeGitHubRepository(args);
+  const query = args.query?.trim() ?? "";
+
+  if (!query) {
+    const listed = await listGitHubRepositoryFiles(
+      {
+        owner: repository.owner,
+        repo: repository.repo,
+        path: args.path,
+        ref: args.ref,
+        recursive: true,
+        includeDirectories: false,
+        maxFiles: GITHUB_REPO_FILES_MAX,
+        connectionId: args.connectionId,
+        timeoutMs: args.timeoutMs,
+        maxBytes: args.maxBytes,
+      },
+      runtime,
+    );
+    const filtered = listed.entries.filter((entry) =>
+      githubTreeEntryMatchesSearchFilters(entry, args),
+    );
+    const maxFiles = clampPositiveInt(
+      args.maxFiles,
+      GITHUB_REPO_FILES_DEFAULT_MAX,
+      GITHUB_REPO_FILES_MAX,
+    );
+    const limitedItems = filtered.slice(0, maxFiles);
+    return {
+      repository,
+      mode: "tree-filter",
+      query: null,
+      ref: listed.ref,
+      items: limitedItems,
+      totalCount: filtered.length,
+      truncated: listed.truncated || filtered.length > limitedItems.length,
+      incompleteResults: listed.providerTruncated,
+      response: listed.response,
+    };
+  }
+
+  const perPage = clampPositiveInt(
+    args.perPage,
+    GITHUB_CODE_SEARCH_DEFAULT_PER_PAGE,
+    GITHUB_CODE_SEARCH_MAX_PER_PAGE,
+  );
+  const page = clampPositiveInt(args.page, 1, 100);
+  const q = buildGitHubCodeSearchQuery(repository, args, query);
+  const { json, response } = await executeGitHubJsonRequest({
+    runtime,
+    label: "search repository code",
+    args: {
+      provider: "github",
+      path: "/search/code",
+      query: { q, per_page: perPage, page },
+      headers: args.includeTextMatches
+        ? { Accept: "application/vnd.github.text-match+json" }
+        : undefined,
+      connectionId: args.connectionId,
+      timeoutMs: args.timeoutMs,
+      maxBytes: args.maxBytes,
+    },
+  });
+  const body = asRecord(json);
+  const rawItems = Array.isArray(body.items) ? body.items : [];
+  const items = rawItems
+    .map(normalizeGitHubCodeSearchEntry)
+    .filter((entry): entry is GitHubRepositoryFileEntry => !!entry);
+
+  return {
+    repository,
+    mode: "code-search",
+    query: q,
+    ref: null,
+    items,
+    totalCount:
+      typeof body.total_count === "number" && Number.isFinite(body.total_count)
+        ? body.total_count
+        : items.length,
+    truncated: items.length >= perPage,
+    incompleteResults: Boolean(body.incomplete_results),
+    response: compactResponseStatus(response),
+  };
+}
+
+export async function readGitHubRepositoryFile(
+  args: GitHubRepositoryFileReadArgs,
+  runtime: ProviderApiRuntimeOptions,
+): Promise<GitHubRepositoryFileReadResult> {
+  const repository = normalizeGitHubRepository(args);
+  const path = requireGitHubFilePath(args.path);
+  const { json, response } = await executeGitHubJsonRequest({
+    runtime,
+    label: "read repository file",
+    args: {
+      provider: "github",
+      path: githubContentsApiPath(repository, path),
+      query: args.ref ? { ref: args.ref } : undefined,
+      connectionId: args.connectionId,
+      timeoutMs: args.timeoutMs,
+      maxBytes: args.maxBytes,
+    },
+  });
+  if (Array.isArray(json)) {
+    throw new Error(
+      `GitHub path "${path}" is a directory. Use listGitHubRepositoryFiles or the github-repo-files action with operation="list".`,
+    );
+  }
+  const file = asRecord(json);
+  const encoding =
+    typeof file.encoding === "string" ? file.encoding.toLowerCase() : null;
+  const rawBase64 =
+    encoding === "base64" && typeof file.content === "string"
+      ? file.content.replace(/\s+/g, "")
+      : null;
+  const content = rawBase64
+    ? Buffer.from(rawBase64, "base64").toString("utf8")
+    : null;
+  const sha = typeof file.sha === "string" ? file.sha : "";
+  if (!sha) throw new Error(`GitHub read for "${path}" did not return a SHA.`);
+
+  return {
+    repository,
+    path: typeof file.path === "string" ? file.path : path,
+    ref: args.ref?.trim() || null,
+    name: typeof file.name === "string" ? file.name : githubBasename(path),
+    type: typeof file.type === "string" ? file.type : "file",
+    sha,
+    size: typeof file.size === "number" ? file.size : 0,
+    encoding,
+    content,
+    contentBase64: rawBase64,
+    url: typeof file.url === "string" ? file.url : null,
+    htmlUrl: typeof file.html_url === "string" ? file.html_url : null,
+    downloadUrl:
+      typeof file.download_url === "string" ? file.download_url : null,
+    response: compactResponseStatus(response),
+  };
+}
+
+export async function writeGitHubRepositoryFile(
+  args: GitHubRepositoryFileWriteArgs,
+  runtime: ProviderApiRuntimeOptions,
+): Promise<GitHubRepositoryFileWriteResult> {
+  const repository = normalizeGitHubRepository(args);
+  const path = requireGitHubFilePath(args.path);
+  const message = args.message.trim();
+  if (!message) throw new Error("GitHub file write requires a commit message.");
+
+  let sha = args.sha?.trim();
+  if (!sha && args.overwriteExisting) {
+    try {
+      const existing = await readGitHubRepositoryFile(
+        {
+          owner: repository.owner,
+          repo: repository.repo,
+          path,
+          ref: args.branch,
+          connectionId: args.connectionId,
+          timeoutMs: args.timeoutMs,
+          maxBytes: args.maxBytes,
+        },
+        runtime,
+      );
+      sha = existing.sha;
+    } catch (error) {
+      if (!isGitHubNotFoundError(error)) throw error;
+    }
+  }
+
+  const body: Record<string, unknown> = {
+    message,
+    content: Buffer.from(args.content, "utf8").toString("base64"),
+  };
+  if (sha) body.sha = sha;
+  if (args.branch?.trim()) body.branch = args.branch.trim();
+  if (args.committer) body.committer = args.committer;
+  if (args.author) body.author = args.author;
+
+  const { json, response } = await executeGitHubJsonRequest({
+    runtime,
+    label: "write repository file",
+    args: {
+      provider: "github",
+      method: "PUT",
+      path: githubContentsApiPath(repository, path),
+      body,
+      connectionId: args.connectionId,
+      timeoutMs: args.timeoutMs,
+      maxBytes: args.maxBytes,
+    },
+  });
+  const result = asRecord(json);
+  const content = asRecord(result.content);
+  const commit = asRecord(result.commit);
+
+  return {
+    repository,
+    path,
+    branch: args.branch?.trim() || null,
+    content: {
+      name: stringOrNull(content.name),
+      path: stringOrNull(content.path),
+      sha: stringOrNull(content.sha),
+      url: stringOrNull(content.url),
+      htmlUrl: stringOrNull(content.html_url),
+    },
+    commit: {
+      sha: stringOrNull(commit.sha),
+      url: stringOrNull(commit.url),
+      htmlUrl: stringOrNull(commit.html_url),
+      message: stringOrNull(commit.message),
+    },
+    response: compactResponseStatus(response),
+  };
+}
+
+export async function deleteGitHubRepositoryFile(
+  args: GitHubRepositoryFileDeleteArgs,
+  runtime: ProviderApiRuntimeOptions,
+): Promise<GitHubRepositoryFileDeleteResult> {
+  const repository = normalizeGitHubRepository(args);
+  const path = requireGitHubFilePath(args.path);
+  const message = args.message.trim();
+  if (!message) {
+    throw new Error("GitHub file delete requires a commit message.");
+  }
+
+  let sha = args.sha?.trim();
+  if (!sha) {
+    const existing = await readGitHubRepositoryFile(
+      {
+        owner: repository.owner,
+        repo: repository.repo,
+        path,
+        ref: args.branch,
+        connectionId: args.connectionId,
+        timeoutMs: args.timeoutMs,
+        maxBytes: args.maxBytes,
+      },
+      runtime,
+    );
+    sha = existing.sha;
+  }
+
+  const body: Record<string, unknown> = { message, sha };
+  if (args.branch?.trim()) body.branch = args.branch.trim();
+  if (args.committer) body.committer = args.committer;
+  if (args.author) body.author = args.author;
+
+  const { json, response } = await executeGitHubJsonRequest({
+    runtime,
+    label: "delete repository file",
+    args: {
+      provider: "github",
+      method: "DELETE",
+      path: githubContentsApiPath(repository, path),
+      body,
+      connectionId: args.connectionId,
+      timeoutMs: args.timeoutMs,
+      maxBytes: args.maxBytes,
+    },
+  });
+  const result = asRecord(json);
+  const commit = asRecord(result.commit);
+
+  return {
+    repository,
+    path,
+    branch: args.branch?.trim() || null,
+    commit: {
+      sha: stringOrNull(commit.sha),
+      url: stringOrNull(commit.url),
+      htmlUrl: stringOrNull(commit.html_url),
+      message: stringOrNull(commit.message),
+    },
+    response: compactResponseStatus(response),
+  };
+}
+
+async function executeGitHubJsonRequest(options: {
+  runtime: ProviderApiRuntimeOptions;
+  label: string;
+  args: Omit<ProviderApiRequestArgs, "provider"> & { provider?: "github" };
+}): Promise<{ json: unknown; response: ProviderApiHttpResponse }> {
+  const result = (await executeProviderApiRequest(
+    { provider: "github", ...options.args },
+    options.runtime,
+  )) as Record<string, unknown>;
+  const response = result.response as ProviderApiHttpResponse | undefined;
+  if (!response) {
+    throw new Error(`GitHub ${options.label} returned an unexpected result.`);
+  }
+  if (!response.ok) {
+    throw new Error(
+      `GitHub ${options.label} failed with HTTP ${response.status}${
+        response.statusText ? ` ${response.statusText}` : ""
+      }${providerResponseErrorDetail(response)}`,
+    );
+  }
+  return { json: response.json, response };
+}
+
+async function resolveGitHubDefaultBranch(
+  args: GitHubRepositoryRef & {
+    connectionId?: string | null;
+    timeoutMs?: number;
+    maxBytes?: number;
+  },
+  runtime: ProviderApiRuntimeOptions,
+): Promise<string> {
+  const repository = normalizeGitHubRepository(args);
+  const { json } = await executeGitHubJsonRequest({
+    runtime,
+    label: "get repository metadata",
+    args: {
+      provider: "github",
+      path: githubRepoApiPath(repository),
+      connectionId: args.connectionId,
+      timeoutMs: args.timeoutMs,
+      maxBytes: args.maxBytes,
+    },
+  });
+  const body = asRecord(json);
+  const defaultBranch = stringOrNull(body.default_branch);
+  if (!defaultBranch) {
+    throw new Error(
+      `GitHub repository ${repository.owner}/${repository.repo} did not return a default branch.`,
+    );
+  }
+  return defaultBranch;
+}
+
+function normalizeGitHubRepository(
+  args: GitHubRepositoryRef,
+): GitHubRepositoryRef {
+  const owner = args.owner.trim();
+  const repo = args.repo.trim().replace(/\.git$/i, "");
+  if (!owner) throw new Error("GitHub repository owner is required.");
+  if (!repo) throw new Error("GitHub repository name is required.");
+  return { owner, repo };
+}
+
+function githubRepoApiPath(repository: GitHubRepositoryRef): string {
+  return `/repos/${encodeURIComponent(repository.owner)}/${encodeURIComponent(
+    repository.repo,
+  )}`;
+}
+
+function githubContentsApiPath(
+  repository: GitHubRepositoryRef,
+  filePath: string,
+): string {
+  const encodedPath = encodeGitHubFilePath(filePath);
+  return `${githubRepoApiPath(repository)}/contents${
+    encodedPath ? `/${encodedPath}` : ""
+  }`;
+}
+
+function encodeGitHubFilePath(filePath: string): string {
+  return normalizeGitHubFilePath(filePath)
+    .split("/")
+    .filter(Boolean)
+    .map((part) => encodeURIComponent(part))
+    .join("/");
+}
+
+function normalizeGitHubFilePath(filePath: string | undefined): string {
+  return (filePath ?? "").trim().replace(/^\/+|\/+$/g, "");
+}
+
+function requireGitHubFilePath(filePath: string): string {
+  const normalized = normalizeGitHubFilePath(filePath);
+  if (!normalized) throw new Error("GitHub file path is required.");
+  return normalized;
+}
+
+function githubBasename(filePath: string): string {
+  return filePath.split("/").filter(Boolean).pop() ?? filePath;
+}
+
+function githubPathMatchesPrefix(path: string, prefix: string): boolean {
+  if (!prefix) return true;
+  return path === prefix || path.startsWith(`${prefix}/`);
+}
+
+function normalizeGitHubTreeEntry(
+  value: unknown,
+  options: GitHubRepositoryRef & { ref: string },
+): GitHubRepositoryFileEntry | null {
+  const entry = asRecord(value);
+  const path = stringOrNull(entry.path);
+  if (!path) return null;
+  const type = stringOrNull(entry.type);
+  const normalizedType =
+    type === "blob"
+      ? "file"
+      : type === "tree"
+        ? "dir"
+        : type === "commit"
+          ? "submodule"
+          : "unknown";
+  return {
+    name: githubBasename(path),
+    path,
+    type: normalizedType,
+    sha: stringOrNull(entry.sha),
+    size: numberOrNull(entry.size),
+    url: stringOrNull(entry.url),
+    htmlUrl:
+      normalizedType === "file"
+        ? githubWebFileUrl(options, path)
+        : normalizedType === "dir"
+          ? githubWebTreeUrl(options, path)
+          : null,
+    downloadUrl: null,
+  };
+}
+
+function normalizeGitHubContentsEntry(
+  value: unknown,
+): GitHubRepositoryFileEntry | null {
+  const entry = asRecord(value);
+  const path = stringOrNull(entry.path);
+  if (!path) return null;
+  const type = stringOrNull(entry.type);
+  return {
+    name: stringOrNull(entry.name) ?? githubBasename(path),
+    path,
+    type:
+      type === "file" ||
+      type === "dir" ||
+      type === "symlink" ||
+      type === "submodule"
+        ? type
+        : "unknown",
+    sha: stringOrNull(entry.sha),
+    size: numberOrNull(entry.size),
+    url: stringOrNull(entry.url),
+    htmlUrl: stringOrNull(entry.html_url),
+    downloadUrl: stringOrNull(entry.download_url),
+  };
+}
+
+function normalizeGitHubCodeSearchEntry(
+  value: unknown,
+): GitHubRepositoryFileEntry | null {
+  return normalizeGitHubContentsEntry({ ...asRecord(value), type: "file" });
+}
+
+function githubTreeEntryMatchesSearchFilters(
+  entry: GitHubRepositoryFileEntry,
+  args: GitHubRepositoryFileSearchArgs,
+): boolean {
+  const filename = args.filename?.trim();
+  if (filename && entry.name !== filename) return false;
+  const extension = args.extension?.trim().replace(/^\./, "");
+  if (extension && !entry.path.endsWith(`.${extension}`)) return false;
+  const pathFilter = normalizeGitHubFilePath(args.path);
+  if (pathFilter && !entry.path.includes(pathFilter)) return false;
+  return true;
+}
+
+function buildGitHubCodeSearchQuery(
+  repository: GitHubRepositoryRef,
+  args: GitHubRepositoryFileSearchArgs,
+  query: string,
+): string {
+  const qualifiers = [`repo:${repository.owner}/${repository.repo}`];
+  const path = normalizeGitHubFilePath(args.path);
+  if (path) qualifiers.push(`path:${quoteGitHubSearchQualifier(path)}`);
+  if (args.filename?.trim()) {
+    qualifiers.push(
+      `filename:${quoteGitHubSearchQualifier(args.filename.trim())}`,
+    );
+  }
+  if (args.extension?.trim()) {
+    qualifiers.push(
+      `extension:${quoteGitHubSearchQualifier(
+        args.extension.trim().replace(/^\./, ""),
+      )}`,
+    );
+  }
+  if (args.language?.trim()) {
+    qualifiers.push(
+      `language:${quoteGitHubSearchQualifier(args.language.trim())}`,
+    );
+  }
+  return [query, "in:file", ...qualifiers].join(" ");
+}
+
+function quoteGitHubSearchQualifier(value: string): string {
+  return /\s/.test(value) ? JSON.stringify(value) : value;
+}
+
+function githubWebFileUrl(
+  options: GitHubRepositoryRef & { ref: string },
+  filePath: string,
+): string {
+  return `https://github.com/${encodeURIComponent(
+    options.owner,
+  )}/${encodeURIComponent(options.repo)}/blob/${encodeURIComponent(
+    options.ref,
+  )}/${encodeGitHubFilePath(filePath)}`;
+}
+
+function githubWebTreeUrl(
+  options: GitHubRepositoryRef & { ref: string },
+  filePath: string,
+): string {
+  return `https://github.com/${encodeURIComponent(
+    options.owner,
+  )}/${encodeURIComponent(options.repo)}/tree/${encodeURIComponent(
+    options.ref,
+  )}/${encodeGitHubFilePath(filePath)}`;
+}
+
+function clampPositiveInt(
+  value: number | undefined,
+  defaultValue: number,
+  maxValue: number,
+): number {
+  if (!Number.isFinite(value) || value! <= 0) return defaultValue;
+  return Math.min(maxValue, Math.floor(value!));
+}
+
+function compactResponseStatus(
+  response: ProviderApiHttpResponse,
+): Pick<ProviderApiHttpResponse, "status" | "statusText" | "ok"> {
+  return {
+    status: response.status,
+    statusText: response.statusText,
+    ok: response.ok,
+  };
+}
+
+function providerResponseErrorDetail(
+  response: ProviderApiHttpResponse,
+): string {
+  const body = asRecord(response.json);
+  const message = stringOrNull(body.message);
+  const detail =
+    message ??
+    (typeof response.text === "string"
+      ? response.text.replace(/\s+/g, " ").trim().slice(0, 500)
+      : "");
+  return detail ? `: ${detail}` : "";
+}
+
+function isGitHubNotFoundError(error: unknown): boolean {
+  return error instanceof Error && /\bHTTP 404\b/.test(error.message);
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
+function stringOrNull(value: unknown): string | null {
+  return typeof value === "string" ? value : null;
+}
+
+function numberOrNull(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
 // ---------------------------------------------------------------------------

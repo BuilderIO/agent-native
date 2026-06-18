@@ -1568,6 +1568,13 @@ function createAuthGuardFn(): (
       return;
     }
 
+    // Read-only agent chat share links. The random token is the bearer secret;
+    // the route returns a sanitized transcript plus bounded run summaries and
+    // exposes no write surface, live event stream, tool payloads, or owner APIs.
+    if (p.startsWith("/_agent-native/agent-chat/shared/")) {
+      return;
+    }
+
     // A2A endpoint verifies authenticity via JWT signed with the org's A2A
     // secret (or the global A2A_SECRET fallback), not via session cookies.
     if (p === "/_agent-native/a2a") {

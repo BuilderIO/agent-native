@@ -39,6 +39,7 @@ const defaultTemplateSkillsDir = join(
 const workspaceSkillIncludes = [
   "a2a-protocol",
   "actions",
+  "agent-native-docs",
   "adding-a-feature",
   "address-feedback",
   "authentication",
@@ -46,6 +47,7 @@ const workspaceSkillIncludes = [
   "capture-learnings",
   "client-methods",
   "client-side-routing",
+  "composable-mini-apps",
   "context-awareness",
   "context-xray",
   "create-skill",
@@ -84,6 +86,7 @@ const workspaceSkillIncludes = [
 // architectural rules.
 const templateSharedSkillIncludes = [
   "actions",
+  "agent-native-docs",
   "adding-a-feature",
   "capture-learnings",
   "client-methods",
@@ -98,6 +101,10 @@ const templateSharedSkillIncludes = [
   "shadcn-ui",
   "storing-data",
 ];
+
+const requiredTemplateSharedSkills: Record<string, string[]> = {
+  chat: ["agent-native-docs"],
+};
 
 const actionFirstInstructionFiles = [
   join(
@@ -372,7 +379,10 @@ function forEachExistingTemplateSharedSkill(fn) {
         "skills",
         skill,
       );
-      if (existsSync(targetSkillDir)) {
+      if (
+        existsSync(targetSkillDir) ||
+        (requiredTemplateSharedSkills[template] ?? []).includes(skill)
+      ) {
         fn(`templates/${template}/.agents/skills`, skill, targetSkillDir);
       }
     }

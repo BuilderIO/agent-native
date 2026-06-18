@@ -8,6 +8,12 @@
       "port": 8080
     },
     {
+      "name": "forms",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["--filter", "forms", "exec", "agent-native", "dev"],
+      "port": 8080
+    },
+    {
       "name": "plan",
       "runtimeExecutable": "pnpm",
       "runtimeArgs": ["--filter", "plan", "exec", "agent-native", "dev"],
@@ -54,11 +60,11 @@
       "autoPort": true
     },
     {
-      "name": "starter-smoke",
+      "name": "chat-smoke",
       "runtimeExecutable": "bash",
       "runtimeArgs": [
         "-c",
-        "NODE_ENV=development APP_NAME=starter AGENT_USER_EMAIL=dev@local.test STARTER_DATABASE_URL=file:/tmp/starter-smoke-0610.db pnpm --filter starter exec agent-native dev"
+        "NODE_ENV=development APP_NAME=chat AGENT_USER_EMAIL=dev@local.test CHAT_DATABASE_URL=file:/tmp/chat-smoke-0610.db pnpm --filter chat exec agent-native dev"
       ],
       "port": 8080,
       "autoPort": true

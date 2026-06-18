@@ -34,7 +34,7 @@ const DOCS_IMAGE_DIMENSIONS: Record<string, ImageDimensions> = {
   "/screenshots/forms.png": { width: 1400, height: 710 },
   "/screenshots/mail.png": { width: 1400, height: 710 },
   "/screenshots/slides.png": { width: 1400, height: 710 },
-  "/screenshots/starter.png": { width: 1400, height: 710 },
+  "/screenshots/chat.png": { width: 1400, height: 710 },
   "/screenshots/videos.png": { width: 1400, height: 710 },
   "https://cdn.builder.io/api/v1/image/assets%2F348da13fcd8b414c87de9066196f7266%2F961bedb713a94463b834c1f2f4643bcf?format=webp&width=1200":
     { width: 1200, height: 947 },

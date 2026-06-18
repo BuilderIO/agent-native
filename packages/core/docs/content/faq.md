@@ -11,13 +11,15 @@ Common questions about agent-native, organized from "I'm just looking" to "I'm w
 
 ### What is agent-native? {#what-is-agent-native}
 
-Agent-native is a framework for building apps where the AI agent and the UI are equal partners. They share the same database, the same state, and they always stay in sync. Everything the UI can do, the agent can do — and vice versa. See [What Is Agent-Native?](/docs/what-is-agent-native) for the full explanation.
+Agent-native is a framework for building apps where the AI agent and the product surface around it are equal partners. That surface can start as one headless action, grow into rich chat, or become a full UI. The invariant is that agents and humans share the same actions, database, and state. See [What Is Agent-Native?](/docs/what-is-agent-native) for the full explanation.
 
 ### Who is this for? {#who-is-this-for}
 
 Agent-native is for people who want a real app and an AI agent to work from the same data and actions. The common paths are:
 
 - **Use a hosted app** if you want Mail, Calendar, Forms, Plan, or another finished template with no setup — start at the [template gallery](/templates).
+- **Start with Chat** if you want a basic app users can talk to immediately, then extend with actions and screens — start with [Getting Started](/docs/getting-started) or [Chat](/docs/template-chat).
+- **Start primitive-first** if you want one action and a headless app-agent loop before committing to UI — start with [Getting Started](/docs/getting-started).
 - **Fork and customize a template** if you want your own SaaS product with auth, database, UI, and agent actions already wired — see [Templates](/docs/cloneable-saas).
 - **Build from scratch** if you want the framework primitives for a new agent-driven product — start with [Getting Started](/docs/getting-started).
 - **Connect another agent or code tool** if you want Claude, ChatGPT, Codex, Cursor, or GitHub Copilot / VS Code to use an agent-native app — see [External Agents](/docs/external-agents) and [Skills Guide](/docs/skills-guide).
@@ -59,7 +61,7 @@ You can, but agent-native works best when built from the ground up. The architec
 
 ### What templates are available? {#what-templates-are-available}
 
-The framework ships with production-ready templates including [Mail](/docs/template-mail), [Calendar](/docs/template-calendar), [Forms](/docs/template-forms), [Plan](/docs/template-plan) (visual plans and PR recaps), [Analytics](/docs/template-analytics), [Dispatch](/docs/template-dispatch), and more. Each is a complete app with UI, agent actions, database schema, and AI instructions ready to go. See [Templates](/docs/cloneable-saas) for the full catalog.
+The framework ships with production-ready templates including [Chat](/docs/template-chat), [Mail](/docs/template-mail), [Calendar](/docs/template-calendar), [Forms](/docs/template-forms), [Plan](/docs/template-plan) (visual plans and PR recaps), [Analytics](/docs/template-analytics), [Dispatch](/docs/template-dispatch), and more. Each is a complete app with UI, agent actions, database schema, and AI instructions ready to go. See [Templates](/docs/cloneable-saas) for the full catalog.
 
 ### Can I customize templates? {#can-i-customize-templates}
 
@@ -67,11 +69,11 @@ That's the whole point. Fork a template and customize it by asking the agent. "A
 
 ### Can I build something the templates don't cover? {#build-from-scratch}
 
-Yes. Run `npx @agent-native/core@latest create my-app` and accept the default **Starter** selection in the picker (or pass `--template starter`) — you get the framework scaffolding (frontend, backend, agent panel, database) but no domain-specific code. See [Getting Started](/docs/getting-started). For agent-first products with no traditional UI, see [Pure-Agent Apps](/docs/pure-agent-apps).
+Yes. If you want a basic chat app, run `npx @agent-native/core@latest create my-chat-app --template chat`; you get durable chat threads, actions, auth, SQL-backed runtime state, and room to add your own screens. If you want the smallest action-first app with no UI, run `npx @agent-native/core@latest create my-agent --headless`. See [Getting Started](/docs/getting-started), [Pure-Agent Apps](/docs/pure-agent-apps), and [Chat](/docs/template-chat).
 
 ### Can I try it without forking a template? {#try-with-a-skill}
 
-Yes — install a skill into a coding agent you already use with one command and no scaffold required. See [Try it with a skill](/docs/getting-started#try-with-a-skill) in Getting Started for the full walkthrough.
+Yes — install a skill into a coding agent you already use with one command and no scaffold required. See the [Skills Guide](/docs/skills-guide#app-backed-skills) for the walkthrough.
 
 ## Agent capabilities {#agent-capabilities}
 

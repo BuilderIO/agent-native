@@ -17,21 +17,23 @@ A good template:
 - Registers onboarding steps for required providers and secrets.
 - Works as a standalone app and as part of a multi-app workspace.
 
-## Start from Starter {#start-from-starter}
+## Start from Chat {#start-from-chat}
 
-Use the CLI-only Starter scaffold when you want a blank app with the framework wiring already in place:
+Use the Chat template when you want a minimal app with the framework wiring already in place:
 
 ```bash
-npx @agent-native/core@latest create my-template --template starter --standalone
+npx @agent-native/core@latest create my-template --template chat --standalone
 ```
 
-For a workspace with multiple apps, run the picker and include Starter with any domain templates you want:
+For a workspace with multiple apps, run the picker and include Chat with any domain templates you want:
 
 ```bash
 npx @agent-native/core@latest create my-platform
 ```
 
-Starter gives you auth, the agent sidebar, SQL-backed resources, tools, application state, actions, and polling sync. You add the domain model and product UI.
+Chat gives you auth, durable chat threads, SQL-backed resources, tools, application state, actions, and polling sync. You add the domain model and product UI.
+
+If you are not building a reusable UI template yet, use the headless on-ramp in [Getting Started](/docs/getting-started#create-your-agent): define one action, run it with `pnpm agent`, and add UI later when the workflow needs a durable surface.
 
 ## Project Structure {#project-structure}
 
@@ -137,7 +139,7 @@ Actions are the single source of truth for app behavior. The agent calls them as
 
 ```ts
 // actions/create-project.ts
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { getDb } from "../server/db/index.js"; // getDb is created per app via createGetDb(schema) in server/db/index.ts
 import { nanoid } from "nanoid";
 import { z } from "zod";
@@ -247,7 +249,7 @@ that key is reserved for the framework URL tools and URL-only filter changes.
 
 ```ts
 // actions/navigate.ts
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { z } from "zod";
 

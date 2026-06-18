@@ -40,6 +40,18 @@ export interface ChatThreadSnapshot {
   messageCount: number;
 }
 
+export interface ChatThreadShareState {
+  enabled: boolean;
+  createdAt: number | null;
+  updatedAt: number | null;
+  revokedAt: number | null;
+}
+
+export interface ChatThreadShareLink extends ChatThreadShareState {
+  token?: string;
+  url: string;
+}
+
 type ThreadTitleSource = "generated" | "extracted";
 
 interface ForkSnapshotWithScope extends ChatThreadSnapshot {
@@ -994,6 +1006,57 @@ export function useChatThreads(
     [apiUrl],
   );
 
+  const getThreadShareState = useCallback(
+    async (threadId: string): Promise<ChatThreadShareState | null> => {
+      try {
+        const res = await fetch(
+          `${apiUrl}/threads/${encodeURIComponent(threadId)}/share`,
+        );
+        if (!res.ok) return null;
+        const data = await res.json();
+        return data.share ?? null;
+      } catch {
+        return null;
+      }
+    },
+    [apiUrl],
+  );
+
+  const createThreadShareLink = useCallback(
+    async (threadId: string): Promise<ChatThreadShareLink | null> => {
+      try {
+        const res = await fetch(
+          `${apiUrl}/threads/${encodeURIComponent(threadId)}/share`,
+          { method: "POST" },
+        );
+        if (!res.ok) return null;
+        const data = await res.json();
+        if (!data.share || typeof data.url !== "string") return null;
+        return { ...data.share, url: data.url };
+      } catch {
+        return null;
+      }
+    },
+    [apiUrl],
+  );
+
+  const revokeThreadShareLink = useCallback(
+    async (threadId: string): Promise<ChatThreadShareState | null> => {
+      try {
+        const res = await fetch(
+          `${apiUrl}/threads/${encodeURIComponent(threadId)}/share`,
+          { method: "DELETE" },
+        );
+        if (!res.ok) return null;
+        const data = await res.json();
+        return data.share ?? null;
+      } catch {
+        return null;
+      }
+    },
+    [apiUrl],
+  );
+
   const refreshThreads = useCallback(() => {
     fetchThreads();
   }, [fetchThreads]);
@@ -1013,6 +1076,9 @@ export function useChatThreads(
     saveThreadData,
     generateTitle,
     searchThreads,
+    getThreadShareState,
+    createThreadShareLink,
+    revokeThreadShareLink,
     refreshThreads,
     isNewThread,
   };

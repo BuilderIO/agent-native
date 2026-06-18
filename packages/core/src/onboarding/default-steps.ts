@@ -296,6 +296,117 @@ const emailStep: OnboardingStep = {
   },
 };
 
+const githubRepositoryStep: OnboardingStep = {
+  id: "github-repository",
+  order: 50,
+  required: false,
+  title: "Connect a GitHub repository",
+  description:
+    "Optional for cloud/headless repo work. Grants connector-scoped file read and write access without cloning a repo or running code.",
+  methods: [
+    {
+      id: "settings",
+      kind: "link",
+      primary: true,
+      label: "Open GitHub token settings",
+      description:
+        "Save a fine-grained token scoped to the repositories this workspace may access.",
+      payload: {
+        url: "#secrets:GITHUB_TOKEN",
+        external: false,
+      },
+    },
+    {
+      id: "local-env",
+      kind: "form",
+      label: "Use local .env",
+      description:
+        "For local/single-tenant work, save a token and optional default owner/repo.",
+      payload: {
+        writeScope: "workspace",
+        fields: [
+          {
+            key: "GITHUB_TOKEN",
+            label: "GITHUB_TOKEN",
+            placeholder: "github_pat_...",
+            secret: true,
+          },
+          {
+            key: "GITHUB_REPOSITORY",
+            label: "GITHUB_REPOSITORY",
+            placeholder: "owner/repo",
+          },
+        ],
+      },
+    },
+  ],
+  isComplete: async (context) => {
+    const userEmail = context?.userEmail;
+    const orgId = context?.orgId ?? null;
+    if (userEmail) {
+      try {
+        const { resolveWorkspaceConnectionCredentialForApp } =
+          await import("../workspace-connections/index.js");
+        const result = await resolveWorkspaceConnectionCredentialForApp({
+          appId:
+            process.env.AGENT_NATIVE_APP_ID ||
+            process.env.APP_ID ||
+            process.env.npm_package_name ||
+            "app",
+          provider: "github",
+          key: "GITHUB_TOKEN",
+          userEmail,
+          orgId,
+        });
+        if (result.available) return true;
+      } catch {
+        // Fall through to local credential stores.
+      }
+
+      try {
+        const { resolveCredential } = await import("../credentials/index.js");
+        if (await resolveCredential("GITHUB_TOKEN", { userEmail, orgId })) {
+          return true;
+        }
+      } catch {
+        // Fall through to app_secrets.
+      }
+
+      try {
+        const { readAppSecretMeta } = await import("../secrets/storage.js");
+        const refs: Array<{
+          scope: "user" | "org" | "workspace";
+          scopeId: string;
+        }> = [{ scope: "user", scopeId: userEmail }];
+        if (orgId) {
+          refs.push(
+            { scope: "org", scopeId: orgId },
+            { scope: "workspace", scopeId: orgId },
+          );
+        } else {
+          refs.push({ scope: "workspace", scopeId: `solo:${userEmail}` });
+        }
+        for (const ref of refs) {
+          const meta = await readAppSecretMeta({
+            key: "GITHUB_TOKEN",
+            scope: ref.scope,
+            scopeId: ref.scopeId,
+          });
+          if (meta) return true;
+        }
+      } catch {
+        // Fall through to local/single-tenant env.
+      }
+    }
+
+    if (!canUseDeployCredentialFallbackForRequest()) return false;
+    return !!(
+      readDeployCredentialEnv("GITHUB_TOKEN") ||
+      readDeployCredentialEnv("GH_TOKEN")
+    );
+  },
+};
+
 let registered = false;
 
 /** Idempotent. Safe to call from every plugin-mount call. */
@@ -306,4 +417,5 @@ export function registerDefaultOnboardingSteps(): void {
   registerOnboardingStep(databaseStep);
   registerOnboardingStep(authStep);
   registerOnboardingStep(emailStep);
+  registerOnboardingStep(githubRepositoryStep);
 }

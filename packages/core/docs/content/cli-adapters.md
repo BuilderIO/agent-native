@@ -228,7 +228,7 @@ Actions can use CLI adapters directly for structured access:
 
 ```ts
 // actions/list-prs.ts
-import { defineAction } from "@agent-native/core/server";
+import { defineAction } from "@agent-native/core/action";
 import { ShellCliAdapter } from "@agent-native/core/adapters/cli";
 import { z } from "zod";
 

@@ -93,6 +93,8 @@ export interface BlockMdxConfig<TData> {
 export interface BlockRenderContext {
   /** Markdown dialect for the auto-editor's rich-text field. */
   dialect?: "gfm" | "nfm";
+  /** Document text direction inferred by the host app. */
+  textDirection?: "ltr" | "rtl";
   /** Resolve an asset id → displayable URL. */
   resolveAssetSrc?: (assetId: string) => string | undefined;
   /** Open the shared asset picker (returns the chosen asset). */

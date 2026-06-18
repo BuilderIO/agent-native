@@ -62,4 +62,18 @@ export function registerFrameworkSecrets(): void {
       });
     }
   }
+
+  if (!getRequiredSecret("GITHUB_TOKEN")) {
+    registerRequiredSecret({
+      key: "GITHUB_TOKEN",
+      label: "GitHub token",
+      description:
+        "Enables connector-scoped repository file reads and writes for headless/cloud agent runs.",
+      docsUrl:
+        "https://docs.github.com/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens",
+      scope: "workspace",
+      kind: "api-key",
+      required: false,
+    });
+  }
 }

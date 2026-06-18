@@ -68,10 +68,10 @@ pnpm dev               # starts the workspace gateway; opens Dispatch when prese
 ```
 
 The dev gateway serves Dispatch at `/dispatch` when you keep the recommended
-Dispatch app selected, and every app at its own path such as `/starter`. It
+Dispatch app selected, and every app at its own path such as `/chat`. It
 watches `apps/`, so newly-created apps are detected without restarting
 `pnpm dev`. App servers start lazily the first time you visit their path. App
-links should stay relative, such as `/starter` or `/<app-id>`; do not hardcode
+links should stay relative, such as `/chat` or `/<app-id>`; do not hardcode
 localhost or dev ports because the active gateway origin owns the port.
 
 Dispatch vault keys are workspace-wide by default: every saved vault key is
@@ -100,18 +100,18 @@ authenticated org routes whenever possible.
 ## Adding a new app
 
 ```bash
-pnpm exec agent-native create crm --template=starter
+pnpm exec agent-native create crm --template=chat
 ```
 
-The CLI detects the workspace root and scaffolds a minimal app that already
+The CLI detects the workspace root and scaffolds a minimal chat app that already
 depends on `@{{APP_NAME}}/shared`. Edit only the routes you care about;
 auth, org switching, skills, and instructions come from the shared package.
-Starter is only the source scaffold: the finished app should use its own name,
+Chat is only the source scaffold: the finished app should use its own name,
 home screen, navigation, package metadata, and manifest rather than leaving
-starter or new-app UI in place.
+chat or new-app UI in place.
 If the request starts from Dispatch in production, Dispatch sends it to Builder
 branch creation; that branch should still add a new `apps/<app-id>` workspace
-app rather than adding files to `apps/starter`.
+app rather than adding files to `apps/chat`.
 Dispatch discovers ready apps from `apps/<app-id>/package.json`; there is no
 separate workspace app registry to edit. React Router apps must preserve
 `APP_BASE_PATH` / `VITE_APP_BASE_PATH` in `app/entry.client.tsx` via

@@ -15,29 +15,31 @@ import {
   trackEvent,
 } from "../components/TemplateCard";
 
-const quickStartCode = `# Fork a template and start building
-npx @agent-native/core@latest create my-app --template mail
-cd my-app
+const quickStartCode = `# Start with a chat-first app
+npx @agent-native/core@latest create my-chat-app --template chat
+cd my-chat-app
 pnpm install
-pnpm dev`;
+pnpm action hello --name Builder
+pnpm agent "Call hello for Builder"`;
 
 const skillInstallCode = `# Add agent-native planning to a coding agent you already use
 npx @agent-native/core@latest skills add visual-plan`;
 
-const frameworkCode = `// One action powers UI, agent, HTTP, MCP, A2A, and CLI.
+const frameworkCode = `// One action powers the agent, UI, HTTP, MCP, A2A, and CLI.
 export default defineAction({
+  description: "Say hello from the local app-agent loop.",
   schema: z.object({
-    emailId: z.string(),
-    body: z.string(),
+    name: z.string().default("world"),
   }),
-  run: async ({ emailId, body }) => {
-    await db.insert(replies).values({ emailId, body });
-  },
+  http: { method: "GET" },
+  readOnly: true,
+  run: async ({ name }) => ({ message: \`Hello, \${name}!\` }),
 });`;
 
 function TerminalCommand() {
   const [copied, setCopied] = useState(false);
-  const command = "npx @agent-native/core@latest create my-app";
+  const command =
+    "npx @agent-native/core@latest create my-chat-app --template chat";
 
   function handleCopy() {
     navigator.clipboard.writeText(command);
@@ -123,7 +125,7 @@ const bidirectionalTabs = [
 const frameworkPrimitives = [
   {
     title: "Actions",
-    description: "Define work once. Use it from UI, agent, API, MCP, and A2A.",
+    description: "Define work once. Use it from agent, UI, API, MCP, and A2A.",
     icon: IconRoute,
   },
   {
@@ -135,7 +137,7 @@ const frameworkPrimitives = [
   {
     title: "Agent runtime",
     description:
-      "Chat, tools, skills, memory, jobs, observability, and handoffs ship together.",
+      "The app-agent loop, tools, skills, memory, jobs, and observability ship together.",
     icon: IconBrain,
   },
   {
@@ -147,12 +149,12 @@ const frameworkPrimitives = [
 ];
 
 const homepageTemplateSlugs = [
+  "chat",
   "calendar",
   "content",
   "plan",
   "slides",
   "analytics",
-  "clips",
 ];
 
 const homepageTemplates = homepageTemplateSlugs.flatMap((slug) =>
@@ -320,22 +322,23 @@ export default function Home() {
             </h1>
 
             <p className="mx-auto mb-10 max-w-xl text-lg leading-relaxed text-[var(--fg-secondary)]">
-              Don't choose between rich user interfaces and autonomous agents.
-              Every Agent-Native app is both.
+              Start with a chat-first app and the app-agent loop. Add actions,
+              screens, jobs, and workflows as your agent grows.
             </p>
 
             <div className="flex flex-wrap items-center justify-center gap-4">
-              <a
-                href="#templates"
+              <Link
+                data-an-prefetch="render"
+                to="/docs/getting-started"
                 className="primary-button"
                 onClick={() =>
                   trackEvent("click cta", {
-                    label: "launch_a_template",
+                    label: "start_chat_app",
                     location: "hero",
                   })
                 }
               >
-                Launch a Template
+                Start with Chat
                 <svg
                   width="16"
                   height="16"
@@ -349,7 +352,7 @@ export default function Home() {
                   <line x1="5" y1="12" x2="19" y2="12" />
                   <polyline points="12 5 19 12 12 19" />
                 </svg>
-              </a>
+              </Link>
               <Link
                 data-an-prefetch="render"
                 to="/docs"
@@ -395,8 +398,9 @@ export default function Home() {
                   The framework for agent-native apps
                 </h2>
                 <p className="mb-5 max-w-xl text-base leading-relaxed text-[var(--fg-secondary)]">
-                  Agent-Native is an open-source framework for building robust
-                  agents that can also ship with rich UX, not just chat.
+                  Agent-Native is an open-source framework for building agents
+                  as real software: start with chat or headless actions, then
+                  add UI, jobs, and collaboration around the same actions.
                 </p>
                 <p className="mb-5 max-w-xl text-base leading-relaxed text-[var(--fg-secondary)]">
                   It gives you primitives for product-grade agentic software:
@@ -544,15 +548,15 @@ export default function Home() {
         >
           <div className="mb-12 text-center">
             <h2 className="mb-3 text-3xl font-bold tracking-tight md:text-4xl">
-              Start with a full featured template
+              Add UI with a full featured template
             </h2>
             <p className="mb-3 text-sm font-semibold text-[var(--docs-accent)]">
               100% free and open source
             </p>
             <p className="mx-auto max-w-2xl text-base leading-relaxed text-[var(--fg-secondary)]">
-              High-quality, vetted templates that replace tools you're paying
-              for — except you own the code and can customize everything. Try
-              them with example data before connecting your own sources.
+              When an action needs screens, start from a vetted app you can
+              customize. Chat is the minimal app scaffold; domain templates add
+              product workflows, example data, and agent-ready actions.
             </p>
           </div>
 
@@ -701,10 +705,12 @@ export default function Home() {
           <section className="border-t border-[var(--docs-border)] py-20">
             <div className="mb-12 text-center">
               <h2 className="mb-3 text-3xl font-bold tracking-tight md:text-4xl">
-                Launch in minutes
+                Start with Chat
               </h2>
               <p className="mx-auto max-w-xl text-base text-[var(--fg-secondary)]">
-                One command to fork a template and start building locally.
+                One command creates a local chat app backed by actions, durable
+                threads, and SQLite. Use `--headless` instead when you want no
+                browser UI yet.
               </p>
             </div>
 
@@ -719,22 +725,23 @@ export default function Home() {
               Software you own, built for the agentic era
             </h2>
             <p className="mx-auto mb-8 max-w-lg text-base text-[var(--fg-secondary)]">
-              Stop renting rigid SaaS. Fork a template, customize it to your
-              exact workflow, and let the agent keep evolving it. Open source.
-              Forkable. Yours.
+              Start with chat or a durable action, run it through the app-agent
+              loop, then grow it into UI, jobs, and collaboration without
+              rewriting the operation. Open source. Forkable. Yours.
             </p>
             <div className="flex flex-col items-center justify-center gap-4 sm:flex-row">
-              <a
-                href="#templates"
+              <Link
+                data-an-prefetch="render"
+                to="/docs/getting-started"
                 className="primary-button"
                 onClick={() =>
                   trackEvent("click cta", {
-                    label: "launch_a_template",
+                    label: "start_with_action",
                     location: "footer",
                   })
                 }
               >
-                Launch a Template
+                Start with an Action
                 <svg
                   width="16"
                   height="16"
@@ -748,7 +755,7 @@ export default function Home() {
                   <line x1="5" y1="12" x2="19" y2="12" />
                   <polyline points="12 5 19 12 12 19" />
                 </svg>
-              </a>
+              </Link>
               <Link
                 data-an-prefetch="render"
                 to="/docs"

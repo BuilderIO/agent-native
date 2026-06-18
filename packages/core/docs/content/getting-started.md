@@ -1,123 +1,113 @@
 ---
 title: "Getting Started"
-description: "Choose the right path: hosted apps, local setup, agent-native skills, or external-agent connections."
+description: "Create a chat-first agent-native app, or start headless with one action and add UI later."
 ---
 
 # Getting Started
 
-Agent-Native is for apps where a real UI and an AI agent share the same actions, data, and state. This page helps you choose the right starting point, then walks through the local setup path.
+Agent-Native is for apps where an AI agent and any UI around it share the same actions, data, and state. The default starting point is the [Chat template](/docs/template-chat): a minimal chat app with durable threads, a left sidebar, auth, live sync, and actions ready to extend.
 
-## Pick your path {#who-is-this-for}
+Start with Chat when you want a browser app users can talk to immediately. Start headless when you only want actions and the local app-agent loop for now.
 
-Start with the path that matches what you want to do next:
+If you already know you want a finished domain app, go to [Templates](/docs/cloneable-saas). If you are choosing between headless, chat, embedded, or full app, go to [Agent Surfaces](/docs/agent-surfaces). Otherwise, keep going.
 
-- **Use a starter app.** Browse the [template gallery](/templates). Hosted apps already include sign-in, data, and the agent sidebar. No install required.
-- **Build or customize your own app.** Continue with [Create a local app](#create-your-app). You'll scaffold a template, run it locally, then change the code, brand, data model, and integrations.
-- **Choose headless, chat, embedded, or full app.** Use [Agent Surfaces](/docs/agent-surfaces) when you know the workflow but not how much UI belongs around it.
-- **Add agent-native skills to a code tool.** Jump to [Try it with a skill](#try-with-a-skill) to add Plans or PR Recaps to Claude Code, Codex, or Cursor without scaffolding an app.
-- **Connect an external agent to an app.** Use [External Agents](/docs/external-agents) to connect Claude, ChatGPT, Codex, Cursor, OpenCode, GitHub Copilot / VS Code, or another MCP host to an existing app.
-
-If you're not sure, use the hosted app when you want to use software now. Use the local path when you want to own and change the software.
-
-## Create a local app {#create-your-app}
+## Create a chat app {#create-your-agent}
 
 You'll need [Node.js 22 or newer](https://nodejs.org) and [pnpm](https://pnpm.io) installed. Then run:
 
 ```bash
-npx @agent-native/core@latest create my-platform
-cd my-platform
-pnpm install && pnpm dev
-```
-
-The `create` command opens a template picker. Pick one template for a single app, or pick several templates to create a workspace where the apps share auth, brand, and agent configuration. If you want one app directory instead of a workspace, pass `--standalone`.
-
-Open the URL the dev server prints. The workspace gateway always starts on port 8080 and serves every app through it; individual apps run on their own ports that are printed at startup. Standalone apps default to `http://localhost:3000`.
-
-### Agent credentials {#agent-credentials}
-
-In local development the embedded agent panel picks up your existing Claude Code or Codex CLI login automatically, or reads `ANTHROPIC_API_KEY` from a `.env` file in the project root. The database defaults to SQLite (stored at `data/app.db`) when `DATABASE_URL` is not set, so you can run the full stack with no external services. For production deployments — where you'll want Postgres, a persistent secret, and bring-your-own-key per user — see [Deployment](/docs/deployment).
-
-## What just happened? {#what-just-happened}
-
-You now have a real app running on your machine with an agent built into it:
-
-- The UI works like a normal SaaS product: routes, forms, tables, settings, and keyboard flows.
-- The agent panel can read the current screen and run the same actions the UI runs.
-- Changes stay in sync because the UI and agent share the same database and application state.
-
-That parity between agent and UI is the whole point — see [What Is Agent-Native?](/docs/what-is-agent-native) for the bigger picture.
-
-## Pick a template {#templates}
-
-Templates are complete apps, not blank starters. Choose one when you want a familiar product to customize:
-
-- **Productivity apps** — [Mail](/docs/template-mail), [Calendar](/docs/template-calendar), [Forms](/docs/template-forms), [Content](/docs/template-content), [Slides](/docs/template-slides), [Design](/docs/template-design), [Clips](/docs/template-clips), and [Video](/docs/template-videos)
-- **Team and data apps** — [Analytics](/docs/template-analytics), [Brain](/docs/template-brain), [Dispatch](/docs/template-dispatch), [Assets](/docs/template-assets), and [Plan](/docs/template-plan)
-- **Bare starting point** — [Starter](/docs/template-starter), a minimal app with the framework wiring and no domain model
-
-Browse the [template gallery](/templates) for live hosted apps. See [Templates](/docs/cloneable-saas) for the full catalog and the clone → customize → deploy flow.
-
-## Add more apps to a workspace {#creating-vs-adding-apps}
-
-`create` (above) makes a brand-new workspace. Once you have one, add more apps to it with `add-app`, run from the workspace root:
-
-```bash
-cd my-platform
-npx @agent-native/core@latest add-app
+npx @agent-native/core@latest create my-chat-app --template chat
+cd my-chat-app
 pnpm install
 pnpm dev
 ```
 
-If your terminal is inside `apps/content` or another app folder, the CLI still detects the workspace and adds the new app as a sibling under `apps/`. Go back to the workspace root before running `pnpm install` or `pnpm dev`.
+This creates the minimal Chat app: a full-page chat route, durable chat threads, the standard left sidebar, an `actions/` folder, the framework runtime, and a SQLite database at `data/app.db` unless you set `DATABASE_URL`.
 
-To add another app from a specific template, pass a name and `--template`:
+Open the local URL, then ask the chat what actions are available. The scaffold includes one example action:
 
-```bash
-npx @agent-native/core@latest add-app design-lab --template design
+```ts
+// actions/hello.ts
+import { defineAction } from "@agent-native/core/action";
+import { z } from "zod";
+
+export default defineAction({
+  description: "Say hello from the local agent.",
+  schema: z.object({
+    name: z.string().default("world"),
+  }),
+  http: { method: "GET" },
+  readOnly: true,
+  run: async ({ name }) => {
+    return { message: `Hello, ${name}!` };
+  },
+});
 ```
 
-## Try it with a skill {#try-with-a-skill}
-
-Don't want to scaffold an app? Add agent-native capabilities to a coding agent you already use. Installing the **Plans** skill turns the plans your agent writes into structured, reviewable docs with diagrams, wireframes, and inline comments:
+Run that action directly:
 
 ```bash
-npx @agent-native/core@latest skills add visual-plan
+pnpm action hello --name Steve
 ```
 
-That one command installs the skill instructions, registers the hosted MCP connector, and signs you in — no marketplace browsing, no manual OAuth. Then run `/visual-plan` in your agent. See the [Skills Guide](/docs/skills-guide#app-backed-skills) for more skills, local/offline installs, and how app-backed skills work.
+Then run the same app-agent loop from the terminal:
 
-Need the opposite direction, where Claude, ChatGPT, Codex, Cursor, OpenCode, GitHub Copilot / VS Code, or another MCP host calls an agent-native app? Use [External Agents](/docs/external-agents).
+```bash
+pnpm agent "Call the hello action for Steve and explain what happened."
+```
+
+That is the local app-agent loop. The chat UI, CLI, HTTP, MCP, A2A, jobs, and future screens can all call the same action surface.
+
+## Start headless instead {#headless}
+
+Use headless mode when you want no browser app yet:
+
+```bash
+npx @agent-native/core@latest create my-agent --headless
+cd my-agent
+pnpm install
+pnpm action hello --name Steve
+pnpm agent "Call the hello action for Steve and explain what happened."
+```
+
+This creates the smallest local Agent-Native runtime: an `actions/` folder, instructions, the framework runtime, and SQL state. Later, add chat by starting from the [Chat template](/docs/template-chat) and moving your actions in, or by copying the Chat template's route/sidebar pattern into the headless app.
+
+### Agent credentials {#agent-credentials}
+
+In local development the agent command reads provider credentials from your environment, such as `ANTHROPIC_API_KEY` in a `.env` file in the project root. Browser chat surfaces can also use configured agent credentials. The full loop is not stateless: actions, auth/session data, application state, threads, and run history use SQL. Locally that defaults to SQLite; in production you will usually point `DATABASE_URL` at Postgres or another persistent SQL database. See [Deployment](/docs/deployment).
+
+## What just happened? {#what-just-happened}
+
+You now have a real app-agent loop:
+
+- `hello` is one action definition, available to the agent, CLI, HTTP, MCP, A2A, and any future UI.
+- `pnpm agent` calls the same production app-agent loop used by chat, jobs, webhooks, and hosted runtimes.
+- Changes and history stay in sync because the local runtime uses SQL-backed state, even when you have no custom UI yet.
+
+That parity between agent and UI is the whole point. See [What Is Agent-Native?](/docs/what-is-agent-native) for the bigger picture.
 
 ## Project structure {#project-structure}
 
-Every agent-native app — whether from a template or from scratch — follows the same structure:
+Every agent-native app follows the same structure:
 
 ```text
 my-app/
-  app/             # React frontend (routes, components, hooks)
-  server/          # Nitro API server (routes, plugins)
   actions/         # Agent-callable actions
+  app/             # React frontend in UI templates; omitted in headless apps
+  server/          # Nitro API server (routes, plugins)
   .agents/         # Agent instructions and skills
+  data/app.db      # Local SQLite runtime state when DATABASE_URL is unset
 ```
 
-Templates add domain-specific code on top: database schemas in `server/db/`, API routes in `server/routes/api/`, and actions in `actions/`. Building from scratch? See [Creating Templates](/docs/creating-templates) for `vite.config.ts`, `tsconfig.json`, and Tailwind setup.
-
-## Architecture principles {#architecture-principles}
-
-The three principles that apply to every agent-native app:
-
-- **Agent + UI are equal partners** — everything the UI can do, the agent can do, and vice versa; they share the same database.
-- **Everything is an action** — agent tools, UI mutations, HTTP endpoints, MCP tools, and CLI commands are all the same `defineAction()` definition.
-- **All state in SQL** — app state, navigation, drafts, and settings live in the database so both agent and UI always see the same picture.
-
-The definitive six rules are in [Key Concepts](/docs/key-concepts).
+Templates add domain-specific code on top: database schemas in `server/db/`, API routes in `server/routes/api/`, and actions in `actions/`. See [Creating Templates](/docs/creating-templates) when you are ready to build or publish a reusable template.
 
 ## Common next moves {#next-docs}
 
-Once your app is running, the usual next step is small and concrete:
+Once your agent is running, the usual next step is small and concrete:
 
-- **Ask the built-in agent what it sees** — open the agent panel and type "what app am I looking at, and what can you do here?" This verifies that the app, UI state, and agent loop are connected.
-- **Make one customization** — rename the app, change the first screen copy, or add a field to a form. The project `AGENTS.md` already tells coding agents how this repo is organized.
+- **Ask the built-in agent what it can do** — open Chat and type "what actions do you have, and what can you do here?" This verifies that the app-agent loop is connected.
+- **Add one real action** — replace `hello` with the smallest useful operation in your domain.
+- **Add UI only when it clarifies the work** — use [Agent Surfaces](/docs/agent-surfaces) to choose between headless, chat, embedded, and full-app surfaces.
 - **Deploy it** — see [Deployment](/docs/deployment) when you're ready to put the app on your own domain.
 
 Useful follow-up docs:

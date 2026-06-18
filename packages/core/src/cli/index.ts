@@ -171,10 +171,12 @@ function parseScaffoldArgs(argv: string[]): {
   name?: string;
   template?: string;
   standalone: boolean;
+  headless: boolean;
 } {
   let name: string | undefined;
   let template: string | undefined;
   let standalone = false;
+  let headless = false;
 
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
@@ -184,12 +186,14 @@ function parseScaffoldArgs(argv: string[]): {
       template = arg.slice("--template=".length);
     } else if (arg === "--standalone") {
       standalone = true;
+    } else if (arg === "--headless") {
+      headless = true;
     } else if (!arg.startsWith("-") && !name) {
       name = arg;
     }
   }
 
-  return { name, template, standalone };
+  return { name, template, standalone, headless };
 }
 
 // Track CLI usage (best-effort, non-blocking)
@@ -540,6 +544,19 @@ switch (command) {
     break;
   }
 
+  case "agent": {
+    import("./agent.js")
+      .then(async (m) => {
+        const code = await m.runAgent(args);
+        if (code !== 0) process.exit(code);
+      })
+      .catch((err) => {
+        console.error(err?.message ?? err);
+        process.exit(1);
+      });
+    break;
+  }
+
   case "script": {
     // @deprecated — use `agent-native action` instead
     const scriptName = args[0];
@@ -584,11 +601,37 @@ switch (command) {
     import("./create.js")
       .then((m) =>
         m.createApp(parsed.name, {
-          template: parsed.template,
+          template: parsed.headless ? "headless" : parsed.template,
           standalone: parsed.standalone,
         }),
       )
       .catch(handleScaffoldImportError);
+    break;
+  }
+
+  case "invoke": {
+    import("./invoke.js")
+      .then(async (m) => {
+        const code = await m.runInvoke(args);
+        if (code !== 0) process.exit(code);
+      })
+      .catch((err) => {
+        console.error(err?.message ?? err);
+        process.exit(1);
+      });
+    break;
+  }
+
+  case "agents": {
+    import("./agents.js")
+      .then(async (m) => {
+        const code = await m.runAgents(args);
+        if (code !== 0) process.exit(code);
+      })
+      .catch((err) => {
+        console.error(err?.message ?? err);
+        process.exit(1);
+      });
     break;
   }
 
@@ -803,6 +846,10 @@ Usage:
   agent-native build            Build for production (client + server)
   agent-native start            Start production server
   agent-native action <name>    Run an action from actions/
+  agent-native agent "prompt"   Run the app-agent loop once against local actions
+  agent-native agents list      List connected/discoverable agents
+  agent-native invoke <app> "prompt"
+                                Call another agent-native app over A2A
   agent-native script <name>    Run an action (deprecated alias for 'action')
   agent-native typecheck        Run TypeScript type checking
   agent-native create [name]    Scaffold a new agent-native workspace with a
@@ -866,6 +913,7 @@ Options:
   --template <names>            Comma-separated templates to pre-select
                                 (mail,calendar,analytics,...) — or
                                 github:user/repo for community templates
+  --headless                    Create the primitive-first action-only scaffold
   --standalone                  Scaffold a single standalone app (no workspace)
   --emit [dir]                  With migrate, emit an own-agent dossier
   --describe <text>             With migrate, describe URL/prose-only sources

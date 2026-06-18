@@ -39,6 +39,18 @@ async function loadLlmStep() {
   return step;
 }
 
+async function loadDefaultStep(id: string) {
+  const registry = await import("./registry.js");
+  const defaultSteps = await import("./default-steps.js");
+
+  registry.__resetOnboardingRegistry();
+  defaultSteps.registerDefaultOnboardingSteps();
+
+  const step = registry.listOnboardingSteps().find((item) => item.id === id);
+  if (!step) throw new Error(`Expected default onboarding step ${id}`);
+  return step;
+}
+
 describe("default onboarding steps", () => {
   beforeEach(() => {
     vi.resetModules();
@@ -68,6 +80,25 @@ describe("default onboarding steps", () => {
     canUseDeployCredentialFallbackForRequestMock.mockReturnValue(true);
 
     const step = await loadLlmStep();
+
+    await expect(step.isComplete()).resolves.toBe(true);
+  });
+
+  it("registers optional GitHub repository setup for headless repo work", async () => {
+    const step = await loadDefaultStep("github-repository");
+
+    expect(step.required).toBe(false);
+    expect(step.methods.map((method) => method.id)).toEqual([
+      "settings",
+      "local-env",
+    ]);
+  });
+
+  it("completes GitHub repository setup from local token env when allowed", async () => {
+    vi.stubEnv("GITHUB_TOKEN", "github_pat_example");
+    canUseDeployCredentialFallbackForRequestMock.mockReturnValue(true);
+
+    const step = await loadDefaultStep("github-repository");
 
     await expect(step.isComplete()).resolves.toBe(true);
   });

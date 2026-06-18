@@ -320,7 +320,7 @@ export function CodeProviderSettings({
           <span className="settings-mode-card-status">
             {settings.configured
               ? `${settings.configuredProviders.join(", ")} ready`
-              : "Connect a provider before chatting in Code."}
+              : "Connect Builder.io, Codex CLI, or an API key before chatting."}
           </span>
         </div>
       </div>
@@ -385,7 +385,7 @@ export function CodeProviderSettings({
         ) : (
           <IconChevronRight size={14} />
         )}
-        <span>Or add your own API key</span>
+        <span>Or add an API key</span>
       </button>
 
       {showProviderKeys && (

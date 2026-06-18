@@ -18,6 +18,7 @@
   line-height: 1.65;
   font-size: 0.95rem;
   min-height: 1.65em;
+  text-align: start;
 }
 
 .an-rich-md-prose > *:first-child {
@@ -59,7 +60,7 @@
 
 .an-rich-md-prose ul:not(.an-rich-md-task-list),
 .an-rich-md-prose ol {
-  padding-left: 1.45em;
+  padding-inline-start: 1.45em;
   margin: 0.35em 0;
 }
 
@@ -82,7 +83,7 @@
 .an-rich-md-task-list {
   list-style: none;
   margin: 0.35em 0;
-  padding-left: 0;
+  padding-inline-start: 0;
 }
 
 .an-rich-md-task-list li {
@@ -109,19 +110,24 @@
 }
 
 .an-rich-md-prose blockquote {
-  border-left: 2px solid hsl(var(--border));
-  padding-left: 0.9em;
+  border-inline-start: 2px solid hsl(var(--border));
+  padding-inline-start: 0.9em;
   margin: 0.45em 0;
   color: hsl(var(--muted-foreground));
 }
 
 .an-rich-md-prose code {
+  unicode-bidi: isolate;
   font-family:
     ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
   font-size: 0.88em;
   background: hsl(var(--muted));
   padding: 0.12em 0.32em;
   border-radius: 4px;
+}
+
+.an-rich-md-prose :not(pre) > code {
+  direction: ltr;
 }
 
 .an-rich-md-prose pre {

@@ -4,6 +4,13 @@ export { generateAgentCard } from "./agent-card.js";
 
 // Client
 export { A2AClient, callAgent, signA2AToken } from "./client.js";
+export {
+  AgentInvocationError,
+  buildAgentInvocationPrompt,
+  invokeAgent,
+  looksLikeAgentUrl,
+  resolveAgentInvocationTarget,
+} from "./invoke.js";
 
 // Types
 export type {
@@ -26,3 +33,11 @@ export type {
   JsonRpcRequest,
   JsonRpcResponse,
 } from "./types.js";
+export type {
+  AgentInvocationErrorCode,
+  AgentInvocationResult,
+  AgentInvocationRuntime,
+  InvokeAgentOptions,
+  ResolveAgentInvocationTargetOptions,
+  ResolvedAgentInvocationTarget,
+} from "./invoke.js";

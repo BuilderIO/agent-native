@@ -39,10 +39,12 @@ const providerEnvKeys = [
 const originalProviderEnv = new Map(
   providerEnvKeys.map((key) => [key, process.env[key]]),
 );
+const originalPath = process.env.PATH;
 
 afterEach(() => {
   delete process.env.AGENT_NATIVE_CODE_AGENTS_HOME;
   delete process.env.AGENT_NATIVE_CODE_AGENT_FAKE_RESPONSE;
+  process.env.PATH = originalPath;
   for (const key of providerEnvKeys) {
     const original = originalProviderEnv.get(key);
     if (original === undefined) delete process.env[key];
@@ -104,6 +106,68 @@ describe("executeCodeAgentRun", () => {
     });
     expect(listCodeAgentTranscriptEvents(run.id).at(-1)?.message).toContain(
       "No LLM provider key was found",
+    );
+  });
+
+  it("runs a Codex CLI-backed session without provider API keys", async () => {
+    const root = useTempCodeAgentsHome();
+    for (const key of providerEnvKeys) delete process.env[key];
+    const binDir = path.join(root, "bin");
+    const promptPath = path.join(root, "codex-prompt.txt");
+    fs.mkdirSync(binDir, { recursive: true });
+    const codexBin = path.join(binDir, "codex");
+    fs.writeFileSync(
+      codexBin,
+      [
+        "#!/usr/bin/env node",
+        "const fs = require('fs');",
+        "const args = process.argv.slice(2);",
+        "const outIndex = args.indexOf('--output-last-message');",
+        "const outPath = outIndex === -1 ? '' : args[outIndex + 1];",
+        "let input = '';",
+        "process.stdin.on('data', (chunk) => { input += chunk.toString(); });",
+        "process.stdin.on('end', () => {",
+        `  fs.writeFileSync(${JSON.stringify(promptPath)}, input);`,
+        "  if (outPath) fs.writeFileSync(outPath, 'Codex final answer');",
+        "  process.stdout.write('Codex streamed output');",
+        "});",
+      ].join("\n"),
+      { mode: 0o755 },
+    );
+    process.env.PATH = `${binDir}${path.delimiter}${originalPath ?? ""}`;
+    const output = createStringOutput();
+    const run = createCodeAgentRunRecord({
+      goalId: "task",
+      title: "Use Codex",
+      status: "queued",
+      cwd: process.cwd(),
+      metadata: { engine: "codex-cli", model: "codex-cli" },
+    });
+
+    await executeCodeAgentRun({
+      runId: run.id,
+      prompt: "fix auth tests",
+      stdout: output.stream,
+    });
+
+    expect(getCodeAgentRunRecord(run.id)).toMatchObject({
+      status: "completed",
+      phase: "complete",
+      metadata: {
+        engine: "codex-cli",
+        model: "codex-default",
+      },
+    });
+    expect(output.read()).toContain("Codex streamed output");
+    expect(fs.readFileSync(promptPath, "utf-8")).toContain("fix auth tests");
+    expect(listCodeAgentTranscriptEvents(run.id)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: "system",
+          message: "Codex final answer",
+          metadata: expect.objectContaining({ engine: "codex-cli" }),
+        }),
+      ]),
     );
   });
 

@@ -8,7 +8,7 @@
 :root {
   --sidebar-width: 56px;
   --tabbar-height: 38px;
-  --macos-traffic-light-safe-area: 88px;
+  --macos-traffic-light-safe-area: 140px;
   --sidebar-bg: #0a0a0a;
   --sidebar-border: rgba(255, 255, 255, 0.06);
   --item-hover-bg: rgba(255, 255, 255, 0.05);

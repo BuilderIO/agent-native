@@ -38,6 +38,14 @@
     "./brand-kit": "./dist/brand-kit/index.js",
     "./brand-kit/fig": "./dist/brand-kit/fig/index.js",
     "./data-widgets": "./dist/data-widgets/index.js",
+    "./action": {
+      "types": "./dist/action.d.ts",
+      "default": "./dist/action.js"
+    },
+    "./action-ui": {
+      "types": "./dist/action-ui.d.ts",
+      "default": "./dist/action-ui.js"
+    },
     "./agent-web": "./dist/agent-web/index.js",
     "./db": "./dist/db/index.js",
     "./db/schema": "./dist/db/schema.js",
@@ -118,6 +126,7 @@
     "./provider-api/actions/query-staged-dataset": "./dist/provider-api/actions/query-staged-dataset.js",
     "./provider-api/actions/list-staged-datasets": "./dist/provider-api/actions/list-staged-datasets.js",
     "./provider-api/actions/delete-staged-dataset": "./dist/provider-api/actions/delete-staged-dataset.js",
+    "./provider-api/actions/github-repo-files": "./dist/provider-api/actions/github-repo-files.js",
     "./local-artifacts": {
       "types": "./dist/local-artifacts/index.d.ts",
       "default": "./dist/local-artifacts/index.js"

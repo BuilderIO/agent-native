@@ -49,7 +49,7 @@ Use `defineAction` with a Zod schema (required for new actions):
 ```ts
 // actions/list-meals.ts
 import { z } from "zod";
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { getDb } from "../server/db/index.js";
 import { meals } from "../server/db/schema.js";
 
@@ -352,7 +352,7 @@ This still works but is not auto-exposed as HTTP. Prefer `defineAction` for all 
   credentials belong in the encrypted secrets/credential/OAuth stores, never as
   hardcoded literals or shared env fallbacks.
 - **Use `fail()`** for user-friendly error messages (exits with message, no stack trace).
-- **Import from `@agent-native/core`** — Don't redefine `parseArgs()` or other utilities locally.
+- **Import action primitives from `@agent-native/core/action`** and CLI helpers such as `parseArgs()` from `@agent-native/core` — do not redefine framework utilities locally.
 - **Do not re-export actions as REST.** The mounted `/_agent-native/actions/:name` endpoint is the REST surface; duplicating it under `/api/*` creates drift and hides the operation from agents.
 
 ## Common Patterns
@@ -361,7 +361,7 @@ This still works but is not auto-exposed as HTTP. Prefer `defineAction` for all 
 
 ```ts
 import { z } from "zod";
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 
 export default defineAction({
   description: "List calendar events",
@@ -380,7 +380,7 @@ export default defineAction({
 
 ```ts
 import { z } from "zod";
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 
 export default defineAction({
   description: "Log a meal",
@@ -400,7 +400,7 @@ export default defineAction({
 
 ```ts
 import { z } from "zod";
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 
 export default defineAction({
   description: "Navigate the UI to a view",
