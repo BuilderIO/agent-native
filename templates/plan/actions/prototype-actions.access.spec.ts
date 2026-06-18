@@ -165,7 +165,13 @@ beforeAll(async () => {
       usage_input_tokens INTEGER, usage_output_tokens INTEGER,
       usage_cache_read_tokens INTEGER, usage_cache_write_tokens INTEGER,
       usage_cost_cents_x100 INTEGER, usage_cost_source TEXT, usage_recorded_at TEXT,
-      source_url TEXT, recap_idempotency_key TEXT,
+      source_url TEXT,
+      source_type TEXT,
+      source_repo TEXT,
+      source_pr_number INTEGER,
+      source_pr_state TEXT,
+      source_pr_merged_at TEXT,
+      recap_idempotency_key TEXT,
       deleted_at TEXT, deleted_by TEXT,
       owner_email TEXT NOT NULL, org_id TEXT, visibility TEXT NOT NULL DEFAULT 'private'
     );

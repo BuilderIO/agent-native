@@ -220,6 +220,9 @@ jobs:
       PLAN_RECAP_TOKEN: ${{ secrets.PLAN_RECAP_TOKEN }}
       GH_TOKEN: ${{ github.token }}
       PR_NUMBER: ${{ github.event.pull_request.number }}
+      PR_STATE: ${{ github.event.pull_request.state }}
+      PR_MERGED: ${{ github.event.pull_request.merged }}
+      PR_MERGED_AT: ${{ github.event.pull_request.merged_at }}
       HEAD_SHA: ${{ github.event.pull_request.head.sha }}
       VISUAL_RECAP_MODEL: ${{ vars.VISUAL_RECAP_MODEL }}
       VISUAL_RECAP_REASONING: ${{ vars.VISUAL_RECAP_REASONING }}
@@ -516,6 +519,13 @@ jobs:
           set -uo pipefail
           ARGS=(--source recap-source.json --out recap-url.txt --repo "$GITHUB_REPOSITORY" --pr "$PR_NUMBER" --app-url "$PLAN_RECAP_APP_URL" --token "$PLAN_RECAP_TOKEN")
           if [ -n "${PREV_PLAN_ID:-}" ]; then ARGS+=(--prev-plan-id "$PREV_PLAN_ID"); fi
+          ARGS+=(--source-type pull-request --source-repo "$GITHUB_REPOSITORY" --source-pr-number "$PR_NUMBER")
+          if [ "${PR_MERGED:-false}" = "true" ] || [ -n "${PR_MERGED_AT:-}" ]; then
+            ARGS+=(--source-pr-state merged)
+          elif [ -n "${PR_STATE:-}" ]; then
+            ARGS+=(--source-pr-state "$PR_STATE")
+          fi
+          if [ -n "${PR_MERGED_AT:-}" ]; then ARGS+=(--source-pr-merged-at "$PR_MERGED_AT"); fi
           $RECAP_CLI recap publish "${ARGS[@]}"
 
       - name: Read plan URL

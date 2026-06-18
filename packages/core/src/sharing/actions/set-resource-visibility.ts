@@ -39,28 +39,33 @@ export default defineAction({
       args.resourceId,
       "admin",
     );
-    const beforeExtensionTargets = await getExtensionShareChangeTargets(
-      args.resourceType,
-      args.resourceId,
-    );
     const db = reg.getDb() as any;
     const update: Record<string, unknown> = { visibility: args.visibility };
     const currentOrgId = resolveRegisteredAccessContext(
       reg,
       currentAccess(),
     ).orgId;
-    // Only the resource owner may bind an org to a previously unscoped resource.
-    // If a non-owner admin did this, the resource would adopt the admin's org
-    // and ownerMatchesActiveScope would then lock the real owner out of their
-    // own resource. Non-owner admins can still flip visibility once orgId is set.
-    if (
-      args.visibility === "org" &&
-      currentOrgId &&
-      !access.resource?.orgId &&
-      access.role === "owner"
-    ) {
+    if (args.visibility === "org" && !access.resource?.orgId) {
+      if (!currentOrgId) {
+        throw new ForbiddenError(
+          `${reg.displayName} cannot be shared with your organization because no active organization is selected.`,
+        );
+      }
+      // Only the resource owner may bind an org to a previously unscoped resource.
+      // If a non-owner admin did this, the resource would adopt the admin's org
+      // and ownerMatchesActiveScope would then lock the real owner out of their
+      // own resource. Non-owner admins can still flip visibility once orgId is set.
+      if (access.role !== "owner") {
+        throw new ForbiddenError(
+          `${reg.displayName} can only be attached to an organization by its owner.`,
+        );
+      }
       update.orgId = currentOrgId;
     }
+    const beforeExtensionTargets = await getExtensionShareChangeTargets(
+      args.resourceType,
+      args.resourceId,
+    );
     await db
       .update(reg.resourceTable)
       .set(update)

@@ -1,4 +1,3 @@
-import { useEffect, useState } from "react";
 import {
   Area,
   AreaChart,
@@ -111,19 +110,11 @@ function ChartBody({ chart }: { chart: DataChartWidgetData }) {
 }
 
 export function DataChartRenderer({ chart }: { chart: DataChartWidgetData }) {
-  const [ready, setReady] = useState(false);
-
-  useEffect(() => {
-    setReady(true);
-  }, []);
-
   return (
     <div className="h-60 w-full min-w-0">
-      {ready ? (
-        <ResponsiveContainer width="100%" height="100%">
-          <ChartBody chart={chart} />
-        </ResponsiveContainer>
-      ) : null}
+      <ResponsiveContainer width="100%" height="100%">
+        <ChartBody chart={chart} />
+      </ResponsiveContainer>
     </div>
   );
 }

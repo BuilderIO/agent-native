@@ -15,7 +15,7 @@ export default defineAction({
   http: false,
   run: async (args) => {
     const formId = args.form;
-    const { resource: form } = await assertAccess("form", formId, "viewer");
+    const { resource: form } = await assertAccess("form", formId, "editor");
     const db = getDb();
 
     const responses = await db

@@ -143,9 +143,10 @@ export function TabsBlockReader({
   return (
     <section className="plan-block" data-block-id={blockId}>
       {title && <div className="plan-block-label">{title}</div>}
-      <div className={cn(vertical && "@container/tabs")}>
+      <div className={cn("min-w-0 max-w-full", vertical && "@container/tabs")}>
         <div
           className={cn(
+            "min-w-0 max-w-full",
             vertical &&
               "grid min-w-0 gap-5 @xl/tabs:grid-cols-[minmax(10rem,14rem)_minmax(0,1fr)] @xl/tabs:items-start",
           )}
@@ -159,9 +160,9 @@ export function TabsBlockReader({
           {active &&
             (vertical ? (
               <NarrowContainerProvider>
-                <div className="min-w-0">
+                <div className="min-w-0 max-w-full">
                   {active.blocks.map((child) => (
-                    <div key={child.id}>
+                    <div key={child.id} className="min-w-0 max-w-full">
                       {ctx.renderBlock?.({
                         block: child,
                         editing: false,
@@ -172,9 +173,9 @@ export function TabsBlockReader({
                 </div>
               </NarrowContainerProvider>
             ) : (
-              <div>
+              <div className="min-w-0 max-w-full">
                 {active.blocks.map((child) => (
-                  <div key={child.id}>
+                  <div key={child.id} className="min-w-0 max-w-full">
                     {ctx.renderBlock?.({
                       block: child,
                       editing: false,
@@ -354,7 +355,7 @@ export function TabsBlockEditor({
           )}
         </div>
         {active && (
-          <div className={cn(vertical && "min-w-0")}>
+          <div className="min-w-0 max-w-full">
             {ctx.renderBlocksEditor
               ? ctx.renderBlocksEditor({
                   blocks: active.blocks,
@@ -382,7 +383,7 @@ export function TabsBlockEditor({
                   compactVisuals: compact,
                 })
               : active.blocks.map((child) => (
-                  <div key={child.id}>
+                  <div key={child.id} className="min-w-0 max-w-full">
                     {ctx.renderBlock?.({
                       block: child,
                       editing: true,

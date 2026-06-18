@@ -1,7 +1,12 @@
 import { useEffect, useRef } from "react";
 import { useLocation, useNavigate } from "react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { agentNativePath, appBasePath } from "@agent-native/core/client";
+import {
+  agentNativePath,
+  appBasePath,
+  navigateWithAgentChatViewTransition,
+} from "@agent-native/core/client";
+import { markPlanChatHomeHandoff } from "@/lib/chat-home-handoff";
 import { TAB_ID } from "@/lib/tab-id";
 
 export interface NavigationState {
@@ -97,7 +102,8 @@ export function useNavigationState() {
     // Delete the one-shot command AFTER reading it.
     deleteCommand();
     const path = routerPath(pathForCommand(cmd));
-    navigate(path);
+    if (path !== "/") markPlanChatHomeHandoff();
+    navigateWithAgentChatViewTransition(navigate, path);
     qc.setQueryData(["navigate-command"], null);
   }, [navCommand, navigate, qc]);
 }
@@ -112,8 +118,10 @@ function viewForPath(pathname: string): string {
   ) {
     return "plan";
   }
+  if (pathname === "/") {
+    return "chat";
+  }
   if (
-    pathname === "/" ||
     pathname.startsWith("/plans") ||
     pathname.startsWith("/recaps") ||
     pathname.startsWith("/local-plans")
@@ -141,6 +149,8 @@ function pathForCommand(command: NavigationState): string {
 
 function pathForView(view?: string): string {
   switch (view) {
+    case "chat":
+      return "/";
     case "plan":
     case "plans":
       return "/plans";

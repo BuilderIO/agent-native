@@ -436,4 +436,24 @@ describe("shareable resource access helpers", () => {
       .where(eq(docs.id, "doc-legacy-solo"));
     expect(row).toMatchObject({ orgId, visibility: "org" });
   });
+
+  it("rejects org visibility for unscoped resources when no active org is selected", async () => {
+    await insertDoc({ id: "doc-no-active-org", orgId: null });
+
+    await runWithRequestContext({ userEmail: ownerEmail }, async () => {
+      await expect(
+        setResourceVisibility.run({
+          resourceType,
+          resourceId: "doc-no-active-org",
+          visibility: "org",
+        }),
+      ).rejects.toBeInstanceOf(ForbiddenError);
+    });
+
+    const [row] = await db
+      .select()
+      .from(docs)
+      .where(eq(docs.id, "doc-no-active-org"));
+    expect(row).toMatchObject({ orgId: null, visibility: "private" });
+  });
 });

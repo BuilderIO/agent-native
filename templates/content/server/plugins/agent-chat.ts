@@ -9,9 +9,29 @@ import {
   resolvePublicViewerOwner,
 } from "../lib/public-documents.js";
 
+const INITIAL_TOOL_NAMES = [
+  "view-screen",
+  "list-documents",
+  "search-documents",
+  "get-document",
+  "create-document",
+  "edit-document",
+  "update-document",
+  "add-comment",
+  "list-comments",
+  "refresh-list",
+  "navigate",
+  "connect-notion-status",
+  "provider-api-catalog",
+  "provider-api-docs",
+  "provider-api-request",
+  "query-staged-dataset",
+];
+
 export default createAgentChatPlugin({
   appId: "content",
   actions: loadActionsFromStaticRegistry(actionsRegistry),
+  initialToolNames: INITIAL_TOOL_NAMES,
   anonymousOwner: resolvePublicViewerOwner,
   extraContext: publicDocumentExtraContext,
   // Enable sandboxed JavaScript execution so Content agents can fetch,
@@ -20,6 +40,8 @@ export default createAgentChatPlugin({
   codeExecution: { production: "sandboxed" },
   resolveOrgId: async (event) => (await getOrgContext(event)).orgId,
   systemPrompt: `You are an AI document assistant. You manage documents, comments, media blocks, sharing, and connected Notion content through actions and shared application state.
+
+Some less-common tool schemas are loaded on demand. Use tool-search with a specific query when you need a capability that is not already available as a direct tool.
 
 Provider-specific Content actions are shortcuts, not limits. If a first-class action cannot express the exact Notion endpoint, page/database/comment object, filter, request body, pagination mode, markdown endpoint, payload shape, or API version needed, call provider-api-catalog and provider-api-docs as needed, then call provider-api-request against the real Notion API. Use the raw provider API escape hatch instead of weakening the answer, broadening filters, or claiming Content cannot do something the underlying Notion API can do.
 

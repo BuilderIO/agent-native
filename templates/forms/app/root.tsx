@@ -10,6 +10,10 @@ import {
 import { useCallback, useEffect, useState } from "react";
 import { useNavigationState } from "@/hooks/use-navigation-state";
 import { markFormsChatHomeHandoff } from "@/lib/chat-home-handoff";
+import {
+  formBuilderTabSearchParam,
+  normalizeFormBuilderTab,
+} from "@/lib/form-builder-tabs";
 import { useQueryClient } from "@tanstack/react-query";
 import { useTheme } from "next-themes";
 import { IconSun, IconMoon } from "@tabler/icons-react";
@@ -26,6 +30,7 @@ import {
 } from "@agent-native/core/client";
 import type { LinksFunction } from "react-router";
 import stylesheet from "./global.css?url";
+import { TAB_ID } from "@/lib/tab-id";
 
 configureTracking({
   getDefaultProps: (_name, properties) => ({
@@ -75,8 +80,6 @@ export function Layout({ children }: { children: React.ReactNode }) {
   );
 }
 
-const TAB_ID = Math.random().toString(36).slice(2, 10);
-
 function DbSyncSetup() {
   const qc = useQueryClient();
   useDbSync({
@@ -115,7 +118,10 @@ function formsOpenPath(url: URL): string | null {
   if (view === "home") return "/";
   if (view === "forms") return "/forms";
   if (view === "form" && formId) {
-    return `/forms/${encodeURIComponent(formId)}`;
+    const tab = normalizeFormBuilderTab(
+      url.searchParams.get("tab") ?? url.searchParams.get("activeTab"),
+    );
+    return `/forms/${encodeURIComponent(formId)}?tab=${formBuilderTabSearchParam(tab)}`;
   }
   if (view === "responses" && formId) {
     return `/forms/${encodeURIComponent(formId)}/responses`;

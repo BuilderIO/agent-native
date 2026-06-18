@@ -481,6 +481,8 @@ describe("recap direct publish", () => {
         prevPlanId: "recap-prev",
         repo: "BuilderIO/ai-services",
         pr: "5440",
+        sourcePrState: "merged",
+        sourcePrMergedAt: "2026-06-18T12:30:00Z",
         fetchFn,
         cwd: dir,
       });
@@ -498,6 +500,11 @@ describe("recap direct publish", () => {
         source: "imported",
         repoPath: "BuilderIO/ai-services",
         sourceUrl: "https://github.com/BuilderIO/ai-services/pull/5440",
+        sourceType: "pull-request",
+        sourceRepo: "BuilderIO/ai-services",
+        sourcePrNumber: "5440",
+        sourcePrState: "merged",
+        sourcePrMergedAt: "2026-06-18T12:30:00Z",
         currentFocus: "visual recap review",
         status: "review",
       });
@@ -1966,6 +1973,15 @@ describe("bundled PR visual recap workflow", () => {
     );
     expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain("Publish recap source");
     expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain("recap publish");
+    expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain(
+      "types: [opened, synchronize, reopened, ready_for_review, closed]",
+    );
+    expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain("closed without merge");
+    expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain("PR_MERGED_AT");
+    expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain(
+      "--source-type pull-request",
+    );
+    expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain("--source-pr-merged-at");
     expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain("recap-source.json");
     expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain("recap-url-reason.txt");
     expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain("Summarize agent failure");
@@ -2314,7 +2330,7 @@ describe("reusable caller workflow builder", () => {
     const yml = buildReusableCallerWorkflow();
     // Trigger: same event types as the canonical workflow.
     expect(yml).toContain(
-      "types: [opened, synchronize, reopened, ready_for_review]",
+      "types: [opened, synchronize, reopened, ready_for_review, closed]",
     );
     // Uses the reusable workflow in the agent-native repo.
     expect(yml).toContain(
@@ -2542,6 +2558,10 @@ describe("reusable workflow file structure", () => {
     );
     expect(content).toContain("Publish recap source");
     expect(content).toContain("recap publish");
+    expect(content).toContain("closed without merge");
+    expect(content).toContain("PR_MERGED_AT:");
+    expect(content).toContain("--source-type pull-request");
+    expect(content).toContain("--source-pr-merged-at");
     expect(content).toContain("RECAP_PUBLISH_REASON:");
     expect(content).toContain("Summarize agent failure");
     expect(content).toContain("recap agent-summary");

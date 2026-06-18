@@ -25,6 +25,9 @@ describe("PUBLIC_PLAN_ACTION_PATHS", () => {
       "/_agent-native/actions/create-visual-questions",
     );
     expect(PUBLIC_PLAN_ACTION_PATHS).not.toContain(
+      "/_agent-native/actions/visual-answer",
+    );
+    expect(PUBLIC_PLAN_ACTION_PATHS).not.toContain(
       "/_agent-native/actions/visualize-plan",
     );
     expect(PUBLIC_PLAN_ACTION_PATHS).not.toContain(

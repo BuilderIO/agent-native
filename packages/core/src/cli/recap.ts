@@ -183,7 +183,7 @@ export function buildReusableCallerWorkflow(
     `\n` +
     `on:\n` +
     `  pull_request:\n` +
-    `    types: [opened, synchronize, reopened, ready_for_review]\n` +
+    `    types: [opened, synchronize, reopened, ready_for_review, closed]\n` +
     `\n` +
     `jobs:\n` +
     `  visual-recap:\n` +
@@ -2231,6 +2231,11 @@ export async function publishRecapSource(input: {
   repo?: string;
   pr?: string;
   sourceUrl?: string;
+  sourceType?: string;
+  sourceRepo?: string;
+  sourcePrNumber?: string;
+  sourcePrState?: string;
+  sourcePrMergedAt?: string;
   fetchFn?: typeof fetch;
   cwd?: string;
 }): Promise<{ ok: true; url: string; out: string }> {
@@ -2246,6 +2251,13 @@ export async function publishRecapSource(input: {
     (input.repo && input.pr
       ? `https://github.com/${input.repo}/pull/${input.pr}`
       : undefined);
+  const sourceRepo = input.sourceRepo ?? input.repo;
+  const sourcePrNumber = input.sourcePrNumber ?? input.pr;
+  const sourceType =
+    input.sourceType ??
+    (sourceRepo && sourcePrNumber ? "pull-request" : undefined);
+  const sourcePrState =
+    input.sourcePrState ?? (input.sourcePrMergedAt ? "merged" : undefined);
   const idempotencyKey = recapPublishIdempotencyKey({
     prevPlanId: input.prevPlanId,
     repo: input.repo,
@@ -2262,6 +2274,13 @@ export async function publishRecapSource(input: {
     source: "imported",
     ...(input.repo ? { repoPath: input.repo } : {}),
     ...(sourceUrl ? { sourceUrl } : {}),
+    ...(sourceType ? { sourceType } : {}),
+    ...(sourceRepo ? { sourceRepo } : {}),
+    ...(sourcePrNumber ? { sourcePrNumber } : {}),
+    ...(sourcePrState ? { sourcePrState } : {}),
+    ...(input.sourcePrMergedAt
+      ? { sourcePrMergedAt: input.sourcePrMergedAt }
+      : {}),
     currentFocus: "visual recap review",
     status: "review",
     mdx: source.mdx,
@@ -2385,6 +2404,11 @@ async function runPublish(
       repo: optionalArg(args, "repo") ?? process.env.GITHUB_REPOSITORY,
       pr: optionalArg(args, "pr") ?? process.env.PR_NUMBER,
       sourceUrl: optionalArg(args, "source-url"),
+      sourceType: optionalArg(args, "source-type"),
+      sourceRepo: optionalArg(args, "source-repo"),
+      sourcePrNumber: optionalArg(args, "source-pr-number"),
+      sourcePrState: optionalArg(args, "source-pr-state"),
+      sourcePrMergedAt: optionalArg(args, "source-pr-merged-at"),
     });
     writeGitHubOutput("ok", "true");
     writeGitHubOutput("plan_url", result.url);
@@ -3932,7 +3956,7 @@ Usage:
   npx @agent-native/core@latest recap block-reference [--app-url <url>] [--out recap-blocks.md]
   npx @agent-native/core@latest recap scan --diff <path> [--mode off|high-confidence|strict]
   npx @agent-native/core@latest recap build-prompt --pr <n> [--repo owner/name] [--head <sha>] [--app-url <url>] [--diff <path>] [--stat <path>] [--block-reference recap-blocks.md] [--prev-plan-id <id>] [--huge] [--local-files] [--local-dir <folder>] [--skill-source auto|latest|repo] [--out <path>]
-  npx @agent-native/core@latest recap publish [--source recap-source.json] [--out recap-url.txt] [--repo owner/name] [--pr <n>] [--prev-plan-id <id>] [--app-url <url>] [--token <planToken>]
+  npx @agent-native/core@latest recap publish [--source recap-source.json] [--out recap-url.txt] [--repo owner/name] [--pr <n>] [--prev-plan-id <id>] [--source-pr-state open|closed|merged] [--source-pr-merged-at <iso>] [--app-url <url>] [--token <planToken>]
   npx @agent-native/core@latest recap shot --url <planUrl> [--token <planToken>] [--app-url <url>] [--out recap.png] [--theme light|dark]
   npx @agent-native/core@latest recap usage --plan-url <planUrl> --result-file <path> --app-url <url> --token <planToken> [--agent claude|codex] [--model <id>]
   npx @agent-native/core@latest recap agent-summary --result-file <path> [--stderr-file <path>] [--exit-code-file <path>] [--agent claude|codex]

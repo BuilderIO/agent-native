@@ -1,11 +1,15 @@
 import {
-  ACTION_CHAT_UI_DATA_INSIGHTS_RENDERER,
-  dataInsightsWidgetResultSchema,
+  ACTION_CHAT_UI_DATA_WIDGET_RENDERER,
+  dataWidgetResultSchema,
   defineAction,
 } from "@agent-native/core";
-import { createDataInsightsWidgetResult } from "@agent-native/core/data-widgets";
+import {
+  createDataChartWidgetResult,
+  createDataInsightsWidgetResult,
+  createDataTableWidgetResult,
+} from "@agent-native/core/data-widgets";
 import { buildDeepLink } from "@agent-native/core/server";
-import { accessFilter, resolveAccess } from "@agent-native/core/sharing";
+import { accessFilter, assertAccess } from "@agent-native/core/sharing";
 import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
@@ -13,7 +17,6 @@ import type {
   FormField,
   ResponseInsightsChartSeries,
   ResponseInsightsTable,
-  ResponseInsightsWidgetResult,
 } from "../shared/types.js";
 
 const MAX_FORMS_TO_ANALYZE = 100;
@@ -42,6 +45,13 @@ const responseInsightsSchema = z.object({
     .optional()
     .default(DEFAULT_RESPONSE_SAMPLE)
     .describe("Maximum recent responses to sample"),
+  displayMode: z
+    .enum(["insights", "chart", "table"])
+    .optional()
+    .default("insights")
+    .describe(
+      "Output shape for chat/UI. Use chart when the user asks for a chart, graph, or trend only. Use table when they explicitly ask for a table, rows, or tabular preview. Use insights only when they ask for a dashboard, report, or combined chart plus table.",
+    ),
   tableLimit: z.coerce
     .number()
     .int()
@@ -218,14 +228,8 @@ async function loadForms(args: ResponseInsightsArgs) {
   const db = getDb();
 
   if (formId) {
-    const access = await resolveAccess("form", formId);
-    if (!access) throw new Error(`Form ${formId} not found`);
-    const [form] = await db
-      .select()
-      .from(schema.forms)
-      .where(eq(schema.forms.id, formId))
-      .limit(1);
-    return form ? [form] : [];
+    const { resource } = await assertAccess("form", formId, "editor");
+    return [resource as FormRow];
   }
 
   const rows = await db
@@ -247,7 +251,7 @@ async function loadForms(args: ResponseInsightsArgs) {
     .from(schema.forms)
     .where(
       and(
-        accessFilter(schema.forms, schema.formShares),
+        accessFilter(schema.forms, schema.formShares, undefined, "editor"),
         isNull(schema.forms.deletedAt),
       ),
     )
@@ -259,13 +263,14 @@ async function loadForms(args: ResponseInsightsArgs) {
 
 export default defineAction({
   description:
-    "Analyze form response data and return SQL-backed summary plus native widget-discriminated chart and table data.",
+    "Analyze form response data and return a native widget. Set displayMode=chart for chart-only requests, displayMode=table for table-only requests, and displayMode=insights only for combined dashboards/reports.",
   schema: responseInsightsSchema,
-  outputSchema: dataInsightsWidgetResultSchema,
+  outputSchema: dataWidgetResultSchema,
   chatUI: {
-    renderer: ACTION_CHAT_UI_DATA_INSIGHTS_RENDERER,
+    renderer: ACTION_CHAT_UI_DATA_WIDGET_RENDERER,
     title: "Response insights",
-    description: "Render response analytics as native chart/table output.",
+    description:
+      "Render response analytics as a native chart, table, or insights output.",
   },
   http: { method: "GET" },
   readOnly: true,
@@ -381,49 +386,67 @@ export default defineAction({
     };
     const title = targetForm?.title ?? "All forms";
 
-    const result: ResponseInsightsWidgetResult = createDataInsightsWidgetResult(
-      {
-        widgetId: "forms.responseInsights.v1",
-        scope: {
-          ...(targetForm ? { formId: targetForm.id } : {}),
-          title,
-          days: args.days,
-          sampledLimit: args.limit,
-          formLimit: args.formLimit,
-        },
-        summary: {
-          forms: forms.length,
-          responses: totalResponses,
-          sampledResponses: responses.length,
-          truncated: totalResponses > responses.length,
-          rangeStart: start.toISOString().slice(0, 10),
-          rangeEnd: end.toISOString().slice(0, 10),
-          scopeCapped: !targetForm && forms.length >= args.formLimit,
-        },
-        forms: forms.map((form) => ({
-          id: form.id,
-          title: form.title,
-          slug: form.slug,
-          status: form.status,
-          responseCount: responseCountByForm.get(form.id) ?? 0,
-          url: `/forms/${encodeURIComponent(form.id)}`,
-        })),
-        chartSeries,
-        table,
-        display: {
-          title: targetForm
-            ? `${targetForm.title} response insights`
-            : "Forms response insights",
-          route: insightsPath(targetForm?.id),
-          primaryAction: {
-            label: targetForm ? "Open responses" : "Open forms",
-            href: targetForm
-              ? `/forms/${encodeURIComponent(targetForm.id)}/responses`
-              : "/forms",
-          },
+    const baseResult = {
+      scope: {
+        ...(targetForm ? { formId: targetForm.id } : {}),
+        title,
+        days: args.days,
+        sampledLimit: args.limit,
+        formLimit: args.formLimit,
+      },
+      summary: {
+        forms: forms.length,
+        responses: totalResponses,
+        sampledResponses: responses.length,
+        truncated: totalResponses > responses.length,
+        rangeStart: start.toISOString().slice(0, 10),
+        rangeEnd: end.toISOString().slice(0, 10),
+        scopeCapped: !targetForm && forms.length >= args.formLimit,
+      },
+      forms: forms.map((form) => ({
+        id: form.id,
+        title: form.title,
+        slug: form.slug,
+        status: form.status,
+        responseCount: responseCountByForm.get(form.id) ?? 0,
+        url: `/forms/${encodeURIComponent(form.id)}?tab=edit`,
+      })),
+      display: {
+        title: targetForm
+          ? `${targetForm.title} response insights`
+          : "Forms response insights",
+        route: insightsPath(targetForm?.id),
+        primaryAction: {
+          label: targetForm ? "Open responses" : "Open forms",
+          href: targetForm
+            ? `/forms/${encodeURIComponent(targetForm.id)}/responses`
+            : "/forms",
         },
       },
-    );
+    };
+
+    if (args.displayMode === "chart") {
+      return createDataChartWidgetResult({
+        ...baseResult,
+        widgetId: "forms.responseInsights.chart.v1",
+        chartSeries,
+      });
+    }
+
+    if (args.displayMode === "table") {
+      return createDataTableWidgetResult({
+        ...baseResult,
+        widgetId: "forms.responseInsights.table.v1",
+        table,
+      });
+    }
+
+    const result = createDataInsightsWidgetResult({
+      ...baseResult,
+      widgetId: "forms.responseInsights.v1",
+      chartSeries,
+      table,
+    });
 
     return result;
   },

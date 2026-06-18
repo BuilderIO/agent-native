@@ -73,6 +73,7 @@ const workspaceSkillIncludes = [
   "sharing",
   "storing-data",
   "tracking",
+  "visual-answer",
   "voice-transcription",
   "writing-agent-instructions",
 ];

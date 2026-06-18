@@ -3,7 +3,10 @@
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { MultiTabAssistantChat } from "./MultiTabAssistantChat.js";
+import {
+  MultiTabAssistantChat,
+  type MultiTabAssistantChatHeaderProps,
+} from "./MultiTabAssistantChat.js";
 
 const chatHandleMocks = vi.hoisted(() => ({
   sendMessage: vi.fn(),
@@ -91,6 +94,7 @@ vi.mock("./AssistantChat.js", async () => {
       _props: unknown,
       ref,
     ) {
+      const props = _props as { composerSlot?: React.ReactNode };
       React.useImperativeHandle(ref, () => ({
         sendMessage: chatHandleMocks.sendMessage,
         prefillMessage: chatHandleMocks.prefillMessage,
@@ -103,10 +107,29 @@ vi.mock("./AssistantChat.js", async () => {
         focusComposer: chatHandleMocks.focusComposer,
         exportThreadSnapshot: chatHandleMocks.exportThreadSnapshot,
       }));
-      return <div data-testid="assistant-chat" />;
+      return <div data-testid="assistant-chat">{props.composerSlot}</div>;
     }),
   };
 });
+
+function resetThreadMocks() {
+  threadMocks.activeThreadId = "thread-1";
+  threadMocks.threads = [
+    {
+      id: "thread-1",
+      title: "Main thread",
+      preview: "",
+      messageCount: 0,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+      scope: null,
+    },
+  ];
+  threadMocks.createThread.mockReset();
+  threadMocks.createThread.mockImplementation(
+    async (requestedId?: string) => requestedId ?? "thread-2",
+  );
+}
 
 function dispatchSubmitChat(data: Record<string, unknown>) {
   window.dispatchEvent(
@@ -126,6 +149,7 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
 
   beforeEach(async () => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    resetThreadMocks();
     vi.stubGlobal(
       "fetch",
       vi.fn(async () => Response.json({ value: null })),
@@ -300,6 +324,52 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
     expect(chatHandleMocks.prefillMessage).not.toHaveBeenCalled();
   });
 
+  it("opens a replacement tab and closes the current tab when clearing chat", async () => {
+    let headerProps: MultiTabAssistantChatHeaderProps | null = null;
+    threadMocks.createThread.mockImplementationOnce(async () => {
+      const id = "thread-clear";
+      threadMocks.activeThreadId = id;
+      threadMocks.threads = [
+        {
+          id,
+          title: "",
+          preview: "",
+          messageCount: 0,
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+          scope: null,
+        },
+        ...threadMocks.threads,
+      ];
+      return id;
+    });
+
+    await act(async () => {
+      root.render(
+        <MultiTabAssistantChat
+          storageKey="bridge-test"
+          renderHeader={(props) => {
+            headerProps = props;
+            return null;
+          }}
+        />,
+      );
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(headerProps?.tabs.map((tab) => tab.id)).toEqual(["thread-1"]);
+
+    await act(async () => {
+      headerProps?.clearActiveTab();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(headerProps?.tabs.map((tab) => tab.id)).toEqual(["thread-clear"]);
+  });
+
   it("keeps a chat mounted when scoped navigation has no saved open tabs", async () => {
     let tabs: Array<{ id: string }> = [];
     const renderHeader = (props: { tabs: Array<{ id: string }> }) => {
@@ -342,6 +412,40 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
       container.querySelectorAll("[data-testid='assistant-chat']"),
     ).toHaveLength(1);
   });
+
+  it("renders scoped context as a composer tab", async () => {
+    threadMocks.threads = [
+      {
+        ...threadMocks.threads[0],
+        scope: { type: "form", id: "form-1" },
+      },
+    ];
+
+    await act(async () => {
+      root.render(
+        <MultiTabAssistantChat
+          storageKey="bridge-test"
+          scope={{ type: "form", id: "form-1" }}
+          composerSlot={<div data-testid="host-composer-slot">Host slot</div>}
+        />,
+      );
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    const badges = container.querySelectorAll(".agent-scope-badge-wrapper");
+    const hostSlot = container.querySelector(
+      "[data-testid='host-composer-slot']",
+    );
+    const composerChildren = Array.from(
+      container.querySelector("[data-testid='assistant-chat']")?.children ?? [],
+    );
+    expect(badges).toHaveLength(1);
+    expect(badges[0]?.textContent).toContain("Using this form");
+    expect(composerChildren).toEqual([hostSlot, badges[0]]);
+  });
 });
 
 describe("MultiTabAssistantChat agent-team tabs", () => {
@@ -350,7 +454,7 @@ describe("MultiTabAssistantChat agent-team tabs", () => {
 
   beforeEach(() => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
-    threadMocks.activeThreadId = "thread-1";
+    resetThreadMocks();
     threadMocks.threads = [
       {
         id: "thread-1",

@@ -696,6 +696,14 @@ export interface ProductionAgentOptions {
    */
   skipFilesContext?: boolean;
   /**
+   * Optional starter tool catalog. When set, the first model request includes
+   * only these tool schemas plus `tool-search`; the full action registry remains
+   * searchable, and matching tool schemas from `tool-search` results are added
+   * to the next model request. This keeps first-token latency low without
+   * forcing rarely used capabilities into every prompt.
+   */
+  initialToolNames?: string[];
+  /**
    * App-level default tool limits. Each action's own `timeoutMs` /
    * `maxResultChars` takes precedence; this sets the fallback for actions
    * that don't declare their own limits.
@@ -1829,6 +1837,56 @@ export function actionsToEngineTools(
   return tools;
 }
 
+function filterInitialEngineTools(
+  tools: EngineTool[],
+  initialToolNames?: string[],
+): EngineTool[] {
+  if (!initialToolNames) return tools;
+  const names = new Set(initialToolNames);
+  names.add(TOOL_SEARCH_ACTION_NAME);
+  return tools.filter((tool) => names.has(tool.name));
+}
+
+function extractToolSearchResultNames(value: unknown): string[] {
+  if (!value || typeof value !== "object") return [];
+  const result = value as { query?: unknown; results?: unknown };
+  if (typeof result.query !== "string" || result.query.trim().length === 0) {
+    return [];
+  }
+  if (!Array.isArray(result.results)) return [];
+  const names: string[] = [];
+  for (const item of result.results) {
+    if (!item || typeof item !== "object") continue;
+    const name = (item as Record<string, unknown>).name;
+    if (typeof name === "string" && name.trim()) names.push(name);
+  }
+  return names;
+}
+
+function extractToolSearchResultNamesFromMessages(
+  messages: EngineMessage[],
+): string[] {
+  const names: string[] = [];
+  for (const message of messages) {
+    if (message.role !== "user") continue;
+    for (const part of message.content) {
+      if (
+        part.type !== "tool-result" ||
+        part.toolName !== TOOL_SEARCH_ACTION_NAME ||
+        typeof part.content !== "string"
+      ) {
+        continue;
+      }
+      try {
+        names.push(...extractToolSearchResultNames(JSON.parse(part.content)));
+      } catch {
+        // Tool results are best-effort history hints; ignore non-JSON content.
+      }
+    }
+  }
+  return names;
+}
+
 function normalizeToolInputSchema(
   schema: ActionTool["parameters"] | undefined,
 ): EngineTool["inputSchema"] | null {
@@ -2110,6 +2168,7 @@ export async function runAgentLoop(opts: {
   model: string;
   systemPrompt: string;
   tools: EngineTool[];
+  availableTools?: EngineTool[];
   messages: EngineMessage[];
   actions: Record<string, ActionEntry>;
   send: (event: AgentChatEvent) => void;
@@ -2159,11 +2218,36 @@ export async function runAgentLoop(opts: {
     model,
     systemPrompt,
     tools,
+    availableTools,
     messages,
     actions,
     send,
     signal,
   } = opts;
+  const availableToolMap = new Map(
+    (availableTools ?? tools).map((tool) => [tool.name, tool]),
+  );
+  const activeToolNames = new Set(tools.map((tool) => tool.name));
+  let activeTools = tools;
+
+  const expandActiveTools = (names: string[]): string[] => {
+    const added: string[] = [];
+    for (const name of names) {
+      if (activeToolNames.has(name)) continue;
+      const tool = availableToolMap.get(name);
+      if (!tool) continue;
+      activeToolNames.add(name);
+      added.push(name);
+    }
+    if (added.length > 0) {
+      activeTools = (availableTools ?? tools).filter((tool) =>
+        activeToolNames.has(tool.name),
+      );
+    }
+    return added;
+  };
+
+  expandActiveTools(extractToolSearchResultNamesFromMessages(messages));
 
   // Build the processor chain only when at least one processor is supplied so
   // the common (no-processors) path is unchanged and carries zero overhead.
@@ -2340,8 +2424,8 @@ export async function runAgentLoop(opts: {
           systemPrompt,
           messages: contextMessages,
           tools: sourceSweepDelegationGuardActive
-            ? restrictAgentTeamsAfterSourceSweep(tools)
-            : tools,
+            ? restrictAgentTeamsAfterSourceSweep(activeTools)
+            : activeTools,
           abortSignal: signal,
           maxOutputTokens: resolveMaxOutputTokensForEngine(
             engine.name,
@@ -3104,6 +3188,14 @@ export async function runAgentLoop(opts: {
           resultStr = `${truncated}\n\n...[truncated — full result was ${resultStr.length.toLocaleString()} chars; only first ${toolMaxResultChars.toLocaleString()} shown]`;
         }
         result = resultStr;
+        if (toolCall.name === TOOL_SEARCH_ACTION_NAME && !isError) {
+          const added = expandActiveTools(
+            extractToolSearchResultNames(rawForAgent),
+          );
+          if (added.length > 0) {
+            result += `\n\nLoaded matching tool schemas for next step: ${added.join(", ")}`;
+          }
+        }
       } catch (err: any) {
         if (isAgentActionStopError(err)) {
           const message =
@@ -3902,7 +3994,11 @@ export function createProductionAgentHandler(
       requestMode === "plan"
         ? createPlanModeActionRegistry(resolvedActions)
         : resolvedActions;
-    const requestTools = getEngineTools(requestActions);
+    const availableRequestTools = getEngineTools(requestActions);
+    const requestTools = filterInitialEngineTools(
+      availableRequestTools,
+      options.initialToolNames,
+    );
     const requestSystemPrompt =
       requestMode === "plan"
         ? `${systemPrompt}\n\n${PLAN_MODE_SYSTEM_PROMPT}`
@@ -4111,6 +4207,7 @@ export function createProductionAgentHandler(
                   model: profile.model ?? model,
                   systemPrompt: profilePrompt,
                   tools: requestTools,
+                  availableTools: availableRequestTools,
                   messages: [
                     {
                       role: "user",
@@ -4357,6 +4454,7 @@ export function createProductionAgentHandler(
           model: effectiveModel,
           systemPrompt: requestSystemPrompt,
           tools: requestTools,
+          availableTools: availableRequestTools,
           messages,
           actions: requestActions,
           send,

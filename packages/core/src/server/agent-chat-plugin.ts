@@ -2314,6 +2314,23 @@ export interface AgentChatPluginOptions {
    */
   leanPrompt?: boolean;
   /**
+   * Skip auto-injecting the workspace files/skills/agents inventory on the
+   * first message of a conversation while keeping the normal prompt, resources,
+   * and tool surface. Use this for domain-focused apps where broad workspace
+   * inventory is mostly latency/noise unless the user explicitly references it.
+   *
+   * `leanPrompt: true` implies this.
+   */
+  skipFilesContext?: boolean;
+  /**
+   * Initial native tool schemas to send to the LLM provider. When set, the
+   * agent starts with only these tools plus `tool-search`; the live registry
+   * remains searchable, and matching schemas from `tool-search` results are
+   * loaded into the next model request. Use this for domain-focused apps that
+   * have a few common actions and many rare framework utilities.
+   */
+  initialToolNames?: string[];
+  /**
    * Use a compact system prompt with on-demand context loading. The system
    * prompt includes essential behavioral rules and action signatures, but
    * defers verbose framework details, SQL schema, skills, learnings, and
@@ -3493,6 +3510,7 @@ export function createAgentChatPlugin(
       const refreshScreenTool = createRefreshScreenEntry();
       const frameworkContextTool = createFrameworkContextEntry();
       const leanPrompt = options?.leanPrompt === true;
+      const skipFilesContext = leanPrompt || options?.skipFilesContext === true;
       const lazyContext = options?.lazyContext !== false && !leanPrompt;
       const urlTools = createUrlTools();
       const engineScripts = await createAgentEngineScriptEntries(
@@ -5290,7 +5308,8 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             message,
           };
         },
-        skipFilesContext: leanPrompt,
+        skipFilesContext,
+        initialToolNames: options?.initialToolNames,
         ...(options?.toolLimits ? { toolLimits: options.toolLimits } : {}),
         onEngineResolved: (engine, model) => {
           const runCtx = ensureRequestRunContext();
@@ -5336,6 +5355,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               finalResponseGuard: options?.finalResponseGuard,
               prepareRequest: options?.prepareRequest,
               skipFilesContext: true,
+              initialToolNames: options?.initialToolNames,
               onEngineResolved: (engine, model) => {
                 const runCtx = ensureRequestRunContext();
                 if (runCtx) {
@@ -5464,7 +5484,8 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           runSoftTimeoutMs: options?.runSoftTimeoutMs,
           finalResponseGuard: options?.finalResponseGuard,
           prepareRequest: options?.prepareRequest,
-          skipFilesContext: leanPrompt,
+          skipFilesContext,
+          initialToolNames: options?.initialToolNames,
           ...(options?.toolLimits ? { toolLimits: options.toolLimits } : {}),
           onEngineResolved: (engine, model) => {
             const runCtx = ensureRequestRunContext();

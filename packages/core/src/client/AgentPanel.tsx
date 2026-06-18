@@ -2170,6 +2170,8 @@ export interface AgentSidebarProps {
   storageKey?: string;
   /** Open the sidebar when a chat run is active or reconnects. */
   openOnChatRunning?: boolean;
+  /** Override the fullscreen menu action, for templates with a chat-first page. */
+  onFullscreenRequest?: () => void;
   /**
    * Bind chats to a resource. When set, every chat started here is
    * scoped to `{type, id}`, the tab bar/history partition by that scope,
@@ -2198,6 +2200,7 @@ export function AgentSidebar({
   chatViewTransition = false,
   storageKey,
   openOnChatRunning = false,
+  onFullscreenRequest,
   scope,
   browserTabId,
 }: AgentSidebarProps) {
@@ -2576,7 +2579,7 @@ export function AgentSidebar({
   // Fullscreen only applies on desktop — on mobile the existing overlay is
   // already viewport-covering, so the maximize button is hidden and the
   // mounted state ignores any persisted value.
-  const effectiveFullscreen = fullscreen && !isMobile;
+  const effectiveFullscreen = !onFullscreenRequest && fullscreen && !isMobile;
   // On desktop the resize handle is also the visual divider. Avoid painting a
   // second panel border next to it.
   const showResizeHandle = !isMobile && !effectiveFullscreen && open;
@@ -2661,7 +2664,9 @@ export function AgentSidebar({
           dynamicSuggestions={dynamicSuggestions}
           onCollapse={() => setOpenPersisted(false)}
           isFullscreen={effectiveFullscreen}
-          onToggleFullscreen={isMobile ? undefined : toggleFullscreen}
+          onToggleFullscreen={
+            isMobile ? undefined : (onFullscreenRequest ?? toggleFullscreen)
+          }
           storageKey={storageKey}
           scope={scope}
           browserTabId={browserTabId}
@@ -2711,6 +2716,11 @@ export function AgentSidebar({
  * Opens the sidebar if closed, then focuses the text input.
  */
 export function focusAgentChat() {
+  window.dispatchEvent(
+    new CustomEvent("agent-panel:set-mode", {
+      detail: { mode: "chat" },
+    }),
+  );
   window.dispatchEvent(new Event("agent-panel:open"));
   // Wait for sidebar to render, then focus the composer
   requestAnimationFrame(() => {

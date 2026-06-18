@@ -2,8 +2,33 @@ import { createAgentChatPlugin } from "@agent-native/core/server";
 import { getOrgContext } from "@agent-native/core/org";
 import { dispatchActions } from "../../actions/index.js";
 
+const INITIAL_TOOL_NAMES = [
+  "view-screen",
+  "list-workspace-apps",
+  "list-connected-agents",
+  "ask_app",
+  "open_app",
+  "list-workspace-resources",
+  "create-workspace-resource",
+  "update-workspace-resource",
+  "list-vault-secrets",
+  "request-vault-secret",
+  "create-vault-secret",
+  "list-destinations",
+  "upsert-destination",
+  "list-dreams",
+  "start-workspace-app-creation",
+  "list-available-workspace-templates",
+  "provider-api-catalog",
+  "provider-api-docs",
+  "provider-api-request",
+  "query-staged-dataset",
+  "navigate",
+];
+
 export default createAgentChatPlugin({
   appId: "dispatch",
+  initialToolNames: INITIAL_TOOL_NAMES,
   // Without this, AGENT_ORG_ID is never set on agent action calls and every
   // row written through the frontend (vault secrets, destinations, workspace
   // resources) lands with org_id=NULL — breaking data isolation across orgs.

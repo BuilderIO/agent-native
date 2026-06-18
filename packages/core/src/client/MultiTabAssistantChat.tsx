@@ -210,10 +210,9 @@ function getScopeCopy(scope: ChatThreadScope, isCurrentScope: boolean) {
 }
 
 /**
- * Thin context chip at the top of a scoped chat. Click → popover with
- * related chats and the remove-context action. The chip stays unobtrusive
- * when the user doesn't need it, but remains available as the escape hatch
- * for taking a scoped chat back to a general one.
+ * Compact context tab above the composer. Click → popover with related chats
+ * and the remove-context action. It stays attached to the chat field so scoped
+ * context is visible right where the next message will be composed.
  */
 function ScopeBadge({
   scope,
@@ -251,19 +250,19 @@ function ScopeBadge({
       : "Start a new chat for a general conversation.";
   const otherCount = otherScopedThreads.length;
   return (
-    <div className="flex items-center justify-center py-1 px-3 text-[11px] text-muted-foreground border-b border-border/40 shrink-0">
+    <div className="agent-scope-badge-wrapper relative z-[1] -mb-2 flex shrink-0 items-end justify-center px-3 pt-1 text-[11px] text-muted-foreground">
       <Popover open={open} onOpenChange={setOpen}>
         <PopoverTrigger asChild>
           <button
             type="button"
-            className="inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 hover:bg-accent/50 hover:text-foreground cursor-pointer"
+            className="inline-flex h-7 min-w-0 max-w-full cursor-pointer items-center gap-1.5 rounded-t-lg border border-b-0 border-input bg-background px-3 text-muted-foreground shadow-[0_-8px_24px_hsl(var(--background)/0.72)] transition-colors hover:bg-accent hover:text-foreground sm:max-w-72"
             aria-label={heading}
           >
             <IconLink size={11} className="shrink-0 opacity-70" />
-            <span className="truncate max-w-[220px]">{heading}</span>
+            <span className="min-w-0 truncate">{heading}</span>
             {otherCount > 0 && (
               <span
-                className="ml-0.5 rounded-full bg-muted px-1.5 py-px text-[10px] leading-none text-muted-foreground"
+                className="ml-0.5 shrink-0 rounded-full bg-muted px-1.5 py-px text-[10px] leading-none text-muted-foreground"
                 aria-label={`${otherCount} other chats for ${objectLabel}`}
               >
                 +{otherCount}
@@ -271,7 +270,7 @@ function ScopeBadge({
             )}
           </button>
         </PopoverTrigger>
-        <PopoverContent align="center" side="bottom" className="w-72 p-0">
+        <PopoverContent align="center" side="top" className="w-72 p-0">
           <p className="px-3 pt-2 pb-1.5 text-[11px] text-muted-foreground">
             This chat can see{" "}
             <span className="text-foreground">{objectLabel}</span>.{" "}
@@ -374,10 +373,12 @@ function PreviousScopedChatsHint({
  */
 function DetachConfirmationBanner() {
   return (
-    <div className="flex items-center justify-center py-1 px-3 text-[11px] text-muted-foreground border-b border-border/40 shrink-0">
-      <span className="inline-flex items-center gap-1.5 rounded-full bg-accent/40 px-2 py-0.5 text-foreground">
+    <div className="agent-scope-badge-wrapper relative z-[1] -mb-2 flex shrink-0 items-end justify-center px-3 pt-1 text-[11px] text-muted-foreground">
+      <span className="inline-flex h-7 min-w-0 max-w-full items-center gap-1.5 rounded-t-lg border border-b-0 border-input bg-background px-3 text-foreground shadow-[0_-8px_24px_hsl(var(--background)/0.72)] sm:max-w-80">
         <IconCheck size={11} className="shrink-0 opacity-80" />
-        <span>Context removed. Find this chat in History.</span>
+        <span className="min-w-0 truncate">
+          Context removed. Find this chat in History.
+        </span>
       </span>
     </div>
   );
@@ -1784,13 +1785,38 @@ export function MultiTabAssistantChat({
     if (id) {
       newThreadIds.current.add(id);
     }
+    return id;
   }, [createThread]);
+
+  const cleanupClosedTab = useCallback((tabId: string) => {
+    if (parentMapRef.current[tabId]) {
+      dismissedSubAgentTabsRef.current.add(tabId);
+    }
+    chatRefs.current.delete(tabId);
+    pendingSends.current.delete(tabId);
+    pendingContextItems.current.delete(tabId);
+    newThreadIds.current.delete(tabId);
+    threadModelRef.current.delete(tabId);
+    // Clean up parent map and sub-agent names
+    setParentMap((prev) => {
+      if (!(tabId in prev)) return prev;
+      const { [tabId]: _, ...rest } = prev;
+      return rest;
+    });
+    setSubAgentNames((prev) => {
+      if (!(tabId in prev)) return prev;
+      const { [tabId]: _, ...rest } = prev;
+      return rest;
+    });
+    setSubAgentStatuses((prev) => {
+      if (!(tabId in prev)) return prev;
+      const { [tabId]: _, ...rest } = prev;
+      return rest;
+    });
+  }, []);
 
   const closeTab = useCallback(
     (tabId: string) => {
-      if (parentMapRef.current[tabId]) {
-        dismissedSubAgentTabsRef.current.add(tabId);
-      }
       setOpenTabIds((prev) => {
         if (prev.length <= 1) {
           // Last tab — create a new one and replace the old tab atomically
@@ -1809,29 +1835,9 @@ export function MultiTabAssistantChat({
         }
         return next;
       });
-      chatRefs.current.delete(tabId);
-      pendingSends.current.delete(tabId);
-      pendingContextItems.current.delete(tabId);
-      newThreadIds.current.delete(tabId);
-      threadModelRef.current.delete(tabId);
-      // Clean up parent map and sub-agent names
-      setParentMap((prev) => {
-        if (!(tabId in prev)) return prev;
-        const { [tabId]: _, ...rest } = prev;
-        return rest;
-      });
-      setSubAgentNames((prev) => {
-        if (!(tabId in prev)) return prev;
-        const { [tabId]: _, ...rest } = prev;
-        return rest;
-      });
-      setSubAgentStatuses((prev) => {
-        if (!(tabId in prev)) return prev;
-        const { [tabId]: _, ...rest } = prev;
-        return rest;
-      });
+      cleanupClosedTab(tabId);
     },
-    [switchThread, createThread],
+    [switchThread, createThread, cleanupClosedTab],
   );
 
   const closeOtherTabs = useCallback(
@@ -1942,8 +1948,16 @@ export function MultiTabAssistantChat({
   }, [switchThread]);
 
   const clearActiveTab = useCallback(() => {
-    addTab();
-  }, [addTab]);
+    const tabIdToClear = activeThreadIdRef.current;
+    void addTab().then((newTabId) => {
+      if (!tabIdToClear || !newTabId || tabIdToClear === newTabId) return;
+      setOpenTabIds((prev) => {
+        const next = prev.filter((id) => id !== tabIdToClear);
+        return next.includes(newTabId) ? next : [...next, newTabId];
+      });
+      cleanupClosedTab(tabIdToClear);
+    });
+  }, [addTab, cleanupClosedTab]);
 
   const openFromHistory = useCallback(
     (threadId: string) => {
@@ -2408,33 +2422,6 @@ export function MultiTabAssistantChat({
       <div className="relative flex-1 flex flex-col min-h-0">
         {renderOverlay ? renderOverlay(headerProps) : null}
 
-        {/* Scope badge — only visible when the active chat is bound to a
-            resource AND the chat content itself is visible. The scope used
-            here comes from the THREAD (not the component prop) so a chat
-            opened from history accurately advertises its own binding,
-            not whichever resource the user happens to be viewing.
-            Gated on `!contentHidden` because the wrapping AgentPanel keeps
-            the chat mounted (to preserve state) while Workspace/Settings
-            tabs are active — without this gate the badge leaks into those
-            tabs even though the chat itself is `display: none`.
-            When the user just detached, we hold a confirmation banner in
-            the same slot for ~2s so the action is visibly acknowledged
-            before the slot collapses. */}
-        {!contentHidden &&
-          (activeThreadScope && activeThreadId ? (
-            <ScopeBadge
-              scope={activeThreadScope}
-              currentScope={scope}
-              onDetach={handleDetachActiveThread}
-              otherScopedThreads={otherScopedThreads}
-              activeThreadId={activeThreadId}
-              openTabIds={new Set(openTabIds)}
-              onSelectThread={openFromHistory}
-            />
-          ) : detachConfirmType ? (
-            <DetachConfirmationBanner />
-          ) : null)}
-
         {/* History popover — rendered inside relative container so positioning works */}
         {showHistory && (
           <HistoryPopover
@@ -2469,6 +2456,29 @@ export function MultiTabAssistantChat({
               tabId === activeThreadId && !contentHidden
                 ? props.dynamicSuggestions
                 : false;
+            const scopeComposerSlot =
+              tabId === activeThreadId && !contentHidden ? (
+                tabScope && activeThreadId ? (
+                  <ScopeBadge
+                    scope={tabScope}
+                    currentScope={scope}
+                    onDetach={handleDetachActiveThread}
+                    otherScopedThreads={otherScopedThreads}
+                    activeThreadId={activeThreadId}
+                    openTabIds={new Set(openTabIds)}
+                    onSelectThread={openFromHistory}
+                  />
+                ) : detachConfirmType ? (
+                  <DetachConfirmationBanner />
+                ) : null
+              ) : null;
+            const composerSlot =
+              scopeComposerSlot || props.composerSlot ? (
+                <>
+                  {props.composerSlot}
+                  {scopeComposerSlot}
+                </>
+              ) : undefined;
             return (
               <div
                 key={tabId}
@@ -2537,6 +2547,7 @@ export function MultiTabAssistantChat({
                   selectedModel={modelSelection?.model}
                   selectedEngine={modelSelection?.engine}
                   selectedEffort={modelSelection?.effort ?? "auto"}
+                  composerSlot={composerSlot}
                   defaultModel={defaultModel}
                   availableModels={availableModels}
                   onModelChange={handleModelChange}
