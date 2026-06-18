@@ -18,7 +18,6 @@ import {
   AssistantChat,
   type AssistantChatProps,
   type AssistantChatHandle,
-  type AssistantChatSendOptions,
 } from "./AssistantChat.js";
 import { isTrustedFrameMessage } from "./frame.js";
 import { cn } from "./utils.js";
@@ -53,7 +52,10 @@ import {
   AGENT_CHAT_REMOVE_CONTEXT_MESSAGE_TYPE,
   AGENT_CHAT_SET_CONTEXT_MESSAGE_TYPE,
   appendAgentChatContextToMessage,
+  claimAgentChatSubmit,
+  drainBufferedAgentChatSubmits,
   normalizeAgentChatContextItem,
+  parseSubmitChatMessage,
   type AgentChatContextItem,
 } from "./agent-chat.js";
 
@@ -76,6 +78,32 @@ interface PendingSend {
   submit: boolean;
   trackInRunsTray?: boolean;
   requestMode?: "act" | "plan";
+}
+
+/**
+ * A send queued until its target thread is ready. `threadId: null` targets the
+ * first thread to become active (cold start); a concrete id is a thread whose
+ * chat ref hasn't mounted yet. Drained by the flush effect.
+ */
+interface PendingDelivery {
+  threadId: string | null;
+  send: PendingSend;
+}
+
+/** The single path that hands a queued send to a mounted chat ref. */
+function deliverPendingSend(ref: AssistantChatHandle, send: PendingSend): void {
+  if (!send.submit) {
+    ref.prefillMessage(send.message);
+    return;
+  }
+  if (send.trackInRunsTray || send.requestMode) {
+    ref.sendMessage(send.message, send.images, {
+      ...(send.trackInRunsTray ? { trackInRunsTray: true } : {}),
+      ...(send.requestMode ? { requestMode: send.requestMode } : {}),
+    });
+  } else {
+    ref.sendMessage(send.message, send.images);
+  }
 }
 
 const MODEL_SELECTION_STORAGE_KEY = "agent-native:chat-models:selection";
@@ -728,10 +756,6 @@ function readString(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
 }
 
-function normalizeRequestMode(value: unknown): "act" | "plan" | undefined {
-  return value === "act" || value === "plan" ? value : undefined;
-}
-
 function requestModeFromExecMode(
   value: AssistantChatProps["execMode"],
 ): "act" | "plan" | undefined {
@@ -869,7 +893,8 @@ export function MultiTabAssistantChat({
   // Mark the active tab as mounted so it persists when switched away
   if (activeThreadId) mountedTabsRef.current.add(activeThreadId);
   const chatRefs = useRef<Map<string, AssistantChatHandle>>(new Map());
-  const pendingSends = useRef<Map<string, PendingSend>>(new Map());
+  // Sends queued until their target thread is ready (see PendingDelivery).
+  const pendingDeliveries = useRef<PendingDelivery[]>([]);
   const pendingContextItems = useRef<Map<string, AgentChatContextItem[]>>(
     new Map(),
   );
@@ -1593,29 +1618,24 @@ export function MultiTabAssistantChat({
         clearContextInTab(currentTabId);
         return;
       }
-      if (event.data?.type !== "agentNative.submitChat") return;
-      const message = event.data.data?.message as string;
-      if (!message) return;
-      const context = event.data.data?.context as string | undefined;
-      const openSidebar = event.data.data?.openSidebar as boolean | undefined;
-      const model = event.data.data?.model as string | undefined;
-      const effort = event.data.data?.effort as unknown;
-      const newTab = event.data.data?.newTab as boolean | undefined;
-      const tabId = event.data.data?.tabId;
-      const requestedTabId = typeof tabId === "string" ? tabId : undefined;
-      const background = event.data.data?.background as boolean | undefined;
-      const submit = event.data.data?.submit !== false;
-      const rawImages = event.data.data?.images;
-      const images = Array.isArray(rawImages)
-        ? rawImages.filter(
-            (image): image is string =>
-              typeof image === "string" && image.length > 0,
-          )
-        : undefined;
+      const parsed = parseSubmitChatMessage(event);
+      if (!parsed) return;
+      // Dedup the live post against the cold-start replay; first one wins.
+      if (!claimAgentChatSubmit(parsed.submitMessageId)) return;
+      const {
+        message,
+        context,
+        openSidebar,
+        model,
+        effort,
+        newTab,
+        background,
+        submit,
+        images,
+      } = parsed;
+      const requestedTabId = parsed.tabId;
       const requestMode =
-        normalizeRequestMode(
-          event.data.data?.requestMode ?? event.data.data?.mode,
-        ) ?? requestModeFromExecMode(props.execMode);
+        parsed.requestMode ?? requestModeFromExecMode(props.execMode);
 
       // Make sure the sidebar is visible to show the response, unless the
       // caller explicitly opted out or it's a background send.
@@ -1629,6 +1649,14 @@ export function MultiTabAssistantChat({
       const fullMessage = context
         ? appendAgentChatContextToMessage(message, context)
         : message;
+
+      const send: PendingSend = {
+        message: fullMessage,
+        images,
+        submit,
+        ...(background ? { trackInRunsTray: true } : {}),
+        ...(requestMode ? { requestMode } : {}),
+      };
 
       const sendToTab = (threadId: string) => {
         // If a model override was specified, apply it only if we recognize it
@@ -1654,30 +1682,10 @@ export function MultiTabAssistantChat({
         }
 
         const ref = chatRefs.current.get(threadId);
-        const sendOptions: AssistantChatSendOptions | undefined =
-          background || requestMode
-            ? {
-                ...(background ? { trackInRunsTray: true } : {}),
-                ...(requestMode ? { requestMode } : {}),
-              }
-            : undefined;
         if (ref) {
-          if (submit) {
-            if (sendOptions) {
-              ref.sendMessage(fullMessage, images, sendOptions);
-            } else {
-              ref.sendMessage(fullMessage, images);
-            }
-          } else {
-            ref.prefillMessage(fullMessage);
-          }
+          deliverPendingSend(ref, send);
         } else {
-          pendingSends.current.set(threadId, {
-            message: fullMessage,
-            images,
-            submit,
-            ...(sendOptions ? sendOptions : {}),
-          });
+          pendingDeliveries.current.push({ threadId, send });
         }
       };
 
@@ -1700,8 +1708,13 @@ export function MultiTabAssistantChat({
         });
       } else {
         const currentTabId = activeThreadIdRef.current;
-        if (!currentTabId) return;
-        sendToTab(currentTabId);
+        if (currentTabId) {
+          sendToTab(currentTabId);
+        } else {
+          // Cold start: no thread yet. Queue for the first active thread (the
+          // bootstrap effect creates it) rather than racing a second create.
+          pendingDeliveries.current.push({ threadId: null, send });
+        }
       }
     };
     window.addEventListener("message", handler);
@@ -1718,45 +1731,48 @@ export function MultiTabAssistantChat({
     switchThread,
   ]);
 
-  // Process pending sends when refs mount
+  // Replay submits posted before this lazy panel's listener attached. Dedup in
+  // the handler keeps a live + replayed message single.
   useEffect(() => {
-    const pendingTabIds = new Set([
-      ...pendingSends.current.keys(),
-      ...pendingContextItems.current.keys(),
-    ]);
-    for (const tabId of pendingTabIds) {
+    const buffered = drainBufferedAgentChatSubmits();
+    for (const data of buffered) {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: { type: "agentNative.submitChat", data },
+          origin: window.location.origin,
+        }),
+      );
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Flush queued context items and sends once their thread's ref is mounted
+  // (re-runs on ref mount via openTabIds and on cold-start target via
+  // activeThreadId).
+  useEffect(() => {
+    for (const [tabId, items] of pendingContextItems.current) {
       const ref = chatRefs.current.get(tabId);
-      if (ref) {
-        const pendingContext = pendingContextItems.current.get(tabId);
-        if (pendingContext) {
-          for (const item of pendingContext) {
-            ref.setComposerContextItem(item);
-          }
-          pendingContextItems.current.delete(tabId);
-        }
-        const pending = pendingSends.current.get(tabId);
-        if (pending) {
-          setTimeout(() => {
-            if (pending.submit) {
-              if (pending.trackInRunsTray || pending.requestMode) {
-                ref.sendMessage(pending.message, pending.images, {
-                  ...(pending.trackInRunsTray ? { trackInRunsTray: true } : {}),
-                  ...(pending.requestMode
-                    ? { requestMode: pending.requestMode }
-                    : {}),
-                });
-              } else {
-                ref.sendMessage(pending.message, pending.images);
-              }
-            } else {
-              ref.prefillMessage(pending.message);
-            }
-          }, 50);
-          pendingSends.current.delete(tabId);
-        }
+      if (!ref) continue;
+      for (const item of items) ref.setComposerContextItem(item);
+      pendingContextItems.current.delete(tabId);
+    }
+
+    if (pendingDeliveries.current.length === 0) return;
+    const active = activeThreadIdRef.current;
+    const remaining: PendingDelivery[] = [];
+    for (const delivery of pendingDeliveries.current) {
+      const threadId = delivery.threadId ?? active ?? null;
+      const ref = threadId ? chatRefs.current.get(threadId) : null;
+      if (threadId && ref) {
+        const { send } = delivery;
+        setTimeout(() => deliverPendingSend(ref, send), 50);
+      } else {
+        // Not ready — keep it, pinning the resolved threadId once known.
+        remaining.push(threadId ? { threadId, send: delivery.send } : delivery);
       }
     }
-  }, [openTabIds]);
+    pendingDeliveries.current = remaining;
+  }, [openTabIds, activeThreadId]);
 
   // Listen for chatRunning completion events
   useEffect(() => {
@@ -1793,7 +1809,9 @@ export function MultiTabAssistantChat({
       dismissedSubAgentTabsRef.current.add(tabId);
     }
     chatRefs.current.delete(tabId);
-    pendingSends.current.delete(tabId);
+    pendingDeliveries.current = pendingDeliveries.current.filter(
+      (d) => d.threadId !== tabId,
+    );
     pendingContextItems.current.delete(tabId);
     newThreadIds.current.delete(tabId);
     threadModelRef.current.delete(tabId);
@@ -1858,7 +1876,9 @@ export function MultiTabAssistantChat({
             dismissedSubAgentTabsRef.current.add(key);
           }
           chatRefs.current.delete(key);
-          pendingSends.current.delete(key);
+          pendingDeliveries.current = pendingDeliveries.current.filter(
+            (d) => d.threadId !== key,
+          );
           pendingContextItems.current.delete(key);
           newThreadIds.current.delete(key);
           threadModelRef.current.delete(key);
@@ -1890,7 +1910,7 @@ export function MultiTabAssistantChat({
       dismissedSubAgentTabsRef.current.clear();
       // Clean up all old refs
       chatRefs.current.clear();
-      pendingSends.current.clear();
+      pendingDeliveries.current = [];
       pendingContextItems.current.clear();
       threadModelRef.current.clear();
       setParentMap({});

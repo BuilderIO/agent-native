@@ -49,7 +49,7 @@ import type {
   ChatThreadScope,
   ChatThreadSnapshot,
 } from "./use-chat-threads.js";
-import { PROVIDER_ENV_VARS } from "../agent/engine/provider-env-vars.js";
+import { useAgentEngineConfigured } from "./use-agent-engine-configured.js";
 import { getActiveRun } from "./active-run-state.js";
 import {
   AgentAutoContinueSignal,
@@ -292,8 +292,6 @@ async function waitForThreadRunToClear(apiUrl: string, threadId?: string) {
     );
   }
 }
-
-const PROVIDER_ENV_VAR_SET = new Set(PROVIDER_ENV_VARS);
 
 // ─── Composer Attachment Preview ─────────────────────────────────────────────
 
@@ -1094,7 +1092,9 @@ const AssistantChatInner = forwardRef<
       }
     };
   }, [threadRuntime]);
-  const [missingApiKey, setMissingApiKey] = useState(false);
+  const missingApiKey = useAgentEngineConfigured(
+    providerStatusChecksEnabled,
+  ).missing;
   const isComposerDisabled = missingApiKey || composerDisabled;
   // Increments each time the user clicks the (disabled) composer while no LLM
   // is connected — `BuilderSetupCard` watches this to replay a one-shot bounce.
@@ -1945,62 +1945,10 @@ const AssistantChatInner = forwardRef<
     return () => clearTimeout(timer);
   }, [queuedMessages, threadId, apiUrl]);
 
-  // Listen for missing API key events from the adapter
-  useEffect(() => {
-    const handler = () => setMissingApiKey(true);
-    window.addEventListener("agent-chat:missing-api-key", handler);
-    return () =>
-      window.removeEventListener("agent-chat:missing-api-key", handler);
-  }, []);
-
+  // Nudge the shared hook to re-check after a Builder connect.
   const handleBuilderConnected = useCallback(() => {
-    setMissingApiKey(false);
+    window.dispatchEvent(new Event("agent-engine:configured-changed"));
   }, []);
-
-  // Check on mount and whenever SettingsPanel dispatches
-  // `agent-engine:configured-changed` so the gate flips live without reload.
-  useEffect(() => {
-    if (!providerStatusChecksEnabled) {
-      setMissingApiKey(false);
-      return;
-    }
-    let cancelled = false;
-    const check = async () => {
-      const [envKeys, builderStatus, engineStatus] = await Promise.all([
-        fetch(agentNativePath("/_agent-native/env-status"))
-          .then((r) => (r.ok ? r.json() : null))
-          .catch(() => null),
-        fetch(agentNativePath("/_agent-native/builder/status"))
-          .then((r) => (r.ok ? r.json() : null))
-          .catch(() => null),
-        fetch(agentNativePath("/_agent-native/agent-engine/status"))
-          .then((r) => (r.ok ? r.json() : null))
-          .catch(() => null),
-      ]);
-      if (cancelled) return;
-      // All three status endpoints failed — avoid flashing the gate on a
-      // transient network error.
-      if (envKeys == null && builderStatus == null && engineStatus == null) {
-        return;
-      }
-      const keys = (envKeys ?? []) as Array<{
-        key: string;
-        configured: boolean;
-      }>;
-      const llmKeys = keys.filter((k) => PROVIDER_ENV_VAR_SET.has(k.key));
-      const anyConfigured =
-        llmKeys.some((k) => k.configured) ||
-        builderStatus?.configured === true ||
-        engineStatus?.configured === true;
-      setMissingApiKey(!anyConfigured);
-    };
-    check();
-    window.addEventListener("agent-engine:configured-changed", check);
-    return () => {
-      cancelled = true;
-      window.removeEventListener("agent-engine:configured-changed", check);
-    };
-  }, [providerStatusChecksEnabled]);
 
   // Listen for auth error events from the adapter
   const checkAuthSession = useCallback(async () => {
