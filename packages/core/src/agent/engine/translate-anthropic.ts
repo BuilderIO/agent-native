@@ -31,9 +31,50 @@ const ANTHROPIC_UNSUPPORTED_TOP_LEVEL_SCHEMA_KEYS = [
   "allOf",
 ] as const;
 
-function normalizeAnthropicInputSchema(
+type JsonSchemaRecord = Record<string, unknown>;
+
+function isRecord(value: unknown): value is JsonSchemaRecord {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function normalizeDbExecAnthropicInputSchema(
   schema: EngineTool["inputSchema"],
 ): Anthropic.Tool["input_schema"] {
+  const sourceProperties = isRecord(schema.properties) ? schema.properties : {};
+  const statements = isRecord(sourceProperties.statements)
+    ? { ...sourceProperties.statements }
+    : {
+        type: "string",
+        description: "JSON array of write statements to execute.",
+      };
+  const description =
+    typeof statements.description === "string" &&
+    statements.description.trim().length > 0
+      ? `${statements.description} For a single write, pass a one-item JSON array.`
+      : "JSON array of write statements to execute. For a single write, pass a one-item JSON array.";
+  statements.description = description;
+
+  const properties: JsonSchemaRecord = { statements };
+  if (isRecord(sourceProperties.format)) {
+    properties.format = sourceProperties.format;
+  }
+
+  return {
+    type: "object",
+    properties,
+    required: ["statements"],
+    additionalProperties: false,
+  };
+}
+
+function normalizeAnthropicInputSchema(
+  toolName: string,
+  schema: EngineTool["inputSchema"],
+): Anthropic.Tool["input_schema"] {
+  if (toolName === "db-exec") {
+    return normalizeDbExecAnthropicInputSchema(schema);
+  }
+
   if (
     !ANTHROPIC_UNSUPPORTED_TOP_LEVEL_SCHEMA_KEYS.some((key) => key in schema)
   ) {
@@ -52,7 +93,7 @@ export function engineToolToAnthropic(tool: EngineTool): Anthropic.Tool {
   return {
     name: tool.name,
     description: tool.description,
-    input_schema: normalizeAnthropicInputSchema(tool.inputSchema),
+    input_schema: normalizeAnthropicInputSchema(tool.name, tool.inputSchema),
   };
 }
 

@@ -24,6 +24,7 @@ export function useNavigationState() {
 }
 
 function viewForPath(pathname: string): string {
+  if (pathname.startsWith("/database")) return "database";
   if (pathname.startsWith("/extensions")) return "extensions";
   if (pathname.startsWith("/observability")) return "observability";
   if (pathname.startsWith("/team")) return "team";
@@ -36,6 +37,8 @@ function pathForView(view?: string): string {
     case "home":
     case "ask":
       return "/";
+    case "database":
+      return "/database";
     case "extensions":
       return "/extensions";
     case "observability":
