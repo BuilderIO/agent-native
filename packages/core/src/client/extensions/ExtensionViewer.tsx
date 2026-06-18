@@ -1162,7 +1162,7 @@ export function ExtensionViewer({ extensionId }: ExtensionViewerProps) {
               sourceMode={extension.source?.mode}
               onOpenChange={onPopoverOpenChange}
             />
-            <NotificationsBell />
+            <NotificationsBell onOpenChange={onPopoverOpenChange} />
             <AgentToggleButton />
           </div>
         </div>

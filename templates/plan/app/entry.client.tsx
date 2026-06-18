@@ -16,4 +16,4 @@ if (context) {
   context.basename = routerBasePath;
 }
 
-hydrateRoot(document, <HydratedRouter />);
+hydrateRoot(document, <HydratedRouter useTransitions={false} />);

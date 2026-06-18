@@ -35,9 +35,12 @@ describe("navigate action", () => {
       expect.objectContaining({
         view: "responses",
         formId: "form_1",
+        path: "/forms/form_1/responses",
         _writeId: expect.any(String),
       }),
     );
+    // Single navigation channel: the `navigate` command is the only write.
+    expect(appState.writeAppState).toHaveBeenCalledTimes(1);
   });
 
   it("rejects response navigation without a current or explicit form", async () => {
@@ -64,6 +67,7 @@ describe("navigate action", () => {
         view: "form",
         formId: "CSVP7Bz6dC",
         tab: "edit",
+        path: "/forms/CSVP7Bz6dC?tab=edit",
         _writeId: expect.any(String),
       }),
     );
@@ -92,6 +96,7 @@ describe("navigate action", () => {
       expect.objectContaining({
         view: "responses",
         formId: "form_tab",
+        path: "/forms/form_tab/responses",
       }),
     );
   });

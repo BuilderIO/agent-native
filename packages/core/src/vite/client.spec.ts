@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   _findCorePackageRoot,
   _getClientDedupe,
+  _getDefaultOptimizeDeps,
   _getReactRouterAliases,
   defineConfig,
   isFrameworkDevPath,
@@ -584,6 +585,66 @@ describe("local-core dev aliases and router dedupe", () => {
     expect(dedupe).toContain("react-router/dom");
 
     fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it("pre-optimizes core client deps when core is source-aliased", () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "an-vite-optimize-"));
+    const coreRoot = path.resolve(import.meta.dirname, "../..");
+    fs.writeFileSync(
+      path.join(tmpDir, "package.json"),
+      JSON.stringify({
+        dependencies: {
+          "@agent-native/core": pathToFileURL(coreRoot).href,
+          "react-router": "^7.16.0",
+        },
+      }),
+    );
+
+    const deps = _getDefaultOptimizeDeps(tmpDir);
+    expect(deps).not.toContain("@agent-native/core/client");
+    expect(deps).toContain("@assistant-ui/react");
+    expect(deps).toContain("@tiptap/react");
+    expect(deps).toContain("@xterm/xterm");
+    expect(deps).toContain("shiki/core");
+
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it("does not pre-optimize packages that are only optional core peers", () => {
+    const tmpDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), "an-vite-optimize-peer-"),
+    );
+    const fakeCore = fs.mkdtempSync(
+      path.join(os.tmpdir(), "an-vite-fake-core-"),
+    );
+    fs.mkdirSync(path.join(fakeCore, "src"));
+    fs.writeFileSync(path.join(fakeCore, "src/index.ts"), "export {};\n");
+    fs.writeFileSync(
+      path.join(fakeCore, "package.json"),
+      JSON.stringify({
+        name: "@agent-native/core",
+        peerDependencies: {
+          sonner: "^2.0.0",
+        },
+        peerDependenciesMeta: {
+          sonner: { optional: true },
+        },
+      }),
+    );
+    fs.writeFileSync(
+      path.join(tmpDir, "package.json"),
+      JSON.stringify({
+        dependencies: {
+          "@agent-native/core": pathToFileURL(fakeCore).href,
+        },
+      }),
+    );
+
+    const deps = _getDefaultOptimizeDeps(tmpDir);
+    expect(deps).not.toContain("sonner");
+
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+    fs.rmSync(fakeCore, { recursive: true, force: true });
   });
 
   it("keeps react-router inside the dev SSR graph so dedupe applies", () => {

@@ -10,6 +10,15 @@ export interface AutoJoinDomainResult {
   activeOrgId: string | null;
 }
 
+export interface AutoJoinDomainOptions {
+  /**
+   * The signup hook should not clobber an org selected by an invite flow, but
+   * request-time org resolution may need to move an existing account from a
+   * personal workspace into its newly matched company org.
+   */
+  activateJoinedOrg?: "if-missing" | "always";
+}
+
 /**
  * Auto-join a newly-signed-up user into every org whose `allowed_domain`
  * matches their email domain.
@@ -22,8 +31,8 @@ export interface AutoJoinDomainResult {
  * "Join your team" UI in the picker; we use the same opt-in to drive
  * automatic join.
  *
- * Idempotent — skips orgs the user is already a member of and never
- * overwrites an existing `active-org-id` setting.
+ * Idempotent — skips orgs the user is already a member of and, by default,
+ * never overwrites an existing `active-org-id` setting.
  *
  * Safe to call when the org tables don't exist (some templates don't use
  * the org module): it swallows the "no such table" error and returns
@@ -32,6 +41,7 @@ export interface AutoJoinDomainResult {
  */
 export async function autoJoinDomainMatchingOrgs(
   rawEmail: string,
+  options: AutoJoinDomainOptions = {},
 ): Promise<AutoJoinDomainResult> {
   const email = rawEmail.trim().toLowerCase();
   if (!email) return { joined: [], activeOrgId: null };
@@ -82,14 +92,15 @@ export async function autoJoinDomainMatchingOrgs(
     }
   }
 
-  // Set active-org-id to the first match only if the user doesn't
-  // already have one (a pending invite that ran first may have set it).
+  // Set active-org-id to the first match only if the user doesn't already have
+  // one, unless the caller is request-time org resolution intentionally moving
+  // an existing account into its newly matched company org.
   let activeOrgId: string | null = null;
   if (joined[0]) {
     try {
       const existing = await getUserSetting(email, "active-org-id");
       const hasActive = Boolean(existing?.orgId);
-      if (!hasActive) {
+      if (options.activateJoinedOrg === "always" || !hasActive) {
         activeOrgId = joined[0].orgId;
         await putUserSetting(email, "active-org-id", { orgId: activeOrgId });
       }

@@ -172,11 +172,13 @@ function createUserMessageRunConfig(
   recoveryAction?: AgentRecoveryAction,
   trackInRunsTray?: boolean,
   approvedToolCalls?: string[],
+  queuedMessageId?: string,
 ) {
   const custom: {
     references?: Reference[];
     requestMode?: AgentRequestMode;
     trackInRunsTray?: boolean;
+    agentNativeQueuedMessageId?: string;
     approvedToolCalls?: string[];
   } = {};
   if (references && references.length > 0) {
@@ -187,6 +189,9 @@ function createUserMessageRunConfig(
   }
   if (trackInRunsTray) {
     custom.trackInRunsTray = true;
+  }
+  if (queuedMessageId) {
+    custom.agentNativeQueuedMessageId = queuedMessageId;
   }
   if (approvedToolCalls && approvedToolCalls.length > 0) {
     custom.approvedToolCalls = approvedToolCalls;
@@ -1087,6 +1092,9 @@ const AssistantChatInner = forwardRef<
             return original(fallbackParent, message);
           }
           return original(null, message);
+        }
+        if (msg.includes("same id already exists")) {
+          return;
         }
         throw err;
       }
@@ -2173,6 +2181,8 @@ const AssistantChatInner = forwardRef<
               next.requestMode,
               next.recoveryAction,
               next.trackInRunsTray,
+              undefined,
+              next.id,
             ),
           } as Parameters<typeof threadRuntime.append>[0]);
           appended = true;

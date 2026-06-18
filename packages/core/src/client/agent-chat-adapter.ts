@@ -70,6 +70,7 @@ const AUTO_CONTINUE_COMPLETION_GUARD =
   "Before doing more work, inspect the prior partial assistant output in history. If it already gives a coherent answer, summary, artifact, coverage note, or next-step recommendation, finish with at most one short closing sentence and do not call tools, scan more data, or expand the search. Continue only genuinely unfinished work.";
 const MAX_RECONNECT_ATTEMPTS = 5;
 const MAX_STARTUP_RECOVERY_ATTEMPTS = 8;
+const MAX_QUEUED_CONFLICT_RETRIES = 120;
 const MAX_STALE_RUN_CONTINUATIONS = 3;
 const MAX_STALLED_TRANSIENT_CONTINUATIONS = 8;
 const MAX_TOTAL_TRANSIENT_CONTINUATIONS = 32;
@@ -1285,6 +1286,7 @@ export function createAgentChatAdapter(
       let includeReferences = Boolean(runConfig?.custom?.references);
       let internalContinuationRequest = false;
       let startupRecoveryAttempts = 0;
+      let queuedConflictRetries = 0;
       let staleRunContinuationAttempts = 0;
       let stalledTransientContinuationAttempts = 0;
       let emptyTransientContinuationAttempts = 0;
@@ -1903,12 +1905,66 @@ export function createAgentChatAdapter(
 
             if (!res.ok) {
               if (res.status === 409) {
-                let handledConflict = false;
+                let activeRunId: string | null = null;
                 try {
                   const body = await res.json();
                   if (body?.activeRunId) {
-                    handledConflict = true;
-                    runId = String(body.activeRunId);
+                    activeRunId = String(body.activeRunId);
+                  }
+                } catch {
+                  // Fall through to the generic response handling below.
+                }
+                // A 409 means the server still has an active run for this
+                // thread. For a fresh user turn — a queued follow-up OR a normal
+                // send fired shortly after the previous run finished (the server
+                // can report a just-finished run as active for up to
+                // RUN_STALE_MS while its terminal status write lands) — adopting
+                // `activeRunId` below would reconnect to that prior run, replay
+                // its final answer, and silently drop this turn. Wait for the
+                // run to clear and retry THIS prompt instead. Only genuine
+                // internal continuations (deliberate resumes of the active run)
+                // fall through to the reconnect path.
+                if (!internalContinuationRequest && activeRunId) {
+                  queuedConflictRetries += 1;
+                  if (queuedConflictRetries <= MAX_QUEUED_CONFLICT_RETRIES) {
+                    await delay(500, abortSignal);
+                    if (abortSignal.aborted) return;
+                    continue;
+                  }
+                  const message =
+                    "The previous response is still finishing and the new message could not start yet. Please try again.";
+                  const runError = {
+                    message,
+                    details: `The server kept reporting active run ${activeRunId} for this thread after ${MAX_QUEUED_CONFLICT_RETRIES} retries.`,
+                    errorCode: "active_run_conflict",
+                    recoverable: true,
+                    runId: activeRunId,
+                  };
+                  if (typeof window !== "undefined") {
+                    window.dispatchEvent(
+                      new CustomEvent("agent-chat:run-error", {
+                        detail: { ...runError, tabId },
+                      }),
+                    );
+                  }
+                  content.push({
+                    type: "text",
+                    text: `Something went wrong: ${message}`,
+                  });
+                  yield {
+                    content: [...content],
+                    status: {
+                      type: "incomplete" as const,
+                      reason: "error" as const,
+                    },
+                    metadata: { custom: { runError } },
+                  } as ChatModelRunResult;
+                  clearActiveRun();
+                  return;
+                }
+                if (activeRunId) {
+                  try {
+                    runId = activeRunId;
                     if (!attemptedRunIds.includes(runId)) {
                       attemptedRunIds.push(runId);
                     }
@@ -1918,14 +1974,12 @@ export function createAgentChatAdapter(
                     }
                     const reconnected = yield* reconnectCurrentRun();
                     if (reconnected) return;
+                    await delay(1000, abortSignal);
+                    if (abortSignal.aborted) return;
+                    continue;
+                  } catch {
+                    // Fall through to the generic response handling below.
                   }
-                } catch {
-                  // Fall through to the generic response handling below.
-                }
-                if (handledConflict) {
-                  await delay(1000, abortSignal);
-                  if (abortSignal.aborted) return;
-                  continue;
                 }
               }
 

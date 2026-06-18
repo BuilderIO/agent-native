@@ -3,6 +3,7 @@ import { getSession } from "../server/auth.js";
 import { getUserSetting, putUserSetting } from "../settings/user-settings.js";
 import { getDbExec } from "../db/client.js";
 import { getSetting } from "../settings/store.js";
+import { autoJoinDomainMatchingOrgs } from "./auto-join-domain.js";
 import type { OrgContext, OrgRole } from "./types.js";
 
 const EMPTY_CONTEXT: OrgContext = {
@@ -16,6 +17,14 @@ function normalizeOrgRole(value: unknown): OrgRole | null {
   return value === "owner" || value === "admin" || value === "member"
     ? value
     : null;
+}
+
+function isLikelyPersonalWorkspace(
+  membership: { orgName: string },
+  email: string,
+  session: { name?: string } | null,
+): boolean {
+  return membership.orgName.trim() === defaultOrgName(email, session);
 }
 
 const nanoid = (): string =>
@@ -59,26 +68,8 @@ async function resolveOrgContextUncached(event: H3Event): Promise<OrgContext> {
 
   const exec = getDbExec();
 
-  let memberships: Array<{
-    orgId: string;
-    role: OrgRole;
-    orgName: string;
-  }> = [];
-  try {
-    const { rows } = await exec.execute({
-      sql: `SELECT m.org_id AS "orgId", m.role AS role, o.name AS "orgName"
-            FROM org_members m
-            INNER JOIN organizations o ON m.org_id = o.id
-            WHERE LOWER(m.email) = ?`,
-      args: [email.toLowerCase()],
-    });
-    memberships = rows.map((r: any) => ({
-      orgId: String(r.orgId ?? r.org_id),
-      role: String(r.role) as OrgRole,
-      orgName: String(r.orgName ?? r.org_name),
-    }));
-  } catch {
-    // Tables may not exist yet on first boot before migrations finish.
+  let memberships = await loadMemberships(exec, email);
+  if (memberships === null) {
     if (sessionOrgId) {
       return {
         email,
@@ -90,8 +81,58 @@ async function resolveOrgContextUncached(event: H3Event): Promise<OrgContext> {
     return { email, orgId: null, orgName: null, role: null };
   }
 
+  if (memberships.length > 1) {
+    const activeOrgSetting = (await getUserSetting(email, "active-org-id")) as {
+      orgId: string;
+    } | null;
+    if (activeOrgSetting?.orgId) {
+      const active = memberships.find(
+        (m) => m.orgId === activeOrgSetting.orgId,
+      );
+      if (active) {
+        return {
+          email,
+          orgId: active.orgId,
+          orgName: active.orgName,
+          role: active.role,
+        };
+      }
+    }
+  }
+
+  const sessionMembership = sessionOrgId
+    ? memberships.find((m) => m.orgId === sessionOrgId)
+    : null;
+  const shouldTryDomainAutoJoin =
+    memberships.length === 0 ||
+    (memberships.length === 1 &&
+      isLikelyPersonalWorkspace(memberships[0], email, session));
+
+  if (shouldTryDomainAutoJoin) {
+    const joined = await autoJoinDomainMatchingOrgs(email, {
+      activateJoinedOrg: "always",
+    });
+    if (joined.joined.length > 0) {
+      const refreshed = await loadMemberships(exec, email);
+      if (refreshed !== null) memberships = refreshed;
+    }
+
+    if (joined.activeOrgId) {
+      const active = memberships.find((m) => m.orgId === joined.activeOrgId);
+      if (active) {
+        return {
+          email,
+          orgId: active.orgId,
+          orgName: active.orgName,
+          role: active.role,
+        };
+      }
+    }
+  }
+
   if (sessionOrgId) {
-    const active = memberships.find((m) => m.orgId === sessionOrgId);
+    const active =
+      sessionMembership ?? memberships.find((m) => m.orgId === sessionOrgId);
     if (active) {
       return {
         email,
@@ -119,31 +160,39 @@ async function resolveOrgContextUncached(event: H3Event): Promise<OrgContext> {
     return { email, orgId: null, orgName: null, role: null };
   }
 
-  if (memberships.length > 1) {
-    const activeOrgSetting = (await getUserSetting(email, "active-org-id")) as {
-      orgId: string;
-    } | null;
-    if (activeOrgSetting?.orgId) {
-      const active = memberships.find(
-        (m) => m.orgId === activeOrgSetting.orgId,
-      );
-      if (active) {
-        return {
-          email,
-          orgId: active.orgId,
-          orgName: active.orgName,
-          role: active.role,
-        };
-      }
-    }
-  }
-
   return {
     email,
     orgId: memberships[0].orgId,
     orgName: memberships[0].orgName,
     role: memberships[0].role,
   };
+}
+
+async function loadMemberships(
+  exec: ReturnType<typeof getDbExec>,
+  email: string,
+): Promise<Array<{
+  orgId: string;
+  role: OrgRole;
+  orgName: string;
+}> | null> {
+  try {
+    const { rows } = await exec.execute({
+      sql: `SELECT m.org_id AS "orgId", m.role AS role, o.name AS "orgName"
+            FROM org_members m
+            INNER JOIN organizations o ON m.org_id = o.id
+            WHERE LOWER(m.email) = ?`,
+      args: [email.toLowerCase()],
+    });
+    return rows.map((r: any) => ({
+      orgId: String(r.orgId ?? r.org_id),
+      role: String(r.role) as OrgRole,
+      orgName: String(r.orgName ?? r.org_name),
+    }));
+  } catch {
+    // Tables may not exist yet on first boot before migrations finish.
+    return null;
+  }
 }
 
 /**

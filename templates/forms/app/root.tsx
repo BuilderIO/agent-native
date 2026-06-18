@@ -10,10 +10,7 @@ import {
 import { useCallback, useEffect, useState } from "react";
 import { useNavigationState } from "@/hooks/use-navigation-state";
 import { markFormsChatHomeHandoff } from "@/lib/chat-home-handoff";
-import {
-  formBuilderTabSearchParam,
-  normalizeFormBuilderTab,
-} from "@/lib/form-builder-tabs";
+import { formsRoutePath } from "@/lib/form-builder-tabs";
 import { useQueryClient } from "@tanstack/react-query";
 import { useTheme } from "next-themes";
 import { IconSun, IconMoon } from "@tabler/icons-react";
@@ -140,23 +137,11 @@ function formsOpenPath(url: URL): string | null {
 
   const view = url.searchParams.get("view");
   const formId = url.searchParams.get("formId") ?? url.searchParams.get("id");
-  if (view === "home") return "/";
-  if (view === "forms") return "/forms";
-  if (view === "form" && formId) {
-    const tab = normalizeFormBuilderTab(
-      url.searchParams.get("tab") ?? url.searchParams.get("activeTab"),
-    );
-    return `/forms/${encodeURIComponent(formId)}?tab=${formBuilderTabSearchParam(tab)}`;
-  }
-  if (view === "responses" && formId) {
-    return `/forms/${encodeURIComponent(formId)}/responses`;
-  }
-  if (view === "response-insights") {
-    return formId
-      ? `/response-insights?formId=${encodeURIComponent(formId)}`
-      : "/response-insights";
-  }
-  return null;
+  return formsRoutePath({
+    view,
+    formId,
+    tab: url.searchParams.get("tab") ?? url.searchParams.get("activeTab"),
+  });
 }
 
 function OpenLinkInterceptor() {

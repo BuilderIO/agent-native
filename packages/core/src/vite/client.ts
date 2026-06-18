@@ -129,6 +129,23 @@ function hasDep(pkg: string, cwd: string): boolean {
   }
 }
 
+function hasCoreDep(pkg: string, cwd: string): boolean {
+  const coreRoot = findCorePackageRoot(cwd);
+  if (!coreRoot) return false;
+  try {
+    const pkgJson = JSON.parse(
+      fs.readFileSync(path.join(coreRoot, "package.json"), "utf-8"),
+    );
+    return !!(pkgJson.dependencies?.[pkg] || pkgJson.devDependencies?.[pkg]);
+  } catch {
+    return false;
+  }
+}
+
+function hasOptimizeDep(pkg: string, cwd: string): boolean {
+  return hasDep(pkg, cwd) || hasCoreDep(pkg, cwd);
+}
+
 /**
  * Build the `resolve.dedupe` list dynamically. Reads core's package.json and
  * collects every peerDependency that the consuming app also declares. This
@@ -361,8 +378,17 @@ function getDefaultOptimizeDeps(cwd: string): string[] {
           },
         ] as Array<{ specifier: string; packageName?: string }>)),
     { specifier: "@libsql/client" },
+    { specifier: "@amplitude/analytics-browser" },
+    { specifier: "@assistant-ui/react" },
+    { specifier: "@excalidraw/excalidraw" },
+    { specifier: "@excalidraw/mermaid-to-excalidraw" },
+    {
+      specifier: "@modelcontextprotocol/ext-apps/app-bridge",
+      packageName: "@modelcontextprotocol/ext-apps",
+    },
     { specifier: "@radix-ui/react-accordion" },
     { specifier: "@radix-ui/react-alert-dialog" },
+    { specifier: "@radix-ui/react-aspect-ratio" },
     { specifier: "@radix-ui/react-avatar" },
     { specifier: "@radix-ui/react-checkbox" },
     { specifier: "@radix-ui/react-collapsible" },
@@ -389,29 +415,124 @@ function getDefaultOptimizeDeps(cwd: string): string[] {
     { specifier: "@radix-ui/react-tooltip" },
     { specifier: "@tanstack/react-query" },
     { specifier: "@tabler/icons-react" },
+    { specifier: "@tiptap/core" },
+    { specifier: "@tiptap/extension-code-block-lowlight" },
+    { specifier: "@tiptap/extension-collaboration" },
+    { specifier: "@tiptap/extension-collaboration-caret" },
+    { specifier: "@tiptap/extension-image" },
+    { specifier: "@tiptap/extension-link" },
+    { specifier: "@tiptap/extension-placeholder" },
+    { specifier: "@tiptap/extension-table" },
+    { specifier: "@tiptap/extension-table-cell" },
+    { specifier: "@tiptap/extension-table-header" },
+    { specifier: "@tiptap/extension-table-row" },
+    { specifier: "@tiptap/extension-task-item" },
+    { specifier: "@tiptap/extension-task-list" },
+    { specifier: "@tiptap/pm/state", packageName: "@tiptap/pm" },
+    { specifier: "@tiptap/react" },
+    { specifier: "@tiptap/starter-kit" },
+    { specifier: "@xterm/addon-fit" },
+    { specifier: "@xterm/addon-web-links" },
+    { specifier: "@xterm/xterm" },
     { specifier: "class-variance-authority" },
     { specifier: "clsx" },
     { specifier: "cmdk" },
+    { specifier: "date-fns" },
     { specifier: "drizzle-orm" },
     { specifier: "drizzle-orm/pg-core", packageName: "drizzle-orm" },
     { specifier: "drizzle-orm/sqlite-core", packageName: "drizzle-orm" },
+    { specifier: "embla-carousel-react" },
     { specifier: "h3" },
+    {
+      specifier: "highlight.js/lib/languages/bash",
+      packageName: "highlight.js",
+    },
+    {
+      specifier: "highlight.js/lib/languages/css",
+      packageName: "highlight.js",
+    },
+    {
+      specifier: "highlight.js/lib/languages/javascript",
+      packageName: "highlight.js",
+    },
+    {
+      specifier: "highlight.js/lib/languages/json",
+      packageName: "highlight.js",
+    },
+    {
+      specifier: "highlight.js/lib/languages/markdown",
+      packageName: "highlight.js",
+    },
+    {
+      specifier: "highlight.js/lib/languages/python",
+      packageName: "highlight.js",
+    },
+    {
+      specifier: "highlight.js/lib/languages/sql",
+      packageName: "highlight.js",
+    },
+    {
+      specifier: "highlight.js/lib/languages/typescript",
+      packageName: "highlight.js",
+    },
+    {
+      specifier: "highlight.js/lib/languages/xml",
+      packageName: "highlight.js",
+    },
+    {
+      specifier: "highlight.js/lib/languages/yaml",
+      packageName: "highlight.js",
+    },
+    { specifier: "input-otp" },
+    { specifier: "lowlight" },
+    { specifier: "mermaid" },
+    { specifier: "nanoid" },
     { specifier: "next-themes" },
     { specifier: "react-hook-form" },
+    { specifier: "react-day-picker" },
+    { specifier: "react-markdown" },
+    { specifier: "react-resizable-panels" },
+    { specifier: "recharts" },
     ...(hasDep("react-router", cwd)
       ? [
           { specifier: "react-router" },
           { specifier: "react-router/dom", packageName: "react-router" },
         ]
       : []),
+    { specifier: "remark-gfm" },
+    { specifier: "roughjs" },
+    { specifier: "shiki/core", packageName: "shiki" },
+    { specifier: "shiki/engine/javascript", packageName: "shiki" },
+    { specifier: "shiki/langs/bash.mjs", packageName: "shiki" },
+    { specifier: "shiki/langs/css.mjs", packageName: "shiki" },
+    { specifier: "shiki/langs/html.mjs", packageName: "shiki" },
+    { specifier: "shiki/langs/javascript.mjs", packageName: "shiki" },
+    { specifier: "shiki/langs/json.mjs", packageName: "shiki" },
+    { specifier: "shiki/langs/jsx.mjs", packageName: "shiki" },
+    { specifier: "shiki/langs/markdown.mjs", packageName: "shiki" },
+    { specifier: "shiki/langs/python.mjs", packageName: "shiki" },
+    { specifier: "shiki/langs/shellscript.mjs", packageName: "shiki" },
+    { specifier: "shiki/langs/sql.mjs", packageName: "shiki" },
+    { specifier: "shiki/langs/tsx.mjs", packageName: "shiki" },
+    { specifier: "shiki/langs/typescript.mjs", packageName: "shiki" },
+    { specifier: "shiki/langs/yaml.mjs", packageName: "shiki" },
+    { specifier: "shiki/themes/github-dark-default.mjs", packageName: "shiki" },
+    {
+      specifier: "shiki/themes/github-light-default.mjs",
+      packageName: "shiki",
+    },
     { specifier: "sonner" },
     { specifier: "tailwind-merge" },
+    { specifier: "tiptap-markdown" },
+    { specifier: "vaul" },
+    { specifier: "y-protocols/awareness", packageName: "y-protocols" },
+    { specifier: "yjs" },
     { specifier: "zod" },
   ];
 
   return entries
     .filter(({ specifier, packageName }) =>
-      hasDep(packageName ?? specifier, cwd),
+      hasOptimizeDep(packageName ?? specifier, cwd),
     )
     .map(({ specifier }) => specifier);
 }
@@ -1663,6 +1784,7 @@ export function defineConfig(options: ClientConfigOptions = {}): UserConfig {
 
 export {
   getClientDedupe as _getClientDedupe,
+  getDefaultOptimizeDeps as _getDefaultOptimizeDeps,
   findCorePackageRoot as _findCorePackageRoot,
   getReactRouterAliases as _getReactRouterAliases,
 };

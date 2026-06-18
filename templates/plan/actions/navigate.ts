@@ -36,17 +36,22 @@ export default defineAction({
       .string()
       .optional()
       .describe("Optional repo-relative folder path for a local MDX plan"),
+    path: z
+      .string()
+      .optional()
+      .describe("Optional same-origin URL path to navigate to directly"),
   }),
   http: false,
   run: async (args) => {
-    if (!args.view && !args.planId && !args.localPlanSlug) {
-      return "Error: At least --view, --planId, or --localPlanSlug is required.";
+    if (!args.view && !args.planId && !args.localPlanSlug && !args.path) {
+      return "Error: At least --view, --planId, --localPlanSlug, or --path is required.";
     }
     const nav: Record<string, string> = {};
     nav.view = args.view ?? "plan";
     if (args.planId) nav.planId = args.planId;
     if (args.localPlanSlug) nav.localPlanSlug = args.localPlanSlug;
     if (args.localPlanPath) nav.localPlanPath = args.localPlanPath;
+    if (args.path) nav.path = args.path;
     nav._writeId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     await writeAppState("navigate", nav);
     return `Navigating to ${nav.view}${
@@ -55,6 +60,6 @@ export default defineAction({
         : args.planId
           ? ` (${args.planId})`
           : ""
-    }`;
+    }${args.path ? ` at ${args.path}` : ""}`;
   },
 });

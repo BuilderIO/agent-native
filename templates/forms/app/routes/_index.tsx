@@ -20,6 +20,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { markFormsChatHomeHandoff } from "@/lib/chat-home-handoff";
+import { scheduleFormsRoutePrewarm } from "@/lib/route-prewarm";
 import { TAB_ID } from "@/lib/tab-id";
 
 export function meta() {
@@ -42,9 +43,12 @@ export default function Index() {
       if (detail?.isRunning === true) markFormsChatHomeHandoff();
     }
 
+    const cancelRoutePrewarm = scheduleFormsRoutePrewarm();
     window.addEventListener("agentNative.chatRunning", handleChatRunning);
-    return () =>
+    return () => {
+      cancelRoutePrewarm();
       window.removeEventListener("agentNative.chatRunning", handleChatRunning);
+    };
   }, []);
 
   function openForms() {
