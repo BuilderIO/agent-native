@@ -13,9 +13,11 @@ export {
   refreshAgentChatContext,
   removeAgentChatContextItem,
   sendToAgentChat,
+  parseSubmitChatMessage,
   setAgentChatContextItem,
   setContextToAgentChat,
   generateTabId,
+  type ParsedSubmitChat,
   type AgentChatContextItem,
   type AgentChatContextMessage,
   type AgentChatContextMutationOptions,
@@ -97,6 +99,12 @@ export {
   CodeRequiredDialog,
   type CodeRequiredDialogProps,
 } from "./components/CodeRequiredDialog.js";
+export {
+  useAgentEngineConfigured,
+  type AgentEngineConfiguredState,
+  type UseAgentEngineConfiguredResult,
+} from "./use-agent-engine-configured.js";
+export { BuilderSetupCard } from "./chat/run-recovery.js";
 export {
   AgentConversation,
   AgentConversationMessageView,
