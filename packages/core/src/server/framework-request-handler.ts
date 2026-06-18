@@ -162,6 +162,22 @@ export function getH3App(nitroApp: any): H3AppShim {
     registerMiddleware(nitroApp, WELL_KNOWN_PREFIX, readinessGate, {
       prepend: true,
     });
+
+    // Primary gate: Nitro bridges this `request` hook to h3's `config.onRequest`,
+    // which h3 awaits BEFORE `handler()` snapshots middleware and resolves the
+    // route. The middleware gate above runs too late on production dispatchers —
+    // its await finishes after the snapshot, so a route registered during async
+    // init is missing from the request and 404s. The middleware gate stays as a
+    // fallback for runtimes where `onRequest` isn't wired.
+    nitroApp.hooks?.hook?.("request", async (event: H3Event) => {
+      const reqPath = event.url?.pathname ?? "";
+      if (
+        resolveMountMatch(reqPath, FRAMEWORK_PREFIX) ||
+        resolveMountMatch(reqPath, WELL_KNOWN_PREFIX)
+      ) {
+        await awaitFrameworkRoutesReadyForRequest(nitroApp, reqPath);
+      }
+    });
   }
 
   return shim;

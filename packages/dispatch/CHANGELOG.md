@@ -1,5 +1,11 @@
 # @agent-native/dispatch
 
+## 0.11.1
+
+### Patch Changes
+
+- f16980e: Expose agent-chat plugin options for skipping first-turn workspace inventory and sending a compact starter tool catalog that expands from tool-search results.
+
 ## 0.11.0
 
 ### Minor Changes
