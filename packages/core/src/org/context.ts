@@ -74,14 +74,24 @@ async function resolveOrgContextUncached(event: H3Event): Promise<OrgContext> {
     return { email, orgId: null, orgName: null, role: null };
   }
 
-  if (!sessionOrgId) {
-    const joined = await autoJoinDomainMatchingOrgs(email, {
-      activateJoinedOrg: "always",
-    });
-    preferredJoinedOrgId = joined.activeOrgId;
-    if (joined.joined.length > 0) {
-      const refreshed = await loadMemberships(exec, email);
-      if (refreshed !== null) memberships = refreshed;
+  const joined = await autoJoinDomainMatchingOrgs(email, {
+    activateJoinedOrg: "always",
+  });
+  preferredJoinedOrgId = joined.activeOrgId;
+  if (joined.joined.length > 0) {
+    const refreshed = await loadMemberships(exec, email);
+    if (refreshed !== null) memberships = refreshed;
+  }
+
+  if (preferredJoinedOrgId) {
+    const active = memberships.find((m) => m.orgId === preferredJoinedOrgId);
+    if (active) {
+      return {
+        email,
+        orgId: active.orgId,
+        orgName: active.orgName,
+        role: active.role,
+      };
     }
   }
 
@@ -101,18 +111,6 @@ async function resolveOrgContextUncached(event: H3Event): Promise<OrgContext> {
       orgName: null,
       role: sessionOrgRole,
     };
-  }
-
-  if (preferredJoinedOrgId) {
-    const active = memberships.find((m) => m.orgId === preferredJoinedOrgId);
-    if (active) {
-      return {
-        email,
-        orgId: active.orgId,
-        orgName: active.orgName,
-        role: active.role,
-      };
-    }
   }
 
   if (memberships.length === 0 && process.env.AUTO_CREATE_DEFAULT_ORG) {

@@ -1492,6 +1492,139 @@ describe("createAgentChatAdapter", () => {
     expect(last.content.at(-1).text).toBe("queued answer");
   });
 
+  it("fails a fresh conflicting turn after retry exhaustion instead of binding the old run", async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal("window", { dispatchEvent: vi.fn() });
+    vi.stubGlobal(
+      "CustomEvent",
+      class CustomEvent {
+        type: string;
+        detail: unknown;
+        constructor(type: string, init?: { detail?: unknown }) {
+          this.type = type;
+          this.detail = init?.detail;
+        }
+      },
+    );
+
+    let postCount = 0;
+    const fetchSpy = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/_agent-native/agent-chat" && init?.method === "POST") {
+        postCount += 1;
+        return jsonResponse({ activeRunId: "run-old" }, 409);
+      }
+      if (url.includes("/runs/run-old/events")) {
+        return sseResponse([
+          { type: "text", text: "old answer" },
+          { type: "done" },
+        ]);
+      }
+      return jsonResponse({ error: "unexpected" }, 500);
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const adapter = createAgentChatAdapter({
+      apiUrl: "/_agent-native/agent-chat",
+      tabId: "chat-queued-conflict-exhausted",
+      threadId: "thread-queued-conflict-exhausted",
+    });
+    const promise = drain(
+      adapter.run({
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: "hello" }],
+          },
+        ],
+        abortSignal: new AbortController().signal,
+        runConfig: {
+          custom: { agentNativeQueuedMessageId: "queued-1" },
+        },
+      } as any),
+    );
+
+    await vi.runAllTimersAsync();
+    const results = await promise;
+
+    expect(postCount).toBe(121);
+    expect(
+      fetchSpy.mock.calls.some(([url]) =>
+        String(url).includes("/runs/run-old/events"),
+      ),
+    ).toBe(false);
+    const last = results.at(-1) as any;
+    expect(last.status).toEqual({ type: "incomplete", reason: "error" });
+    expect(last.metadata.custom.runError.errorCode).toBe("active_run_conflict");
+    expect(last.content.at(-1).text).toContain(
+      "previous response is still finishing",
+    );
+  });
+
+  it("fails a normal conflicting send after retry exhaustion instead of replaying the old run", async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal("window", { dispatchEvent: vi.fn() });
+    vi.stubGlobal(
+      "CustomEvent",
+      class CustomEvent {
+        type: string;
+        detail: unknown;
+        constructor(type: string, init?: { detail?: unknown }) {
+          this.type = type;
+          this.detail = init?.detail;
+        }
+      },
+    );
+
+    let postCount = 0;
+    const fetchSpy = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/_agent-native/agent-chat" && init?.method === "POST") {
+        postCount += 1;
+        return jsonResponse({ activeRunId: "run-old" }, 409);
+      }
+      if (url.includes("/runs/run-old/events")) {
+        return sseResponse([
+          { type: "text", text: "old answer" },
+          { type: "done" },
+        ]);
+      }
+      return jsonResponse({ error: "unexpected" }, 500);
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const adapter = createAgentChatAdapter({
+      apiUrl: "/_agent-native/agent-chat",
+      tabId: "chat-normal-conflict-exhausted",
+      threadId: "thread-normal-conflict-exhausted",
+    });
+    const promise = drain(
+      adapter.run({
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: "hello" }],
+          },
+        ],
+        abortSignal: new AbortController().signal,
+      } as any),
+    );
+
+    await vi.runAllTimersAsync();
+    const results = await promise;
+
+    expect(postCount).toBe(121);
+    expect(
+      fetchSpy.mock.calls.some(([url]) =>
+        String(url).includes("/runs/run-old/events"),
+      ),
+    ).toBe(false);
+    const last = results.at(-1) as any;
+    expect(last.status).toEqual({ type: "incomplete", reason: "error" });
+    expect(last.metadata.custom.runError.errorCode).toBe("active_run_conflict");
+    expect(last.content.at(-1).text).toContain(
+      "previous response is still finishing",
+    );
+  });
+
   it("retries a normal send that conflicts with a just-finished run instead of replaying it", async () => {
     vi.useFakeTimers();
     vi.stubGlobal("window", { dispatchEvent: vi.fn() });

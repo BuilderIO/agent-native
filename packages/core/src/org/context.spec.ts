@@ -272,6 +272,51 @@ describe("getOrgContext", () => {
     );
   });
 
+  it("prefers a newly joined domain org over a backfilled session org", async () => {
+    mockGetSession.mockResolvedValue({
+      email: "teammate@builder.io",
+      orgId: "personal_org",
+    });
+    mockGetUserSetting.mockResolvedValueOnce({ orgId: "personal_org" });
+    mockExecute.mockResolvedValueOnce({
+      rows: [
+        {
+          orgId: "personal_org",
+          role: "owner",
+          orgName: "Teammate's workspace",
+        },
+      ],
+    }); // memberships
+    mockExecute.mockResolvedValueOnce({
+      rows: [{ orgId: "builder_io" }],
+    }); // domain auto-join lookup
+    mockExecute.mockResolvedValueOnce({ rows: [] }); // INSERT org_members
+    mockExecute.mockResolvedValueOnce({
+      rows: [
+        {
+          orgId: "personal_org",
+          role: "owner",
+          orgName: "Teammate's workspace",
+        },
+        { orgId: "builder_io", role: "member", orgName: "Builder.io" },
+      ],
+    }); // refreshed memberships
+
+    const ctx = await getOrgContext(EVENT);
+
+    expect(ctx).toEqual({
+      email: "teammate@builder.io",
+      orgId: "builder_io",
+      orgName: "Builder.io",
+      role: "member",
+    });
+    expect(mockPutUserSetting).toHaveBeenCalledWith(
+      "teammate@builder.io",
+      "active-org-id",
+      { orgId: "builder_io" },
+    );
+  });
+
   describe("membership-lookup failure (tables missing before migrations)", () => {
     it("returns the session orgId when present", async () => {
       mockGetSession.mockResolvedValue({

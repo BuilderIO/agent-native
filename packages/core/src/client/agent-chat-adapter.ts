@@ -1931,6 +1931,36 @@ export function createAgentChatAdapter(
                     if (abortSignal.aborted) return;
                     continue;
                   }
+                  const message =
+                    "The previous response is still finishing and the new message could not start yet. Please try again.";
+                  const runError = {
+                    message,
+                    details: `The server kept reporting active run ${activeRunId} for this thread after ${MAX_QUEUED_CONFLICT_RETRIES} retries.`,
+                    errorCode: "active_run_conflict",
+                    recoverable: true,
+                    runId: activeRunId,
+                  };
+                  if (typeof window !== "undefined") {
+                    window.dispatchEvent(
+                      new CustomEvent("agent-chat:run-error", {
+                        detail: { ...runError, tabId },
+                      }),
+                    );
+                  }
+                  content.push({
+                    type: "text",
+                    text: `Something went wrong: ${message}`,
+                  });
+                  yield {
+                    content: [...content],
+                    status: {
+                      type: "incomplete" as const,
+                      reason: "error" as const,
+                    },
+                    metadata: { custom: { runError } },
+                  } as ChatModelRunResult;
+                  clearActiveRun();
+                  return;
                 }
                 if (activeRunId) {
                   try {

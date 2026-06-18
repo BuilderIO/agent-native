@@ -1,4 +1,4 @@
-import { useAgentRouteState } from "@agent-native/core/client";
+import { appBasePath, useAgentRouteState } from "@agent-native/core/client";
 import { useLocation } from "react-router";
 import { markFormsChatHomeHandoff } from "@/lib/chat-home-handoff";
 import {
@@ -40,11 +40,35 @@ function localPathFromCommandUrl(value: unknown): string | null {
 }
 
 export function formsNavigateCommandPath(cmd: NavigateCommand): string | null {
-  return (
+  const path =
     localPathFromCommandUrl(cmd.path) ??
     localPathFromCommandUrl(cmd.url) ??
-    formsRoutePath(cmd)
-  );
+    formsRoutePath(cmd);
+  return path ? routerPath(path) : null;
+}
+
+function routerPath(path: string): string {
+  const basePath = appBasePath();
+  if (!basePath) return path;
+  let result = path;
+  // React Router is already scoped to the app basename. Strip mounted URLs so
+  // navigate() receives router-local paths and does not duplicate the prefix.
+  for (let i = 0; i < 4; i += 1) {
+    if (result === basePath) return "/";
+    if (result.startsWith(`${basePath}/`)) {
+      result = result.slice(basePath.length) || "/";
+      continue;
+    }
+    if (
+      result.startsWith(`${basePath}?`) ||
+      result.startsWith(`${basePath}#`)
+    ) {
+      result = `/${result.slice(basePath.length)}`;
+      continue;
+    }
+    break;
+  }
+  return result;
 }
 
 export function useNavigationState() {
