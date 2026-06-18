@@ -643,7 +643,7 @@ async function loadSourceSnapshot(
                 schema.documents.id,
                 rowRows.map((row) => row.documentId),
               ),
-              eq(schema.documents.ownerEmail, database.ownerEmail),
+              eq(schema.documents.ownerEmail, source.ownerEmail),
             ),
           )
       : [];
