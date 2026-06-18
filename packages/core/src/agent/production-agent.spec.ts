@@ -245,6 +245,29 @@ describe("buildUserContentWithAttachments", () => {
     expect(text).toContain("Use this logo in the deck");
   });
 
+  it("does not send reference-only uploaded SVGs as raw file parts", () => {
+    const att = {
+      type: "file",
+      name: "logo.svg",
+      contentType: "image/svg+xml",
+      data: "data:image/svg+xml;base64,PHN2Zz48L3N2Zz4=",
+    };
+    (att as any).url = "https://cdn.example.com/logo.svg";
+    (att as any).referenceOnly = true;
+
+    const result = buildUserContentWithAttachments({
+      text: "Use this logo in the deck",
+      attachments: [att as any],
+    });
+
+    expect(result).toHaveLength(1);
+    expect(result[0].type).toBe("text");
+    const text = (result[0] as { type: "text"; text: string }).text;
+    expect(text).toContain("reference-only file");
+    expect(text).toContain("https://cdn.example.com/logo.svg");
+    expect(text).toContain("Use this logo in the deck");
+  });
+
   it("preserves orphan tool-results as text so history is not lost before backfill", () => {
     // No assistant tool-call ever exists for `t1`. Emitting a synthetic
     // `tool-result` would be stripped later anyway; converting to text keeps

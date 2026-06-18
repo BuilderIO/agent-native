@@ -1042,8 +1042,17 @@ export function buildUserContentWithAttachments(opts: {
   const textAttachments: string[] = [];
 
   for (const att of opts.attachments ?? []) {
+    const uploadedUrl = (att as any).url as string | undefined;
+    if ((att as any).referenceOnly === true && uploadedUrl) {
+      const label = att.name ? `"${att.name}"` : "A file";
+      const contentType = att.contentType ? ` (${att.contentType})` : "";
+      textAttachments.push(
+        `[${label} was uploaded to ${uploadedUrl} as a reference-only file${contentType}. Use the URL for embedding/reference if needed; do not inline raw file contents unless the target app sanitizes it.]`,
+      );
+      continue;
+    }
+
     if (att.type === "image") {
-      const uploadedUrl = (att as any).url as string | undefined;
       if (!att.data) {
         if (uploadedUrl) {
           const label = att.name ? `"${att.name}"` : "An image";

@@ -45,6 +45,8 @@ export interface PreUploadAttachmentsResult {
 }
 
 const FILE_DATA_URL_RE = /^data:([^;]+);base64,(.+)$/;
+const SVG_REFERENCE_SECURITY_NOTE =
+  "SVG content may contain active markup; use this URL as a file reference unless the target app sanitizes it.";
 
 function normalizeContentType(value: string | undefined): string | undefined {
   return value?.split(";")[0]?.trim().toLowerCase() || undefined;
@@ -72,6 +74,16 @@ function isSvgPayload(args: { name?: string; contentType?: string }): boolean {
       contentType === "application/octet-stream") &&
       hasSvgFilename(args.name))
   );
+}
+
+function markReferenceOnlySvgAttachment(
+  att: AgentChatAttachment,
+  contentType: string | undefined,
+) {
+  att.type = "file";
+  att.contentType = normalizeContentType(contentType) ?? "image/svg+xml";
+  (att as any).referenceOnly = true;
+  (att as any).securityNote = SVG_REFERENCE_SECURITY_NOTE;
 }
 
 function escapeXmlAttr(value: string): string {
@@ -149,6 +161,9 @@ export async function preUploadAttachments(opts: {
     if ((att as any).url) {
       // Already pre-uploaded earlier in the pipeline — reuse it.
       const isReferenceOnlySvg = isSvgAttachment(att);
+      if (isReferenceOnlySvg) {
+        markReferenceOnlySvgAttachment(att, att.contentType);
+      }
       const entry = {
         name: att.name,
         url: (att as any).url as string,
@@ -157,8 +172,7 @@ export async function preUploadAttachments(opts: {
         ...(isReferenceOnlySvg
           ? {
               referenceOnly: true,
-              securityNote:
-                "SVG content may contain active markup; use this URL as a file reference unless the target app sanitizes it.",
+              securityNote: SVG_REFERENCE_SECURITY_NOTE,
             }
           : {}),
       };
@@ -205,17 +219,19 @@ export async function preUploadAttachments(opts: {
         name: att.name,
         contentType: mimeType,
       });
+      if (isReferenceOnlySvg) {
+        markReferenceOnlySvgAttachment(att, mimeType);
+      }
       const entry = {
         name: att.name,
         url: result.url,
         provider: result.provider,
-        contentType: mimeType,
+        contentType: isReferenceOnlySvg ? att.contentType : mimeType,
         sizeBytes: bytes.byteLength,
         ...(isReferenceOnlySvg
           ? {
               referenceOnly: true,
-              securityNote:
-                "SVG content may contain active markup; use this URL as a file reference unless the target app sanitizes it.",
+              securityNote: SVG_REFERENCE_SECURITY_NOTE,
             }
           : {}),
       };

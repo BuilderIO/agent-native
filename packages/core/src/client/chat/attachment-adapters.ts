@@ -7,8 +7,8 @@ import type {
   Attachment,
 } from "@assistant-ui/react";
 import {
+  CHAT_DOCUMENT_ATTACHMENT_ACCEPT,
   IMAGE_ATTACHMENT_ACCEPT,
-  PROMPT_DOCUMENT_ATTACHMENT_ACCEPT,
 } from "../composer/attachment-accept.js";
 
 // Maximum PDF/document size (4 MB). Larger PDFs would bloat the JSON POST
@@ -201,7 +201,7 @@ export class DownscalingImageAttachmentAdapter implements AttachmentAdapter {
 }
 
 export class BinaryDocumentAttachmentAdapter implements AttachmentAdapter {
-  public accept = PROMPT_DOCUMENT_ATTACHMENT_ACCEPT;
+  public accept = CHAT_DOCUMENT_ATTACHMENT_ACCEPT;
 
   public async add(state: { file: File }): Promise<PendingAttachment> {
     return {

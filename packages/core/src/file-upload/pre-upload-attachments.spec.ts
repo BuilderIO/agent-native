@@ -181,6 +181,10 @@ describe("preUploadAttachments", () => {
       contentType: "image/svg+xml",
       referenceOnly: true,
     });
+    expect(att.type).toBe("file");
+    expect(att.contentType).toBe("image/svg+xml");
+    expect((att as any).referenceOnly).toBe(true);
+    expect((att as any).securityNote).toContain("active markup");
     expect(result.injectedText).toContain("chat-file-attachment");
     expect(result.injectedText).not.toContain("chat-image-attachment");
     expect(result.injectedText).toContain("unsanitized vector source");
@@ -217,6 +221,30 @@ describe("preUploadAttachments", () => {
     expect(result.uploaded[0].url).toBe(
       "https://cdn.example.com/already-uploaded.png",
     );
+  });
+
+  it("normalizes existing image-typed SVG URLs as reference-only file uploads", async () => {
+    const att = makeImageAtt({
+      name: "already.svg",
+      contentType: "image/svg+xml",
+      data: "data:image/svg+xml;base64,PHN2Zy8+",
+    });
+    (att as any).url = "https://cdn.example.com/already.svg";
+    (att as any).uploadProvider = "builder";
+
+    const result = await preUploadAttachments({
+      attachments: [att],
+      ownerEmail: "user@example.com",
+    });
+
+    expect(uploadFileMock).not.toHaveBeenCalled();
+    expect(result.uploaded).toHaveLength(0);
+    expect(result.uploadedFiles[0]).toMatchObject({
+      url: "https://cdn.example.com/already.svg",
+      referenceOnly: true,
+    });
+    expect(att.type).toBe("file");
+    expect((att as any).referenceOnly).toBe(true);
   });
 
   it("sets providerMissing=true and injects an error hint when uploadFile returns null for image", async () => {

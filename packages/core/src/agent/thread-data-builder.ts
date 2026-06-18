@@ -864,28 +864,35 @@ function buildStoredAttachments(
       // of re-shipping megabytes of base64 on every poll save.
       const uploadedUrl = (att as any).url as string | undefined;
       if (uploadedUrl) {
+        const referenceOnly = (att as any).referenceOnly === true;
+        const storedAsImage = att.type === "image" && !referenceOnly;
         return {
           id,
-          type: att.type === "image" ? "image" : "file",
+          type: storedAsImage ? "image" : "file",
           name: att.name,
           contentType: att.contentType,
           status: { type: "complete" },
           // URL reference shape — content[0] uses the hosted URL.
-          content:
-            att.type === "image"
-              ? [{ type: "image", image: uploadedUrl }]
-              : [
-                  {
-                    type: "file",
-                    url: uploadedUrl,
-                    mimeType: att.contentType,
-                    filename: att.name,
-                  },
-                ],
+          content: storedAsImage
+            ? [{ type: "image", image: uploadedUrl }]
+            : [
+                {
+                  type: "file",
+                  url: uploadedUrl,
+                  mimeType: att.contentType,
+                  filename: att.name,
+                },
+              ],
           // Keep the reference metadata for tooling / read-attachment.
           metadata: {
             uploadUrl: uploadedUrl,
             uploadProvider: (att as any).uploadProvider as string | undefined,
+            ...(referenceOnly
+              ? {
+                  referenceOnly: true,
+                  securityNote: (att as any).securityNote as string | undefined,
+                }
+              : {}),
           },
         };
       }

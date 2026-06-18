@@ -1,13 +1,20 @@
 import { SimpleTextAttachmentAdapter } from "@assistant-ui/react";
 
-export const PROMPT_DOCUMENT_ATTACHMENT_ACCEPT = [
+const BASE_DOCUMENT_ATTACHMENT_ACCEPT = [
   "application/pdf",
   "application/vnd.openxmlformats-officedocument.presentationml.presentation",
   "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-  "image/svg+xml",
   ".pdf",
   ".pptx",
   ".docx",
+];
+
+export const PROMPT_DOCUMENT_ATTACHMENT_ACCEPT =
+  BASE_DOCUMENT_ATTACHMENT_ACCEPT.join(",");
+
+export const CHAT_DOCUMENT_ATTACHMENT_ACCEPT = [
+  ...BASE_DOCUMENT_ATTACHMENT_ACCEPT,
+  "image/svg+xml",
   ".svg",
 ].join(",");
 
