@@ -1,5 +1,4 @@
 import { defineAction } from "@agent-native/core";
-import { readAppState } from "@agent-native/core/application-state";
 import { accessFilter, resolveAccess } from "@agent-native/core/sharing";
 import { getDb, schema } from "../server/db/index.js";
 import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
@@ -9,6 +8,7 @@ import {
   type FormField,
   type FormSettings,
 } from "../shared/types.js";
+import { readAppStateForCurrentTab } from "./_tab-state.js";
 
 const FORMS_LIST_LIMIT = 25;
 const RESPONSE_PREVIEW_LIMIT = 5;
@@ -84,7 +84,9 @@ export default defineAction({
   schema: z.object({}),
   http: false,
   run: async () => {
-    const navigation = await readAppState("navigation");
+    const navigation = await readAppStateForCurrentTab("navigation", {
+      fallbackToGlobal: false,
+    });
 
     const screen: Record<string, unknown> = {};
     if (navigation) screen.navigation = navigation;

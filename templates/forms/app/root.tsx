@@ -27,6 +27,7 @@ import {
   getThemeInitScript,
   configureTracking,
   navigateWithAgentChatViewTransition,
+  setClientAppState,
 } from "@agent-native/core/client";
 import type { LinksFunction } from "react-router";
 import stylesheet from "./global.css?url";
@@ -92,6 +93,30 @@ function DbSyncSetup() {
 
 function NavigationStateSync() {
   useNavigationState();
+  return null;
+}
+
+function UrlStateSync() {
+  const location = useLocation();
+
+  useEffect(() => {
+    const searchParams: Record<string, string> = {};
+    for (const [key, value] of new URLSearchParams(location.search).entries()) {
+      searchParams[key] = value;
+    }
+
+    const value = {
+      pathname: location.pathname,
+      search: location.search,
+      hash: location.hash,
+      searchParams,
+    };
+    const options = { keepalive: true, requestSource: TAB_ID };
+
+    setClientAppState(`__url__:${TAB_ID}`, value, options).catch(() => {});
+    setClientAppState("__url__", value, options).catch(() => {});
+  }, [location.hash, location.pathname, location.search]);
+
   return null;
 }
 
@@ -186,6 +211,7 @@ export default function Root() {
     <AppProviders queryClient={queryClient}>
       <DbSyncSetup />
       <NavigationStateSync />
+      <UrlStateSync />
       <OpenLinkInterceptor />
       <CommandMenu open={cmdkOpen} onOpenChange={setCmdkOpen}>
         <CommandMenu.Group heading="Forms">

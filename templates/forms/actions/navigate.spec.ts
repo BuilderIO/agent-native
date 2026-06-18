@@ -4,8 +4,14 @@ const appState = vi.hoisted(() => ({
   readAppState: vi.fn(),
   writeAppState: vi.fn(),
 }));
+const requestContext = vi.hoisted(() => ({
+  runContext: undefined as { browserTabId?: string } | undefined,
+}));
 
 vi.mock("@agent-native/core/application-state", () => appState);
+vi.mock("@agent-native/core/server/request-context", () => ({
+  getRequestRunContext: () => requestContext.runContext,
+}));
 
 const { default: navigate } = await import("./navigate.js");
 
@@ -13,6 +19,7 @@ describe("navigate action", () => {
   beforeEach(() => {
     appState.readAppState.mockReset();
     appState.writeAppState.mockReset();
+    requestContext.runContext = undefined;
   });
 
   it("uses the current form when opening responses without an explicit formId", async () => {
@@ -58,6 +65,33 @@ describe("navigate action", () => {
         formId: "CSVP7Bz6dC",
         tab: "edit",
         _writeId: expect.any(String),
+      }),
+    );
+  });
+
+  it("reads and writes navigation state for the requesting browser tab", async () => {
+    requestContext.runContext = { browserTabId: "forms-tab-a" };
+    appState.readAppState.mockImplementation(async (key) => {
+      if (key === "navigation:forms-tab-a") {
+        return { view: "form", formId: "form_tab" };
+      }
+      if (key === "navigation") {
+        return { view: "form", formId: "form_global" };
+      }
+      return null;
+    });
+
+    await navigate.run({ view: "responses" });
+
+    expect(appState.readAppState).toHaveBeenCalledWith(
+      "navigation:forms-tab-a",
+    );
+    expect(appState.readAppState).not.toHaveBeenCalledWith("navigation");
+    expect(appState.writeAppState).toHaveBeenCalledWith(
+      "navigate:forms-tab-a",
+      expect.objectContaining({
+        view: "responses",
+        formId: "form_tab",
       }),
     );
   });

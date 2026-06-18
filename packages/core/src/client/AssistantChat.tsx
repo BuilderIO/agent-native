@@ -1636,6 +1636,14 @@ const AssistantChatInner = forwardRef<
       }
     }, [apiUrl, refreshThreadFromServer, startReconnectToRun, threadId]);
 
+  useEffect(() => {
+    if (!threadId || !isNewThread) return;
+    // A restored tab can be reclassified as client-only after the thread list
+    // loads. Once that happens, there is no server row to restore, so show the
+    // empty composer instead of leaving the per-thread restore skeleton up.
+    setIsRestoring(false);
+  }, [isNewThread, threadId]);
+
   // Restore messages from server on mount (when threadId is set). The
   // server is the single source of truth — we don't hydrate from localStorage
   // first, so what the user sees in the chat panel always matches what the

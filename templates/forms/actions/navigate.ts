@@ -1,9 +1,9 @@
 import { defineAction } from "@agent-native/core";
 import { z } from "zod";
 import {
-  readAppState,
-  writeAppState,
-} from "@agent-native/core/application-state";
+  readAppStateForCurrentTab,
+  writeAppStateForCurrentTab,
+} from "./_tab-state.js";
 
 interface NavigationState {
   formId?: string;
@@ -49,9 +49,9 @@ export default defineAction({
   run: async (args) => {
     const { view, formId, tab } = args;
     const resolvedView = view ?? (formId || tab ? "form" : undefined);
-    const currentNavigation = (await readAppState(
-      "navigation",
-    )) as NavigationState | null;
+    const currentNavigation = (await readAppStateForCurrentTab("navigation", {
+      fallbackToGlobal: false,
+    })) as NavigationState | null;
     const resolvedFormId =
       formId ??
       (resolvedView === "form" || resolvedView === "responses"
@@ -77,7 +77,7 @@ export default defineAction({
     if (tab) nav.tab = tab;
     nav._writeId = writeId();
 
-    await writeAppState("navigate", nav);
+    await writeAppStateForCurrentTab("navigate", nav);
     return `Navigating to ${resolvedView || "form"}${resolvedFormId ? ` (form: ${resolvedFormId})` : ""}${tab ? ` tab: ${tab}` : ""}`;
   },
 });

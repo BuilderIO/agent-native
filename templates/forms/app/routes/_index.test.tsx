@@ -67,7 +67,7 @@ describe("Forms ask home", () => {
     vi.clearAllMocks();
   });
 
-  it("starts on a fresh chat instead of restoring sidebar state", () => {
+  it("keeps the full-page chat wired to the shared Forms thread state", () => {
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -79,10 +79,13 @@ describe("Forms ask home", () => {
     expect(agentChatHomeMock).toHaveBeenCalledWith(
       expect.objectContaining({
         storageKey: "forms",
-        restoreActiveThread: false,
         showHeader: false,
         showTabBar: false,
       }),
+    );
+    expect(agentChatHomeMock.mock.calls[0]?.[0]).not.toHaveProperty(
+      "restoreActiveThread",
+      false,
     );
     expect(container.textContent).toContain("What do you want to do?");
   });

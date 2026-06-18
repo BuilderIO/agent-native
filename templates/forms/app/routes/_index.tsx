@@ -102,7 +102,6 @@ export default function Index() {
         surfaceClassName="forms-home-chat-panel border-0 bg-transparent shadow-none"
         defaultMode="chat"
         storageKey="forms"
-        restoreActiveThread={false}
         browserTabId={TAB_ID}
         showHeader={false}
         showTabBar={false}
