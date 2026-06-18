@@ -1,11 +1,15 @@
 import { describe, expect, expectTypeOf, it, vi } from "vitest";
 import {
   createAgUiChatRuntime,
+  createClaudeAgentChatRuntime,
   createOpenAIAgentsChatRuntime,
   createOpenAIResponsesChatRuntime,
+  createVercelAiChatRuntime,
   type CreateAgUiChatRuntimeOptions,
+  type CreateClaudeAgentChatRuntimeOptions,
   type CreateOpenAIAgentsChatRuntimeOptions,
   type CreateOpenAIResponsesChatRuntimeOptions,
+  type CreateVercelAiChatRuntimeOptions,
 } from "./connectors.js";
 import type {
   AgentChatRuntime,
@@ -50,6 +54,12 @@ describe("standard agent chat runtime connectors", () => {
     >();
     expectTypeOf(createAgUiChatRuntime).parameters.toEqualTypeOf<
       [CreateAgUiChatRuntimeOptions]
+    >();
+    expectTypeOf(createClaudeAgentChatRuntime).parameters.toEqualTypeOf<
+      [CreateClaudeAgentChatRuntimeOptions]
+    >();
+    expectTypeOf(createVercelAiChatRuntime).parameters.toEqualTypeOf<
+      [CreateVercelAiChatRuntimeOptions]
     >();
 
     expectTypeOf(createOpenAIResponsesChatRuntime).returns.toEqualTypeOf<
@@ -285,6 +295,253 @@ describe("standard agent chat runtime connectors", () => {
       type: "tool-done",
       toolCallId: "tool-1",
       resultText: "7 buckets",
+    });
+  });
+
+  it("maps Vercel AI SDK UI message streams into chat runtime events", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      sseResponse([
+        { type: "start", messageId: "message-1" },
+        { type: "text-start", id: "text-1" },
+        { type: "text-delta", id: "text-1", delta: "Checking " },
+        { type: "text-delta", id: "text-1", delta: "submissions." },
+        {
+          type: "tool-input-start",
+          toolCallId: "tool-1",
+          toolName: "querySubmissions",
+        },
+        {
+          type: "tool-input-delta",
+          toolCallId: "tool-1",
+          inputTextDelta: '{"formId":"hackathon"}',
+        },
+        {
+          type: "tool-output-available",
+          toolCallId: "tool-1",
+          toolName: "querySubmissions",
+          output: { count: 34 },
+        },
+        { type: "finish", usage: { inputTokens: 4, outputTokens: 6 } },
+      ]),
+    );
+    const runtime = createVercelAiChatRuntime({
+      endpoint: "/vercel-ai",
+      fetch: fetchMock as typeof fetch,
+    });
+
+    const turn = await (
+      await runtime.createSession({ id: "thread-1" })
+    ).startTurn({
+      prompt: "How many submissions?",
+    });
+    const events = await drain(turn.events);
+
+    expect(events.map((event) => event.type)).toEqual([
+      "message-start",
+      "message-delta",
+      "message-delta",
+      "tool-start",
+      "tool-delta",
+      "tool-done",
+      "usage",
+      "message-done",
+      "done",
+    ]);
+    expect(events[1]).toMatchObject({
+      type: "message-delta",
+      messageId: "message-1",
+      delta: { type: "text", text: "Checking " },
+    });
+    expect(events[5]).toMatchObject({
+      type: "tool-done",
+      toolCallId: "tool-1",
+      resultText: '{"count":34}',
+    });
+    expect(events[6]).toMatchObject({
+      type: "usage",
+      usage: { inputTokens: 4, outputTokens: 6, totalTokens: 10 },
+    });
+  });
+
+  it("maps Claude agent content block streams into chat runtime events", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      sseResponse([
+        {
+          type: "message_start",
+          message: {
+            id: "message-1",
+          },
+        },
+        {
+          type: "content_block_start",
+          index: 0,
+          content_block: { type: "text" },
+        },
+        {
+          type: "content_block_delta",
+          index: 0,
+          delta: { type: "text_delta", text: "Checking project docs." },
+        },
+        {
+          type: "content_block_start",
+          index: 1,
+          content_block: {
+            type: "tool_use",
+            id: "tool-1",
+            name: "read_file",
+            input: { path: "README.md" },
+          },
+        },
+        {
+          type: "content_block_delta",
+          index: 1,
+          delta: {
+            type: "input_json_delta",
+            partial_json: '{"path":"README.md"}',
+          },
+        },
+        { type: "content_block_stop", index: 1 },
+        { type: "message_stop" },
+        {
+          type: "result",
+          usage: {
+            input_tokens: 10,
+            output_tokens: 20,
+          },
+          total_cost_usd: 0.025,
+        },
+      ]),
+    );
+    const runtime = createClaudeAgentChatRuntime({
+      endpoint: "/claude/agent",
+      fetch: fetchMock as typeof fetch,
+    });
+
+    const turn = await (
+      await runtime.createSession({ id: "thread-1" })
+    ).startTurn({
+      prompt: "Inspect the docs",
+    });
+    const events = await drain(turn.events);
+
+    expect(events.map((event) => event.type)).toEqual([
+      "message-start",
+      "message-delta",
+      "tool-start",
+      "tool-delta",
+      "tool-done",
+      "message-done",
+      "usage",
+      "done",
+    ]);
+    expect(events[1]).toMatchObject({
+      type: "message-delta",
+      messageId: "message-1",
+      delta: { type: "text", text: "Checking project docs." },
+    });
+    expect(events[2]).toMatchObject({
+      type: "tool-start",
+      toolCall: {
+        id: "tool-1",
+        name: "read_file",
+        input: { path: "README.md" },
+      },
+    });
+    expect(events[4]).toMatchObject({
+      type: "tool-done",
+      toolCallId: "tool-1",
+      resultText: '{"path":"README.md"}',
+    });
+    expect(events[6]).toMatchObject({
+      type: "usage",
+      usage: {
+        inputTokens: 10,
+        outputTokens: 20,
+        totalTokens: 30,
+        costCents: 2.5,
+      },
+    });
+  });
+
+  it("maps Vercel AI SDK streams into chat runtime events", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      sseResponse([
+        { type: "start", messageId: "message-1" },
+        {
+          type: "text-delta",
+          messageId: "message-1",
+          delta: "Reading the docs.",
+        },
+        {
+          type: "tool-input-start",
+          toolCallId: "tool-1",
+          toolName: "lookup_docs",
+        },
+        {
+          type: "tool-input-delta",
+          toolCallId: "tool-1",
+          inputTextDelta: '{"topic":"chat"}',
+        },
+        {
+          type: "tool-output-available",
+          toolCallId: "tool-1",
+          toolName: "lookup_docs",
+          output: "Found chat docs",
+        },
+        {
+          type: "finish",
+          usage: {
+            inputTokens: 12,
+            outputTokens: 8,
+          },
+          total_cost_usd: 0.01,
+        },
+      ]),
+    );
+    const runtime = createVercelAiChatRuntime({
+      endpoint: "/vercel/ai",
+      fetch: fetchMock as typeof fetch,
+    });
+
+    const turn = await (
+      await runtime.createSession({ id: "thread-1" })
+    ).startTurn({
+      prompt: "Read the chat docs",
+    });
+    const events = await drain(turn.events);
+
+    expect(events.map((event) => event.type)).toEqual([
+      "message-start",
+      "message-delta",
+      "tool-start",
+      "tool-delta",
+      "tool-done",
+      "usage",
+      "message-done",
+      "done",
+    ]);
+    expect(events[1]).toMatchObject({
+      type: "message-delta",
+      messageId: "message-1",
+      delta: { type: "text", text: "Reading the docs." },
+    });
+    expect(events[2]).toMatchObject({
+      type: "tool-start",
+      toolCall: { id: "tool-1", name: "lookup_docs" },
+    });
+    expect(events[4]).toMatchObject({
+      type: "tool-done",
+      toolCallId: "tool-1",
+      resultText: "Found chat docs",
+    });
+    expect(events[5]).toMatchObject({
+      type: "usage",
+      usage: {
+        inputTokens: 12,
+        outputTokens: 8,
+        totalTokens: 20,
+        costCents: 1,
+      },
     });
   });
 });

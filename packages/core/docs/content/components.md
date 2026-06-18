@@ -39,6 +39,8 @@ so bundlers choose the browser-safe entry.
 | `createOpenAIAgentsChatRuntime()`    | `@agent-native/core/client` or `/client/chat` | You have an OpenAI Agents SDK stream and want the standard chat UI around it.                    |
 | `createOpenAIResponsesChatRuntime()` | `@agent-native/core/client` or `/client/chat` | You have an OpenAI Responses event stream and want it normalized into the chat UI.               |
 | `createAgUiChatRuntime()`            | `@agent-native/core/client` or `/client/chat` | You have an AG-UI event stream and want it normalized into the chat UI.                          |
+| `createClaudeAgentChatRuntime()`     | `@agent-native/core/client` or `/client/chat` | You have a Claude Agent SDK stream and want it normalized into the chat UI.                      |
+| `createVercelAiChatRuntime()`        | `@agent-native/core/client` or `/client/chat` | You have a Vercel AI SDK stream and want it normalized into the chat UI.                         |
 | `createAgentChatRuntimeAdapter()`    | `@agent-native/core/client` or `/client/chat` | You need to adapt an `AgentChatRuntime` into assistant-ui yourself.                              |
 | `createAgentChatAdapter()`           | `@agent-native/core/client` or `/client/chat` | You need the built-in Agent-Native SSE transport as a low-level assistant-ui adapter.            |
 | `useChatThreads()`                   | `@agent-native/core/client` or `/client/chat` | You need a custom thread list, history picker, or scoped chat UI.                                |

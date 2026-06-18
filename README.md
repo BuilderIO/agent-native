@@ -56,7 +56,7 @@ Agent-Native primitives let you choose how much UI to put around an agent withou
 | **Rich chat** | A standalone or embedded chat with native tables, charts, approvals, setup flows, and tool results.       | Shared chat runtime, BYO runtime adapters, action-declared native renderers |
 | **Whole app** | A full SaaS/product UI where chat can start central, move to the sidebar, and stay synced with app state. | SQL state, actions, context awareness, deep links, live sync                |
 
-Protocols come with the framework instead of becoming separate integrations per feature. Today that means A2A, MCP, MCP Apps, standard remote MCP OAuth, MCP clients, HTTP/CLI action calls, native chat widgets, `AgentChatRuntime` adapters, standard OpenAI/AG-UI chat runtime connectors, and deep links all hang off the same action surface. ACP is best understood as the coding-agent/editor interoperability protocol, not the general BYO app-chat runtime.
+Protocols come with the framework instead of becoming separate integrations per feature. Today that means A2A, MCP, MCP Apps, standard remote MCP OAuth, MCP clients, HTTP/CLI action calls, native chat widgets, `AgentChatRuntime` adapters, standard OpenAI, AG-UI, Claude Agent SDK, and Vercel AI SDK chat runtime connectors, and deep links all hang off the same action surface. ACP is best understood as the coding-agent/editor interoperability protocol, not the general BYO app-chat runtime.
 
 For the full decision guide — headless, rich chat on the built-in agent, rich chat on your own agent, embedded sidecar, or full app — see [Agent Surfaces](https://agent-native.com/docs/agent-surfaces).
 

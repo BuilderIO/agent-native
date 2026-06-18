@@ -7,6 +7,7 @@ import {
   type AgentChatRuntimeSessionId,
   type AgentChatRuntimeToolCallId,
   type AgentChatRuntimeTurnId,
+  type AgentChatRuntimeUsage,
   type CreateHttpAgentChatRuntimeOptions,
 } from "./runtime.js";
 
@@ -20,6 +21,10 @@ export interface CreateOpenAIAgentsChatRuntimeOptions extends ConnectorRuntimeOp
 export interface CreateOpenAIResponsesChatRuntimeOptions extends ConnectorRuntimeOptions {}
 
 export interface CreateAgUiChatRuntimeOptions extends ConnectorRuntimeOptions {}
+
+export interface CreateClaudeAgentChatRuntimeOptions extends ConnectorRuntimeOptions {}
+
+export interface CreateVercelAiChatRuntimeOptions extends ConnectorRuntimeOptions {}
 
 interface RuntimeEventContext {
   sessionId: AgentChatRuntimeSessionId;
@@ -45,8 +50,17 @@ interface ToolState {
 
 interface ConnectorTurnState {
   fallbackMessageId: string;
+  activeMessageId?: string;
   messages: Map<string, MessageState>;
   tools: Map<string, ToolState>;
+  contentBlocks: Map<
+    string,
+    {
+      messageId?: string;
+      toolId?: string;
+      type?: string;
+    }
+  >;
 }
 
 function runtimeConnectorId(prefix: string): string {
@@ -80,6 +94,12 @@ function stringValue(value: unknown): string | undefined {
   return typeof value === "string" ? value : undefined;
 }
 
+function numberValue(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value)
+    ? value
+    : undefined;
+}
+
 function recordString(
   record: Record<string, unknown> | null,
   ...keys: string[]
@@ -88,6 +108,20 @@ function recordString(
   for (const key of keys) {
     const value = record[key];
     if (typeof value === "string" && value.trim()) return value;
+  }
+  return undefined;
+}
+
+function recordKey(
+  record: Record<string, unknown> | null,
+  ...keys: string[]
+): string | undefined {
+  if (!record) return undefined;
+  for (const key of keys) {
+    const value = record[key];
+    if (typeof value === "string" && value.trim()) return value;
+    if (typeof value === "number" && Number.isFinite(value))
+      return String(value);
   }
   return undefined;
 }
@@ -106,6 +140,7 @@ function nestedRecord(
 
 function normalizeEventType(type: string | undefined): string {
   return (type ?? "")
+    .replace(/([A-Z]+)([A-Z][a-z])/g, "$1_$2")
     .replace(/([a-z0-9])([A-Z])/g, "$1_$2")
     .replace(/[.-]/g, "_")
     .toUpperCase();
@@ -348,6 +383,8 @@ function extractToolId(
     "tool_call_id",
     "callId",
     "call_id",
+    "toolUseId",
+    "tool_use_id",
     "itemId",
     "item_id",
     "id",
@@ -365,6 +402,266 @@ function extractToolName(
     "tool_name",
     "name",
   );
+}
+
+function extractMessageId(
+  event: Record<string, unknown> | null,
+  state: ConnectorTurnState,
+): string {
+  return (
+    recordString(event, "messageId", "message_id", "itemId", "item_id", "id") ??
+    recordString(nestedRecord(event, "message"), "id") ??
+    state.activeMessageId ??
+    state.fallbackMessageId
+  );
+}
+
+function extractUsage(
+  record: Record<string, unknown> | null,
+): AgentChatRuntimeUsage | null {
+  const usage = nestedRecord(record, "usage");
+  const inputTokens =
+    numberValue(usage?.input_tokens) ?? numberValue(usage?.inputTokens);
+  const outputTokens =
+    numberValue(usage?.output_tokens) ?? numberValue(usage?.outputTokens);
+  const totalTokens =
+    numberValue(usage?.total_tokens) ??
+    numberValue(usage?.totalTokens) ??
+    (inputTokens !== undefined || outputTokens !== undefined
+      ? (inputTokens ?? 0) + (outputTokens ?? 0)
+      : undefined);
+  const costUsd =
+    numberValue(record?.total_cost_usd) ?? numberValue(record?.cost_usd);
+  const costCents = costUsd === undefined ? undefined : costUsd * 100;
+  if (
+    inputTokens === undefined &&
+    outputTokens === undefined &&
+    totalTokens === undefined &&
+    costCents === undefined
+  ) {
+    return null;
+  }
+  return {
+    inputTokens,
+    outputTokens,
+    totalTokens,
+    costCents,
+  };
+}
+
+function normalizeContentBlockType(
+  block: Record<string, unknown> | null,
+): string {
+  return normalizeEventType(recordString(block, "type"));
+}
+
+function mapClaudeContentBlocks(
+  context: RuntimeEventContext,
+  state: ConnectorTurnState,
+  message: Record<string, unknown>,
+): AgentChatRuntimeKnownEvent[] {
+  const messageId = extractMessageId(message, state);
+  state.activeMessageId = messageId;
+  const content = message.content;
+  const events: AgentChatRuntimeKnownEvent[] = [];
+  if (!Array.isArray(content)) return events;
+
+  for (const value of content) {
+    const block = asRecord(value);
+    const blockType = normalizeContentBlockType(block);
+    if (blockType === "TEXT") {
+      const text = recordString(block, "text");
+      const existing = state.messages.get(messageId);
+      if (text && !existing?.text) {
+        events.push(...appendTextEvents(context, state, { messageId, text }));
+      }
+      continue;
+    }
+
+    if (blockType === "TOOL_USE") {
+      const toolId = extractToolId(block);
+      const toolName = extractToolName(block);
+      events.push(
+        ...startToolEvents(context, state, {
+          id: toolId,
+          name: toolName,
+          input: block?.input,
+        }),
+      );
+      events.push(
+        ...finishToolEvents(context, state, {
+          id: toolId,
+          name: toolName,
+          result: block?.input,
+        }),
+      );
+      continue;
+    }
+
+    if (blockType === "TOOL_RESULT") {
+      const isError = block?.is_error === true || block?.isError === true;
+      events.push(
+        ...finishToolEvents(context, state, {
+          id: extractToolId(block),
+          name: extractToolName(block),
+          result: block?.content ?? block?.result,
+          resultText: extractText(block),
+          error: isError ? (extractText(block) ?? "Tool failed.") : undefined,
+        }),
+      );
+    }
+  }
+
+  events.push(...finishMessageEvents(context, state, messageId));
+  return events;
+}
+
+function unwrapClaudeAgentEvent(raw: unknown): unknown {
+  const record = asRecord(raw);
+  const type = normalizeEventType(recordString(record, "type"));
+  const event = nestedRecord(record, "event");
+  if (event && (type === "STREAM_EVENT" || recordString(event, "type"))) {
+    return event;
+  }
+  return raw;
+}
+
+function mapClaudeAgentEvent(
+  raw: unknown,
+  context: RuntimeEventContext,
+  state: ConnectorTurnState,
+): AgentChatRuntimeKnownEvent[] {
+  const event = asRecord(unwrapClaudeAgentEvent(raw));
+  const type = normalizeEventType(recordString(event, "type"));
+  const base = baseEvent(context);
+  if (!event || !type) return [];
+
+  if (type === "MESSAGE_START") {
+    const message = nestedRecord(event, "message");
+    const messageId = extractMessageId(message ?? event, state);
+    state.activeMessageId = messageId;
+    const stateMessage = ensureMessage(state, messageId);
+    if (stateMessage.started) return [];
+    stateMessage.started = true;
+    return [
+      {
+        type: "message-start",
+        ...base,
+        message: messageFromState(stateMessage),
+      },
+    ];
+  }
+
+  if (type === "CONTENT_BLOCK_START") {
+    const block = nestedRecord(event, "content_block", "contentBlock");
+    const blockKey = recordKey(event, "index") ?? extractToolId(block);
+    const blockType = normalizeContentBlockType(block);
+    const toolId =
+      blockType === "TOOL_USE"
+        ? (extractToolId(block) ?? (blockKey ? `tool-${blockKey}` : undefined))
+        : undefined;
+    if (blockKey) {
+      state.contentBlocks.set(blockKey, {
+        messageId: state.activeMessageId,
+        toolId,
+        type: blockType,
+      });
+    }
+    if (blockType === "TOOL_USE") {
+      return startToolEvents(context, state, {
+        id: toolId,
+        name: extractToolName(block),
+        input: block?.input,
+      });
+    }
+    return [];
+  }
+
+  if (type === "CONTENT_BLOCK_DELTA") {
+    const delta = nestedRecord(event, "delta");
+    const deltaType = normalizeEventType(recordString(delta, "type"));
+    const blockRef = state.contentBlocks.get(recordKey(event, "index") ?? "");
+    if (deltaType === "TEXT_DELTA") {
+      return appendTextEvents(context, state, {
+        messageId: blockRef?.messageId ?? state.activeMessageId,
+        text: recordString(delta, "text") ?? "",
+      });
+    }
+    if (deltaType === "INPUT_JSON_DELTA") {
+      return appendToolArgsEvents(context, state, {
+        id: blockRef?.toolId ?? extractToolId(event),
+        name: extractToolName(event),
+        delta: recordString(delta, "partial_json", "partialJson", "text"),
+      });
+    }
+    return [];
+  }
+
+  if (type === "CONTENT_BLOCK_STOP") {
+    const blockKey = recordKey(event, "index");
+    const blockRef = blockKey ? state.contentBlocks.get(blockKey) : undefined;
+    if (blockKey) state.contentBlocks.delete(blockKey);
+    if (blockRef?.toolId || blockRef?.type === "TOOL_USE") {
+      return finishToolEvents(context, state, {
+        id: blockRef.toolId,
+      });
+    }
+    return [];
+  }
+
+  if (type === "MESSAGE_STOP") {
+    return finishMessageEvents(context, state, state.activeMessageId);
+  }
+
+  if (type === "ASSISTANT" || type === "ASSISTANT_MESSAGE") {
+    return mapClaudeContentBlocks(context, state, event);
+  }
+
+  if (type === "USER" || type === "USER_MESSAGE") {
+    return mapClaudeContentBlocks(context, state, event);
+  }
+
+  if (type === "SYSTEM" || type === "SYSTEM_MESSAGE") {
+    return [
+      {
+        type: "status",
+        ...base,
+        message:
+          recordString(event, "message", "subtype") ?? "Claude agent update",
+        metadata: event,
+      },
+    ];
+  }
+
+  if (type === "RESULT" || type === "RESULT_MESSAGE") {
+    const usage = extractUsage(event);
+    return [
+      ...(usage ? [{ type: "usage" as const, ...base, usage }] : []),
+      ...finishMessageEvents(context, state),
+      {
+        type: "done",
+        ...base,
+        reason:
+          recordString(event, "subtype") === "error" ? "error" : "complete",
+      },
+    ];
+  }
+
+  if (type === "ERROR") {
+    return [
+      {
+        type: "error",
+        ...base,
+        error:
+          recordString(event, "message", "error") ??
+          "Claude agent stream failed.",
+        code: recordString(event, "code", "name"),
+      },
+      { type: "done", ...base, reason: "error" },
+    ];
+  }
+
+  return [];
 }
 
 function unwrapOpenAIResponsesEvent(raw: unknown): unknown {
@@ -595,6 +892,197 @@ function mapOpenAIAgentsEvent(
   return mapOpenAIResponsesEvent(raw, context, state);
 }
 
+function mapVercelAiEvent(
+  raw: unknown,
+  context: RuntimeEventContext,
+  state: ConnectorTurnState,
+): AgentChatRuntimeKnownEvent[] {
+  const event = asRecord(raw);
+  const type = normalizeEventType(recordString(event, "type"));
+  const base = baseEvent(context);
+  if (!event || !type) return [];
+  const vercelMessageId =
+    recordString(event, "messageId", "message_id") ??
+    state.activeMessageId ??
+    state.fallbackMessageId;
+
+  if (type === "START") {
+    const messageId = vercelMessageId;
+    state.activeMessageId = messageId;
+    const message = ensureMessage(state, messageId);
+    if (message.started) return [];
+    message.started = true;
+    return [
+      {
+        type: "message-start",
+        ...base,
+        message: messageFromState(message),
+      },
+    ];
+  }
+
+  if (type === "TEXT_START") {
+    const messageId = vercelMessageId;
+    state.activeMessageId = messageId;
+    const message = ensureMessage(state, messageId);
+    if (message.started) return [];
+    message.started = true;
+    return [
+      {
+        type: "message-start",
+        ...base,
+        message: messageFromState(message),
+      },
+    ];
+  }
+
+  if (type === "TEXT_DELTA") {
+    return appendTextEvents(context, state, {
+      messageId: vercelMessageId,
+      text: recordString(event, "delta", "text") ?? "",
+    });
+  }
+
+  if (type === "TEXT_END") {
+    return [];
+  }
+
+  if (type === "REASONING_DELTA") {
+    return [
+      {
+        type: "status",
+        ...base,
+        message: recordString(event, "delta", "text") ?? "Reasoning",
+      },
+    ];
+  }
+
+  if (type === "TOOL_INPUT_START") {
+    return startToolEvents(context, state, {
+      id: extractToolId(event),
+      name: extractToolName(event),
+    });
+  }
+
+  if (type === "TOOL_INPUT_DELTA") {
+    return appendToolArgsEvents(context, state, {
+      id: extractToolId(event),
+      name: extractToolName(event),
+      delta: recordString(event, "inputTextDelta", "delta", "text"),
+    });
+  }
+
+  if (type === "TOOL_INPUT_AVAILABLE") {
+    return startToolEvents(context, state, {
+      id: extractToolId(event),
+      name: extractToolName(event),
+      input: event.input,
+    });
+  }
+
+  if (type === "TOOL_OUTPUT_AVAILABLE") {
+    return finishToolEvents(context, state, {
+      id: extractToolId(event),
+      name: extractToolName(event),
+      result: event.output,
+      resultText:
+        recordString(event, "outputText", "resultText", "text") ??
+        (event.output === undefined
+          ? undefined
+          : stringifyToolValue(event.output)),
+    });
+  }
+
+  if (type === "SOURCE_URL" || type === "SOURCE_DOCUMENT") {
+    return [
+      {
+        type: "artifact",
+        ...base,
+        artifact: {
+          id: recordString(event, "sourceId", "source_id", "id"),
+          kind: type === "SOURCE_URL" ? "source-url" : "source-document",
+          title: recordString(event, "title"),
+          url: recordString(event, "url"),
+          data: event,
+        },
+      },
+    ];
+  }
+
+  if (type === "FILE") {
+    return [
+      {
+        type: "artifact",
+        ...base,
+        artifact: {
+          id: recordString(event, "id", "fileId", "file_id"),
+          kind: "file",
+          title: recordString(event, "filename", "title"),
+          url: recordString(event, "url"),
+          data: event,
+        },
+      },
+    ];
+  }
+
+  if (type.startsWith("DATA_")) {
+    return [
+      {
+        type: "message-delta",
+        ...base,
+        messageId: vercelMessageId,
+        delta: {
+          type: "data",
+          data: event.data ?? event,
+          partId: recordString(event, "id"),
+        },
+      },
+    ];
+  }
+
+  if (type === "ERROR") {
+    return [
+      {
+        type: "error",
+        ...base,
+        error:
+          recordString(event, "errorText", "message", "error") ??
+          "AI SDK stream failed.",
+        code: recordString(event, "code"),
+      },
+      { type: "done", ...base, reason: "error" },
+    ];
+  }
+
+  if (type === "ABORT") {
+    return [
+      ...finishMessageEvents(context, state),
+      { type: "done", ...base, reason: "cancelled" },
+    ];
+  }
+
+  if (type === "FINISH") {
+    const usage = extractUsage(event);
+    return [
+      ...(usage ? [{ type: "usage" as const, ...base, usage }] : []),
+      ...finishMessageEvents(context, state),
+      { type: "done", ...base, reason: "complete" },
+    ];
+  }
+
+  if (type === "START_STEP" || type === "FINISH_STEP") {
+    return [
+      {
+        type: "status",
+        ...base,
+        message: type === "START_STEP" ? "Step started" : "Step finished",
+      },
+    ];
+  }
+
+  return [];
+}
+
 function mapAgUiEvent(
   raw: unknown,
   context: RuntimeEventContext,
@@ -744,6 +1232,7 @@ function createConnectorMapEvent(
         fallbackMessageId: runtimeConnectorId("message"),
         messages: new Map(),
         tools: new Map(),
+        contentBlocks: new Map(),
       };
       states.set(key, state);
     }
@@ -798,5 +1287,29 @@ export function createAgUiChatRuntime(
     label: "AG-UI",
     ...options,
     mapEvent: createConnectorMapEvent(mapAgUiEvent),
+  });
+}
+
+export function createClaudeAgentChatRuntime(
+  options: CreateClaudeAgentChatRuntimeOptions,
+): AgentChatRuntime<AgentChatRuntimeKnownEvent> {
+  return createHttpAgentChatRuntime({
+    id: "external:claude-agent",
+    kind: "external-agent",
+    label: "Claude Agent SDK",
+    ...options,
+    mapEvent: createConnectorMapEvent(mapClaudeAgentEvent),
+  });
+}
+
+export function createVercelAiChatRuntime(
+  options: CreateVercelAiChatRuntimeOptions,
+): AgentChatRuntime<AgentChatRuntimeKnownEvent> {
+  return createHttpAgentChatRuntime({
+    id: "external:vercel-ai",
+    kind: "external-agent",
+    label: "Vercel AI SDK",
+    ...options,
+    mapEvent: createConnectorMapEvent(mapVercelAiEvent),
   });
 }
