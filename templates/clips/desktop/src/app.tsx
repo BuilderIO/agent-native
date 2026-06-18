@@ -4092,6 +4092,20 @@ function Setup({
           </div>
         </>
       ) : null}
+      <div className="setup-account">
+        <button
+          type="button"
+          className="link-button"
+          onClick={() => {
+            invoke("open_logs").catch((err) => {
+              console.error("[clips-tray] open logs failed:", err);
+            });
+          }}
+          style={{ background: "transparent", border: "none" }}
+        >
+          Open logs
+        </button>
+      </div>
       {signedInAs && onSignOut ? (
         <div className="setup-account">
           <span className="setup-account-email">{signedInAs}</span>
