@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.58.3
+
+### Patch Changes
+
+- bb38b6f: Harden core tool argument parsing, JSON Schema handling, and tool error surfacing.
+
 ## 0.58.2
 
 ### Patch Changes
