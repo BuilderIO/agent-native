@@ -35,6 +35,23 @@ describe("suggestJoinKey", () => {
     expect(suggestion).toBeNull();
   });
 
+  it("normalizes absolute and relative URL-like fields with the same formula", () => {
+    const suggestion = suggestJoinKey({
+      primaryValues: [
+        { canonical: "https://site.com/blog/foo?utm=campaign" },
+        { canonical: "https://site.com/blog/bar/" },
+      ],
+      secondaryValues: [{ path: "/blog/foo" }, { path: "/blog/bar" }],
+    });
+
+    expect(suggestion).not.toBeNull();
+    expect(suggestion!.primary.normalizationFormula).toContain("striphost");
+    expect(suggestion!.secondary.normalizationFormula).toContain("striphost");
+    expect(
+      suggestion!.sampleMatches.filter((match) => match.matched),
+    ).toHaveLength(2);
+  });
+
   it("prefers the higher-overlap field even when a weak field also overlaps", () => {
     const suggestion = suggestJoinKey({
       primaryValues: [

@@ -47,6 +47,7 @@ import {
   type BuilderCmsReadState,
 } from "./_builder-cms-read-client.js";
 import { listPropertiesForDatabase, nanoid } from "./_property-utils.js";
+import { sanitizeNormalizationFormula } from "../shared/properties.js";
 
 type ContentDatabaseRow = typeof schema.contentDatabases.$inferSelect;
 type ContentDatabaseSourceRowDb =
@@ -736,20 +737,24 @@ export function normalizeSourceFederation(
   const join = value.join;
   if (!join || typeof join !== "object") return undefined;
   if (typeof join.normalizationFormula !== "string") return undefined;
+  const joinFormula = sanitizeNormalizationFormula(join.normalizationFormula);
+  if (!joinFormula) return undefined;
+  const valueFormula =
+    typeof value.normalizationFormula === "string"
+      ? (sanitizeNormalizationFormula(value.normalizationFormula) ??
+        joinFormula)
+      : joinFormula;
   return {
     role,
     keyField: typeof value.keyField === "string" ? value.keyField : "",
-    normalizationFormula:
-      typeof value.normalizationFormula === "string"
-        ? value.normalizationFormula
-        : join.normalizationFormula,
+    normalizationFormula: valueFormula,
     join: {
       kind: join.kind === "reference" ? "reference" : "identity",
       collection: typeof join.collection === "string" ? join.collection : null,
       localExpr: typeof join.localExpr === "string" ? join.localExpr : "",
       remoteKeyField:
         typeof join.remoteKeyField === "string" ? join.remoteKeyField : "",
-      normalizationFormula: join.normalizationFormula,
+      normalizationFormula: joinFormula,
     },
     canonicalKey:
       value.canonicalKey && typeof value.canonicalKey === "object"
@@ -1894,7 +1899,9 @@ export async function seedSecondarySourceFields(args: {
       propertyId: null,
       localFieldKey: key,
       sourceFieldKey: key,
-      sourceFieldLabel: builderCmsModelFieldLabel(key),
+      sourceFieldLabel:
+        args.modelFields.find((field) => field.name === key)?.label ??
+        builderCmsModelFieldLabel(key),
       sourceFieldType: fieldTypeByKey.get(key) ?? "text",
       mappingType: "property" as const,
       writeOwner: "source" as const,

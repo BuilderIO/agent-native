@@ -489,7 +489,7 @@ export function evaluateNormalizationFormula(
   formula: string | null | undefined,
   valuesByName: Record<string, DocumentPropertyValue>,
 ): string | null {
-  const trimmed = formula?.trim() ?? "";
+  const trimmed = sanitizeNormalizationFormula(formula);
   if (!trimmed) return null;
   const value = evaluateFormulaExpression(trimmed, valuesByName);
   if (value === null || value === undefined) return null;
@@ -498,6 +498,9 @@ export function evaluateNormalizationFormula(
 }
 
 type FormulaPrimitive = string | number | boolean | null;
+
+const MAX_NORMALIZATION_FORMULA_LENGTH = 1000;
+const MAX_REGEX_PATTERN_LENGTH = 160;
 
 type FormulaToken =
   | { type: "number"; value: number }
@@ -872,15 +875,98 @@ export function slugifyFormulaText(value: string): string {
 }
 
 // Reduce a URL to its path so a host-qualified URL normalizes to the same key
-// as a relative one. Falls back to the input when it isn't a parseable URL.
+// as a relative one.
 function stripUrlHost(value: string): string {
   const trimmed = value.trim();
   if (!trimmed) return "";
+  const urlLike = /^[a-z][a-z0-9+.-]*:\/\//i.test(trimmed)
+    ? trimmed
+    : /^[^/\s?#]+\.[^/\s?#]+(?:[/?#]|$)/i.test(trimmed)
+      ? `http://${trimmed}`
+      : trimmed;
   try {
-    return new URL(trimmed).pathname;
+    const path = new URL(urlLike, "http://agent-native.local").pathname;
+    return path.length > 1 ? path.replace(/\/+$/, "") : path;
   } catch {
-    return trimmed;
+    return trimmed.replace(/[?#].*$/, "").replace(/\/+$/, "");
   }
+}
+
+function isSafeRegexPattern(pattern: string) {
+  if (!pattern || pattern.length > MAX_REGEX_PATTERN_LENGTH) return false;
+  if (/\\[1-9]/.test(pattern)) return false;
+  if (/\(\?<?[=!]/.test(pattern)) return false;
+  const quantifier = "(?:[+*]|\\{\\d+(?:,\\d*)?\\})";
+  const nestedQuantifier = new RegExp(
+    `\\((?:[^()\\\\]|\\\\.)*${quantifier}(?:[^()\\\\]|\\\\.)*\\)${quantifier}`,
+  );
+  if (nestedQuantifier.test(pattern)) return false;
+  const quantifiedAlternation = new RegExp(
+    `\\((?:[^()\\\\]|\\\\.)*\\|(?:[^()\\\\]|\\\\.)*\\)${quantifier}`,
+  );
+  if (quantifiedAlternation.test(pattern)) return false;
+  return true;
+}
+
+function safeRegExp(pattern: string, flags = "") {
+  if (!isSafeRegexPattern(pattern)) return null;
+  try {
+    return new RegExp(pattern, flags);
+  } catch {
+    return null;
+  }
+}
+
+function regexPatternStringsFromFormula(expression: string) {
+  const tokens = tokenizeFormulaExpression(expression);
+  if (!tokens) return null;
+  const patterns: string[] = [];
+  for (let index = 0; index < tokens.length; index += 1) {
+    const token = tokens[index];
+    if (
+      token.type !== "identifier" ||
+      !["regexextract", "regexreplace"].includes(token.value.toLowerCase()) ||
+      tokens[index + 1]?.type !== "punctuation" ||
+      tokens[index + 1]?.value !== "("
+    ) {
+      continue;
+    }
+    let depth = 0;
+    let argIndex = 0;
+    for (let cursor = index + 1; cursor < tokens.length; cursor += 1) {
+      const inner = tokens[cursor];
+      if (inner.type === "punctuation" && inner.value === "(") {
+        depth += 1;
+        continue;
+      }
+      if (inner.type === "punctuation" && inner.value === ")") {
+        depth -= 1;
+        if (depth === 0) break;
+        continue;
+      }
+      if (depth === 1 && inner.type === "punctuation" && inner.value === ",") {
+        argIndex += 1;
+        continue;
+      }
+      if (depth === 1 && argIndex === 1 && inner.type === "string") {
+        patterns.push(inner.value);
+      }
+    }
+  }
+  return patterns;
+}
+
+export function sanitizeNormalizationFormula(
+  formula: string | null | undefined,
+): string | null {
+  const trimmed = formula?.trim() ?? "";
+  if (!trimmed || trimmed.length > MAX_NORMALIZATION_FORMULA_LENGTH) {
+    return null;
+  }
+  const patterns = regexPatternStringsFromFormula(trimmed);
+  if (!patterns) return null;
+  if (patterns.some((pattern) => !isSafeRegexPattern(pattern))) return null;
+  return trimmed;
 }
 
 // A bad pattern yields null (an un-joinable key) rather than throwing on the
@@ -890,14 +976,12 @@ function regexExtractFormula(
   pattern: string,
   group: number | null,
 ): FormulaPrimitive {
-  try {
-    const match = new RegExp(pattern).exec(value);
-    if (!match) return null;
-    const index = group === null ? 0 : Math.trunc(group);
-    return match[index] ?? null;
-  } catch {
-    return null;
-  }
+  const regex = safeRegExp(pattern);
+  if (!regex) return null;
+  const match = regex.exec(value);
+  if (!match) return null;
+  const index = group === null ? 0 : Math.trunc(group);
+  return match[index] ?? null;
 }
 
 function regexReplaceFormula(
@@ -905,11 +989,8 @@ function regexReplaceFormula(
   pattern: string,
   replacement: string,
 ): FormulaPrimitive {
-  try {
-    return value.replace(new RegExp(pattern, "g"), replacement);
-  } catch {
-    return null;
-  }
+  const regex = safeRegExp(pattern, "g");
+  return regex ? value.replace(regex, replacement) : null;
 }
 
 export function evaluateNumericExpression(expression: string): number | null {

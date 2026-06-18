@@ -99,7 +99,9 @@ Builder CMS source reads/writes need credentials. There are two ways to provide 
 2. **Local dogfooding escape hatch:** to run the app locally without connecting
    first, set the keys plus an explicit opt-in flag:
    ```bash
-   # templates/content/.env.local  (NOT the repo-root .env — only .env.local is loaded)
+   # templates/content/.env or .env.local
+   # The action CLI and Vite load the template cwd env files; workspace-root
+   # env files can also be loaded by the surrounding dev/runtime commands.
    BUILDER_PRIVATE_KEY=...
    BUILDER_PUBLIC_KEY=...
    AGENT_NATIVE_LOCAL_BUILDER_ENV=1   # opt in to env-key fallback for a signed-in user

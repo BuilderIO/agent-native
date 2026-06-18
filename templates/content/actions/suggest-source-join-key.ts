@@ -60,6 +60,7 @@ export default defineAction({
     } else if (args.candidateSourceType === "local-table") {
       const { entries } = await readLocalTableEntries(
         args.candidateSourceTable,
+        { limit: args.sampleLimit },
       );
       secondaryValues = entries
         .map((entry) => entry.sourceValues)

@@ -60,6 +60,27 @@ describe("content database source actions", () => {
     });
   });
 
+  it("rejects unsafe source federation normalization formulas", () => {
+    expect(() =>
+      attachSource.schema.parse({
+        databaseId: "database",
+        sourceType: "local-table",
+        sourceTable: "source-database",
+        join: {
+          canonicalKey: { label: "URL", type: "text" },
+          primary: {
+            keyField: "url",
+            normalizationFormula: 'regexextract({url}, "(a+)+$", 1)',
+          },
+          secondary: {
+            keyField: "url",
+            normalizationFormula: "lower(trim({url}))",
+          },
+        },
+      }),
+    ).toThrow();
+  });
+
   it("accepts refresh requests without external provider details", () => {
     expect(refreshSource.schema.parse({ databaseId: "database" })).toEqual({
       databaseId: "database",

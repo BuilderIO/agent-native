@@ -45,7 +45,12 @@ function stringValue(value: DocumentPropertyValue): string | null {
 }
 
 function looksLikeUrl(values: string[]): boolean {
-  return values.some((value) => value.includes("://") || value.startsWith("/"));
+  return values.some(
+    (value) =>
+      value.includes("://") ||
+      value.startsWith("/") ||
+      /^[^/\s?#]+\.[^/\s?#]+(?:[/?#]|$)/i.test(value),
+  );
 }
 
 function proposeFormula(field: string, urlLike: boolean): string {
@@ -84,13 +89,21 @@ interface FieldProfile {
   normalizedSet: Set<string>;
 }
 
-function profileField(field: string, rows: ValueRow[]): FieldProfile {
+function rawStringValuesForField(field: string, rows: ValueRow[]) {
   const raws: string[] = [];
   for (const row of rows) {
     const raw = stringValue(row[field]);
     if (raw !== null) raws.push(raw);
   }
-  const formula = proposeFormula(field, looksLikeUrl(raws));
+  return raws;
+}
+
+function profileField(
+  field: string,
+  raws: string[],
+  urlLike: boolean,
+): FieldProfile {
+  const formula = proposeFormula(field, urlLike);
   const normalizedByRaw = new Map<string, string>();
   const normalizedSet = new Set<string>();
   for (const raw of raws) {
@@ -127,11 +140,17 @@ export function suggestJoinKey(args: {
   primaryValues: ValueRow[];
   secondaryValues: ValueRow[];
 }): JoinSuggestion | null {
-  const primaryProfiles = stringFieldKeys(args.primaryValues).map((field) =>
-    profileField(field, args.primaryValues),
+  const primaryRawByField = new Map(
+    stringFieldKeys(args.primaryValues).map((field) => [
+      field,
+      rawStringValuesForField(field, args.primaryValues),
+    ]),
   );
-  const secondaryProfiles = stringFieldKeys(args.secondaryValues).map((field) =>
-    profileField(field, args.secondaryValues),
+  const secondaryRawByField = new Map(
+    stringFieldKeys(args.secondaryValues).map((field) => [
+      field,
+      rawStringValuesForField(field, args.secondaryValues),
+    ]),
   );
 
   let best: {
@@ -141,8 +160,16 @@ export function suggestJoinKey(args: {
     overlap: number;
   } | null = null;
 
-  for (const primary of primaryProfiles) {
-    for (const secondary of secondaryProfiles) {
+  for (const [primaryField, primaryRaws] of primaryRawByField) {
+    for (const [secondaryField, secondaryRaws] of secondaryRawByField) {
+      const pairUrlLike =
+        looksLikeUrl(primaryRaws) || looksLikeUrl(secondaryRaws);
+      const primary = profileField(primaryField, primaryRaws, pairUrlLike);
+      const secondary = profileField(
+        secondaryField,
+        secondaryRaws,
+        pairUrlLike,
+      );
       const overlap = jaccard(primary.normalizedSet, secondary.normalizedSet);
       if (overlap <= 0) continue;
       const score = overlap + nameNudge(primary.field, secondary.field);

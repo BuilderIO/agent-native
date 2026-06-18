@@ -7,6 +7,7 @@ import type {
   ContentDatabaseSourceFederation,
   ContentDatabaseSourceType,
 } from "../shared/api.js";
+import { sanitizeNormalizationFormula } from "../shared/properties.js";
 import type { BuilderCmsSourceEntry } from "./_builder-cms-source-adapter.js";
 import {
   getExistingSource,
@@ -27,7 +28,10 @@ import {
   readBuilderCmsContentEntries,
   readBuilderCmsModelFields,
 } from "./_builder-cms-read-client.js";
-import { readLocalTableEntries } from "./_local-table-source.js";
+import {
+  readLocalTableEntries,
+  resolveReadableLocalTableSource,
+} from "./_local-table-source.js";
 import { getContentDatabaseResponse } from "./_database-utils.js";
 
 const sourceTypeSchema = z
@@ -35,9 +39,17 @@ const sourceTypeSchema = z
   .default("mock-local");
 
 // Per-source key mapping the UI commits after the canonical-key confirm step.
+const normalizationFormulaSchema = z
+  .string()
+  .max(1000)
+  .refine((value) => sanitizeNormalizationFormula(value) !== null, {
+    message:
+      "Normalization formula contains an unsafe regex or invalid expression.",
+  });
+
 const joinSideSchema = z.object({
   keyField: z.string(),
-  normalizationFormula: z.string(),
+  normalizationFormula: normalizationFormulaSchema,
 });
 
 // Present only when adding a SECOND source — federate it onto the primary on a
@@ -139,17 +151,17 @@ export default defineAction({
       (sourceType === "builder-cms" ? "blog_article" : "content_items");
 
     const existingSource = await getExistingSource(database.id);
+    if (sourceType === "local-table") {
+      if (sourceTable === database.id) {
+        throw new Error("A database can't be added as a source of itself.");
+      }
+      await resolveReadableLocalTableSource(sourceTable);
+    }
 
     // Adding a SECOND source: federate it onto the primary on the canonical key
     // instead of replacing the binding. Read-only overlay — the secondary's
     // entries are NOT imported as local documents/items.
     if (args.join && existingSource) {
-      // A database can't be federated with itself — that would recurse at read
-      // time and is meaningless. (The picker already excludes the current db;
-      // this is the authoritative guard.)
-      if (sourceType === "local-table" && sourceTable === database.id) {
-        throw new Error("A database can't be added as a source of itself.");
-      }
       let entries: BuilderCmsSourceEntry[];
       let modelFields: BuilderCmsModelFieldSummary[];
       if (sourceType === "builder-cms") {
@@ -158,7 +170,10 @@ export default defineAction({
         modelFields = await readBuilderCmsModelFields({ model: sourceTable });
       } else if (sourceType === "local-table") {
         // sourceTable carries the target database id for a local-table source.
-        ({ entries, modelFields } = await readLocalTableEntries(sourceTable));
+        ({ entries, modelFields } = await readLocalTableEntries(sourceTable, {
+          limit: args.limit,
+          offset: args.offset,
+        }));
       } else {
         entries = [];
         modelFields = [];

@@ -95,6 +95,7 @@ export function useContentDatabase(documentId: string | null, limit?: number) {
     {
       enabled: !!documentId,
       retry: false,
+      placeholderData: (previous) => previous,
     },
   );
 }

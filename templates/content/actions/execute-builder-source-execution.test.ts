@@ -163,6 +163,7 @@ function executionFor(args: {
   changeSet: ContentDatabaseSourceChangeSet;
   payloadJson?: string;
   state?: BuilderSourceExecutionRecord["state"];
+  updatedAt?: string;
 }): BuilderSourceExecutionRecord {
   const plan = buildBuilderCmsExecutionPlan({
     source: args.source,
@@ -174,6 +175,7 @@ function executionFor(args: {
     state: args.state ?? plan.state,
     idempotencyKey: plan.idempotencyKey,
     payloadJson: args.payloadJson ?? JSON.stringify(plan.payload),
+    updatedAt: args.updatedAt ?? NOW,
   };
 }
 
@@ -181,6 +183,7 @@ function depsFor(args: {
   source: ContentDatabaseSource;
   execution: BuilderSourceExecutionRecord | null;
   writeResult?: BuilderCmsWriteResult;
+  claimExecution?: boolean;
 }): ExecuteBuilderSourceExecutionDeps {
   return {
     now: vi.fn(() => NOW),
@@ -189,6 +192,7 @@ function depsFor(args: {
     getSourceSnapshot: vi.fn(async () => args.source),
     getExecution: vi.fn(async () => args.execution),
     updateExecutionState: vi.fn(async () => {}),
+    claimExecution: vi.fn(async () => args.claimExecution ?? true),
     markExecutionSucceeded: vi.fn(async () => {}),
     markExecutionFailed: vi.fn(async () => {}),
     executeWrite: vi.fn(async () =>
@@ -402,13 +406,17 @@ describe("execute Builder source execution", () => {
       ),
     ).resolves.toBe(RESPONSE);
 
-    expect(deps.updateExecutionState).toHaveBeenCalledWith(
+    expect(deps.claimExecution).toHaveBeenCalledWith(
       expect.objectContaining({
         executionId: execution.id,
-        state: "running",
-        lastError: null,
+        summary: "Running Builder autosave execution.",
       }),
     );
+    const claimCallOrder = vi.mocked(deps.claimExecution).mock
+      .invocationCallOrder[0];
+    const writeCallOrder = vi.mocked(deps.executeWrite).mock
+      .invocationCallOrder[0];
+    expect(claimCallOrder).toBeLessThan(writeCallOrder);
     expect(deps.executeWrite).toHaveBeenCalledTimes(1);
     expect(deps.executeWrite).toHaveBeenCalledWith({
       request: plan.payload.request,
@@ -436,7 +444,7 @@ describe("execute Builder source execution", () => {
     expect(reconcileCallOrder).toBeLessThan(successCallOrder);
   });
 
-  it("records write failures without applying the change set", async () => {
+  it("records and throws write failures without applying the change set", async () => {
     const approvedChangeSet = changeSet();
     const builderSource = source({ changeSets: [approvedChangeSet] });
     const execution = executionFor({
@@ -463,7 +471,7 @@ describe("execute Builder source execution", () => {
         },
         deps,
       ),
-    ).resolves.toBe(RESPONSE);
+    ).rejects.toThrow("Builder write request failed with HTTP 500.");
 
     expect(deps.markExecutionFailed).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -474,6 +482,65 @@ describe("execute Builder source execution", () => {
     );
     expect(deps.markExecutionSucceeded).not.toHaveBeenCalled();
     expect(deps.reconcileWrite).not.toHaveBeenCalled();
+  });
+
+  it("does not write when another caller already claimed the execution", async () => {
+    const approvedChangeSet = changeSet();
+    const builderSource = source({ changeSets: [approvedChangeSet] });
+    const execution = executionFor({
+      source: builderSource,
+      changeSet: approvedChangeSet,
+    });
+    const deps = depsFor({
+      source: builderSource,
+      execution,
+      claimExecution: false,
+    });
+
+    await expect(
+      executeBuilderSourceExecutionWithDeps(
+        {
+          databaseId: "database-1",
+          changeSetId: approvedChangeSet.id,
+          pushModeConfirmation: "autosave",
+        },
+        deps,
+      ),
+    ).rejects.toThrow("Builder execution is already running.");
+
+    expect(deps.claimExecution).toHaveBeenCalledTimes(1);
+    expect(deps.executeWrite).not.toHaveBeenCalled();
+  });
+
+  it("allows stale running executions to be reclaimed through the claim gate", async () => {
+    const approvedChangeSet = changeSet();
+    const builderSource = source({ changeSets: [approvedChangeSet] });
+    const execution = executionFor({
+      source: builderSource,
+      changeSet: approvedChangeSet,
+      state: "running",
+      updatedAt: "2026-06-15T11:00:00.000Z",
+    });
+    const deps = depsFor({ source: builderSource, execution });
+
+    await expect(
+      executeBuilderSourceExecutionWithDeps(
+        {
+          databaseId: "database-1",
+          changeSetId: approvedChangeSet.id,
+          pushModeConfirmation: "autosave",
+        },
+        deps,
+      ),
+    ).resolves.toBe(RESPONSE);
+
+    expect(deps.claimExecution).toHaveBeenCalledWith(
+      expect.objectContaining({
+        executionId: execution.id,
+        staleBefore: "2026-06-15T11:50:00.000Z",
+      }),
+    );
+    expect(deps.executeWrite).toHaveBeenCalledTimes(1);
   });
 
   it("does not mark success when post-write reconciliation fails", async () => {
@@ -577,6 +644,7 @@ describe("execute Builder source execution", () => {
         pushMode: "autosave",
       }),
       payloadJson: "{}",
+      updatedAt: NOW,
     };
     const deps = depsFor({ source: builderSource, execution });
 

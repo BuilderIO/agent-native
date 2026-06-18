@@ -390,7 +390,8 @@ export default defineAction({
     }
 
     const now = new Date().toISOString();
-    const reviewerEmail = getRequestUserEmail() || database.ownerEmail;
+    const reviewerEmail =
+      getRequestUserEmail() ?? "agent-runtime@agent-native.local";
     const approvedIds: string[] = [];
     for (const changeSet of reviewableChanges) {
       approvedIds.push(

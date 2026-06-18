@@ -205,6 +205,32 @@ describe("Builder CMS write client", () => {
     expect(writes).toEqual([JSON.stringify({ data: { title: "New title" } })]);
   });
 
+  it("does not retry create POST writes after a transport error", async () => {
+    resolveBuilderCredentialMock.mockResolvedValue("example-private-key");
+    const fetchImpl = vi.fn(async () => {
+      throw new Error("socket closed after request body was sent");
+    });
+    const requestImpl = vi.fn();
+
+    await expect(
+      executeBuilderCmsWrite({
+        request: {
+          method: "POST",
+          path: "/api/v1/write/agent-native-blog-article-test",
+          body: { data: { title: "Created title" } },
+        },
+        fetchImpl: fetchImpl as unknown as typeof fetch,
+        nodeRequestImpl: requestImpl,
+      }),
+    ).resolves.toMatchObject({
+      ok: false,
+      status: 0,
+      error:
+        "Builder write request failed: socket closed after request body was sent",
+    });
+    expect(requestImpl).not.toHaveBeenCalled();
+  });
+
   it("extracts entry ids from common Builder response envelopes", () => {
     expect(extractBuilderCmsWriteEntryId({ id: "direct-id" })).toBe(
       "direct-id",

@@ -12,6 +12,7 @@ import {
   normalizePropertyVisibility,
   parsePropertyOptions,
   parsePropertyValue,
+  sanitizeNormalizationFormula,
   serializePropertyOptions,
   serializePropertyValue,
 } from "./properties";
@@ -168,7 +169,22 @@ describe("document properties", () => {
       }),
     ).toBe("/blog/foo");
     expect(
+      evaluatePropertyFormula("striphost({URL})", {
+        URL: "https://site.com/blog/foo?utm=x#frag",
+      }),
+    ).toBe("/blog/foo");
+    expect(
       evaluatePropertyFormula("striphost({URL})", { URL: "/blog/foo" }),
+    ).toBe("/blog/foo");
+    expect(
+      evaluatePropertyFormula("striphost({URL})", {
+        URL: "/blog/foo?utm=x#frag",
+      }),
+    ).toBe("/blog/foo");
+    expect(
+      evaluatePropertyFormula("striphost({URL})", {
+        URL: "site.com/blog/foo/",
+      }),
     ).toBe("/blog/foo");
     // The canonical case: host-qualified and relative URLs collapse to one key.
     expect(
@@ -203,6 +219,14 @@ describe("document properties", () => {
     // A broken regex pattern fails as a null key rather than a garbage literal.
     expect(
       evaluateNormalizationFormula('regexextract({k}, "(", 1)', { k: "foo" }),
+    ).toBeNull();
+    expect(
+      sanitizeNormalizationFormula('regexextract({k}, "(a+)+$", 1)'),
+    ).toBeNull();
+    expect(
+      evaluateNormalizationFormula('regexextract({k}, "(a+)+$", 1)', {
+        k: "aaaaaaaaaaaaaaaa!",
+      }),
     ).toBeNull();
   });
 

@@ -9,6 +9,7 @@ import type {
 import { getDb, schema } from "../server/db/index.js";
 import {
   buildBuilderCmsExecutionPlan,
+  builderCmsExecutionIdempotencyKey,
   validateBuilderCmsExecutionDryRun,
 } from "./_builder-cms-write-adapter.js";
 import {
@@ -64,7 +65,16 @@ export default defineAction({
       changeSet,
       pushModeConfirmation: changeSet.pushMode ?? undefined,
     });
-    const expectedKey = args.idempotencyKey ?? plan.idempotencyKey;
+    const expectedKey = builderCmsExecutionIdempotencyKey({
+      sourceId: source.id,
+      changeSetId: changeSet.id,
+      pushMode: plan.pushMode,
+    });
+    if (args.idempotencyKey && args.idempotencyKey !== expectedKey) {
+      throw new Error(
+        "Execution idempotency key does not match this write plan.",
+      );
+    }
     const db = getDb();
     const [execution] = await db
       .select()

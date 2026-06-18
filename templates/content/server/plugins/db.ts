@@ -401,6 +401,23 @@ const runContentMigrations = runMigrations(
       version: 46,
       sql: `ALTER TABLE content_database_source_rows ADD COLUMN IF NOT EXISTS source_values_json TEXT NOT NULL DEFAULT '{}'`,
     },
+    {
+      version: 47,
+      sql: `CREATE INDEX IF NOT EXISTS content_database_sources_database_idx ON content_database_sources (database_id);
+        CREATE INDEX IF NOT EXISTS content_database_sources_owner_idx ON content_database_sources (owner_email);
+        CREATE INDEX IF NOT EXISTS content_database_source_fields_source_idx ON content_database_source_fields (source_id);
+        CREATE INDEX IF NOT EXISTS content_database_source_fields_property_idx ON content_database_source_fields (property_id);
+        CREATE INDEX IF NOT EXISTS content_database_source_rows_source_idx ON content_database_source_rows (source_id);
+        CREATE INDEX IF NOT EXISTS content_database_source_rows_item_idx ON content_database_source_rows (database_item_id);
+        CREATE INDEX IF NOT EXISTS content_database_source_rows_document_idx ON content_database_source_rows (document_id);
+        CREATE INDEX IF NOT EXISTS content_database_source_change_sets_source_idx ON content_database_source_change_sets (source_id);
+        CREATE INDEX IF NOT EXISTS content_database_source_change_sets_item_idx ON content_database_source_change_sets (database_item_id);
+        CREATE INDEX IF NOT EXISTS content_database_source_change_reviews_source_idx ON content_database_source_change_reviews (source_id);
+        CREATE INDEX IF NOT EXISTS content_database_source_change_reviews_change_set_idx ON content_database_source_change_reviews (change_set_id);
+        CREATE INDEX IF NOT EXISTS content_database_source_executions_source_idx ON content_database_source_executions (source_id);
+        CREATE INDEX IF NOT EXISTS content_database_source_executions_change_set_idx ON content_database_source_executions (change_set_id);
+        CREATE INDEX IF NOT EXISTS content_database_source_executions_idempotency_idx ON content_database_source_executions (idempotency_key)`,
+    },
   ],
   { table: "content_migrations" },
 );

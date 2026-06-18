@@ -14,6 +14,8 @@
  * `orgName` when this returns nothing.
  */
 
+import { createHash } from "node:crypto";
+
 export interface BuilderSpaceSummary {
   id: string;
   name: string;
@@ -35,6 +37,7 @@ interface SpaceCacheEntry {
 // briefly so a transient Builder hiccup recovers without hammering the API.
 const SPACE_CACHE_TTL_MS = 5 * 60 * 1000;
 const SPACE_NEGATIVE_TTL_MS = 60 * 1000;
+const SPACE_CACHE_MAX_ENTRIES = 100;
 // Hard cap on the admin call — the status route must never block on Builder.
 const ADMIN_FETCH_TIMEOUT_MS = 4000;
 const spaceCache = new Map<string, SpaceCacheEntry>();
@@ -53,13 +56,7 @@ const SPACE_NAME_FIELDS = [
   "organizationName",
 ] as const;
 
-const SPACE_ID_FIELDS = [
-  "id",
-  "spaceId",
-  "publicKey",
-  "key",
-  "apiKey",
-] as const;
+const SPACE_ID_FIELDS = ["id", "spaceId", "publicKey"] as const;
 
 function builderAdminApiHost() {
   return (
@@ -67,9 +64,16 @@ function builderAdminApiHost() {
   ).replace(/\/+$/, "");
 }
 
-// Don't key the cache on the full secret; the tail is enough to disambiguate.
 function cacheKey(privateKey: string) {
-  return privateKey.slice(-12);
+  return createHash("sha256").update(privateKey).digest("hex");
+}
+
+function setCachedSpaces(key: string, entry: SpaceCacheEntry) {
+  if (!spaceCache.has(key) && spaceCache.size >= SPACE_CACHE_MAX_ENTRIES) {
+    const [oldest] = spaceCache.keys();
+    if (oldest) spaceCache.delete(oldest);
+  }
+  spaceCache.set(key, entry);
 }
 
 function firstString(
@@ -83,7 +87,7 @@ function firstString(
   return null;
 }
 
-function parseSpacesFromSettings(
+export function parseSpacesFromSettings(
   json: BuilderAdminGraphQlResponse,
 ): BuilderSpaceSummary[] {
   const settings = json?.data?.settings;
@@ -157,7 +161,7 @@ export async function listBuilderSpaces(
 
   // Cache a resolved name for the full TTL; cache an empty/failed lookup only
   // briefly so a transient Builder hiccup recovers without per-poll hammering.
-  spaceCache.set(key, {
+  setCachedSpaces(key, {
     expiresAt:
       Date.now() +
       (spaces.length > 0 ? SPACE_CACHE_TTL_MS : SPACE_NEGATIVE_TTL_MS),

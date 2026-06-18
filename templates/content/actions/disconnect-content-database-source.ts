@@ -1,6 +1,6 @@
 import { defineAction } from "@agent-native/core";
 import { assertAccess } from "@agent-native/core/sharing";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import type {
@@ -60,7 +60,12 @@ export default defineAction({
       const [target] = await db
         .select({ id: schema.contentDatabaseSources.id })
         .from(schema.contentDatabaseSources)
-        .where(eq(schema.contentDatabaseSources.id, args.sourceId));
+        .where(
+          and(
+            eq(schema.contentDatabaseSources.id, args.sourceId),
+            eq(schema.contentDatabaseSources.databaseId, database.id),
+          ),
+        );
       if (target) await deleteSourceRecords(target.id);
       return getContentDatabaseResponse(database.id);
     }

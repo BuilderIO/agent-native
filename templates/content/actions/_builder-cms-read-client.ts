@@ -32,6 +32,7 @@ type BuilderMcpToolResult = {
 const BUILDER_CMS_DEFAULT_READ_LIMIT = 500;
 const BUILDER_CMS_MAX_READ_LIMIT = 1000;
 const BUILDER_CMS_PAGE_SIZE = 100;
+const BUILDER_CMS_READ_RETRIES = 2;
 const BUILDER_CMS_ENTRY_FIELDS =
   "id,name,published,lastUpdated,createdDate,data.title,data.handle,data.url,data.slug,data.date,data.description,data.status,data.author,data.image";
 
@@ -63,6 +64,43 @@ function readLimit(limit: number | undefined) {
 
 function readPageLimit(remaining: number) {
   return Math.min(remaining, BUILDER_CMS_PAGE_SIZE);
+}
+
+function retryableBuilderReadStatus(status: number) {
+  return status === 429 || status >= 500;
+}
+
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function fetchBuilderContentPage(args: {
+  fetchImpl: FetchLike;
+  url: URL;
+}): Promise<Response> {
+  let lastError: unknown = null;
+  for (let attempt = 0; attempt <= BUILDER_CMS_READ_RETRIES; attempt += 1) {
+    try {
+      const response = await args.fetchImpl(args.url, {
+        headers: { accept: "application/json" },
+      });
+      if (
+        !retryableBuilderReadStatus(response.status) ||
+        attempt === BUILDER_CMS_READ_RETRIES
+      ) {
+        return response;
+      }
+    } catch (error) {
+      lastError = error;
+      if (attempt === BUILDER_CMS_READ_RETRIES) {
+        throw error;
+      }
+    }
+    await sleep(25 * (attempt + 1));
+  }
+  throw lastError instanceof Error
+    ? lastError
+    : new Error("Builder read failed.");
 }
 
 function appendUniqueBuilderEntries(
@@ -424,11 +462,23 @@ async function readBuilderCmsContentEntriesViaContentApi(args: {
     pageUrl.searchParams.set("limit", String(pageLimit));
     pageUrl.searchParams.set("offset", String(offset));
 
-    const response = await args.fetchImpl(pageUrl, {
-      headers: {
-        accept: "application/json",
-      },
-    });
+    let response: Response;
+    try {
+      response = await fetchBuilderContentPage({
+        fetchImpl: args.fetchImpl,
+        url: pageUrl,
+      });
+    } catch (error) {
+      return {
+        state: "error",
+        entries: [],
+        fetchedAt,
+        message:
+          error instanceof Error
+            ? `Builder CMS read failed: ${error.message}`
+            : "Builder CMS read failed.",
+      };
+    }
 
     if (!response.ok) {
       return {

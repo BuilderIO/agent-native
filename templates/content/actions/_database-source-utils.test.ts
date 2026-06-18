@@ -7,6 +7,7 @@ import {
   buildMockFieldChange,
   mapBuilderCmsEntriesToLocalItems,
   mockProposedValue,
+  normalizeSourceFederation,
   normalizeSourceFreshness,
   sourceChangeSetKey,
   sourceChangeSetSummary,
@@ -60,6 +61,23 @@ describe("database source helpers", () => {
     expect(normalizeSourceFreshness("fresh")).toBe("fresh");
     expect(normalizeSourceFreshness("stale")).toBe("stale");
     expect(normalizeSourceFreshness("mysterious fog")).toBe("unknown");
+  });
+
+  it("drops stored federation metadata with unsafe regex formulas", () => {
+    expect(
+      normalizeSourceFederation({
+        role: "primary",
+        keyField: "url",
+        normalizationFormula: 'regexextract({url}, "(a+)+$", 1)',
+        join: {
+          kind: "identity",
+          collection: null,
+          localExpr: "{canonical}",
+          remoteKeyField: "url",
+          normalizationFormula: 'regexextract({url}, "(a+)+$", 1)',
+        },
+      }),
+    ).toBeUndefined();
   });
 
   it("creates a mock field change for text properties", () => {

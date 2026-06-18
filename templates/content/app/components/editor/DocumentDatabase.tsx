@@ -100,15 +100,11 @@ import {
   useDuplicateDatabaseItem,
   useExecuteBuilderSourceExecution,
   useMoveDatabaseItem,
-  usePrepareBuilderSourceExecution,
   usePrepareBuilderSourceReview,
   useRefreshContentDatabaseSource,
-  useReviewContentDatabaseSourceChangeSet,
   useSetContentDatabaseSourceWriteMode,
-  useStageBuilderRevision,
   useSuggestSourceJoinKey,
   useUpdateContentDatabaseView,
-  useValidateBuilderSourceExecution,
 } from "@/hooks/use-content-database";
 import {
   useConfigureDocumentProperty,
@@ -141,6 +137,7 @@ import {
 } from "./DocumentProperties";
 import { EmojiPicker } from "./EmojiPicker";
 import { VisualEditor } from "./VisualEditor";
+import { BuilderSourceReviewDialog } from "./database-sources/BuilderSourceReviewDialog";
 import {
   BUILDER_CMS_SAFE_WRITE_MODEL,
   type BuilderCmsModelSummary,
@@ -401,15 +398,7 @@ function DatabaseTable({
   const attachSource = useAttachContentDatabaseSource(document.id);
   const refreshSource = useRefreshContentDatabaseSource(document.id);
   const disconnectSource = useDisconnectContentDatabaseSource(document.id);
-  const stageBuilderRevision = useStageBuilderRevision(document.id);
-  const reviewSourceChangeSet = useReviewContentDatabaseSourceChangeSet(
-    document.id,
-  );
-  const prepareBuilderExecution = usePrepareBuilderSourceExecution(document.id);
   const prepareBuilderReview = usePrepareBuilderSourceReview(document.id);
-  const validateBuilderExecution = useValidateBuilderSourceExecution(
-    document.id,
-  );
   const executeBuilderExecution = useExecuteBuilderSourceExecution(document.id);
   const setSourceWriteMode = useSetContentDatabaseSourceWriteMode(document.id);
   const setProperty = useSetDocumentProperty(document.id);
@@ -1468,39 +1457,6 @@ function DatabaseTable({
           setBuilderReviewCheckedAt(null);
           setBuilderReviewOpen(true);
         }}
-        onStageBuilderRevision={() =>
-          stageBuilderRevision.mutate({
-            documentId: document.id,
-          })
-        }
-        onApproveSourceChangeSet={(changeSetId) =>
-          reviewSourceChangeSet.mutate({
-            documentId: document.id,
-            changeSetId,
-            decision: "approve",
-          })
-        }
-        onRejectSourceChangeSet={(changeSetId) =>
-          reviewSourceChangeSet.mutate({
-            documentId: document.id,
-            changeSetId,
-            decision: "reject",
-          })
-        }
-        onPrepareBuilderExecution={(changeSetId, pushModeConfirmation) =>
-          prepareBuilderExecution.mutate({
-            documentId: document.id,
-            changeSetId,
-            pushModeConfirmation,
-          })
-        }
-        onValidateBuilderExecution={(changeSetId, idempotencyKey) =>
-          validateBuilderExecution.mutate({
-            documentId: document.id,
-            changeSetId,
-            idempotencyKey,
-          })
-        }
         onSetBuilderLiveWrites={(enabled) =>
           setSourceWriteMode.mutate(
             {
@@ -1534,11 +1490,7 @@ function DatabaseTable({
           attachSource.isPending ||
           refreshSource.isPending ||
           disconnectSource.isPending ||
-          stageBuilderRevision.isPending ||
-          reviewSourceChangeSet.isPending ||
-          prepareBuilderExecution.isPending ||
           prepareBuilderReview.isPending ||
-          validateBuilderExecution.isPending ||
           executeBuilderExecution.isPending ||
           setSourceWriteMode.isPending
         }
@@ -3288,11 +3240,6 @@ function DatabaseSettingsPanelSheet({
   onRefreshSource,
   onDisconnectSource,
   onReviewBuilderUpdate,
-  onStageBuilderRevision,
-  onApproveSourceChangeSet,
-  onRejectSourceChangeSet,
-  onPrepareBuilderExecution,
-  onValidateBuilderExecution,
   onSetBuilderLiveWrites,
   sourceActionPending,
   onViewTypeChange,
@@ -3326,17 +3273,6 @@ function DatabaseSettingsPanelSheet({
   onRefreshSource: () => void;
   onDisconnectSource: () => void;
   onReviewBuilderUpdate: () => void;
-  onStageBuilderRevision: () => void;
-  onApproveSourceChangeSet: (changeSetId: string) => void;
-  onRejectSourceChangeSet: (changeSetId: string) => void;
-  onPrepareBuilderExecution: (
-    changeSetId: string,
-    pushModeConfirmation: ContentDatabaseSource["metadata"]["pushMode"],
-  ) => void;
-  onValidateBuilderExecution: (
-    changeSetId: string,
-    idempotencyKey: string,
-  ) => void;
   onSetBuilderLiveWrites: (enabled: boolean) => void;
   sourceActionPending: boolean;
   onViewTypeChange: (type: ContentDatabaseViewType) => void;
@@ -3435,11 +3371,6 @@ function DatabaseSettingsPanelSheet({
             onRefreshSource={onRefreshSource}
             onDisconnectSource={onDisconnectSource}
             onReviewBuilderUpdate={onReviewBuilderUpdate}
-            onStageBuilderRevision={onStageBuilderRevision}
-            onApproveSourceChangeSet={onApproveSourceChangeSet}
-            onRejectSourceChangeSet={onRejectSourceChangeSet}
-            onPrepareBuilderExecution={onPrepareBuilderExecution}
-            onValidateBuilderExecution={onValidateBuilderExecution}
             onSetBuilderLiveWrites={onSetBuilderLiveWrites}
             sourceActionPending={sourceActionPending}
           />
@@ -3722,258 +3653,6 @@ export function buildClientBuilderReviewPayload(
   };
 }
 
-function BuilderSourceReviewDialog({
-  open,
-  review,
-  source,
-  canEdit,
-  pending,
-  checkedAt,
-  onClose,
-  onValidate,
-}: {
-  open: boolean;
-  review: ContentDatabaseSourceReviewPayload | null;
-  source: ContentDatabaseSource | null;
-  canEdit: boolean;
-  pending: boolean;
-  checkedAt: string | null;
-  onClose: () => void;
-  onValidate: () => void;
-}) {
-  if (!open) return null;
-
-  const checked = !!checkedAt;
-  const retryable =
-    review?.result.status === "failed" ||
-    review?.result.status === "blocked" ||
-    review?.result.status === "stale";
-  const disabled =
-    !canEdit ||
-    pending ||
-    (!retryable && checked) ||
-    !review ||
-    review.rows.length === 0;
-  const footerText = pending
-    ? review?.liveWritesEnabled
-      ? "Preparing the Builder gate and sending through the guarded write path."
-      : "Checking the Builder gate locally."
-    : checked
-      ? review?.result.status === "succeeded"
-        ? "Pushed to Builder and reconciled locally."
-        : review?.liveWritesEnabled
-          ? (review?.result.message ?? "Builder push finished.")
-          : "Checked just now. Nothing was sent to Builder."
-      : review?.liveWritesEnabled
-        ? "Push will send autosave writes through the guarded Builder path."
-        : "Builder writes are disabled. Push will check the update only.";
-  const buttonLabel = pending
-    ? review?.liveWritesEnabled
-      ? "Pushing..."
-      : "Checking..."
-    : checked && review?.result.status === "succeeded"
-      ? "Pushed"
-      : checked && !retryable
-        ? "Checked"
-        : "Push";
-
-  return (
-    <div
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="builder-source-review-title"
-      className="fixed inset-0 z-50 flex items-start justify-center bg-background/70 px-3 py-12"
-      onMouseDown={(event) => {
-        if (event.target === event.currentTarget) onClose();
-      }}
-    >
-      <div className="flex max-h-[calc(100vh-6rem)] w-full max-w-3xl min-w-0 flex-col overflow-hidden rounded-lg border border-border bg-background shadow-2xl">
-        <div className="flex h-12 shrink-0 items-center gap-3 border-b border-border px-4">
-          <div className="min-w-0 flex-1">
-            <h2
-              id="builder-source-review-title"
-              className="truncate text-sm font-semibold"
-            >
-              Review Builder update
-            </h2>
-            <p className="truncate text-xs text-muted-foreground">
-              {review?.summary ?? "No pending Builder changes."}
-            </p>
-          </div>
-          <button
-            type="button"
-            aria-label="Close Builder update review"
-            className="flex size-7 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            onClick={onClose}
-          >
-            <IconX className="size-4" />
-          </button>
-        </div>
-
-        <div className="min-h-0 flex-1 overflow-y-auto p-4">
-          {review ? (
-            <div className="grid gap-4">
-              <section className="grid gap-2">
-                <div className="text-sm font-medium">What changed</div>
-                <div className="grid gap-2">
-                  {review.rows.map((row) => (
-                    <div
-                      key={row.changeSetId}
-                      className="rounded-md border border-border p-3"
-                    >
-                      <div className="flex min-w-0 items-start justify-between gap-3">
-                        <div className="min-w-0">
-                          <div className="truncate text-sm font-medium">
-                            {row.title}
-                          </div>
-                          <div className="mt-1 text-xs text-muted-foreground">
-                            {row.fieldChanges.length} field change
-                            {row.fieldChanges.length === 1 ? "" : "s"}
-                            {row.bodyChange ? " plus body diff" : ""}
-                          </div>
-                        </div>
-                        <span className={sourceRiskClass(row.riskLevel)}>
-                          {row.riskLevel} risk
-                        </span>
-                      </div>
-                      <div className="mt-3 grid gap-2">
-                        {row.fieldChanges.map((field) => (
-                          <div
-                            key={`${row.changeSetId}-${field.localFieldKey}`}
-                            className="grid gap-1 rounded border border-border/70 bg-muted/20 p-2 text-xs"
-                          >
-                            <div className="font-medium">
-                              {field.propertyName ?? field.sourceFieldKey}
-                            </div>
-                            <div className="grid gap-1 text-muted-foreground sm:grid-cols-2">
-                              <div className="min-w-0 break-words">
-                                From: {sourceValueText(field.currentValue)}
-                              </div>
-                              <div className="min-w-0 break-words">
-                                To: {sourceValueText(field.proposedValue)}
-                              </div>
-                            </div>
-                          </div>
-                        ))}
-                        {row.bodyChange ? (
-                          <div className="rounded border border-border/70 bg-muted/20 p-2 text-xs">
-                            <div className="font-medium">
-                              {row.bodyChange.summary}
-                            </div>
-                            <div className="mt-1 text-muted-foreground">
-                              Builder body edits need a safer push path before
-                              they can be sent.
-                            </div>
-                          </div>
-                        ) : null}
-                        {row.execution?.lastError ? (
-                          <div className="rounded border border-destructive/30 bg-destructive/10 p-2 text-xs text-destructive">
-                            {row.execution.lastError}
-                          </div>
-                        ) : null}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </section>
-
-              <section className="grid gap-2 rounded-md border border-border p-3">
-                <div className="text-sm font-medium">Where it will go</div>
-                <div className="grid gap-2 text-xs">
-                  <SourceMetadataRow label="Source" value={review.sourceName} />
-                  <SourceMetadataRow
-                    label="Builder model"
-                    value={review.sourceTable}
-                  />
-                  <SourceMetadataRow
-                    label="Push mode"
-                    value={sourcePushModeLabel(review.pushMode)}
-                  />
-                  <SourceMetadataRow
-                    label="Live writes"
-                    value={review.liveWritesEnabled ? "enabled" : "disabled"}
-                  />
-                  <SourceMetadataRow
-                    label="Read mode"
-                    value={
-                      source ? sourceBuilderReadModeSummary(source) : "unknown"
-                    }
-                  />
-                </div>
-              </section>
-
-              <section className="grid gap-2 rounded-md border border-border p-3">
-                <div className="text-sm font-medium">Risk check</div>
-                <div className="flex flex-wrap gap-1.5 text-xs">
-                  <span className={sourceRiskClass(review.riskLevel)}>
-                    {review.riskLevel} risk
-                  </span>
-                  {(review.riskReasons.length
-                    ? review.riskReasons
-                    : ["single field diff"]
-                  ).map((reason) => (
-                    <span
-                      key={reason}
-                      className="rounded border border-border px-1.5 py-0.5 text-muted-foreground"
-                    >
-                      {reason}
-                    </span>
-                  ))}
-                  <span className="rounded border border-border px-1.5 py-0.5 text-muted-foreground">
-                    {review.dryRunOnly ? "checks only" : "can send to Builder"}
-                  </span>
-                </div>
-              </section>
-
-              <section className="grid gap-2 rounded-md border border-border p-3">
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <div className="text-sm font-medium">Result</div>
-                    <div className="mt-1 text-xs text-muted-foreground">
-                      {review.result.message}
-                    </div>
-                  </div>
-                  <span className="shrink-0 rounded border border-border px-2 py-0.5 text-[11px] uppercase tracking-wide text-muted-foreground">
-                    {review.result.status.replace(/_/g, " ")}
-                  </span>
-                </div>
-              </section>
-            </div>
-          ) : (
-            <div className="rounded-md border border-border p-4 text-sm text-muted-foreground">
-              No pending local Builder changes yet.
-            </div>
-          )}
-        </div>
-
-        <div className="flex shrink-0 items-center justify-between gap-3 border-t border-border p-3">
-          <div className="min-w-0 text-xs text-muted-foreground">
-            {footerText}
-          </div>
-          <div className="flex shrink-0 items-center gap-2">
-            <Button type="button" variant="ghost" size="sm" onClick={onClose}>
-              Close
-            </Button>
-            <Button
-              type="button"
-              size="sm"
-              disabled={disabled}
-              onClick={onValidate}
-            >
-              {pending ? (
-                <Spinner className="mr-1.5 size-3.5" />
-              ) : checked ? (
-                <IconCheck className="mr-1.5 size-3.5" />
-              ) : null}
-              {buttonLabel}
-            </Button>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 function DatabaseSettingsSourcePanel({
   source,
   sources,
@@ -3988,11 +3667,6 @@ function DatabaseSettingsSourcePanel({
   onRefreshSource,
   onDisconnectSource,
   onReviewBuilderUpdate,
-  onStageBuilderRevision,
-  onApproveSourceChangeSet,
-  onRejectSourceChangeSet,
-  onPrepareBuilderExecution,
-  onValidateBuilderExecution,
   onSetBuilderLiveWrites,
   sourceActionPending,
 }: {
@@ -4012,17 +3686,6 @@ function DatabaseSettingsSourcePanel({
   onRefreshSource: () => void;
   onDisconnectSource: () => void;
   onReviewBuilderUpdate: () => void;
-  onStageBuilderRevision: () => void;
-  onApproveSourceChangeSet: (changeSetId: string) => void;
-  onRejectSourceChangeSet: (changeSetId: string) => void;
-  onPrepareBuilderExecution: (
-    changeSetId: string,
-    pushModeConfirmation: ContentDatabaseSource["metadata"]["pushMode"],
-  ) => void;
-  onValidateBuilderExecution: (
-    changeSetId: string,
-    idempotencyKey: string,
-  ) => void;
   onSetBuilderLiveWrites: (enabled: boolean) => void;
   sourceActionPending: boolean;
 }) {
@@ -4386,12 +4049,6 @@ function DatabaseSettingsSourcePanel({
                     key={changeSet.id}
                     changeSet={changeSet}
                     source={source}
-                    canEdit={canEdit}
-                    sourceActionPending={sourceActionPending}
-                    onApprove={onApproveSourceChangeSet}
-                    onReject={onRejectSourceChangeSet}
-                    onPrepareExecution={onPrepareBuilderExecution}
-                    onValidateExecution={onValidateBuilderExecution}
                   />
                 ))}
                 {outboundChangeSets.length === 0 ? (
@@ -5028,40 +4685,14 @@ function BuilderSpaceModelsView({
 function SourceChangeSetReviewCard({
   changeSet,
   source,
-  canEdit,
-  sourceActionPending,
-  onApprove,
-  onReject,
-  onPrepareExecution,
-  onValidateExecution,
 }: {
   changeSet: ContentDatabaseSourceChangeSet;
   source: ContentDatabaseSource;
-  canEdit: boolean;
-  sourceActionPending: boolean;
-  onApprove: (changeSetId: string) => void;
-  onReject: (changeSetId: string) => void;
-  onPrepareExecution: (
-    changeSetId: string,
-    pushModeConfirmation: ContentDatabaseSource["metadata"]["pushMode"],
-  ) => void;
-  onValidateExecution: (changeSetId: string, idempotencyKey: string) => void;
 }) {
-  const reviewable =
-    !changeSet.id.startsWith("local-pending-") &&
-    (changeSet.state === "proposed" ||
-      changeSet.state === "staged_revision" ||
-      changeSet.state === "approved");
   const latestReview =
     changeSet.reviewEvents[changeSet.reviewEvents.length - 1] ?? null;
   const latestExecution =
     changeSet.executions[changeSet.executions.length - 1] ?? null;
-  const pushMode = changeSet.pushMode ?? source.metadata.pushMode ?? "autosave";
-  const canPrepareExecution =
-    source.sourceType === "builder-cms" &&
-    changeSet.direction === "outbound" &&
-    changeSet.state === "approved" &&
-    pushMode !== "none";
   const dryRunStatus = latestExecution
     ? builderExecutionDryRunStatus(latestExecution.payload)
     : null;
@@ -5190,69 +4821,6 @@ function SourceChangeSetReviewCard({
           <div className="mt-1 break-all text-muted-foreground">
             {latestExecution.idempotencyKey}
           </div>
-        </div>
-      ) : null}
-
-      {false && reviewable ? (
-        <div className="mt-2 flex flex-wrap gap-2">
-          <Button
-            type="button"
-            size="sm"
-            variant="outline"
-            className="h-7 px-2 text-xs"
-            disabled={
-              !canEdit || sourceActionPending || changeSet.state === "approved"
-            }
-            onClick={() => onApprove(changeSet.id)}
-          >
-            <IconCheck className="mr-1 size-3.5" />
-            Approve
-          </Button>
-          <Button
-            type="button"
-            size="sm"
-            variant="ghost"
-            className="h-7 px-2 text-xs"
-            disabled={!canEdit || sourceActionPending}
-            onClick={() => onReject(changeSet.id)}
-          >
-            <IconX className="mr-1 size-3.5" />
-            Reject
-          </Button>
-        </div>
-      ) : null}
-
-      {false && canPrepareExecution ? (
-        <div className="mt-2 flex flex-wrap gap-2">
-          <Button
-            type="button"
-            size="sm"
-            variant="outline"
-            className="h-7 px-2 text-xs"
-            disabled={!canEdit || sourceActionPending}
-            onClick={() => onPrepareExecution(changeSet.id, pushMode)}
-          >
-            <IconPlugConnected className="mr-1 size-3.5" />
-            Prepare execution gate
-          </Button>
-          {latestExecution ? (
-            <Button
-              type="button"
-              size="sm"
-              variant="ghost"
-              className="h-7 px-2 text-xs"
-              disabled={!canEdit || sourceActionPending}
-              onClick={() =>
-                onValidateExecution(
-                  changeSet.id,
-                  latestExecution.idempotencyKey,
-                )
-              }
-            >
-              <IconCheck className="mr-1 size-3.5" />
-              Validate dry run
-            </Button>
-          ) : null}
         </div>
       ) : null}
     </div>

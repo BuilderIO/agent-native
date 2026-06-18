@@ -291,4 +291,41 @@ describe("Builder CMS read client", () => {
       ),
     ).toEqual(["0", "100"]);
   });
+
+  it("retries transient Content API failures", async () => {
+    resolveBuilderCredentialMock.mockImplementation(async (key) =>
+      key === "BUILDER_PUBLIC_KEY" ? "public-key" : null,
+    );
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce(new Response("rate limited", { status: 429 }))
+      .mockResolvedValueOnce(new Response("bad gateway", { status: 502 }))
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            results: [
+              {
+                id: "builder-entry-1",
+                lastUpdated: "2026-06-08T12:00:00.000Z",
+                data: {
+                  title: "Builder title",
+                  url: "/blog/builder-title",
+                },
+              },
+            ],
+          }),
+          { status: 200 },
+        ),
+      );
+
+    const result = await readBuilderCmsContentEntries({
+      model: "blog_article",
+      limit: 1,
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    });
+
+    expect(result.state).toBe("live");
+    expect(result.entries).toHaveLength(1);
+    expect(fetchImpl).toHaveBeenCalledTimes(3);
+  });
 });

@@ -1,6 +1,6 @@
 import { defineAction } from "@agent-native/core";
 import { assertAccess } from "@agent-native/core/sharing";
-import { and, eq } from "drizzle-orm";
+import { and, eq, lt, notInArray, or } from "drizzle-orm";
 import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import {
@@ -41,6 +41,7 @@ export interface BuilderSourceExecutionRecord {
   state: ContentDatabaseSourceExecutionState | string;
   idempotencyKey: string;
   payloadJson: string;
+  updatedAt: string;
 }
 
 export interface ExecuteBuilderSourceExecutionDeps {
@@ -68,6 +69,13 @@ export interface ExecuteBuilderSourceExecutionDeps {
     lastError: string | null;
     now: string;
   }) => Promise<void>;
+  claimExecution: (args: {
+    executionId: string;
+    summary: string;
+    payload: unknown;
+    now: string;
+    staleBefore: string;
+  }) => Promise<boolean>;
   markExecutionSucceeded: (args: {
     executionId: string;
     changeSetId: string;
@@ -95,6 +103,8 @@ export interface ExecuteBuilderSourceExecutionDeps {
   }) => Promise<void>;
   getResponse: (databaseId: string) => Promise<ContentDatabaseResponse>;
 }
+
+const RUNNING_EXECUTION_TIMEOUT_MS = 10 * 60 * 1000;
 
 function parsePayload(value: string) {
   try {
@@ -146,6 +156,24 @@ function executablePushMode(
   return mode === "autosave" || mode === "draft" || mode === "publish"
     ? mode
     : null;
+}
+
+function staleRunningCutoff(now: string) {
+  const timestamp = Date.parse(now);
+  return new Date(
+    (Number.isFinite(timestamp) ? timestamp : Date.now()) -
+      RUNNING_EXECUTION_TIMEOUT_MS,
+  ).toISOString();
+}
+
+function isReclaimableRunningExecution(
+  execution: BuilderSourceExecutionRecord,
+  now: string,
+) {
+  if (execution.state !== "running") return true;
+  const updatedAt = Date.parse(execution.updatedAt);
+  if (!Number.isFinite(updatedAt)) return false;
+  return updatedAt < Date.parse(staleRunningCutoff(now));
 }
 
 function executionResponsePayload(args: {
@@ -333,6 +361,40 @@ function realExecutionDeps(): ExecuteBuilderSourceExecutionDeps {
         })
         .where(eq(schema.contentDatabaseSourceExecutions.id, args.executionId));
     },
+    claimExecution: async (args) => {
+      const result = await getDb()
+        .update(schema.contentDatabaseSourceExecutions)
+        .set({
+          state: "running",
+          summary: args.summary,
+          payloadJson: JSON.stringify(args.payload),
+          lastError: null,
+          updatedAt: args.now,
+        })
+        .where(
+          and(
+            eq(schema.contentDatabaseSourceExecutions.id, args.executionId),
+            or(
+              notInArray(schema.contentDatabaseSourceExecutions.state, [
+                "running",
+                "succeeded",
+              ]),
+              and(
+                eq(schema.contentDatabaseSourceExecutions.state, "running"),
+                lt(
+                  schema.contentDatabaseSourceExecutions.updatedAt,
+                  args.staleBefore,
+                ),
+              ),
+            ),
+          ),
+        );
+      const changes =
+        (result as { rowsAffected?: number; changes?: number }).rowsAffected ??
+        (result as { rowsAffected?: number; changes?: number }).changes ??
+        0;
+      return changes > 0;
+    },
     markExecutionSucceeded: async (args) => {
       const db = getDb();
       await db
@@ -416,10 +478,11 @@ export async function executeBuilderSourceExecutionWithDeps(
   if (!execution) {
     throw new Error("Prepare the Builder execution gate before executing it.");
   }
+  const now = deps.now();
   if (execution.state === "succeeded") {
     return deps.getResponse(database.id);
   }
-  if (execution.state === "running") {
+  if (!isReclaimableRunningExecution(execution, now)) {
     throw new Error("Builder execution is already running.");
   }
 
@@ -432,7 +495,6 @@ export async function executeBuilderSourceExecutionWithDeps(
     changeSet,
     pushModeConfirmation: pushMode,
   });
-  const now = deps.now();
   const storedPayload = parsePayload(execution.payloadJson);
   const validatedPayload = validateBuilderCmsExecutionDryRun({
     storedPayload,
@@ -527,14 +589,16 @@ export async function executeBuilderSourceExecutionWithDeps(
     return deps.getResponse(database.id);
   }
 
-  await deps.updateExecutionState({
+  const claimed = await deps.claimExecution({
     executionId: execution.id,
-    state: "running",
     summary: `Running Builder ${plan.pushMode} execution.`,
     payload: validatedPayload,
-    lastError: null,
     now,
+    staleBefore: staleRunningCutoff(now),
   });
+  if (!claimed) {
+    throw new Error("Builder execution is already running.");
+  }
 
   const writeResult = await deps.executeWrite({
     request: plan.payload.request,
@@ -555,7 +619,7 @@ export async function executeBuilderSourceExecutionWithDeps(
       lastError,
       now: deps.now(),
     });
-    return deps.getResponse(database.id);
+    throw new Error(lastError);
   }
 
   const succeededAt = deps.now();

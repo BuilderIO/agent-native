@@ -80,7 +80,8 @@ export default defineAction({
 
     const now = new Date().toISOString();
     const stateTo = args.decision === "approve" ? "approved" : "rejected";
-    const reviewerEmail = getRequestUserEmail() || database.ownerEmail;
+    const reviewerEmail =
+      getRequestUserEmail() ?? "agent-runtime@agent-native.local";
 
     await getDb()
       .insert(schema.contentDatabaseSourceChangeReviews)

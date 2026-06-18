@@ -556,6 +556,7 @@ export interface ContentDatabaseSourceStatusResponse {
 
 export interface BuilderCmsModelFieldSummary {
   name: string;
+  label?: string;
   type: string;
   required: boolean;
 }

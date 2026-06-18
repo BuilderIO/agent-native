@@ -181,6 +181,28 @@ describe("Builder CMS write adapter plan", () => {
     });
   });
 
+  it("encodes Builder write path segments", () => {
+    const plan = buildBuilderCmsExecutionPlan({
+      source: {
+        ...source(false, "folder/blog article"),
+        rows: [
+          {
+            ...source(false, "folder/blog article").rows[0],
+            sourceRowId: "entry/with spaces",
+            sourceQualifiedId:
+              "builder-cms://folder/blog article/entry/with spaces",
+          },
+        ],
+      },
+      changeSet: approvedChangeSet(),
+      pushModeConfirmation: "autosave",
+    });
+
+    expect(plan.payload.request.path).toBe(
+      "/api/v1/write/folder%2Fblog%20article/entry%2Fwith%20spaces",
+    );
+  });
+
   it("blocks live autosave for unmatched legacy fixture-wrapped Builder rows", () => {
     const plan = buildBuilderCmsExecutionPlan({
       source: {

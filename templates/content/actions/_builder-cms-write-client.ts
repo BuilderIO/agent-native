@@ -177,7 +177,10 @@ export async function executeBuilderCmsWrite(args: {
       responseText: await response.text(),
     });
   } catch (error) {
-    if (args.nodeRequestImpl || !args.fetchImpl) {
+    if (
+      args.request.method === "PATCH" &&
+      (args.nodeRequestImpl || !args.fetchImpl)
+    ) {
       try {
         return await executeNodeRequest({
           url,

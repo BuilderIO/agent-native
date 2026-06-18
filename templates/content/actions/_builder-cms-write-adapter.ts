@@ -104,8 +104,8 @@ function builderRequestForIntent(args: {
   entryId: string | null;
   bodyPatch: Record<string, unknown>;
 }): BuilderCmsExecutionPayload["request"] {
-  const entryPath = args.entryId ? `/${args.entryId}` : "";
-  const basePath = `/api/v1/write/${args.model}${entryPath}`;
+  const entryPath = args.entryId ? `/${encodeURIComponent(args.entryId)}` : "";
+  const basePath = `/api/v1/write/${encodeURIComponent(args.model)}${entryPath}`;
   if (args.intent === "autosave_revision") {
     return {
       method: "PATCH",
