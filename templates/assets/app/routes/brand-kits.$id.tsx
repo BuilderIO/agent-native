@@ -205,6 +205,30 @@ function markLibraryAssetReferenceInCache(
   );
 }
 
+function markLibraryAssetSavedStatusInCache(
+  queryClient: QueryClient,
+  libraryId: string,
+  assetId: string,
+) {
+  queryClient.setQueryData(
+    ["action", "get-library", { id: libraryId }],
+    (current: any) => {
+      if (!current || !Array.isArray(current.assets)) return current;
+      let changed = false;
+      const assets = current.assets.map((asset: any) => {
+        if (asset.id !== assetId) return asset;
+        changed = true;
+        return {
+          ...asset,
+          status: "saved",
+          updatedAt: new Date().toISOString(),
+        };
+      });
+      return changed ? { ...current, assets } : current;
+    },
+  );
+}
+
 function removeAssetsFromLibraryCache(
   queryClient: QueryClient,
   libraryId: string,
@@ -364,6 +388,7 @@ export default function LibraryPage() {
     () => urlTab ?? "references",
   );
   const [assetViewMode, setAssetViewMode] = useState<AssetViewMode>("lanes");
+  const [assetScope, setAssetScope] = useState<AssetLibraryScope>("all");
   const [selectedAssetIds, setSelectedAssetIds] = useState<Set<string>>(
     () => new Set(),
   );
@@ -407,10 +432,11 @@ export default function LibraryPage() {
         libraryId,
         activeTab,
         assetViewMode,
+        assetScope,
         selectedAssetIds: Array.from(selectedAssetIds),
       }),
     }).catch(() => {});
-  }, [activeTab, assetViewMode, libraryId, selectedAssetIds]);
+  }, [activeTab, assetScope, assetViewMode, libraryId, selectedAssetIds]);
 
   const library = data?.library;
   const folders = (data?.folders ?? []) as any[];
@@ -433,7 +459,11 @@ export default function LibraryPage() {
         : asset,
     )
     .filter((asset) => !optimisticallyDeletedAssetIds.has(asset.id));
-  const visibleAssets = assets.filter((asset) => {
+  const candidateAssets = assets.filter(
+    (asset) => asset.role === "generated" && asset.status === "candidate",
+  );
+  const libraryAssets = assets.filter((asset) => asset.status !== "candidate");
+  const visibleAssets = libraryAssets.filter((asset) => {
     if (activeFolderId !== "all") {
       if (activeFolderId === null && asset.folderId) return false;
       if (activeFolderId && asset.folderId !== activeFolderId) return false;
@@ -465,10 +495,13 @@ export default function LibraryPage() {
   const references = visibleAssets.filter(
     (asset) => asset.status === "reference" && !isContentOnlyReference(asset),
   );
-  const generated = visibleAssets.filter((asset) => asset.role === "generated");
-  const saved = generated.filter((asset) => asset.status === "saved");
-  const candidates = generated.filter((asset) => asset.status === "candidate");
-  const unfiledCount = assets.filter((asset) => !asset.folderId).length;
+  const saved = visibleAssets.filter((asset) => asset.status === "saved");
+  const libraryBoardAssets = visibleAssets.filter(
+    (asset) =>
+      asset.status === "saved" ||
+      (asset.status === "reference" && !isContentOnlyReference(asset)),
+  );
+  const unfiledCount = libraryAssets.filter((asset) => !asset.folderId).length;
   const customInstructions = getLibraryCustomInstructions(library);
   const libraryStyleDescription = library?.styleBrief?.description ?? "";
   const libraryPaletteDraft = paletteDraftFromColors(
@@ -603,6 +636,7 @@ export default function LibraryPage() {
       const savedAsset = await saveGenerated.mutateAsync({
         ...(slot.assetId ? { assetId: slot.assetId } : {}),
         ...(slot.slotId ? { slotId: slot.slotId } : {}),
+        ...(slot.folderId !== undefined ? { folderId: slot.folderId } : {}),
       });
       const savedAssetId =
         typeof (savedAsset as any)?.id === "string"
@@ -655,12 +689,6 @@ export default function LibraryPage() {
           candidate.assetId === asset.id ||
           (!!slot?.slotId && candidate.slotId === slot.slotId),
       );
-      setSelectedAssetIds((current) => {
-        if (!current.has(asset.id)) return current;
-        const next = new Set(current);
-        next.delete(asset.id);
-        return next;
-      });
       void queryClient.invalidateQueries({
         queryKey: ["action", "get-library", { id: libraryId }],
         refetchType: "active",
@@ -669,12 +697,38 @@ export default function LibraryPage() {
         queryKey: ["app-state", "asset-variants"],
         refetchType: "active",
       });
-      toast.success("Moved to Inspirations.");
+      toast.success("Added to References.");
     } catch (error) {
       toast.error(
         error instanceof Error
           ? error.message
-          : "Could not move asset to Inspirations.",
+          : "Could not add asset to References.",
+      );
+    } finally {
+      setReferencePromoting(key, false);
+    }
+  }
+
+  async function handleRemoveFromReferences(asset: any) {
+    const key = referencePromotionKey(asset);
+    if (!asset?.id || !key || promotingReferenceKeys.has(key)) return;
+    setReferencePromoting(key, true);
+    try {
+      await updateAsset.mutateAsync({
+        id: asset.id,
+        status: "saved",
+      });
+      markLibraryAssetSavedStatusInCache(queryClient, libraryId, asset.id);
+      void queryClient.invalidateQueries({
+        queryKey: ["action", "get-library", { id: libraryId }],
+        refetchType: "active",
+      });
+      toast.success("Removed from References.");
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Could not remove asset from References.",
       );
     } finally {
       setReferencePromoting(key, false);
@@ -685,7 +739,7 @@ export default function LibraryPage() {
     const selectableAssets =
       activeTab === "runs" || activeTab === "settings"
         ? []
-        : [...references, ...candidates, ...saved];
+        : libraryBoardAssets;
     const selectableIds = new Set(selectableAssets.map((asset) => asset.id));
     setSelectedAssetIds((current) => {
       const next = new Set(
@@ -693,7 +747,7 @@ export default function LibraryPage() {
       );
       return next.size === current.size ? current : next;
     });
-  }, [activeTab, references, candidates, saved]);
+  }, [activeTab, libraryBoardAssets]);
 
   useEffect(() => {
     fetch(agentNativePath("/_agent-native/application-state/navigation"), {
@@ -707,6 +761,7 @@ export default function LibraryPage() {
         libraryId,
         activeTab,
         assetViewMode,
+        assetScope,
         folderId: activeFolderId,
         mediaFilter,
         search,
@@ -716,6 +771,7 @@ export default function LibraryPage() {
   }, [
     activeFolderId,
     activeTab,
+    assetScope,
     assetViewMode,
     libraryId,
     mediaFilter,
@@ -1264,13 +1320,23 @@ export default function LibraryPage() {
           </TabsList>
 
           <TabsContent value="assets" className="space-y-5">
+            <CandidateStage
+              candidates={candidateAssets}
+              pendingVariants={pendingVariants}
+              libraryId={libraryId}
+              folders={folders}
+              savingCandidateKeys={savingCandidateKeys}
+              onSaveCandidate={(slot) => {
+                void handleSaveCandidate(slot);
+              }}
+            />
             <section className="space-y-3">
               <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
                 <div className="flex min-w-0 flex-wrap items-center gap-2">
                   <FolderChip
                     active={activeFolderId === "all"}
                     label="All assets"
-                    count={assets.length}
+                    count={libraryAssets.length}
                     onClick={() => setActiveFolderId("all")}
                   />
                   <FolderChip
@@ -1285,8 +1351,9 @@ export default function LibraryPage() {
                       active={activeFolderId === folder.id}
                       label={folder.title}
                       count={
-                        assets.filter((asset) => asset.folderId === folder.id)
-                          .length
+                        libraryAssets.filter(
+                          (asset) => asset.folderId === folder.id,
+                        ).length
                       }
                       onClick={() => setActiveFolderId(folder.id)}
                     />
@@ -1331,26 +1398,23 @@ export default function LibraryPage() {
               </div>
             </section>
             <AssetSwimlaneBoard
+              libraryId={libraryId}
               viewMode={assetViewMode}
               onViewModeChange={setAssetViewMode}
+              scope={assetScope}
+              onScopeChange={setAssetScope}
               hideEmptyLanes={hideEmptyLanes}
-              references={references}
-              candidates={candidates}
-              saved={saved}
-              pendingVariants={pendingVariants}
+              assets={libraryBoardAssets}
               pendingUploads={pendingVisibleUploads}
               folders={folders}
-              libraryId={libraryId}
-              savingCandidateKeys={savingCandidateKeys}
               promotingReferenceKeys={promotingReferenceKeys}
               onUploadClick={() => fileInputRef.current?.click()}
-              onGenerateClick={() => setGenerateOpen(true)}
               onDrop={(files) => void upload(files)}
-              onSaveCandidate={(slot) => {
-                void handleSaveCandidate(slot);
-              }}
               onMoveToReferences={(asset, slot) => {
                 void handleMoveToReferences(asset, slot);
+              }}
+              onRemoveFromReferences={(asset) => {
+                void handleRemoveFromReferences(asset);
               }}
               selectedIds={selectedAssetIds}
               onSelectedIdsChange={setSelectedAssetIds}
@@ -1544,6 +1608,7 @@ type PendingUpload = {
 
 type LibraryTab = "references" | "generated" | "runs" | "settings";
 type AssetViewMode = "lanes" | "cards";
+type AssetLibraryScope = "all" | "references";
 
 type LaneGalleryItem = {
   id: string;
@@ -2464,46 +2529,648 @@ function AssetPreview({
   );
 }
 
+function CandidateStage({
+  candidates,
+  pendingVariants,
+  libraryId,
+  folders,
+  savingCandidateKeys,
+  onSaveCandidate,
+}: {
+  candidates: any[];
+  pendingVariants: any[];
+  libraryId: string;
+  folders: any[];
+  savingCandidateKeys: Set<string>;
+  onSaveCandidate: (slot: any) => void;
+}) {
+  const dismissSlot = useActionMutation("dismiss-variant-slots");
+  const deleteAsset = useActionMutation("delete-asset");
+  const queryClient = useQueryClient();
+  const [dismissTarget, setDismissTarget] = useState<{
+    kind: "slot" | "asset";
+    title: string;
+    slot?: any;
+    asset?: any;
+  } | null>(null);
+  const dismissing = dismissSlot.isPending || deleteAsset.isPending;
+
+  async function handleDismissCandidate() {
+    if (!dismissTarget || dismissing) return;
+    try {
+      if (dismissTarget.kind === "slot" && dismissTarget.slot) {
+        await dismissSlot.mutateAsync({ slotId: dismissTarget.slot.slotId });
+        removeVariantSlotFromCache(queryClient, dismissTarget.slot);
+        removeAssetsFromLibraryCache(queryClient, libraryId, [
+          dismissTarget.slot.assetId,
+        ]);
+        void queryClient.invalidateQueries({
+          queryKey: ["app-state", "asset-variants"],
+          refetchType: "active",
+        });
+      } else if (dismissTarget.kind === "asset" && dismissTarget.asset?.id) {
+        await deleteAsset.mutateAsync({ id: dismissTarget.asset.id });
+        removeAssetsFromLibraryCache(queryClient, libraryId, [
+          dismissTarget.asset.id,
+        ]);
+      }
+      setDismissTarget(null);
+      toast.success("Dismissed candidate.");
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "Could not dismiss candidate.",
+      );
+    }
+  }
+
+  function slotItem(slot: any): LaneGalleryItem {
+    const isFailed = slot.status === "failed";
+    const saving = savingCandidateKeys.has(candidateSaveKey(slot));
+    const busy = saving;
+    return {
+      id: `slot:${slot.slotId}`,
+      title: isFailed
+        ? "Failed candidate"
+        : slot.status === "ready"
+          ? "Ready candidate"
+          : "Generating candidate",
+      subtitle: slot.slotId ? shortId(String(slot.slotId)) : "Live slot",
+      metadata: "Candidate",
+      status: slot.status,
+      mediaType: "image",
+      href: slot.assetId ? `/asset/${slot.assetId}` : undefined,
+      busy,
+      preview: <VariantPreview slot={slot} fit="contain" />,
+      thumbnail: <VariantPreview slot={slot} />,
+      menu: (
+        <VariantActionsMenu slot={slot} libraryId={libraryId} busy={busy} />
+      ),
+      primaryActions:
+        slot.status === "ready" ? (
+          <div className="grid grid-cols-2 gap-2">
+            <CandidateSaveMenu
+              libraryId={libraryId}
+              folders={folders}
+              saving={saving}
+              disabled={busy}
+              onSave={(folderId) => onSaveCandidate({ ...slot, folderId })}
+            />
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-8 px-2 text-xs text-destructive hover:bg-destructive/10 hover:text-destructive"
+              onClick={() =>
+                setDismissTarget({
+                  kind: "slot",
+                  title: isFailed ? "Failed candidate" : "Ready candidate",
+                  slot,
+                })
+              }
+              disabled={busy || dismissing}
+            >
+              Dismiss
+            </Button>
+          </div>
+        ) : (
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-8 w-full px-2 text-xs text-destructive hover:bg-destructive/10 hover:text-destructive"
+            onClick={() =>
+              setDismissTarget({
+                kind: "slot",
+                title: isFailed ? "Failed candidate" : "Generating candidate",
+                slot,
+              })
+            }
+            disabled={busy || dismissing}
+          >
+            Dismiss
+          </Button>
+        ),
+    };
+  }
+
+  function candidateItem(asset: any): LaneGalleryItem {
+    const saving = savingCandidateKeys.has(`asset:${asset.id}`);
+    const busy = saving;
+    return {
+      id: `candidate:${asset.id}`,
+      title: assetDisplayTitle(asset),
+      subtitle: assetLineageSourceText(asset) || assetCategoryLabel(asset),
+      metadata:
+        asset.mediaType === "video"
+          ? "Video"
+          : asset.mimeType?.startsWith("image/")
+            ? "Image"
+            : "Candidate",
+      status: "candidate",
+      mediaType: asset.mediaType === "video" ? "video" : "image",
+      href: `/asset/${asset.id}`,
+      busy,
+      preview: <AssetPreview asset={asset} fit="contain" />,
+      thumbnail: <AssetPreview asset={asset} />,
+      primaryActions: (
+        <div className="grid grid-cols-2 gap-2">
+          <CandidateSaveMenu
+            libraryId={libraryId}
+            folders={folders}
+            saving={saving}
+            disabled={busy}
+            onSave={(folderId) =>
+              onSaveCandidate({ assetId: asset.id, folderId })
+            }
+          />
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-8 px-2 text-xs text-destructive hover:bg-destructive/10 hover:text-destructive"
+            onClick={() =>
+              setDismissTarget({
+                kind: "asset",
+                title: assetDisplayTitle(asset),
+                asset,
+              })
+            }
+            disabled={busy || dismissing}
+          >
+            Dismiss
+          </Button>
+        </div>
+      ),
+    };
+  }
+
+  const pendingVariantAssetIds = new Set(
+    pendingVariants
+      .map((slot: any) => slot.assetId)
+      .filter(
+        (assetId: unknown): assetId is string => typeof assetId === "string",
+      ),
+  );
+  const detachedCandidates = candidates.filter(
+    (asset) => !pendingVariantAssetIds.has(asset.id),
+  );
+  const items = [
+    ...pendingVariants.map(slotItem),
+    ...detachedCandidates.map(candidateItem),
+  ];
+  const [activeItemId, setActiveItemId] = useState<string | null>(null);
+  const itemIds = items.map((item) => item.id).join("\n");
+  const activeItem =
+    items.find((item) => item.id === activeItemId) ?? items[0] ?? null;
+
+  useEffect(() => {
+    if (!items.length) {
+      setActiveItemId(null);
+      return;
+    }
+    setActiveItemId((current) =>
+      current && items.some((item) => item.id === current)
+        ? current
+        : items[0].id,
+    );
+  }, [itemIds, items]);
+
+  if (!items.length) return null;
+
+  return (
+    <>
+      <AlertDialog
+        open={dismissTarget !== null}
+        onOpenChange={(open) => {
+          if (!open && !dismissing) setDismissTarget(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Dismiss this candidate?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This removes {dismissTarget?.title ?? "this candidate"} from the
+              candidate stage. Saved library assets stay untouched.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={dismissing}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              disabled={dismissing}
+              onClick={(event) => {
+                event.preventDefault();
+                void handleDismissCandidate();
+              }}
+            >
+              {dismissing ? (
+                <>
+                  <Spinner className="h-4 w-4" />
+                  Dismissing...
+                </>
+              ) : (
+                "Dismiss"
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <section className="overflow-hidden rounded-lg border border-border bg-background">
+        <div className="flex flex-col gap-3 border-b border-border px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2">
+              <h3 className="truncate text-sm font-semibold">Candidates</h3>
+              <Badge variant="outline">{items.length}</Badge>
+            </div>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Generation queue
+            </p>
+          </div>
+          <div className="flex shrink-0 items-center gap-2">
+            <CandidateStageActions
+              slots={pendingVariants}
+              detachedCandidates={detachedCandidates}
+              libraryId={libraryId}
+            />
+          </div>
+        </div>
+        <div className="grid lg:grid-cols-[minmax(0,1fr)_300px]">
+          <div className="min-w-0 bg-muted/10 p-3">
+            <div
+              className={[
+                "group relative overflow-hidden rounded-lg border border-border bg-background",
+                activeItem?.busy ? "opacity-80" : "",
+              ].join(" ")}
+              aria-busy={activeItem?.busy}
+            >
+              <div className="aspect-[16/9] bg-muted/30">
+                {activeItem?.href ? (
+                  <Link to={activeItem.href} className="block h-full w-full">
+                    {activeItem.preview}
+                  </Link>
+                ) : (
+                  activeItem?.preview
+                )}
+              </div>
+              {activeItem?.menu ? (
+                <div className="absolute right-3 top-3 z-10">
+                  {activeItem.menu}
+                </div>
+              ) : null}
+              {activeItem?.busy ? (
+                <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-background/20">
+                  <Spinner className="h-5 w-5" />
+                </div>
+              ) : null}
+            </div>
+            <div className="mt-3 flex gap-2 overflow-x-auto pb-1">
+              {items.map((item) => {
+                const active = item.id === activeItem?.id;
+                return (
+                  <button
+                    key={item.id}
+                    type="button"
+                    onClick={() => setActiveItemId(item.id)}
+                    className={[
+                      "group relative h-16 w-24 shrink-0 overflow-hidden rounded-md border bg-background transition",
+                      active
+                        ? "border-primary ring-2 ring-primary/25"
+                        : "border-border/80 hover:border-foreground/30",
+                    ].join(" ")}
+                    aria-label={`Show ${item.title}`}
+                    aria-pressed={active}
+                  >
+                    {item.thumbnail}
+                    <span className="pointer-events-none absolute inset-x-0 bottom-0 h-6 bg-gradient-to-t from-background/90 to-transparent" />
+                    {item.busy ? (
+                      <span className="absolute right-1.5 top-1.5 rounded-full bg-background/90 p-1 shadow-sm">
+                        <Spinner className="h-3 w-3" />
+                      </span>
+                    ) : null}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+          <aside className="flex min-h-56 flex-col justify-between gap-4 border-t border-border bg-background p-4 lg:border-l lg:border-t-0">
+            <div className="min-w-0 space-y-4">
+              <div className="min-w-0">
+                <div className="truncate text-sm font-medium">
+                  {activeItem?.title}
+                </div>
+                {activeItem?.subtitle ? (
+                  <div className="mt-1 truncate text-xs text-muted-foreground">
+                    {activeItem.subtitle}
+                  </div>
+                ) : null}
+              </div>
+              <div className="grid grid-cols-2 gap-2 text-xs">
+                {activeItem?.status ? (
+                  <div className="rounded-md border border-border bg-muted/20 px-2 py-1.5">
+                    <div className="text-[10px] font-medium uppercase text-muted-foreground">
+                      Status
+                    </div>
+                    <div className="mt-0.5 truncate">{activeItem.status}</div>
+                  </div>
+                ) : null}
+                {activeItem?.metadata ? (
+                  <div className="rounded-md border border-border bg-muted/20 px-2 py-1.5">
+                    <div className="text-[10px] font-medium uppercase text-muted-foreground">
+                      Type
+                    </div>
+                    <div className="mt-0.5 truncate">{activeItem.metadata}</div>
+                  </div>
+                ) : null}
+              </div>
+              {activeItem?.primaryActions ? (
+                <div>{activeItem.primaryActions}</div>
+              ) : null}
+            </div>
+            {activeItem?.href ? (
+              <Button asChild variant="outline" size="sm">
+                <Link to={activeItem.href}>Open</Link>
+              </Button>
+            ) : null}
+          </aside>
+        </div>
+      </section>
+    </>
+  );
+}
+
+function CandidateSaveMenu({
+  libraryId,
+  folders,
+  saving,
+  disabled,
+  onSave,
+}: {
+  libraryId: string;
+  folders: any[];
+  saving?: boolean;
+  disabled?: boolean;
+  onSave: (folderId: string | null) => void;
+}) {
+  const createFolder = useActionMutation("create-folder");
+  const queryClient = useQueryClient();
+  const [createOpen, setCreateOpen] = useState(false);
+  const pending = saving || createFolder.isPending;
+
+  return (
+    <>
+      <CreateFolderDialog
+        open={createOpen}
+        onOpenChange={setCreateOpen}
+        onSubmit={async (title) => {
+          const folder = (await createFolder.mutateAsync({
+            libraryId,
+            title,
+            parentId: null,
+          })) as any;
+          void queryClient.invalidateQueries({
+            queryKey: ["action", "get-library", { id: libraryId }],
+            refetchType: "active",
+          });
+          setCreateOpen(false);
+          if (folder?.id) onSave(folder.id);
+        }}
+        pending={createFolder.isPending}
+      />
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button size="sm" className="h-8 px-2 text-xs" disabled={disabled}>
+            {pending ? <Spinner className="h-3.5 w-3.5" /> : "Save to..."}
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="start">
+          <DropdownMenuItem onSelect={() => onSave(null)}>
+            <IconFolder className="mr-2 h-4 w-4 shrink-0" />
+            Unfiled
+          </DropdownMenuItem>
+          {folders.map((folder) => (
+            <DropdownMenuItem
+              key={folder.id}
+              onSelect={() => onSave(folder.id)}
+            >
+              <IconFolder className="mr-2 h-4 w-4 shrink-0" />
+              Folder: {folder.title}
+            </DropdownMenuItem>
+          ))}
+          <DropdownMenuSeparator />
+          <DropdownMenuItem
+            onSelect={(event) => {
+              event.preventDefault();
+              setCreateOpen(true);
+            }}
+          >
+            <IconFolderPlus className="mr-2 h-4 w-4 shrink-0" />
+            New folder...
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </>
+  );
+}
+
+function CandidateStageActions({
+  slots,
+  detachedCandidates,
+  libraryId,
+}: {
+  slots: any[];
+  detachedCandidates: any[];
+  libraryId: string;
+}) {
+  const dismissSlots = useActionMutation("dismiss-variant-slots");
+  const deleteAssets = useActionMutation("delete-assets");
+  const queryClient = useQueryClient();
+  const [pending, setPending] = useState<"failed" | "all" | null>(null);
+  const failedSlots = slots.filter((slot) => slot.status === "failed");
+  const failedCount = failedSlots.length;
+  const detachedCount = detachedCandidates.length;
+  const totalCount = slots.length + detachedCount;
+  const isClearing = dismissSlots.isPending || deleteAssets.isPending;
+  const actionLabel = pending === "failed" ? "Dismiss failed" : "Clear all";
+  const busyLabel = pending === "failed" ? "Dismissing..." : "Clearing...";
+
+  async function handleClear(scope: "failed" | "all") {
+    const slotAssetIds = slots
+      .filter((slot) => scope === "all" || slot.status === "failed")
+      .map((slot) => slot.assetId)
+      .filter(
+        (assetId: unknown): assetId is string => typeof assetId === "string",
+      );
+    const detachedAssetIds =
+      scope === "all" ? detachedCandidates.map((asset) => asset.id) : [];
+    const removedAssetIds = [
+      ...new Set([...slotAssetIds, ...detachedAssetIds]),
+    ];
+
+    if (
+      scope === "all" &&
+      slots.length === 0 &&
+      detachedAssetIds.length === 0
+    ) {
+      setPending(null);
+      return;
+    }
+    if (scope === "failed" && failedCount === 0) {
+      setPending(null);
+      return;
+    }
+
+    try {
+      if (slots.length > 0 && (scope === "all" || failedCount > 0)) {
+        await dismissSlots.mutateAsync({ scope });
+        removeVariantSlotsByScopeFromCache(queryClient, scope);
+      }
+      if (detachedAssetIds.length > 0) {
+        await deleteAssets.mutateAsync({ ids: detachedAssetIds });
+      }
+      if (removedAssetIds.length > 0) {
+        removeAssetsFromLibraryCache(queryClient, libraryId, removedAssetIds);
+      }
+      setPending(null);
+      void queryClient.invalidateQueries({
+        queryKey: ["app-state", "asset-variants"],
+        refetchType: "active",
+      });
+      if (scope === "failed") {
+        toast.success(
+          `Dismissed ${failedCount} failed candidate${failedCount === 1 ? "" : "s"}.`,
+        );
+      } else {
+        toast.success(
+          `Cleared ${totalCount} candidate${totalCount === 1 ? "" : "s"}.`,
+        );
+      }
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "Could not clear candidates.",
+      );
+    }
+  }
+
+  if (totalCount === 0) return null;
+
+  return (
+    <>
+      <AlertDialog
+        open={pending !== null}
+        onOpenChange={(open) => {
+          if (!open && !isClearing) setPending(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {pending === "failed"
+                ? `Dismiss ${failedCount} failed candidate${failedCount === 1 ? "" : "s"}?`
+                : `Clear ${totalCount} candidate${totalCount === 1 ? "" : "s"}?`}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {pending === "failed"
+                ? "Removes failed live slots from the candidate stage. Ready candidates stay."
+                : "Clears the candidate stage and deletes unsaved generated candidates. Saved library assets stay untouched."}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isClearing}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              disabled={isClearing || pending === null}
+              onClick={(event) => {
+                event.preventDefault();
+                if (pending) void handleClear(pending);
+              }}
+            >
+              {isClearing ? (
+                <>
+                  <Spinner className="h-4 w-4" />
+                  {busyLabel}
+                </>
+              ) : (
+                actionLabel
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="gap-2"
+            aria-label="Candidate actions"
+            disabled={isClearing}
+          >
+            <IconDotsVertical className="h-4 w-4" />
+            Clear
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end">
+          <DropdownMenuItem
+            disabled={failedCount === 0 || isClearing}
+            onSelect={(event) => {
+              event.preventDefault();
+              setPending("failed");
+            }}
+          >
+            <IconTrash className="mr-2 h-4 w-4 shrink-0" />
+            Dismiss failed ({failedCount})
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            className="text-destructive focus:bg-destructive/10 focus:text-destructive"
+            disabled={isClearing}
+            onSelect={(event) => {
+              event.preventDefault();
+              setPending("all");
+            }}
+          >
+            <IconTrash className="mr-2 h-4 w-4 shrink-0" />
+            Clear all
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </>
+  );
+}
+
 function AssetSwimlaneBoard({
+  libraryId,
   viewMode,
   onViewModeChange,
+  scope,
+  onScopeChange,
   hideEmptyLanes,
-  references,
-  candidates,
-  saved,
-  pendingVariants,
+  assets,
   pendingUploads,
   folders,
-  libraryId,
-  savingCandidateKeys,
   promotingReferenceKeys,
   onUploadClick,
-  onGenerateClick,
   onDrop,
-  onSaveCandidate,
   onMoveToReferences,
+  onRemoveFromReferences,
   selectedIds,
   onSelectedIdsChange,
   onOptimisticDelete,
   onRestoreOptimisticDelete,
 }: {
+  libraryId: string;
   viewMode: AssetViewMode;
   onViewModeChange: (mode: AssetViewMode) => void;
+  scope: AssetLibraryScope;
+  onScopeChange: (scope: AssetLibraryScope) => void;
   hideEmptyLanes: boolean;
-  references: any[];
-  candidates: any[];
-  saved: any[];
-  pendingVariants: any[];
+  assets: any[];
   pendingUploads: PendingUpload[];
   folders: any[];
-  libraryId: string;
-  savingCandidateKeys: Set<string>;
   promotingReferenceKeys: Set<string>;
   onUploadClick: () => void;
-  onGenerateClick: () => void;
   onDrop: (files: FileList) => void;
-  onSaveCandidate: (slot: any) => void;
   onMoveToReferences: (asset: any, slot?: any) => void;
+  onRemoveFromReferences: (asset: any) => void;
   selectedIds: Set<string>;
   onSelectedIdsChange: Dispatch<SetStateAction<Set<string>>>;
   onOptimisticDelete?: (ids: string[]) => void;
@@ -2512,20 +3179,28 @@ function AssetSwimlaneBoard({
   const deleteAsset = useActionMutation("delete-asset");
   const deleteAssets = useActionMutation("delete-assets");
   const updateAsset = useActionMutation("update-asset");
+  const queryClient = useQueryClient();
   const [confirmDeleteIds, setConfirmDeleteIds] = useState<string[]>([]);
   const [deletingIds, setDeletingIds] = useState<Set<string>>(() => new Set());
-  const visibleReferences = references;
-  const visiblePendingUploads = pendingUploads;
-  const visibleCandidates = candidates;
-  const visiblePendingVariants = pendingVariants;
-  const visibleSaved = saved;
-  const boardAssets = [
-    ...visibleReferences,
-    ...visibleCandidates,
-    ...visibleSaved,
-  ];
+  const [bulkReferenceAction, setBulkReferenceAction] = useState<
+    "add" | "remove" | null
+  >(null);
+  const visiblePendingUploads = scope === "all" ? pendingUploads : [];
+  const referenceAssets = assets.filter(
+    (asset) => asset.status === "reference",
+  );
+  const savedAssets = assets.filter((asset) => asset.status === "saved");
+  const visibleLibraryAssets =
+    scope === "references" ? referenceAssets : assets;
+  const boardAssets = visibleLibraryAssets;
   const selectedAssets = boardAssets.filter((asset) =>
     selectedIds.has(asset.id),
+  );
+  const selectedReferenceAssets = selectedAssets.filter(
+    (asset) => asset.status === "reference",
+  );
+  const selectedSavedAssets = selectedAssets.filter(
+    (asset) => asset.status === "saved",
   );
   const selectedCount = selectedAssets.length;
   const allSelected =
@@ -2533,13 +3208,9 @@ function AssetSwimlaneBoard({
   const pendingDeleteCount = deletingIds.size;
   const deleting =
     deleteAsset.isPending || deleteAssets.isPending || pendingDeleteCount > 0;
+  const changingReference = bulkReferenceAction !== null;
   const hasAnyBoardItem =
-    references.length > 0 ||
-    pendingUploads.length > 0 ||
-    pendingVariants.length > 0 ||
-    candidates.length > 0 ||
-    saved.length > 0 ||
-    pendingDeleteCount > 0;
+    assets.length > 0 || pendingUploads.length > 0 || pendingDeleteCount > 0;
 
   function toggleAsset(assetId: string, checked: boolean) {
     onSelectedIdsChange((current) => {
@@ -2637,6 +3308,71 @@ function AssetSwimlaneBoard({
     );
   }
 
+  async function setAssetsReferenceState(assetList: any[], enabled: boolean) {
+    if (!assetList.length || changingReference) return;
+    const action = enabled ? "add" : "remove";
+    setBulkReferenceAction(action);
+    try {
+      await Promise.all(
+        assetList.map((asset) =>
+          updateAsset.mutateAsync(
+            enabled
+              ? {
+                  id: asset.id,
+                  status: "reference",
+                  role: referenceRoleForAsset(asset),
+                }
+              : {
+                  id: asset.id,
+                  status: "saved",
+                },
+          ),
+        ),
+      );
+      for (const asset of assetList) {
+        if (enabled) {
+          markLibraryAssetReferenceInCache(
+            queryClient,
+            libraryId,
+            asset.id,
+            referenceRoleForAsset(asset),
+          );
+        } else {
+          markLibraryAssetSavedStatusInCache(queryClient, libraryId, asset.id);
+        }
+      }
+      void queryClient.invalidateQueries({
+        queryKey: ["action", "get-library", { id: libraryId }],
+        refetchType: "active",
+      });
+      if (!enabled && scope === "references") {
+        const changedIds = new Set(assetList.map((asset) => asset.id));
+        onSelectedIdsChange((current) => {
+          const next = new Set(
+            [...current].filter((assetId) => !changedIds.has(assetId)),
+          );
+          return next.size === current.size ? current : next;
+        });
+      }
+      toast.success(
+        enabled
+          ? `Added ${assetList.length} asset${assetList.length === 1 ? "" : "s"} to References.`
+          : `Removed ${assetList.length} asset${assetList.length === 1 ? "" : "s"} from References.`,
+      );
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : enabled
+            ? "Could not add selected assets to References."
+            : "Could not remove selected assets from References.",
+      );
+      return;
+    } finally {
+      setBulkReferenceAction(null);
+    }
+  }
+
   function uploadGalleryItem(upload: PendingUpload): LaneGalleryItem {
     const isChecking = upload.status === "checking";
     return {
@@ -2657,18 +3393,27 @@ function AssetSwimlaneBoard({
     promoting = false,
     onSave,
     onMoveToReferences,
+    onRemoveFromReferences,
   }: {
     asset: any;
     saving?: boolean;
     promoting?: boolean;
     onSave?: () => void;
     onMoveToReferences?: () => void;
+    onRemoveFromReferences?: () => void;
   }): LaneGalleryItem {
     const displayTitle = assetDisplayTitle(asset);
     const sourceText = assetLineageSourceText(asset);
     const categoryLabel = assetCategoryLabel(asset);
+    const isReference = asset.status === "reference";
     const canMoveToReferences = Boolean(onMoveToReferences);
-    const busy = deletingIds.has(asset.id) || saving || promoting;
+    const canRemoveFromReferences = Boolean(onRemoveFromReferences);
+    const canChangeReference = canMoveToReferences || canRemoveFromReferences;
+    const busy =
+      deletingIds.has(asset.id) ||
+      saving ||
+      promoting ||
+      (changingReference && selectedIds.has(asset.id));
     return {
       id: `asset:${asset.id}`,
       title: displayTitle,
@@ -2679,7 +3424,7 @@ function AssetSwimlaneBoard({
           : asset.mimeType?.startsWith("image/")
             ? "Image"
             : asset.mimeType || "Asset",
-      status: asset.status,
+      status: isReference ? "Reference" : "Saved",
       mediaType: asset.mediaType === "video" ? "video" : "image",
       href: `/asset/${asset.id}`,
       selected: selectedIds.has(asset.id),
@@ -2696,11 +3441,18 @@ function AssetSwimlaneBoard({
           updateAsset={updateAsset}
           onDelete={() => confirmDelete([asset.id])}
           onMoveToReferences={onMoveToReferences}
+          onRemoveFromReferences={onRemoveFromReferences}
         />
       ),
       primaryActions:
-        onSave || canMoveToReferences ? (
-          <div className="grid grid-cols-2 gap-2">
+        onSave || canChangeReference ? (
+          <div
+            className={
+              onSave && canChangeReference
+                ? "grid grid-cols-1 gap-2"
+                : "grid grid-cols-2 gap-2"
+            }
+          >
             {onSave ? (
               <Button
                 size="sm"
@@ -2720,69 +3472,31 @@ function AssetSwimlaneBoard({
                 }
                 onClick={onMoveToReferences}
                 disabled={busy}
-                title="Move to Inspirations"
+                title="Add to References"
               >
-                {promoting ? <Spinner className="h-3.5 w-3.5" /> : "Use as ref"}
+                {promoting ? (
+                  <Spinner className="h-3.5 w-3.5" />
+                ) : (
+                  "Add to References"
+                )}
               </Button>
             ) : null}
-          </div>
-        ) : null,
-    };
-  }
-
-  function variantGalleryItem(slot: any): LaneGalleryItem {
-    const isFailed = slot.status === "failed";
-    const saving = savingCandidateKeys.has(candidateSaveKey(slot));
-    const promoting = promotingReferenceKeys.has(
-      referencePromotionKey(slot.assetId ? { id: slot.assetId } : null, slot),
-    );
-    const busy = saving || promoting;
-    return {
-      id: `slot:${slot.slotId}`,
-      title: isFailed ? "Failed variation" : "Ready variation",
-      subtitle: slot.slotId ? shortId(String(slot.slotId)) : "Live slot",
-      metadata: slot.status,
-      status: slot.status,
-      mediaType: "image",
-      href: slot.assetId ? `/asset/${slot.assetId}` : undefined,
-      busy,
-      preview: <VariantPreview slot={slot} fit="contain" />,
-      thumbnail: <VariantPreview slot={slot} />,
-      menu: (
-        <VariantActionsMenu
-          slot={slot}
-          libraryId={libraryId}
-          busy={busy}
-          onMoveToReferences={
-            slot.assetId
-              ? () => onMoveToReferences({ ...slot, id: slot.assetId }, slot)
-              : undefined
-          }
-        />
-      ),
-      primaryActions:
-        slot.status === "ready" ? (
-          <div className="grid grid-cols-2 gap-2">
-            <Button
-              size="sm"
-              className="h-8 px-2 text-xs"
-              onClick={() => onSaveCandidate(slot)}
-              disabled={busy}
-            >
-              {saving ? <Spinner className="h-3.5 w-3.5" /> : "Save"}
-            </Button>
-            {slot.assetId ? (
+            {canRemoveFromReferences ? (
               <Button
                 variant="outline"
                 size="sm"
-                className="h-8 px-2 text-xs"
-                onClick={() =>
-                  onMoveToReferences({ ...slot, id: slot.assetId }, slot)
+                className={
+                  onSave ? "h-8 px-2 text-xs" : "col-span-2 h-8 px-2 text-xs"
                 }
+                onClick={onRemoveFromReferences}
                 disabled={busy}
-                title="Move to Inspirations"
+                title="Remove from References"
               >
-                {promoting ? <Spinner className="h-3.5 w-3.5" /> : "Use as ref"}
+                {promoting ? (
+                  <Spinner className="h-3.5 w-3.5" />
+                ) : (
+                  "Remove from References"
+                )}
               </Button>
             ) : null}
           </div>
@@ -2790,36 +3504,24 @@ function AssetSwimlaneBoard({
     };
   }
 
-  const inspirationItems = [
-    ...visiblePendingUploads.map(uploadGalleryItem),
-    ...visibleReferences.map((asset) => assetGalleryItem({ asset })),
-  ];
-  const variationItems = [
-    ...visiblePendingVariants.map(variantGalleryItem),
-    ...visibleCandidates.map((asset) =>
-      assetGalleryItem({
-        asset,
-        saving: savingCandidateKeys.has(`asset:${asset.id}`),
-        promoting: promotingReferenceKeys.has(referencePromotionKey(asset)),
-        onSave: () => onSaveCandidate({ assetId: asset.id }),
-        onMoveToReferences: () => onMoveToReferences(asset),
-      }),
+  const libraryItems = visibleLibraryAssets.map((asset) =>
+    assetGalleryItem(
+      asset.status === "reference"
+        ? {
+            asset,
+            promoting: promotingReferenceKeys.has(referencePromotionKey(asset)),
+            onRemoveFromReferences: () => onRemoveFromReferences(asset),
+          }
+        : {
+            asset,
+            promoting: promotingReferenceKeys.has(referencePromotionKey(asset)),
+            onMoveToReferences: () => onMoveToReferences(asset),
+          },
     ),
-  ];
-  const savedItems = visibleSaved.map((asset) =>
-    assetGalleryItem({
-      asset,
-      promoting: promotingReferenceKeys.has(referencePromotionKey(asset)),
-      onMoveToReferences: () => onMoveToReferences(asset),
-    }),
   );
-  const showInspirations = !hideEmptyLanes || inspirationItems.length > 0;
-  const showVariations = !hideEmptyLanes || variationItems.length > 0;
-  const showSaved = !hideEmptyLanes || savedItems.length > 0;
   const visibleGalleryItems = [
-    ...(showInspirations ? inspirationItems : []),
-    ...(showVariations ? variationItems : []),
-    ...(showSaved ? savedItems : []),
+    ...visiblePendingUploads.map(uploadGalleryItem),
+    ...libraryItems,
   ];
 
   if (!hasAnyBoardItem) {
@@ -2850,11 +3552,10 @@ function AssetSwimlaneBoard({
         className="flex min-h-[360px] w-full flex-col items-center justify-center rounded-lg border border-dashed border-border bg-muted/20 p-8 text-center"
       >
         <IconPhotoPlus className="h-10 w-10 text-muted-foreground" />
-        <span className="mt-4 text-base font-semibold">
-          Build your inspiration lane
-        </span>
+        <span className="mt-4 text-base font-semibold">Add assets</span>
         <span className="mt-2 max-w-md text-sm text-muted-foreground">
-          Upload brand references, then generate variations from the same board.
+          Upload source material or generate candidates, then mark only the
+          assets that should guide future generations as references.
         </span>
       </button>
     );
@@ -2877,8 +3578,8 @@ function AssetSwimlaneBoard({
             </AlertDialogTitle>
             <AlertDialogDescription>
               {confirmDeleteIds.length > 1
-                ? "This removes the selected assets from the brand kit. Existing exports that already use these URLs may stop rendering."
-                : "This removes the asset from the brand kit. Existing exports that already use this URL may stop rendering."}
+                ? "This permanently removes the selected assets from the brand kit. To stop using an asset as a reference but keep it, use Remove from References instead."
+                : "This permanently removes the asset from the brand kit. To keep it in the library but stop using it as a reference, use Remove from References instead."}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -2897,7 +3598,7 @@ function AssetSwimlaneBoard({
         </AlertDialogContent>
       </AlertDialog>
 
-      <div className="mb-3 flex flex-col gap-2 rounded-md border border-border bg-background px-3 py-2 sm:flex-row sm:items-center sm:justify-between">
+      <div className="mb-3 flex flex-col gap-3 rounded-md border border-border bg-background px-3 py-2 lg:flex-row lg:items-center lg:justify-between">
         <div className="flex min-w-0 flex-wrap items-center gap-2">
           <label className="flex h-8 cursor-pointer items-center gap-2 rounded-md border border-border px-2.5 text-sm font-medium text-foreground transition hover:border-foreground/30 has-[:disabled]:cursor-not-allowed has-[:disabled]:opacity-50">
             <Checkbox
@@ -2911,6 +3612,9 @@ function AssetSwimlaneBoard({
           <span className="text-xs text-muted-foreground">
             {boardAssets.length} visible asset
             {boardAssets.length === 1 ? "" : "s"}
+            {referenceAssets.length > 0
+              ? ` · ${referenceAssets.length} reference${referenceAssets.length === 1 ? "" : "s"}`
+              : ""}
           </span>
           {selectedCount > 0 ? (
             <Button
@@ -2923,7 +3627,15 @@ function AssetSwimlaneBoard({
             </Button>
           ) : null}
         </div>
-        <AssetViewModeToggle value={viewMode} onChange={onViewModeChange} />
+        <div className="flex shrink-0 flex-wrap items-center gap-2">
+          <AssetScopeToggle
+            value={scope}
+            onChange={onScopeChange}
+            allCount={assets.length}
+            referenceCount={referenceAssets.length}
+          />
+          <AssetViewModeToggle value={viewMode} onChange={onViewModeChange} />
+        </div>
       </div>
 
       {(selectedCount > 0 || pendingDeleteCount > 0) && (
@@ -2949,14 +3661,48 @@ function AssetSwimlaneBoard({
                   : `${boardAssets.length} asset${boardAssets.length === 1 ? "" : "s"}`}
               </span>
               <span className="hidden text-xs text-muted-foreground sm:inline">
-                {references.length} inspirations ·{" "}
-                {pendingVariants.length + candidates.length} variations ·{" "}
-                {saved.length} saved
+                {referenceAssets.length} references · {savedAssets.length} saved
               </span>
             </div>
           )}
           {pendingDeleteCount === 0 ? (
             <div className="flex items-center gap-2">
+              {selectedSavedAssets.length > 0 ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() =>
+                    void setAssetsReferenceState(selectedSavedAssets, true)
+                  }
+                  disabled={deleting || changingReference}
+                >
+                  {bulkReferenceAction === "add" ? (
+                    <Spinner className="h-4 w-4" />
+                  ) : (
+                    <IconPhotoPlus className="h-4 w-4" />
+                  )}
+                  Add to References
+                </Button>
+              ) : null}
+              {selectedReferenceAssets.length > 0 ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() =>
+                    void setAssetsReferenceState(selectedReferenceAssets, false)
+                  }
+                  disabled={deleting || changingReference}
+                >
+                  {bulkReferenceAction === "remove" ? (
+                    <Spinner className="h-4 w-4" />
+                  ) : (
+                    <IconX className="h-4 w-4" />
+                  )}
+                  Remove from References
+                </Button>
+              ) : null}
               <Button
                 type="button"
                 variant="ghost"
@@ -2989,72 +3735,44 @@ function AssetSwimlaneBoard({
       {viewMode === "cards" ? (
         <AssetCardsView items={visibleGalleryItems} />
       ) : (
-        <div className="space-y-4">
-          {showInspirations ? (
-            <SwimLane
-              title="Inspirations"
-              eyebrow="Reusable references"
-              items={inspirationItems}
-              action={
-                <Button variant="outline" size="sm" onClick={onUploadClick}>
-                  Add
-                </Button>
-              }
-              empty={
-                <LaneDropTarget
-                  title="Drop references here"
-                  body="Images, clips, logos, products, or style boards."
-                  onClick={onUploadClick}
-                  onDrop={onDrop}
-                />
-              }
-            />
-          ) : null}
-
-          {showVariations ? (
-            <SwimLane
-              title="Variations"
-              eyebrow="Working lane"
-              items={variationItems}
-              action={
-                visiblePendingVariants.length > 0 ? (
-                  <LiveCandidatesActions
-                    slots={visiblePendingVariants}
-                    libraryId={libraryId}
-                  />
-                ) : (
-                  <Button variant="outline" size="sm" onClick={onGenerateClick}>
-                    Generate
-                  </Button>
-                )
-              }
-              empty={
-                <LaneActionEmpty
-                  title="No variations in flight"
-                  body="Generate a few directions, then save or move the best ones."
-                  onClick={onGenerateClick}
-                  action="Generate"
-                />
-              }
-            />
-          ) : null}
-
-          {showSaved ? (
-            <SwimLane
-              title="Saved outputs"
-              eyebrow="Approved generated assets"
-              items={savedItems}
-              empty={
-                <LaneActionEmpty
-                  title="No saved outputs yet"
-                  body="Saved variations collect here for export and reuse."
-                  onClick={onGenerateClick}
-                  action="Generate"
-                />
-              }
-            />
-          ) : null}
-        </div>
+        <SwimLane
+          title={scope === "references" ? "References" : "Library"}
+          eyebrow={
+            scope === "references"
+              ? "Assets currently marked for generation reference."
+              : "Saved assets in this filtered view. Mark the ones that should guide future generations."
+          }
+          items={visibleGalleryItems}
+          action={
+            <Button variant="outline" size="sm" onClick={onUploadClick}>
+              Add
+            </Button>
+          }
+          empty={
+            scope === "references" && assets.length > 0 ? (
+              <LaneActionEmpty
+                title="No references in this view"
+                body="Switch back to all assets and mark the keepers as references."
+                onClick={() => onScopeChange("all")}
+                action="Show all"
+              />
+            ) : hideEmptyLanes ? (
+              <LaneActionEmpty
+                title="No assets match this view"
+                body="Try All assets, a different folder, or a broader search."
+                onClick={() => onScopeChange("all")}
+                action="Show all"
+              />
+            ) : (
+              <LaneDropTarget
+                title="Drop assets here"
+                body="Upload source material, generated exports, logos, products, or style boards."
+                onClick={onUploadClick}
+                onDrop={onDrop}
+              />
+            )
+          }
+        />
       )}
     </>
   );
@@ -3118,6 +3836,65 @@ function AssetViewModeToggle({
         })}
       </div>
     </TooltipProvider>
+  );
+}
+
+function AssetScopeToggle({
+  value,
+  onChange,
+  allCount,
+  referenceCount,
+}: {
+  value: AssetLibraryScope;
+  onChange: (scope: AssetLibraryScope) => void;
+  allCount: number;
+  referenceCount: number;
+}) {
+  const options: Array<{
+    value: AssetLibraryScope;
+    label: string;
+    count: number;
+  }> = [
+    { value: "all", label: "All", count: allCount },
+    { value: "references", label: "References", count: referenceCount },
+  ];
+
+  return (
+    <div
+      role="group"
+      aria-label="Asset scope"
+      className="inline-flex shrink-0 gap-1 rounded-md border border-border bg-muted/20 p-1"
+    >
+      {options.map((option) => {
+        const active = value === option.value;
+        return (
+          <button
+            key={option.value}
+            type="button"
+            onClick={() => onChange(option.value)}
+            className={[
+              "flex h-8 items-center gap-2 rounded px-2.5 text-sm font-medium transition",
+              active
+                ? "bg-background text-foreground shadow-sm"
+                : "text-muted-foreground hover:bg-background/60 hover:text-foreground",
+            ].join(" ")}
+            aria-pressed={active}
+          >
+            <span>{option.label}</span>
+            <span
+              className={[
+                "rounded-full px-1.5 py-0.5 text-[10px] leading-none",
+                active
+                  ? "bg-muted text-muted-foreground"
+                  : "bg-background/70 text-muted-foreground",
+              ].join(" ")}
+            >
+              {option.count}
+            </span>
+          </button>
+        );
+      })}
+    </div>
   );
 }
 
@@ -3464,6 +4241,7 @@ function AssetActionsMenu({
   updateAsset,
   onDelete,
   onMoveToReferences,
+  onRemoveFromReferences,
 }: {
   asset: any;
   folders: any[];
@@ -3471,6 +4249,7 @@ function AssetActionsMenu({
   updateAsset: any;
   onDelete: () => void;
   onMoveToReferences?: () => void;
+  onRemoveFromReferences?: () => void;
 }) {
   return (
     <DropdownMenu>
@@ -3498,7 +4277,18 @@ function AssetActionsMenu({
             }}
           >
             <IconPhotoPlus className="mr-2 h-4 w-4 shrink-0" />
-            Move to Inspirations
+            Add to References
+          </DropdownMenuItem>
+        ) : null}
+        {onRemoveFromReferences ? (
+          <DropdownMenuItem
+            onSelect={(event) => {
+              event.preventDefault();
+              onRemoveFromReferences();
+            }}
+          >
+            <IconX className="mr-2 h-4 w-4 shrink-0" />
+            Remove from References
           </DropdownMenuItem>
         ) : null}
         <DropdownMenuSub>
@@ -3639,7 +4429,7 @@ function VariantActionsMenu({
               }}
             >
               <IconPhotoPlus className="mr-2 h-4 w-4 shrink-0" />
-              Move to Inspirations
+              Add to References
             </DropdownMenuItem>
           ) : null}
           <DropdownMenuItem
@@ -3825,7 +4615,7 @@ function AssetLaneTile({
                 }}
               >
                 <IconPhotoPlus className="mr-2 h-4 w-4 shrink-0" />
-                Move to Inspirations
+                Add to References
               </DropdownMenuItem>
             ) : null}
             <DropdownMenuSub>
@@ -3904,7 +4694,13 @@ function AssetLaneTile({
       </Link>
       {hasPrimaryActions ? (
         <div className="space-y-2 border-t border-border/70 p-2">
-          <div className="grid grid-cols-2 gap-2">
+          <div
+            className={
+              onSave && canMoveToReferences
+                ? "grid grid-cols-1 gap-2"
+                : "grid grid-cols-2 gap-2"
+            }
+          >
             {onSave ? (
               <Button
                 size="sm"
@@ -3924,9 +4720,13 @@ function AssetLaneTile({
                 }
                 onClick={onMoveToReferences}
                 disabled={busy}
-                title="Move to Inspirations"
+                title="Add to References"
               >
-                {promoting ? <Spinner className="h-3.5 w-3.5" /> : "Use as ref"}
+                {promoting ? (
+                  <Spinner className="h-3.5 w-3.5" />
+                ) : (
+                  "Add to References"
+                )}
               </Button>
             ) : null}
           </div>
@@ -3996,7 +4796,7 @@ function VariantLaneTile({
                 }}
               >
                 <IconPhotoPlus className="mr-2 h-4 w-4 shrink-0" />
-                Move to Inspirations
+                Add to References
               </DropdownMenuItem>
             ) : null}
             <DropdownMenuItem
@@ -4103,7 +4903,7 @@ function VariantLaneTile({
         <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-background via-background/90 to-transparent px-2 pb-2 pt-8">
           <div className="flex items-center justify-between gap-2">
             <span className="truncate text-xs font-medium">
-              {slot.status === "ready" ? "Ready variation" : "Generating"}
+              {slot.status === "ready" ? "Ready candidate" : "Generating"}
             </span>
             <span className="shrink-0 text-[10px] text-muted-foreground">
               {slot.slotId ? shortId(String(slot.slotId)) : "slot"}
@@ -4113,7 +4913,13 @@ function VariantLaneTile({
       </div>
       {slot.status === "ready" ? (
         <div className="border-t border-border/70 p-2">
-          <div className="grid grid-cols-2 gap-2">
+          <div
+            className={
+              onMoveToReferences
+                ? "grid grid-cols-1 gap-2"
+                : "grid grid-cols-2 gap-2"
+            }
+          >
             <Button
               size="sm"
               className="h-8 px-2 text-xs"
@@ -4129,9 +4935,13 @@ function VariantLaneTile({
                 className="h-8 px-2 text-xs"
                 onClick={onMoveToReferences}
                 disabled={busy}
-                title="Move to Inspirations"
+                title="Add to References"
               >
-                {promoting ? <Spinner className="h-3.5 w-3.5" /> : "Use as ref"}
+                {promoting ? (
+                  <Spinner className="h-3.5 w-3.5" />
+                ) : (
+                  "Add to References"
+                )}
               </Button>
             ) : null}
           </div>
