@@ -1,15 +1,17 @@
-import {
-  discoverAgents as defaultDiscoverAgents,
-  type DiscoveredAgent,
-} from "../server/agent-discovery.js";
-import {
-  invokeAgent as defaultInvokeAgent,
-  type AgentInvocationResult,
-  type AgentInvocationRuntime,
+import type { DiscoveredAgent } from "../server/agent-discovery.js";
+import type {
+  AgentInvocationResult,
+  AgentInvocationRuntime,
+  InvokeAgentOptions,
 } from "../a2a/invoke.js";
 
+type DiscoverAgents = (selfAppId?: string) => Promise<DiscoveredAgent[]>;
+type InvokeAgent = (
+  options: InvokeAgentOptions,
+) => Promise<AgentInvocationResult>;
+
 export interface AgentNativeRuntime extends Partial<AgentInvocationRuntime> {
-  invokeAgent?: typeof defaultInvokeAgent;
+  invokeAgent?: InvokeAgent;
 }
 
 export interface AgentNativeClientOptions {
@@ -64,7 +66,8 @@ export function createAgentNativeClient(
   async function listAgents(
     options: AgentNativeListAgentsOptions = {},
   ): Promise<DiscoveredAgent[]> {
-    const discoverAgents = getRuntime().discoverAgents ?? defaultDiscoverAgents;
+    const discoverAgents =
+      getRuntime().discoverAgents ?? (await loadDiscoverAgents());
     return discoverAgents(options.selfAppId ?? defaults.selfAppId);
   }
 
@@ -85,16 +88,17 @@ export function createAgentNativeClient(
 
     const merged = mergeOptions(defaults, request);
     const runtime: AgentNativeRuntime = defaults.runtime ?? {};
-    const invokeAgent = runtime.invokeAgent ?? defaultInvokeAgent;
-    const apiKey = resolveApiKey(merged, defaults.env);
+    const invokeAgent = runtime.invokeAgent ?? (await loadInvokeAgent());
+    const env = resolveEnv(merged, defaults.env);
+    const apiKey = resolveApiKey(merged, env);
 
     return invokeAgent({
       target,
       prompt: request.prompt,
       apiKey,
       contextId: merged.contextId,
-      selfAppId: merged.selfAppId,
-      selfUrl: merged.selfUrl,
+      selfAppId: merged.selfAppId ?? inferSelfAppId(env),
+      selfUrl: merged.selfUrl ?? env.APP_URL ?? env.BETTER_AUTH_URL,
       userEmail: merged.userEmail,
       orgDomain: merged.orgDomain,
       orgSecret: merged.orgSecret,
@@ -114,6 +118,16 @@ export function createAgentNativeClient(
 
 export const agentNative = createAgentNativeClient();
 
+async function loadDiscoverAgents(): Promise<DiscoverAgents> {
+  const mod = await import("../server/agent-discovery.js");
+  return mod.discoverAgents;
+}
+
+async function loadInvokeAgent(): Promise<InvokeAgent> {
+  const mod = await import("../a2a/invoke.js");
+  return mod.invokeAgent;
+}
+
 function mergeOptions(
   defaults: AgentNativeClientOptions,
   options: AgentNativeInvokeRequest | AgentNativeInvokeOptions,
@@ -128,15 +142,47 @@ function mergeOptions(
 
 function resolveApiKey(
   options: AgentNativeClientOptions,
-  defaultEnv?: Record<string, string | undefined>,
+  env: Record<string, string | undefined>,
 ): string | undefined {
   if (options.apiKey) return options.apiKey;
   if (!options.apiKeyEnv) return undefined;
 
-  const env = options.env ?? defaultEnv ?? process.env;
   const value = env[options.apiKeyEnv];
   if (!value) {
     throw new Error(`Environment variable ${options.apiKeyEnv} is not set`);
   }
   return value;
+}
+
+function resolveEnv(
+  options: AgentNativeClientOptions,
+  defaultEnv?: Record<string, string | undefined>,
+): Record<string, string | undefined> {
+  return options.env ?? defaultEnv ?? defaultProcessEnv();
+}
+
+function defaultProcessEnv(): Record<string, string | undefined> {
+  return typeof process === "undefined" ? {} : process.env;
+}
+
+function inferSelfAppId(
+  env: Record<string, string | undefined>,
+): string | undefined {
+  return (
+    normalizeWorkspaceAppId(env.AGENT_NATIVE_WORKSPACE_APP_ID) ??
+    normalizeWorkspaceAppId(env.APP_NAME) ??
+    normalizeWorkspaceAppId(env.AGENT_APP) ??
+    normalizeWorkspaceAppId(env.APP_BASE_PATH) ??
+    normalizeWorkspaceAppId(env.VITE_APP_BASE_PATH) ??
+    undefined
+  );
+}
+
+function normalizeWorkspaceAppId(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  const candidate = trimmed.replace(/^\/+/, "").split("/")[0] ?? "";
+  if (!/^[a-z0-9][a-z0-9-]{0,127}$/.test(candidate)) return null;
+  return candidate;
 }

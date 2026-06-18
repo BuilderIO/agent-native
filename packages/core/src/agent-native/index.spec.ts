@@ -87,6 +87,27 @@ describe("agentNative client", () => {
     );
   });
 
+  it("infers self-call guardrail context from the environment", async () => {
+    const rt = runtime();
+    const client = createAgentNativeClient({
+      env: {
+        AGENT_NATIVE_WORKSPACE_APP_ID: "dispatch",
+        APP_URL: "https://dispatch.agent-native.test",
+      },
+      runtime: rt,
+    });
+
+    await client.invoke("analytics", "Summarize signups");
+
+    expect(rt.invokeAgent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        target: "analytics",
+        selfAppId: "dispatch",
+        selfUrl: "https://dispatch.agent-native.test",
+      }),
+    );
+  });
+
   it("rejects calls without an agent target", async () => {
     const client = createAgentNativeClient({ runtime: runtime() });
 

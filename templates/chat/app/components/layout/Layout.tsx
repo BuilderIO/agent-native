@@ -44,6 +44,14 @@ export function Layout({ children }: LayoutProps) {
   }, [location.pathname]);
 
   useEffect(() => {
+    const closeMobileSidebar = () => setMobileSidebarOpen(false);
+    window.addEventListener("agent-chat:open-thread", closeMobileSidebar);
+    return () => {
+      window.removeEventListener("agent-chat:open-thread", closeMobileSidebar);
+    };
+  }, []);
+
+  useEffect(() => {
     try {
       const stored = window.localStorage.getItem(SIDEBAR_COLLAPSE_KEY);
       if (stored !== null) setSidebarCollapsed(stored === "1");
