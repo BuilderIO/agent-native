@@ -35,7 +35,9 @@ export default defineAction({
 
     const source = await getContentDatabaseSourceSnapshot(database);
     if (!source || source.sourceType !== "builder-cms") {
-      throw new Error("Attach a Builder CMS source before preparing execution.");
+      throw new Error(
+        "Attach a Builder CMS source before preparing execution.",
+      );
     }
 
     const changeSet = source.changeSets.find(

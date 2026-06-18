@@ -128,9 +128,7 @@ function isHostedWorkspaceRuntime(): boolean {
  */
 function allowLocalDevBuilderEnvCredentials(): boolean {
   if (process.env.NODE_ENV === "production") return false;
-  return /^(1|true)$/i.test(
-    process.env.AGENT_NATIVE_LOCAL_BUILDER_ENV ?? "",
-  );
+  return /^(1|true)$/i.test(process.env.AGENT_NATIVE_LOCAL_BUILDER_ENV ?? "");
 }
 
 function canUseBuilderDeployCredentialFallbackForRequest(): boolean {

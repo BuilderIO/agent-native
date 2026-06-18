@@ -85,7 +85,9 @@ describe("Builder CMS read client", () => {
                         name: "blog-article",
                         displayName: "Blog Article",
                         kind: "component",
-                        fields: [{ name: "title", type: "text", required: true }],
+                        fields: [
+                          { name: "title", type: "text", required: true },
+                        ],
                       },
                       {
                         id: "model-test",

@@ -114,7 +114,7 @@ describe("document database layout", () => {
 
     expect(source).toContain("function databaseToolbarIconButtonClass");
     expect(source).toContain('aria-label="Search"');
-    expect(source).toContain(": \"Database settings\"");
+    expect(source).toContain(': "Database settings"');
     expect(source).toContain("Property visibility");
     expect(source).toContain("bg-foreground px-2.5 text-xs font-medium");
   });
@@ -136,9 +136,9 @@ describe("document database layout", () => {
   it("keeps database settings row clicks inside the source drawer", () => {
     const source = readDatabaseSource();
 
-    expect(source).toContain('onClick={(event) => event.stopPropagation()}');
+    expect(source).toContain("onClick={(event) => event.stopPropagation()}");
     expect(source).toContain(
-      'onPointerDown={(event) => event.stopPropagation()}',
+      "onPointerDown={(event) => event.stopPropagation()}",
     );
     expect(source).toContain(
       "onClick={(event: ReactMouseEvent<HTMLButtonElement>) => {",

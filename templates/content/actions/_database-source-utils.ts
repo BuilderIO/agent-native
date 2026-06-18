@@ -638,9 +638,12 @@ async function loadSourceSnapshot(
           })
           .from(schema.documents)
           .where(
-            inArray(
-              schema.documents.id,
-              rowRows.map((row) => row.documentId),
+            and(
+              inArray(
+                schema.documents.id,
+                rowRows.map((row) => row.documentId),
+              ),
+              eq(schema.documents.ownerEmail, database.ownerEmail),
             ),
           )
       : [];

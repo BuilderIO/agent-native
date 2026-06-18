@@ -8,9 +8,7 @@ import type {
   ContentDatabaseMembership,
   ContentDatabaseResponse,
 } from "../shared/api.js";
-import {
-  getAllContentDatabaseSourceSnapshots,
-} from "./_database-source-utils.js";
+import { getAllContentDatabaseSourceSnapshots } from "./_database-source-utils.js";
 import {
   applyFederatedOverlayValues,
   federateSources,

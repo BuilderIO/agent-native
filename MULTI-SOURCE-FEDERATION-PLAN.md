@@ -1,7 +1,7 @@
 # Multi-source content databases (lightweight federation)
 
-*Working design + phasing. Created 2026-06-17. Sibling to
-`BUILDER-LIVE-WRITE-PLAN.md` (write routing depends on that work).*
+_Working design + phasing. Created 2026-06-17. Sibling to
+`BUILDER-LIVE-WRITE-PLAN.md` (write routing depends on that work)._
 
 ## Vision
 
@@ -24,9 +24,9 @@ side by side — as long as they share a key.
   (`concat(lower(region), "/", slug)`), so we don't need composite-key
   machinery; revisit only if a concrete case forces it.
 - **Per-source key mapping** — each source declares `(keyField,
-  normalizationFormula)` that maps its own key into the canonical space.
+normalizationFormula)` that maps its own key into the canonical space.
   Example: Builder `data.url = /blog/foo`, Notion `URL =
-  site.com/blog/foo`, Sigma `slug = foo` all normalize to `foo`. (Exact
+site.com/blog/foo`, Sigma `slug = foo` all normalize to `foo`. (Exact
   field shapes per provider TBD — the idea, not the literal fields.)
 - **Outer / union join (locked).** Rows = the union of canonical keys across
   sources. A row shows whatever columns its matching sources provide; columns
@@ -37,19 +37,20 @@ side by side — as long as they share a key.
   origin (already modeled in `content_database_source_fields`).
 
 ### Two join types: identity vs reference
+
 A single database can join sources in **two distinct ways**, and both should be
 expressible at once (e.g. articles federated across Builder/Notion/Analytics by
-URL, *and* author data pulled from a `blog-authors` table by the `Author` field):
+URL, _and_ author data pulled from a `blog-authors` table by the `Author` field):
 
-- **Identity join (federation).** Sources describe the *same entity* (a blog
+- **Identity join (federation).** Sources describe the _same entity_ (a blog
   article). Join on the **canonical key** (URL); their columns **merge onto one
   row**. Cardinality 1:1. The key defines the row's identity. (This is the whole
   "Core model" above.)
-- **Reference join (lookup).** A source describes a *different entity* (an
+- **Reference join (lookup).** A source describes a _different entity_ (an
   author). A field on the row (`Author`) is a **foreign key** into that
   collection; matching rows' columns are **pulled in as derived columns**.
   Cardinality N:1 (many articles → one author). This mirrors Notion's
-  *relation + rollup* / Airtable's *linked record + lookup field*.
+  _relation + rollup_ / Airtable's _linked record + lookup field_.
 
 Unify both as a typed join record so the reference case drops in without a
 schema change:
@@ -66,31 +67,33 @@ join = {
 
 - **No relation column needed.** Unlike Notion (which stores an explicit per-row
   link in a dedicated relation column), ours is a **value join**: the existing
-  `Author` field's *value* is matched against the authors' key. The join is
+  `Author` field's _value_ is matched against the authors' key. The join is
   configured in the **Sources** UX, not as a column. The field you already have
   doubles as the foreign key. Trade-off: a value join can be ambiguous (two
   authors normalize alike, or a typo matches nothing) where an explicit link
   can't — covered later by multi-value handling + the manual-pin escape hatch.
-- **Order of operations** — build the federated identity row first (URL), *then*
+- **Order of operations** — build the federated identity row first (URL), _then_
   resolve reference joins against the row's fields (the `localExpr` may itself be
   a federated column).
 - **Single-value only for v1.** A single-valued `Author` is a clean 1:1 lookup.
   Multi-value (co-authors, `multiple-blog-authors`) makes it N:M → the looked-up
   columns become lists needing an aggregation/display rule. **Deferred.**
 - **Local tables are a source too.** Any local content database can act as a
-  source (identity *or* reference), mirroring Notion — indexed by one of its
+  source (identity _or_ reference), mirroring Notion — indexed by one of its
   properties as its key. See the third Sources group below.
 
 ## Design decisions
 
 ### Progressive key disclosure (don't introduce complexity until needed)
+
 - **Single source from scratch** (today's flow): no explicit key ceremony — the
   source's natural identity is the key. Unchanged.
 - **Adding source #2**, OR **adding a source on top of existing local data**:
-  *now* a canonical key is required, so we prompt for it.
+  _now_ a canonical key is required, so we prompt for it.
 - The key concept only ever surfaces when a join actually has to happen.
 
 ### AI-suggested key, with a non-AI fallback
+
 - When a key is needed, **lean on the agent** to propose the join key +
   normalization formula — it can see both schemas and sample values and suggest
   "join on URL; strip `/blog/` from Builder, strip host from Notion."
@@ -100,19 +103,21 @@ join = {
   before it commits. A silently-wrong join corrupts the whole table and is hard
   to spot; one confirmation with evidence is cheap insurance.
 - **Fallback when the agent isn't available:** a similarity/heuristic matcher
-  picks *which field is the key* — the field pair whose normalized value sets
+  picks _which field is the key_ — the field pair whose normalized value sets
   overlap most (Jaccard on sampled values) + name/format heuristics. No model
   required.
 
 ### Matching is normalize-then-exact (no fuzzy joins)
+
 - Deterministic differences are handled by **normalization**, not fuzzy
   matching: trim whitespace + lowercase + strip trailing slash + strip
   host/known prefix. After normalization, rows match on **string equality**.
 - Fuzzy/similarity matching on the key itself is banned — it produces silent
-  false joins. Similarity is used *only* by the no-AI fallback above to pick the
+  false joins. Similarity is used _only_ by the no-AI fallback above to pick the
   key field; the actual row match stays exact. No join confidence threshold.
 
 ### Manual row-pin = v2 (deferred)
+
 - A manual "pin row A ↔ row B" override gets complex fast (per-row override
   store, UI, conflict surface). **Defer to a later version.**
 - We don't need it for v1 correctness: with the outer join, rows whose key
@@ -120,6 +125,7 @@ join = {
   columns blank) — visible and graceful, not silently broken.
 
 ### Column model — single-bind by default, opt-in merge/sync (proposed)
+
 The tension: per-column single-source is clean, but the tool is only useful if
 some columns can **stay in sync across sources** (Notion + Builder title/date
 kept identical). Proposed reconciliation that avoids read-time merge magic:
@@ -128,25 +134,27 @@ kept identical). Proposed reconciliation that avoids read-time merge magic:
   is a write target).
 - A column may optionally bind **mirror sources** (additional write targets).
   A column with mirrors is a **merged/synced column**: editing it fans the write
-  out to the primary *and* all mirrors, keeping them in sync.
+  out to the primary _and_ all mirrors, keeping them in sync.
 - **Reads** always show the primary — no ambiguity. If a mirror drifts upstream,
   that's caught at push time by the existing `conflictState: "source_changed"`
   primitive (same model-B conflict handling we locked).
 - Merge is **opt-in, manual, at table setup** — never implicit.
 - Merge sits **on top of the join**: you can only sync two sources' columns for
-  the *same entity*, which requires the canonical-key join to exist first.
+  the _same entity_, which requires the canonical-key join to exist first.
 - **Write fan-out is inherently a live-write feature** → the synced-column
-  *behavior* activates with the live-write PR. The column *model* (primary +
+  _behavior_ activates with the live-write PR. The column _model_ (primary +
   mirrors) can be designed/stored earlier; it just displays the primary until
   writes are enabled.
 
 ### Write routing (forward-looking, compatible)
+
 Each column writes back to its own source; in a multi-source row, push is
 per-source. The outbound change-set already carries `sourceId`, so per-source
 routing is natural, and the "Review diff" slot would group pending changes by
 destination source. (Lives in `BUILDER-LIVE-WRITE-PLAN.md`.)
 
 ### Sources UX hierarchy
+
 Drill-down; the minimal read-only panel we already built becomes the **leaf**:
 
 ```
@@ -168,7 +176,7 @@ Sources (N)                              ← plural; count of connected sources
   workspace — this is what makes "any table is a source" / Notion-style relations
   work without a relation column; the join is configured here).
 - Each integration has **provider-specific specifics** behind a common adapter.
-  Deriving the Builder *space* display name is a Builder-only call: there is **no
+  Deriving the Builder _space_ display name is a Builder-only call: there is **no
   public-key path** to a space name — it comes from the **Admin GraphQL API**
   (`https://builder.io/api/v2/admin`, auth with the private `bpk-…` key we hold
   at user scope) via the root `settings: JSONObject!` query (also
@@ -176,12 +184,14 @@ Sources (N)                              ← plural; count of connected sources
   live query during NOW. Today we only persist `orgName` (a generic default).
 
 ### Provider adapter interface (sketch)
+
 Common surface so new sources are "fill in the adapter": `listSpaces()` /
 `deriveSpaceName()`, `listModels()`, `readEntries()`, `keyField` +
 `normalizeKey()`, and (later) `writeField()`. Builder, Notion, Analytics each
 implement it; the federation/join/merge logic stays provider-agnostic.
 
 ## What already supports this (build on, don't rebuild)
+
 - `content_database_sources` is keyed by `databaseId` — schema already allows
   **N sources per database**; code just assumes one (`getExistingSource`).
 - `content_database_source_fields` already carries per-column provenance.
@@ -193,6 +203,7 @@ implement it; the federation/join/merge logic stays provider-agnostic.
 ## Phasing
 
 ### NOW — UX shell (this PR)
+
 - Rename "Source" → **"Sources"** (plural, with count); build the drill-down
   (Sources → Builder → derived space → models), **Builder-only**.
 - **Derive the real Builder space name** (Builder API), replacing the generic
@@ -202,6 +213,7 @@ implement it; the federation/join/merge logic stays provider-agnostic.
 - No join/merge logic yet — proves the model + navigation end to end.
 
 ### NEXT — read-side federation, identity joins only (this PR)
+
 - **Canonical key** as an explicit (but progressively-disclosed) property.
 - **Per-source key-normalization formula**; AI-suggested key + similarity
   fallback; formula-language string extensions.
@@ -216,6 +228,7 @@ implement it; the federation/join/merge logic stays provider-agnostic.
   with no schema change. Identity-only here.
 
 ### LATER — truly later (separate PRs)
+
 - **Reference joins (lookups)** — its own sub-phase: match a row field against a
   related collection's key, pull derived columns. Single-value first; the
   relation/cardinality machinery is what makes this bigger than NEXT.
@@ -228,6 +241,7 @@ implement it; the federation/join/merge logic stays provider-agnostic.
 - **Manual row-pin** escape hatch (v2).
 
 ## Resolved (2026-06-17)
+
 - **Canonical key:** single property; composite via formula-concat if ever needed.
 - **Agent key suggestion:** interactive lightweight confirm (propose → sample
   matches → confirm/edit → commit), not silent one-shot.
@@ -244,16 +258,19 @@ implement it; the federation/join/merge logic stays provider-agnostic.
   `packages/core/src/server/builder-space.ts`.)
 
 ## NOW status — shipped
+
 The NOW phase is built and browser-QA'd: Sources (plural) → grouped Integrations
 (Builder live; Notion coming-soon) + Agent-Native apps (Analytics coming-soon) →
 Builder → space list (real derived name) → models (attached model marked) →
 read-only leaf. Single-source flow unchanged.
 
 ## NEXT status — shipped (overlay)
+
 The NEXT phase (identity joins, **overlay** form) is built, unit-tested, and
 browser-QA'd end to end:
+
 - **Formula engine** gained string ops (`lower/upper/trim/replace/slug/striphost/
-  regexExtract/regexReplace`) plus `evaluateNormalizationFormula` (strict: null =
+regexExtract/regexReplace`) plus `evaluateNormalizationFormula` (strict: null =
   un-joinable). (`shared/properties.ts`)
 - **Storage:** typed `join` record + per-source `federation` block live in each
   source's `metadataJson`; the canonical-key descriptor rides on the **primary
@@ -273,14 +290,14 @@ browser-QA'd end to end:
   (`disconnect` extended with `sourceId`).
 - **Opt-in federated columns** (replacing always-on auto-inject): the secondary's
   fields appear in the add-column picker grouped **"From <source>"** (labeled
-  *Federated*); adding one creates a real read-only column whose per-row value is
+  _Federated_); adding one creates a real read-only column whose per-row value is
   populated from the matched overlay at read time (`applyFederatedOverlayValues`) —
   exactly how Builder source columns already work. No values are materialized onto
   local documents.
 - **Suggestion** is a deterministic Jaccard heuristic (`actions/_join-suggestion.ts`
-  + `suggest-source-join-key`), no LLM; the session agent can compose the same
-  `join` record. Interactive **CanonicalKeyConfirmView** shows editable per-source
-  formulas + a live sample-match preview before commit.
+  - `suggest-source-join-key`), no LLM; the session agent can compose the same
+    `join` record. Interactive **CanonicalKeyConfirmView** shows editable per-source
+    formulas + a live sample-match preview before commit.
 - Verified end to end: Builder primary + a **real** workspace database as the
   local-table source #2 → "Match on a key" (heuristic matched `data.url` ↔
   `Builder URL`, 5/5 samples) → confirm → add the secondary's `Blurb` field from the
@@ -288,6 +305,7 @@ browser-QA'd end to end:
   Single-source flow unchanged (673 tests green).
 
 ## Still open / deferred
+
 - **Virtual (union) rows** — the immediately-following sub-step: render a read-only
   row for a secondary-only key. Requires editor read-path guards (no page open / no
   select-delete / pagination caveat). Engine is already the union engine.

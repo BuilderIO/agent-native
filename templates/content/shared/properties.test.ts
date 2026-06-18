@@ -156,9 +156,9 @@ describe("document properties", () => {
         URL: "/blog/foo",
       }),
     ).toBe("foo");
-    expect(
-      evaluatePropertyFormula('replace({k}, "", "x")', { k: "ab" }),
-    ).toBe("ab");
+    expect(evaluatePropertyFormula('replace({k}, "", "x")', { k: "ab" })).toBe(
+      "ab",
+    );
     expect(
       evaluatePropertyFormula("slug({title})", { title: "My First Post!" }),
     ).toBe("my-first-post");
@@ -172,16 +172,14 @@ describe("document properties", () => {
     ).toBe("/blog/foo");
     // The canonical case: host-qualified and relative URLs collapse to one key.
     expect(
-      evaluatePropertyFormula(
-        'replace(striphost({URL}), "/blog/", "")',
-        { URL: "https://site.com/blog/foo" },
-      ),
+      evaluatePropertyFormula('replace(striphost({URL}), "/blog/", "")', {
+        URL: "https://site.com/blog/foo",
+      }),
     ).toBe("foo");
     expect(
-      evaluatePropertyFormula(
-        'regexextract({URL}, "/blog/([^/]+)", 1)',
-        { URL: "/blog/foo/bar" },
-      ),
+      evaluatePropertyFormula('regexextract({URL}, "/blog/([^/]+)", 1)', {
+        URL: "/blog/foo/bar",
+      }),
     ).toBe("foo");
     expect(
       evaluatePropertyFormula('regexreplace({k}, "[0-9]+", "#")', {
@@ -196,9 +194,9 @@ describe("document properties", () => {
         URL: "https://site.com/blog/foo",
       }),
     ).toBe("foo");
-    expect(
-      evaluateNormalizationFormula("lower({slug})", { slug: "FOO" }),
-    ).toBe("foo");
+    expect(evaluateNormalizationFormula("lower({slug})", { slug: "FOO" })).toBe(
+      "foo",
+    );
     // Empty result collapses to null so empty keys never match each other.
     expect(evaluateNormalizationFormula("trim({k})", { k: "   " })).toBeNull();
     expect(evaluateNormalizationFormula("", { k: "x" })).toBeNull();
