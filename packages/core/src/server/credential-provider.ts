@@ -123,13 +123,12 @@ function isHostedWorkspaceRuntime(): boolean {
 /**
  * Whether deployment-level Builder env keys may back the current request.
  *
- * This is intentionally a single self-contained function rather than a chain of
- * tiny helpers (`allowLocalDevBuilderEnvCredentials` →
- * `canUseDeployCredentialFallbackForRequest` → `isDeployCredentialFallbackAllowed`).
- * The chained form tripped a CI test-transform/optimizer artifact where the
- * composed result diverged from each helper's correct standalone value, making
- * the dogfooding escape hatch read as blocked. Reading the env once into locals
- * here keeps the decision evaluating identically everywhere.
+ * This is intentionally self-contained rather than delegating to
+ * `canUseDeployCredentialFallbackForRequest`. That generic helper blocks the
+ * deploy fallback for any signed-in user in a hosted workspace runtime, so the
+ * Builder dogfooding escape hatch must apply its own hosted-workspace exception
+ * here instead of inheriting the generic helper's stricter (and hatch-unaware)
+ * decision. Reading the env once into locals keeps the rules legible.
  *
  * Rules (all evaluated against the live request/runtime, not a build-time value):
  *  - No signed-in user → safe to use the deploy env (nobody to mis-identify).
