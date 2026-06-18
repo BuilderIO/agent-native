@@ -463,6 +463,8 @@ export {
   type ChatThreadSnapshot,
   type ChatThreadSummary,
   type ChatThreadData,
+  type ChatThreadShareLink,
+  type ChatThreadShareState,
   type UseChatThreadsOptions,
 } from "./use-chat-threads.js";
 export { AgentChatHome, type AgentChatHomeProps } from "./AgentChatHome.js";

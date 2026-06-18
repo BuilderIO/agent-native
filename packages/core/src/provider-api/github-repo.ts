@@ -604,6 +604,7 @@ export function createGitHubRepoToolEntries(
       run: (args) => searchCodeImpl(args ?? {}, options),
     },
     "github-repo-write-file": {
+      needsApproval: true,
       tool: {
         description:
           "Create or update a file in the connected GitHub repository through the GitHub connector/token. Auto-loads the current SHA when updating an existing file.",
@@ -641,6 +642,7 @@ export function createGitHubRepoToolEntries(
       run: (args) => writeFileImpl(args ?? {}, options),
     },
     "github-repo-delete-file": {
+      needsApproval: true,
       tool: {
         description:
           "Delete a file from the connected GitHub repository through the GitHub connector/token. Auto-loads the current SHA when omitted.",

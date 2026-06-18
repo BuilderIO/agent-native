@@ -71,6 +71,19 @@ describe("GitHub repo tools", () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(jsonResponse({}));
   });
 
+  it("marks repository writes and deletes as approval-gated", () => {
+    const tools = githubTools();
+
+    expect(tools["github-repo-list-files"].readOnly).toBe(true);
+    expect(tools["github-repo-read-file"].readOnly).toBe(true);
+    expect(tools["github-repo-search-code"].readOnly).toBe(true);
+    expect(tools["github-repo-list-files"].needsApproval).toBeUndefined();
+    expect(tools["github-repo-read-file"].needsApproval).toBeUndefined();
+    expect(tools["github-repo-search-code"].needsApproval).toBeUndefined();
+    expect(tools["github-repo-write-file"].needsApproval).toBe(true);
+    expect(tools["github-repo-delete-file"].needsApproval).toBe(true);
+  });
+
   it("lists repository files through the GitHub provider", async () => {
     readAppSecret.mockResolvedValue({ value: "github-secret-token" });
     vi.mocked(globalThis.fetch).mockResolvedValue(
