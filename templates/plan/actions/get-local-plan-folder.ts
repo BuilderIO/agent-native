@@ -1,13 +1,12 @@
 import { defineAction } from "@agent-native/core";
 import { z } from "zod";
-import { exportPlanContentToMdxFolder } from "../server/plan-mdx.js";
-import { buildPlanHtml, nowIso } from "../server/plans.js";
+import { isLocalPlanRuntime } from "../server/lib/local-identity.js";
 import {
-  getLocalPlanOwnerEmail,
-  isLocalPlanRuntime,
-} from "../server/lib/local-identity.js";
-import { readPlanLocalFolder } from "../server/lib/local-plan-files.js";
-import type { PlanBundle, PlanKind } from "../shared/types.js";
+  readLocalPlanComments,
+  readPlanLocalFolder,
+} from "../server/lib/local-plan-files.js";
+import { buildLocalPlanBundleResult } from "../server/lib/local-plan-bundle.js";
+import type { PlanKind } from "../shared/types.js";
 
 const localPlanKindSchema = z.enum(["plan", "recap"]);
 
@@ -51,63 +50,15 @@ export default defineAction({
       slug: args.slug,
       path: args.path,
     });
-    const now = nowIso();
-    const title = local.content.title || args.slug;
-    const brief = local.content.brief || "Local files preview.";
-    const id = `local-${args.slug}`;
+    const comments = await readLocalPlanComments(local.folder);
     const kind = resolveLocalPlanKind(args.kind, local.mdx) as PlanKind;
-    const bundle: PlanBundle = {
-      plan: {
-        id,
-        title,
-        brief,
-        kind,
-        status: "review",
-        source: "imported",
-        repoPath: local.folder,
-        currentFocus: "local-files preview",
-        html: null,
-        markdown: local.mdx["plan.mdx"],
-        content: local.content,
-        createdAt: now,
-        updatedAt: now,
-        approvedAt: null,
-      },
-      access: {
-        role: "viewer",
-        ownerEmail: getLocalPlanOwnerEmail(),
-        orgId: null,
-        visibility: "private",
-      },
-      sections: [],
-      comments: [],
-      events: [],
-      summary: {
-        sectionCounts: {},
-        commentCount: 0,
-        openCommentCount: 0,
-      },
-    };
-
-    return {
-      ...bundle,
-      planId: id,
-      localOnly: true,
-      slug: local.slug,
-      folder: local.folder,
-      repoPath: local.repoPath,
-      path: local.routePath,
-      url: local.url,
-      suggestedRepoPath: local.suggestedRepoPath,
-      html: buildPlanHtml(bundle),
-      mdx: await exportPlanContentToMdxFolder({
-        content: bundle.plan.content,
-        title: bundle.plan.title,
-        brief: bundle.plan.brief,
-        planId: bundle.plan.id,
-        url: local.routePath,
-      }),
-    };
+    return buildLocalPlanBundleResult({
+      local,
+      kind,
+      role: "viewer",
+      comments,
+      currentFocus: "local-files preview",
+    });
   },
   link: ({ args }) => ({
     url: args.path

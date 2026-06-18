@@ -6,18 +6,15 @@ import {
   planContentSchema,
   type PlanContent,
 } from "../shared/plan-content.js";
-import { exportPlanContentToMdxFolder } from "../server/plan-mdx.js";
 import { normalizePlanContent } from "../server/plan-content.js";
-import { buildPlanHtml, nowIso } from "../server/plans.js";
+import { isLocalPlanRuntime } from "../server/lib/local-identity.js";
 import {
-  getLocalPlanOwnerEmail,
-  isLocalPlanRuntime,
-} from "../server/lib/local-identity.js";
-import {
+  readLocalPlanComments,
   readPlanLocalFolder,
   writePlanLocalFolder,
 } from "../server/lib/local-plan-files.js";
-import type { PlanBundle, PlanKind } from "../shared/types.js";
+import { buildLocalPlanBundleResult } from "../server/lib/local-plan-bundle.js";
+import type { PlanKind } from "../shared/types.js";
 
 const localPlanKindSchema = z.enum(["plan", "recap"]);
 
@@ -127,61 +124,19 @@ export default defineAction({
       slug: current.slug,
       path: current.repoPath,
     });
-    const now = nowIso();
-    const bundle: PlanBundle = {
-      plan: {
-        id: planId,
-        title: updated.content.title || title,
-        brief: updated.content.brief || brief,
-        kind,
-        status: "review",
-        source: "imported",
-        repoPath: updated.folder,
-        currentFocus: "local-files editing",
-        html: null,
-        markdown: updated.mdx["plan.mdx"],
-        content: updated.content,
-        createdAt: now,
-        updatedAt: now,
-        approvedAt: null,
-      },
-      access: {
-        role: "editor",
-        ownerEmail: getLocalPlanOwnerEmail(),
-        orgId: null,
-        visibility: "private",
-      },
-      sections: [],
-      comments: [],
-      events: [],
-      summary: {
-        sectionCounts: countLocalPlanBlocks(updated.content.blocks),
-        commentCount: 0,
-        openCommentCount: 0,
-      },
-    };
-
-    return {
-      ...bundle,
-      planId,
-      localOnly: true,
-      slug: updated.slug,
-      folder: updated.folder,
-      repoPath: updated.repoPath,
-      path: updated.routePath,
-      url: updated.url,
-      suggestedRepoPath: updated.suggestedRepoPath,
-      html: buildPlanHtml(bundle),
-      mdx: await exportPlanContentToMdxFolder({
-        content: bundle.plan.content,
-        title: bundle.plan.title,
-        brief: bundle.plan.brief,
-        planId,
-        url: updated.routePath,
-      }),
-      localFiles,
-      note: args.note,
-    };
+    // Editing prose must not blank the persisted review comments, so the
+    // returned bundle carries the same comments.json the reader would load.
+    const comments = await readLocalPlanComments(updated.folder);
+    const result = await buildLocalPlanBundleResult({
+      local: updated,
+      kind,
+      role: "editor",
+      comments,
+      currentFocus: "local-files editing",
+      title,
+      brief,
+    });
+    return { ...result, localFiles, note: args.note };
   },
   link: ({ args }) => ({
     url: args.path
@@ -212,20 +167,4 @@ function resolveLocalPlanKind(
     // Optional state file.
   }
   return "plan";
-}
-
-function countLocalPlanBlocks(blocks: PlanContent["blocks"]) {
-  const counts: Record<string, number> = {};
-  const visitBlocks = (items: PlanContent["blocks"]) => {
-    for (const block of items) {
-      counts[block.type] = (counts[block.type] ?? 0) + 1;
-      if (block.type === "tabs") {
-        for (const tab of block.data.tabs) visitBlocks(tab.blocks);
-      } else if (block.type === "columns") {
-        for (const column of block.data.columns) visitBlocks(column.blocks);
-      }
-    }
-  };
-  visitBlocks(blocks);
-  return counts;
 }

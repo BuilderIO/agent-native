@@ -159,6 +159,13 @@ export type UpdateLocalPlanInput = {
   note?: string;
 };
 
+export type UpdateLocalPlanCommentsInput = {
+  slug: string;
+  path?: string;
+  comments?: PlanCommentInput[];
+  deletedCommentIds?: string[];
+};
+
 export type PromoteLocalPlanInput = {
   slug: string;
   path?: string;
@@ -493,6 +500,36 @@ export function useUpdateLocalPlan() {
       invalidate();
     },
     onError: showActionError("Failed to update local plan files"),
+  });
+}
+
+// Like useUpdatePlanComments, but persists to the local folder's comments.json
+// (DB-free) so comments survive a refresh in /local-plans/:slug.
+export function useUpdateLocalPlanComments() {
+  const qc = useQueryClient();
+  const invalidate = usePlanInvalidation();
+  return useActionMutation<
+    PlanBundle & {
+      localOnly: true;
+      slug: string;
+      folder: string;
+      repoPath?: string | null;
+      suggestedRepoPath?: string;
+      path?: string;
+      url?: string;
+      html?: string;
+      mdx?: PlanMdxFolder;
+    },
+    UpdateLocalPlanCommentsInput
+  >("update-local-plan-comments", {
+    onSuccess: (data, variables) => {
+      qc.setQueryData(
+        localPlanBundleQueryKey(variables.slug, variables.path),
+        data,
+      );
+      invalidate();
+    },
+    onError: showActionError("Failed to update local plan comments"),
   });
 }
 

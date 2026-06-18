@@ -179,6 +179,7 @@ import {
   useRestorePlanVersion,
   useUpdatePlan,
   useUpdateLocalPlan,
+  useUpdateLocalPlanComments,
   useUpdatePlanComments,
   useUpdatePlanStatus,
   useDeletePlan,
@@ -683,6 +684,31 @@ function countLocalPlanBlocks(blocks: PlanBlock[]): Record<string, number> {
   };
   visitBlocks(blocks);
   return counts;
+}
+
+function localPlanBridgeQueryKey(slug: string, bridgeUrl: string) {
+  return ["local-plan-bridge", slug, bridgeUrl] as const;
+}
+
+// Merge folder comments.json onto a read-only bridge bundle (which serves none);
+// the bundle's own comments win so optimistic/just-written ones aren't clobbered.
+function mergeLocalBridgeComments(
+  bundle: LocalPlanBundle | undefined,
+  folderComments: LocalPlanBundle["comments"] | undefined,
+): LocalPlanBundle | undefined {
+  if (!bundle) return bundle;
+  const comments =
+    bundle.comments.length > 0 ? bundle.comments : (folderComments ?? []);
+  if (comments === bundle.comments) return bundle;
+  return {
+    ...bundle,
+    comments,
+    summary: {
+      ...bundle.summary,
+      commentCount: comments.length,
+      openCommentCount: comments.filter((c) => c.status === "open").length,
+    },
+  };
 }
 
 async function fetchLocalPlanBridgeBundle(
@@ -2830,7 +2856,10 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
     : null;
   const routeSelectedId = params.id;
   const localPlanBridgeQuery = useQuery<LocalPlanBundle>({
-    queryKey: ["local-plan-bridge", localPlanSlug, localPlanBridgeUrl],
+    queryKey: localPlanBridgeQueryKey(
+      localPlanSlug ?? "",
+      localPlanBridgeUrl ?? "",
+    ),
     enabled: localPlanMode && Boolean(localPlanSlug && localPlanBridgeUrl),
     refetchOnWindowFocus: false,
     retry: shouldRetryLocalPlanBridgeBundle,
@@ -2846,8 +2875,22 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
       refetchInterval: false,
     },
   );
+  // Bridge bundles carry no comments; load comments.json from the colocated
+  // folder so they render and survive refresh in bridge mode too.
+  const localPlanBridgeCommentsQuery = useActionQuery<LocalPlanBundle>(
+    "get-local-plan-folder",
+    localPlanBundleQueryParams(localPlanSlug ?? "", localPlanRepoPath),
+    {
+      enabled: localPlanMode && Boolean(localPlanSlug && localPlanBridgeUrl),
+      refetchInterval: false,
+      retry: false,
+    },
+  );
   const localPlanData = localPlanBridgeUrl
-    ? localPlanBridgeQuery.data
+    ? mergeLocalBridgeComments(
+        localPlanBridgeQuery.data,
+        localPlanBridgeCommentsQuery.data?.comments,
+      )
     : localPlanQuery.data;
   const localPlanError = localPlanBridgeUrl
     ? localPlanBridgeQuery.error
@@ -3064,8 +3107,10 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
     () =>
       selectedId && !localPlanMode
         ? planBundleQueryKey(selectedId)
-        : localPlanMode && localPlanSlug && !localPlanBridgeUrl
-          ? localPlanBundleQueryKey(localPlanSlug, localPlanRepoPath)
+        : localPlanMode && localPlanSlug
+          ? localPlanBridgeUrl
+            ? localPlanBridgeQueryKey(localPlanSlug, localPlanBridgeUrl)
+            : localPlanBundleQueryKey(localPlanSlug, localPlanRepoPath)
           : null,
     [
       localPlanBridgeUrl,
@@ -3145,7 +3190,7 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
     effectivePlanVisibility === "public" &&
     !canManagePlan;
   const canResolveCommentThreads = Boolean(
-    !localPlanMode && bundle && (session || canEditPlanContent),
+    bundle && (localPlanMode || session || canEditPlanContent),
   );
   const defaultInlineCommentDraft = useMemo<CommentDraft>(() => {
     const ownerEmail = normalizeCommentEmail(bundle?.access?.ownerEmail);
@@ -3299,6 +3344,8 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
   // means the autosave `isPending` state cannot bleed into comment button
   // disabled states (Issue 3).
   const updateCommentMutation = useUpdatePlanComments();
+  // Local-files plans write comments to comments.json (no DB) via this action.
+  const updateLocalCommentMutation = useUpdateLocalPlanComments();
   const deleteCommentMutation = useDeletePlanComment();
   const deletePlanMutation = useDeletePlan();
 
@@ -4904,6 +4951,46 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
     toast.success("Feedback instructions copied");
   };
 
+  // Route comment writes to the DB (hosted) or comments.json (local); both
+  // return the same bundle shape.
+  const writeComments = (
+    comments: PlanCommentInput[],
+    note: string,
+  ): Promise<PlanBundleWithHtml> => {
+    if (localPlanMode) {
+      return updateLocalCommentMutation.mutateAsync({
+        slug: localPlanSlug ?? "",
+        ...(localPlanRepoPath ? { path: localPlanRepoPath } : {}),
+        comments,
+      }) as Promise<PlanBundleWithHtml>;
+    }
+    if (!bundle) return Promise.reject(new Error("No plan loaded."));
+    return updateCommentMutation.mutateAsync({
+      planId: bundle.plan.id,
+      comments,
+      note,
+    }) as Promise<PlanBundleWithHtml>;
+  };
+  const removeCommentById = async (commentId: string): Promise<void> => {
+    if (localPlanMode) {
+      await updateLocalCommentMutation.mutateAsync({
+        slug: localPlanSlug ?? "",
+        ...(localPlanRepoPath ? { path: localPlanRepoPath } : {}),
+        deletedCommentIds: [commentId],
+      });
+      return;
+    }
+    if (!bundle) return;
+    await deleteCommentMutation.mutateAsync({
+      planId: bundle.plan.id,
+      commentId,
+    });
+  };
+  const commentWritePending =
+    updateCommentMutation.isPending || updateLocalCommentMutation.isPending;
+  const commentDeletePending =
+    deleteCommentMutation.isPending || updateLocalCommentMutation.isPending;
+
   const submitInlineComment = async (draft: CommentDraft) => {
     if (!bundle || !pendingAnnotation || !selectedPlanQueryKey) return;
     // Capture the current position before clearing (used to restore on failure).
@@ -4971,12 +5058,10 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
     setFailedCommentDraft(null);
     clearInlineCommentDraft();
     setAnnotateMode(true);
-    void updateCommentMutation
-      .mutateAsync({
-        planId: bundle.plan.id,
-        comments: [commentInput],
-        note: "Human added inline visual plan feedback.",
-      })
+    void writeComments(
+      [commentInput],
+      "Human added inline visual plan feedback.",
+    )
       .then((updated) => {
         queryClient.setQueryData(selectedPlanQueryKey, updated);
         expirePendingDocumentRestore();
@@ -5017,36 +5102,32 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
       ),
     };
     commentMutationPendingRef.current = true;
-    updateCommentMutation.mutate(
-      {
-        planId: bundle.plan.id,
-        comments: [
-          {
-            id: annotation.id,
-            kind: annotation.kind as PlanBundle["comments"][number]["kind"],
-            status:
-              annotation.status as PlanBundle["comments"][number]["status"],
-            message,
-            sectionId: annotation.sectionId ?? anchor.sectionId,
-            anchor: JSON.stringify(anchor),
-            createdBy: "human",
-            authorEmail: collabUser?.email,
-            authorName: collabUser?.name,
-          },
-        ],
-        note: "Human edited visual plan feedback.",
-      },
-      {
-        onSuccess: () => {
-          setActiveAnnotation(null);
-          toast.success("Comment updated");
-          commentMutationPendingRef.current = false;
+    void writeComments(
+      [
+        {
+          id: annotation.id,
+          kind: annotation.kind as PlanBundle["comments"][number]["kind"],
+          status: annotation.status as PlanBundle["comments"][number]["status"],
+          message,
+          sectionId: annotation.sectionId ?? anchor.sectionId,
+          anchor: JSON.stringify(anchor),
+          createdBy: "human",
+          authorEmail: collabUser?.email,
+          authorName: collabUser?.name,
         },
-        onError: () => {
-          commentMutationPendingRef.current = false;
-        },
-      },
-    );
+      ],
+      "Human edited visual plan feedback.",
+    )
+      .then(() => {
+        setActiveAnnotation(null);
+        toast.success("Comment updated");
+      })
+      .catch(() => {
+        // The mutation hook surfaces the failure toast; just clear pending.
+      })
+      .finally(() => {
+        commentMutationPendingRef.current = false;
+      });
   };
 
   const replyToCommentThread = async (
@@ -5094,9 +5175,8 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
         current ? addPlanCommentToBundle(current, optimisticReply) : current,
     );
     try {
-      const updated = await updateCommentMutation.mutateAsync({
-        planId: bundle.plan.id,
-        comments: [
+      const updated = await writeComments(
+        [
           {
             parentCommentId: thread.root.id,
             kind: thread.root.kind,
@@ -5109,8 +5189,8 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
             authorName: collabUser?.name,
           },
         ],
-        note: "Human replied to visual plan feedback.",
-      });
+        "Human replied to visual plan feedback.",
+      );
       // Replace optimistic entry with the authoritative server response.
       if (selectedPlanQueryKey) {
         queryClient.setQueryData(selectedPlanQueryKey, updated);
@@ -5164,41 +5244,36 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
       },
     );
     setActiveAnnotation(null);
-    updateCommentMutation.mutate(
-      {
-        planId: bundle.plan.id,
-        comments: thread.comments.map((comment) => ({
-          id: comment.id,
-          kind: comment.kind,
-          status,
-          message: comment.message,
-          sectionId: comment.sectionId ?? undefined,
-          anchor: comment.anchor ?? fallbackAnchorJson,
-          createdBy: "human",
-          authorEmail: collabUser?.email,
-          authorName: collabUser?.name,
-        })),
-        note:
-          status === "resolved"
-            ? "Human resolved visual plan feedback."
-            : "Human reopened visual plan feedback.",
-      },
-      {
-        onSuccess: () => {
-          toast.success(
-            status === "resolved" ? "Comment resolved" : "Comment reopened",
-          );
-          commentMutationPendingRef.current = false;
-        },
-        onError: () => {
-          // Roll back the optimistic status change.
-          if (prevBundle !== undefined) {
-            queryClient.setQueryData(selectedPlanQueryKey, prevBundle);
-          }
-          commentMutationPendingRef.current = false;
-        },
-      },
-    );
+    void writeComments(
+      thread.comments.map((comment) => ({
+        id: comment.id,
+        kind: comment.kind,
+        status,
+        message: comment.message,
+        sectionId: comment.sectionId ?? undefined,
+        anchor: comment.anchor ?? fallbackAnchorJson,
+        createdBy: "human",
+        authorEmail: collabUser?.email,
+        authorName: collabUser?.name,
+      })),
+      status === "resolved"
+        ? "Human resolved visual plan feedback."
+        : "Human reopened visual plan feedback.",
+    )
+      .then(() => {
+        toast.success(
+          status === "resolved" ? "Comment resolved" : "Comment reopened",
+        );
+      })
+      .catch(() => {
+        // Roll back the optimistic status change.
+        if (prevBundle !== undefined) {
+          queryClient.setQueryData(selectedPlanQueryKey, prevBundle);
+        }
+      })
+      .finally(() => {
+        commentMutationPendingRef.current = false;
+      });
   };
 
   const requestDeleteComment = (thread: CommentThread, commentId: string) => {
@@ -5237,10 +5312,7 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
     );
     setDeleteCommentRequest(null);
     try {
-      await deleteCommentMutation.mutateAsync({
-        planId: bundle.plan.id,
-        commentId,
-      });
+      await removeCommentById(commentId);
       toast.success("Comment deleted");
     } catch (error) {
       if (prevBundle !== undefined) {
@@ -5455,7 +5527,7 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
                     </TooltipContent>
                   </Tooltip>
                 )}
-                {!localPlanMode && bundle.summary.openCommentCount > 0 && (
+                {bundle.summary.openCommentCount > 0 && (
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild>
                       <Button
@@ -6083,6 +6155,7 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
                       }
                       onCancel={closeInlineComment}
                       onSubmit={submitInlineComment}
+                      lockToAgent={localPlanMode}
                     />
                   )}
                 </>
@@ -6091,7 +6164,7 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
                 <AnnotationPopover
                   annotation={activeAnnotation.annotation}
                   position={activeAnnotation.position}
-                  isPending={updateCommentMutation.isPending}
+                  isPending={commentWritePending}
                   pendingAuthor={pendingCommentAuthor}
                   canEditRootComment={canEditPlanContent}
                   onSave={(message) =>
@@ -6134,7 +6207,7 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
                   avatarUrls={commentAvatarUrls}
                   currentUser={currentCommentAuthor}
                   pendingAuthor={pendingCommentAuthor}
-                  isPending={updateCommentMutation.isPending}
+                  isPending={commentWritePending}
                   onReply={replyToCommentThread}
                   canResolve={canResolveCommentThreads}
                   canDeleteThread={canDeleteCommentThread}
@@ -6245,9 +6318,9 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
       <DeleteCommentDialog
         open={Boolean(deleteCommentRequest)}
         replyCount={deleteCommentRequest?.replyCount ?? 0}
-        isDeleting={deleteCommentMutation.isPending}
+        isDeleting={commentDeletePending}
         onOpenChange={(open) => {
-          if (!open && !deleteCommentMutation.isPending) {
+          if (!open && !commentDeletePending) {
             setDeleteCommentRequest(null);
           }
         }}
@@ -8833,11 +8906,13 @@ function InlineCommentPopover({
   initialDraft,
   onCancel,
   onSubmit,
+  lockToAgent = false,
 }: {
   position: InlineCommentPosition;
   initialDraft: CommentDraft;
   onCancel: () => void;
   onSubmit: (draft: CommentDraft) => Promise<void>;
+  lockToAgent?: boolean;
 }) {
   const initialMessageRef = useRef(initialDraft.message);
   const [draft, setDraft] = useState<CommentDraft>(initialDraft);
@@ -8859,8 +8934,9 @@ function InlineCommentPopover({
       await onSubmit({
         ...draft,
         message: draft.message.trim(),
-        resolutionTarget:
-          !resolverTouched && draft.mentions.length > 0
+        resolutionTarget: lockToAgent
+          ? "agent"
+          : !resolverTouched && draft.mentions.length > 0
             ? "human"
             : draft.resolutionTarget,
       });
@@ -8881,13 +8957,20 @@ function InlineCommentPopover({
       style={{ left: position.left, top: position.top, width: position.width }}
     >
       <div className="mb-2 flex items-center justify-between gap-2 px-1">
-        <ResolutionTargetToggle
-          value={draft.resolutionTarget}
-          onChange={(resolutionTarget) => {
-            setResolverTouched(true);
-            setDraft((current) => ({ ...current, resolutionTarget }));
-          }}
-        />
+        {lockToAgent ? (
+          <span className="flex items-center gap-1.5 px-1 text-xs font-medium text-muted-foreground">
+            <IconSend className="size-3.5" />
+            To agent
+          </span>
+        ) : (
+          <ResolutionTargetToggle
+            value={draft.resolutionTarget}
+            onChange={(resolutionTarget) => {
+              setResolverTouched(true);
+              setDraft((current) => ({ ...current, resolutionTarget }));
+            }}
+          />
+        )}
         <div className="flex items-center gap-1">
           <Button
             type="button"
