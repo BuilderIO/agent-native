@@ -1818,7 +1818,13 @@ async function startNativeFullscreenRecording(
           wantsSystemAudio,
         )
       : null;
-    if (wantsAudio && !transcriptionCapture) {
+    // Stop/Cancel can fire during the await above — at that point stop()/cancel()
+    // ran while transcriptionCapture was still null, so it never tore this down.
+    // Cancel the freshly-started session here so it doesn't keep running.
+    if (stopped && transcriptionCapture) {
+      void transcriptionCapture.cancel().catch(() => {});
+      transcriptionCapture = null;
+    } else if (wantsAudio && !transcriptionCapture) {
       void saveTranscriptFailure(
         "macOS Speech recognition could not start for this recording. Check Speech Recognition and Microphone permissions, then retry transcription.",
       );
@@ -2635,7 +2641,13 @@ async function startRecordingInner(
         wantsSystemAudio,
       )
     : null;
-  if (wantsAudio && !transcriptionCapture) {
+  // Stop/Cancel can fire during the await above — at that point stop()/cancel()
+  // ran while transcriptionCapture was still null, so it never tore this down.
+  // Cancel the freshly-started session here so it doesn't keep running.
+  if (stopped && transcriptionCapture) {
+    void transcriptionCapture.cancel().catch(() => {});
+    transcriptionCapture = null;
+  } else if (wantsAudio && !transcriptionCapture) {
     void saveTranscriptFailure(
       "macOS Speech recognition could not start for this recording. Check Speech Recognition and Microphone permissions, then retry transcription.",
     );
