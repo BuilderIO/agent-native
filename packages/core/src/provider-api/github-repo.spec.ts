@@ -213,6 +213,59 @@ describe("GitHub repo tools", () => {
     );
   });
 
+  it("deletes files by loading the current SHA first when omitted", async () => {
+    readAppSecret.mockResolvedValue({ value: "github-secret-token" });
+    const fetchMock = vi.mocked(globalThis.fetch);
+    fetchMock
+      .mockResolvedValueOnce(
+        jsonResponse({
+          type: "file",
+          path: "docs/old.md",
+          sha: "old-file-sha",
+          content: "",
+        }),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({
+          content: null,
+          commit: { sha: "delete-commit-sha" },
+        }),
+      );
+
+    const result = await githubTools()["github-repo-delete-file"].run({
+      repository: "acme/app",
+      path: "docs/old.md",
+      message: "Delete docs",
+      branch: "cleanup",
+    });
+
+    expect(result).toMatchObject({
+      repository: "acme/app",
+      path: "docs/old.md",
+      branch: "cleanup",
+      deleted: true,
+      commitSha: "delete-commit-sha",
+    });
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      "https://api.github.com/repos/acme/app/contents/docs/old.md?ref=cleanup",
+      expect.objectContaining({ method: "GET" }),
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      "https://api.github.com/repos/acme/app/contents/docs/old.md",
+      expect.objectContaining({ method: "DELETE" }),
+    );
+    const body = JSON.parse(
+      String(fetchMock.mock.calls[1]?.[1]?.body),
+    ) as Record<string, unknown>;
+    expect(body).toMatchObject({
+      message: "Delete docs",
+      sha: "old-file-sha",
+      branch: "cleanup",
+    });
+  });
+
   it("searches code in the selected repository", async () => {
     readAppSecret.mockResolvedValue({ value: "github-secret-token" });
     vi.mocked(globalThis.fetch).mockResolvedValue(

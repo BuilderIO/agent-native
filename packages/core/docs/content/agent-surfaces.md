@@ -132,8 +132,9 @@ start a local agent-native workflow.
 ### Cloud repo access {#cloud-repo-access}
 
 For cloud headless apps that need repository access, the planned model is a
-GitHub connector plus token CRUD: list repositories, read files, create or edit
-files, open reviews, and revoke access through provider-scoped credentials.
+GitHub connector plus token CRUD: list repositories, search files, read files,
+create or edit files, delete files, and revoke access through provider-scoped
+credentials.
 
 Do not treat a VM clone or long-lived sandbox checkout as the primary cloud
 repo-access model. Sandboxes still matter for isolated code execution, but

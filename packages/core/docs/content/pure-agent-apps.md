@@ -95,7 +95,10 @@ Future UI-grafting tooling should use a distinct verb or namespace. `agent-nativ
 
 ## Repo access for cloud headless {#repo-access}
 
-Local headless apps run against the folder on your machine. For cloud headless apps that need repository access, the intended model is connector-scoped access: a GitHub connector and token CRUD that can list, read, write, and review repository files with the user's permission.
+Local headless apps run against the folder on your machine. For cloud headless
+apps that need repository access, the intended model is connector-scoped access:
+a GitHub connector and token CRUD that can list repositories, search files, read
+files, create or edit files, and delete files with the user's permission.
 
 Do not design this as "clone the user's repo into our VM" or "give the agent a long-lived sandbox copy of the repo" as the primary model. Sandboxes are useful for isolated code execution, but repo access should be a provider integration with explicit tokens, scoped permissions, auditability, and revocation.
 
