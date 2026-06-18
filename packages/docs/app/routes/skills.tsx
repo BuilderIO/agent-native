@@ -57,7 +57,7 @@ const SKILLS: Skill[] = [
     docsTo: "/docs/template-plan",
     videoAriaLabel: "Visual Plan skill demo video",
     videoUrl:
-      "https://cdn.builder.io/o/assets%2FYJIGb4i01jvw0SRdL5Bt%2F343345910cf644bcae709e799db839bc?alt=media&token=4d31d6e8-3e7c-4b56-8dd3-3e650847380a&apiKey=YJIGb4i01jvw0SRdL5Bt",
+      "https://cdn.builder.io/o/assets%2FYJIGb4i01jvw0SRdL5Bt%2F343345910cf644bcae709e799db839bc?alt=media&token=4d31d6e8-3e7c-4b56-8dd3-3e650847380a",
   },
   {
     command: "/visual-recap",
@@ -72,7 +72,7 @@ const SKILLS: Skill[] = [
     docsTo: "/docs/pr-visual-recap",
     videoAriaLabel: "Visual Recap skill demo video",
     videoUrl:
-      "https://cdn.builder.io/o/assets%2FYJIGb4i01jvw0SRdL5Bt%2Ff3b332ce5bc1405091f4e4f63c09e790?alt=media&token=1ec8fb67-a0fc-4c93-91ee-4d46c2d21c77&apiKey=YJIGb4i01jvw0SRdL5Bt",
+      "https://cdn.builder.io/o/assets%2FYJIGb4i01jvw0SRdL5Bt%2Ff3b332ce5bc1405091f4e4f63c09e790?alt=media&token=1ec8fb67-a0fc-4c93-91ee-4d46c2d21c77",
   },
 ];
 
