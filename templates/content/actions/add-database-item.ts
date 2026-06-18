@@ -55,57 +55,55 @@ export default defineAction({
 
     const documentId = nanoid();
     const itemId = nanoid();
-    await db.transaction(async (tx) => {
-      await tx.insert(schema.documents).values({
-        id: documentId,
-        ownerEmail: database.ownerEmail,
-        orgId: database.orgId,
-        parentId: database.documentId,
-        title: title?.trim() ?? "",
-        content: "",
-        icon: null,
-        position: (maxDocPos?.max ?? -1) + 1,
-        isFavorite: 0,
-        hideFromSearch: databaseDocument.hideFromSearch ?? 0,
-        visibility: databaseDocument.visibility ?? "private",
-        createdAt: now,
-        updatedAt: now,
-      });
-
-      await tx.insert(schema.contentDatabaseItems).values({
-        id: itemId,
-        ownerEmail: database.ownerEmail,
-        orgId: database.orgId,
-        databaseId,
-        documentId,
-        position: (maxItemPos?.max ?? -1) + 1,
-        createdAt: now,
-        updatedAt: now,
-      });
-
-      const inheritedShares = await tx
-        .select({
-          principalType: schema.documentShares.principalType,
-          principalId: schema.documentShares.principalId,
-          role: schema.documentShares.role,
-        })
-        .from(schema.documentShares)
-        .where(eq(schema.documentShares.resourceId, database.documentId));
-
-      if (inheritedShares.length > 0) {
-        await tx.insert(schema.documentShares).values(
-          inheritedShares.map((share) => ({
-            id: nanoid(),
-            resourceId: documentId,
-            principalType: share.principalType,
-            principalId: share.principalId,
-            role: share.role,
-            createdBy: getRequestUserEmail() ?? database.ownerEmail,
-            createdAt: now,
-          })),
-        );
-      }
+    await db.insert(schema.documents).values({
+      id: documentId,
+      ownerEmail: database.ownerEmail,
+      orgId: database.orgId,
+      parentId: database.documentId,
+      title: title?.trim() ?? "",
+      content: "",
+      icon: null,
+      position: (maxDocPos?.max ?? -1) + 1,
+      isFavorite: 0,
+      hideFromSearch: databaseDocument.hideFromSearch ?? 0,
+      visibility: databaseDocument.visibility ?? "private",
+      createdAt: now,
+      updatedAt: now,
     });
+
+    await db.insert(schema.contentDatabaseItems).values({
+      id: itemId,
+      ownerEmail: database.ownerEmail,
+      orgId: database.orgId,
+      databaseId,
+      documentId,
+      position: (maxItemPos?.max ?? -1) + 1,
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    const inheritedShares = await db
+      .select({
+        principalType: schema.documentShares.principalType,
+        principalId: schema.documentShares.principalId,
+        role: schema.documentShares.role,
+      })
+      .from(schema.documentShares)
+      .where(eq(schema.documentShares.resourceId, database.documentId));
+
+    if (inheritedShares.length > 0) {
+      await db.insert(schema.documentShares).values(
+        inheritedShares.map((share) => ({
+          id: nanoid(),
+          resourceId: documentId,
+          principalType: share.principalType,
+          principalId: share.principalId,
+          role: share.role,
+          createdBy: getRequestUserEmail() ?? database.ownerEmail,
+          createdAt: now,
+        })),
+      );
+    }
 
     const initialValues = Object.entries(propertyValues ?? {});
     if (initialValues.length > 0) {

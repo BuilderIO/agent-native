@@ -268,6 +268,156 @@ const runContentMigrations = runMigrations(
       version: 36,
       sql: `ALTER TABLE documents ADD COLUMN IF NOT EXISTS source_updated_at TEXT`,
     },
+    // v37-v45: source-aware Builder database foundation tables (additive).
+    {
+      version: 37,
+      sql: `CREATE TABLE IF NOT EXISTS content_database_sources (
+      id TEXT PRIMARY KEY,
+      owner_email TEXT NOT NULL DEFAULT 'local@localhost',
+      org_id TEXT,
+      database_id TEXT NOT NULL,
+      source_type TEXT NOT NULL,
+      source_name TEXT NOT NULL,
+      source_table TEXT NOT NULL,
+      sync_state TEXT NOT NULL DEFAULT 'linked',
+      freshness TEXT NOT NULL DEFAULT 'unknown',
+      capabilities_json TEXT NOT NULL DEFAULT '{}',
+      metadata_json TEXT NOT NULL DEFAULT '{}',
+      last_refreshed_at TEXT,
+      last_source_updated_at TEXT,
+      last_error TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )`,
+    },
+    {
+      version: 38,
+      sql: `CREATE TABLE IF NOT EXISTS content_database_source_fields (
+      id TEXT PRIMARY KEY,
+      owner_email TEXT NOT NULL DEFAULT 'local@localhost',
+      source_id TEXT NOT NULL,
+      property_id TEXT,
+      local_field_key TEXT NOT NULL,
+      source_field_key TEXT NOT NULL,
+      source_field_label TEXT NOT NULL,
+      source_field_type TEXT NOT NULL,
+      mapping_type TEXT NOT NULL DEFAULT 'property',
+      write_owner TEXT NOT NULL DEFAULT 'local',
+      read_only INTEGER NOT NULL DEFAULT 0,
+      provenance TEXT NOT NULL DEFAULT 'local',
+      freshness TEXT NOT NULL DEFAULT 'unknown',
+      last_synced_at TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )`,
+    },
+    {
+      version: 39,
+      sql: `CREATE TABLE IF NOT EXISTS content_database_source_rows (
+      id TEXT PRIMARY KEY,
+      owner_email TEXT NOT NULL DEFAULT 'local@localhost',
+      source_id TEXT NOT NULL,
+      database_item_id TEXT NOT NULL,
+      document_id TEXT NOT NULL,
+      source_row_id TEXT NOT NULL,
+      source_qualified_id TEXT NOT NULL,
+      source_display_key TEXT NOT NULL,
+      source_values_json TEXT NOT NULL DEFAULT '{}',
+      provenance TEXT NOT NULL DEFAULT 'source',
+      sync_state TEXT NOT NULL DEFAULT 'linked',
+      freshness TEXT NOT NULL DEFAULT 'unknown',
+      last_synced_at TEXT,
+      last_source_updated_at TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )`,
+    },
+    {
+      version: 40,
+      sql: `CREATE TABLE IF NOT EXISTS content_database_source_change_sets (
+      id TEXT PRIMARY KEY,
+      owner_email TEXT NOT NULL DEFAULT 'local@localhost',
+      source_id TEXT NOT NULL,
+      database_item_id TEXT,
+      document_id TEXT,
+      kind TEXT NOT NULL DEFAULT 'field_update',
+      direction TEXT NOT NULL DEFAULT 'incoming',
+      state TEXT NOT NULL DEFAULT 'proposed',
+      push_mode TEXT,
+      local_only INTEGER NOT NULL DEFAULT 1,
+      summary TEXT NOT NULL,
+      field_changes_json TEXT NOT NULL DEFAULT '[]',
+      body_change_json TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )`,
+    },
+    {
+      version: 41,
+      sql: `ALTER TABLE content_database_source_change_sets ADD COLUMN IF NOT EXISTS direction TEXT NOT NULL DEFAULT 'incoming'`,
+    },
+    {
+      version: 42,
+      sql: `ALTER TABLE content_database_source_change_sets ADD COLUMN IF NOT EXISTS push_mode TEXT`,
+    },
+    {
+      version: 43,
+      sql: `ALTER TABLE content_database_source_change_sets ADD COLUMN IF NOT EXISTS local_only INTEGER NOT NULL DEFAULT 1`,
+    },
+    {
+      version: 44,
+      sql: `CREATE TABLE IF NOT EXISTS content_database_source_change_reviews (
+      id TEXT PRIMARY KEY,
+      owner_email TEXT NOT NULL DEFAULT 'local@localhost',
+      source_id TEXT NOT NULL,
+      change_set_id TEXT NOT NULL,
+      reviewer_email TEXT NOT NULL,
+      decision TEXT NOT NULL,
+      state_from TEXT NOT NULL,
+      state_to TEXT NOT NULL,
+      note TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )`,
+    },
+    {
+      version: 45,
+      sql: `CREATE TABLE IF NOT EXISTS content_database_source_executions (
+      id TEXT PRIMARY KEY,
+      owner_email TEXT NOT NULL DEFAULT 'local@localhost',
+      source_id TEXT NOT NULL,
+      change_set_id TEXT NOT NULL,
+      adapter TEXT NOT NULL,
+      push_mode TEXT NOT NULL,
+      state TEXT NOT NULL,
+      idempotency_key TEXT NOT NULL,
+      summary TEXT NOT NULL,
+      payload_json TEXT NOT NULL DEFAULT '{}',
+      last_error TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )`,
+    },
+    {
+      version: 46,
+      sql: `ALTER TABLE content_database_source_rows ADD COLUMN IF NOT EXISTS source_values_json TEXT NOT NULL DEFAULT '{}'`,
+    },
+    {
+      version: 47,
+      sql: `CREATE INDEX IF NOT EXISTS content_database_sources_database_idx ON content_database_sources (database_id);
+        CREATE INDEX IF NOT EXISTS content_database_sources_owner_idx ON content_database_sources (owner_email);
+        CREATE INDEX IF NOT EXISTS content_database_source_fields_source_idx ON content_database_source_fields (source_id);
+        CREATE INDEX IF NOT EXISTS content_database_source_fields_property_idx ON content_database_source_fields (property_id);
+        CREATE INDEX IF NOT EXISTS content_database_source_rows_source_idx ON content_database_source_rows (source_id);
+        CREATE INDEX IF NOT EXISTS content_database_source_rows_item_idx ON content_database_source_rows (database_item_id);
+        CREATE INDEX IF NOT EXISTS content_database_source_rows_document_idx ON content_database_source_rows (document_id);
+        CREATE INDEX IF NOT EXISTS content_database_source_change_sets_source_idx ON content_database_source_change_sets (source_id);
+        CREATE INDEX IF NOT EXISTS content_database_source_change_sets_item_idx ON content_database_source_change_sets (database_item_id);
+        CREATE INDEX IF NOT EXISTS content_database_source_change_reviews_source_idx ON content_database_source_change_reviews (source_id);
+        CREATE INDEX IF NOT EXISTS content_database_source_change_reviews_change_set_idx ON content_database_source_change_reviews (change_set_id);
+        CREATE INDEX IF NOT EXISTS content_database_source_executions_source_idx ON content_database_source_executions (source_id);
+        CREATE INDEX IF NOT EXISTS content_database_source_executions_change_set_idx ON content_database_source_executions (change_set_id);
+        CREATE INDEX IF NOT EXISTS content_database_source_executions_idempotency_idx ON content_database_source_executions (idempotency_key)`,
+    },
   ],
   { table: "content_migrations" },
 );

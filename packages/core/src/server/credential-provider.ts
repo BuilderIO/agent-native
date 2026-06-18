@@ -120,14 +120,40 @@ function isHostedWorkspaceRuntime(): boolean {
   );
 }
 
+/**
+ * Whether deployment-level Builder env keys may back the current request.
+ *
+ * This is intentionally self-contained rather than delegating to
+ * `canUseDeployCredentialFallbackForRequest`. That generic helper blocks the
+ * deploy fallback for any signed-in user in a hosted workspace runtime, so the
+ * Builder dogfooding escape hatch must apply its own hosted-workspace exception
+ * here instead of inheriting the generic helper's stricter (and hatch-unaware)
+ * decision. Reading the env once into locals keeps the rules legible.
+ *
+ * Rules (all evaluated against the live request/runtime, not a build-time value):
+ *  - No signed-in user → safe to use the deploy env (nobody to mis-identify).
+ *  - Hosted workspace + signed-in user → deploy-level Builder keys would
+ *    impersonate that user, so block them — UNLESS a developer has explicitly
+ *    opted into the local dogfooding escape hatch (non-prod only). Default OFF;
+ *    hosted/shared production deployments are never affected.
+ *  - Otherwise → allowed in non-prod, or on a local/single-tenant database.
+ */
 function canUseBuilderDeployCredentialFallbackForRequest(): boolean {
   const email = getRequestUserEmail();
-  // Builder workspace previews can run with NODE_ENV=development and their DB
-  // detection can look local during early startup. Once a real signed-in user
-  // is present, hosted workspace flags are enough to make deployment-level
-  // Builder keys unsafe as an identity fallback.
-  if (email && isHostedWorkspaceRuntime()) return false;
-  return canUseDeployCredentialFallbackForRequest();
+  if (!email) return true;
+
+  const isProduction = process.env.NODE_ENV === "production";
+  // Local dogfooding escape hatch: lets the env / root-`.env` Builder key back
+  // a signed-in user so running the app locally doesn't require completing the
+  // Builder connect flow first. Non-prod only.
+  const localDevOptIn =
+    !isProduction &&
+    /^(1|true)$/i.test(process.env.AGENT_NATIVE_LOCAL_BUILDER_ENV ?? "");
+
+  if (isHostedWorkspaceRuntime() && !localDevOptIn) return false;
+
+  // Deploy fallback is safe in non-prod or on a local/single-tenant database.
+  return !isProduction || isLocalDatabase();
 }
 
 function shouldTraceCredentialResolve(): boolean {

@@ -183,6 +183,7 @@ function databaseResponse(): ContentDatabaseResponse {
         ],
       },
     ],
+    source: null,
   };
 }
 

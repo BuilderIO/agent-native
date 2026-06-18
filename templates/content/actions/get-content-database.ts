@@ -11,10 +11,12 @@ export default defineAction({
   schema: z.object({
     databaseId: z.string().optional().describe("Database ID"),
     documentId: z.string().optional().describe("Database document/page ID"),
+    limit: z.coerce.number().int().min(1).max(500).optional(),
+    offset: z.coerce.number().int().min(0).optional(),
   }),
   http: { method: "GET" },
   readOnly: true,
-  run: async ({ databaseId, documentId }) => {
+  run: async ({ databaseId, documentId, limit, offset }) => {
     const db = getDb();
     let resolvedDatabaseId = databaseId;
 
@@ -40,6 +42,6 @@ export default defineAction({
     const access = await resolveAccess("document", database.documentId);
     if (!access) throw new Error(`Database "${resolvedDatabaseId}" not found`);
 
-    return getContentDatabaseResponse(resolvedDatabaseId);
+    return getContentDatabaseResponse(resolvedDatabaseId, { limit, offset });
   },
 });

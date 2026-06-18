@@ -24,6 +24,13 @@ export interface BuilderStatus {
   privateKeyConfigured: boolean;
   userId?: string;
   orgName?: string;
+  /**
+   * Builder space(s) the effective credential can reach, with real display
+   * names derived from the Admin API. One entry today (a `bpk-` key is
+   * space-scoped); the list shape lets the Sources drill-down show multiple
+   * spaces later. Absent/empty when undeducible — fall back to `orgName`.
+   */
+  spaces?: Array<{ id: string; name: string }>;
   orgKind?: string;
   subscription?: string;
   subscriptionLevel?: string;

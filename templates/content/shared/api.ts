@@ -304,16 +304,309 @@ export interface ContentDatabaseItem {
   document: Document;
   position: number;
   properties: DocumentProperty[];
+  sourceRecord?: ContentDatabaseSourceRow;
+  // Federation (NEXT): the row's normalized join key, and the read-only columns
+  // a secondary source contributes on top of it. Absent for non-federated rows.
+  canonicalKey?: string | null;
+  sourceOverlays?: ContentDatabaseSourceOverlay[];
+}
+
+// A secondary source's read-only contribution to a federated row, matched on the
+// canonical key. Kept separate from the primary `sourceRecord` so the existing
+// change-set / diff machinery (primary-only, write-oriented) is untouched.
+export interface ContentDatabaseSourceOverlay {
+  sourceId: string;
+  sourceName: string;
+  sourceRowId: string;
+  values: Record<string, DocumentPropertyValue>;
+  fields: ContentDatabaseSourceFieldMapping[];
+}
+
+export type ContentDatabaseSourceType =
+  | "mock-local"
+  | "builder-cms"
+  | "local-table";
+export type ContentDatabaseSourceSyncState =
+  | "idle"
+  | "linked"
+  | "refreshing"
+  | "error";
+export type ContentDatabaseSourceFreshness = "unknown" | "fresh" | "stale";
+export type ContentDatabaseSourceWriteOwner = "local" | "source" | "derived";
+export type ContentDatabaseSourcePushMode =
+  | "none"
+  | "autosave"
+  | "draft"
+  | "publish";
+export const BUILDER_CMS_SAFE_WRITE_MODEL = "agent-native-blog-article-test";
+export type ContentDatabaseSourceChangeDirection = "outbound";
+export type ContentDatabaseSourceChangeState =
+  | "proposed"
+  | "pending_push"
+  | "staged_revision"
+  | "approved"
+  | "applied"
+  | "rejected";
+export type ContentDatabaseSourceChangeKind =
+  | "field_update"
+  | "body_update"
+  | "metadata_update"
+  | "revision_save";
+export type ContentDatabaseSourceReviewDecision = "approved" | "rejected";
+export type ContentDatabaseSourceRiskLevel = "low" | "medium" | "high";
+export type ContentDatabaseSourceConflictState = "none" | "source_changed";
+export type ContentDatabaseSourceExecutionState =
+  | "ready"
+  | "write_disabled"
+  | "blocked"
+  | "running"
+  | "succeeded"
+  | "failed";
+
+export interface ContentDatabaseSourceCapabilities {
+  canRefresh: boolean;
+  canCreateChangeSets: boolean;
+  canWriteFields: boolean;
+  canWriteBody: boolean;
+  canPush: boolean;
+  canPull: boolean;
+  canPublish: boolean;
+  canDelete: boolean;
+  canStageLocalRevision: boolean;
+  liveWritesEnabled: boolean;
+  readOnlyRefresh: boolean;
+}
+
+export interface ContentDatabaseSourceFieldMapping {
+  id: string;
+  propertyId: string | null;
+  propertyName: string | null;
+  localFieldKey: string;
+  sourceFieldKey: string;
+  sourceFieldLabel: string;
+  sourceFieldType: string;
+  mappingType: "title" | "property" | "system";
+  writeOwner: ContentDatabaseSourceWriteOwner;
+  readOnly: boolean;
+  provenance: string;
+  freshness: ContentDatabaseSourceFreshness;
+  lastSyncedAt: string | null;
+}
+
+export interface ContentDatabaseSourceRow {
+  id: string;
+  databaseItemId: string;
+  documentId: string;
+  sourceRowId: string;
+  sourceQualifiedId: string;
+  sourceDisplayKey: string;
+  sourceValues?: Record<string, DocumentPropertyValue>;
+  provenance: string;
+  syncState: ContentDatabaseSourceSyncState;
+  freshness: ContentDatabaseSourceFreshness;
+  lastSyncedAt: string | null;
+  lastSourceUpdatedAt: string | null;
+}
+
+export interface ContentDatabaseSourceFieldChange {
+  propertyId: string | null;
+  propertyName: string | null;
+  localFieldKey: string;
+  sourceFieldKey: string;
+  currentValue: DocumentPropertyValue;
+  proposedValue: DocumentPropertyValue;
+}
+
+export interface ContentDatabaseSourceBodyChange {
+  summary: string;
+  currentExcerpt: string | null;
+  proposedExcerpt: string | null;
+}
+
+export interface ContentDatabaseSourceReviewEvent {
+  id: string;
+  reviewerEmail: string;
+  decision: ContentDatabaseSourceReviewDecision;
+  stateFrom: ContentDatabaseSourceChangeState;
+  stateTo: ContentDatabaseSourceChangeState;
+  note: string | null;
+  createdAt: string;
+}
+
+export interface ContentDatabaseSourceExecution {
+  id: string;
+  changeSetId: string;
+  adapter: string;
+  pushMode: ContentDatabaseSourcePushMode;
+  state: ContentDatabaseSourceExecutionState;
+  idempotencyKey: string;
+  summary: string;
+  payload: Record<string, unknown>;
+  lastError: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ContentDatabaseSourceChangeSet {
+  id: string;
+  databaseItemId: string | null;
+  documentId: string | null;
+  kind: ContentDatabaseSourceChangeKind;
+  direction: ContentDatabaseSourceChangeDirection;
+  state: ContentDatabaseSourceChangeState;
+  pushMode: ContentDatabaseSourcePushMode | null;
+  localOnly: boolean;
+  summary: string;
+  fieldChanges: ContentDatabaseSourceFieldChange[];
+  bodyChange: ContentDatabaseSourceBodyChange | null;
+  riskLevel: ContentDatabaseSourceRiskLevel;
+  riskReasons: string[];
+  conflictState: ContentDatabaseSourceConflictState;
+  reviewEvents: ContentDatabaseSourceReviewEvent[];
+  executions: ContentDatabaseSourceExecution[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+// A typed join record (NEXT). Only `identity` is built now; the `reference`
+// shape is reserved so lookups drop in later with no schema change.
+export type ContentDatabaseSourceJoinKind = "identity" | "reference";
+
+export interface ContentDatabaseSourceJoin {
+  kind: ContentDatabaseSourceJoinKind;
+  // The related collection for a reference join; null for identity.
+  collection: string | null;
+  // identity → the canonical-key expression; reference → e.g. "{Author}".
+  localExpr: string;
+  remoteKeyField: string;
+  normalizationFormula: string;
+}
+
+export type ContentDatabaseSourceRole = "primary" | "secondary";
+
+// A column's source binding (stored now, display-primary only — write fan-out is
+// LATER). A "mirror" column keeps multiple sources in sync once live writes land.
+export interface ContentDatabaseColumnBinding {
+  propertyId: string | null;
+  localFieldKey: string | null;
+  role: "primary" | "mirror";
+  primarySourceId: string | null;
+  sourceFieldKey: string;
+}
+
+// The shared key space the database's rows are identified by (for display).
+export interface ContentDatabaseCanonicalKey {
+  propertyId: string | null;
+  label: string;
+  type: string;
+}
+
+// Per-source federation config, stored on each source's metadataJson. The
+// primary additionally carries the database-level `canonicalKey` descriptor; a
+// secondary carries its `columnBindings`.
+export interface ContentDatabaseSourceFederation {
+  role: ContentDatabaseSourceRole;
+  keyField: string;
+  normalizationFormula: string;
+  join: ContentDatabaseSourceJoin;
+  canonicalKey?: ContentDatabaseCanonicalKey;
+  columnBindings?: ContentDatabaseColumnBinding[];
+}
+
+export interface ContentDatabaseSource {
+  id: string;
+  databaseId: string;
+  sourceType: ContentDatabaseSourceType;
+  sourceName: string;
+  sourceTable: string;
+  syncState: ContentDatabaseSourceSyncState;
+  freshness: ContentDatabaseSourceFreshness;
+  lastRefreshedAt: string | null;
+  lastSourceUpdatedAt: string | null;
+  lastError: string | null;
+  capabilities: ContentDatabaseSourceCapabilities;
+  metadata: {
+    primaryKey: string;
+    titleField: string;
+    naturalKeyField?: string | null;
+    pushMode?: ContentDatabaseSourcePushMode;
+    pushModeLabel?: string | null;
+    pushModeDescription?: string | null;
+    notes?: string | null;
+    readMode?: "fixture" | "builder-api" | string | null;
+    liveReadConfigured?: boolean;
+    lastReadEntryCount?: number;
+    lastReadMatchedRowCount?: number;
+    allowDraftWrites?: boolean;
+    allowPublishWrites?: boolean;
+    allowedWriteModes?: ContentDatabaseSourcePushMode[];
+    federation?: ContentDatabaseSourceFederation;
+  };
+  fields: ContentDatabaseSourceFieldMapping[];
+  rows: ContentDatabaseSourceRow[];
+  changeSets: ContentDatabaseSourceChangeSet[];
+}
+
+export interface ContentDatabaseSourceStatusResponse {
+  database: ContentDatabase;
+  mode: "local" | "source-backed";
+  summary: string;
+  source: ContentDatabaseSource | null;
+}
+
+export interface BuilderCmsModelFieldSummary {
+  name: string;
+  label?: string;
+  type: string;
+  required: boolean;
+}
+
+export interface BuilderCmsModelSummary {
+  id: string;
+  name: string;
+  displayName: string;
+  kind: string;
+  fields: BuilderCmsModelFieldSummary[];
+}
+
+export interface BuilderCmsModelsResponse {
+  state: "live" | "unconfigured" | "error";
+  models: BuilderCmsModelSummary[];
+  fetchedAt: string;
+  message: string | null;
 }
 
 export interface ContentDatabaseResponse {
   database: ContentDatabase;
   properties: DocumentProperty[];
   items: ContentDatabaseItem[];
+  source: ContentDatabaseSource | null;
+  // All attached sources (NEXT). `source` stays as `sources[0] ?? null` for
+  // back-compat; multi-source consumers read `sources`.
+  sources?: ContentDatabaseSource[];
+  pagination?: {
+    offset: number;
+    limit: number;
+    totalItems: number;
+    returnedItems: number;
+    hasMore: boolean;
+  };
   createdItemId?: string;
   createdDocumentId?: string;
   duplicatedItemId?: string;
   duplicatedDocumentId?: string;
+}
+
+export interface ContentDatabaseSourceFieldPropertyResponse {
+  databaseId: string;
+  documentId: string;
+  property: DocumentProperty;
+  sourceField: ContentDatabaseSourceFieldMapping;
+  itemValues?: Array<{
+    itemId: string;
+    documentId: string;
+    value: DocumentPropertyValue;
+  }>;
 }
 
 export interface CreateDatabaseRequest {
@@ -343,4 +636,174 @@ export interface MoveDatabaseItemRequest {
 export interface UpdateContentDatabaseViewRequest {
   databaseId: string;
   viewConfig: ContentDatabaseViewConfig;
+}
+
+// The committed canonical-key join when adding a second source.
+export interface ContentDatabaseSourceJoinRequest {
+  canonicalKey: { propertyId?: string | null; label: string; type?: string };
+  primary: { keyField: string; normalizationFormula: string };
+  secondary: { keyField: string; normalizationFormula: string };
+  columnBindings?: ContentDatabaseColumnBinding[];
+}
+
+export interface AttachContentDatabaseSourceRequest {
+  databaseId?: string;
+  documentId?: string;
+  sourceType?: ContentDatabaseSourceType;
+  sourceName?: string;
+  sourceTable?: string;
+  join?: ContentDatabaseSourceJoinRequest;
+  limit?: number;
+  offset?: number;
+}
+
+export interface ContentDatabaseSummary {
+  databaseId: string;
+  documentId: string;
+  title: string;
+}
+
+export interface ListContentDatabasesResponse {
+  databases: ContentDatabaseSummary[];
+}
+
+export interface SuggestSourceJoinKeyRequest {
+  databaseId?: string;
+  documentId?: string;
+  candidateSourceType: ContentDatabaseSourceType;
+  candidateSourceTable: string;
+  sampleLimit?: number;
+}
+
+export interface SourceJoinSampleMatch {
+  primaryRaw: string;
+  secondaryRaw: string;
+  normalized: string;
+  matched: boolean;
+}
+
+export interface SourceJoinSuggestion {
+  source: "heuristic";
+  canonicalKey: { propertyId: string | null; label: string; type: string };
+  primary: { keyField: string; normalizationFormula: string };
+  secondary: { keyField: string; normalizationFormula: string };
+  sampleMatches: SourceJoinSampleMatch[];
+  confidence: number;
+}
+
+export interface SuggestSourceJoinKeyResponse {
+  state: "ok" | "no-primary" | "no-overlap";
+  suggestion: SourceJoinSuggestion | null;
+  message: string | null;
+}
+
+export interface RefreshContentDatabaseSourceRequest {
+  databaseId?: string;
+  documentId?: string;
+}
+
+export interface DisconnectContentDatabaseSourceRequest {
+  databaseId?: string;
+  documentId?: string;
+  sourceId?: string;
+}
+
+export interface AddContentDatabaseSourceFieldPropertyRequest {
+  databaseId?: string;
+  documentId?: string;
+  sourceFieldId: string;
+}
+
+export interface StageBuilderRevisionRequest {
+  databaseId?: string;
+  documentId?: string;
+}
+
+export interface ReviewContentDatabaseSourceChangeSetRequest {
+  databaseId?: string;
+  documentId?: string;
+  changeSetId: string;
+  decision: "approve" | "reject";
+  note?: string;
+}
+
+export interface PrepareBuilderSourceExecutionRequest {
+  databaseId?: string;
+  documentId?: string;
+  changeSetId: string;
+  pushModeConfirmation?: ContentDatabaseSourcePushMode;
+}
+
+export interface ValidateBuilderSourceExecutionRequest {
+  databaseId?: string;
+  documentId?: string;
+  changeSetId: string;
+  idempotencyKey?: string;
+}
+
+export interface ExecuteBuilderSourceExecutionRequest {
+  databaseId?: string;
+  documentId?: string;
+  changeSetId: string;
+  idempotencyKey?: string;
+  pushModeConfirmation?: ContentDatabaseSourcePushMode;
+}
+
+export interface SetContentDatabaseSourceWriteModeRequest {
+  databaseId?: string;
+  documentId?: string;
+  liveWritesEnabled: boolean;
+  allowedWriteModes?: Exclude<ContentDatabaseSourcePushMode, "none">[];
+  allowDraftWrites?: boolean;
+  allowPublishWrites?: boolean;
+}
+
+export interface PrepareBuilderSourceReviewRequest {
+  databaseId?: string;
+  documentId?: string;
+  pushModeConfirmation?: ContentDatabaseSourcePushMode;
+}
+
+export interface ContentDatabaseSourceReviewRowSummary {
+  changeSetId: string;
+  databaseItemId: string | null;
+  documentId: string | null;
+  title: string;
+  fieldChanges: ContentDatabaseSourceFieldChange[];
+  bodyChange: ContentDatabaseSourceBodyChange | null;
+  riskLevel: ContentDatabaseSourceRiskLevel;
+  riskReasons: string[];
+  conflictState: ContentDatabaseSourceConflictState;
+  execution: ContentDatabaseSourceExecution | null;
+}
+
+export interface ContentDatabaseSourceReviewPayload {
+  summary: string;
+  sourceName: string;
+  sourceTable: string;
+  pushMode: ContentDatabaseSourcePushMode;
+  dryRunOnly: boolean;
+  liveWritesEnabled: boolean;
+  riskLevel: ContentDatabaseSourceRiskLevel;
+  riskReasons: string[];
+  rows: ContentDatabaseSourceReviewRowSummary[];
+  result: {
+    status:
+      | "validated"
+      | "blocked"
+      | "stale"
+      | "write_disabled"
+      | "running"
+      | "succeeded"
+      | "failed";
+    message: string;
+  };
+}
+
+export interface PrepareBuilderSourceReviewResponse {
+  database: ContentDatabase;
+  properties: DocumentProperty[];
+  items: ContentDatabaseItem[];
+  source: ContentDatabaseSource | null;
+  review: ContentDatabaseSourceReviewPayload;
 }

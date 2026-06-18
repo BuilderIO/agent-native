@@ -3,6 +3,9 @@
 import { describe, expect, it } from "vitest";
 import type {
   ContentDatabaseItem,
+  ContentDatabaseSource,
+  ContentDatabaseSourceChangeSet,
+  ContentDatabaseSourceExecution,
   Document,
   DocumentProperty,
   DocumentPropertyOptions,
@@ -46,6 +49,10 @@ import {
   databaseItemPreviewTitle,
   databaseItemsWithoutDateValue,
   databaseNavigationState,
+  builderReviewableChangeSets,
+  builderReviewExecutableRows,
+  builderSourceLiveWriteControlState,
+  buildClientBuilderReviewPayload,
   databasePropertyPickerItems,
   databasePropertyValuesForNewItem,
   databaseQuickFilterOptionsForColumn,
@@ -150,6 +157,125 @@ function item(
       property("date", "Publish date", "date", values.date ?? null),
       property("end", "End date", "date", values.end ?? null),
     ],
+  };
+}
+
+function builderExecution(
+  overrides: Partial<ContentDatabaseSourceExecution> = {},
+): ContentDatabaseSourceExecution {
+  return {
+    id: "execution-1",
+    changeSetId: "change-1",
+    adapter: "builder-cms",
+    pushMode: "autosave",
+    state: "ready",
+    idempotencyKey: "builder-cms:source:change-1:autosave",
+    summary: "Prepared Builder autosave execution. Ready to send to Builder.",
+    payload: {
+      dryRun: {
+        status: "validated",
+        validatedAt: "2026-06-15T12:00:00.000Z",
+        checks: [],
+        mismatches: [],
+      },
+    },
+    lastError: null,
+    createdAt: "2026-06-15T12:00:00.000Z",
+    updatedAt: "2026-06-15T12:00:00.000Z",
+    ...overrides,
+  };
+}
+
+function builderChangeSet(
+  overrides: Partial<ContentDatabaseSourceChangeSet> = {},
+): ContentDatabaseSourceChangeSet {
+  return {
+    id: "change-1",
+    databaseItemId: "item-row",
+    documentId: "row",
+    kind: "field_update",
+    direction: "outbound",
+    state: "approved",
+    pushMode: "autosave",
+    localOnly: true,
+    summary: "Reviewing local Builder CMS title change.",
+    fieldChanges: [
+      {
+        propertyId: null,
+        propertyName: "Title",
+        localFieldKey: "title",
+        sourceFieldKey: "data.title",
+        currentValue: "Old title",
+        proposedValue: "New title",
+      },
+    ],
+    bodyChange: null,
+    riskLevel: "low",
+    riskReasons: ["single field diff"],
+    conflictState: "none",
+    reviewEvents: [],
+    executions: [builderExecution()],
+    createdAt: "2026-06-15T12:00:00.000Z",
+    updatedAt: "2026-06-15T12:00:00.000Z",
+    ...overrides,
+  };
+}
+
+function builderSource(
+  overrides: Partial<ContentDatabaseSource> = {},
+): ContentDatabaseSource {
+  return {
+    id: "source",
+    databaseId: "database",
+    sourceType: "builder-cms",
+    sourceName: "Builder CMS",
+    sourceTable: "agent-native-blog-article-test",
+    syncState: "idle",
+    freshness: "fresh",
+    lastRefreshedAt: null,
+    lastSourceUpdatedAt: null,
+    lastError: null,
+    capabilities: {
+      canRefresh: true,
+      canCreateChangeSets: true,
+      canWriteFields: true,
+      canWriteBody: true,
+      canPush: true,
+      canPull: true,
+      canPublish: true,
+      canDelete: false,
+      canStageLocalRevision: true,
+      liveWritesEnabled: false,
+      readOnlyRefresh: true,
+    },
+    metadata: {
+      primaryKey: "id",
+      titleField: "data.title",
+      naturalKeyField: "/blog/[slug]",
+      pushMode: "autosave",
+      allowedWriteModes: ["autosave"],
+      allowDraftWrites: false,
+      allowPublishWrites: false,
+    },
+    fields: [],
+    rows: [
+      {
+        id: "row-source",
+        databaseItemId: "item-row",
+        documentId: "row",
+        sourceRowId: "builder-row",
+        sourceQualifiedId:
+          "builder-cms://agent-native-blog-article-test/builder-row",
+        sourceDisplayKey: "Old title",
+        provenance: "fixture",
+        syncState: "idle",
+        freshness: "fresh",
+        lastSyncedAt: null,
+        lastSourceUpdatedAt: null,
+      },
+    ],
+    changeSets: [builderChangeSet()],
+    ...overrides,
   };
 }
 
@@ -360,6 +486,108 @@ describe("database view filtering", () => {
         "or",
       ).map((row) => row.document.title),
     ).toEqual(["Beta", "Gamma"]);
+  });
+});
+
+describe("Builder source settings helpers", () => {
+  it("counts only outbound Builder changes that need source-settings attention", () => {
+    expect(
+      builderReviewableChangeSets(
+        builderSource({
+          changeSets: [
+            builderChangeSet({ id: "pending", state: "pending_push" }),
+            builderChangeSet({ id: "approved", state: "approved" }),
+            builderChangeSet({ id: "applied", state: "applied" }),
+          ],
+        }),
+      ).map((changeSet) => changeSet.id),
+    ).toEqual(["pending", "approved"]);
+  });
+
+  it("shows the live-write enable action only for the safe Builder test collection", () => {
+    expect(builderSourceLiveWriteControlState(builderSource())).toMatchObject({
+      safeTarget: true,
+      enabled: false,
+      showAction: true,
+      actionLabel: "Enable",
+    });
+
+    expect(
+      builderSourceLiveWriteControlState(
+        builderSource({ sourceTable: "blog_article" }),
+      ),
+    ).toMatchObject({
+      safeTarget: false,
+      enabled: false,
+      showAction: false,
+    });
+  });
+
+  it("marks live-enabled validated review rows as executable", () => {
+    const source = builderSource({
+      capabilities: {
+        ...builderSource().capabilities,
+        liveWritesEnabled: true,
+      },
+    });
+    const review = buildClientBuilderReviewPayload(source, source.changeSets);
+
+    expect(review.result).toMatchObject({
+      status: "validated",
+      message: "Push checked successfully. Ready to send to Builder.",
+    });
+    expect(builderReviewExecutableRows(review)).toHaveLength(1);
+  });
+
+  it("keeps write-disabled review rows out of the live execute path", () => {
+    const source = builderSource();
+    const review = buildClientBuilderReviewPayload(source, source.changeSets);
+
+    expect(review.result).toMatchObject({
+      status: "validated",
+      message: "Push checked successfully. Nothing was sent to Builder.",
+    });
+    expect(builderReviewExecutableRows(review)).toEqual([]);
+  });
+
+  it("surfaces succeeded and failed execution status in review payloads", () => {
+    const succeededSource = builderSource({
+      changeSets: [
+        builderChangeSet({
+          state: "applied",
+          executions: [builderExecution({ state: "succeeded" })],
+        }),
+      ],
+    });
+    expect(
+      buildClientBuilderReviewPayload(
+        succeededSource,
+        succeededSource.changeSets,
+      ).result,
+    ).toMatchObject({
+      status: "succeeded",
+      message: "Pushed to Builder and reconciled locally.",
+    });
+
+    const failedSource = builderSource({
+      changeSets: [
+        builderChangeSet({
+          executions: [
+            builderExecution({
+              state: "failed",
+              lastError: "Builder write request failed with HTTP 500.",
+            }),
+          ],
+        }),
+      ],
+    });
+    expect(
+      buildClientBuilderReviewPayload(failedSource, failedSource.changeSets)
+        .result,
+    ).toMatchObject({
+      status: "failed",
+      message: "Builder push failed. The change remains retryable.",
+    });
   });
 });
 
@@ -960,6 +1188,13 @@ describe("database item preview", () => {
       documentId: "database-doc",
       title: "Content calendar",
       databaseId: "database",
+      databaseSourceType: undefined,
+      databaseSourceName: undefined,
+      databaseSourceTable: undefined,
+      databaseSourceSyncState: undefined,
+      databaseSourceFreshness: undefined,
+      databaseSourcePendingChangeCount: undefined,
+      databaseSourceLocalChangeCount: undefined,
       databaseViews: [{ id: "default", name: "Table", type: "table" }],
       databaseViewId: "default",
       databaseViewName: "Table",
@@ -994,6 +1229,83 @@ describe("database item preview", () => {
       databasePreviewItemId: row.id,
       databasePreviewDocumentId: row.document.id,
       databasePreviewTitle: "Launch brief",
+    });
+  });
+
+  it("includes source status in navigation state when a database is source-backed", () => {
+    expect(
+      databaseNavigationState({
+        document: { id: "database-doc", title: "Content calendar" },
+        databaseId: "database",
+        source: {
+          id: "source",
+          databaseId: "database",
+          sourceType: "mock-local",
+          sourceName: "Mock local source",
+          sourceTable: "content_rows",
+          syncState: "idle",
+          freshness: "fresh",
+          lastRefreshedAt: "2026-06-08T12:00:00.000Z",
+          lastSourceUpdatedAt: "2026-06-08T12:00:00.000Z",
+          lastError: null,
+          capabilities: {
+            canRefresh: true,
+            canCreateChangeSets: true,
+            canWriteFields: false,
+            canWriteBody: false,
+            canPush: false,
+            canPull: false,
+            canPublish: false,
+            canDelete: false,
+            canStageLocalRevision: false,
+            liveWritesEnabled: false,
+            readOnlyRefresh: true,
+          },
+          metadata: {
+            primaryKey: "id",
+            titleField: "title",
+            naturalKeyField: null,
+            pushMode: "none",
+            pushModeLabel: null,
+            pushModeDescription: null,
+            notes: null,
+          },
+          fields: [],
+          rows: [],
+          changeSets: [
+            {
+              id: "change-1",
+              databaseItemId: null,
+              documentId: null,
+              kind: "field_update",
+              direction: "outbound",
+              state: "pending_push",
+              pushMode: null,
+              localOnly: true,
+              summary: "Mock change",
+              fieldChanges: [],
+              bodyChange: null,
+              riskLevel: "low",
+              riskReasons: ["single field diff"],
+              conflictState: "none",
+              reviewEvents: [],
+              executions: [],
+              createdAt: "2026-06-08T12:00:00.000Z",
+              updatedAt: "2026-06-08T12:00:00.000Z",
+            },
+          ],
+        },
+        activeView: { id: "default", name: "Table", type: "table" },
+        previewItem: null,
+      }),
+    ).toMatchObject({
+      databaseSourceType: "mock-local",
+      databaseSourceName: "Mock local source",
+      databaseSourceTable: "content_rows",
+      databaseSourceSyncState: "idle",
+      databaseSourceFreshness: "fresh",
+      databaseSourcePendingChangeCount: 1,
+      databaseSourceLocalChangeCount: 1,
     });
   });
 
@@ -1176,6 +1488,12 @@ describe("database item preview", () => {
     expect(pruneDatabaseRowSelection(["item-alpha", "missing"], rows)).toEqual([
       "item-alpha",
     ]);
+    const unchangedSelection = ["item-alpha"];
+    expect(pruneDatabaseRowSelection(unchangedSelection, rows)).toBe(
+      unchangedSelection,
+    );
+    const emptySelection: string[] = [];
+    expect(pruneDatabaseRowSelection(emptySelection, [])).toBe(emptySelection);
   });
 
   it("keeps bulk-editable selected row properties to editable non-computed fields", () => {
@@ -1280,6 +1598,13 @@ describe("database item preview", () => {
       documentId: "database-doc",
       title: "Content calendar",
       databaseId: "database",
+      databaseSourceType: undefined,
+      databaseSourceName: undefined,
+      databaseSourceTable: undefined,
+      databaseSourceSyncState: undefined,
+      databaseSourceFreshness: undefined,
+      databaseSourcePendingChangeCount: undefined,
+      databaseSourceLocalChangeCount: undefined,
       databaseViews: [{ id: "default", name: "Table", type: "table" }],
       databaseViewId: "default",
       databaseViewName: "Table",

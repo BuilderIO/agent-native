@@ -3,6 +3,7 @@ import {
   defaultPropertyOptions,
   documentPropertyDateIncludesTime,
   documentPropertyDateKey,
+  evaluateNormalizationFormula,
   evaluateNumericExpression,
   evaluatePropertyFormula,
   isEmptyPropertyValue,
@@ -11,6 +12,7 @@ import {
   normalizePropertyVisibility,
   parsePropertyOptions,
   parsePropertyValue,
+  sanitizeNormalizationFormula,
   serializePropertyOptions,
   serializePropertyValue,
 } from "./properties";
@@ -63,6 +65,13 @@ describe("document properties", () => {
       end: "2026-05-29T16:00",
       includeTime: true,
     });
+    // Builder CMS date fields arrive as epoch-millis numbers.
+    const epochResult = normalizePropertyValue(
+      "date",
+      Date.parse("2026-05-28T15:30:00.000Z"),
+    );
+    expect(epochResult).not.toBeNull();
+    expect((epochResult as { start: string }).start).toContain("2026-05-28");
   });
 
   it("reads date keys and include-time state from legacy and range values", () => {
@@ -135,6 +144,90 @@ describe("document properties", () => {
       }),
     ).toBe(true);
     expect(evaluatePropertyFormula("2 + nope", {})).toBe("2 + nope");
+  });
+
+  it("normalizes keys with the string ops used by source federation", () => {
+    expect(evaluatePropertyFormula("lower({URL})", { URL: "/Blog/Foo" })).toBe(
+      "/blog/foo",
+    );
+    expect(evaluatePropertyFormula("upper({k})", { k: "foo" })).toBe("FOO");
+    expect(evaluatePropertyFormula("trim({k})", { k: "  foo  " })).toBe("foo");
+    expect(
+      evaluatePropertyFormula('replace({URL}, "/blog/", "")', {
+        URL: "/blog/foo",
+      }),
+    ).toBe("foo");
+    expect(evaluatePropertyFormula('replace({k}, "", "x")', { k: "ab" })).toBe(
+      "ab",
+    );
+    expect(
+      evaluatePropertyFormula("slug({title})", { title: "My First Post!" }),
+    ).toBe("my-first-post");
+    expect(
+      evaluatePropertyFormula("striphost({URL})", {
+        URL: "https://site.com/blog/foo",
+      }),
+    ).toBe("/blog/foo");
+    expect(
+      evaluatePropertyFormula("striphost({URL})", {
+        URL: "https://site.com/blog/foo?utm=x#frag",
+      }),
+    ).toBe("/blog/foo");
+    expect(
+      evaluatePropertyFormula("striphost({URL})", { URL: "/blog/foo" }),
+    ).toBe("/blog/foo");
+    expect(
+      evaluatePropertyFormula("striphost({URL})", {
+        URL: "/blog/foo?utm=x#frag",
+      }),
+    ).toBe("/blog/foo");
+    expect(
+      evaluatePropertyFormula("striphost({URL})", {
+        URL: "site.com/blog/foo/",
+      }),
+    ).toBe("/blog/foo");
+    // The canonical case: host-qualified and relative URLs collapse to one key.
+    expect(
+      evaluatePropertyFormula('replace(striphost({URL}), "/blog/", "")', {
+        URL: "https://site.com/blog/foo",
+      }),
+    ).toBe("foo");
+    expect(
+      evaluatePropertyFormula('regexextract({URL}, "/blog/([^/]+)", 1)', {
+        URL: "/blog/foo/bar",
+      }),
+    ).toBe("foo");
+    expect(
+      evaluatePropertyFormula('regexreplace({k}, "[0-9]+", "#")', {
+        k: "a12b3",
+      }),
+    ).toBe("a#b#");
+  });
+
+  it("evaluates normalization formulas strictly (null = un-joinable)", () => {
+    expect(
+      evaluateNormalizationFormula('replace(striphost({URL}), "/blog/", "")', {
+        URL: "https://site.com/blog/foo",
+      }),
+    ).toBe("foo");
+    expect(evaluateNormalizationFormula("lower({slug})", { slug: "FOO" })).toBe(
+      "foo",
+    );
+    // Empty result collapses to null so empty keys never match each other.
+    expect(evaluateNormalizationFormula("trim({k})", { k: "   " })).toBeNull();
+    expect(evaluateNormalizationFormula("", { k: "x" })).toBeNull();
+    // A broken regex pattern fails as a null key rather than a garbage literal.
+    expect(
+      evaluateNormalizationFormula('regexextract({k}, "(", 1)', { k: "foo" }),
+    ).toBeNull();
+    expect(
+      sanitizeNormalizationFormula('regexextract({k}, "(a+)+$", 1)'),
+    ).toBeNull();
+    expect(
+      evaluateNormalizationFormula('regexextract({k}, "(a+)+$", 1)', {
+        k: "aaaaaaaaaaaaaaaa!",
+      }),
+    ).toBeNull();
   });
 
   it("round-trips options and values through JSON storage", () => {

@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray } from "drizzle-orm";
+import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import { getDb, schema } from "../server/db/index.js";
 import {
   parseDocumentFavorite,
@@ -8,6 +8,11 @@ import type {
   ContentDatabaseMembership,
   ContentDatabaseResponse,
 } from "../shared/api.js";
+import { getAllContentDatabaseSourceSnapshots } from "./_database-source-utils.js";
+import {
+  applyFederatedOverlayValues,
+  federateSources,
+} from "./_federation-join.js";
 import {
   listPropertiesForDatabase,
   serializeDatabase,
@@ -66,6 +71,21 @@ export function filterDatabaseContainedDocuments<
   return documents.filter((doc) => !isContained(doc));
 }
 
+export function normalizeContentDatabasePageOptions(options: {
+  limit?: number;
+  offset?: number;
+}) {
+  const limit =
+    typeof options.limit === "number" && Number.isFinite(options.limit)
+      ? Math.max(1, Math.min(Math.floor(options.limit), 500))
+      : null;
+  const offset =
+    typeof options.offset === "number" && Number.isFinite(options.offset)
+      ? Math.max(0, Math.floor(options.offset))
+      : 0;
+  return { limit, offset };
+}
+
 function serializeDocument(
   doc: typeof schema.documents.$inferSelect,
   membership?: DatabaseMembershipRow,
@@ -93,6 +113,7 @@ function serializeDocument(
 
 export async function getContentDatabaseResponse(
   databaseId: string,
+  options: { limit?: number; offset?: number } = {},
 ): Promise<ContentDatabaseResponse> {
   const db = getDb();
   const [database] = await db
@@ -102,11 +123,22 @@ export async function getContentDatabaseResponse(
 
   if (!database) throw new Error(`Database "${databaseId}" not found`);
 
-  const items = await db
+  const { limit, offset } = normalizeContentDatabasePageOptions(options);
+  const [itemCount] = await db
+    .select({ count: sql<number>`COUNT(*)` })
+    .from(schema.contentDatabaseItems)
+    .where(eq(schema.contentDatabaseItems.databaseId, databaseId));
+
+  let itemsQuery = db
     .select()
     .from(schema.contentDatabaseItems)
     .where(eq(schema.contentDatabaseItems.databaseId, databaseId))
-    .orderBy(asc(schema.contentDatabaseItems.position));
+    .orderBy(asc(schema.contentDatabaseItems.position))
+    .$dynamic();
+  if (limit !== null) {
+    itemsQuery = itemsQuery.limit(limit).offset(offset);
+  }
+  const items = await itemsQuery;
 
   const documents =
     items.length > 0
@@ -138,10 +170,53 @@ export async function getContentDatabaseResponse(
     });
   }
 
+  const sources = await getAllContentDatabaseSourceSnapshots(database);
+  const serializedDocumentIds = new Set(
+    serializedItems.map((item) => item.document.id),
+  );
+  // When paginating, the *primary* source's rows are document-backed, so we can
+  // scope them to the visible page. Secondary rows join by canonical key (no
+  // document), so they're left intact — only matched ones overlay anyway.
+  const pagedSources =
+    limit !== null
+      ? sources.map((source, index) =>
+          index === 0
+            ? {
+                ...source,
+                rows: source.rows.filter((row) =>
+                  serializedDocumentIds.has(row.documentId),
+                ),
+              }
+            : source,
+        )
+      : sources;
+  const pagedPrimary = pagedSources[0] ?? null;
+
+  const federatedItems = federateSources({
+    items: serializedItems,
+    sources: pagedSources,
+  });
+  // Opt-in federated columns (a secondary field the user added via the picker)
+  // get their per-row values from the matched overlay at read time.
+  const itemsWithOverlay = applyFederatedOverlayValues(federatedItems);
+
   return {
     database: serializeDatabase(database),
     properties: await listPropertiesForDatabase(databaseId),
-    items: serializedItems,
+    items: itemsWithOverlay,
+    source: pagedPrimary,
+    sources: pagedSources,
+    pagination:
+      limit !== null
+        ? {
+            offset,
+            limit,
+            totalItems: Number(itemCount?.count ?? 0),
+            returnedItems: serializedItems.length,
+            hasMore:
+              offset + serializedItems.length < Number(itemCount?.count ?? 0),
+          }
+        : undefined,
   };
 }
 
@@ -187,6 +262,32 @@ export async function deleteDatabaseDataForDocument(
         .delete(schema.documentPropertyValues)
         .where(eq(schema.documentPropertyValues.propertyId, definition.id));
     }
+    const sources = await db
+      .select({ id: schema.contentDatabaseSources.id })
+      .from(schema.contentDatabaseSources)
+      .where(eq(schema.contentDatabaseSources.databaseId, database.id));
+    for (const source of sources) {
+      await db
+        .delete(schema.contentDatabaseSourceExecutions)
+        .where(eq(schema.contentDatabaseSourceExecutions.sourceId, source.id));
+      await db
+        .delete(schema.contentDatabaseSourceChangeReviews)
+        .where(
+          eq(schema.contentDatabaseSourceChangeReviews.sourceId, source.id),
+        );
+      await db
+        .delete(schema.contentDatabaseSourceChangeSets)
+        .where(eq(schema.contentDatabaseSourceChangeSets.sourceId, source.id));
+      await db
+        .delete(schema.contentDatabaseSourceRows)
+        .where(eq(schema.contentDatabaseSourceRows.sourceId, source.id));
+      await db
+        .delete(schema.contentDatabaseSourceFields)
+        .where(eq(schema.contentDatabaseSourceFields.sourceId, source.id));
+    }
+    await db
+      .delete(schema.contentDatabaseSources)
+      .where(eq(schema.contentDatabaseSources.databaseId, database.id));
     await db
       .delete(schema.documentPropertyDefinitions)
       .where(eq(schema.documentPropertyDefinitions.databaseId, database.id));
