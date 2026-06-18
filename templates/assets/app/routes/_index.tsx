@@ -710,7 +710,7 @@ function HomeGeneratePanel({
       requestLines.push(
         `Attached ${uploadedAssets.length} content image${
           uploadedAssets.length === 1 ? "" : "s"
-        } for this request - use as source/content context, not reusable style inspiration: ${uploadedAssets
+        } for this request - use as source/content context, not reusable style reference: ${uploadedAssets
           .map((a) => a.id)
           .join(", ")}`,
         uploadedAssets.length === 1
@@ -743,7 +743,7 @@ function HomeGeneratePanel({
         "## Attached content images (this turn)",
         ...uploadedAssets.map((a) => `- ${a.id} - ${a.title}`),
         "",
-        "These are content-only source images for this request. Use them for subject, product, composition, or source-image context; do not treat them as style-guide inspiration or reusable style anchors.",
+        "These are content-only source images for this request. Use them for subject, product, composition, or source-image context; do not treat them as style-guide reference or reusable style anchors.",
       );
     }
     if (textContextSnippets.length > 0) {
