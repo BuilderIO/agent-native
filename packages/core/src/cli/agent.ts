@@ -12,6 +12,7 @@ import { loadEnv } from "../scripts/utils.js";
 import {
   actionsToEngineTools,
   type AgentLoopUsage,
+  type ActionEntry,
 } from "../agent/production-agent.js";
 import { runAgentLoopDirectWithSoftTimeout } from "../agent/run-loop-with-resume.js";
 import {
@@ -21,6 +22,7 @@ import {
 import { DEFAULT_MODEL } from "../agent/default-model.js";
 import type { AgentChatEvent } from "../agent/types.js";
 import type { EngineMessage } from "../agent/engine/types.js";
+import { captureCliOutput } from "../server/cli-capture.js";
 
 export interface ParsedAgentArgs {
   prompt?: string;
@@ -206,10 +208,11 @@ async function runLocalAgentLoop(parsed: ParsedAgentArgs): Promise<{
   tools: string[];
 }> {
   const localActions = await autoDiscoverActions("auto");
+  const builtinActions = await createHeadlessBuiltinActions();
   const repoActions = createGitHubRepoToolEntries({
     appId: process.env.AGENT_NATIVE_APP_ID ?? process.env.APP_ID ?? "app",
   });
-  const actions = { ...localActions, ...repoActions };
+  const actions = { ...builtinActions, ...localActions, ...repoActions };
   const tools = actionsToEngineTools(actions);
   if (tools.length === 0) {
     throw new Error(
@@ -273,6 +276,7 @@ function buildHeadlessSystemPrompt(actionNames: string[]): string {
   return [
     "You are the app agent for this Agent-Native project.",
     "Use the registered app actions as your source of truth for doing work.",
+    "Use docs-search before implementing or answering advanced Agent Native framework questions; it reads the version-matched docs bundled with @agent-native/core.",
     "Use connected GitHub repository tools for repo context when a repository is configured; do not assume a local clone or sandbox exists.",
     "You are running headlessly from the command line, so reply with the final useful result in plain text.",
     actionList,
@@ -280,6 +284,59 @@ function buildHeadlessSystemPrompt(actionNames: string[]): string {
   ]
     .filter(Boolean)
     .join("\n\n");
+}
+
+function cliArgsFromToolArgs(args: Record<string, unknown>): string[] {
+  const cliArgs: string[] = [];
+  for (const [key, value] of Object.entries(args)) {
+    if (value === undefined) continue;
+    const normalized =
+      value != null && typeof value === "object"
+        ? JSON.stringify(value)
+        : String(value);
+    cliArgs.push(`--${key}`, normalized);
+  }
+  return cliArgs;
+}
+
+export async function createHeadlessBuiltinActions(): Promise<
+  Record<string, ActionEntry>
+> {
+  const docsSearch = await import("../scripts/docs/search.js");
+  return {
+    "docs-search": {
+      readOnly: true,
+      tool: {
+        description:
+          "Search and read version-matched Agent Native framework documentation bundled in @agent-native/core, plus bundled AGENTS.md and codebase skills. Use --list to see pages, --query to search, and --slug to read a page.",
+        parameters: {
+          type: "object",
+          properties: {
+            query: {
+              type: "string",
+              description:
+                "Search term to find relevant docs, for example actions, automations, a2a, database, sharing, or pure-agent apps.",
+            },
+            slug: {
+              type: "string",
+              description:
+                "Read a specific doc page by slug, for example actions, agent-native-docs, automations, a2a-protocol, or external-agents.",
+            },
+            list: {
+              type: "string",
+              description: 'Set to "true" to list all available doc pages.',
+              enum: ["true"],
+            },
+          },
+        },
+      },
+      run: async (args: Record<string, unknown>): Promise<string> => {
+        return captureCliOutput(() =>
+          docsSearch.default(cliArgsFromToolArgs(args)),
+        );
+      },
+    },
+  };
 }
 
 function readLocalInstructions(): string {

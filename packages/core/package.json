@@ -38,6 +38,14 @@
     "./brand-kit": "./dist/brand-kit/index.js",
     "./brand-kit/fig": "./dist/brand-kit/fig/index.js",
     "./data-widgets": "./dist/data-widgets/index.js",
+    "./action": {
+      "types": "./dist/action.d.ts",
+      "default": "./dist/action.js"
+    },
+    "./action-ui": {
+      "types": "./dist/action-ui.d.ts",
+      "default": "./dist/action-ui.js"
+    },
     "./agent-web": "./dist/agent-web/index.js",
     "./db": "./dist/db/index.js",
     "./db/schema": "./dist/db/schema.js",

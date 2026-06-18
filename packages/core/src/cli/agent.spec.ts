@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { parseAgentArgs, formatAgentUsage } from "./agent.js";
+import {
+  createHeadlessBuiltinActions,
+  parseAgentArgs,
+  formatAgentUsage,
+} from "./agent.js";
 
 describe("agent CLI", () => {
   it("parses a positional prompt", () => {
@@ -38,5 +42,16 @@ describe("agent CLI", () => {
     const parsed = parseAgentArgs(["--engine"]);
     expect(parsed.errors).toContain("Missing value for --engine");
     expect(formatAgentUsage()).toContain("agent-native agent");
+  });
+
+  it("exposes docs-search to the headless agent loop", async () => {
+    const actions = await createHeadlessBuiltinActions();
+    const entry = actions["docs-search"];
+
+    expect(entry.readOnly).toBe(true);
+    expect(entry.tool.description).toContain("version-matched");
+
+    const result = await entry.run({ slug: "agent-native-docs" });
+    expect(result).toContain("node_modules/@agent-native/core/docs");
   });
 });

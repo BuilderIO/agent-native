@@ -1,6 +1,6 @@
 # {{APP_NAME}} — Agent Guide
 
-This app follows the agent-native core philosophy: the agent and UI are equal partners. Everything the UI can do, the agent can do via actions. The agent always knows what you're looking at via application state. See the root AGENTS.md for full framework documentation.
+This app follows the agent-native core philosophy: the agent and UI are equal partners. Everything the UI can do, the agent can do via actions. The agent always knows what you're looking at via application state. Use the framework docs lookup below for version-matched Agent Native documentation.
 
 This is an **@agent-native/core** application -- the AI agent and UI share state through a SQL database, with SSE for in-process live sync and polling as the cross-process/serverless fallback.
 
@@ -12,6 +12,26 @@ This is an **@agent-native/core** application -- the AI agent and UI share state
 4. **Live sync keeps the UI current** -- Database writes stream over `/_agent-native/events` first, with `/_agent-native/poll` as the fallback. **When you (the agent) write data, the UI must reflect the change without a manual refresh.** This is non-negotiable. Use `useActionQuery` / `useActionMutation` for action-backed data (preferred). If you use raw `useQuery`, fold `useChangeVersions([<source>, "action"])` into the key for targeted refreshes. See the `real-time-sync` and `adding-a-feature` skills.
 5. **Agent can update code** -- The agent can modify this app's source code directly.
 6. **No hardcoded secrets or private data** -- Never put API keys, tokens, webhook URLs, signing secrets, private Builder/internal data, customer data, or credential-looking literals in source, docs, tests, fixtures, prompts, screenshots, application state, action responses, or generated content. Use secrets/OAuth/runtime configuration and obvious placeholders in examples.
+
+## Framework Docs Lookup
+
+Version-matched Agent Native docs ship with `@agent-native/core` in
+`node_modules/@agent-native/core/docs`.
+
+- Use `pnpm action docs-search --query "<topic>"` to search framework docs,
+  bundled `AGENTS.md`, and codebase skills.
+- Use `pnpm action docs-search --slug <slug>` to read a full page. Start with
+  `actions`, `database`, `context-awareness`, `client`, `automations`,
+  `recurring-jobs`, `a2a-protocol`, `external-agents`, `mcp-protocol`,
+  `sharing`, `security`, `pure-agent-apps`, or `agent-surfaces`.
+- Use `pnpm action docs-search --list` to see everything available.
+- If the action runner is unavailable, read
+  `node_modules/@agent-native/core/docs/AGENTS.md` and search
+  `node_modules/@agent-native/core/docs/content/` directly with `rg`.
+
+Read these local package docs before implementing advanced Agent Native
+features. Prefer this app's own `AGENTS.md` and `.agents/skills/` for
+app-specific rules.
 
 ### Database Code
 
@@ -115,6 +135,7 @@ Skills in `.agents/skills/` provide detailed guidance for each architectural rul
 
 | Skill                 | When to read                                                                      |
 | --------------------- | --------------------------------------------------------------------------------- |
+| `agent-native-docs`   | Before using advanced Agent Native framework APIs or generated-app features       |
 | `adding-a-feature`    | **Read first when adding ANY new feature** — the four-area parity checklist       |
 | `real-time-sync`      | Before wiring data fetching for anything the agent can mutate (must auto-refresh) |
 | `storing-data`        | Before storing or reading any app state                                           |

@@ -255,7 +255,7 @@ history, run state, or user steering, use `completeText()` from
 an action so the UI and agent share the same operation.
 
 ```ts
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { completeText } from "@agent-native/core/server";
 
 export default defineAction({

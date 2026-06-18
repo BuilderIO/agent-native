@@ -153,7 +153,7 @@ If you're building or extending an agent-native app, here's the central pattern:
 
 ```ts
 // actions/reply-to-email.ts
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { z } from "zod";
 
 export default defineAction({

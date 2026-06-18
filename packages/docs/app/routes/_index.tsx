@@ -15,9 +15,9 @@ import {
   trackEvent,
 } from "../components/TemplateCard";
 
-const quickStartCode = `# Start with one headless action
-npx @agent-native/core@latest create my-agent --headless
-cd my-agent
+const quickStartCode = `# Start with a chat-first app
+npx @agent-native/core@latest create my-chat-app --template chat
+cd my-chat-app
 pnpm install
 pnpm action hello --name Builder
 pnpm agent "Call hello for Builder"`;
@@ -38,7 +38,8 @@ export default defineAction({
 
 function TerminalCommand() {
   const [copied, setCopied] = useState(false);
-  const command = "npx @agent-native/core@latest create my-agent --headless";
+  const command =
+    "npx @agent-native/core@latest create my-chat-app --template chat";
 
   function handleCopy() {
     navigator.clipboard.writeText(command);
@@ -148,12 +149,12 @@ const frameworkPrimitives = [
 ];
 
 const homepageTemplateSlugs = [
+  "chat",
   "calendar",
   "content",
   "plan",
   "slides",
   "analytics",
-  "clips",
 ];
 
 const homepageTemplates = homepageTemplateSlugs.flatMap((slug) =>
@@ -321,8 +322,8 @@ export default function Home() {
             </h1>
 
             <p className="mx-auto mb-10 max-w-xl text-lg leading-relaxed text-[var(--fg-secondary)]">
-              Start with one action and the app-agent loop. Add rich UI when the
-              workflow needs it.
+              Start with a chat-first app and the app-agent loop. Add actions,
+              screens, jobs, and workflows as your agent grows.
             </p>
 
             <div className="flex flex-wrap items-center justify-center gap-4">
@@ -332,12 +333,12 @@ export default function Home() {
                 className="primary-button"
                 onClick={() =>
                   trackEvent("click cta", {
-                    label: "start_headless",
+                    label: "start_chat_app",
                     location: "hero",
                   })
                 }
               >
-                Start with an Action
+                Start with Chat
                 <svg
                   width="16"
                   height="16"
@@ -398,8 +399,8 @@ export default function Home() {
                 </h2>
                 <p className="mb-5 max-w-xl text-base leading-relaxed text-[var(--fg-secondary)]">
                   Agent-Native is an open-source framework for building agents
-                  as real software: start headless, then add chat, UI, jobs, and
-                  collaboration around the same actions.
+                  as real software: start with chat or headless actions, then
+                  add UI, jobs, and collaboration around the same actions.
                 </p>
                 <p className="mb-5 max-w-xl text-base leading-relaxed text-[var(--fg-secondary)]">
                   It gives you primitives for product-grade agentic software:
@@ -554,7 +555,7 @@ export default function Home() {
             </p>
             <p className="mx-auto max-w-2xl text-base leading-relaxed text-[var(--fg-secondary)]">
               When an action needs screens, start from a vetted app you can
-              customize. Starter is the blank UI scaffold; domain templates add
+              customize. Chat is the minimal app scaffold; domain templates add
               product workflows, example data, and agent-ready actions.
             </p>
           </div>
@@ -704,11 +705,12 @@ export default function Home() {
           <section className="border-t border-[var(--docs-border)] py-20">
             <div className="mb-12 text-center">
               <h2 className="mb-3 text-3xl font-bold tracking-tight md:text-4xl">
-                Start with one action
+                Start with Chat
               </h2>
               <p className="mx-auto max-w-xl text-base text-[var(--fg-secondary)]">
-                One command creates a local app-agent loop backed by actions and
-                SQLite. Add UI after the workflow proves it needs a screen.
+                One command creates a local chat app backed by actions, durable
+                threads, and SQLite. Use `--headless` instead when you want no
+                browser UI yet.
               </p>
             </div>
 
@@ -723,8 +725,8 @@ export default function Home() {
               Software you own, built for the agentic era
             </h2>
             <p className="mx-auto mb-8 max-w-lg text-base text-[var(--fg-secondary)]">
-              Start with a durable action, run it through the app-agent loop,
-              then grow it into chat, UI, jobs, and collaboration without
+              Start with chat or a durable action, run it through the app-agent
+              loop, then grow it into UI, jobs, and collaboration without
               rewriting the operation. Open source. Forkable. Yours.
             </p>
             <div className="flex flex-col items-center justify-center gap-4 sm:flex-row">

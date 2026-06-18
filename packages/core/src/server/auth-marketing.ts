@@ -62,6 +62,16 @@ export const BUILT_IN_AUTH_MARKETING: Record<string, AuthMarketingContent> = {
       "Search, summarize, cross-reference, and restructure document trees instantly",
     ],
   },
+  plan: {
+    appName: "Agent-Native Plan",
+    tagline:
+      "Visual plans, PR recaps, diagrams, wireframes, and shareable reviews for coding-agent work.",
+    features: [
+      "Turn implementation plans into structured visual artifacts",
+      "Review PR recaps with diagrams, file maps, and annotated code",
+      "Share links for async comments and product review",
+    ],
+  },
   design: {
     appName: "Agent-Native Design",
     tagline:
@@ -123,14 +133,14 @@ export const BUILT_IN_AUTH_MARKETING: Record<string, AuthMarketingContent> = {
       "Real-time collaboration between you and the agent",
     ],
   },
-  starter: {
-    appName: "Blank app",
+  chat: {
+    appName: "Agent-Native Chat",
     tagline:
-      "Build an agent-native app where the AI agent and UI share state, actions, and context.",
+      "Start from a chat-first app and add actions, screens, and workflows as your agent grows.",
     features: [
-      "Define once, use everywhere: actions work as agent tools and API endpoints",
-      "The agent always knows what you are looking at and can act on it",
-      "Modify your app's own code, routes, and styles through conversation",
+      "Full-page chat with durable threads and tool call history",
+      "Actions work from chat, UI, HTTP, MCP, A2A, and CLI",
+      "Use the built-in app-agent loop or plug in your own agent backend",
     ],
   },
   videos: {
@@ -147,7 +157,8 @@ export const BUILT_IN_AUTH_MARKETING: Record<string, AuthMarketingContent> = {
 
 const SLUG_ALIASES: Record<string, string> = {
   "agent-native": "",
-  "blank-app": "starter",
+  "blank-app": "chat",
+  starter: "chat",
   asset: "assets",
   image: "assets",
   images: "assets",

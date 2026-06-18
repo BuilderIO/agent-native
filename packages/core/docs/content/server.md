@@ -65,7 +65,7 @@ hatch.
 
 ```ts
 // actions/classify-message.ts
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { completeText } from "@agent-native/core/server";
 import { z } from "zod";
 

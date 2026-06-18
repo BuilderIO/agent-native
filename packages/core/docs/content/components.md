@@ -338,7 +338,7 @@ If you truly need raw text-in/text-out, keep it server-side and use
 action so the UI and agent share the same capability.
 
 ```ts
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { completeText } from "@agent-native/core/server";
 
 export default defineAction({

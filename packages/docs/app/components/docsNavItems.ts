@@ -148,6 +148,7 @@ export const NAV_SECTIONS: NavSection[] = [
     // landing pages under `/templates/<slug>`. The tests and guard script
     // intentionally enforce this because this list has regressed before.
     items: [
+      { label: "Chat", to: "/docs/template-chat" as const },
       { label: "Calendar", to: "/docs/template-calendar" as const },
       { label: "Content", to: "/docs/template-content" as const },
       {

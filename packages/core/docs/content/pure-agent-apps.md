@@ -72,7 +72,7 @@ npx @agent-native/core@latest create my-agent --headless
 
 This gives you the framework runtime, SQL-backed state, an `actions/` directory, and `pnpm agent` for running the local app-agent loop. Add one useful `defineAction()` and you have a real agent-native app. The same action can later render in chat, appear behind a button, expose an MCP tool, or move into a full UI without changing the core operation.
 
-Use **Starter** when you are ready to add custom UI but do not want a domain template. Starter is the add-UI scaffold path, not the required default for a pure-agent app.
+Use [**Chat**](/docs/template-chat) when you are ready to add a browser UI but do not want a domain template. Chat is the add-UI scaffold path, not the required default for a pure-agent app.
 
 If you really want _zero_ custom UI except the agent, keep the app route focused on the built-in chat surface. The only thing the user sees is the chat. Everything else - job history, workspace, settings - is one click away in the panel's tabs.
 
@@ -113,7 +113,7 @@ That staged model keeps the first sharing surface useful without pretending coll
 
 ## What's next
 
-- [**Getting Started**](/docs/getting-started) — create a headless action first
+- [**Getting Started**](/docs/getting-started) — create a chat app or headless action first
 - [**Agent Surfaces**](/docs/agent-surfaces) — choose headless, rich chat, embedded sidecar, or full app
 - [**Messaging the agent**](/docs/messaging) — how users talk to the agent across web, Slack, Telegram, email
 - [**Recurring Jobs**](/docs/recurring-jobs) — scheduled prompts the agent runs on its own
