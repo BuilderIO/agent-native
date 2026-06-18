@@ -79,7 +79,11 @@ export function readDeployCredentialEnv(key: string): string | undefined {
  * key does not silently power another tenant's chat.
  */
 export function isDeployCredentialFallbackAllowed(): boolean {
-  if (process.env.NODE_ENV !== "production") return true;
+  // Read NODE_ENV through computed access so a bundler `define` (Vite/esbuild)
+  // can't statically inline `process.env.NODE_ENV` to a build-time literal at
+  // inlined call sites — the runtime value is what must gate this.
+  const nodeEnv = process.env["NODE_ENV"];
+  if (nodeEnv !== "production") return true;
   return isLocalDatabase();
 }
 
@@ -127,22 +131,19 @@ function isHostedWorkspaceRuntime(): boolean {
  * workspace-runtime safety block stays in force unless this is set.
  */
 function allowLocalDevBuilderEnvCredentials(): boolean {
-  if (process.env.NODE_ENV === "production") return false;
+  const nodeEnv = process.env["NODE_ENV"];
+  if (nodeEnv === "production") return false;
   return /^(1|true)$/i.test(process.env.AGENT_NATIVE_LOCAL_BUILDER_ENV ?? "");
 }
 
 // TEMP DIAGNOSTIC (remove): expose the SUT's own view of the env so CI can
 // reveal whether NODE_ENV is read as "production" inside the bundle despite the
 // test setting "development" (i.e. static inlining at transform time).
-export const __DEBUG_MODULE_ID = `${import.meta.url}#${process.pid}`;
 export function __debugCredentialEnv() {
   return {
-    moduleId: __DEBUG_MODULE_ID,
-    nodeEnvLiteral: process.env.NODE_ENV,
-    getRequestUserEmail: getRequestUserEmail(),
-    isLocalDatabase: isLocalDatabase(),
+    nodeEnvDot: process.env.NODE_ENV,
+    nodeEnvBracket: process.env["NODE_ENV"],
     allowLocal: allowLocalDevBuilderEnvCredentials(),
-    isHostedWorkspaceRuntime: isHostedWorkspaceRuntime(),
     isDeployFallbackAllowed: isDeployCredentialFallbackAllowed(),
     canUseDeployFallback: canUseDeployCredentialFallbackForRequest(),
     canUseBuilderDeployCredentialFallbackForRequest:
