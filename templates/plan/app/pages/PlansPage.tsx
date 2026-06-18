@@ -70,6 +70,14 @@ import {
   type AgentSidebarStateChangeDetail,
   type RichMarkdownCollabUser,
 } from "@agent-native/core/client";
+import {
+  useAcceptInvitation,
+  useJoinByDomain,
+  useOrg,
+  type OrgInfo,
+  type OrgInvitationSummary,
+  type DomainMatchOrg,
+} from "@agent-native/core/client/org";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -590,6 +598,75 @@ export function shouldShowPlanLoadError(input: {
   if (input.planQueryPaused || input.accessStatusPaused) return true;
   if (!input.accessStatusPending && input.accessDenied) return true;
   return false;
+}
+
+export type PlanOrgAccessPrompt =
+  | {
+      kind: "invitation";
+      organizationId: string;
+      organizationName: string;
+      invitationId: string;
+      invitedBy: string;
+      buttonLabel: string;
+      message: string;
+    }
+  | {
+      kind: "domain";
+      organizationId: string;
+      organizationName: string;
+      domain: string | null;
+      buttonLabel: string;
+      message: string;
+    };
+
+export function resolvePlanOrgAccessPrompt(input: {
+  accessStatus?: PlanAccessStatusResponse | null;
+  org?: Pick<OrgInfo, "email" | "pendingInvitations" | "domainMatches"> | null;
+}): PlanOrgAccessPrompt | null {
+  const orgId = input.accessStatus?.orgId;
+  const orgName = input.accessStatus?.orgName?.trim();
+  if (
+    !orgId ||
+    !orgName ||
+    input.accessStatus?.visibility !== "org" ||
+    input.accessStatus.hasAccess
+  ) {
+    return null;
+  }
+
+  const pendingInvitation = input.org?.pendingInvitations?.find(
+    (inv: OrgInvitationSummary) => inv.orgId === orgId,
+  );
+  if (pendingInvitation) {
+    return {
+      kind: "invitation",
+      organizationId: orgId,
+      organizationName: orgName,
+      invitationId: pendingInvitation.id,
+      invitedBy: pendingInvitation.invitedBy,
+      buttonLabel: "Accept invite",
+      message: `You already have an invite to ${orgName}. Accept it to open this plan.`,
+    };
+  }
+
+  const domainMatch = input.org?.domainMatches?.find(
+    (match: DomainMatchOrg) => match.orgId === orgId,
+  );
+  if (domainMatch) {
+    const domain = input.org?.email?.split("@")[1]?.toLowerCase() || null;
+    return {
+      kind: "domain",
+      organizationId: orgId,
+      organizationName: orgName,
+      domain,
+      buttonLabel: `Join ${orgName}`,
+      message: domain
+        ? `Your @${domain} email can join ${orgName}. Join it to open this plan.`
+        : `You can join ${orgName} to open this plan.`,
+    };
+  }
+
+  return null;
 }
 
 function localPlanRoutePath(slug: string, repoPath?: string | null): string {
@@ -7073,6 +7150,10 @@ function PlanLoadError({
     orgName && accessStatus?.visibility === "org"
       ? `This plan belongs to ${orgName}. You need to be a member of ${orgName} to view it.`
       : null;
+  const orgAccessTitle =
+    orgName && accessStatus?.visibility === "org"
+      ? `Join ${orgName} to view this plan`
+      : null;
 
   const returnPath = () =>
     window.location.pathname + window.location.search + window.location.hash;
@@ -7155,7 +7236,7 @@ function PlanLoadError({
     ? "Plan not found"
     : showAccessHelp
       ? signedIn
-        ? "Request access to this plan"
+        ? (orgAccessTitle ?? "Request access to this plan")
         : "Sign in to view this plan"
       : "Plan did not load";
   const body = planMissing
@@ -7215,18 +7296,13 @@ function PlanLoadError({
             {showAccessHelp ? (
               <>
                 {signedIn ? (
-                  <Button
-                    type="button"
-                    onClick={onRequestAccess}
-                    disabled={requestAccessPending || accessRequestSent}
-                  >
-                    {requestAccessPending ? (
-                      <IconLoader2 className="size-4 animate-spin" />
-                    ) : (
-                      <IconUserPlus className="size-4" />
-                    )}
-                    {accessRequestSent ? "Request sent" : "Request access"}
-                  </Button>
+                  <SignedInPlanAccessActions
+                    accessStatus={accessStatus}
+                    onRequestAccess={onRequestAccess}
+                    onAccessResolved={onRetry}
+                    requestAccessPending={requestAccessPending}
+                    accessRequestSent={accessRequestSent}
+                  />
                 ) : (
                   <Button
                     type="button"
@@ -7369,6 +7445,87 @@ function PlanLoadError({
         Retry
       </Button>
     </div>
+  );
+}
+
+function SignedInPlanAccessActions({
+  accessStatus,
+  onRequestAccess,
+  onAccessResolved,
+  requestAccessPending,
+  accessRequestSent,
+}: {
+  accessStatus?: PlanAccessStatusResponse | null;
+  onRequestAccess: () => void;
+  onAccessResolved: () => void;
+  requestAccessPending?: boolean;
+  accessRequestSent?: boolean;
+}) {
+  const { data: org } = useOrg();
+  const acceptInvitation = useAcceptInvitation();
+  const joinByDomain = useJoinByDomain();
+  const orgAccessPrompt = resolvePlanOrgAccessPrompt({ accessStatus, org });
+  const orgAccessPending = acceptInvitation.isPending || joinByDomain.isPending;
+  const orgAccessError = acceptInvitation.error || joinByDomain.error;
+
+  const handleOrgAccess = () => {
+    if (!orgAccessPrompt) {
+      onRequestAccess();
+      return;
+    }
+
+    const onSuccess = () => {
+      toast.success(
+        `Joined ${orgAccessPrompt.organizationName}. Opening plan…`,
+      );
+      onAccessResolved();
+    };
+
+    if (orgAccessPrompt.kind === "invitation") {
+      acceptInvitation.mutate(orgAccessPrompt.invitationId, { onSuccess });
+      return;
+    }
+
+    joinByDomain.mutate(orgAccessPrompt.organizationId, { onSuccess });
+  };
+
+  const pending = orgAccessPrompt ? orgAccessPending : requestAccessPending;
+  const disabled = orgAccessPrompt
+    ? orgAccessPending
+    : requestAccessPending || accessRequestSent;
+  const label = orgAccessPrompt
+    ? orgAccessPending
+      ? orgAccessPrompt.kind === "invitation"
+        ? "Accepting invite"
+        : "Joining organization"
+      : orgAccessPrompt.buttonLabel
+    : accessRequestSent
+      ? "Request sent"
+      : "Request access";
+
+  return (
+    <>
+      {orgAccessPrompt ? (
+        <div className="rounded-md border border-border bg-muted/35 px-3 py-2 text-sm leading-5 text-muted-foreground">
+          {orgAccessPrompt.message}
+        </div>
+      ) : null}
+      <Button type="button" onClick={handleOrgAccess} disabled={disabled}>
+        {pending ? (
+          <IconLoader2 className="size-4 animate-spin" />
+        ) : orgAccessPrompt?.kind === "domain" ? (
+          <IconAt className="size-4" />
+        ) : (
+          <IconUserPlus className="size-4" />
+        )}
+        {label}
+      </Button>
+      {orgAccessError ? (
+        <p className="text-xs leading-5 text-destructive">
+          {(orgAccessError as Error).message}
+        </p>
+      ) : null}
+    </>
   );
 }
 
