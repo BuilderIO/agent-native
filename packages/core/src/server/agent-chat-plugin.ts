@@ -7,6 +7,7 @@ import {
 } from "./request-context.js";
 import { getSetting, putSetting } from "../settings/store.js";
 import { createDbAdminAgentTools } from "../db-admin/agent-tools.js";
+import { dbExecToolParameters } from "../scripts/db/tool-schemas.js";
 import {
   getH3App,
   markDefaultPluginProvided,
@@ -1060,31 +1061,7 @@ async function createDbScriptEntries(): Promise<Record<string, ActionEntry>> {
         {
           description:
             "Write to the app's own SQL database ONLY. Runs INSERT / UPDATE / DELETE / REPLACE against the app's internal tables. For multiple related writes, pass `statements` so they run sequentially in one transaction instead of issuing several db-exec calls. Writes are auto-scoped to the current user/org, and `owner_email` / `org_id` are auto-injected on INSERT. Schema changes (CREATE/ALTER/DROP) are blocked. Never use this to backfill missing data for a read/analysis request or to create/modify users, members, roles, permissions, admin flags, or ownership; use a dedicated app action or reviewed code. IMPORTANT: This tool CANNOT write to external data sources like BigQuery, HubSpot, etc. For external services, use the appropriate template action.",
-          parameters: {
-            type: "object",
-            properties: {
-              sql: {
-                type: "string",
-                description:
-                  "Single INSERT / UPDATE / DELETE / REPLACE statement. Use parameterized placeholders (?) where possible.",
-              },
-              args: {
-                type: "string",
-                description:
-                  'Optional JSON array of positional bind args for `sql`. Example: \'["published","form-123"]\'',
-              },
-              statements: {
-                type: "string",
-                description:
-                  'Optional JSON array of write statements to execute in one transaction. Prefer this over multiple db-exec calls. Example: \'[{"sql":"INSERT INTO notes (id,title) VALUES (?,?)","args":["n1","One"]},{"sql":"UPDATE counters SET value = value + 1 WHERE key = ?","args":["notes"]}]\'',
-              },
-              format: {
-                type: "string",
-                description: 'Output format: "json" or "text" (default: text)',
-                enum: ["json", "text"],
-              },
-            },
-          },
+          parameters: dbExecToolParameters(),
         },
         execMod.default,
       ),

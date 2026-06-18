@@ -85,6 +85,15 @@ describe("shared coding tools", () => {
     expect(registry["search-files"]).toBeUndefined();
   });
 
+  it("uses an exclusive db-exec write-mode schema in dev mode", async () => {
+    const registry = await createDevScriptRegistry();
+
+    expect(registry["db-exec"]?.tool.parameters).toMatchObject({
+      additionalProperties: false,
+      oneOf: [{ required: ["sql"] }, { required: ["statements"] }],
+    });
+  });
+
   it("can disable raw database tools without removing coding tools", async () => {
     const registry = await createDevScriptRegistry({ databaseTools: false });
 

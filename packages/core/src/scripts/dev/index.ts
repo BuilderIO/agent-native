@@ -9,6 +9,7 @@
 import type { ActionTool } from "../../agent/types.js";
 import type { ActionEntry } from "../../agent/production-agent.js";
 import { createCodingToolRegistry } from "../../coding-tools/index.js";
+import { dbExecToolParameters } from "../db/tool-schemas.js";
 import { tool as readFileTool, run as readFileRun } from "./read-file.js";
 import { tool as writeFileTool, run as writeFileRun } from "./write-file.js";
 import { tool as listFilesTool, run as listFilesRun } from "./list-files.js";
@@ -136,32 +137,7 @@ export async function createDevScriptRegistry(
           {
             description:
               "Execute app-database write SQL (INSERT, UPDATE, DELETE, REPLACE). For multiple related writes, pass `statements` so they run sequentially in one transaction instead of issuing several db-exec calls. Schema changes (CREATE/ALTER/DROP) are blocked. Never use this to backfill missing data for a read/analysis request or to create/modify users, members, roles, permissions, admin flags, or ownership; use a dedicated app action or reviewed code.",
-            parameters: {
-              type: "object",
-              properties: {
-                sql: {
-                  type: "string",
-                  description:
-                    "Single INSERT / UPDATE / DELETE / REPLACE statement. Use parameterized placeholders (?) where possible.",
-                },
-                args: {
-                  type: "string",
-                  description:
-                    'Optional JSON array of positional bind args for `sql`. Example: \'["published","form-123"]\'',
-                },
-                statements: {
-                  type: "string",
-                  description:
-                    'Optional JSON array of write statements to execute in one transaction. Prefer this over multiple db-exec calls. Example: \'[{"sql":"INSERT INTO notes (id,title) VALUES (?,?)","args":["n1","One"]},{"sql":"UPDATE counters SET value = value + 1 WHERE key = ?","args":["notes"]}]\'',
-                },
-                format: {
-                  type: "string",
-                  description:
-                    'Output format: "json" or "text" (default: text)',
-                  enum: ["json", "text"],
-                },
-              },
-            },
+            parameters: dbExecToolParameters(),
           },
           dbExec.default,
         ),

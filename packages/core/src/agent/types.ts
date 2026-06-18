@@ -2,18 +2,33 @@ import type { ReasoningEffort } from "../shared/reasoning-effort.js";
 import type { AgentMcpAppPayload } from "../mcp-client/app-result.js";
 import type { ActionChatUIConfig } from "../action-ui.js";
 
+export interface AgentNativeJsonSchema {
+  type?: string | string[];
+  description?: string;
+  enum?: unknown[];
+  const?: unknown;
+  properties?: Record<string, AgentNativeJsonSchema>;
+  required?: string[];
+  additionalProperties?: boolean | AgentNativeJsonSchema;
+  items?: AgentNativeJsonSchema;
+  oneOf?: AgentNativeJsonSchema[];
+  anyOf?: AgentNativeJsonSchema[];
+  allOf?: AgentNativeJsonSchema[];
+  not?: AgentNativeJsonSchema;
+  minLength?: number;
+  maxLength?: number;
+  pattern?: string;
+  minimum?: number;
+  maximum?: number;
+  minItems?: number;
+  maxItems?: number;
+}
+
 export interface ActionTool {
   description: string;
-  parameters?: {
+  parameters?: AgentNativeJsonSchema & {
     type: "object";
-    properties: Record<
-      string,
-      {
-        type: string;
-        description?: string;
-        enum?: string[];
-      }
-    >;
+    properties: Record<string, AgentNativeJsonSchema>;
     required?: string[];
   };
 }
