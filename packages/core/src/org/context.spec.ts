@@ -162,6 +162,7 @@ describe("getOrgContext", () => {
     expect(ctx.orgId).toBe("second");
     expect(ctx.role).toBe("member");
     expect(mockGetUserSetting).toHaveBeenCalledWith("a@b.com", "active-org-id");
+    expect(mockExecute).toHaveBeenCalledTimes(1);
   });
 
   it("falls back to first membership when active-org-id points to a non-membership", async () => {
@@ -181,6 +182,23 @@ describe("getOrgContext", () => {
     const ctx = await getOrgContext(EVENT);
     expect(ctx.orgId).toBe("only");
     expect(mockGetUserSetting).not.toHaveBeenCalled();
+    expect(mockExecute).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not run domain auto-join for a single non-personal org", async () => {
+    mockGetSession.mockResolvedValue({ email: "member@builder.io" });
+    queueSelect([{ orgId: "builder", role: "member", orgName: "Builder.io" }]);
+
+    const ctx = await getOrgContext(EVENT);
+
+    expect(ctx).toEqual({
+      email: "member@builder.io",
+      orgId: "builder",
+      orgName: "Builder.io",
+      role: "member",
+    });
+    expect(mockExecute).toHaveBeenCalledTimes(1);
+    expect(mockPutUserSetting).not.toHaveBeenCalled();
   });
 
   it("returns null org for an authenticated user with zero memberships (no auto-create)", async () => {
@@ -367,9 +385,9 @@ describe("getOrgContext", () => {
 
       // Both calls return the same resolved value.
       expect(ctx1).toBe(ctx2); // identical reference, not just deep-equal
-      // Only one membership lookup and one domain auto-join lookup, not two of
-      // either.
-      expect(mockExecute).toHaveBeenCalledTimes(2);
+      // Only one membership lookup, with no request-time domain scan for an
+      // existing non-personal org.
+      expect(mockExecute).toHaveBeenCalledTimes(1);
     });
 
     it("does NOT share the cache between two different event objects", async () => {
@@ -391,7 +409,7 @@ describe("getOrgContext", () => {
 
       expect(ctxA.orgId).toBe("org-a");
       expect(ctxB.orgId).toBe("org-b");
-      expect(mockExecute).toHaveBeenCalledTimes(4);
+      expect(mockExecute).toHaveBeenCalledTimes(2);
     });
   });
 

@@ -43,7 +43,8 @@ export function prewarmPlanRoutePath(path: string) {
 
   if (pathname.startsWith("/extensions")) {
     jobs.push(
-      prewarm("extensions", () => import("@/routes/extensions._index")),
+      prewarm("extensions-layout", () => import("@/routes/extensions")),
+      prewarm("extensions-index", () => import("@/routes/extensions._index")),
     );
   }
 

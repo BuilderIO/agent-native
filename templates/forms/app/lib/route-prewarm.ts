@@ -62,8 +62,23 @@ export function prewarmFormsRoutePath(path: string) {
   if (pathname.startsWith("/extensions")) {
     jobs.push(
       prewarm("layout", () => import("@/routes/_app")),
-      prewarm("extensions", () => import("@/routes/_app.extensions._index")),
+      prewarm("extensions-layout", () => import("@/routes/_app.extensions")),
     );
+    if (/^\/extensions\/[^/]+\/?$/.test(pathname)) {
+      jobs.push(
+        prewarm(
+          "extension-detail",
+          () => import("@/routes/_app.extensions.$id"),
+        ),
+      );
+    } else {
+      jobs.push(
+        prewarm(
+          "extensions-index",
+          () => import("@/routes/_app.extensions._index"),
+        ),
+      );
+    }
   }
 
   return Promise.all(jobs);

@@ -19,6 +19,14 @@ function normalizeOrgRole(value: unknown): OrgRole | null {
     : null;
 }
 
+function isLikelyPersonalWorkspace(
+  membership: { orgName: string },
+  email: string,
+  session: { name?: string } | null,
+): boolean {
+  return membership.orgName.trim() === defaultOrgName(email, session);
+}
+
 const nanoid = (): string =>
   globalThis.crypto?.randomUUID?.().replace(/-/g, "") ??
   Math.random().toString(36).slice(2) + Date.now().toString(36);
@@ -61,7 +69,6 @@ async function resolveOrgContextUncached(event: H3Event): Promise<OrgContext> {
   const exec = getDbExec();
 
   let memberships = await loadMemberships(exec, email);
-  let preferredJoinedOrgId: string | null = null;
   if (memberships === null) {
     if (sessionOrgId) {
       return {
@@ -74,29 +81,58 @@ async function resolveOrgContextUncached(event: H3Event): Promise<OrgContext> {
     return { email, orgId: null, orgName: null, role: null };
   }
 
-  const joined = await autoJoinDomainMatchingOrgs(email, {
-    activateJoinedOrg: "always",
-  });
-  preferredJoinedOrgId = joined.activeOrgId;
-  if (joined.joined.length > 0) {
-    const refreshed = await loadMemberships(exec, email);
-    if (refreshed !== null) memberships = refreshed;
+  if (memberships.length > 1) {
+    const activeOrgSetting = (await getUserSetting(email, "active-org-id")) as {
+      orgId: string;
+    } | null;
+    if (activeOrgSetting?.orgId) {
+      const active = memberships.find(
+        (m) => m.orgId === activeOrgSetting.orgId,
+      );
+      if (active) {
+        return {
+          email,
+          orgId: active.orgId,
+          orgName: active.orgName,
+          role: active.role,
+        };
+      }
+    }
   }
 
-  if (preferredJoinedOrgId) {
-    const active = memberships.find((m) => m.orgId === preferredJoinedOrgId);
-    if (active) {
-      return {
-        email,
-        orgId: active.orgId,
-        orgName: active.orgName,
-        role: active.role,
-      };
+  const sessionMembership = sessionOrgId
+    ? memberships.find((m) => m.orgId === sessionOrgId)
+    : null;
+  const shouldTryDomainAutoJoin =
+    memberships.length === 0 ||
+    (memberships.length === 1 &&
+      isLikelyPersonalWorkspace(memberships[0], email, session));
+
+  if (shouldTryDomainAutoJoin) {
+    const joined = await autoJoinDomainMatchingOrgs(email, {
+      activateJoinedOrg: "always",
+    });
+    if (joined.joined.length > 0) {
+      const refreshed = await loadMemberships(exec, email);
+      if (refreshed !== null) memberships = refreshed;
+    }
+
+    if (joined.activeOrgId) {
+      const active = memberships.find((m) => m.orgId === joined.activeOrgId);
+      if (active) {
+        return {
+          email,
+          orgId: active.orgId,
+          orgName: active.orgName,
+          role: active.role,
+        };
+      }
     }
   }
 
   if (sessionOrgId) {
-    const active = memberships.find((m) => m.orgId === sessionOrgId);
+    const active =
+      sessionMembership ?? memberships.find((m) => m.orgId === sessionOrgId);
     if (active) {
       return {
         email,
@@ -122,25 +158,6 @@ async function resolveOrgContextUncached(event: H3Event): Promise<OrgContext> {
 
   if (memberships.length === 0) {
     return { email, orgId: null, orgName: null, role: null };
-  }
-
-  if (memberships.length > 1) {
-    const activeOrgSetting = (await getUserSetting(email, "active-org-id")) as {
-      orgId: string;
-    } | null;
-    if (activeOrgSetting?.orgId) {
-      const active = memberships.find(
-        (m) => m.orgId === activeOrgSetting.orgId,
-      );
-      if (active) {
-        return {
-          email,
-          orgId: active.orgId,
-          orgName: active.orgName,
-          role: active.role,
-        };
-      }
-    }
   }
 
   return {
