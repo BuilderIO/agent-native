@@ -94,6 +94,18 @@ The renderer only takes over when the action declares `chatUI` or the result has
 an explicit known `widget` discriminant. It never shape-infers arbitrary objects
 and it never executes HTML or JavaScript from tool results.
 
+When a user asks for a chart, graph, table, trend, or compact report, app agents
+should prefer an action that declares one of these native renderers. The final
+assistant text should stay brief and let the widget carry the data; do not copy
+the same rows into a markdown table unless the user explicitly asks for a text
+export.
+
+When no domain action exists but the agent has already retrieved compact,
+truthful data, it can call the framework `render-data-widget` action with the
+same `data-table`, `data-chart`, or `data-insights` JSON shape. This action only
+validates and renders the widget; it is not a data source and must not be used
+to invent placeholder metrics.
+
 ## DataTable output {#data-table}
 
 `table` is intentionally simple so list, SQL, analytics, and setup actions can

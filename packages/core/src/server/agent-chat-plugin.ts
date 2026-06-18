@@ -159,6 +159,8 @@ import {
   getModelFamilyOverlay,
   type PromptExamples,
 } from "./prompts/index.js";
+import { ACTION_CHAT_UI_DATA_WIDGET_RENDERER } from "../action-ui.js";
+import { dataWidgetResultSchema } from "../data-widgets/index.js";
 
 // Lazy fs — loaded via dynamic import() on first use.
 // This avoids require() which bundlers convert to createRequire(import.meta.url)
@@ -920,6 +922,65 @@ function createUrlTools(): Record<string, ActionEntry> {
         );
         return "Asked the user a clarifying question and rendered it in the chat. Stop here and wait for their answer — do not proceed or assume an answer.";
       },
+    },
+  };
+}
+
+function createDataWidgetActionEntries(): Record<string, ActionEntry> {
+  return {
+    "render-data-widget": {
+      readOnly: true,
+      parallelSafe: true,
+      chatUI: {
+        renderer: ACTION_CHAT_UI_DATA_WIDGET_RENDERER,
+        title: "Data widget",
+        description: "Render a validated native data table or chart in chat.",
+      },
+      tool: {
+        description:
+          "Render a native Agent-Native chat data widget from compact, real data you already retrieved or the user provided. Use this for in-chat tables, charts, graphs, trends, and compact reports when no domain-specific action already returns a native widget. Never fabricate rows or metrics just to make a chart.",
+        parameters: {
+          type: "object",
+          properties: {
+            widget: {
+              type: "string",
+              enum: ["data-table", "data-chart", "data-insights"],
+              description:
+                "Widget kind. Use data-chart for a chart, data-table for a table, or data-insights for a combined summary/chart/table card.",
+            },
+            widgetId: {
+              type: "string",
+              description: "Optional stable widget identifier.",
+            },
+            title: {
+              type: "string",
+              description: "Optional widget title.",
+            },
+            summary: {
+              type: "object",
+              description:
+                "Optional scalar summary values for data-insights cards.",
+            },
+            display: {
+              type: "object",
+              description:
+                "Optional display metadata: title, description, primaryAction.",
+            },
+            table: {
+              type: "object",
+              description:
+                "For data-table/data-insights: { title?, columns: [{ key, label, align? }], rows, totalRows?, sampledRows?, truncated? }.",
+            },
+            chartSeries: {
+              type: "object",
+              description:
+                "For data-chart/data-insights: { type: 'bar'|'line'|'area', title?, xKey, series: [{ key, label, color? }], data, sampled? }.",
+            },
+          },
+          required: ["widget"],
+        },
+      },
+      run: async (args) => dataWidgetResultSchema.parse(args),
     },
   };
 }
@@ -2750,6 +2811,8 @@ export const _agentChatPromptSectionsForTests = (() => {
     frameworkCore,
     frameworkCoreCompact,
     frameworkContextSections: FRAMEWORK_CONTEXT_SECTIONS,
+    generateActionsPrompt,
+    createDataWidgetActionEntries,
   };
 })();
 
@@ -3001,6 +3064,10 @@ function generateActionsPrompt(
   if (!registry || Object.keys(registry).length === 0) return "";
 
   const actionEntries = Object.entries(registry);
+  const nativeWidgetNote = (entry: ActionEntry) =>
+    entry.chatUI && typeof entry.chatUI.renderer === "string"
+      ? ` Native chat widget: \`${entry.chatUI.renderer}\`.`
+      : "";
 
   if (mode === "tool") {
     const summaryLines = actionEntries.map(([name, entry]) => {
@@ -3008,7 +3075,7 @@ function generateActionsPrompt(
         entry.tool.description,
         MAX_ACTION_SUMMARY_DESCRIPTION_CHARS,
       );
-      return `- \`${name}\` — ${desc}`;
+      return `- \`${name}\` — ${desc}${nativeWidgetNote(entry)}`;
     });
 
     return `\n\n## Available Actions
@@ -3025,7 +3092,7 @@ ${summaryLines.join("\n")}`;
 
     // CLI mode: emit `pnpm action <name> --required <type> [--optional <type>]`
     if (!params || Object.keys(params).length === 0) {
-      return `- \`pnpm action ${name}\` — ${desc}`;
+      return `- \`pnpm action ${name}\` — ${desc}${nativeWidgetNote(entry)}`;
     }
     const entries = Object.entries(params);
     // Required first (alphabetical), then optional (alphabetical)
@@ -3051,7 +3118,7 @@ ${summaryLines.join("\n")}`;
     const cmd = ["pnpm action " + name, ...required, ...optional].join(" ");
     const requiredNote =
       requiredNames.length > 0 ? ` Required: ${requiredNames.join(", ")}.` : "";
-    return `- \`${cmd}\` — ${desc}.${requiredNote}`;
+    return `- \`${cmd}\` — ${desc}.${requiredNote}${nativeWidgetNote(entry)}`;
   });
 
   return `\n\n## Available Actions
@@ -3722,11 +3789,15 @@ export function createAgentChatPlugin(
           await import("../workspace-files/tool.js");
         workspaceFilesTool = createWorkspaceFilesTool();
       } catch {}
-      let toolActions: Record<string, ActionEntry> = {};
+      let toolActions: Record<string, ActionEntry> =
+        createDataWidgetActionEntries();
       try {
         const { createExtensionActionEntries } =
           await import("../extensions/actions.js");
-        toolActions = createExtensionActionEntries();
+        toolActions = {
+          ...toolActions,
+          ...createExtensionActionEntries(),
+        };
       } catch {}
       let browserSessionTools: Record<string, ActionEntry> = {};
       try {

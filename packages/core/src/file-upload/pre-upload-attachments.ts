@@ -19,6 +19,8 @@ export interface PreUploadedFileAttachment {
   provider: string;
   contentType?: string;
   sizeBytes?: number;
+  referenceOnly?: boolean;
+  securityNote?: string;
 }
 
 export interface PreUploadAttachmentsResult {
@@ -42,8 +44,47 @@ export interface PreUploadAttachmentsResult {
   injectedText: string | null;
 }
 
-const IMAGE_DATA_URL_RE = /^data:(image\/[^;]+);base64,(.+)$/;
 const FILE_DATA_URL_RE = /^data:([^;]+);base64,(.+)$/;
+const SVG_REFERENCE_SECURITY_NOTE =
+  "SVG content may contain active markup; use this URL as a file reference unless the target app sanitizes it.";
+
+function normalizeContentType(value: string | undefined): string | undefined {
+  return value?.split(";")[0]?.trim().toLowerCase() || undefined;
+}
+
+function hasSvgFilename(name: string | undefined): boolean {
+  return /\.svg$/i.test(name ?? "");
+}
+
+function isSvgAttachment(args: {
+  name?: string;
+  contentType?: string;
+}): boolean {
+  return (
+    normalizeContentType(args.contentType) === "image/svg+xml" ||
+    hasSvgFilename(args.name)
+  );
+}
+
+function isSvgPayload(args: { name?: string; contentType?: string }): boolean {
+  const contentType = normalizeContentType(args.contentType);
+  return (
+    contentType === "image/svg+xml" ||
+    ((contentType === undefined ||
+      contentType === "application/octet-stream") &&
+      hasSvgFilename(args.name))
+  );
+}
+
+function markReferenceOnlySvgAttachment(
+  att: AgentChatAttachment,
+  contentType: string | undefined,
+) {
+  att.type = "file";
+  att.contentType = normalizeContentType(contentType) ?? "image/svg+xml";
+  (att as any).referenceOnly = true;
+  (att as any).securityNote = SVG_REFERENCE_SECURITY_NOTE;
+}
 
 function escapeXmlAttr(value: string): string {
   return value
@@ -119,13 +160,23 @@ export async function preUploadAttachments(opts: {
 
     if ((att as any).url) {
       // Already pre-uploaded earlier in the pipeline — reuse it.
+      const isReferenceOnlySvg = isSvgAttachment(att);
+      if (isReferenceOnlySvg) {
+        markReferenceOnlySvgAttachment(att, att.contentType);
+      }
       const entry = {
         name: att.name,
         url: (att as any).url as string,
         provider: ((att as any).uploadProvider as string) || "unknown",
         contentType: att.contentType,
+        ...(isReferenceOnlySvg
+          ? {
+              referenceOnly: true,
+              securityNote: SVG_REFERENCE_SECURITY_NOTE,
+            }
+          : {}),
       };
-      if (isImage) {
+      if (isImage && !isReferenceOnlySvg) {
         uploaded.push(entry);
       } else {
         uploadedFiles.push(entry);
@@ -133,10 +184,17 @@ export async function preUploadAttachments(opts: {
       continue;
     }
 
-    const re = isImage ? IMAGE_DATA_URL_RE : FILE_DATA_URL_RE;
-    const match = att.data.match(re);
+    const match = att.data.match(FILE_DATA_URL_RE);
     if (!match) continue;
-    const mimeType = att.contentType || match[1];
+    const dataUrlMimeType = normalizeContentType(match[1]);
+    const mimeType =
+      dataUrlMimeType || normalizeContentType(att.contentType) || match[1];
+    const uploadAsImage =
+      isImage && !isSvgPayload({ name: att.name, contentType: mimeType });
+    const uploadAsFile =
+      !uploadAsImage && (isImage || (includeFiles && isFile));
+    if (!uploadAsImage && !uploadAsFile) continue;
+
     let bytes: Uint8Array;
     try {
       bytes = new Uint8Array(Buffer.from(match[2], "base64"));
@@ -152,19 +210,32 @@ export async function preUploadAttachments(opts: {
         ownerEmail: opts.ownerEmail || undefined,
       });
       if (!result) {
-        if (isImage) providerMissing = true;
+        if (uploadAsImage) providerMissing = true;
         continue;
       }
       (att as any).url = result.url;
       (att as any).uploadProvider = result.provider;
+      const isReferenceOnlySvg = isSvgPayload({
+        name: att.name,
+        contentType: mimeType,
+      });
+      if (isReferenceOnlySvg) {
+        markReferenceOnlySvgAttachment(att, mimeType);
+      }
       const entry = {
         name: att.name,
         url: result.url,
         provider: result.provider,
-        contentType: att.contentType,
+        contentType: isReferenceOnlySvg ? att.contentType : mimeType,
         sizeBytes: bytes.byteLength,
+        ...(isReferenceOnlySvg
+          ? {
+              referenceOnly: true,
+              securityNote: SVG_REFERENCE_SECURITY_NOTE,
+            }
+          : {}),
       };
-      if (isImage) {
+      if (uploadAsImage) {
         uploaded.push(entry);
       } else {
         uploadedFiles.push(entry);
@@ -197,11 +268,20 @@ export async function preUploadAttachments(opts: {
         `url="${escapeXmlAttr(f.url)}"`,
         f.contentType ? `contentType="${escapeXmlAttr(f.contentType)}"` : null,
         `provider="${escapeXmlAttr(f.provider)}"`,
+        f.referenceOnly ? `referenceOnly="true"` : null,
+        f.securityNote
+          ? `securityNote="${escapeXmlAttr(f.securityNote)}"`
+          : null,
       ].filter(Boolean);
       lines.push(`<chat-file-attachment ${attrs.join(" ")} />`);
     }
+    const hasReferenceOnlySvg = uploadedFiles.some(
+      (file) => file.referenceOnly && isSvgAttachment(file),
+    );
     injectedText = [
-      '<chat-attachments note="The user attached these files. They have been uploaded — use the url attribute when embedding in HTML, slide content, or any outbound message.">',
+      hasReferenceOnlySvg
+        ? '<chat-attachments note="The user attached these files. Image attachment URLs may be used for embedding. File attachment URLs are references; SVG files are unsanitized vector source and must not be inlined as HTML or embedded in outbound content unless the target app sanitizes or stores them safely.">'
+        : '<chat-attachments note="The user attached these files. Image attachment URLs may be used for embedding in HTML, slide content, or outbound messages. File attachment URLs are references for reading or attaching in target apps.">',
       ...lines,
       "</chat-attachments>",
     ].join("\n");

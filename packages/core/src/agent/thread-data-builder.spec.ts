@@ -1162,6 +1162,42 @@ describe("upsertUserMessage", () => {
     });
   });
 
+  it("stores reference-only uploaded SVGs as file URL references", () => {
+    const attWithUrl = {
+      type: "image",
+      name: "logo.svg",
+      contentType: "image/svg+xml",
+      data: "data:image/svg+xml;base64,PHN2Zy8+",
+    };
+    (attWithUrl as any).url = "https://cdn.example.com/logo.svg";
+    (attWithUrl as any).uploadProvider = "builder";
+    (attWithUrl as any).referenceOnly = true;
+    (attWithUrl as any).securityNote =
+      "SVG content may contain active markup; use this URL as a file reference unless the target app sanitizes it.";
+
+    const message = buildUserMessage({
+      text: "Use this logo",
+      runId: "run-url-svg",
+      attachments: [attWithUrl as any],
+    });
+
+    const updated = upsertUserMessage({}, message);
+    const storedAtt = updated.messages[0].message.attachments?.[0];
+    expect(storedAtt).toBeDefined();
+    expect(storedAtt.type).toBe("file");
+    expect(storedAtt.content[0]).toMatchObject({
+      type: "file",
+      url: "https://cdn.example.com/logo.svg",
+      mimeType: "image/svg+xml",
+    });
+    expect(storedAtt.metadata).toMatchObject({
+      uploadUrl: "https://cdn.example.com/logo.svg",
+      uploadProvider: "builder",
+      referenceOnly: true,
+      securityNote: expect.stringContaining("active markup"),
+    });
+  });
+
   it("caps base64 image data larger than 2 MB when no URL exists", () => {
     // Generate a fake base64 string that's clearly over 2 MB of decoded bytes.
     // 2 MB = 2097152 bytes; base64 is 4/3 of that ≈ 2796203 chars.

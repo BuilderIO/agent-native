@@ -54,6 +54,7 @@ type AgentChatAdapterAttachment = {
 const TEXT_ATTACHMENT_CONTENT_TYPES = new Set([
   "application/json",
   "application/x-ndjson",
+  "image/svg+xml",
   "text/csv",
   "text/css",
   "text/html",
@@ -232,6 +233,14 @@ function isTextAttachmentContentType(value: string | undefined): boolean {
   );
 }
 
+function isSvgAttachment(args: {
+  name?: string;
+  contentType?: string;
+}): boolean {
+  const contentType = args.contentType?.split(";")[0]?.trim().toLowerCase();
+  return contentType === "image/svg+xml" || /\.svg$/i.test(args.name ?? "");
+}
+
 function decodeTextDataUrl(dataUrl: string): string | null {
   const match = dataUrl.match(
     /^data:([^;,]+)(?:;charset=[^;,]+)?(;base64)?,(.*)$/i,
@@ -275,6 +284,9 @@ function extractAttachmentsFromMessage(message: {
         const contentType =
           att.contentType ??
           (typeof part.mimeType === "string" ? part.mimeType : undefined);
+        const preserveDataUrl =
+          part.data.startsWith("data:") &&
+          shouldPreserveFileDataUrl({ name: att.name, contentType });
         const decodedText = part.data.startsWith("data:")
           ? decodeTextDataUrl(part.data)
           : null;
@@ -282,11 +294,18 @@ function extractAttachmentsFromMessage(message: {
           type: "file",
           name: att.name,
           contentType,
-          ...(decodedText !== null
-            ? { text: truncateOutboundAttachment(decodedText) }
-            : part.data.startsWith("data:")
-              ? { data: part.data }
-              : { text: truncateOutboundAttachment(part.data) }),
+          ...(preserveDataUrl
+            ? {
+                data: part.data,
+                ...(decodedText !== null
+                  ? { text: truncateOutboundAttachment(decodedText) }
+                  : {}),
+              }
+            : decodedText !== null
+              ? { text: truncateOutboundAttachment(decodedText) }
+              : part.data.startsWith("data:")
+                ? { data: part.data }
+                : { text: truncateOutboundAttachment(part.data) }),
         });
       } else if (part.type === "text" && typeof part.text === "string") {
         attachments.push({
@@ -311,6 +330,13 @@ function extractAttachmentsFromMessage(message: {
   return attachments;
 }
 
+function shouldPreserveFileDataUrl(args: {
+  name?: string;
+  contentType?: string;
+}): boolean {
+  return isSvgAttachment(args);
+}
+
 function truncateHistoryAttachment(text: string): string {
   if (text.length <= MAX_HISTORY_ATTACHMENT_CHARS) return text;
   const omitted = text.length - MAX_HISTORY_ATTACHMENT_CHARS;
@@ -326,6 +352,14 @@ function truncateOutboundAttachment(text: string): string {
 function attachmentHistoryText(
   attachment: AgentChatAdapterAttachment,
 ): string | null {
+  if (isSvgAttachment(attachment)) {
+    const label = attachment.name || "SVG attachment";
+    const contentType = attachment.contentType
+      ? ` (${attachment.contentType})`
+      : "";
+    return `[Attached ${attachment.type || "file"}: ${label}${contentType}; SVG reference-only, raw markup omitted from prior chat history.]`;
+  }
+
   if (typeof attachment.text === "string" && attachment.text.length > 0) {
     const attrs = [
       `name="${escapeAttachmentAttribute(attachment.name || "attachment")}"`,
