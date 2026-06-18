@@ -139,8 +139,11 @@ export function __debugCredentialEnv() {
     nodeEnvLiteral: process.env.NODE_ENV,
     nodeEnvComparedProduction: process.env.NODE_ENV === "production",
     localBuilderEnvFlag: process.env.AGENT_NATIVE_LOCAL_BUILDER_ENV,
-    allowLocalDevBuilderEnvCredentials: allowLocalDevBuilderEnvCredentials(),
+    allowLocal_call1: allowLocalDevBuilderEnvCredentials(),
+    allowLocal_call2: allowLocalDevBuilderEnvCredentials(),
     isHostedWorkspaceRuntime: isHostedWorkspaceRuntime(),
+    isDeployFallbackAllowed: isDeployCredentialFallbackAllowed(),
+    canUseDeployFallback: canUseDeployCredentialFallbackForRequest(),
     canUseBuilderDeployCredentialFallbackForRequest:
       canUseBuilderDeployCredentialFallbackForRequest(),
   };
