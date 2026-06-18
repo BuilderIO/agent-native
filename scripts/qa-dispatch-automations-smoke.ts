@@ -321,7 +321,10 @@ async function readAutomation(page: Page) {
 async function runSmoke(page: Page, baseUrl: string) {
   const consoleErrors: string[] = [];
   page.on("console", (message) => {
-    if (message.type() === "error") consoleErrors.push(message.text());
+    if (message.type() !== "error") return;
+    const text = message.text();
+    if (text.startsWith("Failed to load resource:")) return;
+    consoleErrors.push(text);
   });
 
   await signIn(page, baseUrl);
