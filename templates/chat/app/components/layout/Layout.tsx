@@ -18,6 +18,8 @@ interface LayoutProps {
   children: React.ReactNode;
 }
 
+const SIDEBAR_COLLAPSE_KEY = "chat.sidebar.collapsed";
+
 /**
  * Routes whose page renders its own toolbar. Layout still wraps these with the
  * left Sidebar and agent surfaces but skips the global Header so they don't
@@ -30,11 +32,32 @@ function routeOwnsToolbar(pathname: string): boolean {
 export function Layout({ children }: LayoutProps) {
   const location = useLocation();
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(true);
   const isChatRoute = location.pathname === "/";
 
   useEffect(() => {
     setMobileSidebarOpen(false);
   }, [location.pathname]);
+
+  useEffect(() => {
+    try {
+      const stored = window.localStorage.getItem(SIDEBAR_COLLAPSE_KEY);
+      if (stored !== null) setSidebarCollapsed(stored === "1");
+    } catch {
+      // Ignore storage access errors; the default collapsed state still works.
+    }
+  }, []);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(
+        SIDEBAR_COLLAPSE_KEY,
+        sidebarCollapsed ? "1" : "0",
+      );
+    } catch {
+      // Ignore storage access errors.
+    }
+  }, [sidebarCollapsed]);
 
   const ownsToolbar = routeOwnsToolbar(location.pathname);
   const contentFrame = (
@@ -76,7 +99,10 @@ export function Layout({ children }: LayoutProps) {
     <HeaderActionsProvider>
       <div className="flex h-screen w-full overflow-hidden bg-background text-foreground">
         <div className="hidden md:block">
-          <Sidebar />
+          <Sidebar
+            collapsed={sidebarCollapsed}
+            onCollapsedChange={setSidebarCollapsed}
+          />
         </div>
         <Sheet open={mobileSidebarOpen} onOpenChange={setMobileSidebarOpen}>
           <SheetContent side="left" className="p-0 w-[260px]">
@@ -84,7 +110,7 @@ export function Layout({ children }: LayoutProps) {
             <SheetDescription className="sr-only">
               App navigation links
             </SheetDescription>
-            <Sidebar />
+            <Sidebar collapsed={false} collapsible={false} />
           </SheetContent>
         </Sheet>
         {isChatRoute ? (
