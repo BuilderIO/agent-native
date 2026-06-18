@@ -1,5 +1,12 @@
 # @agent-native/core
 
+## 0.58.2
+
+### Patch Changes
+
+- 2c3fcb9: Improve native chat widget guidance and attachment handling so agents render structured data natively and preserve SVG/reference uploads correctly.
+- 2c3fcb9: Fix SVG chat attachment handling so vector uploads are treated as file references instead of malformed vision image parts.
+
 ## 0.58.1
 
 ### Patch Changes
