@@ -4098,7 +4098,12 @@ function DatabaseSettingsSourcePanel({
   if (top.kind === "addSource") {
     return (
       <AddSourceView
-        excludeDatabaseId={source?.databaseId ?? null}
+        excludeDatabaseIds={[
+          ...(source?.databaseId ? [source.databaseId] : []),
+          ...sources
+            .filter((item) => item.sourceType === "local-table")
+            .map((item) => item.sourceTable),
+        ]}
         canEdit={canEdit}
         onPickLocalTable={(table) =>
           onNavPush({
@@ -4714,11 +4719,11 @@ function CanonicalKeyConfirmView({
 // Pick a second source to federate. NEXT supports local tables (any other
 // workspace database); integrations beyond Builder are coming soon.
 function AddSourceView({
-  excludeDatabaseId,
+  excludeDatabaseIds,
   canEdit,
   onPickLocalTable,
 }: {
-  excludeDatabaseId: string | null;
+  excludeDatabaseIds: string[];
   canEdit: boolean;
   onPickLocalTable: (table: {
     databaseId: string;
@@ -4726,11 +4731,13 @@ function AddSourceView({
     title: string;
   }) => void;
 }) {
-  const query = useContentDatabases({
-    excludeDatabaseId: excludeDatabaseId ?? undefined,
-    enabled: true,
-  });
-  const tables = query.data?.databases ?? [];
+  const query = useContentDatabases({ enabled: true });
+  // Exclude this database (no self-reference) and any table already federated
+  // onto it — those live in the "Connected sources" group above.
+  const excluded = new Set(excludeDatabaseIds);
+  const tables = (query.data?.databases ?? []).filter(
+    (table) => !excluded.has(table.databaseId),
+  );
   return (
     <div className="grid min-w-0 gap-4">
       <div className="grid min-w-0 gap-1.5">
@@ -4744,7 +4751,7 @@ function AddSourceView({
           </div>
         ) : tables.length === 0 ? (
           <div className="min-w-0 break-words px-2 text-xs text-muted-foreground">
-            No other databases in this workspace yet.
+            No other databases available to add.
           </div>
         ) : (
           tables.map((table) => (
