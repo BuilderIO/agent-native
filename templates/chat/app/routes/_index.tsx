@@ -24,23 +24,23 @@ export default function ChatRoute() {
         showTabBar={false}
         dynamicSuggestions={false}
         suggestions={[
-          "Call hello for Builder",
-          "Add a notes data model and a notes list",
-          "Show me what actions are available here",
+          "What can you do?",
+          "Help me customize this chat app",
+          "Show me the actions and pages I can add",
         ]}
-        emptyStateText="Ask the agent to run an action, explain the app, or build the next piece."
+        emptyStateText="Ask anything, then customize the app when you need more."
         emptyStateDisplay="hidden"
         centerComposerWhenEmpty
         composerLayoutVariant="hero"
-        composerPlaceholder="Ask your agent to build, run, or explain something..."
+        composerPlaceholder="Message the agent..."
         composerSlot={
           <div className="mx-auto mb-5 max-w-xl px-4 text-center">
             <h1 className="text-2xl font-semibold tracking-normal text-foreground sm:text-3xl">
-              What should this agent do?
+              How can I help?
             </h1>
             <p className="mt-2 text-sm leading-6 text-muted-foreground">
-              Start in chat. Add actions, data models, screens, jobs, or your
-              own agent backend when the workflow needs more shape.
+              Chat about anything. Add actions, components, pages, jobs, or your
+              own agent backend when you want this app to do more.
             </p>
           </div>
         }
