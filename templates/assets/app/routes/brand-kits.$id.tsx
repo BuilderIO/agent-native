@@ -28,6 +28,8 @@ import {
   IconArchive,
   IconFolder,
   IconFolderPlus,
+  IconLayoutBottombar,
+  IconLayoutGrid,
   IconMessageCircle,
   IconPencil,
   IconPhoto,
@@ -95,6 +97,12 @@ import {
 import { Separator } from "@/components/ui/separator";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Spinner } from "@/components/ui/spinner";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { EditLibraryDialog } from "@/components/library/EditLibraryDialog";
 import { assetMediaUrl } from "@/lib/asset-urls";
 import { assetPreviewSources } from "@/lib/asset-preview-sources";
@@ -119,6 +127,19 @@ function candidateSaveKey(slot: any): string {
   }
   if (typeof slot?.slotId === "string" && slot.slotId) {
     return `slot:${slot.slotId}`;
+  }
+  return "";
+}
+
+function referencePromotionKey(asset: any, slot?: any): string {
+  if (typeof slot?.slotId === "string" && slot.slotId) {
+    return `slot:${slot.slotId}`;
+  }
+  if (typeof asset?.id === "string" && asset.id) {
+    return `asset:${asset.id}`;
+  }
+  if (typeof slot?.assetId === "string" && slot.assetId) {
+    return `asset:${slot.assetId}`;
   }
   return "";
 }
@@ -342,6 +363,7 @@ export default function LibraryPage() {
   const [activeTab, setActiveTab] = useState<LibraryTab>(
     () => urlTab ?? "references",
   );
+  const [assetViewMode, setAssetViewMode] = useState<AssetViewMode>("lanes");
   const [selectedAssetIds, setSelectedAssetIds] = useState<Set<string>>(
     () => new Set(),
   );
@@ -352,6 +374,9 @@ export default function LibraryPage() {
   const [savingCandidateKeys, setSavingCandidateKeys] = useState<Set<string>>(
     () => new Set(),
   );
+  const [promotingReferenceKeys, setPromotingReferenceKeys] = useState<
+    Set<string>
+  >(() => new Set());
   const [mediaFilter, setMediaFilter] = useState<"all" | "image" | "video">(
     "all",
   );
@@ -381,10 +406,11 @@ export default function LibraryPage() {
         view: "library",
         libraryId,
         activeTab,
+        assetViewMode,
         selectedAssetIds: Array.from(selectedAssetIds),
       }),
     }).catch(() => {});
-  }, [activeTab, libraryId, selectedAssetIds]);
+  }, [activeTab, assetViewMode, libraryId, selectedAssetIds]);
 
   const library = data?.library;
   const folders = (data?.folders ?? []) as any[];
@@ -556,6 +582,18 @@ export default function LibraryPage() {
     });
   }
 
+  function setReferencePromoting(key: string, promoting: boolean) {
+    setPromotingReferenceKeys((current) => {
+      const next = new Set(current);
+      if (promoting) {
+        next.add(key);
+      } else {
+        next.delete(key);
+      }
+      return next.size === current.size ? current : next;
+    });
+  }
+
   async function handleSaveCandidate(slot: any) {
     const key = candidateSaveKey(slot);
     if (!key || savingCandidateKeys.has(key)) return;
@@ -600,8 +638,10 @@ export default function LibraryPage() {
   }
 
   async function handleMoveToReferences(asset: any, slot?: any) {
-    if (!asset?.id || updateAsset.isPending) return;
+    const key = referencePromotionKey(asset, slot);
+    if (!asset?.id || !key || promotingReferenceKeys.has(key)) return;
     const role = referenceRoleForAsset(asset);
+    setReferencePromoting(key, true);
     try {
       await updateAsset.mutateAsync({
         id: asset.id,
@@ -636,6 +676,8 @@ export default function LibraryPage() {
           ? error.message
           : "Could not move asset to Inspirations.",
       );
+    } finally {
+      setReferencePromoting(key, false);
     }
   }
 
@@ -664,6 +706,7 @@ export default function LibraryPage() {
         view: "library",
         libraryId,
         activeTab,
+        assetViewMode,
         folderId: activeFolderId,
         mediaFilter,
         search,
@@ -673,6 +716,7 @@ export default function LibraryPage() {
   }, [
     activeFolderId,
     activeTab,
+    assetViewMode,
     libraryId,
     mediaFilter,
     search,
@@ -1004,6 +1048,8 @@ export default function LibraryPage() {
   const assetById = new Map(assets.map((asset) => [asset.id, asset]));
   const activeSurfaceTab =
     activeTab === "runs" || activeTab === "settings" ? activeTab : "assets";
+  const hideEmptyLanes =
+    activeFolderId !== "all" || mediaFilter !== "all" || search.trim() !== "";
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -1202,73 +1248,6 @@ export default function LibraryPage() {
             </span>
           </div>
         )}
-        <section className="mb-5 space-y-3">
-          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-            <div className="flex min-w-0 flex-wrap items-center gap-2">
-              <FolderChip
-                active={activeFolderId === "all"}
-                label="All assets"
-                count={assets.length}
-                onClick={() => setActiveFolderId("all")}
-              />
-              <FolderChip
-                active={activeFolderId === null}
-                label="Unfiled"
-                count={unfiledCount}
-                onClick={() => setActiveFolderId(null)}
-              />
-              {folders.map((folder) => (
-                <FolderChip
-                  key={folder.id}
-                  active={activeFolderId === folder.id}
-                  label={folder.title}
-                  count={
-                    assets.filter((asset) => asset.folderId === folder.id)
-                      .length
-                  }
-                  onClick={() => setActiveFolderId(folder.id)}
-                />
-              ))}
-            </div>
-            <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-              <div className="relative">
-                <IconSearch className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                <Input
-                  value={search}
-                  onChange={(event) => setSearch(event.target.value)}
-                  placeholder="Search assets"
-                  className="h-9 w-full pl-8 pr-8 sm:w-64"
-                />
-                {search && (
-                  <button
-                    type="button"
-                    aria-label="Clear search"
-                    className="absolute right-2 top-1/2 flex h-5 w-5 -translate-y-1/2 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground"
-                    onClick={() => setSearch("")}
-                  >
-                    <IconX className="h-3.5 w-3.5" />
-                  </button>
-                )}
-              </div>
-              <Select
-                value={mediaFilter}
-                onValueChange={(value) =>
-                  setMediaFilter(value as "all" | "image" | "video")
-                }
-              >
-                <SelectTrigger className="h-9 w-full sm:w-32">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All media</SelectItem>
-                  <SelectItem value="image">Images</SelectItem>
-                  <SelectItem value="video">Videos</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-        </section>
-
         <Tabs
           value={activeSurfaceTab}
           onValueChange={(value) =>
@@ -1284,8 +1263,77 @@ export default function LibraryPage() {
             <TabsTrigger value="settings">Settings</TabsTrigger>
           </TabsList>
 
-          <TabsContent value="assets">
+          <TabsContent value="assets" className="space-y-5">
+            <section className="space-y-3">
+              <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                <div className="flex min-w-0 flex-wrap items-center gap-2">
+                  <FolderChip
+                    active={activeFolderId === "all"}
+                    label="All assets"
+                    count={assets.length}
+                    onClick={() => setActiveFolderId("all")}
+                  />
+                  <FolderChip
+                    active={activeFolderId === null}
+                    label="Unfiled"
+                    count={unfiledCount}
+                    onClick={() => setActiveFolderId(null)}
+                  />
+                  {folders.map((folder) => (
+                    <FolderChip
+                      key={folder.id}
+                      active={activeFolderId === folder.id}
+                      label={folder.title}
+                      count={
+                        assets.filter((asset) => asset.folderId === folder.id)
+                          .length
+                      }
+                      onClick={() => setActiveFolderId(folder.id)}
+                    />
+                  ))}
+                </div>
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                  <div className="relative">
+                    <IconSearch className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                    <Input
+                      value={search}
+                      onChange={(event) => setSearch(event.target.value)}
+                      placeholder="Search assets"
+                      className="h-9 w-full pl-8 pr-8 sm:w-64"
+                    />
+                    {search && (
+                      <button
+                        type="button"
+                        aria-label="Clear search"
+                        className="absolute right-2 top-1/2 flex h-5 w-5 -translate-y-1/2 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground"
+                        onClick={() => setSearch("")}
+                      >
+                        <IconX className="h-3.5 w-3.5" />
+                      </button>
+                    )}
+                  </div>
+                  <Select
+                    value={mediaFilter}
+                    onValueChange={(value) =>
+                      setMediaFilter(value as "all" | "image" | "video")
+                    }
+                  >
+                    <SelectTrigger className="h-9 w-full sm:w-32">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All media</SelectItem>
+                      <SelectItem value="image">Images</SelectItem>
+                      <SelectItem value="video">Videos</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+            </section>
             <AssetSwimlaneBoard
+              viewMode={assetViewMode}
+              onViewModeChange={setAssetViewMode}
+              hideEmptyLanes={hideEmptyLanes}
               references={references}
               candidates={candidates}
               saved={saved}
@@ -1294,7 +1342,7 @@ export default function LibraryPage() {
               folders={folders}
               libraryId={libraryId}
               savingCandidateKeys={savingCandidateKeys}
-              promoting={updateAsset.isPending}
+              promotingReferenceKeys={promotingReferenceKeys}
               onUploadClick={() => fileInputRef.current?.click()}
               onGenerateClick={() => setGenerateOpen(true)}
               onDrop={(files) => void upload(files)}
@@ -1495,6 +1543,25 @@ type PendingUpload = {
 };
 
 type LibraryTab = "references" | "generated" | "runs" | "settings";
+type AssetViewMode = "lanes" | "cards";
+
+type LaneGalleryItem = {
+  id: string;
+  title: string;
+  subtitle?: string | null;
+  metadata?: string | null;
+  status?: string | null;
+  mediaType?: "image" | "video";
+  href?: string;
+  selected?: boolean;
+  busy?: boolean;
+  deleting?: boolean;
+  preview: ReactNode;
+  thumbnail: ReactNode;
+  menu?: ReactNode;
+  primaryActions?: ReactNode;
+  onToggle?: (checked: boolean) => void;
+};
 
 function RunCard({
   run,
@@ -2329,7 +2396,13 @@ function FolderChip({
   );
 }
 
-function AssetPreview({ asset }: { asset: any }) {
+function AssetPreview({
+  asset,
+  fit = "cover",
+}: {
+  asset: any;
+  fit?: "cover" | "contain";
+}) {
   const [sourceIndex, setSourceIndex] = useState(0);
   const [unavailable, setUnavailable] = useState(false);
   const sources = assetPreviewSources(asset, "thumbnail");
@@ -2348,7 +2421,11 @@ function AssetPreview({ asset }: { asset: any }) {
           muted
           playsInline
           preload="metadata"
-          className="h-full w-full object-cover"
+          className={
+            fit === "contain"
+              ? "h-full w-full object-contain"
+              : "h-full w-full object-cover"
+          }
         />
         <div className="absolute bottom-2 left-2 rounded-md bg-background/90 px-2 py-1 text-[11px] font-medium text-foreground shadow-sm">
           Video
@@ -2371,7 +2448,10 @@ function AssetPreview({ asset }: { asset: any }) {
     <img
       src={src}
       alt={asset.altText || asset.title || ""}
-      className="h-full w-full object-cover transition group-hover:scale-[1.02]"
+      className={[
+        "h-full w-full transition group-hover:scale-[1.02]",
+        fit === "contain" ? "object-contain" : "object-cover",
+      ].join(" ")}
       onError={() => {
         const nextIndex = sourceIndex + 1;
         if (nextIndex < sources.length) {
@@ -2385,6 +2465,9 @@ function AssetPreview({ asset }: { asset: any }) {
 }
 
 function AssetSwimlaneBoard({
+  viewMode,
+  onViewModeChange,
+  hideEmptyLanes,
   references,
   candidates,
   saved,
@@ -2393,7 +2476,7 @@ function AssetSwimlaneBoard({
   folders,
   libraryId,
   savingCandidateKeys,
-  promoting,
+  promotingReferenceKeys,
   onUploadClick,
   onGenerateClick,
   onDrop,
@@ -2404,6 +2487,9 @@ function AssetSwimlaneBoard({
   onOptimisticDelete,
   onRestoreOptimisticDelete,
 }: {
+  viewMode: AssetViewMode;
+  onViewModeChange: (mode: AssetViewMode) => void;
+  hideEmptyLanes: boolean;
   references: any[];
   candidates: any[];
   saved: any[];
@@ -2412,7 +2498,7 @@ function AssetSwimlaneBoard({
   folders: any[];
   libraryId: string;
   savingCandidateKeys: Set<string>;
-  promoting?: boolean;
+  promotingReferenceKeys: Set<string>;
   onUploadClick: () => void;
   onGenerateClick: () => void;
   onDrop: (files: FileList) => void;
@@ -2428,7 +2514,16 @@ function AssetSwimlaneBoard({
   const updateAsset = useActionMutation("update-asset");
   const [confirmDeleteIds, setConfirmDeleteIds] = useState<string[]>([]);
   const [deletingIds, setDeletingIds] = useState<Set<string>>(() => new Set());
-  const boardAssets = [...references, ...candidates, ...saved];
+  const visibleReferences = references;
+  const visiblePendingUploads = pendingUploads;
+  const visibleCandidates = candidates;
+  const visiblePendingVariants = pendingVariants;
+  const visibleSaved = saved;
+  const boardAssets = [
+    ...visibleReferences,
+    ...visibleCandidates,
+    ...visibleSaved,
+  ];
   const selectedAssets = boardAssets.filter((asset) =>
     selectedIds.has(asset.id),
   );
@@ -2438,10 +2533,12 @@ function AssetSwimlaneBoard({
   const pendingDeleteCount = deletingIds.size;
   const deleting =
     deleteAsset.isPending || deleteAssets.isPending || pendingDeleteCount > 0;
-  const hasAnyVisibleItem =
-    boardAssets.length > 0 ||
+  const hasAnyBoardItem =
+    references.length > 0 ||
     pendingUploads.length > 0 ||
     pendingVariants.length > 0 ||
+    candidates.length > 0 ||
+    saved.length > 0 ||
     pendingDeleteCount > 0;
 
   function toggleAsset(assetId: string, checked: boolean) {
@@ -2540,7 +2637,205 @@ function AssetSwimlaneBoard({
     );
   }
 
-  if (!hasAnyVisibleItem) {
+  function uploadGalleryItem(upload: PendingUpload): LaneGalleryItem {
+    const isChecking = upload.status === "checking";
+    return {
+      id: `upload:${upload.id}`,
+      title: upload.name,
+      subtitle: isChecking ? "Checking upload" : "Uploading",
+      status: isChecking ? "Checking" : "Uploading",
+      mediaType: upload.mediaType,
+      busy: true,
+      preview: <PendingUploadPreview upload={upload} fit="contain" />,
+      thumbnail: <PendingUploadPreview upload={upload} />,
+    };
+  }
+
+  function assetGalleryItem({
+    asset,
+    saving = false,
+    promoting = false,
+    onSave,
+    onMoveToReferences,
+  }: {
+    asset: any;
+    saving?: boolean;
+    promoting?: boolean;
+    onSave?: () => void;
+    onMoveToReferences?: () => void;
+  }): LaneGalleryItem {
+    const displayTitle = assetDisplayTitle(asset);
+    const sourceText = assetLineageSourceText(asset);
+    const categoryLabel = assetCategoryLabel(asset);
+    const canMoveToReferences = Boolean(onMoveToReferences);
+    const busy = deletingIds.has(asset.id) || saving || promoting;
+    return {
+      id: `asset:${asset.id}`,
+      title: displayTitle,
+      subtitle: sourceText || categoryLabel || asset.status,
+      metadata:
+        asset.mediaType === "video"
+          ? "Video"
+          : asset.mimeType?.startsWith("image/")
+            ? "Image"
+            : asset.mimeType || "Asset",
+      status: asset.status,
+      mediaType: asset.mediaType === "video" ? "video" : "image",
+      href: `/asset/${asset.id}`,
+      selected: selectedIds.has(asset.id),
+      deleting: deletingIds.has(asset.id),
+      busy,
+      preview: <AssetPreview asset={asset} fit="contain" />,
+      thumbnail: <AssetPreview asset={asset} />,
+      onToggle: (checked) => toggleAsset(asset.id, checked),
+      menu: (
+        <AssetActionsMenu
+          asset={asset}
+          folders={folders}
+          busy={busy}
+          updateAsset={updateAsset}
+          onDelete={() => confirmDelete([asset.id])}
+          onMoveToReferences={onMoveToReferences}
+        />
+      ),
+      primaryActions:
+        onSave || canMoveToReferences ? (
+          <div className="grid grid-cols-2 gap-2">
+            {onSave ? (
+              <Button
+                size="sm"
+                className="h-8 px-2 text-xs"
+                onClick={onSave}
+                disabled={busy}
+              >
+                {saving ? <Spinner className="h-3.5 w-3.5" /> : "Save"}
+              </Button>
+            ) : null}
+            {canMoveToReferences ? (
+              <Button
+                variant="outline"
+                size="sm"
+                className={
+                  onSave ? "h-8 px-2 text-xs" : "col-span-2 h-8 px-2 text-xs"
+                }
+                onClick={onMoveToReferences}
+                disabled={busy}
+                title="Move to Inspirations"
+              >
+                {promoting ? <Spinner className="h-3.5 w-3.5" /> : "Use as ref"}
+              </Button>
+            ) : null}
+          </div>
+        ) : null,
+    };
+  }
+
+  function variantGalleryItem(slot: any): LaneGalleryItem {
+    const isFailed = slot.status === "failed";
+    const saving = savingCandidateKeys.has(candidateSaveKey(slot));
+    const promoting = promotingReferenceKeys.has(
+      referencePromotionKey(slot.assetId ? { id: slot.assetId } : null, slot),
+    );
+    const busy = saving || promoting;
+    return {
+      id: `slot:${slot.slotId}`,
+      title: isFailed ? "Failed variation" : "Ready variation",
+      subtitle: slot.slotId ? shortId(String(slot.slotId)) : "Live slot",
+      metadata: slot.status,
+      status: slot.status,
+      mediaType: "image",
+      href: slot.assetId ? `/asset/${slot.assetId}` : undefined,
+      busy,
+      preview: <VariantPreview slot={slot} fit="contain" />,
+      thumbnail: <VariantPreview slot={slot} />,
+      menu: (
+        <VariantActionsMenu
+          slot={slot}
+          libraryId={libraryId}
+          busy={busy}
+          onMoveToReferences={
+            slot.assetId
+              ? () => onMoveToReferences({ ...slot, id: slot.assetId }, slot)
+              : undefined
+          }
+        />
+      ),
+      primaryActions:
+        slot.status === "ready" ? (
+          <div className="grid grid-cols-2 gap-2">
+            <Button
+              size="sm"
+              className="h-8 px-2 text-xs"
+              onClick={() => onSaveCandidate(slot)}
+              disabled={busy}
+            >
+              {saving ? <Spinner className="h-3.5 w-3.5" /> : "Save"}
+            </Button>
+            {slot.assetId ? (
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-8 px-2 text-xs"
+                onClick={() =>
+                  onMoveToReferences({ ...slot, id: slot.assetId }, slot)
+                }
+                disabled={busy}
+                title="Move to Inspirations"
+              >
+                {promoting ? <Spinner className="h-3.5 w-3.5" /> : "Use as ref"}
+              </Button>
+            ) : null}
+          </div>
+        ) : null,
+    };
+  }
+
+  const inspirationItems = [
+    ...visiblePendingUploads.map(uploadGalleryItem),
+    ...visibleReferences.map((asset) => assetGalleryItem({ asset })),
+  ];
+  const variationItems = [
+    ...visiblePendingVariants.map(variantGalleryItem),
+    ...visibleCandidates.map((asset) =>
+      assetGalleryItem({
+        asset,
+        saving: savingCandidateKeys.has(`asset:${asset.id}`),
+        promoting: promotingReferenceKeys.has(referencePromotionKey(asset)),
+        onSave: () => onSaveCandidate({ assetId: asset.id }),
+        onMoveToReferences: () => onMoveToReferences(asset),
+      }),
+    ),
+  ];
+  const savedItems = visibleSaved.map((asset) =>
+    assetGalleryItem({
+      asset,
+      promoting: promotingReferenceKeys.has(referencePromotionKey(asset)),
+      onMoveToReferences: () => onMoveToReferences(asset),
+    }),
+  );
+  const showInspirations = !hideEmptyLanes || inspirationItems.length > 0;
+  const showVariations = !hideEmptyLanes || variationItems.length > 0;
+  const showSaved = !hideEmptyLanes || savedItems.length > 0;
+  const visibleGalleryItems = [
+    ...(showInspirations ? inspirationItems : []),
+    ...(showVariations ? variationItems : []),
+    ...(showSaved ? savedItems : []),
+  ];
+
+  if (!hasAnyBoardItem) {
+    if (hideEmptyLanes) {
+      return (
+        <div className="flex min-h-[280px] w-full flex-col items-center justify-center rounded-lg border border-dashed border-border bg-muted/15 p-8 text-center">
+          <IconSearch className="h-9 w-9 text-muted-foreground" />
+          <span className="mt-4 text-base font-semibold">
+            No assets match this view
+          </span>
+          <span className="mt-2 max-w-md text-sm text-muted-foreground">
+            Try All assets, a different folder, or a broader search.
+          </span>
+        </div>
+      );
+    }
     return (
       <button
         onClick={onUploadClick}
@@ -2602,8 +2897,37 @@ function AssetSwimlaneBoard({
         </AlertDialogContent>
       </AlertDialog>
 
-      <div className="overflow-hidden rounded-lg border border-border bg-background">
-        <div className="flex min-h-12 flex-wrap items-center justify-between gap-2 border-b border-border bg-muted/20 px-3 py-2">
+      <div className="mb-3 flex flex-col gap-2 rounded-md border border-border bg-background px-3 py-2 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex min-w-0 flex-wrap items-center gap-2">
+          <label className="flex h-8 cursor-pointer items-center gap-2 rounded-md border border-border px-2.5 text-sm font-medium text-foreground transition hover:border-foreground/30 has-[:disabled]:cursor-not-allowed has-[:disabled]:opacity-50">
+            <Checkbox
+              checked={allSelected}
+              disabled={!boardAssets.length || deleting}
+              onCheckedChange={(checked) => toggleAll(checked === true)}
+              aria-label="Select all visible assets"
+            />
+            {allSelected ? "Deselect all" : "Select all"}
+          </label>
+          <span className="text-xs text-muted-foreground">
+            {boardAssets.length} visible asset
+            {boardAssets.length === 1 ? "" : "s"}
+          </span>
+          {selectedCount > 0 ? (
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={() => onSelectedIdsChange(new Set())}
+            >
+              Clear
+            </Button>
+          ) : null}
+        </div>
+        <AssetViewModeToggle value={viewMode} onChange={onViewModeChange} />
+      </div>
+
+      {(selectedCount > 0 || pendingDeleteCount > 0) && (
+        <div className="mb-4 flex min-h-11 flex-wrap items-center justify-between gap-2 rounded-md border border-border bg-background px-3 py-2 shadow-sm">
           {pendingDeleteCount > 0 ? (
             <div className="flex min-w-0 items-center gap-2 text-sm font-medium">
               <Spinner className="h-4 w-4" />
@@ -2631,7 +2955,7 @@ function AssetSwimlaneBoard({
               </span>
             </div>
           )}
-          {selectedCount > 0 && pendingDeleteCount === 0 ? (
+          {pendingDeleteCount === 0 ? (
             <div className="flex items-center gap-2">
               <Button
                 type="button"
@@ -2658,189 +2982,394 @@ function AssetSwimlaneBoard({
                 Delete
               </Button>
             </div>
-          ) : (
-            <div className="flex items-center gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                className="gap-2"
-                onClick={onUploadClick}
-              >
-                <IconUpload className="h-4 w-4" />
-                Upload
-              </Button>
-              <Button size="sm" className="gap-2" onClick={onGenerateClick}>
-                <IconMessageCircle className="h-4 w-4" />
-                Generate
-              </Button>
-            </div>
-          )}
+          ) : null}
         </div>
+      )}
 
-        <div className="divide-y divide-border">
-          <SwimLane
-            title="Inspirations"
-            eyebrow="Reusable references"
-            count={references.length + pendingUploads.length}
-            action={
-              <Button variant="outline" size="sm" onClick={onUploadClick}>
-                Add
-              </Button>
-            }
-            empty={
-              <LaneDropTarget
-                title="Drop references here"
-                body="Images, clips, logos, products, or style boards."
-                onClick={onUploadClick}
-                onDrop={onDrop}
-              />
-            }
-          >
-            {pendingUploads.map((upload) => (
-              <PendingUploadLaneTile key={upload.id} upload={upload} />
-            ))}
-            {references.map((asset) => (
-              <AssetLaneTile
-                key={asset.id}
-                asset={asset}
-                folders={folders}
-                selected={selectedIds.has(asset.id)}
-                deleting={deletingIds.has(asset.id)}
-                onToggle={(checked) => toggleAsset(asset.id, checked)}
-                onDelete={() => confirmDelete([asset.id])}
-                updateAsset={updateAsset}
-              />
-            ))}
-          </SwimLane>
-
-          <SwimLane
-            title="Variations"
-            eyebrow="Live slots and unsaved outputs"
-            count={pendingVariants.length + candidates.length}
-            action={
-              pendingVariants.length > 0 ? (
-                <LiveCandidatesActions
-                  slots={pendingVariants}
-                  libraryId={libraryId}
-                />
-              ) : (
-                <Button variant="outline" size="sm" onClick={onGenerateClick}>
-                  Generate
+      {viewMode === "cards" ? (
+        <AssetCardsView items={visibleGalleryItems} />
+      ) : (
+        <div className="space-y-4">
+          {showInspirations ? (
+            <SwimLane
+              title="Inspirations"
+              eyebrow="Reusable references"
+              items={inspirationItems}
+              action={
+                <Button variant="outline" size="sm" onClick={onUploadClick}>
+                  Add
                 </Button>
-              )
-            }
-            empty={
-              <LaneActionEmpty
-                title="No variations in flight"
-                body="Generate a few directions, then save or move the best ones."
-                onClick={onGenerateClick}
-                action="Generate"
-              />
-            }
-          >
-            {pendingVariants.map((slot: any) => (
-              <VariantLaneTile
-                key={slot.slotId}
-                slot={slot}
-                libraryId={libraryId}
-                saving={savingCandidateKeys.has(candidateSaveKey(slot))}
-                promoting={promoting}
-                onSave={() => onSaveCandidate(slot)}
-                onMoveToReferences={
-                  slot.assetId
-                    ? () =>
-                        onMoveToReferences({ ...slot, id: slot.assetId }, slot)
-                    : undefined
-                }
-              />
-            ))}
-            {candidates.map((asset) => (
-              <AssetLaneTile
-                key={asset.id}
-                asset={asset}
-                folders={folders}
-                selected={selectedIds.has(asset.id)}
-                deleting={deletingIds.has(asset.id)}
-                saving={savingCandidateKeys.has(`asset:${asset.id}`)}
-                promoting={promoting}
-                onToggle={(checked) => toggleAsset(asset.id, checked)}
-                onDelete={() => confirmDelete([asset.id])}
-                updateAsset={updateAsset}
-                onSave={() => onSaveCandidate({ assetId: asset.id })}
-                onMoveToReferences={() => onMoveToReferences(asset)}
-              />
-            ))}
-          </SwimLane>
+              }
+              empty={
+                <LaneDropTarget
+                  title="Drop references here"
+                  body="Images, clips, logos, products, or style boards."
+                  onClick={onUploadClick}
+                  onDrop={onDrop}
+                />
+              }
+            />
+          ) : null}
 
-          <SwimLane
-            title="Saved outputs"
-            eyebrow="Approved generated assets"
-            count={saved.length}
-            empty={
-              <LaneActionEmpty
-                title="No saved outputs yet"
-                body="Saved variations collect here for export and reuse."
-                onClick={onGenerateClick}
-                action="Generate"
-              />
-            }
-          >
-            {saved.map((asset) => (
-              <AssetLaneTile
-                key={asset.id}
-                asset={asset}
-                folders={folders}
-                selected={selectedIds.has(asset.id)}
-                deleting={deletingIds.has(asset.id)}
-                promoting={promoting}
-                onToggle={(checked) => toggleAsset(asset.id, checked)}
-                onDelete={() => confirmDelete([asset.id])}
-                updateAsset={updateAsset}
-                onMoveToReferences={() => onMoveToReferences(asset)}
-              />
-            ))}
-          </SwimLane>
+          {showVariations ? (
+            <SwimLane
+              title="Variations"
+              eyebrow="Working lane"
+              items={variationItems}
+              action={
+                visiblePendingVariants.length > 0 ? (
+                  <LiveCandidatesActions
+                    slots={visiblePendingVariants}
+                    libraryId={libraryId}
+                  />
+                ) : (
+                  <Button variant="outline" size="sm" onClick={onGenerateClick}>
+                    Generate
+                  </Button>
+                )
+              }
+              empty={
+                <LaneActionEmpty
+                  title="No variations in flight"
+                  body="Generate a few directions, then save or move the best ones."
+                  onClick={onGenerateClick}
+                  action="Generate"
+                />
+              }
+            />
+          ) : null}
+
+          {showSaved ? (
+            <SwimLane
+              title="Saved outputs"
+              eyebrow="Approved generated assets"
+              items={savedItems}
+              empty={
+                <LaneActionEmpty
+                  title="No saved outputs yet"
+                  body="Saved variations collect here for export and reuse."
+                  onClick={onGenerateClick}
+                  action="Generate"
+                />
+              }
+            />
+          ) : null}
         </div>
-      </div>
+      )}
     </>
+  );
+}
+
+function AssetViewModeToggle({
+  value,
+  onChange,
+}: {
+  value: AssetViewMode;
+  onChange: (mode: AssetViewMode) => void;
+}) {
+  const options: Array<{
+    value: AssetViewMode;
+    label: string;
+    icon: ReactNode;
+  }> = [
+    {
+      value: "lanes",
+      label: "Lanes",
+      icon: <IconLayoutBottombar className="h-4 w-4" />,
+    },
+    {
+      value: "cards",
+      label: "Cards",
+      icon: <IconLayoutGrid className="h-4 w-4" />,
+    },
+  ];
+
+  return (
+    <TooltipProvider delayDuration={150}>
+      <div
+        role="group"
+        aria-label="Asset view"
+        className="inline-flex shrink-0 gap-1 rounded-md border border-border bg-muted/20 p-1"
+      >
+        {options.map((option) => {
+          const active = value === option.value;
+          return (
+            <Tooltip key={option.value}>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  onClick={() => onChange(option.value)}
+                  className={[
+                    "flex h-8 w-9 items-center justify-center rounded text-sm transition",
+                    active
+                      ? "bg-background text-foreground shadow-sm"
+                      : "text-muted-foreground hover:bg-background/60 hover:text-foreground",
+                  ].join(" ")}
+                  aria-label={`${option.label} view`}
+                  aria-pressed={active}
+                  title={`${option.label} view`}
+                >
+                  {option.icon}
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom">{option.label} view</TooltipContent>
+            </Tooltip>
+          );
+        })}
+      </div>
+    </TooltipProvider>
+  );
+}
+
+function AssetCardsView({ items }: { items: LaneGalleryItem[] }) {
+  if (!items.length) {
+    return (
+      <div className="flex min-h-[220px] items-center justify-center rounded-lg border border-dashed border-border bg-muted/15 p-8 text-center text-sm text-muted-foreground">
+        No assets to show.
+      </div>
+    );
+  }
+
+  return (
+    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
+      {items.map((item) => (
+        <article
+          key={item.id}
+          className={[
+            "group overflow-hidden rounded-lg border border-border/80 bg-background transition hover:border-foreground/25",
+            item.selected ? "border-primary ring-2 ring-primary/25" : "",
+            item.deleting ? "opacity-60" : "",
+          ].join(" ")}
+          aria-busy={item.busy}
+        >
+          <div className="relative aspect-[4/3] bg-muted/30">
+            {item.href ? (
+              <Link to={item.href} className="block h-full w-full">
+                {item.thumbnail}
+              </Link>
+            ) : (
+              item.thumbnail
+            )}
+            <div className="absolute left-2 top-2 z-10">
+              {item.onToggle ? (
+                <Checkbox
+                  checked={item.selected}
+                  onCheckedChange={(checked) =>
+                    item.onToggle?.(checked === true)
+                  }
+                  aria-label={`Select ${item.title}`}
+                  className="border-background bg-background/90 shadow-sm"
+                />
+              ) : null}
+            </div>
+            {item.menu ? (
+              <div className="absolute right-2 top-2 z-10">{item.menu}</div>
+            ) : null}
+            {item.busy ? (
+              <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-background/20">
+                <Spinner className="h-5 w-5" />
+              </div>
+            ) : null}
+          </div>
+          <div className="space-y-3 p-3">
+            <div className="min-w-0">
+              <div className="truncate text-sm font-medium">{item.title}</div>
+              {item.subtitle ? (
+                <div className="mt-1 truncate text-xs text-muted-foreground">
+                  {item.subtitle}
+                </div>
+              ) : null}
+            </div>
+            <div className="flex min-h-5 flex-wrap items-center gap-1.5">
+              {item.status ? (
+                <Badge variant="secondary">{item.status}</Badge>
+              ) : null}
+              {item.metadata ? (
+                <Badge variant="outline">{item.metadata}</Badge>
+              ) : null}
+            </div>
+            {item.primaryActions ? <div>{item.primaryActions}</div> : null}
+          </div>
+        </article>
+      ))}
+    </div>
   );
 }
 
 function SwimLane({
   title,
   eyebrow,
-  count,
+  items,
   action,
   empty,
-  children,
 }: {
   title: string;
   eyebrow: string;
-  count: number;
+  items: LaneGalleryItem[];
   action?: ReactNode;
   empty: ReactNode;
-  children: ReactNode;
 }) {
-  const hasContent = count > 0;
+  const [activeItemId, setActiveItemId] = useState<string | null>(null);
+  const itemIds = items.map((item) => item.id).join("\n");
+  const activeItem =
+    items.find((item) => item.id === activeItemId) ?? items[0] ?? null;
+  const hasContent = items.length > 0;
+
+  useEffect(() => {
+    if (!items.length) {
+      setActiveItemId(null);
+      return;
+    }
+    setActiveItemId((current) =>
+      current && items.some((item) => item.id === current)
+        ? current
+        : items[0].id,
+    );
+  }, [itemIds, items]);
+
   return (
-    <section className="grid gap-3 p-3 lg:grid-cols-[176px_minmax(0,1fr)]">
-      <div className="flex items-start justify-between gap-3 lg:block">
-        <div className="min-w-0">
-          <div className="text-[11px] font-medium uppercase text-muted-foreground">
-            {eyebrow}
-          </div>
-          <h3 className="mt-1 flex items-center gap-2 text-sm font-semibold">
-            <span className="truncate">{title}</span>
-            <Badge variant="outline">{count}</Badge>
-          </h3>
+    <section className="overflow-hidden rounded-lg border border-border/80 bg-background">
+      <div className="grid min-h-[360px] xl:grid-cols-[minmax(0,1fr)_284px]">
+        <div className="flex min-w-0 flex-col bg-muted/10">
+          {hasContent ? (
+            <>
+              <div className="flex min-h-[272px] flex-1 items-center justify-center border-b border-border/70 p-4">
+                <div
+                  className={[
+                    "group relative w-full max-w-3xl overflow-hidden rounded-lg border bg-background shadow-sm",
+                    activeItem?.deleting ? "opacity-60" : "",
+                  ].join(" ")}
+                  aria-busy={activeItem?.busy}
+                >
+                  <div className="aspect-[16/10] bg-muted/30">
+                    {activeItem?.href ? (
+                      <Link
+                        to={activeItem.href}
+                        className="block h-full w-full"
+                      >
+                        {activeItem.preview}
+                      </Link>
+                    ) : (
+                      activeItem?.preview
+                    )}
+                  </div>
+                  {activeItem?.menu ? (
+                    <div className="absolute right-3 top-3 z-10">
+                      {activeItem.menu}
+                    </div>
+                  ) : null}
+                  {activeItem?.busy ? (
+                    <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-background/20">
+                      <Spinner className="h-5 w-5" />
+                    </div>
+                  ) : null}
+                </div>
+              </div>
+              <div className="flex gap-2 overflow-x-auto p-3">
+                {items.map((item) => {
+                  const active = item.id === activeItem?.id;
+                  return (
+                    <button
+                      key={item.id}
+                      type="button"
+                      onClick={() => setActiveItemId(item.id)}
+                      className={[
+                        "group relative h-16 w-24 shrink-0 overflow-hidden rounded-md border bg-background transition",
+                        active
+                          ? "border-primary ring-2 ring-primary/25"
+                          : "border-border/80 hover:border-foreground/30",
+                        item.deleting ? "opacity-60" : "",
+                      ].join(" ")}
+                      aria-label={`Show ${item.title}`}
+                      aria-pressed={active}
+                    >
+                      {item.thumbnail}
+                      <span className="pointer-events-none absolute inset-x-0 bottom-0 h-6 bg-gradient-to-t from-background/90 to-transparent" />
+                      {item.busy ? (
+                        <span className="absolute right-1.5 top-1.5 rounded-full bg-background/90 p-1 shadow-sm">
+                          <Spinner className="h-3 w-3" />
+                        </span>
+                      ) : null}
+                    </button>
+                  );
+                })}
+              </div>
+            </>
+          ) : (
+            <div className="min-h-[188px] p-3">{empty}</div>
+          )}
         </div>
-        {action ? <div className="shrink-0 lg:mt-3">{action}</div> : null}
+        <aside className="order-first flex min-h-32 flex-col justify-between gap-4 border-b border-border bg-background/95 p-4 xl:order-none xl:min-h-[360px] xl:border-b-0 xl:border-l">
+          <div className="min-w-0 space-y-2">
+            <div className="flex items-center justify-between gap-3">
+              <h3 className="truncate text-sm font-semibold">{title}</h3>
+              <Badge variant="outline" className="shrink-0">
+                {items.length}
+              </Badge>
+            </div>
+            <p className="text-xs leading-relaxed text-muted-foreground">
+              {eyebrow}
+            </p>
+            {activeItem ? (
+              <div className="mt-4 space-y-3 border-t border-border pt-4">
+                <div className="flex items-start gap-3">
+                  {activeItem.onToggle ? (
+                    <Checkbox
+                      checked={activeItem.selected}
+                      onCheckedChange={(checked) =>
+                        activeItem.onToggle?.(checked === true)
+                      }
+                      aria-label={`Select ${activeItem.title}`}
+                      className="mt-0.5"
+                    />
+                  ) : null}
+                  <div className="min-w-0">
+                    <div className="truncate text-sm font-medium">
+                      {activeItem.title}
+                    </div>
+                    {activeItem.subtitle ? (
+                      <div className="mt-1 truncate text-xs text-muted-foreground">
+                        {activeItem.subtitle}
+                      </div>
+                    ) : null}
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-2 text-xs">
+                  {activeItem.status ? (
+                    <div className="rounded-md border border-border bg-muted/20 px-2 py-1.5">
+                      <div className="text-[10px] font-medium uppercase text-muted-foreground">
+                        Status
+                      </div>
+                      <div className="mt-0.5 truncate">{activeItem.status}</div>
+                    </div>
+                  ) : null}
+                  {activeItem.metadata ? (
+                    <div className="rounded-md border border-border bg-muted/20 px-2 py-1.5">
+                      <div className="text-[10px] font-medium uppercase text-muted-foreground">
+                        Type
+                      </div>
+                      <div className="mt-0.5 truncate">
+                        {activeItem.metadata}
+                      </div>
+                    </div>
+                  ) : null}
+                </div>
+                {activeItem.primaryActions ? (
+                  <div>{activeItem.primaryActions}</div>
+                ) : null}
+              </div>
+            ) : null}
+          </div>
+          <div className="flex shrink-0 items-center gap-2">
+            {activeItem?.href ? (
+              <Button asChild variant="outline" size="sm" className="flex-1">
+                <Link to={activeItem.href}>Open</Link>
+              </Button>
+            ) : null}
+            {action ? <div className="shrink-0">{action}</div> : null}
+          </div>
+        </aside>
       </div>
-      {hasContent ? (
-        <div className="flex gap-3 overflow-x-auto pb-1">{children}</div>
-      ) : (
-        empty
-      )}
     </section>
   );
 }
@@ -2868,7 +3397,7 @@ function LaneDropTarget({
         e.stopPropagation();
         onDrop(e.dataTransfer.files);
       }}
-      className="flex min-h-[152px] items-center justify-center rounded-md border border-dashed border-border bg-muted/20 px-4 text-center transition hover:bg-muted/35"
+      className="flex h-full min-h-[148px] w-full items-center justify-center rounded-md px-4 text-center transition hover:bg-muted/25"
     >
       <span>
         <IconPhotoPlus className="mx-auto h-7 w-7 text-muted-foreground" />
@@ -2891,7 +3420,7 @@ function LaneActionEmpty({
   onClick: () => void;
 }) {
   return (
-    <div className="flex min-h-[152px] items-center justify-between gap-3 rounded-md border border-dashed border-border bg-muted/20 px-4">
+    <div className="flex h-full min-h-[148px] items-center justify-between gap-3 rounded-md px-4">
       <div className="min-w-0">
         <div className="text-sm font-medium">{title}</div>
         <div className="mt-1 text-xs text-muted-foreground">{body}</div>
@@ -2903,10 +3432,297 @@ function LaneActionEmpty({
   );
 }
 
+function PendingUploadPreview({
+  upload,
+  fit = "cover",
+}: {
+  upload: PendingUpload;
+  fit?: "cover" | "contain";
+}) {
+  const isChecking = upload.status === "checking";
+  return (
+    <div
+      className={[
+        "flex h-full w-full items-center justify-center bg-muted/30",
+        fit === "contain" ? "p-8" : "",
+      ].join(" ")}
+    >
+      <div className="flex flex-col items-center gap-2 text-muted-foreground">
+        <Spinner className={fit === "contain" ? "h-6 w-6" : "h-4 w-4"} />
+        <span className="text-xs font-medium">
+          {isChecking ? "Checking" : "Uploading"}
+        </span>
+      </div>
+    </div>
+  );
+}
+
+function AssetActionsMenu({
+  asset,
+  folders,
+  busy,
+  updateAsset,
+  onDelete,
+  onMoveToReferences,
+}: {
+  asset: any;
+  folders: any[];
+  busy?: boolean;
+  updateAsset: any;
+  onDelete: () => void;
+  onMoveToReferences?: () => void;
+}) {
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button
+          type="button"
+          variant="secondary"
+          size="icon"
+          className="h-8 w-8 shadow-sm"
+          aria-label="Asset actions"
+          disabled={busy}
+        >
+          <IconDotsVertical className="h-4 w-4" />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end">
+        <DropdownMenuItem asChild>
+          <Link to={`/asset/${asset.id}`}>View details</Link>
+        </DropdownMenuItem>
+        {onMoveToReferences ? (
+          <DropdownMenuItem
+            onSelect={(event) => {
+              event.preventDefault();
+              onMoveToReferences();
+            }}
+          >
+            <IconPhotoPlus className="mr-2 h-4 w-4 shrink-0" />
+            Move to Inspirations
+          </DropdownMenuItem>
+        ) : null}
+        <DropdownMenuSub>
+          <DropdownMenuSubTrigger>
+            <IconFolder className="mr-2 h-4 w-4 shrink-0" />
+            Move to
+          </DropdownMenuSubTrigger>
+          <DropdownMenuSubContent>
+            <DropdownMenuItem
+              onSelect={() =>
+                updateAsset.mutate({
+                  id: asset.id,
+                  folderId: null,
+                })
+              }
+            >
+              Unfiled
+            </DropdownMenuItem>
+            {folders.map((folder) => (
+              <DropdownMenuItem
+                key={folder.id}
+                onSelect={() =>
+                  updateAsset.mutate({
+                    id: asset.id,
+                    folderId: folder.id,
+                  })
+                }
+              >
+                {folder.title}
+              </DropdownMenuItem>
+            ))}
+          </DropdownMenuSubContent>
+        </DropdownMenuSub>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem
+          className="text-destructive focus:bg-destructive/10 focus:text-destructive"
+          onSelect={onDelete}
+        >
+          <IconTrash className="mr-2 h-4 w-4 shrink-0" />
+          Delete
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+function VariantPreview({
+  slot,
+  fit = "cover",
+}: {
+  slot: any;
+  fit?: "cover" | "contain";
+}) {
+  const [sourceIndex, setSourceIndex] = useState(0);
+  const [previewUnavailable, setPreviewUnavailable] = useState(false);
+  const previewSources = assetPreviewSources(slot, "thumbnail");
+  const previewSourcesKey = previewSources.join("\n");
+  const isFailed = slot.status === "failed";
+  const previewSrc = previewSources[sourceIndex];
+
+  useEffect(() => {
+    setSourceIndex(0);
+    setPreviewUnavailable(false);
+  }, [previewSourcesKey]);
+
+  return (
+    <div className="flex h-full w-full items-center justify-center bg-muted">
+      {previewSrc && !previewUnavailable ? (
+        <img
+          src={previewSrc}
+          alt=""
+          className={[
+            "h-full w-full",
+            fit === "contain" ? "object-contain" : "object-cover",
+          ].join(" ")}
+          onError={() => {
+            const nextIndex = sourceIndex + 1;
+            if (nextIndex < previewSources.length) {
+              setSourceIndex(nextIndex);
+            } else {
+              setPreviewUnavailable(true);
+            }
+          }}
+        />
+      ) : isFailed ? (
+        <div className="p-4 text-center text-xs text-destructive">
+          {slot.error}
+        </div>
+      ) : previewUnavailable ? (
+        <div className="p-4 text-center text-xs text-muted-foreground">
+          Preview unavailable
+        </div>
+      ) : (
+        <IconPhoto className="h-8 w-8 animate-pulse text-muted-foreground" />
+      )}
+    </div>
+  );
+}
+
+function VariantActionsMenu({
+  slot,
+  libraryId,
+  busy,
+  onMoveToReferences,
+}: {
+  slot: any;
+  libraryId: string;
+  busy?: boolean;
+  onMoveToReferences?: () => void;
+}) {
+  const dismissSlot = useActionMutation("dismiss-variant-slots");
+  const queryClient = useQueryClient();
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const isFailed = slot.status === "failed";
+  const label = isFailed ? "Dismiss" : "Delete";
+
+  return (
+    <>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button
+            type="button"
+            variant="secondary"
+            size="icon"
+            className="h-8 w-8 shadow-sm"
+            aria-label="Candidate actions"
+            disabled={busy || dismissSlot.isPending}
+          >
+            <IconDotsVertical className="h-4 w-4" />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end">
+          {onMoveToReferences && !isFailed ? (
+            <DropdownMenuItem
+              onSelect={(event) => {
+                event.preventDefault();
+                onMoveToReferences();
+              }}
+            >
+              <IconPhotoPlus className="mr-2 h-4 w-4 shrink-0" />
+              Move to Inspirations
+            </DropdownMenuItem>
+          ) : null}
+          <DropdownMenuItem
+            className="text-destructive focus:bg-destructive/10 focus:text-destructive"
+            onSelect={(event) => {
+              event.preventDefault();
+              setConfirmOpen(true);
+            }}
+          >
+            <IconTrash className="mr-2 h-4 w-4 shrink-0" />
+            {label}
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+
+      <AlertDialog
+        open={confirmOpen}
+        onOpenChange={(open) => {
+          if (!dismissSlot.isPending) setConfirmOpen(open);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {isFailed ? "Dismiss this slot?" : "Delete candidate?"}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {isFailed
+                ? "Removes this failed slot from the live candidates panel."
+                : "Removes this candidate from the brand kit and clears its slot."}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={dismissSlot.isPending}>
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              disabled={dismissSlot.isPending}
+              onClick={(event) => {
+                event.preventDefault();
+                dismissSlot.mutate(
+                  { slotId: slot.slotId },
+                  {
+                    onSuccess: () => {
+                      removeVariantSlotFromCache(queryClient, slot);
+                      removeAssetsFromLibraryCache(queryClient, libraryId, [
+                        slot.assetId,
+                      ]);
+                      setConfirmOpen(false);
+                      void queryClient.invalidateQueries({
+                        queryKey: ["app-state", "asset-variants"],
+                        refetchType: "active",
+                      });
+                    },
+                    onError: (error) =>
+                      toast.error(
+                        error.message || "Could not clear candidate.",
+                      ),
+                  },
+                );
+              }}
+            >
+              {dismissSlot.isPending ? (
+                <>
+                  <Spinner className="h-4 w-4" />
+                  {isFailed ? "Dismissing..." : "Deleting..."}
+                </>
+              ) : (
+                label
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
+  );
+}
+
 function PendingUploadLaneTile({ upload }: { upload: PendingUpload }) {
   const isChecking = upload.status === "checking";
   return (
-    <div className="w-[172px] shrink-0 overflow-hidden rounded-md border border-dashed border-border bg-card sm:w-[188px]">
+    <div className="w-[144px] shrink-0 overflow-hidden rounded-md border border-dashed border-border bg-background sm:w-[156px]">
       <div className="flex aspect-[4/3] items-center justify-center bg-muted/30">
         <div className="flex flex-col items-center gap-2 text-muted-foreground">
           <Spinner className="h-5 w-5" />
@@ -2957,13 +3773,17 @@ function AssetLaneTile({
   const displayTitle = assetDisplayTitle(asset);
   const sourceText = assetLineageSourceText(asset);
   const canMoveToReferences = Boolean(onMoveToReferences);
+  const hasPrimaryActions = Boolean(onSave || canMoveToReferences);
+  const categoryLabel = assetCategoryLabel(asset);
   const busy = deleting || saving || promoting;
 
   return (
     <div
       className={[
-        "group relative w-[172px] shrink-0 overflow-hidden rounded-md border bg-card transition sm:w-[188px]",
-        selected ? "border-primary ring-2 ring-primary/25" : "border-border",
+        "group relative w-[144px] shrink-0 overflow-hidden rounded-md border bg-background transition sm:w-[156px]",
+        selected
+          ? "border-primary ring-2 ring-primary/25"
+          : "border-border/80 hover:border-foreground/20",
         deleting ? "opacity-60" : "",
       ].join(" ")}
       aria-busy={busy}
@@ -3051,27 +3871,39 @@ function AssetLaneTile({
         </DropdownMenu>
       </div>
       <Link to={`/asset/${asset.id}`} className="block outline-none">
-        <div className="aspect-[4/3] bg-muted">
+        <div className="relative aspect-[4/3] bg-muted">
           <AssetPreview asset={asset} />
+          <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-background via-background/90 to-transparent px-2 pb-2 pt-8">
+            <div className="flex items-center gap-1.5 truncate text-xs font-medium">
+              {asset.mediaType === "video" ? (
+                <IconVideo className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+              ) : (
+                <IconPhoto className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+              )}
+              <span className="truncate">{displayTitle}</span>
+            </div>
+            <div className="mt-1 flex min-w-0 items-center gap-1 overflow-hidden text-[10px] font-medium text-muted-foreground">
+              {sourceText ? (
+                <span className="truncate">{sourceText}</span>
+              ) : (
+                <>
+                  <span className="truncate">{asset.status}</span>
+                  {categoryLabel ? (
+                    <>
+                      <span className="shrink-0 text-muted-foreground/60">
+                        /
+                      </span>
+                      <span className="truncate">{categoryLabel}</span>
+                    </>
+                  ) : null}
+                </>
+              )}
+            </div>
+          </div>
         </div>
       </Link>
-      <div className="space-y-2 p-2.5">
-        <div className="flex items-center gap-2 truncate text-xs font-medium">
-          {asset.mediaType === "video" ? (
-            <IconVideo className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-          ) : (
-            <IconPhoto className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-          )}
-          <Link to={`/asset/${asset.id}`} className="truncate hover:underline">
-            {displayTitle}
-          </Link>
-        </div>
-        {sourceText ? (
-          <div className="truncate text-[11px] text-muted-foreground">
-            {sourceText}
-          </div>
-        ) : null}
-        {onSave || canMoveToReferences ? (
+      {hasPrimaryActions ? (
+        <div className="space-y-2 border-t border-border/70 p-2">
           <div className="grid grid-cols-2 gap-2">
             {onSave ? (
               <Button
@@ -3094,19 +3926,12 @@ function AssetLaneTile({
                 disabled={busy}
                 title="Move to Inspirations"
               >
-                {promoting ? <Spinner className="h-3.5 w-3.5" /> : "Inspire"}
+                {promoting ? <Spinner className="h-3.5 w-3.5" /> : "Use as ref"}
               </Button>
             ) : null}
           </div>
-        ) : (
-          <div className="flex items-center gap-2">
-            <Badge variant="secondary">{asset.status}</Badge>
-            {assetCategoryLabel(asset) && (
-              <Badge variant="outline">{assetCategoryLabel(asset)}</Badge>
-            )}
-          </div>
-        )}
-      </div>
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -3145,7 +3970,7 @@ function VariantLaneTile({
 
   return (
     <div
-      className="group relative w-[172px] shrink-0 overflow-hidden rounded-md border border-border bg-card sm:w-[188px]"
+      className="group relative w-[144px] shrink-0 overflow-hidden rounded-md border border-border/80 bg-background transition hover:border-foreground/20 sm:w-[156px]"
       aria-busy={busy}
     >
       <div className="absolute right-2 top-2 z-10">
@@ -3249,7 +4074,7 @@ function VariantLaneTile({
         </AlertDialogContent>
       </AlertDialog>
 
-      <div className="flex aspect-[4/3] items-center justify-center bg-muted">
+      <div className="relative flex aspect-[4/3] items-center justify-center bg-muted">
         {previewSrc && !previewUnavailable ? (
           <img
             src={previewSrc}
@@ -3275,17 +4100,19 @@ function VariantLaneTile({
         ) : (
           <IconPhoto className="h-8 w-8 animate-pulse text-muted-foreground" />
         )}
-      </div>
-      <div className="space-y-2 p-2.5">
-        <div className="flex items-center justify-between gap-2">
-          <Badge variant={slot.status === "ready" ? "secondary" : "outline"}>
-            {slot.status}
-          </Badge>
-          <span className="truncate text-[11px] text-muted-foreground">
-            {slot.slotId ? shortId(String(slot.slotId)) : "slot"}
-          </span>
+        <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-background via-background/90 to-transparent px-2 pb-2 pt-8">
+          <div className="flex items-center justify-between gap-2">
+            <span className="truncate text-xs font-medium">
+              {slot.status === "ready" ? "Ready variation" : "Generating"}
+            </span>
+            <span className="shrink-0 text-[10px] text-muted-foreground">
+              {slot.slotId ? shortId(String(slot.slotId)) : "slot"}
+            </span>
+          </div>
         </div>
-        {slot.status === "ready" ? (
+      </div>
+      {slot.status === "ready" ? (
+        <div className="border-t border-border/70 p-2">
           <div className="grid grid-cols-2 gap-2">
             <Button
               size="sm"
@@ -3304,12 +4131,12 @@ function VariantLaneTile({
                 disabled={busy}
                 title="Move to Inspirations"
               >
-                {promoting ? <Spinner className="h-3.5 w-3.5" /> : "Inspire"}
+                {promoting ? <Spinner className="h-3.5 w-3.5" /> : "Use as ref"}
               </Button>
             ) : null}
           </div>
-        ) : null}
-      </div>
+        </div>
+      ) : null}
     </div>
   );
 }
