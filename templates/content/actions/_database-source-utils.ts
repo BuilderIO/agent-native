@@ -1087,14 +1087,20 @@ export async function seedMockSourceRows(args: {
   const db = getDb();
   await db.insert(schema.contentDatabaseSourceRows).values(
     args.items.map((item, index) => {
+      const builderEntry = args.builderEntriesByDocumentId?.get(
+        item.document.id,
+      );
+      const existingBuilderRow = args.existingBuilderRows?.get(
+        item.document.id,
+      );
       const builderIdentity =
         args.sourceType === "builder-cms"
           ? builderCmsSourceRowIdentity({
               item,
               sourceTable: args.sourceTable,
               now: args.now,
-              existing: args.existingBuilderRows?.get(item.document.id),
-              entry: args.builderEntriesByDocumentId?.get(item.document.id),
+              existing: existingBuilderRow,
+              entry: builderEntry,
             })
           : null;
       return {
@@ -1114,8 +1120,14 @@ export async function seedMockSourceRows(args: {
           item.document.title?.trim() ??
           `${args.sourceType}-${index + 1}`,
         sourceValuesJson: JSON.stringify(
-          args.builderEntriesByDocumentId?.get(item.document.id)
-            ?.sourceValues ?? {},
+          sourceValuesForSeededSourceRow({
+            sourceType: args.sourceType,
+            item,
+            sourceTable: args.sourceTable,
+            now: args.now,
+            builderEntry,
+            existingSourceValuesJson: existingBuilderRow?.sourceValuesJson,
+          }),
         ),
         provenance:
           args.sourceType === "builder-cms"
@@ -1132,6 +1144,27 @@ export async function seedMockSourceRows(args: {
       };
     }),
   );
+}
+
+export function sourceValuesForSeededSourceRow(args: {
+  sourceType: ContentDatabaseSourceType;
+  item: ContentDatabaseItem;
+  sourceTable: string;
+  now: string;
+  builderEntry?: BuilderCmsSourceEntry | null;
+  existingSourceValuesJson?: string | null;
+}): Record<string, DocumentPropertyValue> {
+  const existingSourceValues = parseObject<
+    Record<string, DocumentPropertyValue>
+  >(args.existingSourceValuesJson);
+  if (args.builderEntry?.sourceValues) return args.builderEntry.sourceValues;
+  if (existingSourceValues) return existingSourceValues;
+  if (args.sourceType !== "builder-cms") return {};
+  return buildBuilderCmsFixtureEntry({
+    item: args.item,
+    sourceTable: args.sourceTable,
+    now: args.now,
+  }).sourceValues;
 }
 
 function openChangeSetKey(row: ContentDatabaseSourceChangeSetRowDb) {
@@ -1394,11 +1427,13 @@ export function mapBuilderCmsEntriesToLocalItems(args: {
       entry,
     ]),
   );
-  const entriesByUrlPath = new Map(
-    args.entries.map((entry) => [entry.urlPath.toLowerCase(), entry]),
+  const entriesByUrlPath = uniqueBuilderEntryLookup(
+    args.entries,
+    (entry) => entry.urlPath.trim().toLowerCase() || null,
   );
-  const entriesByTitle = new Map(
-    args.entries.map((entry) => [entry.title.trim().toLowerCase(), entry]),
+  const entriesByTitle = uniqueBuilderEntryLookup(
+    args.entries,
+    (entry) => entry.title.trim().toLowerCase() || null,
   );
   const existingRowsByDocumentId = new Map(
     args.existingRows.map((row) => [row.documentId, row]),
@@ -1423,6 +1458,25 @@ export function mapBuilderCmsEntriesToLocalItems(args: {
   }
 
   return entriesByDocumentId;
+}
+
+function uniqueBuilderEntryLookup(
+  entries: BuilderCmsSourceEntry[],
+  keyForEntry: (entry: BuilderCmsSourceEntry) => string | null,
+) {
+  const unique = new Map<string, BuilderCmsSourceEntry>();
+  const duplicates = new Set<string>();
+  for (const entry of entries) {
+    const key = keyForEntry(entry);
+    if (!key || duplicates.has(key)) continue;
+    if (unique.has(key)) {
+      unique.delete(key);
+      duplicates.add(key);
+      continue;
+    }
+    unique.set(key, entry);
+  }
+  return unique;
 }
 
 export function builderCmsEntryAlreadyRepresented(args: {
@@ -1597,6 +1651,7 @@ export async function resyncBuilderCmsSourceSnapshot(args: {
         sourceQualifiedId: row.sourceQualifiedId,
         sourceDisplayKey: row.sourceDisplayKey,
         lastSourceUpdatedAt: row.lastSourceUpdatedAt,
+        sourceValuesJson: row.sourceValuesJson,
       },
     ]),
   );

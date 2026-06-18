@@ -14,6 +14,7 @@ import {
   getSourceRows,
   importBuilderCmsEntriesAsDatabaseItems,
   insertSecondarySource,
+  mapBuilderCmsEntriesToLocalItems,
   replaceSourceMetadata,
   resolveDatabaseForSourceMutation,
   seedMockSourceFields,
@@ -261,34 +262,16 @@ export default defineAction({
     }
 
     const refreshedSetup = await sourceSetupPayload(database.id);
-    const builderEntriesByTitle =
+    const builderEntriesByDocumentId =
       builderRead?.state === "live"
-        ? new Map(
-            builderRead.entries.map((entry) => [
-              entry.title.trim().toLowerCase(),
-              entry,
-            ]),
-          )
-        : null;
-    const builderEntriesByDocumentId = builderEntriesByTitle
-      ? new Map(
-          refreshedSetup.response.items
-            .map((item) => {
-              const entry = builderEntriesByTitle.get(
-                item.document.title.trim().toLowerCase(),
-              );
-              return entry ? ([item.document.id, entry] as const) : null;
-            })
-            .filter(
-              (
-                entry,
-              ): entry is readonly [
-                string,
-                NonNullable<typeof builderRead>["entries"][number],
-              ] => Boolean(entry),
-            ),
-        )
-      : undefined;
+        ? mapBuilderCmsEntriesToLocalItems({
+            entries: builderRead.entries,
+            items: refreshedSetup.response.items,
+            sourceTable,
+            now,
+            existingRows: existingSourceRows,
+          })
+        : undefined;
 
     await seedMockSourceFields({
       sourceId,

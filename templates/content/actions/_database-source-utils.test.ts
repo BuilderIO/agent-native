@@ -9,6 +9,7 @@ import {
   mockProposedValue,
   normalizeSourceFederation,
   normalizeSourceFreshness,
+  sourceValuesForSeededSourceRow,
   sourceChangeSetKey,
   sourceChangeSetSummary,
 } from "./_database-source-utils";
@@ -473,6 +474,117 @@ describe("database source helpers", () => {
     });
 
     expect(mapped.get("doc-title-only")?.id).toBe("builder-same-title");
+  });
+
+  it("does not bind live Builder entries by ambiguous title or URL fallbacks", () => {
+    const mapped = mapBuilderCmsEntriesToLocalItems({
+      entries: [
+        {
+          id: "builder-duplicate-url-1",
+          model: "blog_article",
+          title: "Remote one",
+          urlPath: "/blog/ambiguous",
+          updatedAt: "2026-06-08T12:00:00.000Z",
+        },
+        {
+          id: "builder-duplicate-url-2",
+          model: "blog_article",
+          title: "Remote two",
+          urlPath: "/blog/ambiguous",
+          updatedAt: "2026-06-08T12:05:00.000Z",
+        },
+        {
+          id: "builder-duplicate-title-1",
+          model: "blog_article",
+          title: "Same title",
+          urlPath: "/blog/not-local-title-1",
+          updatedAt: "2026-06-08T12:10:00.000Z",
+        },
+        {
+          id: "builder-duplicate-title-2",
+          model: "blog_article",
+          title: "Same title",
+          urlPath: "/blog/not-local-title-2",
+          updatedAt: "2026-06-08T12:15:00.000Z",
+        },
+      ],
+      items: [
+        item("doc-ambiguous", "Ambiguous"),
+        item("doc-title-only", "Same title"),
+      ],
+      sourceTable: "blog_article",
+      now: "2026-06-08T13:00:00.000Z",
+      existingRows: [],
+    });
+
+    expect(mapped.has("doc-ambiguous")).toBe(false);
+    expect(mapped.has("doc-title-only")).toBe(false);
+  });
+
+  it("keeps persisted Builder identity matches even when fallback keys are ambiguous", () => {
+    const mapped = mapBuilderCmsEntriesToLocalItems({
+      entries: [
+        {
+          id: "builder-existing",
+          model: "blog_article",
+          title: "Duplicate title",
+          urlPath: "/blog/duplicate-url",
+          updatedAt: "2026-06-08T12:00:00.000Z",
+        },
+        {
+          id: "builder-other",
+          model: "blog_article",
+          title: "Duplicate title",
+          urlPath: "/blog/duplicate-url",
+          updatedAt: "2026-06-08T12:05:00.000Z",
+        },
+      ],
+      items: [item("doc-existing", "Duplicate title")],
+      sourceTable: "blog_article",
+      now: "2026-06-08T13:00:00.000Z",
+      existingRows: [
+        {
+          documentId: "doc-existing",
+          sourceRowId: "builder-existing",
+          sourceQualifiedId: "builder-cms://blog_article/builder-existing",
+        },
+      ] as Parameters<
+        typeof mapBuilderCmsEntriesToLocalItems
+      >[0]["existingRows"],
+    });
+
+    expect(mapped.get("doc-existing")?.id).toBe("builder-existing");
+  });
+
+  it("uses fixture Builder source values when no live entry or snapshot exists", () => {
+    expect(
+      sourceValuesForSeededSourceRow({
+        sourceType: "builder-cms",
+        item: item("Doc Fixture", "Fixture title"),
+        sourceTable: "blog_article",
+        now: "2026-06-08T13:00:00.000Z",
+      }),
+    ).toMatchObject({
+      "data.title": "Fixture title",
+      "data.url": "/blog/fixture-title",
+      lastUpdated: "2026-06-08T13:00:00.000Z",
+    });
+  });
+
+  it("preserves existing source values before falling back to fixture values", () => {
+    expect(
+      sourceValuesForSeededSourceRow({
+        sourceType: "builder-cms",
+        item: item("Doc Fixture", "Fixture title"),
+        sourceTable: "blog_article",
+        now: "2026-06-08T13:00:00.000Z",
+        existingSourceValuesJson: JSON.stringify({
+          "data.url": "/blog/persisted-url",
+        }),
+      }),
+    ).toEqual({
+      "data.url": "/blog/persisted-url",
+    });
   });
 
   it("summarizes proposed changes with the current row title and changed field names", () => {

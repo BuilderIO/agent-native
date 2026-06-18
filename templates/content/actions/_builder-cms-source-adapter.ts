@@ -19,6 +19,7 @@ export interface ExistingBuilderSourceRowIdentity {
   sourceQualifiedId: string;
   sourceDisplayKey: string;
   lastSourceUpdatedAt: string | null;
+  sourceValuesJson?: string | null;
 }
 
 export const BUILDER_CMS_FIXTURE_ROW_PROVENANCE = "Builder CMS fixture adapter";
