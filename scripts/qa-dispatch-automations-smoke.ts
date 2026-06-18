@@ -1,6 +1,10 @@
 #!/usr/bin/env node
 import assert from "node:assert/strict";
-import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import {
+  execFileSync,
+  spawn,
+  type ChildProcessWithoutNullStreams,
+} from "node:child_process";
 import fs from "node:fs";
 import { createRequire } from "node:module";
 import os from "node:os";
@@ -33,6 +37,23 @@ const jobPath = `jobs/${jobName}.md`;
 const lastRun = new Date(Date.now() - 5 * 60_000).toISOString();
 const nextRun = new Date(Date.now() + 15 * 60_000).toISOString();
 const lastError = `Synthetic smoke failure ${runId}`;
+
+function buildCurrentPackages() {
+  for (const pkg of ["@agent-native/core", "@agent-native/dispatch"]) {
+    execFileSync("pnpm", ["--filter", pkg, "build"], {
+      cwd: repoRoot,
+      stdio: "inherit",
+      env: { ...process.env, NO_COLOR: "1" },
+    });
+  }
+}
+
+function cleanDispatchGeneratedFiles() {
+  fs.rmSync(path.join(templateDir, ".react-router"), {
+    recursive: true,
+    force: true,
+  });
+}
 
 function workspaceAppsManifest(baseUrl: string): string {
   return JSON.stringify({
@@ -374,6 +395,8 @@ async function main() {
   let running: RunningDispatch | null = null;
   let browser: Browser | null = null;
   try {
+    buildCurrentPackages();
+    cleanDispatchGeneratedFiles();
     running = await startDispatch();
     browser = await launchBrowser();
     const page = await browser.newPage();
