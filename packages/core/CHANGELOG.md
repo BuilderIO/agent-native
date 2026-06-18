@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.58.1
+
+### Patch Changes
+
+- a2992cb: Implement `AUTH_DISABLED` so local dev, preview, and demo deployments can skip login/signup and run all requests as a shared `dev@local.test` user.
+
 ## 0.58.0
 
 ### Minor Changes
