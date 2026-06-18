@@ -305,6 +305,15 @@ On the UI side you never poll or delete this key by hand. Both directions -- wri
 
 The `navigation` key belongs to the UI; the agent must never write to it directly. The agent writes `navigate`, the UI performs the move, and that move is what updates `navigation`.
 
+When the destination has a real URL, include a same-origin `path` on the
+`navigate` command and have the UI prefer that path before falling back to
+semantic fields. Keep app navigation single-channel: do not write both
+`navigate` and `__set_url__` for the same move. `__set_url__` is for the
+framework URL tools (`set-url-path`, `set-search-params`) and URL-only filter
+changes. For commands that can arrive while chat is streaming, commit the route
+with `navigate(path, { replace: true, flushSync: true })` instead of wrapping it
+in a view transition so the address bar and visible page stay together.
+
 ## The useNavigationState hook {#use-navigation-state}
 
 `useNavigationState` is **your app's hook, not a framework import.** Every template ships one at `app/hooks/use-navigation-state.ts` and calls it once from the app shell (`root.tsx`). It is the single place that wires navigation in both directions:
@@ -322,6 +331,7 @@ import { TAB_ID } from "@/lib/tab-id";
 interface NavigationState {
   view: "inbox" | "thread";
   threadId?: string;
+  path?: string;
 }
 
 export function useNavigationState() {
@@ -337,9 +347,11 @@ export function useNavigationState() {
 
     // agent → UI: turn a `navigate` command into a route to push.
     getCommandPath: (command) =>
-      command.view === "thread" && command.threadId
+      command.path ??
+      (command.view === "thread" && command.threadId
         ? `/thread/${command.threadId}`
-        : "/",
+        : "/"),
+    navigateOptions: { replace: true, flushSync: true },
   });
 }
 ```

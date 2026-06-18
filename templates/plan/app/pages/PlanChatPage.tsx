@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import { AgentChatHome } from "@agent-native/core/client";
 import { markPlanChatHomeHandoff } from "@/lib/chat-home-handoff";
+import { schedulePlanRoutePrewarm } from "@/lib/route-prewarm";
 
 const PLAN_CHAT_SUGGESTIONS = [
   "What shipped in the last week?",
@@ -16,9 +17,12 @@ export function PlanChatPage() {
       if (detail?.isRunning === true) markPlanChatHomeHandoff();
     }
 
+    const cancelRoutePrewarm = schedulePlanRoutePrewarm();
     window.addEventListener("agentNative.chatRunning", handleChatRunning);
-    return () =>
+    return () => {
+      cancelRoutePrewarm();
       window.removeEventListener("agentNative.chatRunning", handleChatRunning);
+    };
   }, []);
 
   return (

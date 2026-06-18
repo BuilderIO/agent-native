@@ -1,12 +1,9 @@
 import { useEffect, useRef } from "react";
 import { useLocation, useNavigate } from "react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import {
-  agentNativePath,
-  appBasePath,
-  navigateWithAgentChatViewTransition,
-} from "@agent-native/core/client";
+import { agentNativePath, appBasePath } from "@agent-native/core/client";
 import { markPlanChatHomeHandoff } from "@/lib/chat-home-handoff";
+import { prewarmPlanRoutePath } from "@/lib/route-prewarm";
 import { TAB_ID } from "@/lib/tab-id";
 
 export interface NavigationState {
@@ -14,6 +11,7 @@ export interface NavigationState {
   planId?: string;
   localPlanSlug?: string;
   localPlanPath?: string;
+  path?: string;
   _writeId?: string;
 }
 
@@ -102,8 +100,9 @@ export function useNavigationState() {
     // Delete the one-shot command AFTER reading it.
     deleteCommand();
     const path = routerPath(pathForCommand(cmd));
+    void prewarmPlanRoutePath(path);
     if (path !== "/") markPlanChatHomeHandoff();
-    navigateWithAgentChatViewTransition(navigate, path);
+    navigate(path, { replace: true, flushSync: true });
     qc.setQueryData(["navigate-command"], null);
   }, [navCommand, navigate, qc]);
 }
@@ -134,6 +133,8 @@ function viewForPath(pathname: string): string {
 }
 
 function pathForCommand(command: NavigationState): string {
+  const commandPath = localPathFromCommandPath(command.path);
+  if (commandPath) return commandPath;
   if (command.localPlanSlug) {
     const path = `/local-plans/${encodeURIComponent(command.localPlanSlug)}`;
     if (!command.localPlanPath) return path;
@@ -145,6 +146,24 @@ function pathForCommand(command: NavigationState): string {
     return `/plans/${encodeURIComponent(command.planId)}`;
   }
   return pathForView(command.view);
+}
+
+function localPathFromCommandPath(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+
+  try {
+    const origin =
+      typeof window !== "undefined"
+        ? window.location.origin
+        : "http://localhost";
+    const url = new URL(trimmed, origin);
+    if (url.origin !== origin) return null;
+    return `${url.pathname}${url.search}${url.hash}`;
+  } catch {
+    return null;
+  }
 }
 
 function pathForView(view?: string): string {

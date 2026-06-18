@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   _findCorePackageRoot,
   _getClientDedupe,
+  _getDefaultOptimizeDeps,
   _getReactRouterAliases,
   defineConfig,
   isFrameworkDevPath,
@@ -582,6 +583,29 @@ describe("local-core dev aliases and router dedupe", () => {
     const dedupe = _getClientDedupe(tmpDir);
     expect(dedupe).toContain("react-router");
     expect(dedupe).toContain("react-router/dom");
+
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it("pre-optimizes core client deps when core is source-aliased", () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "an-vite-optimize-"));
+    const coreRoot = path.resolve(import.meta.dirname, "../..");
+    fs.writeFileSync(
+      path.join(tmpDir, "package.json"),
+      JSON.stringify({
+        dependencies: {
+          "@agent-native/core": pathToFileURL(coreRoot).href,
+          "react-router": "^7.16.0",
+        },
+      }),
+    );
+
+    const deps = _getDefaultOptimizeDeps(tmpDir);
+    expect(deps).not.toContain("@agent-native/core/client");
+    expect(deps).toContain("@assistant-ui/react");
+    expect(deps).toContain("@tiptap/react");
+    expect(deps).toContain("@xterm/xterm");
+    expect(deps).toContain("shiki/core");
 
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });

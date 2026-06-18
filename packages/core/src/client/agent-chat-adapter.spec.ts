@@ -1416,6 +1416,159 @@ describe("createAgentChatAdapter", () => {
     expect(last.content.at(-1).text).toBe("recovered from active run");
   });
 
+  it("retries queued message conflicts instead of binding the old run", async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal("window", { dispatchEvent: vi.fn() });
+    vi.stubGlobal(
+      "CustomEvent",
+      class CustomEvent {
+        type: string;
+        detail: unknown;
+        constructor(type: string, init?: { detail?: unknown }) {
+          this.type = type;
+          this.detail = init?.detail;
+        }
+      },
+    );
+
+    let postCount = 0;
+    const fetchSpy = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/_agent-native/agent-chat" && init?.method === "POST") {
+        postCount += 1;
+        return postCount === 1
+          ? jsonResponse({ activeRunId: "run-old" }, 409)
+          : sseResponse([
+              { type: "text", text: "queued answer" },
+              { type: "done" },
+            ]);
+      }
+      if (url.includes("/runs/run-old/events")) {
+        return sseResponse([
+          { type: "text", text: "old answer" },
+          { type: "done" },
+        ]);
+      }
+      return jsonResponse({ error: "unexpected" }, 500);
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const adapter = createAgentChatAdapter({
+      apiUrl: "/_agent-native/agent-chat",
+      tabId: "chat-queued-conflict",
+      threadId: "thread-queued-conflict",
+    });
+    const promise = drain(
+      adapter.run({
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: "hello" }],
+          },
+        ],
+        abortSignal: new AbortController().signal,
+        runConfig: {
+          custom: { agentNativeQueuedMessageId: "queued-1" },
+        },
+      } as any),
+    );
+
+    await vi.advanceTimersByTimeAsync(500);
+    const results = await promise;
+
+    expect(postCount).toBe(2);
+    expect(
+      fetchSpy.mock.calls.some(([url]) =>
+        String(url).includes("/runs/run-old/events"),
+      ),
+    ).toBe(false);
+    const chatPosts = fetchSpy.mock.calls.filter(
+      ([url, init]) =>
+        url === "/_agent-native/agent-chat" && init?.method === "POST",
+    );
+    expect(
+      chatPosts.map(([, init]) => JSON.parse(init.body as string).message),
+    ).toEqual(["hello", "hello"]);
+    const last = results.at(-1) as any;
+    expect(last.content.at(-1).text).toBe("queued answer");
+  });
+
+  it("retries a normal send that conflicts with a just-finished run instead of replaying it", async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal("window", { dispatchEvent: vi.fn() });
+    vi.stubGlobal(
+      "CustomEvent",
+      class CustomEvent {
+        type: string;
+        detail: unknown;
+        constructor(type: string, init?: { detail?: unknown }) {
+          this.type = type;
+          this.detail = init?.detail;
+        }
+      },
+    );
+
+    let postCount = 0;
+    const fetchSpy = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/_agent-native/agent-chat" && init?.method === "POST") {
+        postCount += 1;
+        // First send collides with the previous run, which the server still
+        // reports as active for a beat after it finished. No queue marker here:
+        // this is an ordinary send fired shortly after the prior turn.
+        return postCount === 1
+          ? jsonResponse({ activeRunId: "run-old" }, 409)
+          : sseResponse([
+              { type: "text", text: "fresh answer" },
+              { type: "done" },
+            ]);
+      }
+      if (url.includes("/runs/run-old/events")) {
+        return sseResponse([
+          { type: "text", text: "old answer" },
+          { type: "done" },
+        ]);
+      }
+      return jsonResponse({ error: "unexpected" }, 500);
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const adapter = createAgentChatAdapter({
+      apiUrl: "/_agent-native/agent-chat",
+      tabId: "chat-normal-conflict",
+      threadId: "thread-normal-conflict",
+    });
+    const promise = drain(
+      adapter.run({
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: "follow up" }],
+          },
+        ],
+        abortSignal: new AbortController().signal,
+      } as any),
+    );
+
+    await vi.advanceTimersByTimeAsync(500);
+    const results = await promise;
+
+    // It must retry its own prompt, never fetch the old run's events (replay).
+    expect(postCount).toBe(2);
+    expect(
+      fetchSpy.mock.calls.some(([url]) =>
+        String(url).includes("/runs/run-old/events"),
+      ),
+    ).toBe(false);
+    const chatPosts = fetchSpy.mock.calls.filter(
+      ([url, init]) =>
+        url === "/_agent-native/agent-chat" && init?.method === "POST",
+    );
+    expect(
+      chatPosts.map(([, init]) => JSON.parse(init.body as string).message),
+    ).toEqual(["follow up", "follow up"]);
+    const last = results.at(-1) as any;
+    expect(last.content.at(-1).text).toBe("fresh answer");
+  });
+
   it("continues automatically when an SSE stream closes before any terminal event", async () => {
     vi.useFakeTimers();
     vi.stubGlobal("window", { dispatchEvent: vi.fn() });

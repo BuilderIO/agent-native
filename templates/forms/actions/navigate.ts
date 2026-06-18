@@ -4,6 +4,10 @@ import {
   readAppStateForCurrentTab,
   writeAppStateForCurrentTab,
 } from "./_tab-state.js";
+import {
+  FORMS_NAVIGATION_VIEWS,
+  formsRoutePath,
+} from "../shared/navigation.js";
 
 interface NavigationState {
   formId?: string;
@@ -18,16 +22,7 @@ export default defineAction({
     "Navigate the UI to a view or form. Views: home, forms, form, responses, response-insights, team, extensions, form-preview. Use view=responses with a formId when the user asks to see/open all responses for a form. Use view=form with tab=edit|responses|settings|integrations to open a form builder sub-tab.",
   schema: z.object({
     view: z
-      .enum([
-        "home",
-        "forms",
-        "form",
-        "responses",
-        "response-insights",
-        "team",
-        "extensions",
-        "form-preview",
-      ])
+      .enum(FORMS_NAVIGATION_VIEWS)
       .optional()
       .describe(
         "View to navigate to (home, forms, form, responses, response-insights, team, extensions, form-preview)",
@@ -71,13 +66,23 @@ export default defineAction({
       throw new Error(`${resolvedView} navigation requires a formId.`);
     }
 
+    const path = formsRoutePath({
+      view: resolvedView,
+      formId: resolvedFormId,
+      tab,
+    });
+    if (!path) {
+      throw new Error(`Unsupported navigation target: ${resolvedView}.`);
+    }
+
     const nav: Record<string, string> = {};
     if (resolvedView) nav.view = resolvedView;
     if (resolvedFormId) nav.formId = resolvedFormId;
     if (tab) nav.tab = tab;
+    nav.path = path;
     nav._writeId = writeId();
 
     await writeAppStateForCurrentTab("navigate", nav);
-    return `Navigating to ${resolvedView || "form"}${resolvedFormId ? ` (form: ${resolvedFormId})` : ""}${tab ? ` tab: ${tab}` : ""}`;
+    return `Navigating to ${resolvedView || "form"}${resolvedFormId ? ` (form: ${resolvedFormId})` : ""}${tab ? ` tab: ${tab}` : ""} at ${path}`;
   },
 });
