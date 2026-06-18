@@ -49,7 +49,6 @@ Run it from the same folder:
 pnpm action hello --name Steve
 ```
 
-Then start the app and ask the built-in agent to call the action. That is the
 Then run the app-agent loop against the folder:
 
 ```bash
