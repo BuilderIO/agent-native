@@ -238,7 +238,10 @@ describe("buildUserContentWithAttachments", () => {
     const text = (result[0] as { type: "text"; text: string }).text;
     expect(text).toContain("logo.svg");
     expect(text).toContain("https://cdn.example.com/logo.svg");
-    expect(text).toContain("unsupported image format");
+    expect(text).toContain("SVG reference");
+    expect(text).toContain("reference-only vector files");
+    expect(text).not.toContain("unsupported image format");
+    expect(text).not.toContain("ask them to convert");
     expect(text).toContain("Use this logo in the deck");
   });
 

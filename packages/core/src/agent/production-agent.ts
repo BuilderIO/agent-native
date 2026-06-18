@@ -975,6 +975,10 @@ function isSupportedImageMediaType(
   );
 }
 
+function isSvgMediaType(mediaType: string | undefined): boolean {
+  return mediaType?.split(";")[0]?.trim().toLowerCase() === "image/svg+xml";
+}
+
 function escapeAttachmentAttribute(value: string): string {
   return value
     .replace(/&/g, "&amp;")
@@ -1066,6 +1070,14 @@ export function buildUserContentWithAttachments(opts: {
         const uploadedHint = uploadedUrl
           ? ` It is available at ${uploadedUrl}; use that URL for embedding/reference if the task does not require vision analysis.`
           : "";
+        if (uploadedUrl && isSvgMediaType(mime)) {
+          textAttachments.push(
+            `[${label} was uploaded to ${uploadedUrl} as an SVG reference (${mime}). ` +
+              `It was not sent as a vision image because SVG files are handled as reference-only vector files. ` +
+              `Use the URL for embedding/reference if needed; ask for a JPEG, PNG, GIF, or WebP export only if rendered-pixel vision analysis is required.]`,
+          );
+          continue;
+        }
         textAttachments.push(
           `[${label} could not be processed — unsupported image format (${mime}). ` +
             uploadedHint +

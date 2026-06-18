@@ -496,7 +496,7 @@ describe("createAgentChatAdapter", () => {
     });
   });
 
-  it("includes preserved SVG data URL attachments in prior-turn history", async () => {
+  it("summarizes preserved SVG data URL attachments in prior-turn history", async () => {
     vi.stubGlobal("window", { dispatchEvent: vi.fn() });
     vi.stubGlobal(
       "CustomEvent",
@@ -552,18 +552,21 @@ describe("createAgentChatAdapter", () => {
 
     const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
     expect(body.history[0].content).toContain(
-      '<attachment name="logo.svg" contentType="image/svg+xml" type="file">',
+      "[Attached file: logo.svg (image/svg+xml); SVG reference-only, raw markup omitted from prior chat history.]",
     );
-    expect(body.history[0].content).toContain("<title>Logo</title>");
+    expect(body.history[0].content).not.toContain("<title>Logo</title>");
     expect(body.structuredHistory[0]).toEqual({
       role: "user",
       content: [
         {
           type: "text",
-          text: expect.stringContaining("<title>Logo</title>"),
+          text: expect.stringContaining("SVG reference-only"),
         },
       ],
     });
+    expect(body.structuredHistory[0].content[0].text).not.toContain(
+      "<title>Logo</title>",
+    );
   });
 
   it("summarizes bare successful tool results in structured history", async () => {

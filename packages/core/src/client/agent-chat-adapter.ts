@@ -233,6 +233,14 @@ function isTextAttachmentContentType(value: string | undefined): boolean {
   );
 }
 
+function isSvgAttachment(args: {
+  name?: string;
+  contentType?: string;
+}): boolean {
+  const contentType = args.contentType?.split(";")[0]?.trim().toLowerCase();
+  return contentType === "image/svg+xml" || /\.svg$/i.test(args.name ?? "");
+}
+
 function decodeTextDataUrl(dataUrl: string): string | null {
   const match = dataUrl.match(
     /^data:([^;,]+)(?:;charset=[^;,]+)?(;base64)?,(.*)$/i,
@@ -326,8 +334,7 @@ function shouldPreserveFileDataUrl(args: {
   name?: string;
   contentType?: string;
 }): boolean {
-  const contentType = args.contentType?.split(";")[0]?.trim().toLowerCase();
-  return contentType === "image/svg+xml" || /\.svg$/i.test(args.name ?? "");
+  return isSvgAttachment(args);
 }
 
 function truncateHistoryAttachment(text: string): string {
@@ -345,6 +352,14 @@ function truncateOutboundAttachment(text: string): string {
 function attachmentHistoryText(
   attachment: AgentChatAdapterAttachment,
 ): string | null {
+  if (isSvgAttachment(attachment)) {
+    const label = attachment.name || "SVG attachment";
+    const contentType = attachment.contentType
+      ? ` (${attachment.contentType})`
+      : "";
+    return `[Attached ${attachment.type || "file"}: ${label}${contentType}; SVG reference-only, raw markup omitted from prior chat history.]`;
+  }
+
   if (typeof attachment.text === "string" && attachment.text.length > 0) {
     const attrs = [
       `name="${escapeAttachmentAttribute(attachment.name || "attachment")}"`,
