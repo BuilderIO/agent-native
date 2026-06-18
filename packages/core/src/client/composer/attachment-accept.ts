@@ -18,6 +18,7 @@ export const TEXT_ATTACHMENT_ACCEPT = [
   "text/json",
   "text/css",
   "text/yaml",
+  "image/svg+xml",
   "application/json",
   "application/x-yaml",
   ".txt",
@@ -29,6 +30,7 @@ export const TEXT_ATTACHMENT_ACCEPT = [
   ".htm",
   ".css",
   ".xml",
+  ".svg",
   ".yaml",
   ".yml",
 ].join(",");

@@ -79,6 +79,32 @@ describe("preUploadAttachments", () => {
     expect(result.injectedText).toContain("https://cdn.example.com/photo.png");
   });
 
+  it("uses the serialized data URL MIME type when it differs from the original file type", async () => {
+    uploadFileMock.mockResolvedValue({
+      url: "https://cdn.example.com/logo.png",
+      provider: "builder",
+    });
+
+    const att = makeImageAtt({
+      name: "logo.svg",
+      contentType: "image/svg+xml",
+      data: "data:image/png;base64,iVBORw0KGgo=",
+    });
+    const result = await preUploadAttachments({
+      attachments: [att],
+      ownerEmail: "user@example.com",
+    });
+
+    expect(uploadFileMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        filename: "logo.svg",
+        mimeType: "image/png",
+      }),
+    );
+    expect(result.uploaded[0].contentType).toBe("image/png");
+    expect(result.injectedText).toContain('contentType="image/png"');
+  });
+
   it("uploads file attachments when includeFiles=true", async () => {
     uploadFileMock.mockResolvedValue({
       url: "https://cdn.example.com/report.pdf",

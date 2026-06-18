@@ -9,4 +9,9 @@ describe("Slides upload types", () => {
     expect(isSlidesReferenceFileExtension(".fig")).toBe(true);
     expect(SLIDES_REFERENCE_FILE_ACCEPT.split(",")).toContain(".fig");
   });
+
+  it("allows SVGs as reference uploads", () => {
+    expect(isSlidesReferenceFileExtension(".svg")).toBe(true);
+    expect(SLIDES_REFERENCE_FILE_ACCEPT.split(",")).toContain(".svg");
+  });
 });

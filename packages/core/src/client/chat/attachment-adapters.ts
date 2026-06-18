@@ -33,6 +33,30 @@ const WEB_SAFE_IMAGE_TYPES = new Set([
   "image/webp",
 ]);
 
+export const IMAGE_ATTACHMENT_ACCEPT = [
+  "image/jpeg",
+  "image/jpg",
+  "image/png",
+  "image/gif",
+  "image/webp",
+  "image/heic",
+  "image/heif",
+  "image/avif",
+  "image/bmp",
+  "image/tiff",
+  ".jpg",
+  ".jpeg",
+  ".png",
+  ".gif",
+  ".webp",
+  ".heic",
+  ".heif",
+  ".avif",
+  ".bmp",
+  ".tif",
+  ".tiff",
+].join(",");
+
 export function inferDocumentContentType(file: File): string {
   if (file.type) return file.type;
   if (file.name.toLowerCase().endsWith(".pdf")) return "application/pdf";
@@ -162,7 +186,7 @@ export function estimateAttachmentBodyBytes(dataUrls: string[]): number {
 export type QueuedAttachment = CompleteAttachment;
 
 export class DownscalingImageAttachmentAdapter implements AttachmentAdapter {
-  public accept = "image/*";
+  public accept = IMAGE_ATTACHMENT_ACCEPT;
 
   public async add(state: { file: File }): Promise<PendingAttachment> {
     return {
@@ -277,8 +301,11 @@ function escapeQueuedAttachmentAttribute(value: string): string {
 
 export function isTextLikeFile(file: File): boolean {
   if (file.type.startsWith("text/")) return true;
+  if (file.type === "image/svg+xml") return true;
   if (file.type === "application/json") return true;
-  return /\.(txt|md|markdown|csv|json|yaml|yml)$/i.test(file.name);
+  return /\.(txt|md|markdown|csv|json|yaml|yml|html?|css|xml|svg)$/i.test(
+    file.name,
+  );
 }
 
 export function textFileAttachmentEnvelope(file: File, text: string): string {

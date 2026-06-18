@@ -83,6 +83,26 @@ describe("buildUserContentWithAttachments", () => {
     ]);
   });
 
+  it("keeps hosted image URLs in text context instead of sending malformed URL image parts", () => {
+    const att = {
+      type: "image",
+      name: "screen.png",
+      contentType: "image/png",
+      data: "data:image/png;base64,aW1hZ2U=",
+    };
+    (att as any).url = "https://cdn.example.com/screen.png";
+
+    expect(
+      buildUserContentWithAttachments({
+        text: "Embed this image",
+        attachments: [att as any],
+      }),
+    ).toEqual([
+      { type: "image", mediaType: "image/png", data: "aW1hZ2U=" },
+      { type: "text", text: "Embed this image" },
+    ]);
+  });
+
   it("includes text and file attachments in the text sent to the engine", () => {
     const content = buildUserContentWithAttachments({
       text: "Summarize the attachment",
@@ -197,6 +217,29 @@ describe("buildUserContentWithAttachments", () => {
     const text = (result[0] as { type: "text"; text: string }).text;
     expect(text).toContain("image/heic");
     expect(text).toContain("unsupported image format");
+  });
+
+  it("keeps uploaded SVGs as text references instead of vision image parts", () => {
+    const att = {
+      type: "image",
+      name: "logo.svg",
+      contentType: "image/svg+xml",
+      data: "data:image/svg+xml;base64,PHN2Zz48L3N2Zz4=",
+    };
+    (att as any).url = "https://cdn.example.com/logo.svg";
+
+    const result = buildUserContentWithAttachments({
+      text: "Use this logo in the deck",
+      attachments: [att as any],
+    });
+
+    expect(result).toHaveLength(1);
+    expect(result[0].type).toBe("text");
+    const text = (result[0] as { type: "text"; text: string }).text;
+    expect(text).toContain("logo.svg");
+    expect(text).toContain("https://cdn.example.com/logo.svg");
+    expect(text).toContain("unsupported image format");
+    expect(text).toContain("Use this logo in the deck");
   });
 
   it("preserves orphan tool-results as text so history is not lost before backfill", () => {

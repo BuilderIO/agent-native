@@ -1039,19 +1039,16 @@ export function buildUserContentWithAttachments(opts: {
 
   for (const att of opts.attachments ?? []) {
     if (att.type === "image") {
-      // Prefer the hosted URL when one exists (set by preUploadAttachments).
-      // Anthropic / AI SDK accept URL image parts natively; for other engines
-      // the translate layer falls back to base64 automatically.
       const uploadedUrl = (att as any).url as string | undefined;
-      if (uploadedUrl) {
-        userContent.push({
-          type: "image",
-          url: uploadedUrl,
-        } as unknown as EngineContentPart);
+      if (!att.data) {
+        if (uploadedUrl) {
+          const label = att.name ? `"${att.name}"` : "An image";
+          textAttachments.push(
+            `[${label} was uploaded to ${uploadedUrl}, but was not sent as a vision image because no supported base64 image data was present. Use the URL for embedding/reference if needed.]`,
+          );
+        }
         continue;
       }
-
-      if (!att.data) continue;
       const match = att.data.match(/^data:(image\/[^;]+);base64,(.+)$/);
       if (match && isSupportedImageMediaType(match[1])) {
         userContent.push({
@@ -1066,9 +1063,13 @@ export function buildUserContentWithAttachments(opts: {
         // it and leaving the model confused ("I don't see an image").
         const mime = match?.[1] ?? att.contentType ?? "unknown format";
         const label = att.name ? `"${att.name}"` : "An image";
+        const uploadedHint = uploadedUrl
+          ? ` It is available at ${uploadedUrl}; use that URL for embedding/reference if the task does not require vision analysis.`
+          : "";
         textAttachments.push(
           `[${label} could not be processed — unsupported image format (${mime}). ` +
-            `Inform the user that only JPEG, PNG, GIF, and WebP images are supported, ` +
+            uploadedHint +
+            ` Inform the user that only JPEG, PNG, GIF, and WebP images are supported for vision analysis, ` +
             `and ask them to convert the file before attaching.]`,
         );
       }

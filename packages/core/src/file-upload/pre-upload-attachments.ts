@@ -45,6 +45,10 @@ export interface PreUploadAttachmentsResult {
 const IMAGE_DATA_URL_RE = /^data:(image\/[^;]+);base64,(.+)$/;
 const FILE_DATA_URL_RE = /^data:([^;]+);base64,(.+)$/;
 
+function normalizeContentType(value: string | undefined): string | undefined {
+  return value?.split(";")[0]?.trim().toLowerCase() || undefined;
+}
+
 function escapeXmlAttr(value: string): string {
   return value
     .replace(/&/g, "&amp;")
@@ -136,7 +140,9 @@ export async function preUploadAttachments(opts: {
     const re = isImage ? IMAGE_DATA_URL_RE : FILE_DATA_URL_RE;
     const match = att.data.match(re);
     if (!match) continue;
-    const mimeType = att.contentType || match[1];
+    const dataUrlMimeType = normalizeContentType(match[1]);
+    const mimeType =
+      dataUrlMimeType || normalizeContentType(att.contentType) || match[1];
     let bytes: Uint8Array;
     try {
       bytes = new Uint8Array(Buffer.from(match[2], "base64"));
@@ -161,7 +167,7 @@ export async function preUploadAttachments(opts: {
         name: att.name,
         url: result.url,
         provider: result.provider,
-        contentType: att.contentType,
+        contentType: mimeType,
         sizeBytes: bytes.byteLength,
       };
       if (isImage) {

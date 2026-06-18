@@ -2,4 +2,4 @@
 "@agent-native/core": patch
 ---
 
-Improve native chat widget guidance so agents use declared data table and chart renderers instead of rewriting structured results as markdown.
+Improve native chat widget guidance and attachment handling so agents render structured data natively and preserve SVG/reference uploads correctly.
