@@ -311,6 +311,59 @@ describe("browser analytics pageviews", () => {
     expect(result).toBeNull();
   });
 
+  it("drops source-less EmptyRanges reference noise from browser Sentry", async () => {
+    installBrowser();
+    (window as any).__AGENT_NATIVE_CONFIG__ = {
+      sentryDsn: "https://public@example/4511270423822336",
+      sentryEnvironment: "production",
+    };
+    const { configureTracking } = await freshAnalytics();
+
+    configureTracking({});
+    const options = sentryMock.init.mock.calls[0][0];
+    const result = options.beforeSend({
+      exception: {
+        values: [
+          {
+            type: "ReferenceError",
+            value: "Can't find variable: EmptyRanges",
+            stacktrace: {
+              frames: [{ filename: "undefined", function: null }],
+            },
+          },
+        ],
+      },
+      request: {
+        url: "https://www.agent-native.com/",
+      },
+    });
+
+    expect(result).toBeNull();
+
+    const eventWithAppFrame = {
+      exception: {
+        values: [
+          {
+            type: "ReferenceError",
+            value: "Can't find variable: EmptyRanges",
+            stacktrace: {
+              frames: [
+                {
+                  filename: "/assets/app.js",
+                  function: "render",
+                },
+              ],
+            },
+          },
+        ],
+      },
+      request: {
+        url: "https://www.agent-native.com/",
+      },
+    };
+    expect(options.beforeSend(eventWithAppFrame)).toBe(eventWithAppFrame);
+  });
+
   it("drops user-aborted browser requests from Sentry", async () => {
     installBrowser();
     (window as any).__AGENT_NATIVE_CONFIG__ = {

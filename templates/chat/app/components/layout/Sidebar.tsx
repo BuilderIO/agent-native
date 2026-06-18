@@ -3,8 +3,11 @@ import { Link, NavLink, useLocation, useNavigate } from "react-router";
 import {
   IconActivity,
   IconArchive,
+  IconDatabase,
   IconDots,
   IconEdit,
+  IconLayoutSidebarLeftCollapse,
+  IconLayoutSidebarLeftExpand,
   IconMessageCircle,
   IconPin,
   IconPlus,
@@ -12,7 +15,6 @@ import {
 import { toast } from "sonner";
 import {
   appPath,
-  DevDatabaseLink,
   FeedbackButton,
   useChatThreads,
   type ChatThreadSummary,
@@ -42,7 +44,19 @@ const navItems = [
     href: "/observability",
     view: "observability",
   },
+  {
+    icon: IconDatabase,
+    label: "Database",
+    href: "/database",
+    view: "database",
+  },
 ];
+
+interface SidebarProps {
+  collapsed?: boolean;
+  collapsible?: boolean;
+  onCollapsedChange?: (collapsed: boolean) => void;
+}
 
 function formatThreadAge(updatedAt: number) {
   const diffMs = Math.max(0, Date.now() - updatedAt);
@@ -323,23 +337,63 @@ function ChatThreadsSection() {
   );
 }
 
-export function Sidebar() {
+export function Sidebar({
+  collapsed = false,
+  collapsible = true,
+  onCollapsedChange,
+}: SidebarProps) {
   const location = useLocation();
   const isChatRoute = location.pathname === "/";
+  const ToggleIcon = collapsed
+    ? IconLayoutSidebarLeftExpand
+    : IconLayoutSidebarLeftCollapse;
   const navClass = ({ isActive }: { isActive: boolean }) =>
     cn(
-      "flex h-9 items-center gap-3 rounded-md px-3 text-sm transition-colors",
+      "flex h-9 items-center rounded-md text-sm transition-colors",
+      collapsed ? "justify-center px-0" : "gap-3 px-3",
       isActive
         ? "bg-sidebar-accent text-sidebar-accent-foreground"
         : "text-sidebar-foreground hover:bg-sidebar-accent/65 hover:text-sidebar-accent-foreground",
     );
+  const collapseButton = collapsible ? (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          onClick={() => onCollapsedChange?.(!collapsed)}
+          className="flex size-7 shrink-0 items-center justify-center rounded-md text-sidebar-foreground/65 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+        >
+          <ToggleIcon className="size-4" />
+        </button>
+      </TooltipTrigger>
+      <TooltipContent side="right">
+        {collapsed ? "Expand sidebar" : "Collapse sidebar"}
+      </TooltipContent>
+    </Tooltip>
+  ) : null;
 
   return (
-    <aside className="flex h-full w-60 min-w-0 shrink-0 flex-col overflow-hidden border-r border-sidebar-border bg-sidebar text-sidebar-foreground">
-      <div className="flex h-14 shrink-0 items-center gap-3 border-b border-sidebar-border px-4">
+    <aside
+      data-collapsed={collapsed ? "true" : "false"}
+      className={cn(
+        "flex h-full min-w-0 shrink-0 flex-col overflow-hidden border-r border-sidebar-border bg-sidebar text-sidebar-foreground transition-[width] duration-150",
+        collapsed ? "w-16" : "w-60",
+      )}
+    >
+      <div
+        className={cn(
+          "flex h-14 shrink-0 items-center border-b border-sidebar-border",
+          collapsed ? "justify-center gap-1 px-1" : "gap-2 px-3",
+        )}
+      >
         <Link
           to="/"
-          className="flex min-w-0 items-center gap-3 rounded outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className={cn(
+            "flex min-w-0 items-center rounded outline-none focus-visible:ring-2 focus-visible:ring-ring",
+            collapsed ? "size-7 justify-center" : "flex-1 gap-3",
+          )}
+          aria-label={collapsed ? APP_TITLE : undefined}
         >
           <img
             src={appPath("/agent-native-icon-light.svg")}
@@ -353,29 +407,48 @@ export function Sidebar() {
             aria-hidden="true"
             className="hidden h-4 w-auto shrink-0 dark:block"
           />
-          <div className="min-w-0">
+          <div className={cn("min-w-0", collapsed && "sr-only")}>
             <p className="truncate text-sm font-semibold text-sidebar-accent-foreground">
               {APP_TITLE}
             </p>
           </div>
         </Link>
+        {collapseButton}
       </div>
 
-      <nav className="flex-1 overflow-y-auto px-2 py-3">
+      <nav
+        className={cn(
+          "flex-1 overflow-y-auto py-3",
+          collapsed ? "px-2" : "px-2",
+        )}
+      >
         <div className="grid gap-1">
           {navItems.map((item) => {
             const Icon = item.icon;
+            const link = (
+              <NavLink
+                to={item.href}
+                end={item.href === "/"}
+                className={navClass}
+                aria-label={collapsed ? item.label : undefined}
+              >
+                <Icon className="size-4 shrink-0" />
+                <span className={collapsed ? "sr-only" : "truncate"}>
+                  {item.label}
+                </span>
+              </NavLink>
+            );
             return (
               <div key={item.href}>
-                <NavLink
-                  to={item.href}
-                  end={item.href === "/"}
-                  className={navClass}
-                >
-                  <Icon className="size-4 shrink-0" />
-                  <span className="truncate">{item.label}</span>
-                </NavLink>
-                {item.view === "chat" && isChatRoute ? (
+                {collapsed ? (
+                  <Tooltip>
+                    <TooltipTrigger asChild>{link}</TooltipTrigger>
+                    <TooltipContent side="right">{item.label}</TooltipContent>
+                  </Tooltip>
+                ) : (
+                  link
+                )}
+                {!collapsed && item.view === "chat" && isChatRoute ? (
                   <ChatThreadsSection />
                 ) : null}
               </div>
@@ -385,17 +458,39 @@ export function Sidebar() {
       </nav>
 
       <div className="mt-auto shrink-0">
-        <div className="border-t border-sidebar-border px-2 py-1">
-          <ExtensionsSidebarSection />
+        {!collapsed ? (
+          <div className="border-t border-sidebar-border px-2 py-1">
+            <ExtensionsSidebarSection />
+          </div>
+        ) : null}
+
+        <div
+          className={cn(
+            "border-t border-sidebar-border py-2",
+            collapsed ? "px-2" : "px-3",
+          )}
+        >
+          <OrgSwitcher
+            reserveSpace
+            className={
+              collapsed
+                ? "h-8 justify-center px-0 [&>span]:sr-only [&>svg:last-child]:hidden"
+                : undefined
+            }
+          />
         </div>
 
-        <div className="border-t border-sidebar-border px-3 py-2">
-          <OrgSwitcher reserveSpace />
-        </div>
-
-        <div className="border-t border-sidebar-border px-3 py-2">
-          <DevDatabaseLink />
-          <FeedbackButton />
+        <div
+          className={cn(
+            "border-t border-sidebar-border py-2",
+            collapsed ? "flex justify-center px-2" : "px-3",
+          )}
+        >
+          <FeedbackButton
+            variant={collapsed ? "icon" : "sidebar"}
+            side="right"
+            align={collapsed ? "center" : "end"}
+          />
         </div>
       </div>
     </aside>

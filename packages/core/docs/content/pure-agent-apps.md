@@ -5,9 +5,19 @@ description: "Apps where the first product surface is the app-agent loop: define
 
 # Pure-Agent Apps
 
-This is the minimal end of agent-native: an app whose first user-facing surface is the agent loop, not a dashboard. For the full-UI end, start from a [template](/docs/cloneable-saas). If you are choosing between headless, chat-first, embedded, and full-app shapes, start with [Agent Surfaces](/docs/agent-surfaces).
+This is the minimal end of agent-native: an app whose first product surface is
+the agent loop, not a dashboard. That loop can start headlessly from CLI, jobs,
+webhooks, Slack, email, or A2A. Add Chat when a human-facing conversation UI is
+the right way to inspect and steer the work. For the full-UI end, start from a
+[template](/docs/cloneable-saas). If you are choosing between headless, chat,
+embedded, and full-app shapes, start with [Agent Surfaces](/docs/agent-surfaces).
 
-Imagine opening an app and seeing just a chat. No dashboard. No sidebar full of menus. No forms. You ask for what you want - "summarize my unread emails," "post the daily metrics to Slack," "find the candidates who replied last week" - and the agent goes off and does it. The output shows up in chat, in Slack, in your inbox, wherever it belongs.
+Imagine starting with one action and the app-agent loop. No dashboard. No
+sidebar full of menus. No forms. You ask for what you want from the terminal,
+from Slack, from email, from a scheduled job, from another agent, or from Chat -
+"summarize my unread emails," "post the daily metrics to Slack," "find the
+candidates who replied last week" - and the agent goes off and does it. The
+output shows up in the channel that asked, wherever it belongs.
 
 That's a pure-agent app. The agent _is_ the product.
 
@@ -17,7 +27,12 @@ It is still an app, not a stateless prompt. Actions, auth sessions, app state, t
 
 Most apps are built around a UI: a database table you browse, a form you fill, a chart you read. The agent is a sidekick.
 
-In a pure-agent app, that's flipped. The chat is the front door. You type a request; the agent takes action; you see the result. Everything else — settings, history, what's currently running — is one click away, but most of the time you don't need it.
+In a pure-agent app, that's flipped. The agent loop is the front door. You type
+or send a request; the agent takes action; you see the result. Chat can be the
+browser front door, but headless apps can also start from CLI, jobs, webhooks,
+or A2A. Everything else - settings, history, what's currently running - is
+available when you need it, but most of the time you do not need a custom
+dashboard.
 
 Examples of where this works really well:
 
@@ -39,9 +54,10 @@ Pick the pure-agent pattern when:
 
 If your product is built around persistent objects users browse, pivot, and share - emails, events, documents, charts - pick a [template](/docs/cloneable-saas) instead. Those have full UIs _plus_ the agent.
 
-## What ships in the box {#minimum-ui}
+## What ships in the box when you add Chat {#minimum-ui}
 
-Every pure-agent app gets five built-in surfaces, all provided by the framework — you don't build them:
+When you add the built-in Chat shell, a pure-agent app gets five built-in
+surfaces, all provided by the framework - you don't build them:
 
 1. **Chat** — the main input. Users talk to the agent, steer it, queue tasks.
 2. **Workspace** — skills, memory, instructions, custom sub-agents, connected MCP servers, scheduled jobs. Customize the agent's behavior without shipping code.
@@ -96,9 +112,9 @@ Future UI-grafting tooling should use a distinct verb or namespace. `agent-nativ
 ## Repo access for cloud headless {#repo-access}
 
 Local headless apps run against the folder on your machine. For cloud headless
-apps that need repository access, the intended model is connector-scoped access:
-a GitHub connector and token CRUD that can list repositories, search files, read
-files, create or edit files, and delete files with the user's permission.
+apps that need repository access, use connector-scoped access: a GitHub
+connector and token CRUD that can list repositories, search files, read files,
+create or edit files, and delete files with the user's permission.
 
 Do not design this as "clone the user's repo into our VM" or "give the agent a long-lived sandbox copy of the repo" as the primary model. Sandboxes are useful for isolated code execution, but repo access should be a provider integration with explicit tokens, scoped permissions, auditability, and revocation.
 

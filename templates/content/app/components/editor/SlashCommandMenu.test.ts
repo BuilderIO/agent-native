@@ -1,11 +1,12 @@
 // @vitest-environment happy-dom
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { Editor } from "@tiptap/core";
 import StarterKit from "@tiptap/starter-kit";
 import {
   parseSlashCommandQuery,
   parseInlineGeneratePrompt,
+  setPlainTextBlock,
   shouldOpenGenerateOnSpace,
 } from "./SlashCommandMenu";
 
@@ -62,5 +63,31 @@ describe("slash command menu trigger", () => {
     expect(parseSlashCommandQuery("hello/world")).toBeNull();
     expect(parseSlashCommandQuery("hello /world")).toBeNull();
     expect(parseSlashCommandQuery("open https://example.com/path")).toBeNull();
+  });
+});
+
+describe("plain text slash command", () => {
+  it("uses the paragraph command when the editor registers it", () => {
+    const chain: any = {
+      focus: vi.fn(() => chain),
+      setParagraph: vi.fn(() => chain),
+      setNode: vi.fn(() => chain),
+      run: vi.fn(() => true),
+    };
+
+    expect(setPlainTextBlock({ chain: () => chain } as any)).toBe(true);
+    expect(chain.setParagraph).toHaveBeenCalled();
+    expect(chain.setNode).not.toHaveBeenCalled();
+  });
+
+  it("falls back to the paragraph node when setParagraph is unavailable", () => {
+    const chain: any = {
+      focus: vi.fn(() => chain),
+      setNode: vi.fn(() => chain),
+      run: vi.fn(() => true),
+    };
+
+    expect(setPlainTextBlock({ chain: () => chain } as any)).toBe(true);
+    expect(chain.setNode).toHaveBeenCalledWith("paragraph");
   });
 });

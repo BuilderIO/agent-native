@@ -135,6 +135,41 @@ describe("getDbExec", () => {
   });
 });
 
+describe("retryOnDdlRace", () => {
+  afterEach(() => {
+    vi.resetModules();
+  });
+
+  it("retries Postgres duplicate type races from concurrent CREATE TABLE", async () => {
+    const { retryOnDdlRace } = await import("./client.js");
+    const duplicateTypeError = Object.assign(
+      new Error('type "integration_a2a_continuations" already exists'),
+      { code: "42710", routine: "TypeCreate" },
+    );
+    const operation = vi
+      .fn()
+      .mockRejectedValueOnce(duplicateTypeError)
+      .mockResolvedValueOnce("ok");
+
+    await expect(retryOnDdlRace(operation)).resolves.toBe("ok");
+    expect(operation).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not retry unrelated duplicate object errors", async () => {
+    const { retryOnDdlRace } = await import("./client.js");
+    const duplicateSchemaError = Object.assign(
+      new Error('schema "public" already exists'),
+      { code: "42710", routine: "NamespaceCreate" },
+    );
+    const operation = vi.fn().mockRejectedValueOnce(duplicateSchemaError);
+
+    await expect(retryOnDdlRace(operation)).rejects.toThrow(
+      'schema "public" already exists',
+    );
+    expect(operation).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe("dbOpTimeoutMs", () => {
   afterEach(() => {
     vi.unstubAllEnvs();

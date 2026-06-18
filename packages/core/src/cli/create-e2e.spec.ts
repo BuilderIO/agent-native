@@ -298,7 +298,7 @@ describe("workspace scaffold — required packages", { timeout: 60000 }, () => {
     // Includes every template that declares an @agent-native/* workspace:*
     // dep so a missing `requiredPackages` entry surfaces here instead of as
     // ERR_PNPM_WORKSPACE_PKG_NOT_FOUND on the user's machine.
-    const apps = ["calendar", "design", "slides", "videos"];
+    const apps = ["assets", "calendar", "design", "slides", "videos"];
     const wsDir = await scaffoldWorkspace("my-ws", apps);
 
     for (const appName of apps) {

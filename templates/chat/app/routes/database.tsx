@@ -8,7 +8,7 @@ export function meta() {
 export default function DatabasePage() {
   useSetPageTitle("Database");
   return (
-    <div className="p-6">
+    <div className="h-full">
       <DbAdminPage />
     </div>
   );
