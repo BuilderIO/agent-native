@@ -3,7 +3,15 @@ import { resolveAccess } from "@agent-native/core/sharing";
 import { eq, sql } from "drizzle-orm";
 import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
-import type { FormField, FormSettings } from "../shared/types.js";
+import {
+  toPublicFormSettings,
+  type FormField,
+  type FormSettings,
+} from "../shared/types.js";
+
+function canReadPrivateFormData(role: string): boolean {
+  return role === "owner" || role === "editor" || role === "admin";
+}
 
 export default defineAction({
   description: "Get a single form by ID with all fields and settings.",
@@ -25,13 +33,17 @@ export default defineAction({
       .from(schema.responses)
       .where(eq(schema.responses.formId, args.id));
 
+    const settings = JSON.parse(row.settings) as FormSettings;
+
     return {
       id: row.id,
       title: row.title,
       description: row.description ?? undefined,
       slug: row.slug,
       fields: JSON.parse(row.fields) as FormField[],
-      settings: JSON.parse(row.settings) as FormSettings,
+      settings: (canReadPrivateFormData(access.role)
+        ? settings
+        : toPublicFormSettings(settings)) as FormSettings,
       status: row.status,
       visibility: row.visibility,
       ownerEmail: row.ownerEmail,

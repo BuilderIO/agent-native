@@ -19,6 +19,7 @@ import {
   registerReservedActionChatRenderer,
   registerReservedFallbackToolRenderer,
   type ToolRendererContext,
+  type ToolRendererComponent,
 } from "../tool-render-registry.js";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -30,9 +31,18 @@ function normalizeActionDataWidgetResult(
 ): DataWidgetResult | null {
   const result = normalizeDataWidgetResult(context.resultJson);
   if (result) return result;
-  if (!isRecord(context.resultJson)) return null;
 
   const renderer = context.chatUI?.renderer;
+  if (
+    renderer === ACTION_CHAT_UI_DATA_WIDGET_RENDERER ||
+    context.toolName === "render-data-widget"
+  ) {
+    const argsResult = normalizeDataWidgetResult(context.args);
+    if (argsResult) return argsResult;
+  }
+
+  if (!isRecord(context.resultJson)) return null;
+
   if (renderer === ACTION_CHAT_UI_DATA_TABLE_RENDERER) {
     return normalizeDataWidgetResult({
       widget: DATA_TABLE_WIDGET,
@@ -88,6 +98,41 @@ function renderDataWidget(context: ToolRendererContext) {
   return null;
 }
 
+const BuiltinDataWidgetRenderer: ToolRendererComponent = ({ context }) =>
+  renderDataWidget(context);
+
+export function isBuiltinDataWidgetActionRenderer(
+  context: ToolRendererContext,
+): boolean {
+  const renderer = context.chatUI?.renderer;
+  return (
+    renderer === ACTION_CHAT_UI_DATA_TABLE_RENDERER ||
+    renderer === ACTION_CHAT_UI_DATA_CHART_RENDERER ||
+    renderer === ACTION_CHAT_UI_DATA_INSIGHTS_RENDERER ||
+    renderer === ACTION_CHAT_UI_DATA_WIDGET_RENDERER
+  );
+}
+
+export function resolveBuiltinActionChatRenderer(
+  context: ToolRendererContext,
+): ToolRendererComponent | null {
+  if (
+    isBuiltinDataWidgetActionRenderer(context) &&
+    normalizeActionDataWidgetResult(context)
+  ) {
+    return BuiltinDataWidgetRenderer;
+  }
+  return null;
+}
+
+export function resolveBuiltinFallbackToolRenderer(
+  context: ToolRendererContext,
+): ToolRendererComponent | null {
+  return normalizeActionDataWidgetResult(context) !== null
+    ? BuiltinDataWidgetRenderer
+    : null;
+}
+
 for (const [id, renderer] of [
   ["core.data-table", ACTION_CHAT_UI_DATA_TABLE_RENDERER],
   ["core.data-chart", ACTION_CHAT_UI_DATA_CHART_RENDERER],
@@ -97,12 +142,12 @@ for (const [id, renderer] of [
   registerReservedActionChatRenderer({
     id,
     renderer,
-    Component: ({ context }) => renderDataWidget(context),
+    Component: BuiltinDataWidgetRenderer,
   });
 }
 
 registerReservedFallbackToolRenderer({
   id: "core.data-widgets",
-  match: (context) => normalizeDataWidgetResult(context.resultJson) !== null,
-  Component: ({ context }) => renderDataWidget(context),
+  match: (context) => normalizeActionDataWidgetResult(context) !== null,
+  Component: BuiltinDataWidgetRenderer,
 });

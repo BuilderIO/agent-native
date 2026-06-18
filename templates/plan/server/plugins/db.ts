@@ -295,6 +295,25 @@ WHERE kind = 'recap' AND recap_idempotency_key IS NOT NULL`,
 ALTER TABLE plans ADD COLUMN IF NOT EXISTS deleted_by TEXT;
 CREATE INDEX IF NOT EXISTS plans_owner_deleted_updated_idx ON plans(owner_email, deleted_at, updated_at)`,
     },
+    {
+      version: 32,
+      sql: {
+        postgres: `ALTER TABLE plans ADD COLUMN IF NOT EXISTS source_type TEXT;
+ALTER TABLE plans ADD COLUMN IF NOT EXISTS source_repo TEXT;
+ALTER TABLE plans ADD COLUMN IF NOT EXISTS source_pr_number INTEGER;
+ALTER TABLE plans ADD COLUMN IF NOT EXISTS source_pr_state TEXT;
+ALTER TABLE plans ADD COLUMN IF NOT EXISTS source_pr_merged_at TEXT;
+CREATE INDEX IF NOT EXISTS plans_recap_pr_merged_idx ON plans(kind, source_type, source_pr_merged_at, updated_at);
+CREATE INDEX IF NOT EXISTS plans_source_pr_idx ON plans(source_repo, source_pr_number)`,
+        sqlite: `ALTER TABLE plans ADD COLUMN source_type TEXT;
+ALTER TABLE plans ADD COLUMN source_repo TEXT;
+ALTER TABLE plans ADD COLUMN source_pr_number INTEGER;
+ALTER TABLE plans ADD COLUMN source_pr_state TEXT;
+ALTER TABLE plans ADD COLUMN source_pr_merged_at TEXT;
+CREATE INDEX IF NOT EXISTS plans_recap_pr_merged_idx ON plans(kind, source_type, source_pr_merged_at, updated_at);
+CREATE INDEX IF NOT EXISTS plans_source_pr_idx ON plans(source_repo, source_pr_number)`,
+      },
+    },
   ],
   { table: "plans_migrations" },
 );

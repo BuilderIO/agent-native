@@ -25,6 +25,7 @@ import {
   defaultPlanBlocksOut,
   fetchPlanBlockCatalog,
   normalizePlanBlockFormat,
+  planActionEndpoint,
 } from "./plan-blocks.js";
 
 type LocalPlanKind = "plan" | "recap";
@@ -71,6 +72,36 @@ type LocalPlanBridgeMdxFolder = {
   "prototype.mdx"?: string;
   ".plan-state.json"?: string;
   "assets/"?: Record<string, string>;
+};
+
+type VisualAnswerSourcePayload = {
+  question?: string;
+  title?: string;
+  brief?: string;
+  repoPath?: string;
+  sourceUrl?: string;
+  sourceType?: string;
+  mdx: {
+    "plan.mdx": string;
+    "canvas.mdx"?: string;
+    "prototype.mdx"?: string;
+    "assets/"?: Record<string, string>;
+  };
+};
+
+export type PublishVisualAnswerInput = {
+  appUrl: string;
+  token: string;
+  question?: string;
+  sourcePath?: string;
+  out?: string;
+  prevPlanId?: string;
+  repo?: string;
+  sourceUrl?: string;
+  sourceType?: string;
+  visibility?: "private" | "org" | "public";
+  fetchFn?: typeof fetch;
+  cwd?: string;
 };
 
 export type LocalPlanBridgePayload = {
@@ -146,6 +177,9 @@ type OpenLocalUrlResult = {
 const LOCAL_PLAN_ASSET_MAX_SINGLE_BYTES = 2 * 1024 * 1024;
 const LOCAL_PLAN_ASSET_MAX_TOTAL_BYTES = 10 * 1024 * 1024;
 const AGENT_NATIVE_MANIFEST_FILE = "agent-native.json";
+const VISUAL_ANSWER_SOURCE_FILENAME = "visual-answer-source.json";
+const VISUAL_ANSWER_URL_FILENAME = "visual-answer-url.txt";
+const PLAN_ACTION_HTTP_TIMEOUT_MS = 45_000;
 const LOCAL_PLAN_ASSET_EXTENSIONS = new Set([
   "png",
   "jpg",
@@ -192,6 +226,86 @@ function optionalArg(
 
 function boolArg(args: Record<string, string | boolean>, key: string): boolean {
   return args[key] === true;
+}
+
+function sanitizeHttpDetail(value: string, maxLength: number): string {
+  const normalized = value.replace(/\s+/g, " ").trim();
+  if (normalized.length <= maxLength) return normalized;
+  return `${normalized.slice(0, maxLength - 3)}...`;
+}
+
+function normalizeVisibility(
+  value: string | undefined,
+): "private" | "org" | "public" | undefined {
+  if (!value) return undefined;
+  if (value === "private" || value === "org" || value === "public") {
+    return value;
+  }
+  throw new Error(
+    `Invalid --visibility "${value}" (expected private, org, or public)`,
+  );
+}
+
+function normalizeVisualAnswerSourceType(value: string | undefined): string {
+  if (!value) return "code";
+  if (
+    [
+      "code",
+      "pull-request",
+      "commit",
+      "branch",
+      "diff",
+      "issue",
+      "page",
+    ].includes(value)
+  ) {
+    return value;
+  }
+  throw new Error(
+    `Invalid --source-type "${value}" (expected code, pull-request, commit, branch, diff, issue, or page)`,
+  );
+}
+
+function visualAnswerUrlFromPublishResult(
+  result: unknown,
+  appUrl: string,
+): string | null {
+  const base = appUrl.replace(/\/$/, "");
+  if (!result || typeof result !== "object") return null;
+  const record = result as Record<string, unknown>;
+  const rawUrl =
+    typeof record.url === "string"
+      ? record.url
+      : record.path && typeof record.path === "string"
+        ? record.path
+        : null;
+  if (rawUrl) {
+    try {
+      return new URL(rawUrl, `${base}/`).toString();
+    } catch {
+      return null;
+    }
+  }
+  const planId =
+    typeof record.planId === "string"
+      ? record.planId
+      : record.plan &&
+          typeof record.plan === "object" &&
+          typeof (record.plan as Record<string, unknown>).id === "string"
+        ? ((record.plan as Record<string, unknown>).id as string)
+        : null;
+  return planId ? `${base}/plans/${encodeURIComponent(planId)}` : null;
+}
+
+async function fetchActionWithTimeout(
+  url: string,
+  init: RequestInit,
+  fetchFn: typeof fetch,
+): Promise<Response> {
+  return await fetchFn(url, {
+    ...init,
+    signal: init.signal ?? AbortSignal.timeout(PLAN_ACTION_HTTP_TIMEOUT_MS),
+  });
 }
 
 export function localPlanFolderName(title: string): string {
@@ -2004,6 +2118,173 @@ function runCheck(args: Record<string, string | boolean>): void {
   process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
 }
 
+export function readVisualAnswerSourcePayload(
+  sourcePath: string,
+): VisualAnswerSourcePayload {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(fs.readFileSync(sourcePath, "utf-8"));
+  } catch (error) {
+    throw new Error(
+      `Could not read ${sourcePath}: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    );
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error(`${sourcePath} must contain a JSON object.`);
+  }
+  const source = parsed as Record<string, unknown>;
+  const mdx = source.mdx;
+  if (!mdx || typeof mdx !== "object" || Array.isArray(mdx)) {
+    throw new Error(`${sourcePath} must contain an mdx object.`);
+  }
+  const planMdx = (mdx as Record<string, unknown>)["plan.mdx"];
+  if (typeof planMdx !== "string" || planMdx.trim().length === 0) {
+    throw new Error(
+      `${sourcePath} mdx["plan.mdx"] must be a non-empty string.`,
+    );
+  }
+  return source as VisualAnswerSourcePayload;
+}
+
+export async function publishVisualAnswerSource(
+  input: PublishVisualAnswerInput,
+): Promise<{ ok: true; url: string; out: string }> {
+  const cwd = input.cwd ?? process.cwd();
+  const sourcePath =
+    input.sourcePath ?? path.join(cwd, VISUAL_ANSWER_SOURCE_FILENAME);
+  const out = input.out ?? path.join(cwd, VISUAL_ANSWER_URL_FILENAME);
+  const token = input.token.trim();
+  if (!token) throw new Error("Plan publish token is empty.");
+
+  const source = readVisualAnswerSourcePayload(sourcePath);
+  const question = input.question ?? source.question;
+  if (!question?.trim()) {
+    throw new Error(
+      `Missing visual answer question. Pass --question or set question in ${sourcePath}.`,
+    );
+  }
+  const body = {
+    question,
+    ...(input.prevPlanId ? { planId: input.prevPlanId } : {}),
+    ...(source.title ? { title: source.title } : {}),
+    ...(source.brief ? { brief: source.brief } : {}),
+    visibility: input.visibility ?? "org",
+    source: "imported",
+    ...((input.repo ?? source.repoPath)
+      ? { repoPath: input.repo ?? source.repoPath }
+      : {}),
+    ...((input.sourceUrl ?? source.sourceUrl)
+      ? { sourceUrl: input.sourceUrl ?? source.sourceUrl }
+      : {}),
+    sourceType: normalizeVisualAnswerSourceType(
+      input.sourceType ?? source.sourceType,
+    ),
+    currentFocus: `visual answer: ${question.trim().slice(0, 120)}`,
+    status: "review",
+    mdx: source.mdx,
+  };
+
+  const endpoint = planActionEndpoint(input.appUrl, "visual-answer");
+  const fetchFn = input.fetchFn ?? fetch;
+  const response = await fetchActionWithTimeout(
+    endpoint,
+    {
+      method: "POST",
+      headers: {
+        accept: "application/json",
+        "content-type": "application/json",
+        authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify(body),
+    },
+    fetchFn,
+  );
+  const text = await response.text().catch((error) => String(error));
+  if (!response.ok) {
+    throw new Error(
+      `visual-answer failed ${response.status} ${
+        response.statusText
+      }: ${sanitizeHttpDetail(text, 800)}`,
+    );
+  }
+  let result: unknown = null;
+  try {
+    result = text ? JSON.parse(text) : null;
+  } catch {
+    throw new Error("visual-answer returned non-JSON output.");
+  }
+  const url = visualAnswerUrlFromPublishResult(result, input.appUrl);
+  if (!url) {
+    throw new Error(
+      "visual-answer succeeded but did not return a usable /plans/<id> URL or plan id.",
+    );
+  }
+  fs.writeFileSync(path.resolve(out), `${url}\n`, "utf-8");
+  return { ok: true, url, out };
+}
+
+async function runVisualAnswer(
+  subcommand: string | undefined,
+  args: Record<string, string | boolean>,
+): Promise<void> {
+  if (
+    subcommand === undefined ||
+    subcommand === "help" ||
+    subcommand === "--help" ||
+    subcommand === "-h" ||
+    args.help === true ||
+    args.h === true
+  ) {
+    process.stdout.write(HELP);
+    return;
+  }
+  if (subcommand !== "publish") {
+    process.stderr.write(
+      `Unknown plan visual-answer subcommand: ${subcommand}\n${HELP}`,
+    );
+    process.exit(1);
+  }
+  const appUrl =
+    optionalArg(args, "app-url") ||
+    process.env.PLAN_VISUAL_ANSWER_APP_URL ||
+    process.env.PLAN_RECAP_APP_URL ||
+    DEFAULT_PLAN_APP_URL;
+  const token =
+    optionalArg(args, "token") ||
+    process.env.PLAN_VISUAL_ANSWER_TOKEN ||
+    process.env.PLAN_RECAP_TOKEN ||
+    "";
+  try {
+    const result = await publishVisualAnswerSource({
+      appUrl,
+      token,
+      question: optionalArg(args, "question"),
+      sourcePath: optionalArg(args, "source") ?? VISUAL_ANSWER_SOURCE_FILENAME,
+      out: optionalArg(args, "out") ?? VISUAL_ANSWER_URL_FILENAME,
+      prevPlanId: optionalArg(args, "prev-plan-id"),
+      repo: optionalArg(args, "repo"),
+      sourceUrl: optionalArg(args, "source-url"),
+      sourceType: optionalArg(args, "source-type"),
+      visibility: normalizeVisibility(optionalArg(args, "visibility")),
+    });
+    process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+  } catch (error) {
+    process.stdout.write(
+      `${JSON.stringify(
+        {
+          ok: false,
+          reason: error instanceof Error ? error.message : String(error),
+        },
+        null,
+        2,
+      )}\n`,
+    );
+    process.exit(1);
+  }
+}
+
 function runPreview(args: Record<string, string | boolean>): void {
   const result = writeLocalPlanPreview({
     dir: stringArg(args, "dir"),
@@ -2157,6 +2438,7 @@ const HELP = `agent-native plan — local Agent-Native Plan helpers
 
 Usage:
   agent-native plan blocks [--format reference|schema] [--app-url <url>] [--out <file>] [--json]
+  agent-native plan visual-answer publish --question <text> [--source visual-answer-source.json] [--out visual-answer-url.txt] [--repo owner/name] [--source-url <url>] [--app-url <url>] [--token <planToken>]
   agent-native plan serve --dir <folder> [--app-url <url>] [--kind plan|recap] [--open] [--port <port>] [--url-file <file>]
   agent-native plan local init --title <title> [--brief <text>] [--kind plan|recap] [--dir <folder>] [--force]
   agent-native plan local check --dir <folder>
@@ -2169,6 +2451,13 @@ the Plan app and writes plan-blocks.md (or plan-blocks.schema.json). It sends no
 plan content and is safe for local-files authoring before writing MDX. It uses a
 clack UI in interactive terminals and prints JSON for non-interactive shells or
 when --json is passed.
+
+The visual-answer publish command sends a coding-agent-authored
+visual-answer-source.json file to the Plan app's visual-answer action and writes
+visual-answer-url.txt. The source file should contain a question, optional
+title/brief/repoPath/sourceUrl, and MDX files under mdx. It is the terminal
+handoff for /visual-answer workflows after a coding agent has inspected code via
+the local repo, the Plan bridge, or GitHub and authored structured Plan blocks.
 
 The local subcommands are the privacy-focused no-DB path. They only read and
 write local files: plan.mdx, optional canvas.mdx, optional prototype.mdx, and
@@ -2205,6 +2494,10 @@ export async function runPlan(argv: string[]): Promise<void> {
       return;
     }
     await runServe(args);
+    return;
+  }
+  if (area === "visual-answer") {
+    await runVisualAnswer(sub, parseArgs(rest));
     return;
   }
   if (area !== "local") {

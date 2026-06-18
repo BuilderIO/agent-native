@@ -19,8 +19,9 @@ Detailed building, publishing, response, storage, and UI rules live in
 - Use `view-screen` when the active form, selected field, publish state, or
   response table is unclear.
 - For response analytics, call `response-insights` instead of inventing SQL.
-  It returns an explicit native widget contract:
-  `widget: "data-insights"` with `chartSeries` and `table`.
+  Pass `displayMode: "chart"` for chart-only requests, `displayMode: "table"`
+  only when the user asks for a table/rows, and `displayMode: "insights"` for
+  combined dashboard/report requests.
 - For form setup/configuration previews, call `preview-form`. It returns a
   native inline summary/table and an "Open editor" expansion path.
 - Form UX should stay focused: clear labels, sensible validation, minimal
@@ -32,24 +33,33 @@ Detailed building, publishing, response, storage, and UI rules live in
 ## Application State
 
 - `navigation` exposes home chat, builder, published form, responses,
-  response-insights, selected field, and settings context.
+  response-insights, selected field, and builder tab context
+  (`activeTab`: `edit`, `responses`, `settings`, or `integrations`).
 - `navigate` moves the UI between home, forms, builder, responses,
-  response-insights, preview, and team/settings-style views.
+  response-insights, preview, and team/settings-style views. For builder
+  sub-tabs, call `navigate` with `view=form`, the form ID, and
+  `tab=edit|responses|settings|integrations`.
 
 ## Chat-First Workflow
 
 - The `/` route is the primary chat surface. Use it to ask clarifying questions,
   create or edit forms, explain setup, and surface response insights.
 - When the user needs a focused workspace, call `navigate` to open `/forms`,
-  `/forms/:id`, `/forms/:id/responses`, or `/response-insights`.
+  `/forms/:id?tab=edit`, `/forms/:id?tab=responses`,
+  `/forms/:id?tab=settings`, `/forms/:id?tab=integrations`,
+  `/forms/:id/responses`, or `/response-insights`.
+- When the user asks to see, open, or view all responses for a form, navigate to
+  the responses view instead of rendering response rows in chat. Use the current
+  form from `view-screen` or an @-tagged form ID.
 - For setup questions, inspect the current state first. Use `db-status` and
   `db-connect` for database/cloud setup, and form actions for publishing,
   fields, sharing, and response review.
 - When the user @-tags a form, use the referenced form ID directly with
   `preview-form`, `response-insights`, `list-responses`, or `navigate`.
 - For tables or charts in chat, use typed action results. `response-insights`
-  is the first-party path for native response tables and submission charts;
-  iframe/MCP App rendering is only a fallback for external hosts.
+  is the first-party path for native response tables and submission charts, but
+  do not include both unless the user asked for both; iframe/MCP App rendering
+  is only a fallback for external hosts.
 
 ## Skills
 

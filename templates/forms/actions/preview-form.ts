@@ -92,7 +92,7 @@ export default defineAction({
           }`,
         primaryAction: {
           label: "Open editor",
-          href: `/forms/${form.id}`,
+          href: `/forms/${encodeURIComponent(form.id)}?tab=edit`,
         },
       },
       form: {

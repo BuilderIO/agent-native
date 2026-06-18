@@ -106,9 +106,25 @@ registerEvent({
   },
 });
 
+const INITIAL_TOOL_NAMES = [
+  "view-screen",
+  "visual-answer",
+  "search-pr-recaps",
+  "get-visual-plan",
+  "list-visual-plans",
+  "create-visual-plan",
+  "update-visual-plan",
+  "create-visual-recap",
+  "report-visual-plan",
+  "get-plan-blocks",
+  "list-plan-components",
+  "navigate",
+];
+
 const planAgentChatOptions = {
   appId: "plan",
   actions: loadActionsFromStaticRegistry(actionsRegistry),
+  initialToolNames: INITIAL_TOOL_NAMES,
   anonymousOwner: resolvePlanAnonymousOwner,
   resolveOrgId: async (event) => (await getOrgContext(event)).orgId,
   connectorCatalog: PLAN_CONNECTOR_CATALOG,

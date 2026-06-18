@@ -27,8 +27,8 @@ function formDeepLink(formId: string): string {
   return buildDeepLink({
     app: "forms",
     view: "form",
-    to: `/forms/${encodeURIComponent(formId)}`,
-    params: { formId },
+    to: `/forms/${encodeURIComponent(formId)}?tab=edit`,
+    params: { formId, tab: "edit" },
   });
 }
 

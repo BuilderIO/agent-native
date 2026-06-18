@@ -25,10 +25,17 @@ import {
   DevDatabaseLink,
   FeedbackButton,
   appPath,
+  focusAgentChat,
   navigateWithAgentChatViewTransition,
 } from "@agent-native/core/client";
 import { ExtensionsSidebarSection } from "@agent-native/core/client/extensions";
 import { Textarea } from "@/components/ui/textarea";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { cn } from "@/lib/utils";
 
@@ -87,6 +94,13 @@ export function Sidebar() {
   function navigateHomeChat(event: MouseEvent<HTMLAnchorElement>) {
     event.preventDefault();
     if (isMobile) setMobileOpen(false);
+    focusAgentChat();
+    navigateWithAgentChatViewTransition(navigate, "/");
+  }
+
+  function toggleLogoView() {
+    if (isMobile) setMobileOpen(false);
+    focusAgentChat();
     navigateWithAgentChatViewTransition(navigate, "/");
   }
 
@@ -162,25 +176,35 @@ export function Sidebar() {
     >
       {/* Header */}
       <div className="flex h-12 shrink-0 items-center justify-between border-b border-border px-4">
-        <Link
-          to="/forms"
-          className="flex items-center gap-2 text-base font-semibold tracking-tight text-foreground hover:text-foreground/80"
-          onClick={() => isMobile && setMobileOpen(false)}
-        >
-          <img
-            src={appPath("/agent-native-icon-light.svg")}
-            alt=""
-            aria-hidden="true"
-            className="block h-4 w-auto shrink-0 dark:hidden"
-          />
-          <img
-            src={appPath("/agent-native-icon-dark.svg")}
-            alt=""
-            aria-hidden="true"
-            className="hidden h-4 w-auto shrink-0 dark:block"
-          />
-          Forms
-        </Link>
+        <TooltipProvider delayDuration={700}>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                aria-label="Open Ask Forms full screen"
+                className="flex min-w-0 items-center gap-2 rounded-md text-base font-semibold tracking-tight text-foreground transition-colors hover:text-foreground/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                onClick={toggleLogoView}
+              >
+                <img
+                  src={appPath("/agent-native-icon-light.svg")}
+                  alt=""
+                  aria-hidden="true"
+                  className="block h-4 w-auto shrink-0 dark:hidden"
+                />
+                <img
+                  src={appPath("/agent-native-icon-dark.svg")}
+                  alt=""
+                  aria-hidden="true"
+                  className="hidden h-4 w-auto shrink-0 dark:block"
+                />
+                <span className="truncate">Forms</span>
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="right">
+              Open Ask Forms full screen
+            </TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
         {isMobile && (
           <Button
             variant="ghost"

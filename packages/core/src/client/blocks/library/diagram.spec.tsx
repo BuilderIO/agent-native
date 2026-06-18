@@ -133,4 +133,41 @@ describe("DiagramBlock expand affordance", () => {
 
     expect(lightbox()).toBeNull();
   });
+
+  it("keeps edge-positioned legacy graph nodes inside the frame without row overlap", () => {
+    act(() => {
+      root.render(
+        <DiagramRead
+          blockId="diagram-5"
+          ctx={{}}
+          data={{
+            nodes: [
+              { id: "client", label: "Client", x: 6, y: 8 },
+              { id: "duplicate", label: "duplicateProject()", x: 42, y: 8 },
+              { id: "created", label: "201 Created", x: 82, y: 8 },
+              { id: "token", label: "auth token present?", x: 42, y: 36 },
+              { id: "turn", label: "runFormsTurn", x: 42, y: 63 },
+              { id: "deploy", label: "build + deploy clone", x: 82, y: 87 },
+            ],
+            edges: [
+              { from: "client", to: "duplicate" },
+              { from: "duplicate", to: "created", label: "respond now" },
+              { from: "duplicate", to: "token" },
+              { from: "token", to: "turn" },
+              { from: "turn", to: "deploy", label: "compile + publish" },
+            ],
+          }}
+        />,
+      );
+    });
+
+    const frame = container.querySelector<HTMLElement>(".plan-sketch > div");
+    const client = Array.from(
+      container.querySelectorAll<HTMLElement>("article"),
+    ).find((node) => node.textContent?.includes("Client"));
+
+    expect(frame?.style.minHeight).toBe("880px");
+    expect(client?.style.left).toBe("14%");
+    expect(client?.style.top).toBe("18%");
+  });
 });

@@ -1,5 +1,5 @@
 import { Spinner } from "@/components/ui/spinner";
-import { PlansPage } from "@/pages/PlansPage";
+import { PlanChatPage } from "@/pages/PlanChatPage";
 import { APP_TITLE } from "@/lib/app-config";
 
 export function meta() {
@@ -8,7 +8,7 @@ export function meta() {
     {
       name: "description",
       content:
-        "Review coding-agent plans as interactive HTML documents with diagrams, wireframes, prototypes, and annotations.",
+        "Ask product and code questions across merged PR visual recaps, visual plans, diagrams, wireframes, and API specs.",
     },
   ];
 }
@@ -22,5 +22,5 @@ export function HydrateFallback() {
 }
 
 export default function IndexPage() {
-  return <PlansPage />;
+  return <PlanChatPage />;
 }

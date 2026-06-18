@@ -6,6 +6,25 @@ import { getOrgContext } from "@agent-native/core/org";
 import actionsRegistry from "../../.generated/actions-registry.js";
 import "../register-secrets.js";
 
+const INITIAL_TOOL_NAMES = [
+  "view-screen",
+  "list-libraries",
+  "list-assets",
+  "search-assets",
+  "get-asset",
+  "generate-image",
+  "generate-image-batch",
+  "edit-image",
+  "restyle-image",
+  "refine-image",
+  "save-generated-asset",
+  "export-asset",
+  "create-library",
+  "create-collection",
+  "open-asset-picker",
+  "navigate",
+];
+
 export default createAgentChatPlugin({
   appId: "assets",
   mcpServerInfo: {
@@ -21,6 +40,7 @@ export default createAgentChatPlugin({
       },
     ],
   },
+  initialToolNames: INITIAL_TOOL_NAMES,
   actions: loadActionsFromStaticRegistry(actionsRegistry),
   resolveOrgId: async (event) => (await getOrgContext(event)).orgId,
   runSoftTimeoutMs: 240_000,

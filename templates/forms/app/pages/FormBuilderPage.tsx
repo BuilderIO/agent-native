@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef, useEffect } from "react";
-import { useParams, useNavigate } from "react-router";
+import { useParams, useNavigate, useSearchParams } from "react-router";
 import { nanoid } from "nanoid";
 import {
   IconExternalLink,
@@ -20,6 +20,9 @@ import {
   IconDownload,
   IconRefresh,
   IconLoader2,
+  IconDots,
+  IconLock,
+  IconArchive,
 } from "@tabler/icons-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -37,7 +40,12 @@ import {
 import { FieldRenderer } from "@/components/builder/FieldRenderer";
 import { FieldPropertiesPanel } from "@/components/builder/FieldPropertiesPanel";
 import { useAgentPromptRun } from "@/hooks/use-agent-prompt-run";
-import { useForm, useUpdateForm, usePatchFormFields } from "@/hooks/use-forms";
+import {
+  useForm,
+  useUpdateForm,
+  usePatchFormFields,
+  useDeleteForm,
+} from "@/hooks/use-forms";
 import { useFormResponses } from "@/hooks/use-responses";
 import { useDbStatus } from "@/hooks/use-db-status";
 import { CloudUpgrade } from "@/components/CloudUpgrade";
@@ -62,6 +70,11 @@ import {
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { normalizeFields } from "@/lib/normalize-fields";
+import {
+  formBuilderTabSearchParam,
+  normalizeFormBuilderTab,
+  type FormBuilderTab,
+} from "@/lib/form-builder-tabs";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { format } from "date-fns";
 import type {
@@ -114,13 +127,27 @@ type FieldOp =
 export function FormBuilderPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const tabParam = searchParams.get("tab");
   const { data: form, isLoading, error, refetch } = useForm(id!);
   const updateForm = useUpdateForm();
   const patchFormFields = usePatchFormFields();
+  const deleteForm = useDeleteForm();
+  const role = (form as any)?.role as
+    | "owner"
+    | "viewer"
+    | "editor"
+    | "admin"
+    | undefined;
+  const canEdit = role === "owner" || role === "editor" || role === "admin";
+  const canArchive = role === "owner" || role === "admin";
 
   const [selectedFieldId, setSelectedFieldId] = useState<string | null>(null);
   const [dragIdx, setDragIdx] = useState<number | null>(null);
-  const [activeTab, setActiveTab] = useState("edit");
+  const [activeTab, setActiveTab] = useState<FormBuilderTab>(() =>
+    normalizeFormBuilderTab(tabParam),
+  );
+  const activeBuilderTab: FormBuilderTab = canEdit ? activeTab : "edit";
   const [copied, setCopied] = useState(false);
   // Target status while a publish/unpublish is in flight (and until the cache
   // refetch catches up). `null` once the displayed form.status matches it.
@@ -142,6 +169,32 @@ export function FormBuilderPage() {
       "Form edit is taking longer than expected. You can try again.",
   });
   const descriptionRef = useRef<HTMLTextAreaElement>(null);
+
+  const setBuilderTab = useCallback(
+    (value: string) => {
+      const nextTab = normalizeFormBuilderTab(value);
+      setActiveTab(nextTab);
+      const nextParams = new URLSearchParams(searchParams);
+      nextParams.set("tab", formBuilderTabSearchParam(nextTab));
+      setSearchParams(nextParams);
+    },
+    [searchParams, setSearchParams],
+  );
+
+  useEffect(() => {
+    setActiveTab(normalizeFormBuilderTab(tabParam));
+  }, [tabParam]);
+
+  useEffect(() => {
+    if (!form) return;
+    const canonicalTab = formBuilderTabSearchParam(activeBuilderTab);
+    const currentTab = tabParam === "results" ? "responses" : tabParam;
+    if (currentTab === canonicalTab && tabParam !== "results") return;
+
+    const nextParams = new URLSearchParams(searchParams);
+    nextParams.set("tab", canonicalTab);
+    setSearchParams(nextParams, { replace: true });
+  }, [activeBuilderTab, form, searchParams, setSearchParams, tabParam]);
 
   // Local state for text inputs and fields — prevents polling-driven refetches
   // from resetting input values while the user is typing or losing optimistic
@@ -340,13 +393,6 @@ export function FormBuilderPage() {
   const selectedField = fields.find((f) => f.id === selectedFieldId);
   // Viewers can see the form but not edit it or peek at responses / settings /
   // integrations. The role is set by `get-form` based on ownership + shares.
-  const role = (form as any).role as
-    | "owner"
-    | "viewer"
-    | "editor"
-    | "admin"
-    | undefined;
-  const canEdit = role === "owner" || role === "editor" || role === "admin";
 
   function addField(type: FormFieldType) {
     const defaults = fieldTypeDefaults[type] || {};
@@ -437,6 +483,18 @@ export function FormBuilderPage() {
         // Errors (including publish-validation failures) are surfaced by
         // useUpdateForm's onError, which echoes the server's actual message.
         onError: () => setPendingStatus(null),
+      },
+    );
+  }
+
+  function handleArchiveForm() {
+    deleteForm.mutate(
+      { id: loadedForm.id },
+      {
+        onSuccess: () => {
+          toast.success("Form moved to Archive");
+          navigate("/forms");
+        },
       },
     );
   }
@@ -551,6 +609,7 @@ export function FormBuilderPage() {
                   resourceType="form"
                   resourceId={form.id}
                   resourceTitle={form.title}
+                  triggerClassName="h-9 border-input bg-transparent px-3 text-xs hover:bg-accent hover:text-accent-foreground"
                   shareUrl={publishedFormUrl}
                   shareUrlLabel="Public response link"
                   shareUrlDescription="Respondents use this link to submit the published form."
@@ -579,7 +638,7 @@ export function FormBuilderPage() {
             <TooltipContent>Manage builder access</TooltipContent>
           </Tooltip>
 
-          {canEdit && (
+          {canEdit && form.status !== "published" && (
             <Button
               size="sm"
               className="text-xs"
@@ -593,10 +652,46 @@ export function FormBuilderPage() {
                 ? "Publishing…"
                 : pendingStatus === "draft"
                   ? "Unpublishing…"
-                  : form.status === "published"
-                    ? "Unpublish"
-                    : "Publish"}
+                  : "Publish"}
             </Button>
+          )}
+          {canEdit && form.status === "published" && (
+            <DropdownMenu>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <DropdownMenuTrigger asChild>
+                    <Button
+                      variant="outline"
+                      size="icon"
+                      className="h-9 w-9 bg-transparent"
+                      aria-label="More form actions"
+                    >
+                      <IconDots className="h-4 w-4" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                </TooltipTrigger>
+                <TooltipContent>More actions</TooltipContent>
+              </Tooltip>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem
+                  disabled={pendingStatus !== null}
+                  onClick={handleTogglePublish}
+                >
+                  {pendingStatus === "draft" ? (
+                    <IconLoader2 className="h-4 w-4 mr-2 animate-spin" />
+                  ) : (
+                    <IconLock className="h-4 w-4 mr-2" />
+                  )}
+                  {pendingStatus === "draft" ? "Unpublishing…" : "Unpublish"}
+                </DropdownMenuItem>
+                {canArchive && (
+                  <DropdownMenuItem onClick={handleArchiveForm}>
+                    <IconArchive className="h-4 w-4 mr-2" />
+                    Move to Archive
+                  </DropdownMenuItem>
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
           )}
           <NotificationsBell />
           <AgentToggleButton />
@@ -608,8 +703,8 @@ export function FormBuilderPage() {
           data viewers shouldn't see. */}
       <div className="border-b border-border px-2 sm:px-4 py-2 shrink-0 overflow-x-auto">
         <Tabs
-          value={canEdit ? activeTab : "edit"}
-          onValueChange={canEdit ? setActiveTab : undefined}
+          value={activeBuilderTab}
+          onValueChange={canEdit ? setBuilderTab : undefined}
         >
           <TabsList className="w-max sm:w-auto">
             <TabsTrigger value="edit" className="text-xs">
@@ -617,7 +712,7 @@ export function FormBuilderPage() {
             </TabsTrigger>
             {canEdit && (
               <>
-                <TabsTrigger value="results" className="text-xs">
+                <TabsTrigger value="responses" className="text-xs">
                   Results
                   {(form.responseCount ?? 0) > 0 && (
                     <Badge
@@ -641,7 +736,7 @@ export function FormBuilderPage() {
       </div>
 
       {/* Tab content */}
-      {activeTab === "edit" && (
+      {activeBuilderTab === "edit" && (
         <BuilderContent
           form={form}
           fields={fields}
@@ -679,11 +774,11 @@ export function FormBuilderPage() {
         />
       )}
 
-      {activeTab === "results" && (
+      {activeBuilderTab === "responses" && (
         <ResultsContent formId={form.id} form={form} />
       )}
 
-      {activeTab === "settings" && (
+      {activeBuilderTab === "settings" && (
         <div className="flex-1 overflow-auto">
           <div className="max-w-lg mx-auto py-4 sm:py-8 px-3 sm:px-4">
             <SettingsEditor
@@ -698,7 +793,7 @@ export function FormBuilderPage() {
         </div>
       )}
 
-      {activeTab === "integrations" && (
+      {activeBuilderTab === "integrations" && (
         <div className="flex-1 overflow-auto">
           <div className="max-w-lg mx-auto py-4 sm:py-8 px-3 sm:px-4">
             <IntegrationsEditor

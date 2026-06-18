@@ -39,6 +39,17 @@ export default defineAction({
       view?: string;
     } | null;
 
+    if (nav?.view === "chat") {
+      screen.productKnowledgeChat = {
+        defaultScope: "merged pull request visual recaps",
+        workflows: [
+          "Use search-pr-recaps first for shipped-last-week, historical API changes, and UI-from-recap questions.",
+          "Use visual-answer for live code questions that need the bridge, GitHub, or explicit code context, then publish the answer as a structured visual plan.",
+          "Use get-plan-blocks or list-plan-components before generating diagrams, wireframes, API specs, or custom registered block components.",
+        ],
+      };
+    }
+
     if (nav?.localPlanSlug && isLocalPlanRuntime()) {
       try {
         const local = await readPlanLocalFolder({
@@ -116,7 +127,7 @@ export default defineAction({
       }
     }
 
-    if (!nav?.planId || nav.view === "plans") {
+    if (!nav?.planId || nav.view === "plans" || nav.view === "chat") {
       try {
         // Only the summary columns — never the large html/markdown/content
         // blobs — so the agent's screen context stays lean.

@@ -6,9 +6,32 @@ import {
 import { getOrgContext } from "@agent-native/core/org";
 import actionsRegistry from "../../.generated/actions-registry.js";
 
+const INITIAL_TOOL_NAMES = [
+  "view-screen",
+  "list-emails",
+  "search-emails",
+  "get-email",
+  "get-thread",
+  "manage-draft",
+  "send-email",
+  "archive-email",
+  "trash-email",
+  "star-email",
+  "mark-read",
+  "refresh-list",
+  "navigate",
+  "get-mail-settings",
+  "find-contact",
+  "provider-api-catalog",
+  "provider-api-docs",
+  "provider-api-request",
+  "query-staged-dataset",
+];
+
 export default createAgentChatPlugin({
   actions: loadActionsFromStaticRegistry(actionsRegistry),
   appId: "mail",
+  initialToolNames: INITIAL_TOOL_NAMES,
   resolveOrgId: async (event) => {
     const ctx = await getOrgContext(event);
     return ctx.orgId;
@@ -63,6 +86,8 @@ export default createAgentChatPlugin({
     },
   },
   systemPrompt: `You are an AI email assistant. You can read, search, organize, compose, and manage the user's emails.
+
+Some less-common tool schemas are loaded on demand. Use tool-search with a specific query when you need a capability that is not already available as a direct tool.
 
 ## Google Connection Check — CRITICAL
 

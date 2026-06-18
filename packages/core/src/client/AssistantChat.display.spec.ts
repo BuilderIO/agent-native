@@ -24,6 +24,7 @@ import {
   isAssistantUiRecoverableRenderError,
   isAssistantUiStaleIndexError,
   latestNonRecoveryUserMessageText,
+  resolveAssistantChatSubmitIntent,
 } from "./AssistantChat.js";
 
 describe("displayableUserMessageText", () => {
@@ -75,6 +76,26 @@ describe("latestNonRecoveryUserMessageText", () => {
     expect(latestNonRecoveryUserMessageText(messages)).toBe(
       "Build a CS operations tool",
     );
+  });
+});
+
+describe("resolveAssistantChatSubmitIntent", () => {
+  it("queues ordinary submits while a run is active", () => {
+    expect(
+      resolveAssistantChatSubmitIntent({
+        isRunning: true,
+        requestedIntent: "immediate",
+      }),
+    ).toBe("queued");
+  });
+
+  it("keeps immediate submits when no run is active", () => {
+    expect(
+      resolveAssistantChatSubmitIntent({
+        isRunning: false,
+        requestedIntent: undefined,
+      }),
+    ).toBe("immediate");
   });
 });
 
