@@ -170,6 +170,7 @@ const protocolSurfaces = [
   "MCP OAuth",
   "MCP Apps",
   "MCP clients",
+  "BYO chat runtimes",
   "HTTP actions",
   "CLI",
   "Deep links",
