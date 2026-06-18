@@ -56,6 +56,10 @@ tokio = { version = "1", features = ["rt", "rt-multi-thread", "time", "sync"] }
 chrono = { version = "0.4", features = ["serde"] }
 # Verify the integrity of the Whisper model we download from HuggingFace.
 sha2 = "0.10"
+# Low-level dup2/open so we can redirect stdout+stderr into a persistent log
+# file in release builds (see logfile.rs). Tauri already pulls libc in
+# transitively; declaring it here just makes the API available directly.
+libc = "0.2"
 
 # macOS-only: raw Objective-C messaging so we can flip NSWindow's sharingType
 # to NSWindowSharingNone and hide every overlay window (popover, bubble,

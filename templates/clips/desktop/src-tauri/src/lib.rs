@@ -9,6 +9,7 @@ mod clips;
 mod config;
 mod debug;
 mod eventkit;
+mod logfile;
 mod meetings_watcher;
 mod native_screen;
 mod native_speech;
@@ -141,6 +142,9 @@ pub fn run() {
             // whisper model management
             whisper_model::whisper_model_status,
             whisper_model::whisper_model_download,
+            // persistent log file (production debugging)
+            logfile::frontend_log,
+            logfile::open_logs,
         ])
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_process::init())
@@ -168,6 +172,10 @@ pub fn run() {
         .manage(notifications::MeetingNotificationState::default())
         .manage(silence_detector::DetectorState::default())
         .setup(|app| {
+            // Capture stdout/stderr to a persistent log file before anything
+            // else runs so startup errors and panics land on disk too.
+            logfile::init(app.handle());
+
             // Keeps the app from yanking the user out of fullscreen when the
             // popover appears. Production bundles reinforce this with LSUIElement=1.
             #[cfg(target_os = "macos")]

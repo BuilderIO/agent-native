@@ -676,6 +676,11 @@ fn take_and_finalize_active_session(
     // playable. The caller persists recovery metadata so a finalize
     // failure doesn't orphan the file.
     let stop_outcome = finalize_active_backend(&mut session, true);
+    println!(
+        "[clips-tray] finalize backend done (ok={}); {}",
+        stop_outcome.is_ok(),
+        describe_recording_path(&session.path)
+    );
     // With one segment this is a cheap rename. With multiple segments a
     // failure would silently lose everything after the first pause, so
     // callers check `multi_segment` and surface the merge error.
@@ -684,6 +689,12 @@ fn take_and_finalize_active_session(
     if let Err(err) = &consolidate_outcome {
         eprintln!("[clips-tray] segment consolidation failed: {err}");
     }
+    println!(
+        "[clips-tray] consolidate done (ok={}, segments={}, multi={multi_segment}); {}",
+        consolidate_outcome.is_ok(),
+        session.segments.len(),
+        describe_recording_path(&session.path)
+    );
     let duration_ms = session
         .started_at
         .elapsed()
@@ -1088,6 +1099,16 @@ fn now_iso() -> String {
     Utc::now().to_rfc3339()
 }
 
+fn describe_recording_path(path: &Path) -> String {
+    let exists = path.exists();
+    let size = std::fs::metadata(path).map(|m| m.len()).ok();
+    format!(
+        "path={} exists={exists} size={}",
+        path.display(),
+        size.map(|b| b.to_string()).unwrap_or_else(|| "n/a".into()),
+    )
+}
+
 fn pending_uploads_dir(app: &AppHandle) -> Result<PathBuf, String> {
     let dir = app
         .path()
@@ -1382,9 +1403,21 @@ fn saved_recording_from_session(
     has_camera: bool,
 ) -> Result<SavedNativeRecording, String> {
     let bytes = std::fs::metadata(&session.path)
-        .map_err(|e| format!("native recording file missing: {e}"))?
+        .map_err(|e| {
+            let diag = describe_recording_path(&session.path);
+            eprintln!(
+                "[clips-tray] native recording file missing at save: {e}; backend={}, segments={}, {diag}",
+                session.mime_type,
+                session.segments.len(),
+            );
+            format!("native recording file missing: {e}")
+        })?
         .len();
     if bytes == 0 {
+        eprintln!(
+            "[clips-tray] native recording empty at save: {}",
+            describe_recording_path(&session.path)
+        );
         return Err("Native recording produced an empty file.".into());
     }
 
@@ -1529,6 +1562,10 @@ fn start_screencapturekit_recording(
     let target_display_id = tray_display_id(app);
     let path = pending_recording_path(app, safe_id, "mp4")?;
     let _ = std::fs::remove_file(&path);
+    eprintln!(
+        "[clips-tray] starting ScreenCaptureKit recording -> {}",
+        path.display()
+    );
     let (backend, width, height) = start_screencapturekit_backend_at(
         &path,
         include_audio,
@@ -1566,6 +1603,10 @@ fn start_screencapture_recording(
     let target_display_id = tray_display_id(app);
     let path = pending_recording_path(app, safe_id, "mov")?;
     let _ = std::fs::remove_file(&path);
+    eprintln!(
+        "[clips-tray] starting screencapture (fallback) recording -> {}",
+        path.display()
+    );
     let (backend, _w, _h) =
         start_screencapture_backend_at(&path, include_audio, target_display_id)?;
     let (width, height) = primary_monitor_size(app);
@@ -2144,10 +2185,17 @@ fn prepare_recording_file(
     height: Option<u32>,
     duration_ms: Option<u128>,
 ) -> Result<PreparedRecordingFile, String> {
-    let metadata =
-        std::fs::metadata(path).map_err(|e| format!("native recording file missing: {e}"))?;
+    let metadata = std::fs::metadata(path).map_err(|e| {
+        let diag = describe_recording_path(path);
+        eprintln!("[clips-tray] native recording file missing at prepare: {e}; {diag}");
+        format!("native recording file missing: {e}")
+    })?;
     let source_bytes = metadata.len();
     if source_bytes == 0 {
+        eprintln!(
+            "[clips-tray] native recording empty at prepare: {}",
+            describe_recording_path(path)
+        );
         return Err("Native recording produced an empty file.".into());
     }
     emit_native_upload_progress(app, "preparing", "Optimizing clip", None, None);
