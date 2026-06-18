@@ -156,14 +156,11 @@ async function resolveOrgContextUncached(event: H3Event): Promise<OrgContext> {
 async function loadMemberships(
   exec: ReturnType<typeof getDbExec>,
   email: string,
-): Promise<
-  | Array<{
-      orgId: string;
-      role: OrgRole;
-      orgName: string;
-    }>
-  | null
-> {
+): Promise<Array<{
+  orgId: string;
+  role: OrgRole;
+  orgName: string;
+}> | null> {
   try {
     const { rows } = await exec.execute({
       sql: `SELECT m.org_id AS "orgId", m.role AS role, o.name AS "orgName"
