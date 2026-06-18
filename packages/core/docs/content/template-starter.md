@@ -5,7 +5,7 @@ description: "The minimal agent-native scaffold — agent chat, actions, applica
 
 # Starter
 
-Starter is the minimum viable agent-native app. You get the six-rules architecture, the agent sidebar, the workspace tab, live sync, auth, and exactly one example action. Nothing else. Build from there.
+Starter is the minimum viable agent-native UI app. You get the six-rules architecture, the agent sidebar, the workspace tab, live sync, auth, and exactly one example action. Nothing else. Build from there. If you want the primitive-first action-only path, start with [Getting Started](/docs/getting-started#create-your-agent) or [Pure-Agent Apps](/docs/pure-agent-apps) instead.
 
 <!-- screenshot:
   app: starter
@@ -41,7 +41,7 @@ That's the point. Ship whatever belongs to _your_ app, not someone else's.
 
 ## When to pick it {#when-to-pick}
 
-- **Building a pure-agent app** — the kind where the UI is mostly "let me see what the agent did." See [Pure-Agent Apps](/docs/pure-agent-apps).
+- **Adding UI around a pure-agent app** — the kind where the UI is mostly "let me see what the agent did." See [Pure-Agent Apps](/docs/pure-agent-apps).
 - **Learning the framework** — this is the smallest surface to wrap your head around.
 - **An internal tool** with a unique domain that doesn't match any of the other templates.
 - **A prototype** — ship the agent now, add real UI later.

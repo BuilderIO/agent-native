@@ -45,12 +45,11 @@ export class ValidationError extends Error {
 }
 
 /**
- * Move "starter" to the top of the list so it lines up with clack's default
- * highlight on the first option — otherwise users have to scroll to see that
- * Starter is pre-selected.
+ * Move the primitive-first and starter on-ramps to the top of the list so they
+ * line up with clack's default highlight.
  */
-function starterFirst(templates: TemplateMeta[]): TemplateMeta[] {
-  return moveTemplatesToFront(templates, ["starter"]);
+function onRampFirst(templates: TemplateMeta[]): TemplateMeta[] {
+  return moveTemplatesToFront(templates, ["headless", "starter"]);
 }
 
 function moveTemplatesToFront(
@@ -65,11 +64,11 @@ function moveTemplatesToFront(
   return [...preferred, ...templates.filter((t) => !preferredSet.has(t.name))];
 }
 
-/** Blank scaffold option appended to every picker. */
-const BLANK_OPTION = {
-  name: "blank",
-  label: "Blank",
-  hint: "Empty starter — build from scratch",
+/** Primitive-first scaffold option appended to standalone pickers. */
+const HEADLESS_OPTION = {
+  name: "headless",
+  label: "Headless",
+  hint: "Action-first app with one hello primitive and no UI shell",
 };
 
 export interface CreateAppOptions {
@@ -115,6 +114,12 @@ export async function createApp(
   // Use `--template a,b` or pass no --template to opt into the workspace
   // flow with the multi-select picker.
   const parsed = parseTemplateList(opts?.template);
+  if (parsed.includes("headless") && parsed.length > 1) {
+    clack.cancel(
+      "The headless scaffold is standalone-only. Use `agent-native create my-app --headless`, or use the Starter template when adding a UI app to a workspace.",
+    );
+    process.exit(1);
+  }
   if (parsed.length === 1) {
     await createStandaloneApp(name, opts, clack);
     return;
@@ -144,8 +149,8 @@ async function createWorkspaceInteractive(
       "container — it isn't an app itself. Inside it you pick one or more apps",
       "(below), and each app gets its own route, agent, and UI. Apps in the",
       "same workspace share auth, database, and the agent chat. Add more apps",
-      "later with `npx @agent-native/core@latest add-app`. Starter is a minimal scaffold —",
-      "useful as a blank app to build from scratch alongside the others.",
+      "later with `npx @agent-native/core@latest add-app`. Starter is the UI on-ramp",
+      "for a blank app with agent chat and the browser shell already wired.",
       "Dispatch is always included as the workspace control plane —",
       "it owns shared secrets, messaging, approvals, and cross-app routing.",
     ].join("\n"),
@@ -185,7 +190,7 @@ async function createWorkspaceInteractive(
       // GitHub fetch doesn't look like a frozen "Scaffolding..." message.
       // Mirrors the local-vs-remote decision inside scaffoldAppTemplate.
       const willDownload =
-        t !== "blank" && t.startsWith("github:")
+        t !== "headless" && t.startsWith("github:")
           ? true
           : !findLocalTemplate(normalizeTemplateName(t));
       s.message(
@@ -419,6 +424,12 @@ export async function addAppToWorkspace(
 
   // Non-interactive path: name + single --template
   const preselected = parseTemplateList(opts?.template);
+  if (preselected.includes("headless")) {
+    clack.cancel(
+      "The headless scaffold is standalone-only. Use `agent-native create my-app --headless` outside a workspace, or use the Starter template when adding a UI app to a workspace.",
+    );
+    process.exit(1);
+  }
   if (name && preselected.length === 1) {
     const tpl = preselected[0];
     await scaffoldOneAppIntoWorkspace(workspace, name, tpl, clack);
@@ -538,16 +549,18 @@ async function createStandaloneApp(
     const picked = await clack.select({
       message: "Which template would you like to use?",
       options: [
-        ...starterFirst(coreTemplates()).map((t) => ({
-          value: t.name,
-          label: t.label,
-          hint: t.hint,
-        })),
         {
-          value: BLANK_OPTION.name,
-          label: BLANK_OPTION.label,
-          hint: BLANK_OPTION.hint,
+          value: HEADLESS_OPTION.name,
+          label: HEADLESS_OPTION.label,
+          hint: HEADLESS_OPTION.hint,
         },
+        ...onRampFirst(coreTemplates())
+          .filter((t) => t.name !== HEADLESS_OPTION.name)
+          .map((t) => ({
+            value: t.name,
+            label: t.label,
+            hint: t.hint,
+          })),
       ],
     });
     if (clack.isCancel(picked)) {
@@ -559,7 +572,11 @@ async function createStandaloneApp(
   template = normalizeTemplateName(template);
 
   const s = clack.spinner();
-  s.start(`Downloading the ${template} template from GitHub…`);
+  s.start(
+    template === "headless"
+      ? "Scaffolding the headless action app..."
+      : `Downloading the ${template} template from GitHub...`,
+  );
   try {
     await scaffoldAppTemplate(targetDir, template);
     s.message(`Setting up ${name}…`);
@@ -574,7 +591,24 @@ async function createStandaloneApp(
 
   tryGitInit(targetDir);
 
-  clack.outro(`Done! Next steps:\n\n  cd ${name}\n  pnpm install\n  pnpm dev`);
+  if (template === "headless") {
+    clack.outro(
+      [
+        "Done! Next steps:",
+        "",
+        `  cd ${name}`,
+        "  pnpm install",
+        "  pnpm action hello --name Builder",
+        `  pnpm agent "Call hello for Builder"`,
+        "",
+        "Add a UI later by starting from the Starter template; `agent-native add` is reserved for integration blueprints.",
+      ].join("\n"),
+    );
+  } else {
+    clack.outro(
+      `Done! Next steps:\n\n  cd ${name}\n  pnpm install\n  pnpm dev`,
+    );
+  }
 }
 
 /**
@@ -599,7 +633,7 @@ function cleanupOnFailure(targetDir: string): void {
 
 /**
  * Scaffold a single app template into `targetDir`. Resolves:
- *   - "blank" → bundled default template
+ *   - "headless" / legacy "blank" → bundled action-first template
  *   - "github:user/repo" → download the whole repo
  *   - first-party template name → download that subdir from BuilderIO/agent-native
  */
@@ -609,20 +643,20 @@ async function scaffoldAppTemplate(
 ): Promise<void> {
   fs.mkdirSync(path.dirname(targetDir), { recursive: true });
 
-  if (template === "blank") {
-    const packageRoot = path.resolve(__dirname, "../..");
-    const defaultDir = path.join(packageRoot, "src/templates/default");
-    if (!fs.existsSync(defaultDir)) {
-      throw new Error(
-        `Default template not found at ${defaultDir}. Is the package installed correctly?`,
-      );
-    }
-    copyDir(defaultDir, targetDir);
-    return;
-  }
-
   // Normalize legacy / renamed aliases.
   let resolved = normalizeTemplateName(template);
+
+  if (resolved === "headless") {
+    const packageRoot = path.resolve(__dirname, "../..");
+    const headlessDir = path.join(packageRoot, "src/templates/headless");
+    if (!fs.existsSync(headlessDir)) {
+      throw new Error(
+        `Headless template not found at ${headlessDir}. Is the package installed correctly?`,
+      );
+    }
+    copyDir(headlessDir, targetDir);
+    return;
+  }
 
   if (resolved.startsWith("github:")) {
     const repo = resolved.slice("github:".length);
@@ -666,6 +700,7 @@ function findLocalTemplate(name: string): string | undefined {
 }
 
 function normalizeTemplateName(template: string): string {
+  if (template === "blank") return "headless";
   if (template === "video") return "videos";
   if (template === "image" || template === "images" || template === "asset") {
     return "assets";
@@ -803,7 +838,7 @@ function postProcessStandalone(
   renameGitignore(targetDir);
 
   // No monorepo-only files to drop for standalone scaffolds.
-  // DEVELOPING.md is intentionally kept: it documents `pnpm dev`,
+  // DEVELOPING.md is intentionally kept: it documents local run commands,
   // DATABASE_URL defaults, and other local-run instructions that are equally
   // valid for standalone apps.
 
@@ -864,17 +899,20 @@ function postProcessStandalone(
     const existing = fs.existsSync(wsPath)
       ? fs.readFileSync(wsPath, "utf-8")
       : "";
-    const updated = mergeWorkspaceYamlSections(existing, {
-      overrides: {
-        '"@assistant-ui/store"': '">=0.2.9 <0.2.14"',
-        '"@assistant-ui/tap"': '"^0.5.14"',
-      },
+    const sections: Record<string, Record<string, string>> = {
       allowBuilds: {
         "better-sqlite3": "true",
         esbuild: "true",
         "node-pty": "true",
       },
-    });
+    };
+    if (templateName !== "headless") {
+      sections.overrides = {
+        '"@assistant-ui/store"': '">=0.2.9 <0.2.14"',
+        '"@assistant-ui/tap"': '"^0.5.14"',
+      };
+    }
+    const updated = mergeWorkspaceYamlSections(existing, sections);
     if (updated !== existing) {
       fs.writeFileSync(wsPath, updated);
     }
@@ -937,7 +975,7 @@ async function promptTemplatePicker(
   const excluded = new Set(opts?.excludeNames ?? []);
   const orderedTemplates = opts?.preferredFirst
     ? moveTemplatesToFront(coreTemplates(), opts.preferredFirst)
-    : starterFirst(coreTemplates());
+    : onRampFirst(coreTemplates());
   const recommendedNames = new Set(opts?.recommendedNames ?? []);
   const options = orderedTemplates
     .filter((t) => !excluded.has(t.name))

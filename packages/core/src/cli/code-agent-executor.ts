@@ -1,3 +1,8 @@
+import { spawn } from "node:child_process";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+
 import {
   createToolSearchEntry,
   TOOL_SEARCH_ACTION_NAME,
@@ -83,9 +88,18 @@ interface PendingCodeAgentApproval {
   permissionMode: CodeAgentPermissionMode;
 }
 
+interface CodexCliProcessResult {
+  exitCode: number | null;
+  exitSignal: NodeJS.Signals | null;
+  stdout: string;
+  stderr: string;
+  error?: string;
+}
+
 const DEFAULT_COMMAND_TIMEOUT_MS = 120_000;
 const MAX_TOOL_OUTPUT_CHARS = 50_000;
 const MAX_FILE_READ_CHARS = 120_000;
+const CODEX_CLI_ENGINE_NAME = "codex-cli";
 
 /**
  * Number of most-recent transcript events reconstructed as native
@@ -169,12 +183,25 @@ export async function executeCodeAgentRun(
     metadata: { status: "running", phase: "executing" },
   });
 
-  const requestedEngine = metadataString(existing, "engine");
+  const requestedEngine = normalizeRequestedEngine(
+    metadataString(existing, "engine"),
+  );
+  if (requestedEngine === CODEX_CLI_ENGINE_NAME) {
+    return executeCodexCliRun({
+      run: existing,
+      prompt: executionPrompt,
+      model: options.model ?? metadataString(existing, "model"),
+      permissionMode: existing.permissionMode ?? "full-auto",
+      stdout: options.stdout,
+      signal: options.signal,
+    });
+  }
+
   const engine =
     options.engine ?? (await resolveExecutorEngine(requestedEngine));
   if (!engine) {
     const message =
-      "No LLM provider key was found. Set ANTHROPIC_API_KEY, OPENAI_API_KEY, GOOGLE_GENERATIVE_AI_API_KEY, or another supported provider key and resume this run.";
+      "No LLM provider key was found. Set ANTHROPIC_API_KEY, OPENAI_API_KEY, GOOGLE_GENERATIVE_AI_API_KEY, another supported provider key, or select Codex CLI after running `codex login`.";
     options.stdout?.write(`${message}\n`);
     appendCodeAgentTranscriptEvent({
       runId: existing.id,
@@ -501,6 +528,290 @@ export async function executeCodeAgentRun(
     options.signal?.removeEventListener("abort", abortFromParent);
     await mcpManager?.stop().catch(() => undefined);
     void running;
+  }
+}
+
+async function executeCodexCliRun(options: {
+  run: CodeAgentRunRecord;
+  prompt: string;
+  model?: string;
+  permissionMode: CodeAgentPermissionMode;
+  stdout?: NodeJS.WritableStream;
+  signal?: AbortSignal;
+}): Promise<CodeAgentRunRecord | null> {
+  const cwd = options.run.cwd || process.cwd();
+  const outputDir = fs.mkdtempSync(
+    path.join(os.tmpdir(), "agent-native-code-codex-"),
+  );
+  const outputPath = path.join(outputDir, "last-message.txt");
+  const model = normalizeCodexCliModel(options.model);
+  const args = [
+    "exec",
+    "--cd",
+    cwd,
+    "--color",
+    "never",
+    "--skip-git-repo-check",
+    "--sandbox",
+    codexSandboxForPermissionMode(options.permissionMode),
+    "--ask-for-approval",
+    "never",
+    "--output-last-message",
+    outputPath,
+  ];
+  if (model) args.push("--model", model);
+  args.push("-");
+
+  appendCodeAgentTranscriptEvent({
+    runId: options.run.id,
+    kind: "status",
+    message: "Starting Codex CLI with local Codex authentication.",
+    metadata: {
+      status: "running",
+      phase: "executing",
+      engine: CODEX_CLI_ENGINE_NAME,
+    },
+  });
+
+  try {
+    const result = await runCodexCliProcess({
+      args,
+      cwd,
+      prompt: buildCodexCliPrompt(options.run, options.prompt),
+      stdout: options.stdout,
+      signal: options.signal,
+    });
+
+    if (result.exitCode !== 0) {
+      const message =
+        result.error ??
+        result.stderr.trim() ??
+        `Codex CLI exited with ${result.exitSignal ?? result.exitCode}.`;
+      options.stdout?.write(`\nCodex CLI run failed: ${message}\n`);
+      appendCodeAgentTranscriptEvent({
+        runId: options.run.id,
+        kind: "status",
+        message: `Codex CLI run failed: ${message}`,
+        metadata: {
+          status: "errored",
+          phase: "error",
+          engine: CODEX_CLI_ENGINE_NAME,
+          exitCode: result.exitCode,
+          exitSignal: result.exitSignal,
+        },
+      });
+      return updateCodeAgentRunRecord(options.run.id, {
+        status: options.signal?.aborted ? "paused" : "errored",
+        phase: options.signal?.aborted ? "paused" : "error",
+        progress: {
+          label: options.signal?.aborted ? "Paused" : "Error",
+          completed: 0,
+          total: 1,
+          failed: options.signal?.aborted ? 0 : 1,
+          percent: 0,
+        },
+        metadata: {
+          executionError: message,
+          executionErroredAt: new Date().toISOString(),
+          engine: CODEX_CLI_ENGINE_NAME,
+          model: model ?? "codex-default",
+        },
+      });
+    }
+
+    const finalMessage =
+      readCodexLastMessage(outputPath) ||
+      result.stdout.trim() ||
+      "Codex CLI run completed.";
+    appendCodeAgentTranscriptEvent({
+      runId: options.run.id,
+      kind: "system",
+      message: finalMessage,
+      metadata: {
+        role: "assistant",
+        engine: CODEX_CLI_ENGINE_NAME,
+        model: model ?? "codex-default",
+      },
+    });
+
+    const pendingFollowUp = dequeueCodeAgentFollowUp(options.run.id);
+    if (pendingFollowUp) {
+      const message =
+        pendingFollowUp.mode === "queued"
+          ? "Codex CLI run completed; running queued follow-up."
+          : "Codex CLI run completed; applying steering follow-up.";
+      appendCodeAgentTranscriptEvent({
+        runId: options.run.id,
+        kind: "status",
+        message,
+        metadata: {
+          status: "running",
+          phase: "follow-up",
+          followUpId: pendingFollowUp.id,
+          followUpMode: pendingFollowUp.mode,
+          engine: CODEX_CLI_ENGINE_NAME,
+        },
+      });
+      if (pendingFollowUp.permissionMode) {
+        updateCodeAgentRunRecord(options.run.id, {
+          permissionMode: pendingFollowUp.permissionMode,
+        });
+      }
+      return executeCodeAgentRun({
+        runId: options.run.id,
+        prompt: pendingFollowUp.prompt,
+        attachments:
+          pendingFollowUp.attachments ??
+          userPromptAttachmentsForEvent(
+            options.run.id,
+            pendingFollowUp.eventId,
+          ),
+        appendUserEvent: false,
+        stdout: options.stdout,
+        signal: options.signal,
+      });
+    }
+
+    appendCodeAgentTranscriptEvent({
+      runId: options.run.id,
+      kind: "status",
+      message: "Codex CLI run completed.",
+      metadata: {
+        status: "completed",
+        phase: "complete",
+        engine: CODEX_CLI_ENGINE_NAME,
+      },
+    });
+    return updateCodeAgentRunRecord(options.run.id, {
+      status: "completed",
+      phase: "complete",
+      needsApproval: false,
+      progress: {
+        label: "Complete",
+        completed: 1,
+        total: 1,
+        percent: 100,
+      },
+      metadata: {
+        executionCompletedAt: new Date().toISOString(),
+        engine: CODEX_CLI_ENGINE_NAME,
+        model: model ?? "codex-default",
+        permissionMode: options.permissionMode,
+      },
+    });
+  } finally {
+    fs.rmSync(outputDir, { recursive: true, force: true });
+  }
+}
+
+function runCodexCliProcess(options: {
+  args: string[];
+  cwd: string;
+  prompt: string;
+  stdout?: NodeJS.WritableStream;
+  signal?: AbortSignal;
+}): Promise<CodexCliProcessResult> {
+  return new Promise((resolve) => {
+    let stdout = "";
+    let stderr = "";
+    let settled = false;
+    const child = spawn("codex", options.args, {
+      cwd: options.cwd,
+      stdio: ["pipe", "pipe", "pipe"],
+      env: process.env,
+    });
+    const finish = (
+      result: Omit<CodexCliProcessResult, "stdout" | "stderr">,
+    ) => {
+      if (settled) return;
+      settled = true;
+      options.signal?.removeEventListener("abort", onAbort);
+      resolve({ ...result, stdout, stderr });
+    };
+    const onAbort = () => {
+      child.kill("SIGTERM");
+    };
+    if (options.signal) {
+      if (options.signal.aborted) onAbort();
+      else options.signal.addEventListener("abort", onAbort, { once: true });
+    }
+    child.stdout?.on("data", (chunk) => {
+      const text = chunk.toString();
+      stdout += text;
+      options.stdout?.write(text);
+    });
+    child.stderr?.on("data", (chunk) => {
+      stderr += chunk.toString();
+    });
+    child.on("error", (err) => {
+      finish({
+        exitCode: 1,
+        exitSignal: null,
+        error:
+          (err as NodeJS.ErrnoException).code === "ENOENT"
+            ? "Codex CLI was not found. Install Codex and run `codex login`."
+            : err instanceof Error
+              ? err.message
+              : String(err),
+      });
+    });
+    child.on("exit", (exitCode, exitSignal) => {
+      finish({ exitCode, exitSignal });
+    });
+    child.stdin?.end(options.prompt);
+  });
+}
+
+function buildCodexCliPrompt(run: CodeAgentRunRecord, prompt: string): string {
+  const permissionMode = run.permissionMode ?? "full-auto";
+  const mode =
+    permissionMode === "read-only" || permissionMode === "ask-before-edit"
+      ? "Plan"
+      : "Auto";
+  const modeInstruction =
+    mode === "Plan"
+      ? "Inspect and explain only. Do not edit files or run mutating commands."
+      : "Edit and verify as needed. Do not create, switch, reset, rebase, or stash git branches.";
+  return [
+    `You are running from Agent-Native Code in ${run.cwd || process.cwd()}.`,
+    "Follow the repository AGENTS.md and any relevant skill instructions.",
+    `Run mode: ${mode} (${permissionMode}). ${modeInstruction}`,
+    "",
+    "# User request",
+    prompt,
+  ].join("\n");
+}
+
+function codexSandboxForPermissionMode(
+  permissionMode: CodeAgentPermissionMode,
+): "read-only" | "workspace-write" {
+  return permissionMode === "read-only" || permissionMode === "ask-before-edit"
+    ? "read-only"
+    : "workspace-write";
+}
+
+function normalizeCodexCliModel(model: string | undefined): string | undefined {
+  const trimmed = model?.trim();
+  if (!trimmed || trimmed === "auto" || trimmed === CODEX_CLI_ENGINE_NAME) {
+    return undefined;
+  }
+  return trimmed;
+}
+
+function normalizeRequestedEngine(
+  engine: string | undefined,
+): string | undefined {
+  const trimmed = engine?.trim();
+  if (!trimmed || trimmed === "auto") return undefined;
+  return trimmed;
+}
+
+function readCodexLastMessage(filePath: string): string | null {
+  try {
+    const text = fs.readFileSync(filePath, "utf-8").trim();
+    return text || null;
+  } catch {
+    return null;
   }
 }
 

@@ -61,6 +61,10 @@ coding agents can discover the same workspace-wide guidance from the root.
   `/<app-id>`.
 - When a user explicitly asks for a new app or workspace app, create the
   separate workspace app.
+- For composable workflows, prefer many one-job headless or small-UI apps that
+  discover and call sibling apps over A2A. Read
+  `packages/shared/.agents/skills/composable-mini-apps/SKILL.md` before
+  designing cross-app orchestration.
 - Dispatch vault access is workspace-wide by default: every saved vault key is
   available to every workspace app. Only create or request per-app vault grants
   when Dispatch's vault access setting is switched to manual mode.

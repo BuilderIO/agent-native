@@ -81,6 +81,24 @@ function recapWireframeContent(): PlanContent {
   } as unknown as PlanContent;
 }
 
+function rtlContent(): PlanContent {
+  return {
+    version: 2,
+    title: "طرح فارسی",
+    brief: "مرور تغییرات با چند عبارت انگلیسی مثل API.",
+    blocks: [
+      {
+        id: "rt-rtl",
+        type: "rich-text",
+        data: {
+          markdown:
+            "## مرحله اول\n\nاین متن شامل `Option::get($id)` و یک فهرست است.\n\n- مورد اول",
+        },
+      },
+    ],
+  } as unknown as PlanContent;
+}
+
 class MockResizeObserver {
   observe() {}
   unobserve() {}
@@ -104,6 +122,29 @@ describe("PlanContentRenderer recap files sidebar", () => {
     act(() => root.unmount());
     container.remove();
     vi.unstubAllGlobals();
+  });
+
+  it("sets document direction from Persian plan content", () => {
+    act(() => {
+      root.render(
+        <PlanContentRenderer
+          content={rtlContent()}
+          editingDisabled
+          fallbackTitle="Untitled plan"
+          fallbackBrief=""
+        />,
+      );
+    });
+
+    const article = container.querySelector<HTMLElement>(
+      "[data-plan-document]",
+    );
+    const shell = container.querySelector<HTMLElement>(".plan-document-shell");
+    const prose = container.querySelector<HTMLElement>(".an-rich-md-prose");
+
+    expect(article?.dataset.planDirection).toBe("rtl");
+    expect(shell?.getAttribute("dir")).toBe("rtl");
+    expect(prose?.getAttribute("dir")).toBe("rtl");
   });
 
   it("mirrors the first file-tree into a left sidebar and omits it from the contents", () => {

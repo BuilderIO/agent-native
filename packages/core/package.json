@@ -118,6 +118,7 @@
     "./provider-api/actions/query-staged-dataset": "./dist/provider-api/actions/query-staged-dataset.js",
     "./provider-api/actions/list-staged-datasets": "./dist/provider-api/actions/list-staged-datasets.js",
     "./provider-api/actions/delete-staged-dataset": "./dist/provider-api/actions/delete-staged-dataset.js",
+    "./provider-api/actions/github-repo-files": "./dist/provider-api/actions/github-repo-files.js",
     "./local-artifacts": {
       "types": "./dist/local-artifacts/index.d.ts",
       "default": "./dist/local-artifacts/index.js"

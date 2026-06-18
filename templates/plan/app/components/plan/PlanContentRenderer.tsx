@@ -35,6 +35,7 @@ import {
 } from "./PlanVisualSurface";
 import { PlanTableOfContents } from "./PlanTableOfContents";
 import { planBlockRegistry, createPlanBlockRenderContext } from "./planBlocks";
+import { getPlanContentDirection } from "./planTextDirection";
 
 const loadPlanDocumentEditor = () => import("../editor/PlanDocumentEditor");
 const LazyPlanDocumentEditor = lazy(() =>
@@ -416,10 +417,15 @@ export function PlanContentRenderer({
         : undefined,
     [isRecap, showCodeAnnotationOverlays],
   );
+  const documentDirection = useMemo(
+    () => getPlanContentDirection(content, fallbackTitle, fallbackBrief),
+    [content, fallbackBrief, fallbackTitle],
+  );
 
   const blockRenderContext = useMemo(
     () =>
       createPlanBlockRenderContext({
+        textDirection: documentDirection,
         contentUpdatedAt,
         planId,
         collabUser,
@@ -487,6 +493,7 @@ export function PlanContentRenderer({
       }),
     [
       contentUpdatedAt,
+      documentDirection,
       planId,
       collabUser,
       editingDisabled,
@@ -615,6 +622,7 @@ export function PlanContentRenderer({
       <article
         className="plan-content-surface relative min-h-full bg-plan-document text-plan-text"
         data-plan-document
+        data-plan-direction={documentDirection}
         data-recap-screenshot-theme={recapScreenshotTheme ?? undefined}
       >
         {autosaveFailed && (
@@ -653,7 +661,11 @@ export function PlanContentRenderer({
           />
         )}
         {!prototypeOnly && (
-          <div className="plan-document-shell relative mx-auto w-full max-w-[900px] px-6 pb-12 pt-16 sm:px-10 sm:py-12 lg:py-14">
+          <div
+            className="plan-document-shell relative mx-auto w-full max-w-[900px] px-6 pb-12 pt-16 sm:px-10 sm:py-12 lg:py-14"
+            data-plan-direction={documentDirection}
+            dir={documentDirection}
+          >
             <header className="border-b border-plan-line pb-8">
               {!hideRecapChrome && (
                 <p className="mb-4 text-xs font-bold uppercase tracking-[0.16em] text-plan-muted">

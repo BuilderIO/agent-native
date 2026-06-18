@@ -128,11 +128,13 @@ function assertAgentSymlinks(projectDir: string): void {
     true,
     "create must configure CLAUDE.md for agent tools",
   );
-  const skillsPath = path.join(projectDir, ".claude", "skills");
+  const sharedSkillsPath = path.join(projectDir, ".agents", "skills");
+  if (!fs.existsSync(sharedSkillsPath)) return;
+  const claudeSkillsPath = path.join(projectDir, ".claude", "skills");
   assert.equal(
-    fs.existsSync(skillsPath),
+    fs.existsSync(claudeSkillsPath),
     true,
-    "create must configure .claude/skills for agent tools",
+    "create must configure .claude/skills when .agents/skills exists",
   );
 }
 

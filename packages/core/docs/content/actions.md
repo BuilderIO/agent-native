@@ -19,6 +19,47 @@ One definition, seven consumers. This is rung 3 of the [ladder](/docs/what-is-ag
 If you are deciding whether to expose an operation headlessly, in chat, in an
 embedded sidecar, or as a full app screen, see [Agent Surfaces](/docs/agent-surfaces).
 
+## Start with one action {#hello-action}
+
+The primitive-first on-ramp is one action, not a template. In a headless
+scaffold such as `agent-native create my-agent --headless`, this can be the
+whole first app:
+
+```ts
+// actions/hello.ts
+import { defineAction } from "@agent-native/core";
+import { z } from "zod";
+
+export default defineAction({
+  description: "Say hello from the local agent.",
+  schema: z.object({
+    name: z.string().default("world"),
+  }),
+  http: { method: "GET" },
+  readOnly: true,
+  run: async ({ name }) => {
+    return { message: `Hello, ${name}!` };
+  },
+});
+```
+
+Run it from the same folder:
+
+```bash
+pnpm action hello --name Steve
+```
+
+Then start the app and ask the built-in agent to call the action. That is the
+Then run the app-agent loop against the folder:
+
+```bash
+pnpm agent "Call hello for Steve and explain the result"
+```
+
+That is the same app-agent loop your scheduled jobs, chat UI, external MCP
+tools, and future screens will use. Starter and domain templates are for adding
+UI around actions, not a required prerequisite for the action itself.
+
 ## Defining an action {#defining}
 
 ```ts

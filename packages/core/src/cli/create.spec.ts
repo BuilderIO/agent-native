@@ -6,6 +6,14 @@ import { createApp, _getCoreDependencyVersion } from "./create.js";
 
 let tmpDir: string;
 
+function allDeps(pkg: Record<string, any>): Record<string, string> {
+  return {
+    ...pkg.dependencies,
+    ...pkg.devDependencies,
+    ...pkg.peerDependencies,
+  };
+}
+
 beforeEach(() => {
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "agent-native-create-test-"));
   // createApp resolves relative to cwd
@@ -34,22 +42,15 @@ describe("createApp", { timeout: 30000 }, () => {
     expect(pkg.name).not.toContain("{{");
   });
 
-  it("replaces {{APP_TITLE}} in route index file so it is not left as a bare identifier", async () => {
+  it("keeps the blank scaffold headless instead of generating UI files", async () => {
     await createApp("my-app", { template: "blank" });
-    // The _index.tsx (or equivalent) must not contain the unreplaced placeholder
-    const indexPath = path.join(
-      tmpDir,
-      "my-app",
-      "app",
-      "routes",
-      "_index.tsx",
+    const root = path.join(tmpDir, "my-app");
+
+    expect(fs.existsSync(path.join(root, "app"))).toBe(false);
+    expect(fs.existsSync(path.join(root, "vite.config.ts"))).toBe(false);
+    expect(fs.existsSync(path.join(root, "react-router.config.ts"))).toBe(
+      false,
     );
-    if (fs.existsSync(indexPath)) {
-      const content = fs.readFileSync(indexPath, "utf-8");
-      expect(content).not.toContain("{{APP_TITLE}}");
-      // The replaced value should use title-cased words
-      expect(content).toContain("My App");
-    }
   });
 
   it("replaces {{APP_NAME}} in AGENTS.md", async () => {
@@ -90,8 +91,8 @@ describe("createApp", { timeout: 30000 }, () => {
     );
   });
 
-  it("scaffolds blank apps with action-backed UI guidance", async () => {
-    await createApp("my-app", { template: "blank" });
+  it("scaffolds headless apps with one action primitive and no UI shell", async () => {
+    await createApp("my-app", { template: "headless" });
     const root = path.join(tmpDir, "my-app");
 
     const hello = fs.readFileSync(
@@ -100,24 +101,81 @@ describe("createApp", { timeout: 30000 }, () => {
     );
     expect(hello).toContain("defineAction");
     expect(hello).toContain('http: { method: "GET" }');
+    expect(hello).toContain("readOnly: true");
 
-    const index = fs.readFileSync(
-      path.join(root, "app", "routes", "_index.tsx"),
-      "utf-8",
+    const pkg = JSON.parse(
+      fs.readFileSync(path.join(root, "package.json"), "utf-8"),
     );
-    expect(index).toContain("useActionQuery");
-    expect(index).not.toContain("/api/hello");
+    const deps = allDeps(pkg);
 
-    const actionsSkill = fs.readFileSync(
-      path.join(root, ".agents", "skills", "actions", "SKILL.md"),
-      "utf-8",
+    expect(fs.existsSync(path.join(root, "app"))).toBe(false);
+    expect(fs.existsSync(path.join(root, "vite.config.ts"))).toBe(false);
+    expect(fs.existsSync(path.join(root, "react-router.config.ts"))).toBe(
+      false,
     );
-    expect(actionsSkill).toContain("useActionQuery");
-    expect(actionsSkill).toContain("No duplicate `/api/` routes needed");
+    expect(deps.react).toBeUndefined();
+    expect(deps["react-router"]).toBeUndefined();
+    expect(deps.vite).toBeUndefined();
+    expect(deps["@react-router/dev"]).toBeUndefined();
+
+    const agents = fs.readFileSync(path.join(root, "AGENTS.md"), "utf-8");
+    expect(agents).toContain("This is a headless Agent Native app");
+    expect(agents).toContain("This app is not stateless");
+    expect(agents).toContain("Starter template");
+    expect(agents).toContain("integration blueprints");
 
     expect(
       fs.existsSync(path.join(root, "server", "routes", "api", "hello.get.ts")),
     ).toBe(false);
+  });
+
+  it("keeps blank as a legacy alias for the headless scaffold", async () => {
+    await createApp("legacy-blank", { template: "blank" });
+    const root = path.join(tmpDir, "legacy-blank");
+
+    expect(fs.existsSync(path.join(root, "actions", "hello.ts"))).toBe(true);
+    expect(fs.existsSync(path.join(root, "app"))).toBe(false);
+    expect(fs.existsSync(path.join(root, "vite.config.ts"))).toBe(false);
+  });
+
+  it("rejects mixing headless with workspace app templates", async () => {
+    let exited = false;
+    const origExit = process.exit.bind(process);
+    // @ts-ignore
+    process.exit = () => {
+      exited = true;
+      throw new Error("process.exit called");
+    };
+    try {
+      await createApp("my-ws", { template: "headless,starter" });
+    } catch {
+      // expected
+    }
+    process.exit = origExit;
+    expect(exited).toBe(true);
+  });
+
+  it("rejects adding headless inside an existing workspace", async () => {
+    fs.writeFileSync(
+      path.join(tmpDir, "package.json"),
+      JSON.stringify({ "agent-native": { workspaceCore: "@test/shared" } }),
+    );
+    fs.mkdirSync(path.join(tmpDir, "apps"));
+
+    let exited = false;
+    const origExit = process.exit.bind(process);
+    // @ts-ignore
+    process.exit = () => {
+      exited = true;
+      throw new Error("process.exit called");
+    };
+    try {
+      await createApp("api", { template: "headless" });
+    } catch {
+      // expected
+    }
+    process.exit = origExit;
+    expect(exited).toBe(true);
   });
 
   it("exits with error for invalid app name", async () => {

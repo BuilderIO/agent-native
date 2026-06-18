@@ -5,15 +5,16 @@ description: "Why most AI apps feel half-built, what makes an app truly agent-na
 
 # What Is Agent-Native?
 
-Agent-native is a way of building software where the AI agent and the UI are **equal partners**. Everything the agent can do, the UI can do. Everything the UI can do, the agent can do. They share the same database, the same state, and they stay in sync.
+Agent-native is a way of building software where the AI agent and the product surface around it are **equal partners**. That surface can be one headless action, a rich chat, or a full UI. The important part is that agents and humans share the same actions, database, and state.
 
 If you only remember one thing from this page, remember this: most AI apps today stop one step short of being useful, and that gap is the biggest mistake in the space right now.
 
 ## What it looks like as a user {#what-it-looks-like}
 
-Picture your inbox, calendar, form builder, or analytics dashboard. Sometimes the first screen is chat: you ask what you want, the agent guides setup, shows a table or chart, and opens the right app view. Sometimes chat is docked on the right side of a full application. In both cases, you can:
+Picture a background worker, inbox, calendar, form builder, or analytics dashboard. Sometimes there is no custom screen yet: you run one action or one headless app-agent prompt. Sometimes the first screen is chat: you ask what you want, the agent guides setup, shows a table or chart, and opens the right app view. Sometimes chat is docked on the right side of a full application. Across those shapes, you can:
 
-- **Click anything you'd normally click.** All the buttons, lists, dashboards, keyboard shortcuts — they all still work. This is a real app, not a chat window pretending to be one.
+- **Start with the real operation.** One durable action can run from the CLI, HTTP, MCP, A2A, the app-agent loop, and later a UI.
+- **Click anything you'd normally click when there is a UI.** All the buttons, lists, dashboards, keyboard shortcuts — they all call the same operations the agent can call.
 - **Or just ask.** Type "reply to the email from Sara saying I'll be there by 3" into the agent. It opens the right thread, drafts the reply, and shows it to you for approval — exactly as if you'd done it by hand.
 - **See what it sees.** Open an email, and the agent knows which one. Select a chart, and the agent knows which chart. Highlight a paragraph and hit Cmd+I, and the agent acts on just that paragraph.
 - **Watch it work.** As the agent does things — opens views, edits drafts, runs reports — the UI updates in real time. You can stop it, redirect it, or take over with the mouse at any moment.
@@ -185,7 +186,7 @@ One action, many surfaces: the agent calls it as a tool, the UI calls it as a ty
 
 ## What's next {#whats-next}
 
-- [**Getting Started**](/docs) — pick a template and run it
+- [**Getting Started**](/docs) — start with one action, pick a template, or install a skill
 - [**Agent Surfaces**](/docs/agent-surfaces) — choose headless, rich chat, embedded sidecar, or full app
 - [**Key Concepts**](/docs/key-concepts) — the architecture: SQL, actions, polling sync, context awareness, portability
 - [**Templates**](/docs/cloneable-saas) — templates as complete products you own

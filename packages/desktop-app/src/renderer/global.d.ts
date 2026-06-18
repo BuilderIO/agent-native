@@ -120,7 +120,12 @@ type CodeAgentRemoteConnectorPairResult = {
   error?: string;
 };
 
-type CodeAgentProviderId = "builder" | "anthropic" | "openai" | "google";
+type CodeAgentProviderId =
+  | "builder"
+  | "anthropic"
+  | "openai"
+  | "google"
+  | "codex";
 
 type CodeAgentProviderCredentialKey =
   | "ANTHROPIC_API_KEY"
@@ -136,7 +141,7 @@ type CodeAgentProviderStatus = {
   configuredKeys: CodeAgentProviderCredentialKey[];
   missingKeys: CodeAgentProviderCredentialKey[];
   savedKeys: CodeAgentProviderCredentialKey[];
-  source?: "desktop-settings" | "environment" | "mixed";
+  source?: "desktop-settings" | "environment" | "mixed" | "local-codex";
 };
 
 type CodeAgentProviderSettings = {

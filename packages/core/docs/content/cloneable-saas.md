@@ -29,7 +29,7 @@ Each one is a real app you could use today, and the launching pad for your own v
 | [**Plan**](/docs/template-plan)           | Visual plans and PR recaps with diagrams, wireframes, and annotations.                                         |
 | [**Dispatch**](/docs/template-dispatch)   | The workspace control plane: shared secrets, reusable integrations, Slack/Telegram, scheduled jobs.            |
 
-Don't want a domain template? See [Pure-Agent Apps / Starter](/docs/pure-agent-apps) for the minimal scaffold.
+Don't want a domain template? Start action-first with [Pure-Agent Apps](/docs/pure-agent-apps), or use [Starter](/docs/template-starter) when you are ready for a blank UI scaffold.
 
 See the full catalog under [Templates](/templates), or jump straight to one — for example, [Dispatch](/docs/template-dispatch) is a great place to start if you want a workspace-style app.
 
@@ -76,7 +76,7 @@ Not ready to scaffold? You can add agent-native superpowers to a coding agent yo
 
 ## Building on this
 
-- [**Getting Started**](/docs/getting-started) — clone your first template and run it locally
+- [**Getting Started**](/docs/getting-started) — start headless, choose a template, or install a skill
 - [**Messaging the agent**](/docs/messaging) — how users (and you) talk to the agent that ships with each template
 - [**Multi-App Workspace**](/docs/multi-app-workspace) — bundle several templates into one workspace that shares auth, brand, and agent
 - [**Dispatch**](/docs/template-dispatch) — the workspace control plane template
@@ -90,7 +90,7 @@ If you're scaffolding now, the CLI command is:
 npx @agent-native/core@latest create my-platform
 ```
 
-You'll get a multi-select picker. Pick one app (standalone) or several (workspace — apps share auth, brand, agent config, and database). Each picked template is scaffolded into `apps/<name>/` with every file you need.
+You'll get a multi-select picker. Pick one app (standalone) or several (workspace — apps share auth, brand, agent config, and database). Each picked template is scaffolded into `apps/<name>/` with every file you need. For an action-only app instead of a template UI, use `npx @agent-native/core@latest create my-agent --headless`.
 
 Fill in `.env` (mostly `ANTHROPIC_API_KEY` and `DATABASE_URL`), `pnpm install`, `pnpm dev`, and it works. No "TODO: implement login," no placeholder routes.
 

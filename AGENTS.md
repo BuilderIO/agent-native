@@ -66,6 +66,9 @@ step is still pending. Use `🔴` only when blocked on user input.
   have a safe way to call it directly through the provider API substrate. If an
   app stores provider credentials on resource/share rows, add a scoped resolver
   that preserves those access checks before exposing raw provider requests.
+- For composable workspace workflows, prefer many focused headless or small-UI
+  mini-apps that discover and call each other over A2A instead of one oversized
+  app. Read `composable-mini-apps` before designing cross-app orchestration.
 - All AI work goes through the agent chat. UIs do not call LLMs directly.
 - Application state belongs in SQL `application_state` so the agent can know
   the current navigation, selection, and focused object.
@@ -179,6 +182,8 @@ Read the relevant skill before making changes in that area:
 - `client-methods` for browser/client APIs that must use named helpers instead
   of raw REST calls.
 - `delegate-to-agent` for LLM/agent delegation.
+- `composable-mini-apps` for many one-job headless apps that discover siblings
+  and compose through `invoke` / `call-agent`.
 - `visual-answer` for code/product questions answered as visual Plan artifacts.
 - `harness-agents` for full agent runtimes like Claude Code, Codex, Pi,
   Cursor, or Mastra.

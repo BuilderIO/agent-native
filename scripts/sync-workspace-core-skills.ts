@@ -46,6 +46,7 @@ const workspaceSkillIncludes = [
   "capture-learnings",
   "client-methods",
   "client-side-routing",
+  "composable-mini-apps",
   "context-awareness",
   "context-xray",
   "create-skill",

@@ -60,7 +60,7 @@ const DIAGRAM_ROUGH_SELECTOR =
 
 function HtmlDiagram({
   data,
-  ctx: _ctx,
+  ctx,
   compact,
 }: {
   data: DiagramData;
@@ -92,8 +92,10 @@ function HtmlDiagram({
     >
       <div
         className="plan-diagram-frame"
+        dir={ctx.textDirection}
         data-theme={isDark ? "dark" : "light"}
         data-style={style}
+        data-text-direction={ctx.textDirection}
         data-plan-diagram-scope={scopeId}
       >
         {scopedCss && <style>{scopedCss}</style>}
@@ -164,10 +166,12 @@ function PositionedDiagram({
   data,
   compact,
   markerId,
+  direction,
 }: {
   data: DiagramData;
   compact?: boolean;
   markerId: string;
+  direction?: BlockRenderContext["textDirection"];
 }) {
   const nodes = (data.nodes ?? []).map((node) => ({
     ...node,
@@ -187,7 +191,7 @@ function PositionedDiagram({
   const yMargin = compact ? 15 : 18;
   const displayNodes = nodes.map((node) => ({
     ...node,
-    displayX: diagramPointPercent(
+    displayXBase: diagramPointPercent(
       node.x,
       paddedViewBox.x,
       paddedViewBox.width,
@@ -195,10 +199,20 @@ function PositionedDiagram({
     ),
     displayY: diagramRowPointPercent(node.y, rows, paddedViewBox, yMargin),
   }));
-  const nodeById = new Map(displayNodes.map((node) => [node.id, node]));
+  const displayNodesForDirection = displayNodes.map((node) => ({
+    ...node,
+    displayX: direction === "rtl" ? 100 - node.displayXBase : node.displayXBase,
+  }));
+  const nodeByIdForDirection = new Map(
+    displayNodesForDirection.map((node) => [node.id, node]),
+  );
 
   return (
-    <div className="plan-sketch rounded-[16px] border border-border bg-muted p-5">
+    <div
+      className="plan-sketch rounded-[16px] border border-border bg-muted p-5"
+      dir={direction}
+      data-text-direction={direction}
+    >
       <div
         className="overflow-auto rounded-xl border border-border bg-background"
         style={{ minHeight: canvasHeight }}
@@ -230,8 +244,8 @@ function PositionedDiagram({
               </marker>
             </defs>
             {edges.map((edge, index) => {
-              const from = nodeById.get(edge.from);
-              const to = nodeById.get(edge.to);
+              const from = nodeByIdForDirection.get(edge.from);
+              const to = nodeByIdForDirection.get(edge.to);
               if (!from || !to) return null;
               return (
                 <line
@@ -252,8 +266,8 @@ function PositionedDiagram({
 
           {!compact &&
             edges.map((edge, index) => {
-              const from = nodeById.get(edge.from);
-              const to = nodeById.get(edge.to);
+              const from = nodeByIdForDirection.get(edge.from);
+              const to = nodeByIdForDirection.get(edge.to);
               if (!edge.label || !from || !to) return null;
               return (
                 <span
@@ -269,7 +283,7 @@ function PositionedDiagram({
               );
             })}
 
-          {displayNodes.map((node, index) => (
+          {displayNodesForDirection.map((node, index) => (
             <article
               key={node.id}
               className="absolute z-20 -translate-x-1/2 -translate-y-1/2 rounded-xl border-2 border-border bg-background p-3 text-foreground shadow-sm"
@@ -392,9 +406,11 @@ function diagramCanvasHeight(rows: number, compact?: boolean): number {
 function SequenceDiagram({
   data,
   compact,
+  direction,
 }: {
   data: DiagramData;
   compact?: boolean;
+  direction?: BlockRenderContext["textDirection"];
 }) {
   const edges = data.edges ?? [];
   const nodes = orderDiagramNodes(data.nodes ?? [], edges);
@@ -405,20 +421,26 @@ function SequenceDiagram({
       </div>
     );
   }
+  const visualNodes = direction === "rtl" ? [...nodes].reverse() : nodes;
   return (
-    <div className="plan-sketch rounded-[16px] border border-border bg-muted p-5">
+    <div
+      className="plan-sketch rounded-[16px] border border-border bg-muted p-5"
+      dir={direction}
+      data-text-direction={direction}
+    >
       <div
         className={cn(
           "flex gap-3 overflow-x-auto pb-2",
           compact ? "items-center" : "items-stretch",
         )}
       >
-        {nodes.map((node, index) => {
-          const next = nodes[index + 1];
+        {visualNodes.map((node, index) => {
+          const next = visualNodes[index + 1];
           const edge = next
             ? edges.find(
                 (candidate) =>
-                  candidate.from === node.id && candidate.to === next.id,
+                  (candidate.from === node.id && candidate.to === next.id) ||
+                  (candidate.from === next.id && candidate.to === node.id),
               )
             : undefined;
           return (
@@ -488,10 +510,21 @@ function DiagramBody({
   }
   if (hasPositionedDiagramNodes(data)) {
     return (
-      <PositionedDiagram data={data} compact={compact} markerId={markerId} />
+      <PositionedDiagram
+        data={data}
+        compact={compact}
+        markerId={markerId}
+        direction={ctx.textDirection}
+      />
     );
   }
-  return <SequenceDiagram data={data} compact={compact} />;
+  return (
+    <SequenceDiagram
+      data={data}
+      compact={compact}
+      direction={ctx.textDirection}
+    />
+  );
 }
 
 /* -------------------------------------------------------------------------- */

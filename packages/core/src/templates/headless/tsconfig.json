@@ -1,0 +1,4 @@
+{
+  "extends": "@agent-native/core/tsconfig.base.json",
+  "include": ["actions/**/*", "server/**/*", "shared/**/*"]
+}

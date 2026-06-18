@@ -75,6 +75,7 @@ import {
   extractThreadMeta,
   foldAssistantTurn,
   mergeThreadDataForClientSave,
+  normalizeThreadRepository,
   upsertUserMessage,
 } from "../agent/thread-data-builder.js";
 import {
@@ -96,6 +97,10 @@ import {
   listThreads,
   searchThreads,
   renameThread,
+  createThreadShareLink,
+  getThreadByShareToken,
+  getThreadShareState,
+  revokeThreadShareLink,
   setThreadArchived,
   setThreadPinned,
   setThreadScope,
@@ -103,6 +108,7 @@ import {
   withThreadDataLock,
   deleteThread,
   setThreadQueuedMessages,
+  type ChatThread,
   type ChatThreadScope,
   type ForkThreadSourceSnapshot,
 } from "../chat-threads/store.js";
@@ -177,6 +183,115 @@ async function lazyFs(): Promise<typeof import("fs")> {
 const SHARED_PROMPT_RESOURCE_MAX_CHARS = 30_000;
 const COMPACT_PROMPT_RESOURCE_MAX_CHARS = 12_000;
 const MAX_ACTION_SUMMARY_DESCRIPTION_CHARS = 140;
+
+function sanitizeSharedThread(thread: ChatThread): {
+  id: string;
+  title: string;
+  preview: string;
+  messageCount: number;
+  createdAt: number;
+  updatedAt: number;
+  scope: { type: string; label?: string } | null;
+  messages: Array<{
+    id?: string;
+    role: "user" | "assistant" | "system";
+    text: string;
+    createdAt?: string | number;
+  }>;
+} {
+  let repo: any = {};
+  try {
+    repo = normalizeThreadRepository(JSON.parse(thread.threadData));
+  } catch {
+    repo = {};
+  }
+  const messages = Array.isArray(repo.messages)
+    ? repo.messages
+        .map((entry: unknown) => sanitizeSharedMessage(entry))
+        .filter(
+          (
+            entry: unknown,
+          ): entry is NonNullable<ReturnType<typeof sanitizeSharedMessage>> =>
+            entry != null,
+        )
+    : [];
+  return {
+    id: thread.id,
+    title: thread.title,
+    preview: thread.preview,
+    messageCount: thread.messageCount,
+    createdAt: thread.createdAt,
+    updatedAt: thread.updatedAt,
+    scope: thread.scope
+      ? {
+          type: thread.scope.type,
+          ...(thread.scope.label ? { label: thread.scope.label } : {}),
+        }
+      : null,
+    messages,
+  };
+}
+
+function sanitizeSharedMessage(entry: unknown): {
+  id?: string;
+  role: "user" | "assistant" | "system";
+  text: string;
+  createdAt?: string | number;
+} | null {
+  if (!entry || typeof entry !== "object") return null;
+  const raw = entry as Record<string, unknown>;
+  const message =
+    raw.message && typeof raw.message === "object"
+      ? (raw.message as Record<string, unknown>)
+      : raw;
+  const role = message.role;
+  if (role !== "user" && role !== "assistant" && role !== "system") {
+    return null;
+  }
+  const text = sharedTextFromContent(message.content).trim();
+  if (!text) return null;
+  const id = typeof message.id === "string" ? message.id : undefined;
+  const createdAt =
+    typeof message.createdAt === "string" ||
+    typeof message.createdAt === "number"
+      ? message.createdAt
+      : undefined;
+  return {
+    ...(id ? { id } : {}),
+    role,
+    text,
+    ...(createdAt !== undefined ? { createdAt } : {}),
+  };
+}
+
+function sharedTextFromContent(content: unknown): string {
+  if (typeof content === "string") return content;
+  if (!Array.isArray(content)) return "";
+  const parts: string[] = [];
+  for (const part of content) {
+    if (!part || typeof part !== "object") continue;
+    const r = part as Record<string, unknown>;
+    if (r.type !== "text") continue;
+    if (typeof r.text === "string") parts.push(r.text);
+  }
+  return parts.join("");
+}
+
+function parseSharedThreadToken(event: H3Event): string | null {
+  const candidates = [event.path, event.node?.req?.url].filter(
+    (value): value is string => typeof value === "string" && value.length > 0,
+  );
+  for (const candidate of candidates) {
+    const path = candidate.split("?")[0];
+    const parts = path.replace(/^\/+/, "").split("/").filter(Boolean);
+    const sharedIndex = parts.lastIndexOf("shared");
+    if (sharedIndex >= 0 && parts[sharedIndex + 1]) {
+      return decodeURIComponent(parts[sharedIndex + 1]);
+    }
+    if (parts[0]) return decodeURIComponent(parts[0]);
+  }
+  return null;
+}
 
 function compactPromptLine(value: string, maxChars: number): string {
   const line = value.replace(/\s+/g, " ").trim();
@@ -3732,6 +3847,23 @@ export function createAgentChatPlugin(
           requireCurrentRunOwner("manage progress"),
         );
       } catch {}
+      let githubRepoTools: Record<string, ActionEntry> = {};
+      try {
+        const { createGitHubRepoToolEntries } =
+          await import("../provider-api/github-repo.js");
+        githubRepoTools = createGitHubRepoToolEntries({
+          appId: options?.appId,
+          getCredentialContext: () => {
+            const owner = requireCurrentRunOwner(
+              "use the GitHub repository connector",
+            );
+            return {
+              userEmail: owner,
+              orgId: getRequestOrgId(),
+            };
+          },
+        });
+      } catch {}
       let fetchTool: Record<string, ActionEntry> = {};
       try {
         const { createFetchToolEntry } =
@@ -5029,6 +5161,7 @@ export function createAgentChatPlugin(
         ...automationTools,
         ...notificationTools,
         ...progressTools,
+        ...githubRepoTools,
         ...fetchTool,
         ...webSearchTool,
         ...workspaceFilesTool,
@@ -6850,6 +6983,37 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
         }),
       );
 
+      // ─── Public read-only shared thread endpoint ─────────────────────────
+      getH3App(nitroApp).use(
+        `${routePath}/shared`,
+        defineEventHandler(async (event) => {
+          const method = getMethod(event);
+          if (method !== "GET") {
+            setResponseStatus(event, 405);
+            return { error: "Method not allowed" };
+          }
+
+          const token = parseSharedThreadToken(event);
+          if (!token) {
+            setResponseStatus(event, 400);
+            return { error: "Share token is required" };
+          }
+
+          const thread = await getThreadByShareToken(token);
+          if (!thread) {
+            setResponseStatus(event, 404);
+            return { error: "Shared thread not found" };
+          }
+
+          const { listRunsForThread } = await import("../agent/run-store.js");
+          const runs = await listRunsForThread(thread.id, { limit: 10 });
+          return {
+            thread: sanitizeSharedThread(thread),
+            runs,
+          };
+        }),
+      );
+
       // ─── Thread management endpoints ──────────────────────────────────────
       // Single handler for /threads and /threads/:id — h3's use() does prefix
       // matching so we can't reliably split them into separate handlers.
@@ -6918,6 +7082,8 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
         }
         return { threadId: null, tail: [] as string[] };
       };
+      const buildShareUrl = (event: H3Event, token: string) =>
+        `${getOrigin(event)}${routePath}/shared/${encodeURIComponent(token)}`;
       getH3App(nitroApp).use(
         `${routePath}/threads`,
         defineEventHandler(async (event) => {
@@ -7118,6 +7284,44 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 return { error: "Thread not found" };
               }
               return forked;
+            }
+
+            if (isThreadSubroute("share")) {
+              if (method === "GET") {
+                const state = await getThreadShareState(threadId, {
+                  ownerEmail: owner,
+                });
+                if (!state) {
+                  setResponseStatus(event, 404);
+                  return { error: "Thread not found" };
+                }
+                return { share: state };
+              }
+
+              if (method === "POST") {
+                const link = await createThreadShareLink(threadId, {
+                  ownerEmail: owner,
+                });
+                if (!link) {
+                  setResponseStatus(event, 404);
+                  return { error: "Thread not found" };
+                }
+                return {
+                  share: link,
+                  url: buildShareUrl(event, link.token),
+                };
+              }
+
+              if (method === "DELETE") {
+                const state = await revokeThreadShareLink(threadId, {
+                  ownerEmail: owner,
+                });
+                if (!state) {
+                  setResponseStatus(event, 404);
+                  return { error: "Thread not found" };
+                }
+                return { share: state };
+              }
             }
 
             if (method === "DELETE") {

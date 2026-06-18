@@ -187,6 +187,54 @@ describe("standalone scaffold — starter template", { timeout: 60000 }, () => {
   });
 });
 
+describe("standalone scaffold — headless template", { timeout: 60000 }, () => {
+  it("creates an action-first app without UI starter files or UI dependencies", async () => {
+    await createApp("test-app", { template: "headless" });
+    const root = path.join(tmpDir, "test-app");
+    const pkg = readPkg(root);
+    const deps = allDeps(pkg);
+
+    expect(fs.existsSync(path.join(root, "actions", "hello.ts"))).toBe(true);
+    expect(fs.existsSync(path.join(root, "actions", "run.ts"))).toBe(true);
+    expect(fs.existsSync(path.join(root, "app"))).toBe(false);
+    expect(fs.existsSync(path.join(root, "vite.config.ts"))).toBe(false);
+    expect(fs.existsSync(path.join(root, "react-router.config.ts"))).toBe(
+      false,
+    );
+
+    expect(pkg.name).toBe("test-app");
+    expect(pkg.dependencies?.["@agent-native/core"]).toBe(
+      _getCoreDependencyVersion(),
+    );
+    expect(pkg.dependencies?.postgres).toBeDefined();
+    expect(deps.react).toBeUndefined();
+    expect(deps["react-dom"]).toBeUndefined();
+    expect(deps["react-router"]).toBeUndefined();
+    expect(deps.vite).toBeUndefined();
+    expect(deps["@react-router/dev"]).toBeUndefined();
+
+    for (const [key, val] of Object.entries(deps)) {
+      expect(val, `${key} should not be workspace:*`).not.toMatch(
+        /^workspace:/,
+      );
+      expect(val, `${key} should not be catalog:`).not.toBe("catalog:");
+    }
+
+    const agents = fs.readFileSync(path.join(root, "AGENTS.md"), "utf-8");
+    expect(agents).toContain("This is a headless Agent Native app");
+    expect(agents).toContain("This app is not stateless");
+    expect(agents).toContain("Starter template");
+    expect(agents).toContain("integration blueprints");
+
+    const workspaceYaml = fs.readFileSync(
+      path.join(root, "pnpm-workspace.yaml"),
+      "utf-8",
+    );
+    expect(workspaceYaml).toContain("allowBuilds:");
+    expect(workspaceYaml).not.toContain("@assistant-ui");
+  });
+});
+
 /* ─────────────────────────────────────────────────────────────────────────
  * Workspace scaffold with required packages
  * ───────────────────────────────────────────────────────────────────────── */

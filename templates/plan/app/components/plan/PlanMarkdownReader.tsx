@@ -6,6 +6,7 @@ import { IconLink } from "@tabler/icons-react";
 import { CodeSurface } from "@agent-native/core/blocks";
 import { cn } from "@/lib/utils";
 import { PlanImageViewer } from "./PlanImageViewer";
+import { detectPlanTextDirection } from "./planTextDirection";
 
 type PlanMarkdownReaderProps = {
   markdown: string;
@@ -74,6 +75,7 @@ export function PlanMarkdownReader({
   const headingIndexRef = useRef(0);
   // Reset the counter each render (new markdown / blockId) so ids are stable.
   headingIndexRef.current = 0;
+  const textDirection = detectPlanTextDirection(markdown);
 
   const makeHeading = useCallback(
     (Tag: ElementType, { children }: { children?: ReactNode }) => {
@@ -119,7 +121,7 @@ export function PlanMarkdownReader({
         className,
       )}
     >
-      <div className="an-rich-md-prose">
+      <div className="an-rich-md-prose" dir={textDirection}>
         <ReactMarkdown
           remarkPlugins={[remarkGfm]}
           components={{
@@ -139,6 +141,20 @@ export function PlanMarkdownReader({
                 {...props}
                 className={cn("an-rich-md-table", tableClassName)}
               />
+            ),
+            code: ({
+              className: codeClassName,
+              children,
+              node: _node,
+              ...props
+            }: ComponentPropsWithoutRef<"code"> & { node?: unknown }) => (
+              <code
+                {...props}
+                className={codeClassName}
+                dir={codeClassName ? undefined : "ltr"}
+              >
+                {children}
+              </code>
             ),
             img: ({ src, alt }) => (
               <PlanImageViewer

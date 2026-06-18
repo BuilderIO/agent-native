@@ -420,7 +420,7 @@
   }
 
   .plan-document-toc__link.is-nested {
-    padding-left: 0.75rem;
+    padding-inline-start: 0.75rem;
   }
 }
 
@@ -626,6 +626,7 @@
   color: var(--plan-text);
   font-size: var(--plan-body-size);
   line-height: 1.75;
+  text-align: start;
 }
 
 .plan-rich-markdown-editor .an-rich-md-prose > :first-child {
@@ -724,7 +725,12 @@
 .plan-rich-markdown-editor .an-rich-md-prose ol,
 .plan-rich-markdown-editor .an-rich-md-task-list {
   margin: 0.85rem 0;
+  padding-inline-start: 1.45em;
   color: var(--plan-muted);
+}
+
+.plan-rich-markdown-editor .an-rich-md-task-list {
+  padding-inline-start: 0;
 }
 
 .plan-rich-markdown-editor .an-rich-md-prose li {
@@ -746,7 +752,7 @@
 
 .plan-rich-markdown-editor .an-rich-md-prose blockquote {
   margin: 1.1rem 0;
-  border-left-color: var(--plan-line);
+  border-inline-start-color: var(--plan-line);
   color: var(--plan-muted);
 }
 
@@ -759,6 +765,8 @@
 .plan-rich-markdown-editor .an-rich-md-prose :not(pre) > code {
   background: var(--plan-block);
   color: var(--plan-text);
+  direction: ltr;
+  unicode-bidi: isolate;
 }
 
 .plan-rich-markdown-editor .an-rich-md-prose :is(h1, h2, h3, h4) code {
@@ -845,7 +853,7 @@
 .plan-prose ul,
 .plan-prose ol {
   margin: 0.85rem 0;
-  padding-left: 1.5rem;
+  padding-inline-start: 1.5rem;
   color: var(--plan-muted);
 }
 
@@ -883,8 +891,8 @@
 
 .plan-prose blockquote {
   margin: 1.1rem 0;
-  border-left: 3px solid var(--plan-line);
-  padding-left: 1rem;
+  border-inline-start: 3px solid var(--plan-line);
+  padding-inline-start: 1rem;
   color: var(--plan-muted);
 }
 
@@ -902,6 +910,8 @@
   font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 0.875em;
   color: var(--plan-text);
+  direction: ltr;
+  unicode-bidi: isolate;
 }
 
 .plan-prose :is(h1, h2, h3, h4) code {
@@ -919,7 +929,7 @@
 .plan-prose td {
   border: 1px solid var(--plan-line);
   padding: 0.5rem 0.75rem;
-  text-align: left;
+  text-align: start;
 }
 
 .plan-prose th {
@@ -997,7 +1007,7 @@
   color: var(--plan-muted);
   font-size: 0.75rem;
   font-weight: 500;
-  text-align: left;
+  text-align: start;
   cursor: pointer;
   transition:
     color 0.15s,
@@ -1422,9 +1432,13 @@
 
 .plan-callout {
   max-width: 860px;
-  border-left: 3px solid hsl(var(--ring));
+  border-inline-start: 3px solid hsl(var(--ring));
+  border-start-start-radius: 0;
+  border-end-start-radius: 0;
+  border-start-end-radius: 8px;
+  border-end-end-radius: 8px;
   padding-block: 0.9rem;
-  padding-left: 1.25rem;
+  padding-inline-start: 1.25rem;
 }
 
 /* The body editor/reader carries a default `mt-4`; inside a callout the block's
@@ -1454,8 +1468,7 @@
 }
 
 .plan-callout[data-tone] {
-  border-left-color: hsl(var(--plan-callout-accent));
-  border-radius: 0 8px 8px 0;
+  border-inline-start-color: hsl(var(--plan-callout-accent));
   background-image: linear-gradient(
     90deg,
     hsl(var(--plan-callout-accent) / 0.08),
@@ -1463,8 +1476,18 @@
     transparent 72%
   );
   transition:
-    border-left-color 0.12s ease,
+    border-inline-start-color 0.12s ease,
     background-image 0.12s ease;
+}
+
+[dir="rtl"] .plan-callout[data-tone],
+.plan-callout[dir="rtl"][data-tone] {
+  background-image: linear-gradient(
+    270deg,
+    hsl(var(--plan-callout-accent) / 0.08),
+    hsl(var(--plan-callout-accent) / 0.02) 38%,
+    transparent 72%
+  );
 }
 
 .plan-callout[data-tone] .plan-block-label {

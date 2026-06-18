@@ -33,6 +33,8 @@ npx @agent-native/core@latest create my-platform
 
 Starter gives you auth, the agent sidebar, SQL-backed resources, tools, application state, actions, and polling sync. You add the domain model and product UI.
 
+If you are not building a reusable UI template yet, use the headless on-ramp in [Getting Started](/docs/getting-started#create-your-agent): define one action, run it with `pnpm agent`, and add UI later when the workflow needs a durable surface.
+
 ## Project Structure {#project-structure}
 
 Every template follows the same broad layout:

@@ -14,7 +14,7 @@ import {
   type IpcMainInvokeEvent,
   type WebContents,
 } from "electron";
-import { spawn, type ChildProcess } from "node:child_process";
+import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import {
   createServer,
@@ -195,6 +195,8 @@ const CODE_AGENT_PROVIDER_SETTING_KEYS: CodeAgentProviderCredentialKey[] = [
   "BUILDER_PRIVATE_KEY",
   "BUILDER_PUBLIC_KEY",
 ];
+const CODEX_CLI_ENGINE_NAME = "codex-cli";
+const CODEX_CLI_DEFAULT_MODEL = "codex-cli";
 const DESKTOP_BUILDER_CONNECT_TIMEOUT_MS = 5 * 60 * 1000;
 const CODE_AGENTS_SUBSCRIBE_TRANSCRIPT_CHANNEL =
   "code-agents:subscribe-transcript";
@@ -516,7 +518,9 @@ function flushPendingOpenRequests(win = mainWindow) {
   }
 }
 
-function focusMainWindow(): BrowserWindow | null {
+function focusMainWindow(
+  options: { stealFocus?: boolean } = {},
+): BrowserWindow | null {
   const win =
     mainWindow && !mainWindow.isDestroyed()
       ? mainWindow
@@ -526,15 +530,27 @@ function focusMainWindow(): BrowserWindow | null {
     if (process.platform === "darwin") app.show();
     win.show();
     win.focus();
+    if (process.platform === "darwin" && options.stealFocus) {
+      app.focus({ steal: true });
+    }
     return win;
   }
 
-  if (app.isReady()) return createWindow();
+  if (app.isReady()) {
+    const created = createWindow();
+    if (process.platform === "darwin" && options.stealFocus) {
+      created.once("ready-to-show", () => app.focus({ steal: true }));
+    }
+    return created;
+  }
   return null;
 }
 
-function sendOpenRequestToRenderer(request: DesktopOpenRequest) {
-  const win = focusMainWindow();
+function sendOpenRequestToRenderer(
+  request: DesktopOpenRequest,
+  options: { stealFocus?: boolean } = {},
+) {
+  const win = focusMainWindow(options);
   if (!win || win.isDestroyed() || win.webContents.isLoading()) {
     pendingOpenRequests.push(request);
     return;
@@ -884,7 +900,9 @@ function showUpdateReadyNotification(version: string) {
     title: "Agent Native update ready",
     body: `Version ${version} is downloaded. Open Agent Native to relaunch and install it.`,
   });
-  notification.on("click", focusMainWindow);
+  notification.on("click", (_event) => {
+    focusMainWindow();
+  });
   notification.show();
 }
 
@@ -1105,6 +1123,12 @@ let desktopShortcutRegistrations = new Map<
 const registeredDesktopShortcutAccelerators = new Set<string>();
 let desktopShortcutsActivated = false;
 
+function debugDesktopShortcut(message: string, details?: unknown) {
+  if (process.env.AGENT_NATIVE_DESKTOP_SHORTCUT_DEBUG !== "1") return;
+  if (details === undefined) console.info(`[desktop-shortcut] ${message}`);
+  else console.info(`[desktop-shortcut] ${message}`, details);
+}
+
 ipcMain.on(IPC.SET_ACTIVE_APP, (_event: IpcMainEvent, appId: string) => {
   activeAppId = appId;
 });
@@ -1209,6 +1233,12 @@ function hideMainWindowForShortcut() {
 }
 
 function handleDesktopShortcutBinding(binding: DesktopShortcutBinding) {
+  debugDesktopShortcut("triggered", {
+    id: binding.id,
+    accelerator: binding.accelerator,
+    app: binding.app,
+    activeAppId,
+  });
   const win =
     mainWindow && !mainWindow.isDestroyed()
       ? mainWindow
@@ -1220,17 +1250,20 @@ function handleDesktopShortcutBinding(binding: DesktopShortcutBinding) {
 
   if (binding.behavior === "toggle" && isTargetActive) {
     if (isWindowFrontmost) hideMainWindowForShortcut();
-    else focusMainWindow();
+    else focusMainWindow({ stealFocus: true });
     return;
   }
 
   const targetView = binding.view?.trim();
-  sendOpenRequestToRenderer({
-    app: binding.app,
-    ...(targetView
-      ? { path: shortcutOpenPathForBinding(binding), softOpen: true }
-      : {}),
-  });
+  sendOpenRequestToRenderer(
+    {
+      app: binding.app,
+      ...(targetView
+        ? { path: shortcutOpenPathForBinding(binding), softOpen: true }
+        : {}),
+    },
+    { stealFocus: true },
+  );
 }
 
 function registerDesktopShortcutBindings() {
@@ -1282,17 +1315,33 @@ function registerDesktopShortcutBindings() {
         claimedAccelerators.add(binding.accelerator);
         registeredDesktopShortcutAccelerators.add(binding.accelerator);
         registrations.set(binding.id, { id: binding.id, registered: true });
+        debugDesktopShortcut("registered", {
+          id: binding.id,
+          accelerator: binding.accelerator,
+          app: binding.app,
+        });
       } else {
         registrations.set(binding.id, {
           id: binding.id,
           registered: false,
           error: "macOS or another app is already using this shortcut.",
         });
+        debugDesktopShortcut("registration rejected", {
+          id: binding.id,
+          accelerator: binding.accelerator,
+          app: binding.app,
+        });
       }
     } catch (err) {
       registrations.set(binding.id, {
         id: binding.id,
         registered: false,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      debugDesktopShortcut("registration failed", {
+        id: binding.id,
+        accelerator: binding.accelerator,
+        app: binding.app,
         error: err instanceof Error ? err.message : String(err),
       });
     }
@@ -3713,7 +3762,9 @@ async function createCodeAgentRun(
   const permissionMode =
     getCodeAgentPermissionMode(firstStringValue(payload.permissionMode)) ??
     DEFAULT_CODE_AGENT_PERMISSION_MODE;
-  const engine = firstStringValue(payload.engine);
+  const engine = normalizeCodeAgentRequestedEngine(
+    firstStringValue(payload.engine),
+  );
   const model = firstStringValue(payload.model);
   const effort = firstStringValue(payload.effort);
   const attachments = normalizeCodeAgentPromptAttachments(payload.attachments);
@@ -3950,7 +4001,9 @@ async function appendCodeAgentFollowUp(
   const permissionMode = requestedPermissionMode
     ? getCodeAgentPermissionMode(requestedPermissionMode)
     : undefined;
-  const engine = firstStringValue(payload.engine);
+  const engine = normalizeCodeAgentRequestedEngine(
+    firstStringValue(payload.engine),
+  );
   const model = firstStringValue(payload.model);
   const effort = firstStringValue(payload.effort);
   const attachments = normalizeCodeAgentPromptAttachments(payload.attachments);
@@ -4085,7 +4138,9 @@ function updateCodeAgentRun(input: unknown): CodeAgentUpdateRunResult {
   const permissionMode = requestedPermissionMode
     ? getCodeAgentPermissionMode(requestedPermissionMode)
     : undefined;
-  const engine = firstStringValue(payload.engine);
+  const engine = normalizeCodeAgentRequestedEngine(
+    firstStringValue(payload.engine),
+  );
   const model = firstStringValue(payload.model);
   const effort = firstStringValue(payload.effort);
   const userMetadata = isObject(payload.metadata) ? payload.metadata : {};
@@ -6214,8 +6269,10 @@ function getCodeAgentLlmProviderStatus(): NonNullable<
   }
 
   const settings = AppStore.getCodeAgentProviderSettingsStatus();
+  const codex = getLocalCodexCliStatus();
   const configuredProviders = [
     ...(process.env.AGENT_ENGINE ? ["Custom"] : []),
+    ...(codex.authenticated ? [codex.label] : []),
     ...settings.configuredProviders,
   ];
 
@@ -6230,6 +6287,15 @@ function getCodeAgentLlmProviderStatus(): NonNullable<
 }
 
 function hasRuntimeCodeAgentLlmProvider(): boolean {
+  if (hasRuntimeNonCodexCodeAgentLlmProvider()) return true;
+  if (getLocalCodexCliStatus().authenticated) return true;
+  return false;
+}
+
+function hasRuntimeNonCodexCodeAgentLlmProvider(): boolean {
+  if (process.env.AGENT_NATIVE_CODE_AGENT_FAKE_RESPONSE !== undefined) {
+    return true;
+  }
   if (process.env.AGENT_ENGINE) return true;
   if (process.env.ANTHROPIC_API_KEY) return true;
   if (process.env.OPENAI_API_KEY) return true;
@@ -6237,6 +6303,20 @@ function hasRuntimeCodeAgentLlmProvider(): boolean {
   return Boolean(
     process.env.BUILDER_PRIVATE_KEY && process.env.BUILDER_PUBLIC_KEY,
   );
+}
+
+function normalizeCodeAgentRequestedEngine(
+  engine: string | undefined,
+): string | undefined {
+  const trimmed = engine?.trim();
+  if (trimmed && trimmed !== "auto") return trimmed;
+  if (
+    !hasRuntimeNonCodexCodeAgentLlmProvider() &&
+    getLocalCodexCliStatus().authenticated
+  ) {
+    return CODEX_CLI_ENGINE_NAME;
+  }
+  return undefined;
 }
 
 function ensureCodeAgentLlmProvider(): {
@@ -6260,12 +6340,87 @@ function ensureCodeAgentLlmProvider(): {
   return {
     ok: false,
     error:
-      "Set ANTHROPIC_API_KEY, OPENAI_API_KEY, GOOGLE_GENERATIVE_AI_API_KEY, or Builder credentials.",
+      "Set ANTHROPIC_API_KEY, OPENAI_API_KEY, GOOGLE_GENERATIVE_AI_API_KEY, Builder credentials, or run `codex login` for Codex CLI.",
+  };
+}
+
+function getLocalCodexCliStatus(): {
+  available: boolean;
+  authenticated: boolean;
+  label: string;
+  authMode?: string;
+  version?: string;
+  error?: string;
+} {
+  const versionResult = spawnSync("codex", ["--version"], {
+    encoding: "utf-8",
+    timeout: 1500,
+  });
+  if (versionResult.error) {
+    return {
+      available: false,
+      authenticated: false,
+      label: "Codex CLI",
+      error:
+        (versionResult.error as NodeJS.ErrnoException).code === "ENOENT"
+          ? "Codex CLI was not found."
+          : versionResult.error.message,
+    };
+  }
+  const statusResult = spawnSync("codex", ["login", "status"], {
+    encoding: "utf-8",
+    timeout: 1500,
+  });
+  const statusText =
+    `${statusResult.stdout ?? ""}\n${statusResult.stderr ?? ""}`.trim();
+  const authMode = /using\s+(.+)$/i.exec(statusText)?.[1]?.trim();
+  const authenticated = statusResult.status === 0;
+  return {
+    available: true,
+    authenticated,
+    label: authenticated && authMode ? `Codex CLI (${authMode})` : "Codex CLI",
+    authMode,
+    version: (versionResult.stdout ?? versionResult.stderr ?? "").trim(),
+    error: authenticated
+      ? undefined
+      : statusText || "Codex CLI is not logged in.",
   };
 }
 
 function getCodeAgentProviderSettings(): CodeAgentProviderSettings {
-  return AppStore.getCodeAgentProviderSettingsStatus();
+  return withLocalCodexProviderStatus(
+    AppStore.getCodeAgentProviderSettingsStatus(),
+  );
+}
+
+function withLocalCodexProviderStatus(
+  settings: CodeAgentProviderSettings,
+): CodeAgentProviderSettings {
+  const codex = getLocalCodexCliStatus();
+  if (!codex.available) return settings;
+  const provider = {
+    id: "codex" as const,
+    label: "Codex CLI",
+    configured: codex.authenticated,
+    configuredKeys: [] as CodeAgentProviderCredentialKey[],
+    missingKeys: [] as CodeAgentProviderCredentialKey[],
+    savedKeys: [] as CodeAgentProviderCredentialKey[],
+    source: codex.authenticated ? ("local-codex" as const) : undefined,
+  };
+  const providers = [
+    provider,
+    ...settings.providers.filter((item) => item.id !== "codex"),
+  ];
+  return {
+    ...settings,
+    configured: providers.some((item) => item.configured),
+    configuredProviders: providers
+      .filter((item) => item.configured)
+      .map((item) =>
+        item.id === "codex" && codex.authMode ? codex.label : item.label,
+      ),
+    providers,
+  };
 }
 
 function updateCodeAgentProviderSettings(
@@ -6283,7 +6438,9 @@ function updateCodeAgentProviderSettings(
     }
   }
   try {
-    const settings = AppStore.saveCodeAgentProviderCredentials(updates);
+    const settings = withLocalCodexProviderStatus(
+      AppStore.saveCodeAgentProviderCredentials(updates),
+    );
     return {
       ok: true,
       settings,
@@ -6294,7 +6451,7 @@ function updateCodeAgentProviderSettings(
   } catch (err) {
     return {
       ok: false,
-      settings: AppStore.getCodeAgentProviderSettingsStatus(),
+      settings: getCodeAgentProviderSettings(),
       message: "Could not save code provider settings.",
       error: err instanceof Error ? err.message : String(err),
     };
@@ -6341,6 +6498,11 @@ function getCodeAgentModelList(): CodeAgentModelListResult {
     const builderConfigured = Boolean(
       providerStatusById(settings, "builder")?.configured,
     );
+    const codex = getLocalCodexCliStatus();
+    const apiProviderConfigured =
+      Boolean(providerStatusById(settings, "anthropic")?.configured) ||
+      Boolean(providerStatusById(settings, "openai")?.configured) ||
+      Boolean(providerStatusById(settings, "google")?.configured);
     const customEngine = process.env.AGENT_ENGINE?.trim();
     const customModel = process.env.AGENT_MODEL?.trim();
 
@@ -6362,6 +6524,17 @@ function getCodeAgentModelList(): CodeAgentModelListResult {
         configured: true,
       });
     } else {
+      if (codex.available) {
+        models.push({
+          engine: CODEX_CLI_ENGINE_NAME,
+          engineLabel: "Codex",
+          model: CODEX_CLI_DEFAULT_MODEL,
+          label: "Codex CLI default",
+          description:
+            "Use the local Codex CLI and its signed-in ChatGPT/API auth.",
+          configured: codex.authenticated,
+        });
+      }
       pushCodeAgentModelOptions(models, {
         engine: "anthropic",
         engineLabel: "Anthropic",
@@ -6394,7 +6567,12 @@ function getCodeAgentModelList(): CodeAgentModelListResult {
             engine: "builder",
             model: BUILDER_MODEL_CONFIG.defaultModel,
           }
-        : { engine: "auto", model: "auto" };
+        : codex.authenticated && !apiProviderConfigured
+          ? {
+              engine: CODEX_CLI_ENGINE_NAME,
+              model: CODEX_CLI_DEFAULT_MODEL,
+            }
+          : { engine: "auto", model: "auto" };
 
     return {
       status: "ok",
@@ -6539,7 +6717,9 @@ function retryCodeAgentRun(input: unknown): CodeAgentRetryRunResult {
     retryOf: runId,
   });
   const userMetadata = isObject(payload.metadata) ? payload.metadata : {};
-  const engine = firstStringValue(payload.engine);
+  const engine = normalizeCodeAgentRequestedEngine(
+    firstStringValue(payload.engine),
+  );
   const model = firstStringValue(payload.model);
   const effort = firstStringValue(payload.effort);
   appendCodeAgentStatusEvent(runId, "Retry requested from Desktop.", {
@@ -7652,17 +7832,19 @@ function connectDesktopBuilderProvider(): Promise<CodeAgentProviderSettingsUpdat
         res.end(desktopBuilderCallbackPage("error", message));
         finish({
           ok: false,
-          settings: AppStore.getCodeAgentProviderSettingsStatus(),
+          settings: getCodeAgentProviderSettings(),
           message: "Could not connect Builder.io.",
           error: message,
         });
         return;
       }
 
-      const settings = AppStore.saveCodeAgentProviderCredentials({
-        BUILDER_PRIVATE_KEY: privateKey,
-        BUILDER_PUBLIC_KEY: publicKey,
-      });
+      const settings = withLocalCodexProviderStatus(
+        AppStore.saveCodeAgentProviderCredentials({
+          BUILDER_PRIVATE_KEY: privateKey,
+          BUILDER_PUBLIC_KEY: publicKey,
+        }),
+      );
       res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
       res.end(
         desktopBuilderCallbackPage(
@@ -7682,7 +7864,7 @@ function connectDesktopBuilderProvider(): Promise<CodeAgentProviderSettingsUpdat
     callbackServer.once("error", (err) => {
       finish({
         ok: false,
-        settings: AppStore.getCodeAgentProviderSettingsStatus(),
+        settings: getCodeAgentProviderSettings(),
         message: "Could not start Builder.io connect flow.",
         error: err instanceof Error ? err.message : String(err),
       });
@@ -7693,7 +7875,7 @@ function connectDesktopBuilderProvider(): Promise<CodeAgentProviderSettingsUpdat
       if (!server) {
         finish({
           ok: false,
-          settings: AppStore.getCodeAgentProviderSettingsStatus(),
+          settings: getCodeAgentProviderSettings(),
           message: "Could not start Builder.io connect flow.",
           error: "No callback server was available.",
         });
@@ -7703,7 +7885,7 @@ function connectDesktopBuilderProvider(): Promise<CodeAgentProviderSettingsUpdat
       if (!address) {
         finish({
           ok: false,
-          settings: AppStore.getCodeAgentProviderSettingsStatus(),
+          settings: getCodeAgentProviderSettings(),
           message: "Could not start Builder.io connect flow.",
           error: "No callback port was assigned.",
         });
@@ -7717,7 +7899,7 @@ function connectDesktopBuilderProvider(): Promise<CodeAgentProviderSettingsUpdat
       if (!canOpenExternalUrl(authUrl)) {
         finish({
           ok: false,
-          settings: AppStore.getCodeAgentProviderSettingsStatus(),
+          settings: getCodeAgentProviderSettings(),
           message: "Could not open Builder.io connect.",
           error: "The Builder.io connect URL was not valid.",
         });
@@ -7727,7 +7909,7 @@ function connectDesktopBuilderProvider(): Promise<CodeAgentProviderSettingsUpdat
       shell.openExternal(authUrl).catch((err) => {
         finish({
           ok: false,
-          settings: AppStore.getCodeAgentProviderSettingsStatus(),
+          settings: getCodeAgentProviderSettings(),
           message: "Could not open Builder.io connect.",
           error: err instanceof Error ? err.message : String(err),
         });
@@ -7735,7 +7917,7 @@ function connectDesktopBuilderProvider(): Promise<CodeAgentProviderSettingsUpdat
       timeout = setTimeout(() => {
         finish({
           ok: false,
-          settings: AppStore.getCodeAgentProviderSettingsStatus(),
+          settings: getCodeAgentProviderSettings(),
           message: "Builder.io connect timed out.",
           error: "No callback was received before the connect flow timed out.",
         });
