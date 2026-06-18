@@ -4,6 +4,7 @@ import {
   listProviderApiIdsForTemplateUse,
   type ProviderApiCredentialLookupOptions,
   type ProviderApiCredentialResolver,
+  type ProviderApiDocsOptions,
   type ProviderApiId,
   type ProviderApiMethod,
   type ProviderApiRequestArgs,
@@ -114,11 +115,9 @@ export function listProviderApiCatalog(provider?: CalendarProviderApiId) {
   return runtime.listCatalog(provider);
 }
 
-export function fetchProviderApiDocs(options: {
-  provider: CalendarProviderApiId;
-  url?: string;
-  maxBytes?: number;
-}) {
+export function fetchProviderApiDocs(
+  options: ProviderApiDocsOptions & { provider: CalendarProviderApiId },
+) {
   return runtime.fetchDocs(options);
 }
 

@@ -38,6 +38,27 @@ describe("social OG image", () => {
     expect(svg).not.toContain('font-weight="850"');
   });
 
+  it("places accent text below wrapped title lines", () => {
+    const svg = renderAgentNativeOgImageSvg({
+      title: "Workspace Connections For Multi App Provider Grants",
+      accentText: "Agent-Native Docs",
+    });
+    const titleMatch = svg.match(
+      /<text x="80" y="(\d+)"[\s\S]*?<tspan x="80" dy="0">[\s\S]*?<\/tspan><tspan x="80" dy="(\d+)">[\s\S]*?<\/tspan><\/text>/,
+    );
+    const accentMatch = svg.match(
+      /<text x="84" y="(\d+)"[\s\S]*?>Agent-Native Docs<\/text>/,
+    );
+
+    expect(titleMatch).not.toBeNull();
+    expect(accentMatch).not.toBeNull();
+
+    const titleY = Number(titleMatch![1]);
+    const secondLineDy = Number(titleMatch![2]);
+    const accentY = Number(accentMatch![1]);
+    expect(accentY).toBeGreaterThan(titleY + secondLineDy);
+  });
+
   it("expands built-in app names before rendering the default title", () => {
     vi.stubEnv("APP_NAME", "Design");
     expect(resolveAgentNativeOgImageAppName()).toBe("Agent-Native Design");

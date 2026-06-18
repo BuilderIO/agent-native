@@ -91,6 +91,7 @@ beforeAll(async () => {
       repo_path TEXT, current_focus TEXT, html TEXT, markdown TEXT, content TEXT,
       hosted_plan_id TEXT, hosted_plan_url TEXT, source_url TEXT,
       recap_idempotency_key TEXT,
+      deleted_at TEXT, deleted_by TEXT,
       created_at TEXT NOT NULL, updated_at TEXT NOT NULL, approved_at TEXT,
       usage_agent TEXT, usage_model TEXT,
       usage_input_tokens INTEGER, usage_output_tokens INTEGER,

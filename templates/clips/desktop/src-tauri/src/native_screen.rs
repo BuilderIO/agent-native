@@ -28,9 +28,14 @@ const QUICKTIME_RECORDING_MIME_TYPE: &str = "video/quicktime";
 const MP4_RECORDING_MIME_TYPE: &str = "video/mp4";
 // Keep native chunks comfortably under serverless request/event limits.
 const UPLOAD_CHUNK_BYTES: usize = 3 * 1024 * 1024;
+// Master switch for native transcoding/compression.
+const COMPRESSION_ENABLED: bool = true;
 const TRANSCODE_THRESHOLD_BYTES: u64 = 24 * 1024 * 1024;
 const TARGET_UPLOAD_BYTES: u64 = 18 * 1024 * 1024;
-const SERVER_STAGING_LIMIT_BYTES: u64 = 30 * 1024 * 1024;
+// Mirror of the shared `MAX_UPLOAD_BYTES` limit (see
+// `templates/clips/shared/upload-limits.ts`). Same default (256 MB) and same
+// env var (CLIPS_MAX_UPLOAD_BYTES) so desktop and web stay in lockstep.
+const DEFAULT_MAX_UPLOAD_BYTES: u64 = 256 * 1024 * 1024;
 const MIN_TRANSCODE_VIDEO_RATE_KBPS: u32 = 350;
 const TRANSCODE_RATE_LIMIT_OVERHEAD_KBPS: f64 = 64.0;
 const TRANSCODE_FRAME_RATE_LIMIT: u32 = 30;
@@ -2154,7 +2159,7 @@ fn prepare_recording_file(
         temporary: false,
     };
 
-    if source_bytes < TRANSCODE_THRESHOLD_BYTES {
+    if !COMPRESSION_ENABLED || source_bytes < TRANSCODE_THRESHOLD_BYTES {
         return Ok(original);
     }
 
@@ -2206,7 +2211,7 @@ fn prepare_recording_file(
                         );
                         continue;
                     }
-                    if compressed_bytes > SERVER_STAGING_LIMIT_BYTES {
+                    if compressed_bytes > max_upload_bytes() {
                         let _ = std::fs::remove_file(&compressed_path);
                         eprintln!(
                             "[clips-tray] ffmpeg {} still above server staging limit ({} bytes)",
@@ -2288,7 +2293,7 @@ fn prepare_recording_file(
                         );
                         continue;
                     }
-                    if compressed_bytes > SERVER_STAGING_LIMIT_BYTES {
+                    if compressed_bytes > max_upload_bytes() {
                         let _ = std::fs::remove_file(&compressed_path);
                         eprintln!(
                             "[clips-tray] avconvert {} still above server staging limit ({} bytes)",
@@ -2331,14 +2336,14 @@ fn prepare_recording_file(
     } else {
         eprintln!("[clips-tray] avconvert unavailable");
     }
-    if source_bytes > SERVER_STAGING_LIMIT_BYTES {
+    if source_bytes > max_upload_bytes() {
         let attempt_detail = smallest_attempt_bytes
             .map(|bytes| format!(", smallest compressed result was {}", format_mb(bytes)))
             .unwrap_or_default();
         return Err(format!(
             "Native recording is too large to upload after automatic compression (source {}, limit is {}{}). Try a shorter recording.",
             format_mb(source_bytes),
-            format_mb(SERVER_STAGING_LIMIT_BYTES),
+            format_mb(max_upload_bytes()),
             attempt_detail
         ));
     }
@@ -2364,6 +2369,16 @@ struct FfmpegTranscodePreset {
     encoder_preset: &'static str,
     audio_bitrate_kbps: u32,
     max_video_rate_kbps: u32,
+}
+
+/// Maximum total bytes a recording upload may be. Overridable per-deployment
+/// with the `CLIPS_MAX_UPLOAD_BYTES` env var; falls back to 256 MB.
+fn max_upload_bytes() -> u64 {
+    std::env::var("CLIPS_MAX_UPLOAD_BYTES")
+        .ok()
+        .and_then(|raw| raw.trim().parse::<u64>().ok())
+        .filter(|&bytes| bytes > 0)
+        .unwrap_or(DEFAULT_MAX_UPLOAD_BYTES)
 }
 
 fn resolve_ffmpeg_path() -> Option<String> {

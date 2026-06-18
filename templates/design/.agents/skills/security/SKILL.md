@@ -139,6 +139,28 @@ export default defineEventHandler(async (event) => {
 
 - Never create unprotected routes that modify data.
 
+## Human-in-the-Loop Approval for High-Consequence Actions
+
+For a small set of outward-facing, hard-to-undo operations — sending an email, charging a card, deleting an account, posting publicly — auth and access control are necessary but not sufficient: you also do not want the **agent** to perform them autonomously. Set `needsApproval` on the `defineAction` so the agent cannot run the action without a human approving the specific call.
+
+```ts
+export default defineAction({
+  description: "Send an email via Gmail.",
+  schema: z.object({ to: z.string(), subject: z.string(), body: z.string() }),
+  needsApproval: true, // or (args, ctx) => boolean | Promise<boolean>
+  run: async (args) => {
+    /* ...actually send... */
+  },
+});
+```
+
+When the gate is truthy and the call is not yet approved, the loop emits an `approval_required` event and **stops the turn — `run()` never executes**. The human approves via the chat UI's Approve affordance, which re-issues the turn with the call's stable `approvalKey`; only then does the action run. A predicate gates conditionally (e.g. only external recipients) and **fails closed** — a throw is treated as "approval required".
+
+Rules:
+
+- Reach for `needsApproval` only for genuinely high-consequence operations. The default is off, and the framework intentionally keeps approvals rare — over-gating turns the agent into a click-through wizard. The canonical (and intentionally lone) framework example is Mail's `send-email`.
+- `needsApproval` is **not** a substitute for `accessFilter` / `assertAccess` or for hiding sensitive operations from the model with `agentTool: false` / `toolCallable: false`. It is the layer for "a human must explicitly bless this specific outward-facing call," not for scoping data. See the `actions` skill for the full surface.
+
 ## Custom HTTP Routes Must Apply Access Control Themselves
 
 This is the single most-failed rule in the codebase. Auto-mounted action routes (`/_agent-native/actions/...`) get a request context wired up automatically. **Hand-written `/api/*` Nitro routes do not.** If your handler queries an ownable resource (any table with `...ownableColumns()`), you MUST:

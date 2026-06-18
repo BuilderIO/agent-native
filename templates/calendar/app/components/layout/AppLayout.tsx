@@ -6,6 +6,7 @@ import {
   type ReactNode,
 } from "react";
 import { useLocation } from "react-router";
+import { useQueryClient } from "@tanstack/react-query";
 import { IconMenu } from "@tabler/icons-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -23,6 +24,7 @@ import { useGoogleAuthStatus } from "@/hooks/use-google-auth";
 import { useNavigationState } from "@/hooks/use-navigation-state";
 import { useHiddenCalendars } from "@/hooks/use-hidden-calendars";
 import { useIsMobile } from "@/hooks/use-mobile";
+import { prefetchPeopleContacts } from "@/hooks/use-people";
 import type { CalendarEvent, CalendarEventDraft } from "@shared/api";
 
 const EVENT_DETAIL_MODE_KEY = "calendar-event-detail-mode";
@@ -132,6 +134,7 @@ interface AppLayoutProps {
 export function AppLayout({ children }: AppLayoutProps) {
   const isMobile = useIsMobile();
   const location = useLocation();
+  const queryClient = useQueryClient();
   const googleStatus = useGoogleAuthStatus();
   const hasAccounts = (googleStatus.data?.accounts?.length ?? 0) > 0;
   const isSettingsPage = location.pathname === "/settings";
@@ -165,6 +168,11 @@ export function AppLayout({ children }: AppLayoutProps) {
       if (saved === "sidebar") setEventDetailSidebarState(true);
     } catch {}
   }, []);
+
+  useEffect(() => {
+    if (!hasAccounts) return;
+    void prefetchPeopleContacts(queryClient);
+  }, [hasAccounts, queryClient]);
 
   // Global keyboard-shortcuts help: opens via `?` (or shift+/) or the sidebar
   // button on any page, not just the calendar view. Calendar-specific shortcuts

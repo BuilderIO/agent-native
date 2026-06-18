@@ -47,8 +47,10 @@ export interface DbExecConfig {
  * Resolve the database URL for the current app.
  *
  * Checks for `<APP_NAME>_DATABASE_URL` first (e.g. `MAIL_DATABASE_URL`),
- * then falls back to `DATABASE_URL`. This allows multiple apps to run in the
- * same process group (e.g. eager repo dev or builder.io) with separate databases.
+ * then falls back to `DATABASE_URL`, then Netlify's managed database env. This
+ * allows multiple apps to run in the same process group (e.g. eager repo dev or
+ * builder.io) with separate databases while still using the persistent Netlify
+ * runtime database when `DATABASE_URL` was only exported for the build command.
  *
  * Set `APP_NAME=mail` in the child process env and
  * `MAIL_DATABASE_URL=postgres://...` in the shared env.
@@ -59,7 +61,9 @@ export function getDatabaseUrl(fallback = ""): string {
     const prefixed = process.env[`${appName}_DATABASE_URL`];
     if (prefixed) return prefixed;
   }
-  return process.env.DATABASE_URL || fallback;
+  return (
+    process.env.DATABASE_URL || process.env.NETLIFY_DATABASE_URL || fallback
+  );
 }
 
 /** Same per-app resolution for DATABASE_AUTH_TOKEN (used by Turso/libsql). */
@@ -69,7 +73,9 @@ export function getDatabaseAuthToken(): string | undefined {
     const prefixed = process.env[`${appName}_DATABASE_AUTH_TOKEN`];
     if (prefixed) return prefixed;
   }
-  return process.env.DATABASE_AUTH_TOKEN;
+  return (
+    process.env.DATABASE_AUTH_TOKEN || process.env.NETLIFY_DATABASE_AUTH_TOKEN
+  );
 }
 
 /**

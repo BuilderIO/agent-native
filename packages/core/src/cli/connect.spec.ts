@@ -200,17 +200,25 @@ describe("normalizeUrl", () => {
 });
 
 describe("resolveClients", () => {
-  it("expands 'all' to every supported client", () => {
+  it("expands 'all' to every selectable client", () => {
     expect(resolveClients("all")).toEqual([
       "claude-code",
-      "claude-code-cli",
       "codex",
       "cowork",
+      "cursor",
+      "opencode",
+      "github-copilot",
     ]);
   });
 
   it("returns a single client when named", () => {
     expect(resolveClients("codex")).toEqual(["codex"]);
+  });
+
+  it("accepts common GitHub Copilot / VS Code aliases", () => {
+    expect(resolveClients("copilot")).toEqual(["github-copilot"]);
+    expect(resolveClients("vscode")).toEqual(["github-copilot"]);
+    expect(resolveClients("vs-code")).toEqual(["github-copilot"]);
   });
 
   it("throws on an unknown client", () => {
@@ -222,6 +230,9 @@ describe("supportsRemoteMcpOAuth", () => {
   it("treats Claude Code clients as native remote MCP OAuth clients", () => {
     expect(supportsRemoteMcpOAuth("claude-code")).toBe(true);
     expect(supportsRemoteMcpOAuth("claude-code-cli")).toBe(true);
+    expect(supportsRemoteMcpOAuth("cursor")).toBe(true);
+    expect(supportsRemoteMcpOAuth("opencode")).toBe(true);
+    expect(supportsRemoteMcpOAuth("github-copilot")).toBe(true);
     expect(supportsRemoteMcpOAuth("codex")).toBe(false);
     expect(supportsRemoteMcpOAuth("cowork")).toBe(false);
   });
@@ -301,6 +312,36 @@ describe("runDeviceFlow", () => {
     );
   });
 
+  it("can wrap browser launch with an embedded spinner hook", async () => {
+    const open = vi.fn();
+    const withBrowserOpenSpinner = vi.fn(async (_message, openBrowser) => {
+      await openBrowser();
+    });
+
+    const grant = await runDeviceFlow("https://app.example.com", "app", "all", {
+      fetchImpl: makeFetch([
+        {
+          status: "approved",
+          token: "tok-abc",
+          mcpUrl: "https://app.example.com/_agent-native/mcp",
+          serverName: "agent-native-app",
+        },
+      ]),
+      sleep: noopSleep,
+      openBrowser: open,
+      withBrowserOpenSpinner,
+    });
+
+    expect(grant?.token).toBe("tok-abc");
+    expect(withBrowserOpenSpinner).toHaveBeenCalledWith(
+      "Opening browser for approval",
+      expect.any(Function),
+    );
+    expect(open).toHaveBeenCalledWith(
+      "https://app.example.com/connect?code=WXYZ-1234",
+    );
+  });
+
   it("accepts an approved local entry without a bearer token", async () => {
     const grant = await runDeviceFlow(
       "http://localhost:4321",
@@ -374,7 +415,10 @@ describe("runDeviceFlow", () => {
     expect(grant).toBeNull();
   });
 
-  it("returns null immediately when polling gets a server error", async () => {
+  it("retries transient server errors while polling, then gives up", async () => {
+    // A cold/propagating instance can briefly 5xx (or bare-404) before its
+    // route/DB is ready; the connect flow must ride that out rather than fail
+    // on the first blip. Persistent failure still gives up gracefully.
     const err = vi
       .spyOn(process.stderr, "write")
       .mockImplementation(() => true);
@@ -408,8 +452,57 @@ describe("runDeviceFlow", () => {
     });
 
     expect(grant).toBeNull();
-    expect(pollCount).toBe(1);
-    expect(err.mock.calls.flat().join("")).toContain("database unavailable");
+    // The transient 503 is retried (not fatal on the first poll), then the
+    // flow gives up once the failure streak is exhausted.
+    expect(pollCount).toBeGreaterThan(1);
+    expect(err.mock.calls.flat().join("")).toContain("not responding");
+  });
+
+  it("recovers when a transient poll error is followed by approval", async () => {
+    // The core durable-404 guarantee: a bare-404 / 5xx blip mid-poll must not
+    // kill the connect — the next healthy poll should still complete.
+    let pollCount = 0;
+    const fetchImpl = vi.fn(async (url: string) => {
+      if (String(url).endsWith("/device/start")) {
+        return new Response(
+          JSON.stringify({
+            device_code: "dev-123",
+            user_code: "WXYZ-1234",
+            verification_uri: "https://app.example.com/connect",
+            verification_uri_complete:
+              "https://app.example.com/connect?code=WXYZ-1234",
+            interval: 1,
+            expires_in: 600,
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      pollCount++;
+      // First two polls hit a cold/propagating instance (bare 404, no JSON
+      // body) — the exact recurring "Cannot find any route matching" case.
+      if (pollCount <= 2) {
+        return new Response("Cannot find any route matching", { status: 404 });
+      }
+      return new Response(
+        JSON.stringify({
+          status: "approved",
+          token: "tok-after-blip",
+          mcpUrl: "https://app.example.com/_agent-native/mcp",
+          serverName: "app",
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    }) as unknown as typeof fetch;
+
+    const grant = await runDeviceFlow("https://app.example.com", "app", "all", {
+      fetchImpl,
+      sleep: noopSleep,
+      openBrowser: vi.fn(),
+    });
+
+    expect(grant).not.toBeNull();
+    expect(grant?.token).toBe("tok-after-blip");
+    expect(pollCount).toBe(3);
   });
 
   it("returns null immediately when polling returns a terminal error body", async () => {
@@ -435,7 +528,7 @@ describe("runDeviceFlow", () => {
       pollCount++;
       return new Response(
         JSON.stringify({ status: "not_found", message: "unknown code" }),
-        { status: 200, headers: { "content-type": "application/json" } },
+        { status: 404, headers: { "content-type": "application/json" } },
       );
     }) as unknown as typeof fetch;
 

@@ -4,6 +4,7 @@ import {
   listProviderApiIdsForTemplateUse,
   type ProviderApiCredentialLookupOptions,
   type ProviderApiCredentialResolver,
+  type ProviderApiDocsOptions,
   type ProviderApiId,
   type ProviderApiMethod,
   type ProviderApiRequestArgs,
@@ -79,11 +80,9 @@ export function listProviderApiCatalog(provider?: MailProviderApiId) {
   return runtime.listCatalog(provider);
 }
 
-export function fetchProviderApiDocs(options: {
-  provider: MailProviderApiId;
-  url?: string;
-  maxBytes?: number;
-}) {
+export function fetchProviderApiDocs(
+  options: ProviderApiDocsOptions & { provider: MailProviderApiId },
+) {
   return runtime.fetchDocs(options);
 }
 

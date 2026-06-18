@@ -54,14 +54,6 @@ When you open the app:
 
 Select text on a slide and hit Cmd+I to focus the agent with that selection — it'll act only on what you selected.
 
-## Why it's interesting
-
-Three things make Slides a good showcase of the framework:
-
-1. **Streamed, parallel generation.** The agent fires parallel `add-slide` calls so you see the deck assemble in real time — one slide at a time — rather than waiting for a full batch. That pattern works for any content type that benefits from progressive rendering.
-2. **Agent and editor share one document.** The same Yjs CRDT that lets two humans type concurrently is what the agent writes through via `update-slide --find/--replace`. There is no separate "AI-only" edit path.
-3. **Multi-modal source ingestion.** PPTX, DOCX, Google Docs, PDFs, URLs, and GitHub repos all feed through the same `import-*` action surface. Adding a new source format is a single action file; the agent picks it up immediately.
-
 ## For developers
 
 The rest of this doc is for anyone forking the Slides template or extending it.

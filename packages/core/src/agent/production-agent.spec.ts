@@ -9,6 +9,7 @@ import {
   isRetryableError,
   resolveAgentOwnerEmail,
   runAgentLoop,
+  shouldGuardRepeatedSourceSweep,
   structuredHistoryToEngineMessages,
   trimOldToolResults,
   type ActionEntry,
@@ -79,6 +80,26 @@ describe("buildUserContentWithAttachments", () => {
     ).toEqual([
       { type: "image", mediaType: "image/png", data: "aW1hZ2U=" },
       { type: "text", text: "Describe this" },
+    ]);
+  });
+
+  it("keeps hosted image URLs in text context instead of sending malformed URL image parts", () => {
+    const att = {
+      type: "image",
+      name: "screen.png",
+      contentType: "image/png",
+      data: "data:image/png;base64,aW1hZ2U=",
+    };
+    (att as any).url = "https://cdn.example.com/screen.png";
+
+    expect(
+      buildUserContentWithAttachments({
+        text: "Embed this image",
+        attachments: [att as any],
+      }),
+    ).toEqual([
+      { type: "image", mediaType: "image/png", data: "aW1hZ2U=" },
+      { type: "text", text: "Embed this image" },
     ]);
   });
 
@@ -196,6 +217,55 @@ describe("buildUserContentWithAttachments", () => {
     const text = (result[0] as { type: "text"; text: string }).text;
     expect(text).toContain("image/heic");
     expect(text).toContain("unsupported image format");
+  });
+
+  it("keeps uploaded SVGs as text references instead of vision image parts", () => {
+    const att = {
+      type: "image",
+      name: "logo.svg",
+      contentType: "image/svg+xml",
+      data: "data:image/svg+xml;base64,PHN2Zz48L3N2Zz4=",
+    };
+    (att as any).url = "https://cdn.example.com/logo.svg";
+
+    const result = buildUserContentWithAttachments({
+      text: "Use this logo in the deck",
+      attachments: [att as any],
+    });
+
+    expect(result).toHaveLength(1);
+    expect(result[0].type).toBe("text");
+    const text = (result[0] as { type: "text"; text: string }).text;
+    expect(text).toContain("logo.svg");
+    expect(text).toContain("https://cdn.example.com/logo.svg");
+    expect(text).toContain("SVG reference");
+    expect(text).toContain("reference-only vector files");
+    expect(text).not.toContain("unsupported image format");
+    expect(text).not.toContain("ask them to convert");
+    expect(text).toContain("Use this logo in the deck");
+  });
+
+  it("does not send reference-only uploaded SVGs as raw file parts", () => {
+    const att = {
+      type: "file",
+      name: "logo.svg",
+      contentType: "image/svg+xml",
+      data: "data:image/svg+xml;base64,PHN2Zz48L3N2Zz4=",
+    };
+    (att as any).url = "https://cdn.example.com/logo.svg";
+    (att as any).referenceOnly = true;
+
+    const result = buildUserContentWithAttachments({
+      text: "Use this logo in the deck",
+      attachments: [att as any],
+    });
+
+    expect(result).toHaveLength(1);
+    expect(result[0].type).toBe("text");
+    const text = (result[0] as { type: "text"; text: string }).text;
+    expect(text).toContain("reference-only file");
+    expect(text).toContain("https://cdn.example.com/logo.svg");
+    expect(text).toContain("Use this logo in the deck");
   });
 
   it("preserves orphan tool-results as text so history is not lost before backfill", () => {
@@ -1014,6 +1084,324 @@ describe("runAgentLoop", () => {
       }),
     );
     expect(events).toContainEqual({ type: "text", text: "reported the gap" });
+  });
+
+  it("detects repeated read-only source sweeps but ignores ordinary helpers", () => {
+    const priorToolCalls = Array.from({ length: 12 }, (_, i) => ({
+      name: "gong-calls",
+      input: { company: `Account ${i + 1}` },
+    }));
+
+    expect(
+      shouldGuardRepeatedSourceSweep({
+        toolName: "gong-calls",
+        entry: actionEntry({ readOnly: true }),
+        priorToolCalls,
+      }),
+    ).toMatchObject({
+      toolName: "gong-calls",
+      priorCalls: 12,
+      message: expect.stringContaining("change strategy"),
+    });
+
+    expect(
+      shouldGuardRepeatedSourceSweep({
+        toolName: "hubspot-records",
+        entry: actionEntry({}),
+        priorToolCalls: priorToolCalls.map((call) => ({
+          ...call,
+          name: "hubspot-records",
+        })),
+      }),
+    ).toMatchObject({
+      toolName: "hubspot-records",
+      priorCalls: 12,
+    });
+
+    expect(
+      shouldGuardRepeatedSourceSweep({
+        toolName: "read-attachment",
+        entry: actionEntry({ readOnly: true }),
+        priorToolCalls: priorToolCalls.map((call) => ({
+          ...call,
+          name: "read-attachment",
+        })),
+      }),
+    ).toBeNull();
+
+    expect(
+      shouldGuardRepeatedSourceSweep({
+        toolName: "search-records",
+        entry: actionEntry({ readOnly: false }),
+        priorToolCalls: priorToolCalls.map((call) => ({
+          ...call,
+          name: "search-records",
+        })),
+      }),
+    ).toBeNull();
+  });
+
+  it("allows a bulk strategy change instead of continuing a repeated source sweep", async () => {
+    let streamCalls = 0;
+    const seenMessages: unknown[] = [];
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: true,
+      },
+      async *stream(opts): AsyncIterable<EngineEvent> {
+        streamCalls += 1;
+        seenMessages.push(opts.messages);
+        const serializedMessages = JSON.stringify(opts.messages);
+        if (serializedMessages.includes("bulk coverage complete")) {
+          yield {
+            type: "text-delta",
+            text: "Bulk coverage complete.",
+          };
+          yield {
+            type: "assistant-content",
+            parts: [
+              {
+                type: "text" as const,
+                text: "Bulk coverage complete.",
+              },
+            ],
+          };
+          yield { type: "stop", reason: "end_turn" };
+          return;
+        }
+        if (serializedMessages.includes("Skipped agent-teams spawn")) {
+          yield {
+            type: "assistant-content",
+            parts: [
+              {
+                type: "tool-call" as const,
+                id: "bulk-code",
+                name: "run-code",
+                input: { script: "bulk corpus search" },
+              },
+            ],
+          };
+          yield { type: "stop", reason: "tool_use" };
+          return;
+        }
+        if (serializedMessages.includes("convergence budget")) {
+          yield {
+            type: "assistant-content",
+            parts: [
+              {
+                type: "tool-call" as const,
+                id: "delegate-sweep",
+                name: "agent-teams",
+                input: {
+                  action: "spawn",
+                  task: "Scan Gong call transcripts for Figma MCP across the closed-won Fusion account cohort",
+                },
+              },
+            ],
+          };
+          yield { type: "stop", reason: "tool_use" };
+          return;
+        }
+        yield {
+          type: "assistant-content",
+          parts: [
+            {
+              type: "tool-call" as const,
+              id: `gong-${streamCalls}`,
+              name: "gong-calls",
+              input: { company: `Account ${streamCalls}` },
+            },
+          ],
+        };
+        yield { type: "stop", reason: "tool_use" };
+      },
+    };
+    const gongCalls = vi.fn(async (args) => ({
+      company: args.company,
+      transcriptSearch: { matchingCalls: 0, inspectedCalls: 5 },
+    }));
+    const runCode = vi.fn(async () => "bulk coverage complete");
+    const agentTeams = vi.fn(async () => "spawned");
+    const events: any[] = [];
+
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [
+        {
+          role: "user",
+          content: [{ type: "text", text: "scan this provider cohort" }],
+        },
+      ],
+      actions: {
+        "gong-calls": {
+          ...actionEntry({ readOnly: true }),
+          run: gongCalls,
+        },
+        "run-code": {
+          ...actionEntry({ readOnly: true }),
+          run: runCode,
+        },
+        "agent-teams": {
+          ...actionEntry({
+            actions: ["spawn", "status", "read-result", "send", "list"],
+          }),
+          run: agentTeams,
+        },
+      },
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+    });
+
+    expect(gongCalls).toHaveBeenCalledTimes(12);
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "tool_done",
+        tool: "gong-calls",
+        result: expect.stringContaining("convergence budget"),
+      }),
+    );
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "tool_done",
+        tool: "agent-teams",
+        result: expect.stringContaining("Skipped agent-teams spawn"),
+      }),
+    );
+    expect(agentTeams).not.toHaveBeenCalled();
+    expect(runCode).toHaveBeenCalledTimes(1);
+    expect(events).toContainEqual({
+      type: "text",
+      text: "Bulk coverage complete.",
+    });
+    expect(JSON.stringify(seenMessages.at(-1))).toContain("change strategy");
+    expect(JSON.stringify(seenMessages.at(-1))).toContain("Do not delegate");
+  });
+
+  it("counts repeated source sweeps from internal continuation history", async () => {
+    let streamCalls = 0;
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(opts): AsyncIterable<EngineEvent> {
+        streamCalls += 1;
+        const serializedMessages = JSON.stringify(opts.messages);
+        if (serializedMessages.includes("convergence budget")) {
+          yield {
+            type: "text-delta",
+            text: "summarized coverage",
+          };
+          yield {
+            type: "assistant-content",
+            parts: [{ type: "text" as const, text: "summarized coverage" }],
+          };
+          yield { type: "stop", reason: "end_turn" };
+          return;
+        }
+        yield {
+          type: "assistant-content",
+          parts: [
+            {
+              type: "tool-call" as const,
+              id: "gong-next",
+              name: "gong-calls",
+              input: { company: "Next Account" },
+            },
+          ],
+        };
+        yield { type: "stop", reason: "tool_use" };
+      },
+    };
+    const gongCalls = vi.fn(async () => "should not run");
+    const events: any[] = [];
+    const priorToolMessages = Array.from({ length: 12 }, (_, i) => {
+      const input = { company: `Account ${i + 1}` };
+      const toolCallId = `gong-prior-${i + 1}`;
+      return [
+        {
+          role: "assistant" as const,
+          content: [
+            {
+              type: "tool-call" as const,
+              id: toolCallId,
+              name: "gong-calls",
+              input,
+            },
+          ],
+        },
+        {
+          role: "user" as const,
+          content: [
+            {
+              type: "tool-result" as const,
+              toolCallId,
+              toolName: "gong-calls",
+              toolInput: JSON.stringify(input),
+              content: "no Figma MCP hits",
+            },
+          ],
+        },
+      ];
+    }).flat();
+
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [
+        {
+          role: "user",
+          content: [{ type: "text", text: "scan this provider cohort" }],
+        },
+        ...priorToolMessages,
+        {
+          role: "user",
+          content: [{ type: "text", text: AGENT_INTERNAL_CONTINUE_PROMPT }],
+        },
+      ],
+      actions: {
+        "gong-calls": {
+          ...actionEntry({ readOnly: true }),
+          run: gongCalls,
+        },
+      },
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+    });
+
+    expect(gongCalls).not.toHaveBeenCalled();
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "tool_done",
+        tool: "gong-calls",
+        result: expect.stringContaining("convergence budget"),
+      }),
+    );
+    expect(events).toContainEqual({
+      type: "text",
+      text: "summarized coverage",
+    });
+    expect(streamCalls).toBe(2);
   });
 
   it("retries identical read-only tools when the continuation history result was aborted", async () => {
@@ -2532,6 +2920,250 @@ describe("runAgentLoop", () => {
     expect(streamCalls).toBe(2);
     expect(events).toContainEqual({ type: "clear" });
     expect(events).toContainEqual({ type: "text", text: "Recovered" });
+  });
+
+  // ─── Human-in-the-loop approval gate (opt-in needsApproval) ──────────────
+  //
+  // Builds an engine that emits a single tool call to `send-email` on the
+  // first stream, then a plain text completion on every subsequent stream.
+  // The post-tool stream lets an *approved* re-run finish cleanly.
+  const approvalEngine = (
+    toolInput: Record<string, unknown> = { to: "a@b.com" },
+  ): { engine: AgentEngine; streamCalls: () => number } => {
+    let streamCalls = 0;
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: true,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        streamCalls += 1;
+        if (streamCalls === 1) {
+          yield {
+            type: "assistant-content",
+            parts: [
+              {
+                type: "tool-call" as const,
+                id: "approval-call-1",
+                name: "send-email",
+                input: toolInput,
+              },
+            ],
+          };
+          yield { type: "stop", reason: "tool_use" };
+          return;
+        }
+        yield { type: "text-delta", text: "sent the email" };
+        yield {
+          type: "assistant-content",
+          parts: [{ type: "text" as const, text: "sent the email" }],
+        };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+    return { engine, streamCalls: () => streamCalls };
+  };
+
+  it("runs an action WITHOUT needsApproval normally (no approval_required)", async () => {
+    const { engine } = approvalEngine();
+    const run = vi.fn(async () => "delivered");
+    const events: any[] = [];
+
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions: {
+        "send-email": {
+          ...actionEntry({ readOnly: false }),
+          run,
+        },
+      },
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+    });
+
+    expect(run).toHaveBeenCalledOnce();
+    expect(events.some((event) => event.type === "approval_required")).toBe(
+      false,
+    );
+    expect(events.at(-1)).toEqual({ type: "done" });
+  });
+
+  it("needsApproval:true pauses the turn, never runs the action, and emits a stable approvalKey", async () => {
+    const { engine, streamCalls } = approvalEngine();
+    const run = vi.fn(async () => "delivered");
+    const events: any[] = [];
+
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions: {
+        "send-email": {
+          ...actionEntry({ readOnly: false }),
+          needsApproval: true,
+          run,
+        },
+      },
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+    });
+
+    // The side effect must NOT have happened.
+    expect(run).not.toHaveBeenCalled();
+    // The model was never asked to continue after the pause (only the first
+    // tool-emitting stream ran).
+    expect(streamCalls()).toBe(1);
+
+    const approvalEvent = events.find(
+      (event) => event.type === "approval_required",
+    );
+    expect(approvalEvent).toBeDefined();
+    expect(approvalEvent.tool).toBe("send-email");
+    expect(approvalEvent.input).toEqual({ to: "a@b.com" });
+    // A stable, non-empty key that the client echoes back to approve.
+    expect(typeof approvalEvent.approvalKey).toBe("string");
+    expect(approvalEvent.approvalKey.length).toBeGreaterThan(0);
+    expect(approvalEvent.approvalKey).toContain("send-email");
+    expect(approvalEvent.toolCallId).toBe("approval-call-1");
+
+    // A paused tool_done is emitted explaining the action did NOT execute.
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "tool_done",
+        tool: "send-email",
+        result: expect.stringContaining("did NOT execute"),
+      }),
+    );
+    // The turn stops with the approval-waiting message (how the loop surfaces a
+    // requestedActionStop with errorCode "needs-approval").
+    expect(events).toContainEqual({
+      type: "text",
+      text: "Waiting for your approval to run send-email.",
+    });
+  });
+
+  it("re-running with approvedToolCalls:[approvalKey] DOES run the action", async () => {
+    // Phase 1: capture the approvalKey from the pause.
+    const phase1 = approvalEngine();
+    const run = vi.fn(async () => "delivered");
+    const events1: any[] = [];
+    const actions = {
+      "send-email": {
+        ...actionEntry({ readOnly: false }),
+        needsApproval: true,
+        run,
+      },
+    };
+
+    await runAgentLoop({
+      engine: phase1.engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions,
+      send: (event) => events1.push(event),
+      signal: new AbortController().signal,
+    });
+
+    const approvalKey = events1.find(
+      (event) => event.type === "approval_required",
+    )?.approvalKey as string;
+    expect(approvalKey).toBeTruthy();
+    expect(run).not.toHaveBeenCalled();
+
+    // Phase 2: re-issue the turn approving that specific call.
+    const phase2 = approvalEngine();
+    const events2: any[] = [];
+
+    await runAgentLoop({
+      engine: phase2.engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions,
+      approvedToolCalls: [approvalKey],
+      send: (event) => events2.push(event),
+      signal: new AbortController().signal,
+    });
+
+    expect(run).toHaveBeenCalledOnce();
+    expect(events2.some((event) => event.type === "approval_required")).toBe(
+      false,
+    );
+    expect(events2).toContainEqual({ type: "text", text: "sent the email" });
+    expect(events2.at(-1)).toEqual({ type: "done" });
+  });
+
+  it("predicate needsApproval gates only matching args (non-matching runs normally)", async () => {
+    // Non-matching args run normally.
+    const safe = approvalEngine({ x: "safe" });
+    const safeRun = vi.fn(async () => "ran-safe");
+    const safeEvents: any[] = [];
+    const predicate = (args: { x?: string }) => args.x === "danger";
+
+    await runAgentLoop({
+      engine: safe.engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions: {
+        "send-email": {
+          ...actionEntry({ readOnly: false }),
+          needsApproval: predicate,
+          run: safeRun,
+        },
+      },
+      send: (event) => safeEvents.push(event),
+      signal: new AbortController().signal,
+    });
+
+    expect(safeRun).toHaveBeenCalledOnce();
+    expect(safeEvents.some((event) => event.type === "approval_required")).toBe(
+      false,
+    );
+
+    // Matching args pause for approval and never run.
+    const danger = approvalEngine({ x: "danger" });
+    const dangerRun = vi.fn(async () => "ran-danger");
+    const dangerEvents: any[] = [];
+
+    await runAgentLoop({
+      engine: danger.engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions: {
+        "send-email": {
+          ...actionEntry({ readOnly: false }),
+          needsApproval: predicate,
+          run: dangerRun,
+        },
+      },
+      send: (event) => dangerEvents.push(event),
+      signal: new AbortController().signal,
+    });
+
+    expect(dangerRun).not.toHaveBeenCalled();
+    expect(
+      dangerEvents.some((event) => event.type === "approval_required"),
+    ).toBe(true);
   });
 });
 

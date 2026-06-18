@@ -10,7 +10,7 @@ export function meta() {
     {
       name: "description",
       content:
-        "Your AI agent creates, edits, and organizes documents alongside you in a Notion-like workspace.",
+        "Open-source Obsidian for MDX: edit local docs, create custom blocks, and organize everything with an AI agent.",
     },
   ];
 }

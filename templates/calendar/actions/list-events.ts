@@ -244,6 +244,24 @@ async function listLocalBookingEvents(
   });
 }
 
+function shouldShowLocalBookingEvent({
+  event,
+  googleEventIds,
+  googleReadAuthoritative,
+}: {
+  event: CalendarEvent;
+  googleEventIds: Set<string>;
+  googleReadAuthoritative: boolean;
+}): boolean {
+  if (!event.googleEventId) return true;
+  if (googleEventIds.has(event.googleEventId)) return false;
+
+  // A linked booking's Google event is the visible calendar source of truth.
+  // Keep the local fallback only when Google did not provide an authoritative
+  // answer, such as an auth or fetch error.
+  return !googleReadAuthoritative;
+}
+
 export async function listCalendarEvents(
   args: ListCalendarEventsArgs = {},
 ): Promise<CalendarEventsResult> {
@@ -305,12 +323,19 @@ export async function listCalendarEvents(
   );
 
   const googleEventIds = new Set(
-    googleEvents.map((event) => event.googleEventId).filter(Boolean),
+    googleEvents
+      .map((event) => event.googleEventId)
+      .filter((id): id is string => Boolean(id)),
   );
+  const googleReadAuthoritative = connected && errors.length === 0;
   const bookingEvents = (
     await listLocalBookingEvents(range.from, range.to)
-  ).filter(
-    (event) => !event.googleEventId || !googleEventIds.has(event.googleEventId),
+  ).filter((event) =>
+    shouldShowLocalBookingEvent({
+      event,
+      googleEventIds,
+      googleReadAuthoritative,
+    }),
   );
 
   let events = [...googleEvents, ...icalEvents, ...bookingEvents];

@@ -1,5 +1,183 @@
 # @agent-native/skills
 
+## 0.2.22
+
+### Patch Changes
+
+- Updated dependencies [2c3fcb9]
+- Updated dependencies [2c3fcb9]
+  - @agent-native/core@0.58.2
+
+## 0.2.21
+
+### Patch Changes
+
+- Updated dependencies [a2992cb]
+  - @agent-native/core@0.58.1
+
+## 0.2.20
+
+### Patch Changes
+
+- Updated dependencies [9e20092]
+- Updated dependencies [9e20092]
+  - @agent-native/core@0.58.0
+
+## 0.2.19
+
+### Patch Changes
+
+- Updated dependencies [3446e34]
+- Updated dependencies [3446e34]
+- Updated dependencies [3446e34]
+- Updated dependencies [3446e34]
+- Updated dependencies [3446e34]
+  - @agent-native/core@0.57.0
+
+## 0.2.18
+
+### Patch Changes
+
+- Updated dependencies [e3e8515]
+  - @agent-native/core@0.56.1
+
+## 0.2.17
+
+### Patch Changes
+
+- Updated dependencies [78687a1]
+- Updated dependencies [78687a1]
+- Updated dependencies [78687a1]
+- Updated dependencies [78687a1]
+- Updated dependencies [78687a1]
+  - @agent-native/core@0.56.0
+
+## 0.2.16
+
+### Patch Changes
+
+- 364e4be: Expose the updated framework skill bundle through the skills package entrypoint.
+- Updated dependencies [364e4be]
+- Updated dependencies [364e4be]
+- Updated dependencies [364e4be]
+- Updated dependencies [364e4be]
+- Updated dependencies [364e4be]
+- Updated dependencies [364e4be]
+  - @agent-native/core@0.55.0
+
+## 0.2.15
+
+### Patch Changes
+
+- Updated dependencies [cc1e11c]
+  - @agent-native/core@0.54.1
+
+## 0.2.14
+
+### Patch Changes
+
+- Updated dependencies [f81e032]
+- Updated dependencies [f81e032]
+- Updated dependencies [9909dcc]
+- Updated dependencies [f81e032]
+- Updated dependencies [f81e032]
+- Updated dependencies [f81e032]
+- Updated dependencies [f81e032]
+- Updated dependencies [f81e032]
+- Updated dependencies [f81e032]
+- Updated dependencies [f81e032]
+  - @agent-native/core@0.54.0
+
+## 0.2.13
+
+### Patch Changes
+
+- 5a57b60: Fix hosted skills install flows for Codex plus Claude Cowork client selections and make MCP connect polling handle structured device-code failures consistently.
+- Updated dependencies [5a57b60]
+- Updated dependencies [5a57b60]
+- Updated dependencies [5a57b60]
+- Updated dependencies [5a57b60]
+- Updated dependencies [5a57b60]
+- Updated dependencies [5a57b60]
+- Updated dependencies [5a57b60]
+- Updated dependencies [5a57b60]
+- Updated dependencies [5a57b60]
+- Updated dependencies [5a57b60]
+- Updated dependencies [5a57b60]
+- Updated dependencies [5a57b60]
+- Updated dependencies [5a57b60]
+  - @agent-native/core@0.53.0
+
+## 0.2.12
+
+### Patch Changes
+
+- 9dc6ba7: Polish the shared skills CLI prompts, standalone catalog, and install summary.
+  Add MCP install support for more local agent clients and keep the PR Visual
+  Recap GitHub Action prompt available in local-files mode.
+- Updated dependencies [9dc6ba7]
+- Updated dependencies [9dc6ba7]
+- Updated dependencies [9dc6ba7]
+  - @agent-native/core@0.52.0
+
+## 0.2.11
+
+### Patch Changes
+
+- ef16690: Open local Plan previews from local-files mode and clarify plugin installs use hosted Plans by default.
+- Updated dependencies [ef16690]
+  - @agent-native/core@0.51.15
+
+## 0.2.10
+
+### Patch Changes
+
+- cb49d6f: Keep Plan install mode flags scoped to Plan skills when the public skills CLI delegates extra text-skill copies.
+- Updated dependencies [cb49d6f]
+  - @agent-native/core@0.51.14
+
+## 0.2.9
+
+### Patch Changes
+
+- e9709bf: Fix the published skills CLI package metadata so npm installs resolve the shared core dependency from a published package version.
+
+## 0.2.8
+
+### Patch Changes
+
+- 49685d9: Fix the shared skills CLI picker so the standalone skills package installs with
+  its matching core runtime, defaults public skills visibly, asks the Plan storage
+  mode before client setup, and avoids duplicate Claude Code client choices.
+  The hosted Plans option now also calls out that it is 100% free and open
+  source.
+- Updated dependencies [49685d9]
+  - @agent-native/core@0.51.13
+
+## 0.2.7
+
+### Patch Changes
+
+- 7a6b32b: Fix the shared skills CLI picker so the standalone skills package installs with
+  its matching core runtime, defaults public skills visibly, asks the Plan storage
+  mode before client setup, and avoids duplicate Claude Code client choices.
+- Updated dependencies [7a6b32b]
+  - @agent-native/core@0.51.12
+
+## 0.2.6
+
+### Patch Changes
+
+- 914c8db: Unify the skills CLI flow so `@agent-native/skills` delegates normal user-facing
+  list/add flows to the core skills CLI with an expanded public skills catalog,
+  while `agent-native skills` keeps the Agent Native-only catalog.
+
+## 0.2.5
+
+### Patch Changes
+
+- 14ea897: Harden local Plan block authoring guidance and align the standalone skills CLI with hosted, local-files, and self-hosted Plan modes.
+
 ## 0.2.4
 
 ### Patch Changes

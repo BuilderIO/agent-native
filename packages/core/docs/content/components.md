@@ -27,17 +27,31 @@ so bundlers choose the browser-safe entry.
 
 ## Agent And Chat UI {#agent-chat-ui}
 
-| API                        | Import path                                   | Use when                                                                                         |
-| -------------------------- | --------------------------------------------- | ------------------------------------------------------------------------------------------------ |
-| `<AgentSidebar>`           | `@agent-native/core/client` or `/client/chat` | You want the complete sidebar around your app.                                                   |
-| `<AgentToggleButton>`      | `@agent-native/core/client` or `/client/chat` | You render your own header button for the sidebar.                                               |
-| `<AgentPanel>`             | `@agent-native/core/client` or `/client/chat` | You want the full panel in your own layout, route, dialog, or side column.                       |
-| `<AgentChatSurface>`       | `@agent-native/core/client` or `/client/chat` | You want chat in panel or page mode without the sidebar wrapper.                                 |
-| `<AssistantChat>`          | `@agent-native/core/client` or `/client/chat` | You want to own surrounding chrome while keeping the standard conversation and composer runtime. |
-| `<MultiTabAssistantChat>`  | `@agent-native/core/client` or `/client/chat` | You want the framework's thread tabs without `AgentPanel` chrome.                                |
-| `createAgentChatAdapter()` | `@agent-native/core/client` or `/client/chat` | You are building a custom assistant-ui runtime and need the Agent-Native chat transport.         |
-| `useChatThreads()`         | `@agent-native/core/client` or `/client/chat` | You need a custom thread list, history picker, or scoped chat UI.                                |
-| `sendToAgentChat()`        | `@agent-native/core/client` or `/client/chat` | A product action should hand work to the agent chat.                                             |
+| API                                  | Import path                                   | Use when                                                                                         |
+| ------------------------------------ | --------------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| `<AgentSidebar>`                     | `@agent-native/core/client` or `/client/chat` | You want the complete sidebar around your app.                                                   |
+| `<AgentToggleButton>`                | `@agent-native/core/client` or `/client/chat` | You render your own header button for the sidebar.                                               |
+| `<AgentPanel>`                       | `@agent-native/core/client` or `/client/chat` | You want the full panel in your own layout, route, dialog, or side column.                       |
+| `<AgentChatSurface>`                 | `@agent-native/core/client` or `/client/chat` | You want chat in panel or page mode without the sidebar wrapper.                                 |
+| `<AssistantChat>`                    | `@agent-native/core/client` or `/client/chat` | You want to own surrounding chrome while keeping the standard conversation and composer runtime. |
+| `<MultiTabAssistantChat>`            | `@agent-native/core/client` or `/client/chat` | You want the framework's thread tabs without `AgentPanel` chrome.                                |
+| `createHttpAgentChatRuntime()`       | `@agent-native/core/client` or `/client/chat` | You have a BYO agent endpoint that streams normalized chat events.                               |
+| `createOpenAIAgentsChatRuntime()`    | `@agent-native/core/client` or `/client/chat` | You have an OpenAI Agents SDK stream and want the standard chat UI around it.                    |
+| `createOpenAIResponsesChatRuntime()` | `@agent-native/core/client` or `/client/chat` | You have an OpenAI Responses event stream and want it normalized into the chat UI.               |
+| `createAgUiChatRuntime()`            | `@agent-native/core/client` or `/client/chat` | You have an AG-UI event stream and want it normalized into the chat UI.                          |
+| `createClaudeAgentChatRuntime()`     | `@agent-native/core/client` or `/client/chat` | You have a Claude Agent SDK stream and want it normalized into the chat UI.                      |
+| `createVercelAiChatRuntime()`        | `@agent-native/core/client` or `/client/chat` | You have a Vercel AI SDK stream and want it normalized into the chat UI.                         |
+| `createAgentChatRuntimeAdapter()`    | `@agent-native/core/client` or `/client/chat` | You need to adapt an `AgentChatRuntime` into assistant-ui yourself.                              |
+| `createAgentChatAdapter()`           | `@agent-native/core/client` or `/client/chat` | You need the built-in Agent-Native SSE transport as a low-level assistant-ui adapter.            |
+| `useChatThreads()`                   | `@agent-native/core/client` or `/client/chat` | You need a custom thread list, history picker, or scoped chat UI.                                |
+| `sendToAgentChat()`                  | `@agent-native/core/client` or `/client/chat` | A product action should hand work to the agent chat.                                             |
+
+`AgentChatRuntime` is the BYO-agent contract for the standard chat shell. Pass
+`runtime` to `<AssistantChat>` when an external agent should power the
+conversation while Agent-Native keeps the composer, transcript, tool cards, and
+native widget rendering. If you are choosing between headless actions, rich
+chat, embedded sidecar, and full app shapes, see
+[Agent Surfaces](/docs/agent-surfaces).
 
 The shortest custom route is still a pre-wired surface:
 
@@ -70,6 +84,27 @@ function CustomChat({ projectSlug }: { projectSlug: string }) {
   );
 }
 ```
+
+For a bring-your-own agent endpoint:
+
+```tsx
+import {
+  AssistantChat,
+  createOpenAIAgentsChatRuntime,
+} from "@agent-native/core/client/chat";
+
+const runtime = createOpenAIAgentsChatRuntime({
+  endpoint: "/api/my-agent/chat",
+  label: "My agent",
+});
+
+export function MyAgentChat() {
+  return <AssistantChat runtime={runtime} />;
+}
+```
+
+Use `createHttpAgentChatRuntime()` instead when your endpoint already emits
+Agent-Native normalized events.
 
 ## Chat Field And Composer {#composer}
 
@@ -115,6 +150,23 @@ outside the full agent runtime.
 This layer is intentionally data-first: you own where messages come from, and
 the renderer owns consistent markdown, attachments, notices, artifacts, and
 tool-call display.
+
+## Native Tool Widgets {#native-tool-widgets}
+
+Use native tool widgets when an action result should render as app-quality UI
+inside chat instead of plain JSON. Built-in reusable outputs include
+`DataTableWidget`, `DataChartWidget`, and `DataWidgetResult`; they are exported
+from `@agent-native/core/client/chat` and the root client entry. See
+[Native Chat UI](/docs/native-chat-ui) for the action result contract.
+
+| API                              | Use when                                                                                |
+| -------------------------------- | --------------------------------------------------------------------------------------- |
+| `DataTableWidget`                | You want an action result to render rows and columns in native chat.                    |
+| `DataChartWidget`                | You want compact bar, line, or area chart output in native chat.                        |
+| `DataWidgetResult`               | You want a typed result shape for `"data-table"`, `"data-chart"`, or `"data-insights"`. |
+| `registerActionChatRenderer()`   | You need an action-declared renderer selected by exact `chatUI.renderer`.               |
+| `registerToolRenderer()`         | You need a product-specific native renderer for a non-core tool result.                 |
+| `registerReservedToolRenderer()` | Framework code needs a reserved renderer that wins before template renderers.           |
 
 ## Realtime Collab And Presence {#collab-presence}
 

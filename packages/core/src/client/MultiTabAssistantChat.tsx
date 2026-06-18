@@ -685,7 +685,7 @@ function HelpPopover({ onClose }: { onClose: () => void }) {
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
-interface ChatTab {
+export interface ChatTab {
   id: string;
   label: string;
   status: "idle" | "running" | "completed";

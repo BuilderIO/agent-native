@@ -54,6 +54,23 @@ describe("shared coding tools", () => {
     );
   });
 
+  it("omits bridge-only actions from engine tool lists", () => {
+    const registry = createCodingToolRegistry({
+      cwd: tempDir(),
+      restrictToCwd: true,
+    });
+
+    expect(
+      actionsToEngineTools({
+        ...registry,
+        bridgeOnly: {
+          ...registry.read,
+          agentTool: false,
+        },
+      }).map((tool) => tool.name),
+    ).toEqual(["bash", "read", "edit", "write"]);
+  });
+
   it("keeps sidebar dev mode on the shared tools and hides legacy aliases by default", async () => {
     const registry = await createDevScriptRegistry();
 
@@ -66,6 +83,19 @@ describe("shared coding tools", () => {
     expect(registry["write-file"]).toBeUndefined();
     expect(registry["list-files"]).toBeUndefined();
     expect(registry["search-files"]).toBeUndefined();
+  });
+
+  it("can disable raw database tools without removing coding tools", async () => {
+    const registry = await createDevScriptRegistry({ databaseTools: false });
+
+    expect(registry.bash).toBeDefined();
+    expect(registry.read).toBeDefined();
+    expect(registry.edit).toBeDefined();
+    expect(registry.write).toBeDefined();
+    expect(registry["db-query"]).toBeUndefined();
+    expect(registry["db-exec"]).toBeUndefined();
+    expect(registry["db-patch"]).toBeUndefined();
+    expect(registry["db-schema"]).toBeUndefined();
   });
 
   it("can expose legacy aliases explicitly for compatibility callers", async () => {

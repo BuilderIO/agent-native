@@ -15,7 +15,7 @@ Every agent-native app automatically exposes a remote MCP (Model Context Protoco
 | Make your app callable over MCP (server setup, auth, tools) | This page                                |
 | Give your app's agent more tools from external MCP servers  | [MCP Clients](/docs/mcp-clients)         |
 | App-to-app delegation via JSON-RPC                          | [A2A Protocol](/docs/a2a-protocol)       |
-| Build or embed interactive MCP App UIs                      | [MCP Apps](/docs/mcp-apps)               |
+| Build or embed interactive MCP App resources                | [MCP Apps](/docs/mcp-apps)               |
 
 If your goal is to connect Claude, ChatGPT, Claude Code, Codex, Cursor, or Claude Cowork to hosted agent-native apps, start with [External Agents](/docs/external-agents). It documents the recommended single Dispatch connector at `https://dispatch.agent-native.com/_agent-native/mcp`, direct per-app URLs for isolated app access, standard remote MCP OAuth, fallback config for older clients, MCP Apps inline UIs, and deep links back into the UI. This page is the lower-level MCP server reference.
 
@@ -29,7 +29,7 @@ Key concepts:
 - **Streamable HTTP** — uses the modern MCP transport over standard HTTP (POST + SSE)
 - **Same actions** — the exact same action registry that powers agent chat and A2A
 - **`ask-agent` tool** — a meta-tool that delegates to the full agent loop for complex tasks
-- **MCP Apps** — actions can advertise inline HTML UIs through the official `io.modelcontextprotocol/ui` extension
+- **MCP Apps** — actions can advertise interactive UI resources through the official `io.modelcontextprotocol/ui` extension
 - **Standard remote MCP OAuth** — OAuth 2.1 discovery, dynamic client registration, authorization-code + PKCE, refresh-token rotation
 - **Bearer auth fallback** — uses `ACCESS_TOKEN`, `ACCESS_TOKENS`, or connect-minted JWTs for clients that cannot run OAuth
 

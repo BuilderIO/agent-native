@@ -618,6 +618,72 @@ describe("useChatThreads", () => {
     });
   });
 
+  it("moves a saved thread to the top of the local recency order", async () => {
+    const olderThread: ChatThreadSummary = {
+      id: "thread-1",
+      title: "Older thread",
+      preview: "old",
+      messageCount: 1,
+      createdAt: 1,
+      updatedAt: 2,
+      scope: null,
+    };
+    const newerThread: ChatThreadSummary = {
+      id: "thread-2",
+      title: "Newer thread",
+      preview: "new",
+      messageCount: 1,
+      createdAt: 3,
+      updatedAt: 4,
+      scope: null,
+    };
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/chat/threads" && !init) {
+        return jsonResponse({ threads: [newerThread, olderThread] });
+      }
+      if (url === "/chat/threads/thread-1" && init?.method === "PUT") {
+        return jsonResponse({ ok: true });
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    let hook: ReturnType<typeof useChatThreads> | null = null;
+    function Harness() {
+      hook = useChatThreads("/chat", "recency-test", null, {
+        autoCreate: false,
+      });
+      return null;
+    }
+
+    await act(async () => {
+      root.render(<Harness />);
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(hook!.threads.map((thread) => thread.id)).toEqual([
+      "thread-2",
+      "thread-1",
+    ]);
+
+    await act(async () => {
+      await hook!.saveThreadData("thread-1", {
+        threadData: "{}",
+        title: "Older thread",
+        preview: "now active",
+        messageCount: 2,
+      });
+    });
+
+    expect(hook!.threads.map((thread) => thread.id)).toEqual([
+      "thread-1",
+      "thread-2",
+    ]);
+  });
+
   it("renames a thread optimistically", async () => {
     const sourceThread: ChatThreadSummary = {
       id: "thread-1",

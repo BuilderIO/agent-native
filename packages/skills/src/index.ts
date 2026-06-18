@@ -10,8 +10,16 @@ import { registerMcpServer } from "./connect.js";
 import type { ClientId } from "./mcp-config-writers.js";
 import { createCliTelemetry, type CliTelemetry } from "./telemetry.js";
 
-export type SkillClient = "codex" | "claude-code";
+export type SkillClient =
+  | "codex"
+  | "claude-code"
+  | "cowork"
+  | "pi"
+  | "cursor"
+  | "opencode"
+  | "github-copilot";
 export type SkillScope = "project" | "user";
+export type PlanMode = "hosted" | "local-files" | "self-hosted";
 
 export interface SkillEntry {
   name: string;
@@ -46,12 +54,16 @@ export interface InstallSkillsOptions {
   promptGithubAction?: (
     context: GithubActionPromptContext,
   ) => Promise<boolean | null>;
+  promptPlanMode?: (context: PlanModePromptContext) => Promise<PlanMode | null>;
+  promptPlanMcpUrl?: () => Promise<string | null>;
   /**
    * Register the hosted MCP server for app-backed skills (e.g. visual-plan /
    * visual-recap → the Agent-Native Plan MCP). Defaults to `true`; pass
    * `false` (CLI `--no-mcp`) to install the skill files only.
    */
   mcp?: boolean;
+  planMode?: PlanMode;
+  mcpUrl?: string;
 }
 
 export interface InstalledMcpServer {
@@ -73,6 +85,7 @@ export interface InstallSkillsResult {
   instructionFiles: string[];
   githubActionPath?: string;
   mcpServers: InstalledMcpServer[];
+  planMode?: PlanMode;
   dryRun: boolean;
 }
 
@@ -94,6 +107,9 @@ interface ParsedArgs {
   connect: boolean;
   baseDir?: string;
   mcp: boolean;
+  planMode?: PlanMode;
+  mcpUrl?: string;
+  quiet: boolean;
 }
 
 interface PromptOption<T extends string> {
@@ -118,6 +134,12 @@ export interface ScopePromptContext {
 
 export interface GithubActionPromptContext {
   workflowPath: string;
+  setupCommand: string;
+  docsUrl: string;
+}
+
+export interface PlanModePromptContext {
+  initialMode: PlanMode;
 }
 
 const HELP = `@agent-native/skills
@@ -128,7 +150,8 @@ Usage:
 
 Options:
   --skill <name>              Install only this skill (repeatable)
-  --client, -a <client>       codex, claude-code, or all (default: all; repeatable or comma-separated)
+  --client, -a <client>       codex, claude-code, cowork, pi, cursor, opencode, github-copilot, or all
+                              (default: all; repeatable or comma-separated)
   --scope <user|project>      Install globally or into the current project (default: user)
   -g, --global                Alias for --scope user
   --project                   Alias for --scope project
@@ -136,6 +159,8 @@ Options:
   --no-update-instructions    Skip managed instruction file updates
   --instructions-file <path>  File to receive managed instructions (repeatable)
   --with-github-action        Add .github/workflows/pr-visual-recap.yml when visual-recap is installed
+  --mode <mode>               visual-plan/visual-recap mode: hosted, local-files, or self-hosted
+  --mcp-url <url>             Self-hosted app/MCP URL for visual-plan/visual-recap
   --force                     Overwrite a different existing PR Visual Recap workflow
   --no-mcp                    Install skill files only; skip registering the app's MCP server
   --no-connect                Register MCP where possible but skip inline browser/device authentication
@@ -143,9 +168,11 @@ Options:
   --dry-run                   Print intended writes without changing files
   --json                      Print the result as JSON
 
-App-backed skills (visual-plan, visual-recap, assets, design-exploration)
-register their hosted MCP server in your agent config by default so the agent
-can actually use them. Use --no-mcp to skip that and copy the files only.
+App-backed skills (visual-plan, visual-recap) register their hosted MCP server
+in your agent config by default so the agent can actually use them. Use
+--no-mcp to skip that and copy the files only.
+For visual-plan/visual-recap, choose --mode local-files for no sharing and all
+local files, or --mode self-hosted --mcp-url <url> for your own Plan app.
 
 Examples:
   npx @agent-native/skills@latest add
@@ -153,9 +180,16 @@ Examples:
   npx @agent-native/skills@latest add --skill visual-recap --with-github-action
 `;
 
-const CLIENTS: SkillClient[] = ["codex", "claude-code"];
+const CLIENTS: SkillClient[] = [
+  "codex",
+  "claude-code",
+  "cowork",
+  "pi",
+  "cursor",
+  "opencode",
+  "github-copilot",
+];
 const DEFAULT_SKILLS_SOURCE = "BuilderIO/skills";
-const PUBLIC_SKILLS_REPO_APP_SKILLS = new Set(["visual-plan", "visual-recap"]);
 const MANAGED_INSTRUCTIONS_START = "<!-- BEGIN @agent-native/skills -->";
 const MANAGED_INSTRUCTIONS_END = "<!-- END @agent-native/skills -->";
 
@@ -214,11 +248,16 @@ export function parseSkillsCliArgs(argv: string[]): ParsedArgs {
     } else if (arg === "-y" || arg === "--yes") out.yes = true;
     else if (arg === "--dry-run") out.dryRun = true;
     else if (arg === "--json") out.printJson = true;
+    else if (arg === "--quiet") out.quiet = true;
     else if (arg === "--update-instructions") out.updateInstructions = true;
     else if (arg === "--no-update-instructions") out.updateInstructions = false;
     else if (arg === "--with-github-action" || arg === "--with-github-actions")
       out.withGithubAction = true;
-    else if (arg === "--force") out.force = true;
+    else if ((value = eat("--mode")) !== undefined) {
+      out.planMode = parsePlanMode(value);
+    } else if ((value = eat("--mcp-url")) !== undefined) {
+      out.mcpUrl = value;
+    } else if (arg === "--force") out.force = true;
     else if (arg === "--no-mcp") out.mcp = false;
     else if (arg === "--mcp") out.mcp = true;
     else if (arg === "--no-connect" || arg === "--skip-connect")
@@ -241,6 +280,10 @@ export function parseSkillsCliArgs(argv: string[]): ParsedArgs {
   out.skillNames = unique(out.skillNames.map(normalizeSkillName));
   out.clients = unique(out.clients);
   out.instructionFiles = unique(out.instructionFiles);
+  if (out.planMode && out.mcpUrl && out.planMode !== "self-hosted") {
+    throw new Error("--mcp-url can only be used with --mode self-hosted.");
+  }
+  if (out.mcpUrl && !out.planMode) out.planMode = "self-hosted";
   return out;
 }
 
@@ -252,22 +295,67 @@ export function parseSkillsCliArgs(argv: string[]): ParsedArgs {
  */
 function toCoreSkillsArgv(parsed: ParsedArgs): string[] {
   const out: string[] = [parsed.command];
-  if (parsed.command !== "add") return out;
-  if (parsed.skillNames.length === 1) out.push(parsed.skillNames[0]);
-  else if (parsed.copySource && parsed.source) out.push(parsed.source);
-  if (parsed.clients.length) out.push("--client", parsed.clients.join(","));
-  if (parsed.scopeExplicit) out.push("--scope", parsed.scope);
-  if (parsed.yes) out.push("--yes");
+  if (parsed.command === "add") {
+    if (parsed.copySource && parsed.source && parsed.skillNames.length > 0) {
+      out.push(parsed.source);
+      for (const skill of parsed.skillNames) out.push("--skill", skill);
+    } else if (parsed.skillNames.length === 1) {
+      out.push(parsed.skillNames[0]);
+    } else if (parsed.skillNames.length > 1) {
+      const appIds = unique(
+        parsed.skillNames
+          .map((name) => resolveAppForSkill(name)?.appId)
+          .filter((appId): appId is string => Boolean(appId)),
+      );
+      if (
+        appIds.length === 1 &&
+        parsed.skillNames.every((name) => resolveAppForSkill(name))
+      ) {
+        out.push(appIds[0]);
+      } else {
+        for (const skill of parsed.skillNames) out.push("--skill", skill);
+      }
+    }
+  }
+  if (parsed.command === "add" && parsed.clients.length) {
+    out.push("--client", parsed.clients.join(","));
+  }
+  if (parsed.command === "add" && parsed.scopeExplicit) {
+    out.push("--scope", parsed.scope);
+  }
+  if (parsed.command === "add" && parsed.yes) out.push("--yes");
   if (parsed.dryRun) out.push("--dry-run");
   if (parsed.printJson) out.push("--json");
-  if (parsed.withGithubAction) out.push("--with-github-action");
-  if (parsed.force) out.push("--force");
-  if (parsed.mcp === false) out.push("--no-mcp");
-  if (parsed.connect === false) out.push("--no-connect");
-  if (parsed.updateInstructions === true) out.push("--update-instructions");
-  if (parsed.updateInstructions === false) out.push("--no-update-instructions");
+  if (parsed.command === "add" && parsed.withGithubAction)
+    out.push("--with-github-action");
+  if (parsed.command === "add" && parsed.planMode)
+    out.push("--mode", parsed.planMode);
+  if (parsed.command === "add" && parsed.mcpUrl)
+    out.push("--mcp-url", parsed.mcpUrl);
+  if (parsed.command === "add" && parsed.force) out.push("--force");
+  if (parsed.command === "add" && parsed.mcp === false) out.push("--no-mcp");
+  if (parsed.command === "add" && parsed.connect === false)
+    out.push("--no-connect");
+  if (parsed.command === "add" && parsed.updateInstructions === true)
+    out.push("--update-instructions");
+  if (parsed.command === "add" && parsed.updateInstructions === false)
+    out.push("--no-update-instructions");
   return out;
 }
+
+function shouldLoadPublicCatalog(parsed: ParsedArgs): boolean {
+  if (parsed.command === "list") return true;
+  if (parsed.command !== "add") return false;
+  if (parsed.copySource && parsed.source) return true;
+  if (parsed.skillNames.length === 0) return true;
+  return parsed.skillNames.some((name) => !resolveAppForSkill(name));
+}
+
+const HIDDEN_STANDALONE_BUILT_INS = [
+  "assets",
+  "design-exploration",
+  "context-xray",
+];
 
 export async function runSkillsCli(
   argv: string[],
@@ -281,31 +369,71 @@ export async function runSkillsCli(
     | "promptScope"
     | "promptUpdateInstructions"
     | "promptGithubAction"
+    | "promptPlanMode"
+    | "promptPlanMcpUrl"
   > = {},
 ): Promise<void> {
   const parsed = parseSkillsCliArgs(argv);
 
-  // PIVOT: `@agent-native/skills` delegates explicitly selected core-only
-  // app-backed installs to `@agent-native/core` for app setup. The default
-  // add/list flow, plain skills, and public-repo-backed app skills stay here so
-  // they always come from the live BuilderIO skills collection (quick-recap,
-  // efficient-fable, visual-plan, visual-recap, …), which core does not own.
-  // AGENT_NATIVE_SKILLS_DIRECT=1 (set when core delegates a plain repo back to us)
-  // always forces the direct path and breaks the skills → core → skills loop.
+  // `@agent-native/skills` normally uses the exact same core flow as
+  // `agent-native skills`; it only passes a broader public skill catalog.
+  // AGENT_NATIVE_SKILLS_DIRECT=1 is set by core when it shells out to this
+  // package as a headless file-copy worker for public/plain skill repos. That
+  // direct mode is intentionally non-user-facing prompt plumbing.
   if (process.env.AGENT_NATIVE_SKILLS_DIRECT !== "1") {
-    const coreOnlyAppSkills =
-      parsed.skillNames.length > 0 &&
-      parsed.skillNames.every(
-        (name) => resolveAppForSkill(name) !== undefined,
-      ) &&
-      parsed.skillNames.every((name) => !skillComesFromPublicSkillsRepo(name));
-    if (parsed.command === "add" && coreOnlyAppSkills) {
-      const { runSkills } = await import("@agent-native/core/cli/skills");
+    if (parsed.command === "help") {
+      process.stdout.write(`${HELP}\n`);
+      return;
+    }
+    const loadedSource = shouldLoadPublicCatalog(parsed)
+      ? await materializeSource(parsed.source ?? DEFAULT_SKILLS_SOURCE)
+      : null;
+    try {
+      const { runSkills } = (await import("@agent-native/core/cli/skills")) as {
+        runSkills: (
+          argv: string[],
+          options: Record<string, unknown>,
+        ) => Promise<void>;
+      };
+      const publicSkillEntries = loadedSource
+        ? discoverSkills(loadedSource.root).map((entry) => ({
+            name: entry.name,
+            description: entry.description,
+          }))
+        : [];
       await runSkills(toCoreSkillsArgv(parsed), {
+        log: options.log,
         isInteractive: options.isInteractive,
         baseDir: parsed.baseDir ?? options.baseDir,
+        catalogMode: "all",
+        hiddenBuiltInSkillTargets: HIDDEN_STANDALONE_BUILT_INS,
+        publicSkillSource:
+          loadedSource?.root ?? parsed.source ?? DEFAULT_SKILLS_SOURCE,
+        publicSkillEntries,
+        promptSkills: options.promptSkills
+          ? async (context: any) =>
+              options.promptSkills?.({
+                initialSkills: context.initialTargets,
+                options: context.options,
+              }) ?? null
+          : undefined,
+        promptClients: options.promptClients as any,
+        promptScope: options.promptScope,
+        promptGithubAction: options.promptGithubAction
+          ? async (context: any) =>
+              options.promptGithubAction?.({
+                workflowPath: context.workflowPath,
+                setupCommand: context.setupCommand,
+                docsUrl: context.docsUrl,
+              }) ?? null
+          : undefined,
+        promptPlanMode: options.promptPlanMode,
+        promptPlanMcpUrl: options.promptPlanMcpUrl,
+        promptUpdateInstructions: options.promptUpdateInstructions,
       });
       return;
+    } finally {
+      loadedSource?.cleanup?.();
     }
   }
 
@@ -368,16 +496,20 @@ export async function runSkillsCli(
       withGithubAction: parsed.withGithubAction,
       force: parsed.force,
       connect: parsed.connect,
-      quiet: parsed.printJson,
-      log: parsed.printJson ? undefined : stdoutLog,
+      quiet: parsed.printJson || parsed.quiet,
+      log: parsed.printJson || parsed.quiet ? undefined : stdoutLog,
       isInteractive: options.isInteractive,
       promptSkills: options.promptSkills,
       promptClients: options.promptClients,
       promptScope: options.promptScope,
       promptUpdateInstructions: options.promptUpdateInstructions,
       promptGithubAction: options.promptGithubAction,
+      promptPlanMode: options.promptPlanMode,
+      promptPlanMcpUrl: options.promptPlanMcpUrl,
       telemetry,
       mcp: parsed.mcp,
+      planMode: parsed.planMode,
+      mcpUrl: parsed.mcpUrl,
     });
 
     telemetry.track("skills_cli completed", {
@@ -393,6 +525,8 @@ export async function runSkillsCli(
       return;
     }
 
+    if (parsed.quiet) return;
+
     await printInstallResult(result, {
       baseDir: parsed.baseDir ?? options.baseDir ?? process.cwd(),
       dryRun: parsed.dryRun,
@@ -407,10 +541,6 @@ export async function runSkillsCli(
   } finally {
     await telemetry.flush();
   }
-}
-
-function skillComesFromPublicSkillsRepo(name: string): boolean {
-  return PUBLIC_SKILLS_REPO_APP_SKILLS.has(normalizeSkillName(name));
 }
 
 function readCliVersion(): string {
@@ -451,17 +581,7 @@ export async function installSkills(
       );
     }
 
-    // Fire the "skills prompted" step only when an interactive chooser will
-    // actually be shown (mirrors resolveSelectedSkills's prompt condition), so
-    // the funnel distinguishes "saw the picker" from "passed --skill".
     const preselected = (options.skillNames ?? []).length > 0;
-    if (isInteractive(options) && !options.yes && !preselected) {
-      options.telemetry?.track("skills_cli skills prompted", {
-        availableCount: entries.length,
-        available: entries.map((entry) => entry.name).join(","),
-      });
-    }
-
     const selected = await resolveSelectedSkills(entries, options);
     options.telemetry?.track("skills_cli skills selected", {
       selected: selected.map((skill) => skill.name).join(","),
@@ -469,6 +589,13 @@ export async function installSkills(
       selectedAll: selected.length === entries.length,
       preselected,
     });
+
+    const skillNames = selected.map((skill) => skill.name);
+    const planMode = await resolvePlanModeForSkills(skillNames, options);
+    const planMcpOverride = await resolvePlanMcpOverrideForMode(
+      planMode,
+      options,
+    );
 
     const clients = await resolveSelectedClients(options);
     options.telemetry?.track("skills_cli clients selected", {
@@ -479,17 +606,27 @@ export async function installSkills(
     const scope = await resolveSelectedScope(options);
     options.telemetry?.track("skills_cli scope selected", { scope });
 
-    const skillNames = selected.map((skill) => skill.name);
     const instructionBlocks = managedInstructionBlocksForSkills(skillNames);
     const shouldUpdateInstructions = await shouldUpdateManagedInstructions(
       instructionBlocks,
       options,
     );
-    const shouldWriteGithubAction =
-      selected.some((skill) => skill.name === "visual-recap") &&
-      (options.withGithubAction ||
-        (await shouldPromptGithubAction(options, baseDir)));
-    const mcpApps = options.mcp === false ? [] : mcpAppsForSkills(skillNames);
+    const shouldWriteGithubAction = await shouldWritePrVisualRecapWorkflow(
+      selected.some((skill) => skill.name === "visual-recap"),
+      options,
+      baseDir,
+    );
+    const mcpApps =
+      options.mcp === false || planMode === "local-files"
+        ? []
+        : mcpAppsForSkills(skillNames, planMcpOverride);
+    const skillFileClients = clients.filter(supportsSkillFiles);
+    if (skillFileClients.length === 0 && mcpApps.length === 0) {
+      throw new Error(
+        "Claude Cowork is MCP-only for Agent Native skills. Choose Codex, Claude Code, Pi, Cursor, OpenCode, or GitHub Copilot for local skill files, or install an app-backed skill with MCP enabled.",
+      );
+    }
+
     const progress = await createInstallProgress(
       options,
       1 +
@@ -505,8 +642,11 @@ export async function installSkills(
 
     try {
       progress?.start("Installing skill files...");
-      for (const client of clients) {
-        const root = installRootForClient(client, scope, baseDir);
+      for (const root of unique(
+        skillFileClients.map((client) =>
+          installRootForClient(client, scope, baseDir),
+        ),
+      )) {
         for (const skill of selected) {
           const destination = path.join(root, skill.name);
           written.push(destination);
@@ -532,7 +672,7 @@ export async function installSkills(
         instructionFiles = writeManagedInstructions(
           instructionBlocks,
           baseDir,
-          clients,
+          skillFileClients,
           scope,
           options,
         );
@@ -554,14 +694,19 @@ export async function installSkills(
       }
 
       // Register the hosted MCP server for app-backed skills (visual-plan /
-      // visual-recap → Agent-Native Plan, assets, design-exploration) so the
-      // agent can actually call them — not just read the SKILL.md. On by
-      // default; `--no-mcp` installs the skill files only. One registration per
-      // app, so visual-plan + visual-recap share a single "plan" server.
+      // visual-recap → Agent-Native Plan) so the agent can actually call them,
+      // not just read the SKILL.md. On by default; `--no-mcp` installs the
+      // skill files only. One registration per app, so visual-plan +
+      // visual-recap share a single "plan" server.
       if (mcpApps.length > 0) {
-        const mcpClients: ClientId[] = clients.map((client) =>
-          client === "claude-code" ? "claude-code" : "codex",
-        );
+        const mcpClients: ClientId[] = clients
+          .map(skillClientToMcpClient)
+          .filter((client): client is ClientId => Boolean(client));
+        if (mcpClients.length === 0) {
+          throw new Error(
+            "MCP setup supports Claude Code, Codex, Cursor, OpenCode, GitHub Copilot / VS Code, or Claude Cowork. Use --mode local-files or --no-mcp for Pi.",
+          );
+        }
         for (const app of mcpApps) {
           progress?.message(`Registering ${app.displayName} MCP server...`);
           if (!options.dryRun) {
@@ -629,6 +774,7 @@ export async function installSkills(
       instructionFiles,
       githubActionPath,
       mcpServers,
+      planMode,
       dryRun: Boolean(options.dryRun),
     };
   } finally {
@@ -652,7 +798,81 @@ function defaultArgs(command: ParsedArgs["command"]): ParsedArgs {
     force: false,
     connect: true,
     mcp: true,
+    quiet: false,
   };
+}
+
+function selectedPlanApp(skillNames: string[]): BuiltInAppMcp | undefined {
+  return skillNames
+    .map((skillName) => resolveAppForSkill(skillName))
+    .find((app): app is BuiltInAppMcp => app?.appId === "visual-plans");
+}
+
+async function resolvePlanModeForSkills(
+  skillNames: string[],
+  options: InstallSkillsOptions,
+): Promise<PlanMode | undefined> {
+  const includesPlans = Boolean(selectedPlanApp(skillNames));
+  if (options.planMode && !includesPlans) {
+    throw new Error("--mode only applies to visual-plan / visual-recap.");
+  }
+  if (options.mcpUrl && !includesPlans) {
+    throw new Error("--mcp-url only applies to visual-plan / visual-recap.");
+  }
+  if (!includesPlans) return undefined;
+
+  if (options.mcpUrl && !options.planMode) return "self-hosted";
+  if (options.planMode) return options.planMode;
+  return "hosted";
+}
+
+function resolvePlanMcpUrlOverride(input: string): {
+  hostedUrl: string;
+  mcpUrl: string;
+} {
+  let parsed: URL;
+  try {
+    parsed = new URL(input);
+  } catch {
+    throw new Error(`--mcp-url must be a valid URL (got "${input}").`);
+  }
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+    throw new Error("--mcp-url must use http:// or https://.");
+  }
+  const mcpSuffix = "/_agent-native/mcp";
+  const trimmedPath = parsed.pathname.replace(/\/+$/, "");
+  const appPath = trimmedPath.endsWith(mcpSuffix)
+    ? trimmedPath.slice(0, -mcpSuffix.length)
+    : trimmedPath;
+  const mcpPath = trimmedPath.endsWith(mcpSuffix)
+    ? trimmedPath
+    : `${trimmedPath || ""}${mcpSuffix}`;
+  return {
+    hostedUrl: `${parsed.origin}${appPath}`,
+    mcpUrl: `${parsed.origin}${mcpPath}`,
+  };
+}
+
+async function resolvePlanMcpOverrideForMode(
+  planMode: PlanMode | undefined,
+  options: InstallSkillsOptions,
+): Promise<{ hostedUrl: string; mcpUrl: string } | undefined> {
+  if (planMode === "local-files" && options.mcpUrl) {
+    throw new Error("--mode local-files cannot be combined with --mcp-url.");
+  }
+  if (planMode !== "self-hosted") return undefined;
+  if (!options.mcpUrl) {
+    throw new Error(
+      "--mode self-hosted requires --mcp-url <url> in direct mode.",
+    );
+  }
+  return resolvePlanMcpUrlOverride(options.mcpUrl);
+}
+
+function parsePlanMode(value: string): PlanMode {
+  if (value === "hosted" || value === "local-files" || value === "self-hosted")
+    return value;
+  throw new Error('--mode must be "hosted", "local-files", or "self-hosted".');
 }
 
 function parseScope(value: string): SkillScope {
@@ -666,6 +886,22 @@ function normalizeClients(value: string): SkillClient[] {
     if (!client) return [];
     if (client === "all") return CLIENTS;
     if (client === "codex") return ["codex" as const];
+    if (client === "cowork" || client === "claude-cowork") {
+      return ["cowork" as const];
+    }
+    if (client === "pi") return ["pi" as const];
+    if (client === "cursor") return ["cursor" as const];
+    if (client === "opencode" || client === "open-code") {
+      return ["opencode" as const];
+    }
+    if (
+      client === "github-copilot" ||
+      client === "copilot" ||
+      client === "vscode" ||
+      client === "vs-code"
+    ) {
+      return ["github-copilot" as const];
+    }
     if (
       client === "claude" ||
       client === "claude-code" ||
@@ -674,9 +910,19 @@ function normalizeClients(value: string): SkillClient[] {
       return ["claude-code" as const];
     }
     throw new Error(
-      `Unsupported client "${raw}". Use codex, claude-code, or all.`,
+      `Unsupported client "${raw}". Use codex, claude-code, cowork, pi, cursor, opencode, github-copilot, or all.`,
     );
   });
+}
+
+function skillClientToMcpClient(client: SkillClient): ClientId | null {
+  if (client === "pi") return null;
+  if (client === "claude-code") return "claude-code";
+  return client;
+}
+
+function supportsSkillFiles(client: SkillClient): boolean {
+  return client !== "cowork";
 }
 
 function normalizeSkillName(value: string): string {
@@ -749,14 +995,25 @@ async function createInstallProgress(
   };
 }
 
-function mcpAppsForSkills(skillNames: string[]): BuiltInAppMcp[] {
+function mcpAppsForSkills(
+  skillNames: string[],
+  planOverride?: { hostedUrl: string; mcpUrl: string },
+): BuiltInAppMcp[] {
   const apps: BuiltInAppMcp[] = [];
   const seen = new Set<string>();
   for (const skillName of skillNames) {
     const app = resolveAppForSkill(skillName);
     if (!app || seen.has(app.appId)) continue;
     seen.add(app.appId);
-    apps.push(app);
+    if (app.appId === "visual-plans" && planOverride) {
+      apps.push({
+        ...app,
+        hostedUrl: planOverride.hostedUrl,
+        mcpUrl: planOverride.mcpUrl,
+      });
+    } else {
+      apps.push(app);
+    }
   }
   return apps;
 }
@@ -793,6 +1050,7 @@ async function printInstallResult(
     `Skills        ${result.skills.join(", ") || "none"}`,
     `Agents        ${result.clients.join(", ") || "none"}`,
     `Scope         ${result.scope}`,
+    result.planMode ? `Plan mode     ${result.planMode}` : "",
     result.written.length
       ? `Skill folders ${plural(result.written.length, "folder")} (${summarizePaths(
           result.written,
@@ -833,48 +1091,24 @@ async function printInstallResult(
     }
   }
 
+  if (result.planMode === "local-files") {
+    clack.note(
+      [
+        "No sharing, all local.",
+        "Run: npx @agent-native/core@latest plan blocks --out plan-blocks.md",
+        "Check: npx @agent-native/core@latest plan local check --dir plans/<slug>",
+        "Serve: npx @agent-native/core@latest plan local serve --dir plans/<slug> --open",
+        "Verify: npx @agent-native/core@latest plan local verify --dir plans/<slug>",
+      ].join("\n"),
+      "Local Plan files",
+    );
+  }
+
   if (!options.dryRun) {
     clack.note("Restart or reload selected agent clients if needed.", "Reload");
   }
 
   clack.outro(`${options.dryRun ? "Dry run complete" : "All set"} ✅`);
-}
-
-function compactPromptHint(value: string | undefined): string {
-  const hint = value?.replace(/\s+/g, " ").trim() ?? "";
-  if (!hint) return "Skill from BuilderIO/skills.";
-  if (hint.length <= 96) return hint;
-  return `${hint.slice(0, 93).trimEnd()}...`;
-}
-
-function skillPromptOptions(
-  entries: SkillEntry[],
-): SkillsPromptContext["options"] {
-  return entries.map((entry) => ({
-    value: entry.name,
-    label: entry.name,
-    hint: compactPromptHint(entry.description),
-  }));
-}
-
-async function promptForSkills(
-  context: SkillsPromptContext,
-): Promise<string[] | null> {
-  const clack = await import("@clack/prompts");
-  const result = await clack.multiselect({
-    message:
-      "Which skills do you want to install?\n" +
-      "  (space toggles, enter confirms)",
-    options: context.options,
-    initialValues: context.initialSkills,
-    required: true,
-  });
-  if (clack.isCancel(result)) {
-    clack.cancel("Cancelled.");
-    return null;
-  }
-  if (!Array.isArray(result)) return [];
-  return result.filter((value): value is string => typeof value === "string");
 }
 
 async function resolveSelectedSkills(
@@ -895,103 +1129,14 @@ async function resolveSelectedSkills(
     return requested.map((name) => byName.get(name)!);
   }
 
-  if (!isInteractive(options) || options.yes) return entries;
-
-  const prompt = options.promptSkills ?? promptForSkills;
-  const selectedNames = await prompt({
-    initialSkills: entries.map((entry) => entry.name),
-    options: skillPromptOptions(entries),
-  });
-  if (!selectedNames || selectedNames.length === 0) {
-    throw new Error("Cancelled.");
-  }
-  return resolveSelectedSkills(entries, {
-    ...options,
-    skillNames: selectedNames,
-  });
-}
-
-async function promptForScope(
-  context: ScopePromptContext,
-): Promise<SkillScope | null> {
-  const clack = await import("@clack/prompts");
-  const result = await clack.select({
-    message: "Where do you want to install these skills?",
-    options: [
-      {
-        value: "project",
-        label: "Project",
-        hint: "This repo only (.agents / .claude in the current directory)",
-      },
-      {
-        value: "user",
-        label: "User",
-        hint: "Your home directory (~/.codex, ~/.claude), across projects",
-      },
-    ],
-    initialValue: context.initialScope,
-  });
-  if (clack.isCancel(result)) {
-    clack.cancel("Cancelled.");
-    return null;
-  }
-  return result === "user" ? "user" : "project";
+  return entries;
 }
 
 async function resolveSelectedScope(
   options: InstallSkillsOptions,
 ): Promise<SkillScope> {
   if (options.scope) return options.scope;
-  if (!isInteractive(options) || options.yes) return "user";
-
-  const prompt = options.promptScope ?? promptForScope;
-  const selected = await prompt({ initialScope: "project" });
-  if (!selected) throw new Error("Cancelled.");
-  return selected;
-}
-
-function clientPromptOptions(): ClientsPromptContext["options"] {
-  return [
-    {
-      value: "codex",
-      label: "Codex",
-      hint: "Install into Codex skill directories",
-    },
-    {
-      value: "claude-code",
-      label: "Claude Code",
-      hint: "Install into Claude Code skill directories",
-    },
-  ];
-}
-
-function normalizePromptClients(values: unknown): SkillClient[] {
-  if (!Array.isArray(values)) return [];
-  return unique(
-    values.filter(
-      (value): value is SkillClient =>
-        value === "codex" || value === "claude-code",
-    ),
-  );
-}
-
-async function promptForClients(
-  context: ClientsPromptContext,
-): Promise<SkillClient[] | null> {
-  const clack = await import("@clack/prompts");
-  const result = await clack.multiselect({
-    message:
-      "Install these skills for which local agents?\n" +
-      "  (space toggles, enter confirms)",
-    options: context.options,
-    initialValues: context.initialClients,
-    required: true,
-  });
-  if (clack.isCancel(result)) {
-    clack.cancel("Cancelled.");
-    return null;
-  }
-  return normalizePromptClients(result);
+  return "user";
 }
 
 async function resolveSelectedClients(
@@ -999,15 +1144,7 @@ async function resolveSelectedClients(
 ): Promise<SkillClient[]> {
   const requested = unique(options.clients ?? []);
   if (requested.length > 0) return requested;
-  if (!isInteractive(options) || options.yes) return CLIENTS;
-
-  const prompt = options.promptClients ?? promptForClients;
-  const selected = await prompt({
-    initialClients: CLIENTS,
-    options: clientPromptOptions(),
-  });
-  if (!selected || selected.length === 0) throw new Error("Cancelled.");
-  return selected;
+  return CLIENTS;
 }
 
 function isInteractive(
@@ -1025,14 +1162,25 @@ function installRootForClient(
 ): string {
   const home = process.env.HOME || os.homedir();
   if (scope === "project") {
-    return client === "codex"
-      ? path.join(baseDir, ".agents", "skills")
-      : path.join(baseDir, ".claude", "skills");
+    if (client !== "claude-code") {
+      return path.join(baseDir, ".agents", "skills");
+    }
+    return path.join(baseDir, ".claude", "skills");
   }
   if (client === "codex") {
     return process.env.CODEX_HOME
       ? path.join(process.env.CODEX_HOME, "skills")
       : path.join(home, ".codex", "skills");
+  }
+  if (client === "pi") {
+    return path.join(home, ".agents", "skills");
+  }
+  if (
+    client === "cursor" ||
+    client === "opencode" ||
+    client === "github-copilot"
+  ) {
+    return path.join(home, ".agents", "skills");
   }
   return path.join(home, ".claude", "skills");
 }
@@ -1236,10 +1384,7 @@ async function shouldUpdateManagedInstructions(
   let shouldUpdate = options.updateInstructions;
   if (shouldUpdate !== undefined) return shouldUpdate;
   if (options.yes) return true;
-  if (!isInteractive(options)) return false;
-  const prompt =
-    options.promptUpdateInstructions ?? promptForUpdateInstructions;
-  return (await prompt()) === true;
+  return false;
 }
 
 function writeManagedInstructions(
@@ -1287,14 +1432,16 @@ function resolveInstructionFiles(
   if (explicit && explicit.length > 0) {
     return explicit.map((file) => path.resolve(baseDir, file));
   }
+  const instructionClients = clients.filter(supportsSkillFiles);
+  if (instructionClients.length === 0) return [];
   if (scope === "user") {
     const home = process.env.HOME || os.homedir();
     const files: string[] = [];
-    if (clients.includes("codex")) {
+    if (instructionClients.includes("codex")) {
       const codexHome = process.env.CODEX_HOME || path.join(home, ".codex");
       files.push(path.join(codexHome, "AGENTS.md"));
     }
-    if (clients.includes("claude-code")) {
+    if (instructionClients.includes("claude-code")) {
       files.push(path.join(home, ".claude", "CLAUDE.md"));
     }
     return unique(files);
@@ -1322,39 +1469,15 @@ function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-async function shouldPromptGithubAction(
-  options: InstallSkillsOptions,
-  baseDir: string,
-): Promise<boolean> {
-  if (options.withGithubAction) return true;
-  if (options.yes || !isInteractive(options)) return false;
-  if (
-    fs.existsSync(
-      path.join(baseDir, ".github", "workflows", "pr-visual-recap.yml"),
-    )
-  ) {
-    return false;
-  }
-  const prompt = options.promptGithubAction ?? promptForGithubAction;
-  return (
-    (await prompt({
-      workflowPath: path.join(".github", "workflows", "pr-visual-recap.yml"),
-    })) === true
-  );
+const PR_VISUAL_RECAP_DOCS_URL =
+  "https://www.agent-native.com/docs/pr-visual-recap";
+
+function prVisualRecapWorkflowPath(baseDir: string): string {
+  return path.join(baseDir, ".github", "workflows", "pr-visual-recap.yml");
 }
 
-async function promptForUpdateInstructions(): Promise<boolean | null> {
-  const clack = await import("@clack/prompts");
-  const result = await clack.confirm({
-    message:
-      "Add managed AGENTS.md / CLAUDE.md instructions for always-on behavior?",
-    initialValue: true,
-  });
-  if (clack.isCancel(result)) {
-    clack.cancel("Skipped instruction update.");
-    return null;
-  }
-  return Boolean(result);
+function prVisualRecapSetupCommand(): string {
+  return "npx @agent-native/core@latest recap setup";
 }
 
 async function promptForGithubAction(
@@ -1365,7 +1488,8 @@ async function promptForGithubAction(
     message:
       "Optional: add automatic PR Visual Recaps? (GitHub Action)\n" +
       "  Posts a human-friendly recap on every pull request.\n" +
-      `  Writes ${context.workflowPath}.`,
+      `  Learn more: ${context.docsUrl}\n` +
+      `  Writes ${context.workflowPath}; ${context.setupCommand} finishes the GitHub secrets.`,
     initialValue: false,
   });
   if (clack.isCancel(result)) {
@@ -1373,6 +1497,24 @@ async function promptForGithubAction(
     return null;
   }
   return Boolean(result);
+}
+
+async function shouldWritePrVisualRecapWorkflow(
+  hasVisualRecap: boolean,
+  options: InstallSkillsOptions,
+  baseDir: string,
+): Promise<boolean> {
+  if (!hasVisualRecap) return false;
+  if (options.withGithubAction) return true;
+  if (fs.existsSync(prVisualRecapWorkflowPath(baseDir))) return false;
+  if (options.yes || !isInteractive(options)) return false;
+  const prompt = options.promptGithubAction ?? promptForGithubAction;
+  const choice = await prompt({
+    workflowPath: path.join(".github", "workflows", "pr-visual-recap.yml"),
+    setupCommand: prVisualRecapSetupCommand(),
+    docsUrl: PR_VISUAL_RECAP_DOCS_URL,
+  });
+  return choice === true;
 }
 
 const PR_VISUAL_RECAP_REUSABLE_WORKFLOW = `name: PR Visual Recap

@@ -1,6 +1,8 @@
-# Documents
+# Content
 
-A Notion-like document editor built with the agent-native framework. Create and organize hierarchical pages with rich text editing.
+Open-source Obsidian for MDX, built with the agent-native framework. Edit local
+Markdown/MDX files, generate rich interactive custom blocks, and organize
+hierarchical pages with an AI agent.
 
 ## Features
 
@@ -8,6 +10,8 @@ A Notion-like document editor built with the agent-native framework. Create and 
 - Rich text editor (Tiptap) with slash commands
 - Favorites for quick access
 - Full-text search
+- Local Markdown/MDX file editing
+- Custom interactive MDX blocks from local components
 - Agent can create, read, update, and search documents
 - Auto-save with debouncing
 - Dark/light theme

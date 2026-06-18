@@ -1,6 +1,7 @@
 import {
   createProviderApiRuntime,
   listProviderApiIdsForTemplateUse,
+  type ProviderApiDocsOptions,
   type ProviderApiId,
   type ProviderApiMethod,
   type ProviderApiRequestArgs,
@@ -43,11 +44,9 @@ export function listProviderApiCatalog(provider?: SlidesProviderApiId) {
   return runtime.listCatalog(provider);
 }
 
-export function fetchProviderApiDocs(options: {
-  provider: SlidesProviderApiId;
-  url?: string;
-  maxBytes?: number;
-}) {
+export function fetchProviderApiDocs(
+  options: ProviderApiDocsOptions & { provider: SlidesProviderApiId },
+) {
   return runtime.fetchDocs(options);
 }
 

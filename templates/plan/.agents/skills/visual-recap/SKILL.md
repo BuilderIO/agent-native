@@ -22,7 +22,7 @@ before spending attention on the literal lines.
 ## Local-Files Privacy Mode Exception
 
 Use local-files privacy mode when the user explicitly asks for no DB writes,
-no hosted Plan app, no Plan MCP publish, fully local files, offline/private
+no hosted Plan database writes, no Plan MCP publish, fully local files, offline/private
 recaps, or when `AGENT_NATIVE_PLANS_MODE=local-files` is set. This is the only
 exception to the hosted publish rule below.
 
@@ -32,20 +32,47 @@ In local-files mode:
   The existing `npx @agent-native/core@latest recap collect-diff`, `scan`, and
   `build-prompt --local-files` helpers are safe to use because they operate on
   local files and do not write to the Plan database.
-- Write the recap as a local MDX folder under `plans/<slug>/`: `plan.mdx`,
-  optional `canvas.mdx`, optional `prototype.mdx`, and optional
-  `.plan-state.json`. Set `kind: "recap"` and `localOnly: true` in
-  frontmatter/state when authoring the source.
-- Run `npx @agent-native/core@latest plan local preview --dir plans/<slug> --kind recap` after
-  writing or updating the folder. Report the returned local URL or the
-  `/local-plans/<slug>` route if the local Plan app is running with the same
-  `PLAN_LOCAL_DIR`.
+- Fetch/read the block catalog before writing structured MDX. Use
+  `npx @agent-native/core@latest plan blocks --out plan-blocks.md` when the Plan
+  MCP connector is not registered; it calls the public no-auth
+  `get-plan-blocks` route and sends no recap content. If network access is
+  unavailable, use the bundled references and validate with
+  `plan local check` / `plan local serve`. For `checklist` and `question-form`,
+  copy the catalog examples verbatim: checklist items need `id` and `label`;
+  question-form questions need `id`, `title`, and `mode`; and each option needs
+  `id` and `label`. `plan local check` validates these required fields against
+  the renderer schema.
+- Write the recap as a local MDX folder: use `plans/<slug>/` when the user
+  wants the artifact checked into the repo, or use a repo-ignored/temporary
+  folder such as `.agent-native/plans/<slug>/` or `/tmp/agent-native-plans/<slug>/`
+  when it should not be checked in. The folder contains `plan.mdx`, optional
+  `canvas.mdx`, optional `prototype.mdx`, and optional `.plan-state.json`. Set
+  `kind: "recap"` and `localOnly: true` in frontmatter/state when authoring
+  the source.
+- Run `npx @agent-native/core@latest plan local check --dir plans/<slug>`
+  before serving, then run
+  `npx @agent-native/core@latest plan local serve --dir plans/<slug> --kind recap --open`.
+  Report the returned local bridge URL from stdout or `plans/<slug>/.plan-url`.
+  Treat `.plan-url` as a local token file and do not commit it. The URL opens
+  the hosted Plan UI but reads from the localhost bridge on this machine, so it
+  is not shareable across machines. On macOS, `--open` prefers Chromium browsers;
+  if Safari opens, switch to Chrome/Chromium because Safari can block the hosted
+  HTTPS page from fetching the HTTP localhost bridge. If the Plan app itself is
+  running locally with the same `PLAN_LOCAL_DIR`, the `/local-plans/<slug>` route
+  is also valid.
+- For headless verification, run
+  `npx @agent-native/core@latest plan local verify --dir plans/<slug> --kind recap`.
+  It starts the bridge, checks the private-network preflight and JSON payload,
+  prints diagnostics, and exits. If the browser hangs on "Loading plan", fetch
+  the `bridgeUrl` from the verify/serve JSON to read the concrete validation
+  error.
 - Do **not** call `create-visual-recap`, `create-visual-plan`,
   `import-visual-plan-source`, `update-visual-plan`,
   `patch-visual-plan-source`, `get-plan-feedback`, `export-visual-plan`,
-  `set-resource-visibility`, or any hosted Plan tool for that recap.
+  `set-resource-visibility`, or any hosted Plan tool for that recap except the
+  schema-only block catalog lookup above.
 - Treat review feedback as file or chat feedback: update the MDX files directly,
-  rerun the local preview command, and summarize the new local URL/path.
+  rerun the local bridge command, and summarize the new local bridge URL.
   Hosted comments, sharing, screenshots, usage attachment, and PR sticky comment
   publishing are unavailable until the user explicitly opts into publishing.
 
@@ -256,10 +283,14 @@ a headless CI agent), state that in the recap handoff instead.
 
 ## Open And Report The Recap
 
-In local-files privacy mode, report the local preview URL/path from
-`npx @agent-native/core@latest plan local preview` or the `/local-plans/<slug>` route for a local
-Plan app using the same `PLAN_LOCAL_DIR`. Do not invent a hosted URL and do not
-publish just to get an absolute Plan link.
+In local-files privacy mode, run `plan local check` first, then report the local
+bridge URL from
+`npx @agent-native/core@latest plan local serve --dir plans/<slug> --kind recap --open`
+or from `plans/<slug>/.plan-url`. It opens the hosted Plan UI but reads from the
+localhost bridge on this machine, so it is not shareable across machines. If the
+Plan app itself is running locally with the same `PLAN_LOCAL_DIR`, the
+`/local-plans/<slug>` route is also valid. Do not invent a hosted database URL
+and do not publish just to get an absolute Plan link.
 
 After creating the recap, link the reviewer to the rendered plan with an
 **absolute URL on the origin whose database actually holds the plan**. That
@@ -406,12 +437,19 @@ memorized tags — they drift and silently produce a wrong tag (`ApiEndpoint`
 instead of `Endpoint`, `JsonExplorer` instead of `Json`, `Tabs` instead of
 `TabsBlock`) that errors on import.
 
-**Before writing any structured plan content, call `get-plan-blocks` on the Plan
-MCP connector (`plan` or legacy `agent-native-plans`).** It returns the
-authoritative, always-current block
-vocabulary generated live from the app's own block registry — the same config
-the renderer and MDX round-trip use — so it can never be stale even if this
-SKILL.md is an old installed copy:
+**Before writing any structured plan content, fetch/read the block catalog.** In
+hosted or self-hosted mode, call `get-plan-blocks` on the Plan MCP connector
+(`plan` or legacy `agent-native-plans`). In local-files mode, or when the skill
+was installed as plain text and no MCP tools are registered, run
+`npx @agent-native/core@latest plan blocks --out plan-blocks.md` and read that
+file first. The CLI command calls the public no-auth `get-plan-blocks` route and
+sends no plan/recap content. If network access is unavailable, use the bundled
+references and validate with `plan local check` / `plan local serve`.
+
+The catalog returns the authoritative, always-current block vocabulary generated
+live from the app's own block registry — the same config the renderer and MDX
+round-trip use — so it can never be stale even if this SKILL.md is an old
+installed copy:
 
 - `get-plan-blocks` (default `format: "reference"`) → a compact table of every
   block's runtime `type`, exact MDX `<Tag>`, placement, and key data fields.
@@ -434,6 +472,10 @@ A few recap-specific authoring rules the registry table cannot encode:
   shared optional `summary` / `editable` envelope; give a block a heading by
   placing a `rich-text` block with a Markdown `###` heading directly above it
   (blocks no longer take a `title`).
+- Every capitalized block component must be self-closing (`<RichText ... />`) or
+  explicitly closed around children (`<RichText ...>...</RichText>`). Never
+  leave a bare opening tag like `<RichText ...>` in a paragraph; MDX treats it
+  as unclosed JSX and import fails before the recap can render.
 - `Endpoint`: prose `description` is the MDX **children** (body between the
   tags), not an attribute; for a WebSocket upgrade use `method="GET"`. Each
   request/response `example` is a JSON **string** (the renderer parses it into

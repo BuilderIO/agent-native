@@ -1,5 +1,459 @@
 # @agent-native/core
 
+## 0.58.2
+
+### Patch Changes
+
+- 2c3fcb9: Improve native chat widget guidance and attachment handling so agents render structured data natively and preserve SVG/reference uploads correctly.
+- 2c3fcb9: Fix SVG chat attachment handling so vector uploads are treated as file references instead of malformed vision image parts.
+
+## 0.58.1
+
+### Patch Changes
+
+- a2992cb: Implement `AUTH_DISABLED` so local dev, preview, and demo deployments can skip login/signup and run all requests as a shared `dev@local.test` user.
+
+## 0.58.0
+
+### Minor Changes
+
+- 9e20092: Add public OpenAI Responses, OpenAI Agents SDK, AG-UI, Claude Agent SDK, and Vercel AI SDK connector helpers for `AgentChatRuntime`.
+
+### Patch Changes
+
+- 9e20092: Add a public "Harness Agents" docs page documenting the `AgentHarness` substrate (`@agent-native/core/agent/harness`): built-in Claude Code / Codex / Pi adapters, `registerBuiltinAgentHarnesses`/`resolveAgentHarness`/`startAgentHarnessRun`, resumable SQL-backed sessions, host tools and permission modes, event translation, background-run surface, and custom adapters.
+
+## 0.57.0
+
+### Minor Changes
+
+- 3446e34: Implement AgentChatRuntime factories and AssistantChat runtime mounting for BYO agent chat transports.
+
+### Patch Changes
+
+- 3446e34: Hide Pi from the interactive skill instruction picker because the shared `.agents` target already covers Pi-compatible skills.
+- 3446e34: Make `plan local check` catch every required `checklist`/`question-form` field
+  the Plan renderer enforces, not just per-item `id`. Previously a local plan
+  missing a checklist item `label`, or a question `title`/`mode`, or an option
+  `label`, passed `plan local check` with a false green and then got stuck on
+  "Loading plan" when the hosted renderer rejected it (`expected string`). The
+  lint now validates `id` + `label` on checklist items and options, and `id` +
+  `title` + a valid `mode` enum on questions, so authoring mistakes surface
+  locally before the browser handoff. The visual-plan/visual-recap skills now
+  spell out the full required-field set.
+- 3446e34: Accept `agent-native plan serve` as a compatibility alias for `agent-native plan local serve`.
+- 3446e34: Fix the plan plugin docs to teach the canonical `plan local serve` command for local-files preview (it previously taught `plan local preview`, which runs a different local dev-server route), and note the `plan serve` short alias.
+
+## 0.56.1
+
+### Patch Changes
+
+- e3e8515: Preserve native chat widget registrations when packaged apps are bundled for deployment.
+
+## 0.56.0
+
+### Minor Changes
+
+- 78687a1: Add an explicit native tool-render registry plus built-in chat data table and
+  chart widgets, with same-app widget action links that navigate through the
+  shared chat view-transition path. Add an app chat option for typed-action-only
+  agent surfaces that disables raw database tools while preserving rich native
+  widget rendering from action results. Add server-safe helpers for constructing
+  typed data widget action outputs.
+
+### Patch Changes
+
+- 78687a1: Clarify the Getting Started docs: restore per-template doc links in the grouped
+  template list, remove the duplicated `create` command block from the
+  add-apps section, and move "Common next moves" to the end so the page closes on
+  next steps instead of mid-page.
+- 78687a1: Relax hero chat composer padding for a roomier full-page chat input.
+- 78687a1: Add provider API corpus recipes and provider corpus job source summaries so agents can audit which raw provider record body a broad search actually covered.
+- 78687a1: Simplify the missing AI connection prompt and render it below the chat composer.
+
+## 0.55.0
+
+### Minor Changes
+
+- 364e4be: Add reusable chat-home and chat view-transition primitives for chat-first apps,
+  including centered empty-state layout, sidebar storage-key sharing, and opt-in
+  sidebar reopening while active chats continue across route handoffs.
+- 364e4be: Add an explicit native tool-render registry plus built-in chat data table and
+  chart widgets, with same-app widget action links that navigate through the
+  shared chat view-transition path. Add an app chat option for typed-action-only
+  agent surfaces that disables raw database tools while preserving rich native
+  widget rendering from action results.
+
+### Patch Changes
+
+- 364e4be: Chat: stop re-probing the server for a thread that already returned 404. The
+  mount-time restore effect now caches known-absent thread ids for the page
+  session, so navigating between routes no longer re-spams
+  `GET /_agent-native/agent-chat/threads/:id` with 404s for a freshly created,
+  not-yet-sent chat. Behavior is unchanged otherwise — a missing thread still
+  falls back to an empty chat.
+- 364e4be: Harden local Plan cold starts by validating checklist/question-form IDs, writing local serve URLs to `.plan-url`, adding headless bridge verification, and documenting Chromium/Safari guidance.
+- 364e4be: Polish the skills CLI auth transcript so embedded connect output renders as one Clack guide block and shows spinner feedback during slow auth startup.
+- 364e4be: Include tripwire abort text in processor result hooks and harden local plan repo-path containment against symlinks.
+
+## 0.54.1
+
+### Patch Changes
+
+- cc1e11c: Fix workspace dev gateway losing the app prefix on root-relative redirects (e.g. Google OAuth flows). Path-only redirect `Location` headers are now rewritten to include the `/{app.id}` mount prefix, matching the repo `dev-lazy` gateway.
+
+## 0.54.0
+
+### Minor Changes
+
+- f81e032: Add optional `outputSchema` to `defineAction` — validate an action's RETURN
+  value (warn/strict/fallback). Pass a Standard Schema-compatible `outputSchema`
+  (Zod, Valibot, ArkType — same surface as the input `schema`) and the framework
+  validates the result AFTER `run()` resolves, composing with the existing input
+  validation (input validated before `run`, output validated after). The
+  `outputErrorStrategy` (default `"warn"`) controls the mismatch behavior:
+  `"strict"` throws a clear error so a buggy action surfaces loudly, `"warn"`
+  `console.warn`s the issues and returns the ORIGINAL result unchanged
+  (non-breaking), and `"fallback"` returns the provided `outputFallback`. When no
+  `outputSchema` is supplied, behavior is byte-for-byte unchanged (no wrapping).
+  Borrowed from Mastra/Flue structured-output and kept dependency-free on the
+  action layer.
+- f81e032: Add an in-loop processor seam (`processOutputStream` / `processOutputStep` +
+  `abort()` / `TripWire`) for real-time guardrails. `runAgentLoop` now accepts an
+  optional `processors: Processor[]`. Each processor exposes optional hooks —
+  `processOutputStream` (per streamed chunk), `processOutputStep` (once per model
+  response, around tool execution, with the requested tool calls), and
+  `processOutputResult` (once at run end) — and a per-processor mutable `state`
+  that persists across hooks and is isolated between processors. A processor can
+  call `abort(reason, meta?)` (throws an exported `TripWire`) to halt the run
+  gracefully; the loop catches it, emits a new `{ type: "tripwire"; reason;
+processor? }` agent-chat event, surfaces the reason as a final message, and
+  stops. This is the structural prerequisite for real-time guardrails and a
+  proof-of-done / coverage gate. Borrowed from Mastra's output processors and
+  kept loop-internal configuration (processors only observe/mutate-stream/abort;
+  they do not define app behavior or replace actions). When no processors are
+  passed the loop is byte-for-byte unchanged with zero overhead.
+- f81e032: Add token-efficient web content fetching for agents. `web-request` and `provider-api-docs` can now return extracted markdown, plain text, metadata, links, or bounded search matches instead of raw HTML, and `run-code` exposes `webRead()` plus pass-through options on `webFetch()` for compact web/document reduction.
+
+### Patch Changes
+
+- f81e032: Docs: document the agent-runtime features added since the first docs sweep.
+  New pages: Human-in-the-Loop Approvals (`needsApproval` gate + `approval_required`
+  / `approvedToolCalls` flow), Observational Memory (background three-tier
+  compaction with `AGENT_NATIVE_OM_*` config), In-Loop Processors (the
+  `processOutput*` guardrail seam + `TripWire` / `tripwire` event), and Durable
+  Resume (tool-call journal — prompt note + tool-layer hard-block against
+  re-running completed side effects). Folded action `outputSchema` /
+  `outputErrorStrategy` and the `needsApproval` gate into the Actions page, and
+  added an optional OpenTelemetry-spans section to Observability. All wired into
+  the docs sidebar nav; no runtime behavior changes.
+- 9909dcc: Avoid bundling native canvas from web content extraction in template SSR builds.
+- f81e032: Allow the hosted Plan local-files UI to read the localhost bridge in Chromium by
+  answering Private Network Access preflights.
+- f81e032: Include repo-relative paths in direct local Plan preview URLs so local Plan app
+  routes can reopen and edit MDX folders from the current repository.
+- f81e032: Improve provider corpus jobs with a read-only status/results action helper and better multi-term snippet windows for durable provider searches.
+- f81e032: Add app/template and agent-native-specific app/template properties to Better Auth signup tracking events.
+- f81e032: Add VS Code extension open URLs to MCP open-link metadata.
+
+## 0.53.0
+
+### Minor Changes
+
+- 5a57b60: Add a first-class evals primitive and an `agent-native eval` CLI runner that
+  doubles as a CI deploy gate. Define test cases with `defineEval({ name, input,
+scorers, threshold })` and compose scorers with the Mastra-style 4-step
+  pipeline `createScorer({ preprocess, analyze, generateScore, generateReason })`.
+  Built-in scorers ship for the common cases — `exactMatch`, `contains`,
+  `usesTool`, and a provider-agnostic `llmJudge` (the judge model is resolved
+  from the engine registry, never hardcoded). The runner discovers `**/*.eval.ts`
+  and `evals/*.ts`, actually runs the agent loop for each input, scores the
+  output, prints a readable scored table (or `--json` for CI), and exits
+  non-zero when any eval scores below its threshold. Results are written to the
+  observability eval store, with a documented seam for future live sampled
+  scoring of production traffic through the same scorers.
+- 5a57b60: Add opt-in per-action human-in-the-loop approvals. Actions can now declare
+  `needsApproval` (a boolean or an `(args, ctx) => boolean | Promise<boolean>`
+  predicate) on `defineAction`. When the gate resolves truthy, the agent loop does
+  NOT execute `run()`: it emits an `approval_required` event carrying the tool
+  name, a compact view of the input, and a stable `approvalKey`, then pauses the
+  turn. A human approves by re-issuing the turn with that key in
+  `AgentChatRequest.approvedToolCalls`, which lets the specific call run. The gate
+  is default-off and fail-closed (a throwing predicate requires approval). The
+  mail template's `send-email` action opts in as the canonical example.
+- 5a57b60: Add the core of Observational Memory (OM): background compaction of a long
+  agent thread into a dated, three-tier context (recent raw messages → dense
+  "observations" → higher-level "reflections") so long-running threads cost far
+  fewer tokens and stay prompt-cache stable.
+
+  This ships the store (a new ownable, dialect-agnostic `observational_memory`
+  table + additive migrations), the Observer and Reflector compaction passes
+  (provider-agnostic internal agent calls — no hardcoded model), the
+  `maybeCompactThread` compactor entry point, and the `buildObservationalContext`
+  read API returning the three tiers ready for prompt injection, all exported
+  from `@agent-native/core/agent/observational-memory`.
+
+  The read API and compactor are intentionally not yet wired into the agent loop:
+  injecting `buildObservationalContext` output into `production-agent.ts` (and
+  registering the migration plugin in the default plugin set) is a follow-up so it
+  does not collide with concurrent agent-loop changes. The store creates its table
+  lazily on first use, so OM is fully functional in the meantime.
+
+- 5a57b60: Wire Observational Memory into the agent loop (compaction + long-thread context
+  injection). The OM migration plugin is now registered alongside the other
+  framework migration plugins so its table is created on startup. After a clean
+  turn the loop runs a best-effort, fire-and-forget compaction pass
+  (`maybeCompactThread`) so long threads accrue dated observations and
+  reflections. On subsequent turns, threads that have already crossed the
+  compaction threshold get their reflections+observations folded in as a leading
+  context block while the recent raw-message window is preserved verbatim - short
+  threads with no OM entries are left byte-for-byte unchanged.
+- 5a57b60: Add `agent-native add <kind> [name|url]`, a blueprint installer. Instead of
+  scaffolding files, it prints a curated Markdown integration blueprint to stdout
+  so you can pipe it into your own coding agent (`agent-native add provider stripe
+| claude`). A URL instead of a name emits a generic research-and-integrate
+  blueprint with the URL as the research seed. Ships seeded blueprints for
+  provider-api integrations, inbound channel adapters, custom sandbox adapters,
+  and multi-surface actions; `--list` browses what's available.
+
+### Patch Changes
+
+- 5a57b60: Fix hosted skills install flows for Codex plus Claude Cowork client selections and make MCP connect polling handle structured device-code failures consistently.
+- 5a57b60: Add an optional OpenTelemetry export to the agent loop. `instrumentAgentLoop`
+  now wraps the run, each tool call, and the model call in OTel spans
+  (`agent.run`, `tool.call`, `llm.call`) carrying tool name, model, token usage,
+  and error attributes. The export is fully no-op unless a host installs
+  `@opentelemetry/api` (a new optional dependency) and registers a tracer
+  provider, so there is zero overhead by default and no heavy SDK is added to
+  core.
+- 5a57b60: Add a hard delegation-depth guardrail so sub-agents cannot infinitely spawn
+  sub-agents. Each sub-agent now carries its delegation depth (top-level chat is
+  0); `spawnTask` refuses server-side once a spawn would exceed the cap, returning
+  a clear "Delegation depth limit reached" error to the parent agent. Enforcement
+  lives in `agent-teams.ts` and reads the spawning agent's depth from the ambient
+  run context, so it holds even if the team tool is not stripped. The cap defaults
+  to 2 and is configurable via the `AGENT_NATIVE_MAX_SUBAGENT_DEPTH` env var
+  (parsed and clamped, falling back to the default on invalid values).
+- 5a57b60: Document four newly-landed framework features in the published docs content:
+  pluggable sandbox adapters for the `run-code` tool (`SandboxAdapter`,
+  `AGENT_NATIVE_SANDBOX`, `registerSandboxAdapter`), the first-class evals CI gate
+  (`defineEval`, `createScorer`, built-in scorers, and the `agent-native eval`
+  command), the sub-agent delegation depth guard
+  (`AGENT_NATIVE_MAX_SUBAGENT_DEPTH`), and the `agent-native add` blueprint
+  installer. Adds `sandbox-adapters`, `evals`, and `blueprint-installer` pages, a
+  delegation-depth section in the Agent Teams doc, and surgical pointers in the
+  harness-agents, observability, and external-agents skills.
+- 5a57b60: Add an opt-out for agent-chat MCP mounting so apps can provide a dedicated stable MCP route.
+- 5a57b60: Surface the current sub-agent delegation depth in the runtime-context prompt.
+  The chat plugin now reads the ambient delegation depth and passes it into
+  `buildRuntimeContextPrompt`, so a sub-agent already at the delegation cap is
+  told it cannot spawn further sub-agents. The cap was already enforced
+  server-side; this only makes it visible to the model.
+- 5a57b60: Tool-call journal hard-block: skip re-executing journaled-complete tool calls on
+  resume. The per-turn tool-call journal (derived from the durable run-event
+  ledger) previously only added a prompt-level "already completed, don't re-run"
+  note. The agent loop now enforces this at the tool layer: when a non-read-only
+  tool call's exact (tool name + input) already completed in an earlier
+  interrupted chunk of the same turn, `runToolCall` returns the recorded result
+  instead of re-executing the side effect, while still emitting the normal
+  tool_start/tool_done so the transcript stays coherent. Fresh calls with no prior
+  completed journal entry are unaffected.
+- 5a57b60: Add a per-turn tool-call journal that hardens the run-resume path against
+  duplicate side effects. When a run resumes after an interruption (gateway or
+  transport drop, cold start, or soft-timeout auto-continue), the journal is
+  derived from the existing run-event ledger and injected into the resume nudge:
+  tool calls that already completed are listed with their results and flagged as
+  "do NOT re-run", and any tool call that started but never recorded a result is
+  surfaced as "interrupted / unknown outcome" so the model can decide rather than
+  blindly re-executing (e.g. re-sending an email or re-creating a ticket). The
+  journal is read-only over the ledger (no new recording hook), best-effort, and a
+  no-op for turns with no completed or interrupted tool calls, so normal resumes
+  are unchanged.
+
+## 0.52.0
+
+### Minor Changes
+
+- 9dc6ba7: Add a pluggable sandbox-adapter seam for the `run-code` tool. The
+  code-execution sandbox now runs behind a `SandboxAdapter` interface so the
+  execution backend can be swapped without changing agent code, the localhost
+  bridge, the env scrub, or output formatting. The default
+  `LocalChildProcessAdapter` preserves the existing spawned child-process behavior
+  byte-for-byte. A different backend (e.g. a Docker or remote/durable runner) can
+  be plugged in via `registerSandboxAdapter()` or the `AGENT_NATIVE_SANDBOX` env
+  var — the documented lever for exceeding the hosted execution ceiling on long
+  jobs.
+
+### Patch Changes
+
+- 9dc6ba7: Polish the shared skills CLI prompts, standalone catalog, and install summary.
+  Add MCP install support for more local agent clients and keep the PR Visual
+  Recap GitHub Action prompt available in local-files mode.
+- 9dc6ba7: Store pasted agent chat provider API keys in scoped encrypted app secrets instead of deployment env vars.
+
+## 0.51.15
+
+### Patch Changes
+
+- ef16690: Open local Plan previews from local-files mode and clarify plugin installs use hosted Plans by default.
+
+## 0.51.14
+
+### Patch Changes
+
+- cb49d6f: Keep Plan install mode flags scoped to Plan skills when the public skills CLI delegates extra text-skill copies.
+
+## 0.51.13
+
+### Patch Changes
+
+- 49685d9: Fix the shared skills CLI picker so the standalone skills package installs with
+  its matching core runtime, defaults public skills visibly, asks the Plan storage
+  mode before client setup, and avoids duplicate Claude Code client choices.
+  The hosted Plans option now also calls out that it is 100% free and open
+  source.
+
+## 0.51.12
+
+### Patch Changes
+
+- 7a6b32b: Fix the shared skills CLI picker so the standalone skills package installs with
+  its matching core runtime, defaults public skills visibly, asks the Plan storage
+  mode before client setup, and avoids duplicate Claude Code client choices.
+
+## 0.51.11
+
+### Patch Changes
+
+- 914c8db: Unify the skills CLI flow so `@agent-native/skills` delegates normal user-facing
+  list/add flows to the core skills CLI with an expanded public skills catalog,
+  while `agent-native skills` keeps the Agent Native-only catalog.
+
+## 0.51.10
+
+### Patch Changes
+
+- 14ea897: Harden local Plan block authoring guidance and align the standalone skills CLI with hosted, local-files, and self-hosted Plan modes.
+
+## 0.51.9
+
+### Patch Changes
+
+- 077d67f: Add a no-auth `agent-native plan blocks` command and teach local Plans skills to
+  use it before authoring local MDX.
+
+## 0.51.8
+
+### Patch Changes
+
+- 0aa83d7: Only report assistant UI recovery errors to Sentry after the retry budget is exceeded.
+- 0aa83d7: Clarify Plans skill setup with hosted, local-files, and self-hosted install modes.
+
+## 0.51.7
+
+### Patch Changes
+
+- 499f728: Add durable provider corpus jobs for resumable paginated and batched provider searches.
+- 499f728: PR Visual Recap workflow reliability + clarity:
+  - Narrow the self-modifying-code skip guard so it only false-skips legitimate
+    recaps: it still fires for fork PRs and for all public-repo PRs (where an
+    author could rewrite loaded `AGENTS.md`/`CLAUDE.md`/`.claude`/`.mcp.json` to
+    exfiltrate the secret-backed agent run), but is skipped for private-repo
+    same-repo PRs whose authors are trusted org members.
+  - Surface the skip reason via `core.notice` so it appears as a run-summary
+    annotation, not just a buried log line.
+  - Retry the agent once when it exits without writing `recap-source.json` (a
+    transient miss that previously failed the whole recap with an ENOENT).
+  - Upload the agent transcript (`claude-result.json`/`codex-events.jsonl` + stderr)
+    alongside `recap-source.json` on failure, so a recap that fails because the
+    agent produced no/invalid output is debuggable instead of a black box.
+
+## 0.51.6
+
+### Patch Changes
+
+- ba3b10b: Add the `providerSearchAll` run-code helper and refresh Content template marketing around open-source Obsidian for MDX positioning.
+- ba3b10b: Block background agent-team delegation for provider/source sweeps after a read-only source/search tool has exhausted its convergence budget.
+
+## 0.51.5
+
+### Patch Changes
+
+- 404f9d2: Block background agent-team delegation for provider/source sweeps after a read-only source/search tool has exhausted its convergence budget.
+
+## 0.51.4
+
+### Patch Changes
+
+- 8b559ca: Tell agents not to bypass exhausted source-sweep budgets by delegating the same one-at-a-time provider fan-out to background agents or follow-up threads.
+
+## 0.51.3
+
+### Patch Changes
+
+- 789b9ca: Clarify visual-plan ownership guidance so agents keep using structured Plans while choosing hosted, local-files, or self-hosted mode based on privacy and brand-control needs.
+- 789b9ca: Tell agents to switch to bulk/code/provider API workflows when repeated source sweeps hit the convergence budget, instead of asking users to approve the obvious next read-only step.
+
+## 0.51.2
+
+### Patch Changes
+
+- 3f2e709: Count source/search tool sweeps across internal agent continuations so hosted runs converge instead of resetting the sweep budget after serverless soft timeouts.
+
+## 0.51.1
+
+### Patch Changes
+
+- 1c752f4: Stop repeated read-only source sweeps from looping indefinitely by forcing a final coverage summary after the same provider/search tool is called many times in one turn.
+
+## 0.51.0
+
+### Minor Changes
+
+- 6896529: Add an AgentHarness substrate for running full agent runtimes through Agent
+  Native, including durable harness session storage, AI SDK harness adapter
+  support, run-manager integration, and background-run projection.
+- 6896529: Add a shared provider API quota governor with request dedupe, Retry-After handling, and cooldown persistence.
+
+### Patch Changes
+
+- 6896529: Remove decorative box shadows from visual plan and recap wireframe frames.
+- 6896529: Make the PR Visual Recap workflow easier to debug and safer against deploy
+  gaps: upload the agent-authored `recap-source.json` as a CI artifact when the
+  publish fails (previously only the screenshot was kept, so failures were
+  opaque), and add a pre-publish route-health probe that fails with a clear
+  "plan app routes return 404 - deploy not yet propagated" diagnostic instead of
+  letting the agent run and fail confusingly when the plan server is behind.
+- 6896529: Back workspace file helpers with the existing Resources table and keep the
+  legacy workspace-files bridge hidden from normal agent tool lists.
+
+## 0.50.0
+
+### Minor Changes
+
+- 29349c5: Add an AgentHarness substrate for running full agent runtimes through Agent
+  Native, including durable harness session storage, AI SDK harness adapter
+  support, run-manager integration, and background-run projection.
+- 29349c5: Add a shared provider API quota governor with request dedupe, Retry-After handling, and cooldown persistence.
+
+### Patch Changes
+
+- 29349c5: Remove decorative box shadows from visual plan and recap wireframe frames.
+- 29349c5: Make the PR Visual Recap workflow easier to debug and safer against deploy
+  gaps: upload the agent-authored `recap-source.json` as a CI artifact when the
+  publish fails (previously only the screenshot was kept, so failures were
+  opaque), and add a pre-publish route-health probe that fails with a clear
+  "plan app routes return 404 - deploy not yet propagated" diagnostic instead of
+  letting the agent run and fail confusingly when the plan server is behind.
+- 29349c5: Back workspace file helpers with the existing Resources table and keep the
+  legacy workspace-files bridge hidden from normal agent tool lists.
+
+## 0.49.27
+
+### Patch Changes
+
+- 1d466d6: Builder file upload provider now routes files over 30 MB through a signed-URL flow (request URL → direct storage PUT → register asset), so large uploads no longer hit the ~32 MB request cap. Smaller files keep the existing direct-POST path with retries.
+
 ## 0.49.26
 
 ### Patch Changes

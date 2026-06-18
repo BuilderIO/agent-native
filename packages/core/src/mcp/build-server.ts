@@ -38,6 +38,7 @@ import {
   buildDeepLink,
   toAbsoluteOpenUrl,
   toDesktopOpenUrl,
+  toVsCodeOpenUrl,
 } from "../server/deep-link.js";
 import {
   isAgentNativeOpenDeepLink,
@@ -509,6 +510,7 @@ function mcpAppEmbedOpenLinkMeta(
             ...(view ? { view } : {}),
             webUrl: safeOpenUrl,
             desktopUrl: desktopDeepLinkUrl ?? safeOpenUrl,
+            vscodeUrl: toVsCodeOpenUrl(safeOpenUrl),
           },
         }
       : {}),
@@ -603,6 +605,7 @@ export function buildLinkArtifacts(
       : lk.url;
     const webUrl = toAbsoluteOpenUrl(linkUrl, meta?.origin);
     const desktopUrl = toDesktopOpenUrl(linkUrl);
+    const vscodeUrl = toVsCodeOpenUrl(webUrl);
     const markdownUrl = meta?.target === "desktop" ? desktopUrl : webUrl;
     return {
       block: { type: "text", text: `\n\n[${lk.label} →](${markdownUrl})` },
@@ -612,6 +615,7 @@ export function buildLinkArtifacts(
           view: lk.view,
           webUrl,
           desktopUrl,
+          vscodeUrl,
         },
       },
     };
@@ -1103,6 +1107,50 @@ function conciseMcpAppToolText(
   return `${name} completed.`;
 }
 
+function isSuccessOnlyResult(value: Record<string, unknown>): boolean {
+  const keys = Object.keys(value);
+  if (keys.length === 0) return true;
+  return keys.every((key) => {
+    const item = value[key];
+    if (key === "ok" || key === "success") return item === true;
+    if (key === "status") {
+      return item === "ok" || item === "success" || item === "completed";
+    }
+    return false;
+  });
+}
+
+function conciseToolResultText(name: string, result: unknown): string {
+  const purged = purgeEmbedStartUrls(result);
+  if (typeof purged === "string") return truncateToolText(purged);
+  if (purged === true || purged == null) return `${name} completed.`;
+  if (purged && typeof purged === "object" && !Array.isArray(purged)) {
+    const record = purged as Record<string, unknown>;
+    const message = record.message ?? record.summary;
+    if (typeof message === "string" && message.trim()) {
+      return truncateToolText(message.trim());
+    }
+    const id = record.id ?? record.planId ?? record.commentId;
+    const title = record.title ?? record.name;
+    if (typeof title === "string" && title.trim()) {
+      const titleText = title.trim();
+      return typeof id === "string" && id.trim()
+        ? `${titleText} (${id.trim()}) is ready.`
+        : `${titleText} is ready.`;
+    }
+    if (typeof id === "string" && id.trim()) {
+      return `${name} completed for ${id.trim()}.`;
+    }
+    const link = record.url ?? record.webUrl ?? record.path;
+    if (typeof link === "string" && link.trim()) {
+      return `${name} completed: ${truncateToolText(link.trim(), 500)}`;
+    }
+    if (isSuccessOnlyResult(record)) return `${name} completed.`;
+  }
+  const text = JSON.stringify(purged);
+  return text === undefined ? `${name} completed.` : truncateToolText(text);
+}
+
 // ---------------------------------------------------------------------------
 // MCP Server creation — converts ActionEntry registry to MCP tools
 // ---------------------------------------------------------------------------
@@ -1471,9 +1519,7 @@ export async function createMCPServerForRequest(
             : undefined;
         const text = mcpAppResource
           ? conciseMcpAppToolText(name, resultForClient, structuredContent!)
-          : typeof resultForClient === "string"
-            ? (purgeEmbedStartUrls(resultForClient) as string)
-            : JSON.stringify(purgeEmbedStartUrls(resultForClient));
+          : conciseToolResultText(name, resultForClient);
         const content: any[] = [{ type: "text", text }];
         if (block) content.push(block);
         return {

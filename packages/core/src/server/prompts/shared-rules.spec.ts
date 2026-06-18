@@ -19,4 +19,19 @@ describe("shared framework prompt rules", () => {
     expect(rule).not.toContain("Gong");
     expect(rule).not.toContain("HubSpot");
   });
+
+  it("avoids naming raw db tools when database tools are disabled", () => {
+    const rule = sharedRule8(
+      {
+        providerActions: ["github-search", "notion-search"],
+      },
+      { databaseTools: false },
+    );
+
+    expect(rule).toContain("Raw database tools are not available");
+    expect(rule).toContain("typed actions");
+    expect(rule).not.toContain("db-query");
+    expect(rule).not.toContain("db-exec");
+    expect(rule).not.toContain("db-patch");
+  });
 });

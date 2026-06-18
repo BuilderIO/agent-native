@@ -12,6 +12,11 @@ import http from "node:http";
 import net from "node:net";
 import path from "node:path";
 import type { Duplex } from "node:stream";
+import {
+  escapeHtml,
+  normalizeOrigin,
+  rewriteRedirectLocation,
+} from "../packages/core/src/cli/gateway-helpers.ts";
 
 interface TemplateApp {
   id: string;
@@ -322,15 +327,6 @@ function devWatcherEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   return env;
 }
 
-function normalizeOrigin(value: string | undefined): string | undefined {
-  if (!value) return undefined;
-  try {
-    return new URL(value).origin;
-  } catch {
-    return undefined;
-  }
-}
-
 function workspaceOAuthOrigin(
   env: NodeJS.ProcessEnv,
   gatewayUrl: string,
@@ -415,34 +411,6 @@ function appendAppOutputTail(app: TemplateApp, output: string): void {
       : next;
 }
 
-/**
- * When a template app returns a redirect to a root-relative path that doesn't
- * already include the app prefix, prepend it. This handles the common case
- * where a framework server-side redirect uses a plain path like "/" or
- * "/login" without knowing it's mounted at "/{app.id}" by the gateway.
- *
- * Only rewrites path-only locations (starting with "/") to avoid touching
- * absolute URLs (e.g. redirects to Google OAuth or external sites).
- */
-function rewriteRedirectLocation(
-  app: TemplateApp,
-  location: string | undefined,
-): string | undefined {
-  // Leave absolute URLs and protocol-relative URLs (//host/path) untouched.
-  if (!location || !location.startsWith("/") || location.startsWith("//"))
-    return location;
-  const prefix = `/${app.id}`;
-  // Strip query/hash before checking the prefix so "/clips?preview=1" and
-  // "/clips#section" are correctly identified as already-prefixed.
-  const suffixStart = location.search(/[?#]/);
-  const pathname =
-    suffixStart === -1 ? location : location.slice(0, suffixStart);
-  const suffix = suffixStart === -1 ? "" : location.slice(suffixStart);
-  if (pathname === prefix || pathname.startsWith(`${prefix}/`)) return location;
-  // Avoid double-slash when the pathname is exactly "/" (e.g. "/?foo=1").
-  return pathname === "/" ? `${prefix}${suffix}` : `${prefix}${location}`;
-}
-
 function firstHeaderValue(
   value: string | string[] | number | undefined,
 ): string | undefined {
@@ -456,23 +424,6 @@ function wantsHtml(req: http.IncomingMessage): boolean {
   const accept = firstHeaderValue(req.headers.accept);
   if (!accept) return false;
   return accept.includes("text/html");
-}
-
-function escapeHtml(value: string): string {
-  return value.replace(/[&<>"']/g, (char) => {
-    switch (char) {
-      case "&":
-        return "&amp;";
-      case "<":
-        return "&lt;";
-      case ">":
-        return "&gt;";
-      case '"':
-        return "&quot;";
-      default:
-        return "&#39;";
-    }
-  });
 }
 
 function renderStartingApp(app: TemplateApp): string {

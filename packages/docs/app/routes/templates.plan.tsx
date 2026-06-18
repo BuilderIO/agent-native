@@ -333,6 +333,31 @@ export default function PlanTemplate() {
               without cloning the app or running a CLI.
             </p>
           </div>
+          <div className="rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)] p-5">
+            <div className="mb-3 text-[var(--docs-accent)]">
+              <svg
+                width="20"
+                height="20"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.5"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <rect x="3" y="4" width="18" height="14" rx="2" />
+                <path d="M8 21h8" />
+                <path d="M12 18v3" />
+                <path d="M9 9l-3 2.5L9 14" />
+                <path d="M15 9l3 2.5L15 14" />
+              </svg>
+            </div>
+            <h3 className="mb-1 text-sm font-semibold">VS Code Handoffs</h3>
+            <p className="m-0 text-sm text-[var(--fg-secondary)]">
+              Open plan links in a VS Code side panel with the Agent Native
+              extension, so review stays beside the code.
+            </p>
+          </div>
         </div>
       </section>
 
@@ -348,12 +373,12 @@ export default function PlanTemplate() {
             {
               step: "1",
               title: "Add the skill",
-              body: "One command installs the plan skill into your Codex or Claude Code project. No separate app to deploy.",
+              body: "One command installs the plan skill into Claude Code, Codex, Pi, Cursor, OpenCode, GitHub Copilot / VS Code, and similar agent projects. No separate app to deploy.",
             },
             {
               step: "2",
               title: "Agent opens a plan",
-              body: "Ask your agent to plan a feature. It calls /visual-plan and the plan opens in your browser — structured blocks, not a wall of markdown.",
+              body: "Ask your agent to plan a feature. It calls /visual-plan and the plan opens in your browser or VS Code — structured blocks, not a wall of markdown.",
             },
             {
               step: "3",
@@ -526,7 +551,7 @@ export default function PlanTemplate() {
               </tr>
               <tr className="border-b border-[var(--docs-border)]">
                 <td className="px-5 py-3 font-medium text-[var(--fg)]">
-                  Works with Codex / Claude Code
+                  Works with Codex / Claude Code / Pi
                 </td>
                 <td className="px-5 py-3">Yes</td>
                 <td className="px-5 py-3">No</td>
@@ -555,8 +580,9 @@ export default function PlanTemplate() {
           Get started in seconds
         </h2>
         <p className="mx-auto mb-8 max-w-lg text-base text-[var(--fg-secondary)]">
-          One command adds visual planning to any Codex or Claude Code project.
-          No separate deployment needed.
+          One command adds visual planning to Claude Code, Codex, Pi, Cursor,
+          OpenCode, GitHub Copilot / VS Code, and similar agent projects. No
+          separate deployment needed.
         </p>
         <div className="template-detail-cta-actions flex flex-col items-stretch justify-center gap-3 sm:flex-row sm:items-center sm:gap-4">
           <TemplateDocsLink

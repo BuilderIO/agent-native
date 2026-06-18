@@ -1,8 +1,9 @@
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
-import { readdir, readFile } from "node:fs/promises";
+import { mkdtemp, readdir, readFile, rm } from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 type PackageJson = {
   name?: string;
@@ -10,6 +11,7 @@ type PackageJson = {
   private?: boolean;
   dependencies?: Record<string, string>;
   devDependencies?: Record<string, string>;
+  optionalDependencies?: Record<string, string>;
   peerDependencies?: Record<string, string>;
   publishConfig?: {
     access?: string;
@@ -80,6 +82,102 @@ function run(
       resolve({ code: code ?? 1, stdout, stderr });
     });
   });
+}
+
+function parseJsonOutput(output: string, context: string): unknown {
+  const trimmed = output.trim();
+  const starts: number[] = [];
+  for (let index = 0; index < trimmed.length; index += 1) {
+    const char = trimmed[index];
+    if (
+      (char === "[" || char === "{") &&
+      (index === 0 || trimmed[index - 1] === "\n")
+    ) {
+      starts.push(index);
+    }
+  }
+
+  for (let index = starts.length - 1; index >= 0; index -= 1) {
+    const start = starts[index];
+    try {
+      return JSON.parse(trimmed.slice(start));
+    } catch {}
+  }
+
+  throw new Error(`Unable to parse JSON output for ${context}:\n${output}`);
+}
+
+export function parsePackJson(output: string, pkg: PublishPackage): string {
+  let parsed: unknown;
+  try {
+    parsed = parseJsonOutput(output, `pnpm pack ${tagName(pkg)}`);
+  } catch (error) {
+    const parseError = new Error(
+      `Unable to parse pnpm pack output for ${tagName(pkg)}:\n${output}`,
+    );
+    (parseError as Error & { cause?: unknown }).cause = error;
+    throw parseError;
+  }
+
+  const packResult = Array.isArray(parsed) ? parsed[0] : parsed;
+  if (
+    !packResult ||
+    typeof packResult !== "object" ||
+    typeof (packResult as { filename?: unknown }).filename !== "string"
+  ) {
+    throw new Error(
+      `pnpm pack did not return a tarball filename for ${tagName(pkg)}:\n${output}`,
+    );
+  }
+
+  return (packResult as { filename: string }).filename;
+}
+
+function protocolDependencyFailures(pkg: PackageJson): string[] {
+  const packageName = pkg.name ?? "unknown package";
+  const failures: string[] = [];
+  for (const [field, dependencies] of Object.entries({
+    dependencies: pkg.dependencies,
+    devDependencies: pkg.devDependencies,
+    optionalDependencies: pkg.optionalDependencies,
+    peerDependencies: pkg.peerDependencies,
+  })) {
+    if (!dependencies) continue;
+    for (const [dependencyName, version] of Object.entries(dependencies)) {
+      if (/^(catalog|workspace):/.test(version)) {
+        failures.push(
+          `${packageName} ${field}.${dependencyName} still uses ${version}`,
+        );
+      }
+    }
+  }
+  return failures;
+}
+
+async function assertPackedManifestIsPublishable(
+  tarballPath: string,
+  pkg: PublishPackage,
+): Promise<void> {
+  const result = await run(
+    "tar",
+    ["-xOf", tarballPath, "package/package.json"],
+    { stream: false },
+  );
+  if (result.code !== 0) {
+    throw new Error(
+      `Unable to read packed package.json for ${tagName(pkg)}:\n${result.stderr}`,
+    );
+  }
+
+  const packedPackageJson = JSON.parse(result.stdout) as PackageJson;
+  const failures = protocolDependencyFailures(packedPackageJson);
+  if (failures.length > 0) {
+    throw new Error(
+      `Packed manifest for ${tagName(pkg)} is not publishable:\n${failures
+        .map((failure) => `- ${failure}`)
+        .join("\n")}`,
+    );
+  }
 }
 
 async function getPublishPackages(): Promise<PublishPackage[]> {
@@ -216,6 +314,25 @@ function tagName(pkg: PublishPackage): string {
   return `${pkg.name}@${pkg.version}`;
 }
 
+export function localRuntimeDependencyNames(pkg: PublishPackage): string[] {
+  return Object.keys({
+    ...pkg.packageJson.dependencies,
+    ...pkg.packageJson.optionalDependencies,
+  });
+}
+
+function formatError(error: unknown): string {
+  if (!(error instanceof Error)) {
+    return String(error);
+  }
+  const details = error.stack ?? error.message;
+  const cause = (error as Error & { cause?: unknown }).cause;
+  if (!cause) {
+    return details;
+  }
+  return `${details}\nCaused by: ${formatError(cause)}`;
+}
+
 async function hasRemoteTag(pkg: PublishPackage): Promise<boolean> {
   const result = await run(
     "git",
@@ -267,17 +384,43 @@ async function publishPackage(pkg: PublishPackage): Promise<boolean> {
   const access = pkg.packageJson.publishConfig?.access ?? "public";
 
   console.log(`Publishing \"${pkg.name}\" at \"${pkg.version}\"`);
-  const result = await run("npm", [
-    "publish",
-    publishDir,
-    "--access",
-    access,
-    "--tag",
-    "latest",
-    `--registry=${registry}`,
-    "--provenance",
-    "--json",
-  ]);
+  const packDir = await mkdtemp(path.join(os.tmpdir(), "agent-native-pack-"));
+  let result: RunResult | undefined;
+  try {
+    const packResult = await run("pnpm", [
+      "--dir",
+      publishDir,
+      "pack",
+      "--pack-destination",
+      packDir,
+      "--json",
+    ]);
+    if (packResult.code !== 0) {
+      throw new Error(
+        `Failed to pack ${tagName(pkg)} with exit code ${packResult.code}`,
+      );
+    }
+
+    const tarballPath = parsePackJson(packResult.stdout, pkg);
+    await assertPackedManifestIsPublishable(tarballPath, pkg);
+    result = await run("npm", [
+      "publish",
+      tarballPath,
+      "--access",
+      access,
+      "--tag",
+      "latest",
+      `--registry=${registry}`,
+      "--provenance",
+      "--json",
+    ]);
+  } finally {
+    await rm(packDir, { recursive: true, force: true });
+  }
+
+  if (!result) {
+    throw new Error(`Publishing ${tagName(pkg)} did not produce a result`);
+  }
 
   if (result.code === 0) {
     return true;
@@ -301,6 +444,7 @@ async function main() {
   const packages = await getPublishPackages();
   const packagesNeedingTags: PublishPackage[] = [];
   const failures: { pkg: PublishPackage; error: unknown }[] = [];
+  const failedPackageNames = new Set<string>();
 
   for (const pkg of packages) {
     if (await isPublished(pkg)) {
@@ -316,6 +460,24 @@ async function main() {
       }
       continue;
     }
+
+    const failedLocalRuntimeDeps = localRuntimeDependencyNames(pkg).filter(
+      (dependencyName) => failedPackageNames.has(dependencyName),
+    );
+    if (failedLocalRuntimeDeps.length > 0) {
+      const error = new Error(
+        `${tagName(pkg)} depends on failed local runtime package(s): ${failedLocalRuntimeDeps.join(
+          ", ",
+        )}`,
+      );
+      failures.push({ pkg, error });
+      failedPackageNames.add(pkg.name);
+      console.error(
+        `::error::Skipping ${tagName(pkg)} because ${error.message}`,
+      );
+      continue;
+    }
+
     console.log(
       `${pkg.name} is being published because local version ${pkg.version} has not been published on npm`,
     );
@@ -328,7 +490,9 @@ async function main() {
       }
     } catch (error) {
       failures.push({ pkg, error });
+      failedPackageNames.add(pkg.name);
       console.error(`::error::Failed to publish ${tagName(pkg)}`);
+      console.error(formatError(error));
       if ((error as { isMissingPackage?: boolean }).isMissingPackage) {
         console.error(
           `${pkg.name} does not exist on npm yet, and OIDC trusted publishing ` +
@@ -367,7 +531,17 @@ async function main() {
   }
 }
 
-main().catch((error) => {
-  console.error(error);
-  process.exit(1);
-});
+function isDirectExecution(): boolean {
+  const entrypoint = process.argv[1];
+  return Boolean(
+    entrypoint &&
+    import.meta.url === pathToFileURL(path.resolve(entrypoint)).href,
+  );
+}
+
+if (isDirectExecution()) {
+  main().catch((error) => {
+    console.error(error);
+    process.exit(1);
+  });
+}

@@ -101,12 +101,15 @@ export default defineAction({
         title: schema.plans.title,
         kind: schema.plans.kind,
         ownerEmail: schema.plans.ownerEmail,
+        deletedAt: schema.plans.deletedAt,
       })
       .from(schema.plans)
       .where(eq(schema.plans.id, planId))
       .limit(1);
 
-    if (!plan) throw httpError(`Plan ${planId} not found`, 404);
+    if (!plan || plan.deletedAt) {
+      throw httpError(`Plan ${planId} not found`, 404);
+    }
 
     const access = await resolveAccess(
       "plan",

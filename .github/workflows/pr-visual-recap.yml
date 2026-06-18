@@ -59,6 +59,7 @@ jobs:
             // and skip — with an actionable hint — those that don't.
             const headRepo = pr && pr.head && pr.head.repo && pr.head.repo.full_name;
             const isFork = !!(pr && headRepo && headRepo !== process.env.GITHUB_REPOSITORY);
+            const isPrivate = !!(context.payload.repository && context.payload.repository.private);
             if (isFork && process.env.HAS_PLAN !== 'true') {
               reasons.push(`fork PR (${headRepo}) without secret access — enable "Send secrets to workflows from pull requests" (and write tokens) in the repo/org Actions settings to run recaps on forks`);
             }
@@ -100,7 +101,13 @@ jobs:
             // secrets. With the default bundled skill source, visual skill and
             // recap workflow files are reviewed content, not instructions loaded
             // by the runner.
-            if (pr) {
+            // Keep this guard for forks AND all public-repo PRs: a fork or a
+            // public same-repo author could rewrite loaded instruction files
+            // (AGENTS.md/CLAUDE.md/.claude/.mcp.json) and exfiltrate the
+            // secret-backed agent run. Skip it ONLY for private-repo same-repo
+            // PRs, where the author is a trusted org member — a deliberate owner
+            // risk acceptance so legit instruction edits don't false-skip recaps.
+            if (pr && (isFork || !isPrivate)) {
               try {
                 const files = await github.paginate(github.rest.pulls.listFiles, {
                   owner: context.repo.owner,
@@ -127,7 +134,13 @@ jobs:
             const run = reasons.length === 0;
             core.setOutput('run', run ? 'true' : 'false');
             core.setOutput('agent', agent);
-            core.info(run ? `Visual recap will run (${agent}).` : `Visual recap skipped: ${reasons.join('; ')}`);
+            if (run) {
+              core.info(`Visual recap will run (${agent}).`);
+            } else {
+              // Surface the skip reason as a run-summary annotation, not just a
+              // buried info log, so it's clear in the Actions UI why we skipped.
+              core.notice(`Visual recap skipped: ${reasons.join('; ')}`);
+            }
 
             // When skipping, upsert a sticky recap comment with a short skip
             // line so the PR always explains why the recap job did not run.
@@ -303,6 +316,47 @@ jobs:
             echo "auth_failed=false" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Probe plan-app route health
+        id: route_health
+        if: steps.diff.outputs.tiny != 'true'
+        continue-on-error: true
+        run: |
+          set -uo pipefail
+          # Pre-publish health gate: confirm the plan app's recap action routes
+          # are actually deployed BEFORE the agent runs. A 404 from
+          # create-visual-recap (POST) or get-plan-blocks (GET) means the
+          # plan-app deploy has not propagated yet (the client is ahead of the
+          # deployed server). Say that plainly here instead of letting the agent
+          # run and then fail confusingly at publish time. A 401 or 200 is
+          # healthy — the route exists, it just rejected/accepted the probe.
+          probe_status() {
+            ROUTE="$1" METHOD="$2" node -e '
+              const https = require("https");
+              const base = process.env.PLAN_RECAP_APP_URL || "https://plan.agent-native.com";
+              const url = new URL(process.env.ROUTE, base);
+              if (process.env.METHOD === "GET") url.searchParams.set("format", "reference");
+              const req = https.request(url, { method: process.env.METHOD, headers: { "authorization": "Bearer " + (process.env.PLAN_RECAP_TOKEN || ""), "content-type": "application/json" }, timeout: 8000 }, (res) => { process.stdout.write(String(res.statusCode)); req.destroy(); });
+              req.on("error", () => process.stdout.write("0"));
+              req.on("timeout", () => { process.stdout.write("0"); req.destroy(); });
+              if (process.env.METHOD === "POST") { req.end(JSON.stringify({ __probe__: true })); } else { req.end(); }
+            ' 2>/dev/null || echo "0"
+          }
+          CREATE_STATUS="$(probe_status /_agent-native/actions/create-visual-recap POST)"
+          BLOCKS_STATUS="$(probe_status /_agent-native/actions/get-plan-blocks GET)"
+          REASON=""
+          if [ "$CREATE_STATUS" = "404" ] || [ "$BLOCKS_STATUS" = "404" ]; then
+            REASON="Plan app routes return 404 — deploy not yet propagated (create-visual-recap: $CREATE_STATUS, get-plan-blocks: $BLOCKS_STATUS). The plan-app client is ahead of the deployed server; re-run once the deploy finishes propagating."
+            echo "::error::$REASON"
+            echo "unhealthy=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "unhealthy=false" >> "$GITHUB_OUTPUT"
+          fi
+          {
+            echo 'reason<<__RECAP_ROUTE_HEALTH_EOF__'
+            echo "$REASON"
+            echo '__RECAP_ROUTE_HEALTH_EOF__'
+          } >> "$GITHUB_OUTPUT"
+
       - name: Secret scan
         id: scan
         if: steps.diff.outputs.tiny != 'true'
@@ -386,6 +440,14 @@ jobs:
             echo "$CLAUDE_STATUS" > claude-exit-code.txt
           }
           run_claude
+          # A clean agent exit WITHOUT recap-source.json is the strongest
+          # "retry me" signal — the deterministic publisher needs that file, and
+          # the agent occasionally finishes a turn without writing it. Retry once.
+          if [ ! -s recap-source.json ]; then
+            echo "::warning::recap-source.json missing after the agent run; retrying the agent once."
+            sleep 5
+            run_claude
+          fi
 
       - name: Run agent (Codex)
         id: codex
@@ -418,6 +480,13 @@ jobs:
             echo "$CODEX_STATUS" > codex-exit-code.txt
           }
           run_codex
+          # Retry once if the agent exited without writing recap-source.json
+          # (see the Claude step) — the publisher needs that file.
+          if [ ! -s recap-source.json ]; then
+            echo "::warning::recap-source.json missing after the agent run; retrying the agent once."
+            sleep 5
+            run_codex
+          fi
 
       - name: Publish recap source
         id: publish
@@ -602,6 +671,26 @@ jobs:
           if-no-files-found: ignore
           retention-days: 14
 
+      - name: Upload recap source artifact
+        if: always() && !cancelled()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          # recap-source.json + the agent transcript (claude-result.json /
+          # codex-events.jsonl + stderr) are the only window into WHAT the agent
+          # did when a publish fails (no plan URL) — INCLUDING the case where it
+          # finished without writing recap-source.json at all. The sticky comment
+          # only shows the screenshot, so without these a failed recap is
+          # undebuggable. Uploaded on success + failure; tolerant when absent.
+          name: pr-visual-recap-source-${{ github.event.pull_request.number }}
+          path: |
+            recap-source.json
+            claude-result.json
+            claude-stderr.log
+            codex-events.jsonl
+            codex-stderr.log
+          if-no-files-found: ignore
+          retention-days: 14
+
       - name: Upsert sticky comment
         if: always() && !cancelled()
         continue-on-error: true
@@ -617,7 +706,10 @@ jobs:
           PREV_PLAN_ID: ${{ steps.prev.outputs.plan_id }}
           RECAP_AUTH_FAILED: ${{ steps.auth_probe.outputs.auth_failed }}
           RECAP_AGENT_SUMMARY: ${{ steps.agent_summary.outputs.summary }}
-          RECAP_URL_REASON: ${{ steps.url.outputs.reason }}
+          # Prefer the route-health diagnostic when the plan app routes are not
+          # yet deployed so the comment explains the 404 instead of a generic
+          # "recap-url.txt was not created" message.
+          RECAP_URL_REASON: ${{ steps.route_health.outputs.reason || steps.url.outputs.reason }}
         run: |
           set -euo pipefail
           $RECAP_CLI recap comment upsert --repo "$GITHUB_REPOSITORY" --issue "$PR_NUMBER" --token "$GH_TOKEN" --head-sha "$HEAD_SHA"
@@ -636,7 +728,7 @@ jobs:
           DIFF_HUGE: ${{ steps.diff.outputs.huge }}
           DIFF_TINY: ${{ steps.diff.outputs.tiny }}
           RECAP_AGENT_SUMMARY: ${{ steps.agent_summary.outputs.summary }}
-          RECAP_URL_REASON: ${{ steps.url.outputs.reason }}
+          RECAP_URL_REASON: ${{ steps.route_health.outputs.reason || steps.url.outputs.reason }}
         run: |
           set -uo pipefail
           $RECAP_CLI recap check complete \

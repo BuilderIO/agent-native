@@ -1,4 +1,8 @@
 import { defineConfig, devices } from "@playwright/test";
+import { planE2eAuthStatePath, planE2eBaseUrl } from "./e2e/auth-state";
+
+const baseURL = planE2eBaseUrl();
+const authStatePath = planE2eAuthStatePath(baseURL);
 
 /*
  * Parallel browser E2E for the Agent-Native Plan app.
@@ -19,7 +23,7 @@ export default defineConfig({
   reporter: [["list"], ["json", { outputFile: "e2e/.report.json" }]],
   globalSetup: "./e2e/global-setup.ts",
   use: {
-    baseURL: process.env.PLAN_BASE_URL || "http://localhost:8081",
+    baseURL,
     trace: "retain-on-failure",
     screenshot: "only-on-failure",
     actionTimeout: 12_000,
@@ -30,7 +34,7 @@ export default defineConfig({
       name: "authed",
       use: {
         ...devices["Desktop Chrome"],
-        storageState: "e2e/.auth/state.json",
+        storageState: authStatePath,
       },
     },
     {

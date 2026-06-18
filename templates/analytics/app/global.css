@@ -137,6 +137,111 @@
   }
 }
 
+.analytics-chat-panel [data-agent-empty-state="centered"] {
+  justify-content: center;
+  padding-bottom: clamp(4rem, 12vh, 8rem);
+}
+
+.analytics-chat-intro {
+  display: none;
+}
+
+.analytics-chat-panel
+  [data-agent-empty-state="centered"]
+  .analytics-chat-intro {
+  display: grid;
+  width: 100%;
+  max-width: min(760px, 90%);
+  gap: 0.5rem;
+  margin: 0 auto 1rem;
+  text-align: center;
+}
+
+.analytics-chat-intro h1 {
+  margin: 0;
+  color: hsl(var(--foreground));
+  font-size: clamp(1.75rem, 2.5vw, 2.75rem);
+  font-weight: 600;
+  letter-spacing: 0;
+  line-height: 1.12;
+}
+
+.analytics-chat-intro p {
+  margin: 0;
+  color: hsl(var(--muted-foreground));
+  font-size: 0.9375rem;
+  line-height: 1.5;
+}
+
+.analytics-chat-panel [data-agent-empty-state="centered"] .agent-chat-scroll {
+  flex: 0 0 auto;
+  min-height: 0;
+  overflow: visible;
+}
+
+.analytics-chat-panel [data-agent-empty-state="centered"] .agent-composer-area {
+  width: 100%;
+  max-width: min(760px, 90%);
+  padding: 0;
+}
+
+.analytics-chat-panel [data-agent-empty-state="centered"] .agent-composer-root {
+  min-height: 10.5rem;
+  border-color: hsl(var(--border));
+  border-radius: 1rem;
+  background: hsl(var(--card));
+  box-shadow:
+    0 20px 60px hsl(220 10% 2% / 0.12),
+    0 0 0 1px hsl(var(--border) / 0.45);
+}
+
+.dark
+  .analytics-chat-panel
+  [data-agent-empty-state="centered"]
+  .agent-composer-root {
+  box-shadow:
+    0 24px 80px hsl(220 10% 2% / 0.4),
+    0 0 0 1px hsl(var(--border) / 0.7);
+}
+
+.analytics-chat-panel
+  [data-agent-empty-state="centered"]
+  .agent-composer-prosemirror {
+  min-height: 6.75rem;
+  font-size: 1rem;
+  line-height: 1.625rem;
+}
+
+@media (max-width: 767px) {
+  .analytics-chat-panel [data-agent-empty-state="centered"] {
+    padding: 1rem;
+    padding-bottom: 5rem;
+  }
+
+  .analytics-chat-panel
+    [data-agent-empty-state="centered"]
+    .analytics-chat-intro {
+    width: 100%;
+    margin-bottom: 0.875rem;
+  }
+
+  .analytics-chat-intro h1 {
+    font-size: 1.75rem;
+  }
+
+  .analytics-chat-panel
+    [data-agent-empty-state="centered"]
+    .agent-composer-area {
+    width: 100%;
+  }
+
+  .analytics-chat-panel
+    [data-agent-empty-state="centered"]
+    .agent-composer-root {
+    min-height: 9rem;
+  }
+}
+
 /* The data source page responds to its pane width instead of the viewport.
    That keeps the compact/mobile layout when sidebars narrow the content area. */
 .data-sources-layout {

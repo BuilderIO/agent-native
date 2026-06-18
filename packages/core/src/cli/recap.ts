@@ -41,6 +41,11 @@ import os from "node:os";
 import path from "node:path";
 
 import { readPlanPublishAuth } from "./plan-publish-store.js";
+import {
+  DEFAULT_PLAN_APP_URL,
+  fetchPlanBlockCatalog,
+  planActionEndpoint,
+} from "./plan-blocks.js";
 import { PR_VISUAL_RECAP_WORKFLOW_YML } from "./pr-visual-recap-workflow.js";
 import { BUILT_IN_APP_SKILLS, VISUAL_RECAP_SKILL_MD } from "./skills.js";
 
@@ -252,7 +257,7 @@ type RecapAgentValue = "claude" | "codex";
 
 export type RecapAgent = "claude" | "codex";
 
-const DEFAULT_RECAP_APP_URL = "https://plan.agent-native.com";
+const DEFAULT_RECAP_APP_URL = DEFAULT_PLAN_APP_URL;
 
 export function normalizeRecapAgent(value: string | undefined): RecapAgent {
   const agent = (value || "claude").toLowerCase();
@@ -1551,9 +1556,7 @@ export function buildRecapPrompt(input: {
     lines.push(
       `2. Run \`npx @agent-native/core@latest plan local preview --dir ${JSON.stringify(
         localDir,
-      )} --kind recap --out ${JSON.stringify(
-        path.join(localDir, "preview.html"),
-      )}\` to validate the folder and generate the local preview.`,
+      )} --kind recap --open\` to validate the folder and open it in the local Plan app.`,
     );
     lines.push(
       "3. Write the returned `url` from that command to `recap-url.txt` at the repo root, containing exactly one line. This file is the workflow's only hand-off.",
@@ -2124,10 +2127,6 @@ export function readRecapSourcePayload(
   return validateRecapSourcePayload(parsed);
 }
 
-function recapActionEndpoint(appUrl: string, action: string): string {
-  return `${appUrl.replace(/\/$/, "")}/_agent-native/actions/${action}`;
-}
-
 async function fetchJsonWithTimeout(
   url: string,
   init: RequestInit,
@@ -2144,55 +2143,13 @@ export async function fetchRecapBlockReference(input: {
   out?: string;
   fetchFn?: typeof fetch;
 }): Promise<{ ok: true; out: string; count?: number }> {
-  const fetchFn = input.fetchFn ?? fetch;
-  const out = input.out ?? "recap-blocks.md";
-  const endpoint = new URL(
-    recapActionEndpoint(input.appUrl, "get-plan-blocks"),
-  );
-  endpoint.searchParams.set("format", "reference");
-  // The get-plan-blocks route can transiently 404/timeout while a plan-app
-  // deploy is still propagating to cold-start instances. Retry a few times so
-  // the recap authors against the LIVE block reference instead of silently
-  // falling back to bundled (possibly-stale) block tags — stale tags are what
-  // make create-visual-recap reject the authored MDX downstream.
-  let lastError = "";
-  for (let attempt = 1; attempt <= 4; attempt += 1) {
-    try {
-      const response = await fetchJsonWithTimeout(
-        endpoint.toString(),
-        { method: "GET", headers: { accept: "application/json" } },
-        fetchFn,
-      );
-      if (!response.ok) {
-        const detail = await response.text().catch(() => "");
-        lastError = `get-plan-blocks failed ${response.status} ${
-          response.statusText
-        }: ${sanitizeAgentFailureSummary(detail, 500)}`;
-        if (attempt < 4 && shouldRetryRecapPublish(response.status)) {
-          await delay(attempt * 1500);
-          continue;
-        }
-        throw new Error(lastError);
-      }
-      const json = (await response.json().catch(() => null)) as {
-        reference?: string;
-        count?: number;
-      } | null;
-      if (!json?.reference) {
-        throw new Error("get-plan-blocks returned no reference text.");
-      }
-      fs.writeFileSync(path.resolve(out), json.reference);
-      return { ok: true, out, count: json.count };
-    } catch (err) {
-      lastError = err instanceof Error ? err.message : String(err);
-      if (attempt < 4) {
-        await delay(attempt * 1500);
-        continue;
-      }
-      throw new Error(lastError);
-    }
-  }
-  throw new Error(lastError || "get-plan-blocks failed.");
+  const result = await fetchPlanBlockCatalog({
+    appUrl: input.appUrl,
+    out: input.out ?? "recap-blocks.md",
+    format: "reference",
+    fetchFn: input.fetchFn,
+  });
+  return { ok: true, out: result.out, count: result.count };
 }
 
 function recapUrlFromPublishResult(result: unknown, appUrl: string): string {
@@ -2310,7 +2267,7 @@ export async function publishRecapSource(input: {
     mdx: source.mdx,
   };
 
-  const endpoint = recapActionEndpoint(input.appUrl, "create-visual-recap");
+  const endpoint = planActionEndpoint(input.appUrl, "create-visual-recap");
   const fetchFn = input.fetchFn ?? fetch;
   let lastError = "";
   for (let attempt = 1; attempt <= 3; attempt += 1) {

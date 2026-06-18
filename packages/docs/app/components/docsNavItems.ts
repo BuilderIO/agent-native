@@ -10,6 +10,7 @@ export const NAV_SECTIONS: NavSection[] = [
         label: "What Is Agent-Native?",
         to: "/docs/what-is-agent-native" as const,
       },
+      { label: "Agent Surfaces", to: "/docs/agent-surfaces" as const },
       { label: "Key Concepts", to: "/docs/key-concepts" as const },
       { label: "Template Catalog", to: "/docs/cloneable-saas" as const },
       { label: "Pure-Agent Apps", to: "/docs/pure-agent-apps" as const },
@@ -22,6 +23,7 @@ export const NAV_SECTIONS: NavSection[] = [
       { label: "Server", to: "/docs/server" as const },
       { label: "Client", to: "/docs/client" as const },
       { label: "Actions", to: "/docs/actions" as const },
+      { label: "Human Approval", to: "/docs/human-approval" as const },
       { label: "Agent Web Surfaces", to: "/docs/agent-web-surfaces" as const },
       { label: "Database", to: "/docs/database" as const },
       { label: "Local File Mode", to: "/docs/local-file-mode" as const },
@@ -39,6 +41,11 @@ export const NAV_SECTIONS: NavSection[] = [
       { label: "Sharing & Privacy", to: "/docs/sharing" as const },
       { label: "Tracking & Analytics", to: "/docs/tracking" as const },
       { label: "Observability", to: "/docs/observability" as const },
+      {
+        label: "Observational Memory",
+        to: "/docs/observational-memory" as const,
+      },
+      { label: "Evals (CI Gate)", to: "/docs/evals" as const },
     ],
   },
   {
@@ -115,7 +122,15 @@ export const NAV_SECTIONS: NavSection[] = [
         to: "/docs/migration-workbench" as const,
       },
       { label: "Agent-Native Code UI", to: "/docs/code-agents-ui" as const },
+      { label: "Harness Agents", to: "/docs/harness-agents" as const },
       { label: "CLI Adapters", to: "/docs/cli-adapters" as const },
+      { label: "Sandbox Adapters", to: "/docs/sandbox-adapters" as const },
+      { label: "In-Loop Processors", to: "/docs/processors" as const },
+      { label: "Durable Resume", to: "/docs/durable-resume" as const },
+      {
+        label: "Blueprint Installer",
+        to: "/docs/blueprint-installer" as const,
+      },
     ],
   },
   {

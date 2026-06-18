@@ -1,7 +1,7 @@
 /**
  * `agent-native mcp <subcommand>` — connect external coding agents (Claude
- * Code desktop & CLI, Claude Cowork, Codex) to this agent-native app/workspace
- * over MCP.
+ * Code desktop & CLI, Claude Cowork, Codex, Cursor, OpenCode, GitHub Copilot /
+ * VS Code) to this agent-native app/workspace over MCP.
  *
  *   serve      Run the MCP stdio transport (this is what client configs spawn).
  *   install    Provision a token + write the client's MCP config idempotently.
@@ -15,11 +15,24 @@
 
 import crypto from "node:crypto";
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 
 import { runMCPStdio } from "../mcp/stdio.js";
-import { writeFileAtomic } from "./mcp-config-writers.js";
+import {
+  CLIENTS,
+  type ClientId,
+  buildCodexHttpBlock,
+  buildCodexLocalBlock,
+  buildHttpMcpEntryForClient,
+  buildLocalMcpEntryForClient,
+  codexConfigPath,
+  codexHasBlock,
+  configPathFor as clientConfigPathFor,
+  hasJsonMcpEntryForClient,
+  writeCodexBlock,
+  writeFileAtomic,
+  writeJsonMcpEntryForClient,
+} from "./mcp-config-writers.js";
 import {
   findWorkspaceRoot,
   resolveLocalAppOrigin,
@@ -27,14 +40,6 @@ import {
 } from "../mcp/workspace-resolve.js";
 
 const SERVER_NAME_PREFIX = "agent-native";
-
-type ClientId = "claude-code" | "claude-code-cli" | "codex" | "cowork";
-const CLIENTS: ClientId[] = [
-  "claude-code",
-  "claude-code-cli",
-  "codex",
-  "cowork",
-];
 
 interface ParsedArgs {
   _: string[];
@@ -225,33 +230,8 @@ async function mintHostedJwt(cwd: string): Promise<string | undefined> {
 }
 
 // ---------------------------------------------------------------------------
-// Client config file locations + writers
+// Client config entries
 // ---------------------------------------------------------------------------
-
-/**
- * Cowork consumes MCP exactly like Claude Code (same JSON server-entry
- * shape). The exact on-disk config path for Cowork may differ across builds —
- * this is the best-known location. **Confirm before relying on it in
- * production.** It is validated against the Claude Code JSON format below.
- *
- * Resolved lazily (not as a module-level constant) so `os.homedir()` reflects
- * the current `$HOME` rather than the value at module-load time.
- */
-function coworkConfigPath(): string {
-  return path.join(os.homedir(), ".cowork", "mcp.json");
-}
-
-function claudeCodeProjectConfig(cwd: string): string {
-  return path.join(envBaseDir(cwd), ".mcp.json");
-}
-function claudeCodeUserConfig(): string {
-  return path.join(os.homedir(), ".claude.json");
-}
-function codexConfigPath(): string {
-  const codexHome = process.env.CODEX_HOME?.trim();
-  if (codexHome) return path.join(codexHome, "config.toml");
-  return path.join(os.homedir(), ".codex", "config.toml");
-}
 
 interface ServerEntryInputs {
   serverName: string;
@@ -262,171 +242,35 @@ interface ServerEntryInputs {
   standalone: boolean;
 }
 
-/** The stdio (or http) server entry — shared by Claude Code & Cowork JSON. */
-function buildJsonServerEntry(i: ServerEntryInputs): Record<string, unknown> {
-  if (i.hostedUrl) {
-    return {
-      type: "http",
-      url: i.hostedUrl,
-      ...(i.token ? { headers: { Authorization: `Bearer ${i.token}` } } : {}),
-    };
-  }
+function mcpServeArgs(i: ServerEntryInputs): string[] {
   const args = ["mcp", "serve"];
   if (i.appId) args.push("--app", i.appId);
   if (i.standalone) args.push("--standalone");
+  return args;
+}
+
+function mcpServeEnv(i: ServerEntryInputs): Record<string, string> {
   const env: Record<string, string> = {};
   if (i.token) env.ACCESS_TOKEN = i.token;
   if (i.ownerEmail) env.AGENT_NATIVE_OWNER_EMAIL = i.ownerEmail;
-  return {
-    command: "agent-native",
-    args,
-    ...(Object.keys(env).length ? { env } : {}),
-  };
+  return env;
 }
 
-function readJsonFile(file: string): Record<string, any> {
-  try {
-    const raw = fs.readFileSync(file, "utf-8");
-    const parsed = JSON.parse(raw);
-    return parsed && typeof parsed === "object" ? parsed : {};
-  } catch {
-    return {};
+function buildJsonServerEntry(
+  client: ClientId,
+  i: ServerEntryInputs,
+): Record<string, unknown> {
+  if (i.hostedUrl) {
+    return buildHttpMcpEntryForClient(client, i.hostedUrl, i.token);
   }
-}
-
-/** Idempotently write `mcpServers[name] = entry` into a JSON config file. */
-function writeJsonMcpEntry(
-  file: string,
-  name: string,
-  entry: Record<string, unknown> | null,
-): void {
-  const config = readJsonFile(file);
-  if (!config.mcpServers || typeof config.mcpServers !== "object") {
-    config.mcpServers = {};
-  }
-  if (entry === null) {
-    delete config.mcpServers[name];
-  } else {
-    config.mcpServers[name] = entry;
-  }
-  writeFileAtomic(file, JSON.stringify(config, null, 2) + "\n");
-}
-
-function hasJsonMcpEntry(file: string, name: string): boolean {
-  const config = readJsonFile(file);
-  return !!config?.mcpServers && name in config.mcpServers;
-}
-
-// --- Codex TOML (hand-rolled minimal block merge, no new dep) -------------
-
-function tomlQuote(s: string): string {
-  return `"${s.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
-}
-
-function codexMcpHeader(name: string): string {
-  return `[mcp_servers.${tomlQuote(name)}]`;
-}
-
-function legacyCodexMcpHeader(name: string): string | null {
-  return /^[A-Za-z0-9_-]+$/.test(name) ? `[mcp_servers.${name}]` : null;
+  return buildLocalMcpEntryForClient(client, mcpServeArgs(i), mcpServeEnv(i));
 }
 
 function buildCodexBlock(name: string, i: ServerEntryInputs): string {
-  const lines: string[] = [codexMcpHeader(name)];
   if (i.hostedUrl) {
-    lines.push(`url = ${tomlQuote(i.hostedUrl)}`);
-    if (i.token) {
-      lines.push(
-        `http_headers = { "Authorization" = ${tomlQuote(
-          `Bearer ${i.token}`,
-        )} }`,
-      );
-    }
-    return lines.join("\n") + "\n";
+    return buildCodexHttpBlock(name, i.hostedUrl, i.token);
   }
-
-  const args = ["mcp", "serve"];
-  if (i.appId) args.push("--app", i.appId);
-  if (i.standalone) args.push("--standalone");
-  lines.push(`command = "agent-native"`);
-  lines.push(`args = [${args.map(tomlQuote).join(", ")}]`);
-  const env: Record<string, string> = {};
-  if (i.token) env.ACCESS_TOKEN = i.token;
-  if (i.ownerEmail) env.AGENT_NATIVE_OWNER_EMAIL = i.ownerEmail;
-  if (Object.keys(env).length) {
-    const inline = Object.entries(env)
-      .map(([k, v]) => `${k} = ${tomlQuote(v)}`)
-      .join(", ");
-    lines.push(`env = { ${inline} }`);
-  }
-  return lines.join("\n") + "\n";
-}
-
-/**
- * Replace (or append) the `[mcp_servers.<name>]` block in a TOML file
- * without disturbing other content. We treat a block as the header line plus
- * every following line until the next top-level `[` table header or EOF.
- */
-function writeCodexBlock(
-  file: string,
-  name: string,
-  block: string | null,
-): void {
-  let content = "";
-  try {
-    content = fs.readFileSync(file, "utf-8");
-  } catch {
-    content = "";
-  }
-
-  const headers = new Set(
-    [codexMcpHeader(name), legacyCodexMcpHeader(name)].filter(
-      Boolean,
-    ) as string[],
-  );
-  const lines = content.split(/\r?\n/);
-  const out: string[] = [];
-  let i = 0;
-  let removed = false;
-  while (i < lines.length) {
-    const line = lines[i];
-    if (headers.has(line.trim())) {
-      // Skip this block entirely (header + body until next table header).
-      removed = true;
-      i++;
-      while (i < lines.length && !/^\s*\[/.test(lines[i])) i++;
-      continue;
-    }
-    out.push(line);
-    i++;
-  }
-
-  let next = out
-    .join("\n")
-    .replace(/\n{3,}/g, "\n\n")
-    .replace(/\n*$/, "\n");
-  if (block !== null) {
-    next = next.replace(/\n*$/, "\n");
-    if (next.trim().length) next += "\n";
-    next += block;
-  }
-  if (block === null && !removed) return; // nothing to do
-
-  writeFileAtomic(file, next);
-}
-
-function codexHasBlock(file: string, name: string): boolean {
-  try {
-    const content = fs.readFileSync(file, "utf-8");
-    const headers = new Set(
-      [codexMcpHeader(name), legacyCodexMcpHeader(name)].filter(
-        Boolean,
-      ) as string[],
-    );
-    return content.split(/\r?\n/).some((line) => headers.has(line.trim()));
-  } catch {
-    return false;
-  }
+  return buildCodexLocalBlock(name, mcpServeArgs(i), mcpServeEnv(i));
 }
 
 // ---------------------------------------------------------------------------
@@ -438,21 +282,34 @@ function configPathFor(
   cwd: string,
   scope: string | undefined,
 ): string {
-  switch (client) {
-    case "claude-code":
-    case "claude-code-cli":
-      return scope === "user"
-        ? claudeCodeUserConfig()
-        : claudeCodeProjectConfig(cwd);
-    case "cowork":
-      return coworkConfigPath();
-    case "codex":
-      return codexConfigPath();
-  }
+  return clientConfigPathFor(client, envBaseDir(cwd), scope);
 }
 
 function serverNameFor(appId: string): string {
   return `${SERVER_NAME_PREFIX}-${appId}`;
+}
+
+// Clients advertised in usage/help and listed by status. Excludes the legacy
+// `claude-code-cli` alias so only a single "Claude Code" appears (it is still
+// accepted via --client and collapses to claude-code).
+const SELECTABLE_CLIENTS: ClientId[] = CLIENTS.filter(
+  (c) => c !== "claude-code-cli",
+);
+
+function normalizeClientId(raw: string | undefined): ClientId | null {
+  const value = (raw ?? "").toLowerCase();
+  if (
+    value === "claude" ||
+    value === "claude-code-desktop" ||
+    value === "claude-code-cli"
+  ) {
+    return "claude-code";
+  }
+  if (value === "open-code") return "opencode";
+  if (value === "copilot" || value === "vscode" || value === "vs-code") {
+    return "github-copilot";
+  }
+  return (CLIENTS as string[]).includes(value) ? (value as ClientId) : null;
 }
 
 function installForClient(
@@ -466,7 +323,12 @@ function installForClient(
   if (client === "codex") {
     writeCodexBlock(file, name, buildCodexBlock(name, inputs));
   } else {
-    writeJsonMcpEntry(file, name, buildJsonServerEntry(inputs));
+    writeJsonMcpEntryForClient(
+      client,
+      file,
+      name,
+      buildJsonServerEntry(client, inputs),
+    );
   }
   return file;
 }
@@ -484,22 +346,29 @@ function uninstallForClient(
     if (had) writeCodexBlock(file, name, null);
     return { file, removed: had };
   }
-  const had = hasJsonMcpEntry(file, name);
-  if (had) writeJsonMcpEntry(file, name, null);
+  const had = hasJsonMcpEntryForClient(client, file, name);
+  if (had) writeJsonMcpEntryForClient(client, file, name, null);
   return { file, removed: had };
 }
 
 function clientHasEntry(client: ClientId, appId: string, cwd: string): boolean {
   const name = serverNameFor(appId);
-  // Check both scopes for Claude Code so `status` is informative.
-  if (client === "claude-code" || client === "claude-code-cli") {
-    return (
-      hasJsonMcpEntry(claudeCodeProjectConfig(cwd), name) ||
-      hasJsonMcpEntry(claudeCodeUserConfig(), name)
+  if (client === "codex") return codexHasBlock(codexConfigPath(), name);
+  if (client === "cowork") {
+    return hasJsonMcpEntryForClient(
+      client,
+      configPathFor(client, cwd, undefined),
+      name,
     );
   }
-  if (client === "cowork") return hasJsonMcpEntry(coworkConfigPath(), name);
-  return codexHasBlock(codexConfigPath(), name);
+  return (
+    hasJsonMcpEntryForClient(
+      client,
+      configPathFor(client, cwd, "project"),
+      name,
+    ) ||
+    hasJsonMcpEntryForClient(client, configPathFor(client, cwd, "user"), name)
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -515,10 +384,10 @@ async function cmdServe(p: ParsedArgs): Promise<void> {
 }
 
 async function cmdInstall(p: ParsedArgs): Promise<void> {
-  const client = (p.client ?? "").toLowerCase() as ClientId;
-  if (!CLIENTS.includes(client)) {
+  const client = normalizeClientId(p.client);
+  if (!client) {
     logErr(
-      `Usage: npx @agent-native/core@latest mcp install --client ${CLIENTS.join("|")} ` +
+      `Usage: npx @agent-native/core@latest mcp install --client ${SELECTABLE_CLIENTS.join("|")} ` +
         `[--app <id>] [--scope user|project]`,
     );
     process.exit(1);
@@ -576,10 +445,10 @@ async function cmdInstall(p: ParsedArgs): Promise<void> {
 }
 
 function cmdUninstall(p: ParsedArgs): void {
-  const client = (p.client ?? "").toLowerCase() as ClientId;
-  if (!CLIENTS.includes(client)) {
+  const client = normalizeClientId(p.client);
+  if (!client) {
     logErr(
-      `Usage: npx @agent-native/core@latest mcp uninstall --client ${CLIENTS.join("|")} ` +
+      `Usage: npx @agent-native/core@latest mcp uninstall --client ${SELECTABLE_CLIENTS.join("|")} ` +
         `[--app <id>]`,
     );
     process.exit(1);
@@ -631,7 +500,7 @@ async function cmdStatus(): Promise<void> {
   logOut(`  ACCESS_TOKEN: ${hasToken ? "set" : "not set"} (.env)`);
   logOut(`  A2A_SECRET:   ${hasA2A ? "set" : "not set"}`);
   logOut(`  Clients:`);
-  for (const client of CLIENTS) {
+  for (const client of SELECTABLE_CLIENTS) {
     const present = clientHasEntry(client, appId, cwd);
     logOut(`    ${client.padEnd(18)} ${present ? "configured" : "—"}`);
   }
@@ -665,7 +534,7 @@ Usage:
 
   npx @agent-native/core@latest mcp install --client <c> [--app <id>] [--scope user|project]
       Provision a token and write the client's MCP config (idempotent).
-      Clients: claude-code, claude-code-cli, codex, cowork
+      Clients: claude-code, codex, cowork, cursor, opencode, github-copilot
 
   npx @agent-native/core@latest mcp uninstall --client <c> [--app <id>]
       Remove the named MCP entry from a client's config (idempotent).

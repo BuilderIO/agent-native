@@ -3,15 +3,18 @@
  *
  * Extracted so both `agent-native mcp install` (see `mcp.ts`) and
  * `agent-native connect` (see `connect.ts`) write the EXACT same on-disk
- * config file targets and formats for every supported client. `mcp.ts`
- * intentionally keeps its own hand-rolled copies of these writers (its
- * external behavior is unchanged); new code should import from here so the
- * formats never diverge.
+ * config file targets and formats for every supported client.
  *
  * Supported clients and their config files:
  *   - claude-code / claude-code-cli → `.mcp.json` (project) or
  *     `~/.claude.json` (user). JSON `mcpServers[name] = entry`.
  *   - cowork                        → `~/.cowork/mcp.json`. Same JSON shape.
+ *   - cursor                        → `.cursor/mcp.json` (project) or
+ *     `~/.cursor/mcp.json` (user). JSON `mcpServers[name] = entry`.
+ *   - opencode                      → `opencode.json` (project) or
+ *     `~/.config/opencode/opencode.json` (user). JSON `mcp[name] = entry`.
+ *   - github-copilot                → `.vscode/mcp.json` (project) or the
+ *     VS Code user `mcp.json`. JSON `servers[name] = entry`.
  *   - codex                         → `$CODEX_HOME/config.toml` when set,
  *     otherwise `~/.codex/config.toml`.
  *     `[mcp_servers.<name>]` block.
@@ -24,13 +27,23 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-export type ClientId = "claude-code" | "claude-code-cli" | "codex" | "cowork";
+export type ClientId =
+  | "claude-code"
+  | "claude-code-cli"
+  | "codex"
+  | "cowork"
+  | "cursor"
+  | "opencode"
+  | "github-copilot";
 
 export const CLIENTS: ClientId[] = [
   "claude-code",
   "claude-code-cli",
   "codex",
   "cowork",
+  "cursor",
+  "opencode",
+  "github-copilot",
 ];
 
 /** The HTTP MCP server entry written into a JSON client config. */
@@ -54,6 +67,81 @@ export function buildHttpMcpEntry(
     type: "http",
     url: mcpUrl,
     ...(Object.keys(mergedHeaders).length ? { headers: mergedHeaders } : {}),
+  };
+}
+
+function mergedHeadersFor(
+  token?: string,
+  headers?: Record<string, string>,
+): Record<string, string> {
+  return {
+    ...(headers ?? {}),
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+  };
+}
+
+export function buildHttpMcpEntryForClient(
+  client: ClientId,
+  mcpUrl: string,
+  token?: string,
+  headers?: Record<string, string>,
+): Record<string, unknown> {
+  const mergedHeaders = mergedHeadersFor(token, headers);
+  if (client === "cursor") {
+    return {
+      url: mcpUrl,
+      ...(Object.keys(mergedHeaders).length ? { headers: mergedHeaders } : {}),
+    };
+  }
+  if (client === "opencode") {
+    return {
+      type: "remote",
+      url: mcpUrl,
+      enabled: true,
+      ...(Object.keys(mergedHeaders).length ? { headers: mergedHeaders } : {}),
+    };
+  }
+  if (client === "github-copilot") {
+    return {
+      type: "http",
+      url: mcpUrl,
+      ...(Object.keys(mergedHeaders).length
+        ? { requestInit: { headers: mergedHeaders } }
+        : {}),
+    };
+  }
+  return buildHttpMcpEntry(mcpUrl, token, headers) as unknown as Record<
+    string,
+    unknown
+  >;
+}
+
+export function buildLocalMcpEntryForClient(
+  client: ClientId,
+  args: string[],
+  env?: Record<string, string>,
+): Record<string, unknown> {
+  const cleanEnv = env ? Object.fromEntries(Object.entries(env)) : {};
+  if (client === "opencode") {
+    return {
+      type: "local",
+      command: ["agent-native", ...args],
+      enabled: true,
+      ...(Object.keys(cleanEnv).length ? { environment: cleanEnv } : {}),
+    };
+  }
+  if (client === "github-copilot") {
+    return {
+      type: "stdio",
+      command: "agent-native",
+      args,
+      ...(Object.keys(cleanEnv).length ? { env: cleanEnv } : {}),
+    };
+  }
+  return {
+    command: "agent-native",
+    args,
+    ...(Object.keys(cleanEnv).length ? { env: cleanEnv } : {}),
   };
 }
 
@@ -83,6 +171,49 @@ export function codexConfigPath(): string {
   return path.join(os.homedir(), ".codex", "config.toml");
 }
 
+export function cursorProjectConfig(baseDir: string): string {
+  return path.join(baseDir, ".cursor", "mcp.json");
+}
+
+export function cursorUserConfig(): string {
+  return path.join(os.homedir(), ".cursor", "mcp.json");
+}
+
+export function opencodeProjectConfig(baseDir: string): string {
+  return path.join(baseDir, "opencode.json");
+}
+
+export function opencodeUserConfig(): string {
+  const xdgConfigHome = process.env.XDG_CONFIG_HOME?.trim();
+  const configRoot = xdgConfigHome || path.join(os.homedir(), ".config");
+  return path.join(configRoot, "opencode", "opencode.json");
+}
+
+export function githubCopilotProjectConfig(baseDir: string): string {
+  return path.join(baseDir, ".vscode", "mcp.json");
+}
+
+export function githubCopilotUserConfig(): string {
+  if (process.platform === "darwin") {
+    return path.join(
+      os.homedir(),
+      "Library",
+      "Application Support",
+      "Code",
+      "User",
+      "mcp.json",
+    );
+  }
+  if (process.platform === "win32") {
+    const appData =
+      process.env.APPDATA || path.join(os.homedir(), "AppData", "Roaming");
+    return path.join(appData, "Code", "User", "mcp.json");
+  }
+  const xdgConfigHome = process.env.XDG_CONFIG_HOME?.trim();
+  const configRoot = xdgConfigHome || path.join(os.homedir(), ".config");
+  return path.join(configRoot, "Code", "User", "mcp.json");
+}
+
 /**
  * Resolve the on-disk config path for a client.
  *
@@ -105,6 +236,18 @@ export function configPathFor(
       return coworkConfigPath();
     case "codex":
       return codexConfigPath();
+    case "cursor":
+      return scope === "user"
+        ? cursorUserConfig()
+        : cursorProjectConfig(baseDir);
+    case "opencode":
+      return scope === "user"
+        ? opencodeUserConfig()
+        : opencodeProjectConfig(baseDir);
+    case "github-copilot":
+      return scope === "user"
+        ? githubCopilotUserConfig()
+        : githubCopilotProjectConfig(baseDir);
   }
 }
 
@@ -180,26 +323,61 @@ export function writeFileAtomic(file: string, data: string): void {
  * Pass `entry === null` to delete the named entry. Re-running with the same
  * name replaces the existing entry in place — never duplicates.
  */
+export function jsonMcpConfigKeyForClient(client: ClientId): string {
+  if (client === "opencode") return "mcp";
+  if (client === "github-copilot") return "servers";
+  return "mcpServers";
+}
+
+function writeJsonMcpEntryAtKey(
+  file: string,
+  serversKey: string,
+  name: string,
+  entry: Record<string, unknown> | null,
+): void {
+  const config = readJsonFile(file);
+  if (!config[serversKey] || typeof config[serversKey] !== "object") {
+    config[serversKey] = {};
+  }
+  const servers = config[serversKey] as Record<string, unknown>;
+  if (entry === null) {
+    delete servers[name];
+  } else {
+    servers[name] = entry;
+  }
+  writeFileAtomic(file, JSON.stringify(config, null, 2) + "\n");
+}
+
 export function writeJsonMcpEntry(
   file: string,
   name: string,
   entry: Record<string, unknown> | null,
 ): void {
-  const config = readJsonFile(file);
-  if (!config.mcpServers || typeof config.mcpServers !== "object") {
-    config.mcpServers = {};
-  }
-  if (entry === null) {
-    delete config.mcpServers[name];
-  } else {
-    config.mcpServers[name] = entry;
-  }
-  writeFileAtomic(file, JSON.stringify(config, null, 2) + "\n");
+  writeJsonMcpEntryAtKey(file, "mcpServers", name, entry);
+}
+
+export function writeJsonMcpEntryForClient(
+  client: ClientId,
+  file: string,
+  name: string,
+  entry: Record<string, unknown> | null,
+): void {
+  writeJsonMcpEntryAtKey(file, jsonMcpConfigKeyForClient(client), name, entry);
 }
 
 export function hasJsonMcpEntry(file: string, name: string): boolean {
   const config = readJsonFile(file);
   return !!config?.mcpServers && name in config.mcpServers;
+}
+
+export function hasJsonMcpEntryForClient(
+  client: ClientId,
+  file: string,
+  name: string,
+): boolean {
+  const config = readJsonFile(file);
+  const servers = config?.[jsonMcpConfigKeyForClient(client)];
+  return !!servers && typeof servers === "object" && name in servers;
 }
 
 // ---------------------------------------------------------------------------
@@ -238,6 +416,24 @@ export function buildCodexHttpBlock(
         .map(([key, value]) => `${tomlQuote(key)} = ${tomlQuote(value)}`)
         .join(", ")} }`,
     );
+  }
+  return lines.join("\n") + "\n";
+}
+
+export function buildCodexLocalBlock(
+  name: string,
+  args: string[],
+  env?: Record<string, string>,
+): string {
+  const lines: string[] = [codexMcpHeader(name)];
+  lines.push(`command = "agent-native"`);
+  lines.push(`args = [${args.map(tomlQuote).join(", ")}]`);
+  const cleanEnv = env ? Object.fromEntries(Object.entries(env)) : {};
+  if (Object.keys(cleanEnv).length) {
+    const inline = Object.entries(cleanEnv)
+      .map(([key, value]) => `${key} = ${tomlQuote(value)}`)
+      .join(", ");
+    lines.push(`env = { ${inline} }`);
   }
   return lines.join("\n") + "\n";
 }
@@ -337,13 +533,11 @@ export function writeHttpEntryForClient(
       buildCodexHttpBlock(serverName, mcpUrl, token, headers),
     );
   } else {
-    writeJsonMcpEntry(
+    writeJsonMcpEntryForClient(
+      client,
       file,
       serverName,
-      buildHttpMcpEntry(mcpUrl, token, headers) as unknown as Record<
-        string,
-        unknown
-      >,
+      buildHttpMcpEntryForClient(client, mcpUrl, token, headers),
     );
   }
   return file;
@@ -377,8 +571,9 @@ export function canonicalUrl(value: string | undefined): string | undefined {
  *
  * Returns the list of entry names that were removed.
  */
-export function removeJsonSameUrlDuplicates(
+function removeJsonSameUrlDuplicatesAtKey(
   file: string,
+  serversKey: string,
   mcpUrl: string,
   keepName: string,
 ): string[] {
@@ -390,7 +585,7 @@ export function removeJsonSameUrlDuplicates(
   } catch {
     return [];
   }
-  const servers = config?.mcpServers;
+  const servers = config?.[serversKey];
   if (!servers || typeof servers !== "object" || Array.isArray(servers)) {
     return [];
   }
@@ -413,6 +608,14 @@ export function removeJsonSameUrlDuplicates(
   }
   writeFileAtomic(file, JSON.stringify(config, null, 2) + "\n");
   return toRemove;
+}
+
+export function removeJsonSameUrlDuplicates(
+  file: string,
+  mcpUrl: string,
+  keepName: string,
+): string[] {
+  return removeJsonSameUrlDuplicatesAtKey(file, "mcpServers", mcpUrl, keepName);
 }
 
 /**
@@ -499,5 +702,10 @@ export function removeSameUrlDuplicatesForClient(
   if (client === "codex") {
     return removeCodexSameUrlDuplicates(file, mcpUrl, serverName);
   }
-  return removeJsonSameUrlDuplicates(file, mcpUrl, serverName);
+  return removeJsonSameUrlDuplicatesAtKey(
+    file,
+    jsonMcpConfigKeyForClient(client),
+    mcpUrl,
+    serverName,
+  );
 }

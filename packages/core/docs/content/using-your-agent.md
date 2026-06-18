@@ -39,6 +39,7 @@ _For developers building the app._
 The agent isn't a separate app you tab over to. It ships as a handful of React components — a sidebar, a raw panel, and a `sendToAgentChat()` call — that you drop into any app. Render `<AgentSidebar>` to give every screen a toggleable agent, or wire a button to hand a specific task off to the chat instead of running a one-shot LLM call.
 
 → [**Drop-in Agent**](/docs/drop-in-agent) — mount `<AgentPanel>`, `<AgentSidebar>`, and `sendToAgentChat()` into any React app. _(For developers building the app.)_
+→ [**Agent Surfaces**](/docs/agent-surfaces) — choose whether the workflow should be headless, chat-first, embedded, or a full app. _(For developers designing the product shape.)_
 
 ## You can go UI-light {#ui-light}
 

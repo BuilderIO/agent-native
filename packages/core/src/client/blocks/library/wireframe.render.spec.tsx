@@ -81,6 +81,16 @@ describe("wireframe auto-height frame", () => {
     expect(style).toMatch(/width\s*:\s*900px/);
   });
 
+  it("does not add decorative shadows around the artboard", () => {
+    const html = render({
+      surface: "browser",
+      html: "<div>Mockup without fake depth</div>",
+    });
+    const style = artboardStyle(html);
+
+    expect(style).not.toMatch(/box-shadow/i);
+  });
+
   it("renders allowlisted icon markers as inline Tabler-style SVG icons", () => {
     const html = render({
       surface: "popover",

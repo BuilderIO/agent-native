@@ -158,6 +158,16 @@ describe("standalone scaffold — starter template", { timeout: 60000 }, () => {
     }
   });
 
+  it("pins React Router packages to tested exact versions for standalone installs", async () => {
+    await createApp("test-app", { template: "starter" });
+    const pkg = readPkg(path.join(tmpDir, "test-app"));
+    const deps = allDeps(pkg);
+
+    expect(deps["@react-router/dev"]).toBe("7.16.0");
+    expect(deps["@react-router/fs-routes"]).toBe("7.16.0");
+    expect(deps["react-router"]).toBe("7.16.0");
+  });
+
   it("catalog: refs resolve to semver-like strings", async () => {
     await createApp("test-app", { template: "starter" });
     const pkg = readPkg(path.join(tmpDir, "test-app"));

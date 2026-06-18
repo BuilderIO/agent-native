@@ -70,7 +70,7 @@ export const TEMPLATES: TemplateMeta[] = [
   {
     name: "content",
     label: "Content",
-    hint: "Agent-native Notion/Google Docs — write and organize with agent assistance",
+    hint: "Open-source Obsidian for MDX — edit local docs with agent assistance",
     icon: "FileText",
     color: "#10B981",
     colorRgb: "16 185 129",

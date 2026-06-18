@@ -3,6 +3,10 @@ import type {
   AgentChatAttachment,
   AgentChatEvent,
 } from "./agent/types.js";
+import {
+  normalizeActionChatUIConfig,
+  type ActionChatUIConfig,
+} from "./action-ui.js";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 
 /**
@@ -256,6 +260,19 @@ type InferParams<T extends Record<string, ParameterSchema> | undefined> =
     ? { [K in keyof T]?: string }
     : Record<string, string>;
 
+/**
+ * What to do when an action's RETURN value fails `outputSchema` validation.
+ *
+ * - `"strict"` — throw a clear error so a buggy action surfaces loudly.
+ * - `"warn"` (default) — `console.warn` the issues and return the ORIGINAL
+ *   result unchanged. Non-breaking: behavior never changes unless the dev
+ *   opts into `"strict"` or `"fallback"`.
+ * - `"fallback"` — return `outputFallback` in place of the invalid result.
+ *
+ * Mirrors Mastra/Flue structured-output handling, kept on the action layer.
+ */
+export type ActionOutputErrorStrategy = "strict" | "warn" | "fallback";
+
 // ---------------------------------------------------------------------------
 // Schema-based action options (new: Zod / Valibot / ArkType via Standard Schema)
 // ---------------------------------------------------------------------------
@@ -263,6 +280,7 @@ type InferParams<T extends Record<string, ParameterSchema> | undefined> =
 interface DefineActionWithSchema<
   TSchema extends StandardSchemaV1,
   TReturn = any,
+  TOutputSchema extends StandardSchemaV1 | undefined = undefined,
 > {
   description: string;
   /** Standard Schema-compatible schema (Zod, Valibot, ArkType). Provides runtime
@@ -271,6 +289,16 @@ interface DefineActionWithSchema<
   schema: TSchema;
   /** Legacy parameters — ignored when `schema` is provided. */
   parameters?: never;
+  /** Optional Standard Schema-compatible schema (Zod, Valibot, ArkType) the
+   *  action's RETURN value is validated against AFTER `run()` resolves. Borrowed
+   *  from Mastra/Flue structured-output. When omitted, behavior is byte-for-byte
+   *  unchanged. The mismatch handling is governed by `outputErrorStrategy`. */
+  outputSchema?: TOutputSchema;
+  /** What to do when the result fails `outputSchema`. Default: `"warn"`. */
+  outputErrorStrategy?: ActionOutputErrorStrategy;
+  /** Value returned in place of an invalid result when `outputErrorStrategy` is
+   *  `"fallback"`. Ignored for the other strategies. */
+  outputFallback?: TReturn;
   run: (
     args: StandardSchemaV1.InferOutput<TSchema>,
     ctx?: ActionRunContext,
@@ -325,6 +353,31 @@ interface DefineActionWithSchema<
    *  interactive app iframes. Text/deep-link tool results remain the fallback
    *  for CLI and non-UI hosts. */
   mcpApp?: ActionMcpAppConfig;
+  /** Optional native Agent-Native chat renderer for this action's structured
+   *  result. This is first-party React UI, not arbitrary HTML/JS. */
+  chatUI?: ActionChatUIConfig;
+  /**
+   * Opt-in human-in-the-loop approval gate. **Default off** — the framework
+   * intentionally keeps HITL approvals rare; almost every action should run
+   * without one. Set this only for high-consequence, outward-facing,
+   * hard-to-undo operations (the canonical example is actually sending an
+   * email). When `needsApproval` resolves truthy and the agent calls this
+   * action, the loop does NOT execute `run()`: it emits an `approval_required`
+   * event and stops the turn, waiting for a human to approve. The action runs
+   * only once the human re-issues the turn approving this specific call.
+   *
+   * - `true` — always require approval.
+   * - `(args, ctx) => boolean | Promise<boolean>` — require approval only when
+   *   the predicate returns true (e.g. only for external recipients, only
+   *   above a dollar threshold). Keep it pure + fast; thrown errors are treated
+   *   as "approval required" (fail closed).
+   */
+  needsApproval?:
+    | boolean
+    | ((
+        args: StandardSchemaV1.InferOutput<TSchema>,
+        ctx?: ActionRunContext,
+      ) => boolean | Promise<boolean>);
 }
 
 // ---------------------------------------------------------------------------
@@ -343,6 +396,15 @@ interface DefineActionWithParams<
   parameters?: TParams;
   /** Standard Schema — not used in this overload. */
   schema?: never;
+  /** Optional Standard Schema-compatible schema the action's RETURN value is
+   *  validated against AFTER `run()` resolves. See the schema overload above.
+   *  When omitted, behavior is byte-for-byte unchanged. */
+  outputSchema?: StandardSchemaV1;
+  /** What to do when the result fails `outputSchema`. Default: `"warn"`. */
+  outputErrorStrategy?: ActionOutputErrorStrategy;
+  /** Value returned in place of an invalid result when `outputErrorStrategy` is
+   *  `"fallback"`. Ignored for the other strategies. */
+  outputFallback?: TReturn;
   run: (
     args: InferParams<TParams>,
     ctx?: ActionRunContext,
@@ -371,6 +433,16 @@ interface DefineActionWithParams<
   link?: ActionLinkBuilder;
   /** Optional MCP Apps UI resource. See schema overload above. */
   mcpApp?: ActionMcpAppConfig;
+  /** Optional native Agent-Native chat renderer. See schema overload above. */
+  chatUI?: ActionChatUIConfig;
+  /** Opt-in human-in-the-loop approval gate (default off). See the schema
+   *  overload above for full semantics. */
+  needsApproval?:
+    | boolean
+    | ((
+        args: InferParams<TParams>,
+        ctx?: ActionRunContext,
+      ) => boolean | Promise<boolean>);
 }
 
 // ---------------------------------------------------------------------------
@@ -410,6 +482,21 @@ export interface ActionDefinition<TInput, TReturn> {
   readonly publicAgent?: PublicAgentActionConfig;
   readonly link?: ActionLinkBuilder;
   readonly mcpApp?: ActionMcpAppConfig;
+  readonly chatUI?: ActionChatUIConfig;
+  /** Standard Schema the action's RETURN value is validated against after
+   *  `run()` resolves. Present only when the caller passed `outputSchema`. */
+  readonly outputSchema?: StandardSchemaV1;
+  /** Resolved output-mismatch strategy. Present only when `outputSchema` is
+   *  set; defaults to `"warn"`. */
+  readonly outputErrorStrategy?: ActionOutputErrorStrategy;
+  /** Value substituted for an invalid result under the `"fallback"` strategy. */
+  readonly outputFallback?: TReturn;
+  /** Opt-in human-in-the-loop approval gate (default off). When truthy, the
+   *  agent loop emits `approval_required` and pauses instead of executing this
+   *  action until a human approves the specific call. */
+  readonly needsApproval?:
+    | boolean
+    | ((args: TInput, ctx?: ActionRunContext) => boolean | Promise<boolean>);
 }
 
 // ---------------------------------------------------------------------------
@@ -453,8 +540,12 @@ export interface ActionDefinition<TInput, TReturn> {
  * });
  * ```
  */
-export function defineAction<TSchema extends StandardSchemaV1, TReturn>(
-  options: DefineActionWithSchema<TSchema, TReturn>,
+export function defineAction<
+  TSchema extends StandardSchemaV1,
+  TReturn,
+  TOutputSchema extends StandardSchemaV1 | undefined = undefined,
+>(
+  options: DefineActionWithSchema<TSchema, TReturn, TOutputSchema>,
 ): ActionDefinition<StandardSchemaV1.InferInput<TSchema>, TReturn>;
 export function defineAction<
   TParams extends Record<string, ParameterSchema> | undefined,
@@ -477,12 +568,34 @@ export function defineAction(options: any) {
     };
   }
 
-  // Wrap run() with validation when schema is provided.
+  // Wrap run() with INPUT validation when schema is provided.
   // Pass toolParameters so the validation error can echo the expected signature
   // (required vs optional fields) and help the caller self-correct.
-  const run = hasSchema
+  const inputValidatedRun = hasSchema
     ? wrapWithValidation(options.schema, options.run, toolParameters)
     : options.run;
+
+  // Then wrap with OUTPUT validation when an outputSchema is provided. This
+  // composes AROUND the input-validated run so the order is: validate input →
+  // run() → validate output. When no outputSchema is present, the run is passed
+  // through untouched and behavior is byte-for-byte unchanged.
+  const hasOutputSchema =
+    options.outputSchema && "~standard" in options.outputSchema;
+  const outputErrorStrategy: ActionOutputErrorStrategy =
+    options.outputErrorStrategy === "strict" ||
+    options.outputErrorStrategy === "warn" ||
+    options.outputErrorStrategy === "fallback"
+      ? options.outputErrorStrategy
+      : "warn";
+  const run = hasOutputSchema
+    ? wrapWithOutputValidation(
+        options.outputSchema,
+        inputValidatedRun,
+        outputErrorStrategy,
+        options.outputFallback,
+        options.description,
+      )
+    : inputValidatedRun;
 
   // Auto-infer readOnly from http.method === "GET" unless explicitly set.
   // GET actions are idempotent reads; their completion should NOT trigger a
@@ -555,6 +668,7 @@ export function defineAction(options: any) {
     }
     return undefined;
   })();
+  const chatUI = normalizeActionChatUIConfig(options.chatUI);
 
   return {
     tool: {
@@ -574,6 +688,20 @@ export function defineAction(options: any) {
     ...(publicAgent ? { publicAgent } : {}),
     ...(link ? { link } : {}),
     ...(mcpApp ? { mcpApp } : {}),
+    ...(chatUI ? { chatUI } : {}),
+    ...(hasOutputSchema
+      ? {
+          outputSchema: options.outputSchema,
+          outputErrorStrategy,
+          ...(outputErrorStrategy === "fallback"
+            ? { outputFallback: options.outputFallback }
+            : {}),
+        }
+      : {}),
+    ...(typeof options.needsApproval === "boolean" ||
+    typeof options.needsApproval === "function"
+      ? { needsApproval: options.needsApproval }
+      : {}),
   };
 }
 
@@ -858,5 +986,60 @@ function wrapWithValidation(
       );
     }
     return run((result as StandardSchemaV1.SuccessResult<any>).value, ctx);
+  };
+}
+
+/**
+ * Wrap an action's run function with RETURN-value validation. Runs AFTER the
+ * (already input-validated) `run` resolves and validates the result against
+ * `outputSchema` using the Standard Schema `~standard.validate` contract.
+ *
+ * Behavior is governed by `strategy`:
+ * - `"strict"`  — throw a clear error when the result doesn't match.
+ * - `"warn"`    — `console.warn` the issues and return the ORIGINAL result
+ *                 unchanged (default; never alters runtime behavior).
+ * - `"fallback"`— return `fallback` in place of the invalid result.
+ *
+ * On success the validated value is returned (so schema-applied coercion /
+ * defaults take effect, mirroring the input path).
+ */
+function wrapWithOutputValidation(
+  outputSchema: StandardSchemaV1,
+  run: (args: any, ctx?: ActionRunContext) => any,
+  strategy: ActionOutputErrorStrategy,
+  fallback: unknown,
+  description?: string,
+): (args: any, ctx?: ActionRunContext) => any {
+  return async (args: any, ctx?: ActionRunContext) => {
+    const output = await run(args, ctx);
+    const result = await outputSchema["~standard"].validate(output);
+
+    if (!result.issues) {
+      // Return the validated value so coercion / defaults defined on the
+      // outputSchema are applied, consistent with the input path.
+      return (result as StandardSchemaV1.SuccessResult<any>).value;
+    }
+
+    const issues = result.issues
+      .map((issue) => {
+        const pathStr = issue.path
+          ? issue.path.map((p) => (typeof p === "object" ? p.key : p)).join(".")
+          : "";
+        const msg = String(issue.message ?? "");
+        return pathStr ? `${pathStr}: ${msg}` : msg;
+      })
+      .join("; ");
+    const label = description ? ` (${description})` : "";
+    const summary = `Action output did not match outputSchema${label}: ${issues}`;
+
+    if (strategy === "strict") {
+      throw new Error(summary);
+    }
+    if (strategy === "fallback") {
+      return fallback;
+    }
+    // "warn" (default): surface the mismatch but never change behavior.
+    console.warn(summary);
+    return output;
   };
 }

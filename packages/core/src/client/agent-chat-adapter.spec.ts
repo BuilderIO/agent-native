@@ -496,6 +496,130 @@ describe("createAgentChatAdapter", () => {
     });
   });
 
+  it("summarizes preserved SVG data URL attachments in prior-turn history", async () => {
+    vi.stubGlobal("window", { dispatchEvent: vi.fn() });
+    vi.stubGlobal(
+      "CustomEvent",
+      class CustomEvent {
+        type: string;
+        detail: unknown;
+        constructor(type: string, init?: { detail?: unknown }) {
+          this.type = type;
+          this.detail = init?.detail;
+        }
+      },
+    );
+    const fetchSpy = vi.fn().mockResolvedValue(sseResponse([{ type: "done" }]));
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const adapter = createAgentChatAdapter({
+      apiUrl: "/_agent-native/agent-chat",
+      tabId: "chat-history-svg-attachments",
+    });
+
+    await drain(
+      adapter.run({
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: "Use this logo later" }],
+            attachments: [
+              {
+                name: "logo.svg",
+                contentType: "image/svg+xml",
+                content: [
+                  {
+                    type: "file",
+                    data: "data:image/svg+xml;base64,PHN2Zz48dGl0bGU+TG9nbzwvdGl0bGU+PC9zdmc+",
+                    mimeType: "image/svg+xml",
+                  },
+                ],
+              },
+            ],
+          },
+          {
+            role: "assistant",
+            content: [{ type: "text", text: "I saved the logo context." }],
+          },
+          {
+            role: "user",
+            content: [{ type: "text", text: "What was in the logo?" }],
+          },
+        ],
+        abortSignal: new AbortController().signal,
+      } as any),
+    );
+
+    const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
+    expect(body.history[0].content).toContain(
+      "[Attached file: logo.svg (image/svg+xml); SVG reference-only, raw markup omitted from prior chat history.]",
+    );
+    expect(body.history[0].content).not.toContain("<title>Logo</title>");
+    expect(body.structuredHistory[0]).toEqual({
+      role: "user",
+      content: [
+        {
+          type: "text",
+          text: expect.stringContaining("SVG reference-only"),
+        },
+      ],
+    });
+    expect(body.structuredHistory[0].content[0].text).not.toContain(
+      "<title>Logo</title>",
+    );
+  });
+
+  it("summarizes bare successful tool results in structured history", async () => {
+    const fetchSpy = vi.fn().mockResolvedValue(sseResponse([{ type: "done" }]));
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const adapter = createAgentChatAdapter({
+      apiUrl: "/_agent-native/agent-chat",
+      tabId: "chat-success-tool-results",
+    });
+
+    await drain(
+      adapter.run({
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: "Sign me up" }],
+          },
+          {
+            role: "assistant",
+            content: [
+              {
+                type: "tool-call",
+                toolName: "signup",
+                args: {},
+                result: true,
+              },
+            ],
+          },
+          {
+            role: "user",
+            content: [{ type: "text", text: "continue" }],
+          },
+        ],
+        abortSignal: new AbortController().signal,
+      } as any),
+    );
+
+    const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
+    const serialized = JSON.stringify(body.structuredHistory);
+    expect(serialized).not.toContain('"true"');
+    expect(body.structuredHistory).toContainEqual({
+      role: "user",
+      content: [
+        expect.objectContaining({
+          type: "tool-result",
+          toolName: "signup",
+          content: "signup completed.",
+        }),
+      ],
+    });
+  });
+
   it("sends the explicit dev-frame surface for outer frame-hosted chat", async () => {
     const fetchSpy = vi.fn().mockResolvedValue(sseResponse([{ type: "done" }]));
     vi.stubGlobal("fetch", fetchSpy);

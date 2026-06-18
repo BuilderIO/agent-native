@@ -16,6 +16,10 @@ import {
   detectEngineFromUserSecrets,
   isAgentEngineSettingConfigured,
 } from "../agent/engine/registry.js";
+import {
+  canUseDeployCredentialFallbackForRequest,
+  readDeployCredentialEnv,
+} from "../server/credential-provider.js";
 import { getSetting } from "../settings/store.js";
 
 type LlmKeyMethod = {
@@ -126,7 +130,12 @@ const llmStep: OnboardingStep = {
     } catch {
       // Fall through to legacy/env detection.
     }
-    if (PROVIDER_ENV_VARS.some((k) => !!process.env[k])) return true;
+    if (
+      canUseDeployCredentialFallbackForRequest() &&
+      PROVIDER_ENV_VARS.some((k) => !!readDeployCredentialEnv(k))
+    ) {
+      return true;
+    }
     try {
       return isAgentEngineSettingConfigured(await getSetting("agent-engine"));
     } catch {

@@ -1603,6 +1603,12 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
             },
           },
         },
+        "plain-success": {
+          tool: {
+            description: "Plain success",
+          },
+          run: async () => true,
+        },
       },
     };
 
@@ -1644,10 +1650,29 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
         },
       );
       expect(brokenCall.error).toBeUndefined();
-      expect(brokenCall.result.content[0].text).toBe('{"ok":true}');
+      expect(brokenCall.result.content[0].text).toBe(
+        "broken-review completed.",
+      );
       expect(
         brokenCall.result._meta?.["openai/outputTemplate"],
       ).toBeUndefined();
+
+      const plainSuccessCall = await callWeb(
+        {
+          jsonrpc: "2.0",
+          id: 401,
+          method: "tools/call",
+          params: { name: "plain-success", arguments: {} },
+        },
+        {
+          headers: await mcpAppsFullCatalogHeaders(),
+          config: failingCspConfig,
+        },
+      );
+      expect(plainSuccessCall.error).toBeUndefined();
+      expect(plainSuccessCall.result.content[0].text).toBe(
+        "plain-success completed.",
+      );
 
       const resources = await callWeb(
         {
@@ -1997,8 +2022,13 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
         label: "Open in Mail",
       },
     });
-    expect(out.result._meta["agent-native/openLink"].desktopUrl).toContain(
-      "view=thing&id=thing-42",
+    const openLink = out.result._meta["agent-native/openLink"] as Record<
+      string,
+      string
+    >;
+    expect(openLink.desktopUrl).toContain("view=thing&id=thing-42");
+    expect(new URL(openLink.vscodeUrl).searchParams.get("url")).toBe(
+      openLink.webUrl,
     );
   });
 
@@ -2108,6 +2138,12 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       desktopUrl:
         "agentnative://open?app=mail&view=&to=%2Finbox&agentSidebar=closed",
     });
+    expect(
+      new URL(
+        (out.result._meta["agent-native/openLink"] as Record<string, string>)
+          .vscodeUrl,
+      ).searchParams.get("url"),
+    ).toBe("https://mail.agent-native.com/inbox");
     expect(out.result._meta["agent-native/embedStart"]).toMatchObject({
       startUrl:
         "https://mail.agent-native.com/_agent-native/embed/start?ticket=test-ticket&__an_mcp_chat_bridge=1",

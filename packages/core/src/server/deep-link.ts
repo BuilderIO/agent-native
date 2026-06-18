@@ -5,8 +5,8 @@
  * Every artifact-producing / list action that wants an external agent (MCP /
  * A2A) to surface an "Open in <app> →" link returns
  * `{ url: buildDeepLink(...), label }` from its `link` builder. The MCP layer
- * turns the relative path into an absolute web URL (and an `agentnative://`
- * desktop URL) using the request origin.
+ * turns the relative path into an absolute web URL, an `agentnative://`
+ * desktop URL, and a VS Code extension URL using the request origin.
  *
  * The `/_agent-native/open` route (see `open-route.ts`) consumes these: it
  * resolves the *browser session's* identity, writes the existing one-shot
@@ -27,6 +27,9 @@ export const OPEN_ROUTE_SUBPATH = "/open";
 
 /** Custom URL scheme the desktop app registers (`agentnative://open?...`). */
 export const DESKTOP_OPEN_URL = "agentnative://open";
+
+/** VS Code extension URI used by builderio.agent-native to open a webview. */
+export const VSCODE_OPEN_URL = "vscode://builderio.agent-native/open";
 
 export interface DeepLinkInput {
   /** App id (informational + multi-app/desktop routing), e.g. "mail". */
@@ -103,4 +106,14 @@ export function toDesktopOpenUrl(urlOrPath: string): string {
   const qIdx = urlOrPath.indexOf("?");
   const query = qIdx >= 0 ? urlOrPath.slice(qIdx + 1) : "";
   return query ? `${DESKTOP_OPEN_URL}?${query}` : DESKTOP_OPEN_URL;
+}
+
+/**
+ * Wrap an Agent Native web URL in the VS Code extension URI so external agents
+ * can hand users a link that opens the app inside a VS Code webview.
+ */
+export function toVsCodeOpenUrl(urlOrPath: string): string {
+  const sp = new URLSearchParams();
+  sp.set("url", urlOrPath);
+  return `${VSCODE_OPEN_URL}?${sp.toString()}`;
 }

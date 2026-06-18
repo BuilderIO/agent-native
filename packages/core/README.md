@@ -2,7 +2,7 @@
 
 ### Agentic applications you own.
 
-Don't choose between structured user flows and autonomous agents. Every Agent-Native app is both.
+Don't choose between rich user interfaces and autonomous agents. Every Agent-Native app is both.
 
 ## Agents and UIs — Fully Connected
 
@@ -11,13 +11,29 @@ The agent and the UI are equal citizens of the same system. Every action works b
 ![Agents and UIs fully connected](https://cdn.builder.io/api/v1/file/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fadc1e9e9368e4a8cb1b4dbb5aae5aaa2)
 
 - **Everything syncs** — Agent and UI share one database and one state. Changes from either side show up instantly on the other.
+- **Real-time multiplayer** — Humans and agents collaborate in the same document simultaneously: CRDT merging, live presence (cursors, selection rings, who's on which slide), and the agent as a first-class peer editor. Works on any SQL database and any host, including serverless.
 - **Context-aware** — The agent knows what you're looking at. Select text, hit Cmd+I, and tell it what to do.
 - **Per-user workspace** — Skills, memory, instructions, sub-agents, and MCP servers — SQL-backed, customizable per user. Claude-Code-level flexibility, SaaS-grade economics.
 - **Agents call agents** — Tag another agent from any app. They discover each other over A2A and take action across your stack.
 - **Reusable integrations** — Connect a provider once in Dispatch, keep secret values in the vault, then grant apps like Brain, Analytics, Mail, and Dispatch access to the shared account metadata and credential refs.
 - **Apps that improve themselves** — Your apps get better on their own. The agent can add features, fix bugs, and refine the UI over time.
 - **Any database, any host** — Any SQL database Drizzle supports. Any hosting target Nitro supports. No lock-in.
-- **Any AI agent** — Claude Code, Codex, Gemini CLI, OpenCode, or Builder.io. Use whichever agent you prefer.
+- **Any AI agent** — Claude Code, Codex, Cursor, Pi, OpenCode, GitHub Copilot / VS Code, or Builder.io. Use whichever agent you prefer.
+
+## Try it with a skill
+
+Don't want to scaffold a whole app yet? Add agent-native superpowers to a coding agent you already use — Claude Code, Codex, Cursor, Pi, OpenCode, GitHub Copilot / VS Code, and similar agents — with one command:
+
+```bash
+npx @agent-native/core@latest skills add visual-plan
+```
+
+It installs the skills, writes shared `.agents` skill folders for agents that support them, registers the hosted MCP connector for supported local clients, and signs in the selected client(s) in one step. You get two slash commands that upgrade how your agent plans and reports its work:
+
+- **`/visual-plan`** — before the agent writes code, it opens a structured, reviewable plan document instead of a wall of text: inline diagrams, UI wireframes and prototypes, file-by-file implementation maps, and annotations you can comment on and approve.
+- **`/visual-recap`** — after changes land, it turns a PR or git diff into a high-altitude visual recap: schema, API, and file changes rendered as grounded before/after blocks with a shareable review link, instead of scrolling a raw diff.
+
+See the **[Skills Guide](https://agent-native.com/docs/skills-guide#app-backed-skills)** for more skills and local installs.
 
 ## Templates
 
@@ -49,6 +65,19 @@ Manage events, sync with Google Calendar, and share a public booking page with A
 </td>
 <td width="33%" align="center" valign="top">
 
+**Plans**
+
+<a href="https://agent-native.com/templates/plan"><img src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fb6f4213ac7cc42eeb10c12e8ccda8936?format=webp&width=800" alt="Plans template" width="100%" /></a>
+
+**Visual plan mode for coding agents**
+
+Install `/visual-plan` and `/visual-recap` so your coding agent can plan before it builds and recap changes after they land — high-level code reviews with diagrams, wireframes, annotations, and review links.
+
+</td>
+</tr>
+<tr>
+<td width="33%" align="center" valign="top">
+
 **Content**
 
 <a href="https://agent-native.com/templates/content"><img src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F89bcfc6106304bfbaf8ec8a7ccd721eb?format=webp&width=800" alt="Content template" width="100%" /></a>
@@ -58,8 +87,6 @@ Manage events, sync with Google Calendar, and share a public booking page with A
 Write and organize content with an agent that knows your brand and publishing workflow.
 
 </td>
-</tr>
-<tr>
 <td width="33%" align="center" valign="top">
 
 **Slides**
@@ -82,6 +109,8 @@ Generate and edit React-based presentations via prompt or point-and-click.
 Create and edit Remotion video compositions with agent assistance.
 
 </td>
+</tr>
+<tr>
 <td width="33%" align="center" valign="top">
 
 **Analytics**
@@ -93,8 +122,6 @@ Create and edit Remotion video compositions with agent assistance.
 Connect analytics data sources, prompt for real charts, and build reusable dashboards. Shared workspace connections can provide provider credentials, while Analytics still owns metrics, source-of-truth choices, and saved analyses.
 
 </td>
-</tr>
-<tr>
 <td width="33%" align="center" valign="top">
 
 **Clips**
@@ -117,6 +144,8 @@ Record your screen with auto-transcripts, shareable links, and an agent that sum
 Create and edit visual designs by prompt or by hand, with the agent as your co-designer.
 
 </td>
+</tr>
+<tr>
 <td width="33%" align="center" valign="top">
 
 **Dispatch**
@@ -128,8 +157,6 @@ Create and edit visual designs by prompt or by hand, with the agent as your co-d
 Message, manage, and delegate to agents from Slack, Telegram, or the web. Dispatch is also the control plane for vault secrets, reusable provider connections, app grants, routing, memory, and approvals.
 
 </td>
-</tr>
-<tr>
 <td width="33%" align="center" valign="top">
 
 **Forms**
@@ -145,18 +172,20 @@ Generate forms from a prompt, branch logic with the agent, and own every respons
 
 **Brain**
 
-<a href="https://agent-native.com/templates/brain">Brain template</a>
+<a href="https://agent-native.com/templates/brain"><img src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F9c9fe3b5b9494e33803cd3f494cba356?format=webp&width=800" alt="Brain template" width="100%" /></a>
 
 **Agent-Native company memory**
 
 Ask questions over cited company knowledge from approved Slack, meetings, transcripts, GitHub, and decisions.
 
 </td>
+</tr>
+<tr>
 <td width="33%" align="center" valign="top">
 
 **Assets**
 
-<a href="https://agent-native.com/templates/assets">Assets template</a>
+<a href="https://agent-native.com/templates/assets"><img src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F769092170a14474f998cbca47384f891?format=webp&width=800" alt="Assets template" width="100%" /></a>
 
 **Agent-Native asset library**
 
@@ -185,16 +214,6 @@ Want a single app, no monorepo? Use `--standalone`:
 npx @agent-native/core@latest create my-app --standalone --template mail
 ```
 
-### Try it with a skill
-
-Don't want to scaffold a whole app yet? Add agent-native superpowers to a coding agent you already use — Claude Code, Codex, or Cursor — with one command. Installing the **Plans** skill turns the plans your agent writes into structured, reviewable docs with diagrams, wireframes, and inline comments:
-
-```bash
-npx @agent-native/core@latest skills add visual-plan
-```
-
-It installs the skill, registers the hosted MCP connector, and signs you in in one step — then run `/visual-plan`. See the **[Skills Guide](https://agent-native.com/docs/skills-guide#app-backed-skills)** for more skills and local installs.
-
 ## Workspaces (Monorepo)
 
 A workspace is the default shape of an agent-native project. Every app sits under `apps/`, and `packages/shared/` is available for the small amount of code, instructions, skills, or branding that should truly apply to every app.
@@ -221,7 +240,7 @@ npx @agent-native/core@latest add-app notes --template content
 Deploy every app behind one origin:
 
 ```bash
-agent-native deploy
+npx @agent-native/core@latest deploy
 # https://your-agents.com/mail/*       → mail
 # https://your-agents.com/calendar/*   → calendar
 # https://your-agents.com/forms/*      → forms

@@ -120,6 +120,7 @@ beforeAll(async () => {
       usage_cache_read_tokens INTEGER, usage_cache_write_tokens INTEGER,
       usage_cost_cents_x100 INTEGER, usage_cost_source TEXT, usage_recorded_at TEXT,
       source_url TEXT, recap_idempotency_key TEXT,
+      deleted_at TEXT, deleted_by TEXT,
       owner_email TEXT NOT NULL, org_id TEXT, visibility TEXT NOT NULL DEFAULT 'private'
     );
     CREATE TABLE plan_sections (id TEXT PRIMARY KEY, plan_id TEXT NOT NULL, type TEXT NOT NULL DEFAULT 'custom', title TEXT NOT NULL, body TEXT NOT NULL DEFAULT '', html TEXT, sort_order INTEGER NOT NULL DEFAULT 0, created_by TEXT NOT NULL DEFAULT 'agent', created_at TEXT NOT NULL, updated_at TEXT NOT NULL);

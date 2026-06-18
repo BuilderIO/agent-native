@@ -133,6 +133,23 @@ describe("prompt content invariants", () => {
     }
   });
 
+  it("database-tool-free variants point agents at typed actions", () => {
+    const typedOnlyFull = buildFrameworkCore(undefined, {
+      databaseTools: false,
+    });
+    const typedOnlyCompact = buildFrameworkCoreCompact(undefined, {
+      databaseTools: false,
+    });
+
+    for (const prompt of [typedOnlyFull, typedOnlyCompact]) {
+      expect(prompt).toContain("raw database tools are not available");
+      expect(prompt).toContain("typed app actions");
+      expect(prompt).not.toContain("db-schema");
+      expect(prompt).not.toContain("db-query");
+      expect(prompt).not.toContain("db-exec");
+    }
+  });
+
   it("both variants contain the no-fabrication rule", () => {
     for (const prompt of [full, compact]) {
       expect(prompt).toContain("Never fabricate factual claims");
@@ -142,6 +159,14 @@ describe("prompt content invariants", () => {
   it("both variants contain the no-false-success rule", () => {
     for (const prompt of [full, compact]) {
       expect(prompt).toContain("Never fabricate success from tool errors");
+    }
+  });
+
+  it("both variants contain native chat widget guidance", () => {
+    for (const prompt of [full, compact]) {
+      expect(prompt).toMatch(/Native (chat )?widgets/);
+      expect(prompt).toContain("chart");
+      expect(prompt).toContain("markdown table");
     }
   });
 
@@ -172,6 +197,67 @@ describe("prompt content invariants", () => {
     expect(custom).toContain("my-crm");
     expect(custom).toContain("my-warehouse");
     expect(custom).not.toContain("hubspot-deals");
+  });
+});
+
+describe("available action prompt rendering", () => {
+  it("labels actions that render native chat widgets", () => {
+    const prompt = _agentChatPromptSectionsForTests.generateActionsPrompt(
+      {
+        "response-insights": {
+          tool: {
+            description: "Analyze responses and render insights.",
+            parameters: { type: "object", properties: {} },
+          },
+          run: async () => ({}),
+          chatUI: { renderer: "core.data-insights" },
+        },
+      } as never,
+      "tool",
+    );
+
+    expect(prompt).toContain("Native chat widget: `core.data-insights`");
+  });
+});
+
+describe("render-data-widget framework action", () => {
+  it("validates and echoes native chart widgets for chat rendering", async () => {
+    const entry =
+      _agentChatPromptSectionsForTests.createDataWidgetActionEntries()[
+        "render-data-widget"
+      ]!;
+
+    await expect(
+      entry.run({
+        widget: "data-chart",
+        chartSeries: {
+          type: "bar",
+          title: "Responses by day",
+          xKey: "day",
+          series: [{ key: "responses", label: "Responses" }],
+          data: [{ day: "Mon", responses: 8 }],
+        },
+      }),
+    ).resolves.toMatchObject({
+      widget: "data-chart",
+      chartSeries: { title: "Responses by day" },
+    });
+
+    expect(entry.chatUI?.renderer).toBe("core.data-widget");
+  });
+
+  it("rejects malformed widget payloads", async () => {
+    const entry =
+      _agentChatPromptSectionsForTests.createDataWidgetActionEntries()[
+        "render-data-widget"
+      ]!;
+
+    await expect(
+      entry.run({
+        widget: "data-chart",
+        chartSeries: { type: "bar" },
+      }),
+    ).rejects.toThrow();
   });
 });
 

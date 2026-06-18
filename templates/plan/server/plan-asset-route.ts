@@ -95,7 +95,10 @@ export function createPlanAssetHandler() {
       () => null,
     );
 
-    if (!access) {
+    if (
+      !access ||
+      (access.resource as typeof schema.plans.$inferSelect).deletedAt
+    ) {
       // Could not resolve access — either plan not found or requester has no
       // rights. Return 404 to avoid leaking plan existence.
       setResponseStatus(event, 404);

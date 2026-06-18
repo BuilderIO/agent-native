@@ -1,12 +1,13 @@
 /**
- * `agent-native connect <url>` — wire your local Claude Code / Codex / Cowork
+ * `agent-native connect <url>` — wire your local MCP-capable coding agent
  * to a DEPLOYED agent-native app. OAuth-capable clients receive a standard
  * remote MCP URL entry and authenticate in the host. Fallback clients use the
  * browser device-code flow: open the verification URL, approve in the browser,
  * and the minted HTTP MCP server entry is written idempotently.
  *
- *   agent-native connect <url> [--client all|claude-code|claude-code-cli|
- *                               codex|cowork] [--scope user|project]
+ *   agent-native connect <url> [--client all|claude-code|
+ *                               codex|cowork|cursor|opencode|github-copilot]
+ *                               [--scope user|project]
  *                               [--name <serverName>]
  *   agent-native reconnect [<url>] [--client ...] [--name <serverName>]
  *   agent-native connect <url> --token <token>   (no-browser fallback)
@@ -39,10 +40,11 @@ import {
   CLIENTS,
   ClientId,
   configPathFor,
+  jsonMcpConfigKeyForClient,
   removeSameUrlDuplicatesForClient,
   writeCodexBlock,
   writeHttpEntryForClient,
-  writeJsonMcpEntry,
+  writeJsonMcpEntryForClient,
 } from "./mcp-config-writers.js";
 import {
   isFirstPartyPlanHost,
@@ -85,6 +87,9 @@ const CLIENT_LABELS: Record<ClientId, string> = {
   "claude-code-cli": "Claude Code CLI",
   codex: "Codex",
   cowork: "Claude Cowork",
+  cursor: "Cursor",
+  opencode: "OpenCode",
+  "github-copilot": "GitHub Copilot / VS Code",
 };
 
 const CLIENT_HINTS: Record<ClientId, string> = {
@@ -92,18 +97,27 @@ const CLIENT_HINTS: Record<ClientId, string> = {
   "claude-code-cli": ".mcp.json or ~/.claude.json",
   codex: "$CODEX_HOME/config.toml or ~/.codex/config.toml",
   cowork: "~/.cowork/mcp.json",
+  cursor: ".cursor/mcp.json or ~/.cursor/mcp.json",
+  opencode: "opencode.json or ~/.config/opencode/opencode.json",
+  "github-copilot": ".vscode/mcp.json or VS Code user mcp.json",
 };
 
 const REMOTE_MCP_OAUTH_CLIENTS = new Set<ClientId>([
   "claude-code",
   "claude-code-cli",
+  "cursor",
+  "opencode",
+  "github-copilot",
 ]);
 
+let logOutImpl = (msg: string) => process.stdout.write(`${msg}\n`);
+let logErrImpl = (msg: string) => process.stderr.write(`${msg}\n`);
+
 function logOut(msg: string): void {
-  process.stdout.write(`${msg}\n`);
+  logOutImpl(msg);
 }
 function logErr(msg: string): void {
-  process.stderr.write(`${msg}\n`);
+  logErrImpl(msg);
 }
 
 // ---------------------------------------------------------------------------
@@ -115,7 +129,7 @@ export interface ParsedConnectArgs {
   mode?: "dev" | "prod" | "reauth" | "reconnect";
   /** Positional URL (the deployed app origin). Undefined for `--all`. */
   url?: string;
-  /** all | claude-code | claude-code-cli | codex | cowork (default "all"). */
+  /** all | claude-code | codex | cowork | cursor | opencode | github-copilot (default "all"). claude-code-cli is accepted as a legacy alias for claude-code. */
   client: string;
   /** True when the user passed --client explicitly, so we skip the picker. */
   clientExplicit: boolean;
@@ -237,10 +251,17 @@ export function normalizeUrl(raw: string): string {
   return base;
 }
 
+// Clients offered in the interactive picker and expanded by "all". Excludes
+// the `claude-code-cli` alias so users only ever see a single "Claude Code"
+// option (it still works if passed explicitly via --client).
+const SELECTABLE_CLIENTS: ClientId[] = CLIENTS.filter(
+  (c) => c !== "claude-code-cli",
+);
+
 /** Resolve the requested clients list. "all" → every supported client. */
 export function resolveClients(client: string): ClientId[] {
-  const c = (client ?? "all").toLowerCase();
-  if (c === "all" || c === "") return [...CLIENTS];
+  const c = normalizeClientAlias(client ?? "all");
+  if (c === "all" || c === "") return [...SELECTABLE_CLIENTS];
   if (c.includes(",")) {
     const clients = normalizeClientIds(c.split(",").map((part) => part.trim()));
     if (clients.length > 0) return clients;
@@ -249,6 +270,23 @@ export function resolveClients(client: string): ClientId[] {
   throw new Error(
     `Unknown --client "${client}". Use: all, ${CLIENTS.join(", ")}`,
   );
+}
+
+function normalizeClientAlias(value: string): string {
+  const id = value.trim().toLowerCase();
+  // The Claude Code CLI and desktop share ~/.claude.json, so they are one
+  // client. `claude-code-cli` stays accepted for back-compat but collapses to
+  // the single "Claude Code" option everywhere it surfaces.
+  if (
+    id === "claude" ||
+    id === "claude-code-desktop" ||
+    id === "claude-code-cli"
+  )
+    return "claude-code";
+  if (id === "copilot" || id === "vscode" || id === "vs-code") {
+    return "github-copilot";
+  }
+  return id;
 }
 
 export function connectPreferencesPath(): string {
@@ -261,7 +299,7 @@ function normalizeClientIds(values: unknown): ClientId[] {
   const out: ClientId[] = [];
   for (const value of values) {
     if (typeof value !== "string") continue;
-    const id = value.toLowerCase();
+    const id = normalizeClientAlias(value);
     if (!(CLIENTS as string[]).includes(id)) continue;
     const client = id as ClientId;
     if (seen.has(client)) continue;
@@ -325,7 +363,7 @@ export interface ConnectHostedAppsPromptContext {
 }
 
 function clientPromptOptions(): ConnectClientPromptContext["options"] {
-  return CLIENTS.map((client) => ({
+  return SELECTABLE_CLIENTS.map((client) => ({
     value: client,
     label: CLIENT_LABELS[client],
     hint: CLIENT_HINTS[client],
@@ -475,6 +513,34 @@ function sentenceClientLabelList(clients: ClientId[]): string {
   return `${labels.slice(0, -1).join(", ")}, and ${labels[labels.length - 1]}`;
 }
 
+function oauthNextStepsForClients(
+  clients: ClientId[],
+  serverName?: string,
+): string[] {
+  const lines: string[] = [];
+  if (clients.includes("claude-code") || clients.includes("claude-code-cli")) {
+    lines.push(
+      "Claude Code: restart Claude Code, run /mcp, and choose Authenticate.",
+    );
+  }
+  if (clients.includes("cursor")) {
+    lines.push(
+      "Cursor: restart or reload Cursor, then authenticate the MCP server from Cursor MCP settings if prompted.",
+    );
+  }
+  if (clients.includes("opencode")) {
+    lines.push(
+      `OpenCode: run opencode mcp auth ${serverName ?? "<server-name>"} or authenticate on first use.`,
+    );
+  }
+  if (clients.includes("github-copilot")) {
+    lines.push(
+      "GitHub Copilot / VS Code: reload VS Code, open the MCP config, and use the Auth action above the server if prompted.",
+    );
+  }
+  return lines;
+}
+
 function clientsNotIn(
   requestedClients: ClientId[],
   effectiveClients: ClientId[],
@@ -506,11 +572,7 @@ async function showReconnectSuccessOutro({
     supportsRemoteMcpOAuth(client),
   );
   if (oauthClients.length > 0) {
-    lines.push(
-      `${sentenceClientLabelList(
-        oauthClients,
-      )}: restart, run /mcp, then choose Authenticate/Reconnect.`,
-    );
+    lines.push(...oauthNextStepsForClients(oauthClients, serverName));
   }
   if (!clients.includes("codex") && oauthClients.length === 0) {
     lines.push(
@@ -627,7 +689,12 @@ export interface ConnectDeps {
   /** Sleep between polls (ms). Defaults to real setTimeout. */
   sleep?: (ms: number) => Promise<void>;
   /** Open the verification URL. Defaults to the platform browser opener. */
-  openBrowser?: (url: string) => void;
+  openBrowser?: (url: string) => void | Promise<void>;
+  /** Optional wrapper for showing progress while the browser opener runs. */
+  withBrowserOpenSpinner?: (
+    message: string,
+    openBrowser: () => void | Promise<void>,
+  ) => void | Promise<void>;
   /** Override "now" for the expiry cap (ms epoch). Defaults to Date.now. */
   now?: () => number;
   /** Tests/embedders can force or suppress the interactive client picker. */
@@ -644,6 +711,9 @@ export interface ConnectDeps {
   preferencesFile?: string;
   /** Override the saved dev/prod profile file. */
   profilesFile?: string;
+  /** Optional output hooks used when another clack-based command embeds connect. */
+  logOut?: (message: string) => void;
+  logErr?: (message: string) => void;
 }
 
 function realSleep(ms: number): Promise<void> {
@@ -784,33 +854,49 @@ export async function runDeviceFlow(
   const open = deps.openBrowser ?? openInBrowser;
   const now = deps.now ?? (() => Date.now());
 
-  let start: DeviceStartResponse;
-  try {
-    const { status, json } = await postJson(
-      fetchImpl,
-      `${baseUrl}${DEVICE_START_PATH}`,
-      {
-        client: clientArg,
-        app: appSlug,
-        ...(options.fullCatalog ? { fullCatalog: true } : {}),
-      },
-    );
-    if (status < 200 || status >= 300 || !json?.device_code) {
+  let start: DeviceStartResponse | null = null;
+  // A cold/propagating Plan instance can briefly 404/5xx before its connect
+  // route is registered (async plugin init). Retry a few times so a recoverable
+  // blip doesn't kill the connect before polling even begins.
+  const START_ATTEMPTS = 4;
+  for (let attempt = 0; attempt < START_ATTEMPTS; attempt++) {
+    try {
+      const { status, json } = await postJson(
+        fetchImpl,
+        `${baseUrl}${DEVICE_START_PATH}`,
+        {
+          client: clientArg,
+          app: appSlug,
+          ...(options.fullCatalog ? { fullCatalog: true } : {}),
+        },
+      );
+      if (status >= 200 && status < 300 && json?.device_code) {
+        start = json as DeviceStartResponse;
+        break;
+      }
+      if ((status === 404 || status >= 500) && attempt < START_ATTEMPTS - 1) {
+        await sleep(1000 * (attempt + 1));
+        continue;
+      }
       logErr(
         `  Could not start the connect flow on ${baseUrl} ` +
           `(HTTP ${status}). Is this an agent-native app, and is it ` +
           `deployed with the connect endpoint enabled?`,
       );
       return null;
+    } catch (err: any) {
+      if (attempt < START_ATTEMPTS - 1) {
+        await sleep(1000 * (attempt + 1));
+        continue;
+      }
+      logErr(
+        `  Could not reach ${baseUrl} (${err?.message ?? err}). ` +
+          `Check the URL and your network.`,
+      );
+      return null;
     }
-    start = json as DeviceStartResponse;
-  } catch (err: any) {
-    logErr(
-      `  Could not reach ${baseUrl} (${err?.message ?? err}). ` +
-        `Check the URL and your network.`,
-    );
-    return null;
   }
+  if (!start) return null;
 
   const interval = Math.max(1, Number(start.interval) || 5);
   const expiresIn = Math.max(interval, Number(start.expires_in) || 600);
@@ -823,12 +909,26 @@ export async function runDeviceFlow(
   logOut(`  Open:       ${start.verification_uri_complete}`);
   logOut("");
   logOut("  Approve in the browser to finish. Opening it now…");
-  open(start.verification_uri_complete);
+  const openVerificationUrl = () => open(start.verification_uri_complete);
+  if (deps.withBrowserOpenSpinner) {
+    await deps.withBrowserOpenSpinner(
+      "Opening browser for approval",
+      openVerificationUrl,
+    );
+  } else {
+    await openVerificationUrl();
+  }
 
   let spin = 0;
+  let transientStreak = 0;
+  // Ride out brief cold-instance blips, but don't poll a persistently-dead
+  // endpoint forever: give up after this many consecutive transient (404/5xx
+  // or network-error) polls. Reset as soon as one poll responds normally.
+  const MAX_TRANSIENT_POLLS = 20;
   const isTTY = !!process.stdout.isTTY;
   while (now() < deadline) {
     let poll: DevicePollResponse;
+    let transient = false;
     try {
       const { status, json } = await postJson(
         fetchImpl,
@@ -836,17 +936,45 @@ export async function runDeviceFlow(
         { device_code: start.device_code },
       );
       if (status < 200 || status >= 300) {
+        if (isTerminalPollBody(json)) {
+          poll = json as DevicePollResponse;
+        } else if (status === 404 || status >= 500) {
+          // Transient: a cold/propagating Plan instance can briefly serve a
+          // bare 404 (the MCP route isn't registered until async plugin init
+          // settles) or a 5xx before it's healthy. The next poll usually lands
+          // on a warm instance, so keep polling until the deadline instead of
+          // hard-failing the whole connect on a recoverable blip. (This is the
+          // recurring "Cannot find any route matching [POST] .../mcp" case.)
+          poll = { status: "pending" };
+          transient = true;
+        } else {
+          if (isTTY) process.stdout.write("\r\x1b[K");
+          logErr(
+            `  Connect polling failed (HTTP ${status}): ` +
+              responseMessage(json, "server returned an error."),
+          );
+          return null;
+        }
+      } else {
+        poll = (json ?? { status: "pending" }) as DevicePollResponse;
+      }
+    } catch {
+      // Transient network error — keep polling.
+      poll = { status: "pending" };
+      transient = true;
+    }
+
+    if (transient) {
+      if (++transientStreak > MAX_TRANSIENT_POLLS) {
         if (isTTY) process.stdout.write("\r\x1b[K");
         logErr(
-          `  Connect polling failed (HTTP ${status}): ` +
-            responseMessage(json, "server returned an error."),
+          "  Connect endpoint is not responding (repeated 404/5xx). It may be " +
+            "mid-deploy — wait a minute and run the command again.",
         );
         return null;
       }
-      poll = (json ?? { status: "pending" }) as DevicePollResponse;
-    } catch {
-      // Transient network error — keep polling until the deadline.
-      poll = { status: "pending" };
+    } else {
+      transientStreak = 0;
     }
 
     if (poll.status === "approved") {
@@ -899,6 +1027,15 @@ export async function runDeviceFlow(
   if (isTTY) process.stdout.write("\r\x1b[K");
   logErr("  Timed out waiting for approval. Run the command again to retry.");
   return null;
+}
+
+function isTerminalPollBody(json: any): boolean {
+  return (
+    json?.status === "not_found" ||
+    json?.status === "error" ||
+    json?.status === "expired" ||
+    json?.status === "consumed"
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -1024,12 +1161,13 @@ function setSavedProfileEntry(
 }
 
 function readJsonMcpServerEntry(
+  client: ClientId,
   file: string,
   serverName: string,
 ): Record<string, unknown> | undefined {
   try {
     const parsed = JSON.parse(fs.readFileSync(file, "utf-8"));
-    const entry = parsed?.mcpServers?.[serverName];
+    const entry = parsed?.[jsonMcpConfigKeyForClient(client)]?.[serverName];
     return entry && typeof entry === "object" ? entry : undefined;
   } catch {
     return undefined;
@@ -1087,7 +1225,7 @@ function readCurrentMcpEntry(
         : undefined,
     };
   }
-  const entry = readJsonMcpServerEntry(file, serverName);
+  const entry = readJsonMcpServerEntry(client, file, serverName);
   return {
     file,
     saved: entry
@@ -1108,7 +1246,7 @@ function writeSavedMcpEntry(
     return;
   }
   if (saved.kind !== "json") return;
-  writeJsonMcpEntry(file, serverName, saved.entry);
+  writeJsonMcpEntryForClient(client, file, serverName, saved.entry);
 }
 
 function unescapeTomlString(value: string): string {
@@ -1149,11 +1287,12 @@ interface ExistingMcpEntry {
 }
 
 function readJsonMcpServerEntries(
+  client: ClientId,
   file: string,
 ): { serverName: string; saved: SavedMcpEntry }[] {
   try {
     const parsed = JSON.parse(fs.readFileSync(file, "utf-8"));
-    const servers = parsed?.mcpServers;
+    const servers = parsed?.[jsonMcpConfigKeyForClient(client)];
     if (!servers || typeof servers !== "object" || Array.isArray(servers)) {
       return [];
     }
@@ -1229,7 +1368,7 @@ function readExistingMcpEntries(
     const rawEntries =
       client === "codex"
         ? readCodexMcpServerEntries(file)
-        : readJsonMcpServerEntries(file);
+        : readJsonMcpServerEntries(client, file);
     for (const { serverName, saved } of rawEntries) {
       const url = savedEntryUrl(saved);
       if (!url) continue;
@@ -1261,7 +1400,13 @@ function savedEntryHeaders(
 ): Record<string, string> {
   if (!saved) return {};
   if (saved.kind === "json") {
-    const headers = saved.entry.headers;
+    const headers =
+      saved.entry.headers ??
+      (saved.entry.requestInit &&
+      typeof saved.entry.requestInit === "object" &&
+      !Array.isArray(saved.entry.requestInit)
+        ? (saved.entry.requestInit as Record<string, unknown>).headers
+        : undefined);
     return headers && typeof headers === "object"
       ? Object.fromEntries(
           Object.entries(headers as Record<string, unknown>)
@@ -2098,12 +2243,11 @@ async function connectOne(
   // ADDITIONAL write alongside the per-client MCP config; Best-effort and
   // merge-not-clobber — never fails the connect.
   //
-  // OAuth clients (claude-code, claude-code-cli) authenticate in-host via
-  // standard MCP OAuth, so they never mint a local bearer token. To still
-  // populate the publish store for them, we run a supplemental device-flow
-  // mint using a non-OAuth client arg so the Plans server gets a usable token
-  // and `publish-visual-plan` doesn't send the user back to `agent-native
-  // connect` right after they just ran it.
+  // OAuth clients authenticate in-host via standard MCP OAuth, so they never
+  // mint a local bearer token. To still populate the publish store for them, we
+  // run a supplemental device-flow mint using a non-OAuth client arg so the
+  // Plans server gets a usable token and `publish-visual-plan` doesn't send the
+  // user back to `agent-native connect` right after they just ran it.
   let publishToken = token;
   if (
     !publishToken &&
@@ -2174,7 +2318,9 @@ async function connectOne(
         oauthClients,
       )}: wrote URL-only MCP config (no bearer headers).`,
     );
-    logOut("  Next: restart Claude Code, run /mcp, and choose Authenticate.");
+    for (const line of oauthNextStepsForClients(oauthClients, serverName)) {
+      logOut(`  Next: ${line}`);
+    }
   }
   logOut("");
   logOut(
@@ -2406,16 +2552,16 @@ Usage:
 
   npx @agent-native/core@latest connect <url> [--client <c>] [--scope user|project] [--name <n>]
       Writes the HTTP MCP entry into your selected client config(s). Claude
-      Code / Claude Code CLI use standard remote MCP OAuth: restart Claude,
-      run /mcp, and choose Authenticate. Codex / Cowork use the browser
+      Code, Cursor, OpenCode, and GitHub Copilot / VS Code use standard remote
+      MCP OAuth and get URL-only config. Codex / Cowork use the browser
       device-code fallback: the command prints a code, opens the verification
       URL, polls until approved, then writes bearer headers. With no --client,
       opens a brief picker preselected from ~/.agent-native/connect.json, or
       all clients on first run. Idempotent — re-running replaces the same entry.
       Auth is stored per client config/session; restart or reload each selected
       client before expecting new tools to appear.
-      Re-running over an older Claude bearer entry upgrades it to URL-only
-      OAuth config and prompts you to authenticate with /mcp.
+      Re-running over an older OAuth-capable bearer entry upgrades it to
+      URL-only OAuth config and prompts you to authenticate in that host.
 
       For cross-app access, prefer the unified Dispatch gateway:
       npx @agent-native/core@latest connect https://dispatch.agent-native.com
@@ -2452,7 +2598,7 @@ Developer:
   npx @agent-native/core@latest connect prod [--apps mail,calendar] [--client <c>]
       Restore production MCP entries saved before the dev switch.
 
-Clients:  all (default), claude-code, claude-code-cli, codex, cowork
+Clients:  all (default), claude-code, codex, cowork, cursor, opencode, github-copilot
 Scope:    user (default, ~/.claude.json) or project (.mcp.json)`;
 
 /**
@@ -2467,14 +2613,18 @@ export async function runConnect(
   args: string[],
   deps: ConnectDeps = {},
 ): Promise<void> {
-  if (args[0] === "--help" || args[0] === "-h" || args[0] === "help") {
-    logOut(HELP);
-    return;
-  }
-
-  const parsed = parseConnectArgs(args);
-
+  const previousLogOut = logOutImpl;
+  const previousLogErr = logErrImpl;
+  logOutImpl = deps.logOut ?? previousLogOut;
+  logErrImpl = deps.logErr ?? previousLogErr;
   try {
+    if (args[0] === "--help" || args[0] === "-h" || args[0] === "help") {
+      logOut(HELP);
+      return;
+    }
+
+    const parsed = parseConnectArgs(args);
+
     if (parsed.mode) {
       let ok: boolean;
       if (parsed.mode === "reconnect" || parsed.mode === "reauth") {
@@ -2531,5 +2681,8 @@ export async function runConnect(
   } catch (err: any) {
     logErr(`  ${err?.message ?? err}`);
     process.exitCode = 1;
+  } finally {
+    logOutImpl = previousLogOut;
+    logErrImpl = previousLogErr;
   }
 }

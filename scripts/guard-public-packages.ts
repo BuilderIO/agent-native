@@ -44,6 +44,7 @@ type PackageJson = {
   exports?: unknown;
   scripts?: Record<string, string>;
   dependencies?: Record<string, string>;
+  devDependencies?: Record<string, string>;
   optionalDependencies?: Record<string, string>;
   peerDependencies?: Record<string, string>;
 };
@@ -62,9 +63,27 @@ function readIgnoredPackages(): Set<string> {
   return new Set(Array.isArray(config.ignore) ? config.ignore : []);
 }
 
-const packagesDir = path.join(repoRoot, "packages");
 const ignoredPackages = readIgnoredPackages();
+const packagesDir = path.join(repoRoot, "packages");
 const failures: string[] = [];
+
+function readWorkspacePackageNames(): Set<string> {
+  const names = new Set<string>();
+  for (const entry of fs.readdirSync(packagesDir, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue;
+
+    const packageJsonPath = path.join(packagesDir, entry.name, "package.json");
+    if (!fs.existsSync(packageJsonPath)) continue;
+
+    const pkg = readJson<PackageJson>(packageJsonPath);
+    if (pkg.name?.startsWith("@agent-native/")) {
+      names.add(pkg.name);
+    }
+  }
+  return names;
+}
+
+const workspacePackageNames = readWorkspacePackageNames();
 
 function collectStringValues(value: unknown): string[] {
   if (typeof value === "string") return [value];
@@ -84,10 +103,33 @@ function dependencyProtocolFailures(
 ): string[] {
   if (!dependencies) return [];
   return Object.entries(dependencies)
-    .filter(([, version]) => /^(catalog|workspace):/.test(version))
+    .filter(([dep, version]) => {
+      if (/^catalog:/.test(version)) return true;
+      if (/^workspace:/.test(version)) {
+        return !npmPublishAllowlist.has(dep);
+      }
+      return false;
+    })
     .map(
       ([dep, version]) =>
-        `${pkgName} ${field}.${dep} must use a publishable semver range, not ${version}`,
+        `${pkgName} ${field}.${dep} must use a publishable semver range or published workspace package, not ${version}`,
+    );
+}
+
+function localWorkspaceDependencyFailures(
+  pkgName: string,
+  field: string,
+  dependencies: Record<string, string> | undefined,
+): string[] {
+  if (!dependencies) return [];
+  return Object.entries(dependencies)
+    .filter(
+      ([dep, version]) =>
+        workspacePackageNames.has(dep) && version !== "workspace:*",
+    )
+    .map(
+      ([dep, version]) =>
+        `${pkgName} ${field}.${dep} must stay workspace:* in source, not ${version}; pnpm pack rewrites it for npm publishing`,
     );
 }
 
@@ -99,6 +141,25 @@ for (const entry of fs.readdirSync(packagesDir, { withFileTypes: true })) {
 
   const pkg = readJson<PackageJson>(packageJsonPath);
   if (!pkg.name?.startsWith("@agent-native/")) continue;
+
+  failures.push(
+    ...localWorkspaceDependencyFailures(
+      pkg.name,
+      "dependencies",
+      pkg.dependencies,
+    ),
+    ...localWorkspaceDependencyFailures(
+      pkg.name,
+      "devDependencies",
+      pkg.devDependencies,
+    ),
+    ...localWorkspaceDependencyFailures(
+      pkg.name,
+      "optionalDependencies",
+      pkg.optionalDependencies,
+    ),
+  );
+
   if (workspaceOnlyPackageAllowlist.has(pkg.name)) {
     if (pkg.private !== true && !ignoredPackages.has(pkg.name)) {
       failures.push(

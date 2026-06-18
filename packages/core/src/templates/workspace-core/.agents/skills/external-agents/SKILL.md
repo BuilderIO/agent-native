@@ -197,7 +197,7 @@ path is obvious.
 `defineAction` accepts an optional `link` builder. When set, every MCP/A2A
 result for that tool auto-appends a markdown `[label →](absoluteUrl)` block and
 a structured `_meta["agent-native/openLink"] = { label, view, webUrl,
-desktopUrl }`; `tools/list` adds
+desktopUrl, vscodeUrl }`; `tools/list` adds
 `annotations["agent-native/producesOpenLink"]` plus a description suffix so the
 external agent knows the tool yields an openable link.
 
@@ -285,9 +285,11 @@ ngrok/prod testing caveats are documented in
 
 `buildDeepLink(...)` returns the app-relative path
 `/_agent-native/open?app=…&view=…&<recordId>=…`. The MCP layer turns that into
-an absolute web URL (`toAbsoluteOpenUrl`, using the request origin) and a
-desktop `agentnative://open?…` URL (`toDesktopOpenUrl`). When the user clicks
-it in any browser or inline webview, `GET /_agent-native/open`
+an absolute web URL (`toAbsoluteOpenUrl`, using the request origin), a
+desktop `agentnative://open?…` URL (`toDesktopOpenUrl`), and a VS Code
+extension URL (`toVsCodeOpenUrl`) for
+`vscode://builderio.agent-native/open?url=…`. When the user clicks the web
+link in any browser or inline webview, `GET /_agent-native/open`
 (`createOpenRouteHandler`, mounted by the core routes plugin, gated by
 `disableOpenRoute`, customizable via `resolveOpenPath`):
 
@@ -329,16 +331,19 @@ The hosted `connect` flow above is the recommended path. For local dev, run
 the app (`pnpm dev` / `pnpm exec agent-native dev`) then point a local agent at it:
 
 ```bash
-pnpm exec agent-native mcp install --client claude-code|claude-code-cli|codex|cowork \
+pnpm exec agent-native mcp install --client claude-code|claude-code-cli|codex|cowork|cursor|opencode|github-copilot \
   [--app <id>] [--scope user|project]
 ```
 
 It provisions a token (random `ACCESS_TOKEN` into the workspace `.env` for
 local dev, or a `signA2AToken` JWT for a detected hosted origin) and writes an
 idempotent stdio server entry — `.mcp.json` / `~/.claude.json` for Claude Code,
-the `[mcp_servers.*]` block in `~/.codex/config.toml` for Codex, the
-Claude-Code JSON shape for Cowork. The entry runs `pnpm exec agent-native mcp serve
---app <id>`, by default a **thin stdio proxy** to the running local app's
+the `[mcp_servers.*]` block in `~/.codex/config.toml` for Codex,
+`.cursor/mcp.json` / `~/.cursor/mcp.json` for Cursor, `opencode.json` /
+`~/.config/opencode/opencode.json` for OpenCode, `.vscode/mcp.json` / VS Code
+user `mcp.json` for GitHub Copilot / VS Code, and the Claude-Code JSON shape
+for Cowork. The entry runs `pnpm exec agent-native mcp serve --app <id>`, by
+default a **thin stdio proxy** to the running local app's
 `/_agent-native/mcp` (live registry + HMR + correct deep links stay the single
 source of truth; `--standalone` builds the registry in-process). Companion
 subcommands: `mcp uninstall`, `mcp status`, `mcp token [--rotate]`. You can
@@ -413,3 +418,13 @@ before telling the user they are unauthenticated.
 - **a2a-protocol** — the `ask-agent` meta-tool and JSON-RPC peer calls
 - **adding-a-feature** — the four-area checklist (add a `link` builder when a
   feature produces a navigable resource)
+
+## Blueprint installer
+
+To add a whole new integration the agent-native way, `agent-native add <kind>
+<name|url>` prints a curated Markdown blueprint to stdout — pipe it into the
+external coding agent you connected (`agent-native add provider stripe |
+claude`) and it applies the changes against the live repo. A URL emits a
+generic research-and-integrate blueprint instead. Seeded kinds:
+`provider` / `channel` / `sandbox` / `action`. Add your own by dropping a
+`.md` in `packages/core/blueprints/<kind>/`. See the Blueprint Installer doc.

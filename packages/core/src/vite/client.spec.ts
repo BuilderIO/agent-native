@@ -626,6 +626,34 @@ describe("local-core dev aliases and router dedupe", () => {
     }
   });
 
+  it("allows workspace-root node_modules for monorepo template assets", () => {
+    const previousCwd = process.cwd();
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "an-vite-fs-allow-"));
+    const appDir = path.join(tmpDir, "templates", "forms");
+    const nodeModulesDir = path.join(tmpDir, "node_modules");
+    const coreDir = path.join(tmpDir, "packages", "core");
+    fs.mkdirSync(appDir, { recursive: true });
+    fs.mkdirSync(nodeModulesDir, { recursive: true });
+    fs.mkdirSync(coreDir, { recursive: true });
+    fs.writeFileSync(path.join(coreDir, "package.json"), "{}");
+
+    try {
+      process.chdir(appDir);
+      const config = defineConfig();
+      const fsAllow =
+        (config.server as { fs?: { allow?: string[] } } | undefined)?.fs
+          ?.allow ?? [];
+
+      expect(fsAllow).toContain(
+        fs.realpathSync(path.join(tmpDir, "packages", "core")),
+      );
+      expect(fsAllow).toContain(fs.realpathSync(nodeModulesDir));
+    } finally {
+      process.chdir(previousCwd);
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
   it("resolves file:@agent-native/core to a package root with src/index.ts", () => {
     const coreRoot = path.resolve(import.meta.dirname, "../..");
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "an-vite-core-root-"));

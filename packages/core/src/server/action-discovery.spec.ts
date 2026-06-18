@@ -125,6 +125,34 @@ describe("action discovery", () => {
     expect(registry["preview-thing"].mcpApp).toBe(mcpApp);
   });
 
+  it("preserves a boolean needsApproval gate through discovery", () => {
+    const registry = loadActionsFromStaticRegistry({
+      "send-email": {
+        default: {
+          tool: { description: "Send email", parameters: {} },
+          needsApproval: true,
+          run: async () => ({ ok: true }),
+        },
+      },
+    });
+
+    expect(registry["send-email"].needsApproval).toBe(true);
+  });
+
+  it("preserves a predicate needsApproval gate through discovery", () => {
+    const gate = (args: { to?: string }) =>
+      Boolean(args.to?.endsWith("@external.com"));
+    const registry = loadActionsFromStaticRegistry({
+      "send-email-named": {
+        tool: { description: "Send email", parameters: {} },
+        needsApproval: gate,
+        run: async () => ({ ok: true }),
+      },
+    });
+
+    expect(registry["send-email-named"].needsApproval).toBe(gate);
+  });
+
   it("threads the http config through named and default static entries", () => {
     const registry = loadActionsFromStaticRegistry({
       "named-get": {

@@ -54,6 +54,7 @@ type AgentChatAdapterAttachment = {
 const TEXT_ATTACHMENT_CONTENT_TYPES = new Set([
   "application/json",
   "application/x-ndjson",
+  "image/svg+xml",
   "text/csv",
   "text/css",
   "text/html",
@@ -232,6 +233,14 @@ function isTextAttachmentContentType(value: string | undefined): boolean {
   );
 }
 
+function isSvgAttachment(args: {
+  name?: string;
+  contentType?: string;
+}): boolean {
+  const contentType = args.contentType?.split(";")[0]?.trim().toLowerCase();
+  return contentType === "image/svg+xml" || /\.svg$/i.test(args.name ?? "");
+}
+
 function decodeTextDataUrl(dataUrl: string): string | null {
   const match = dataUrl.match(
     /^data:([^;,]+)(?:;charset=[^;,]+)?(;base64)?,(.*)$/i,
@@ -275,6 +284,9 @@ function extractAttachmentsFromMessage(message: {
         const contentType =
           att.contentType ??
           (typeof part.mimeType === "string" ? part.mimeType : undefined);
+        const preserveDataUrl =
+          part.data.startsWith("data:") &&
+          shouldPreserveFileDataUrl({ name: att.name, contentType });
         const decodedText = part.data.startsWith("data:")
           ? decodeTextDataUrl(part.data)
           : null;
@@ -282,11 +294,18 @@ function extractAttachmentsFromMessage(message: {
           type: "file",
           name: att.name,
           contentType,
-          ...(decodedText !== null
-            ? { text: truncateOutboundAttachment(decodedText) }
-            : part.data.startsWith("data:")
-              ? { data: part.data }
-              : { text: truncateOutboundAttachment(part.data) }),
+          ...(preserveDataUrl
+            ? {
+                data: part.data,
+                ...(decodedText !== null
+                  ? { text: truncateOutboundAttachment(decodedText) }
+                  : {}),
+              }
+            : decodedText !== null
+              ? { text: truncateOutboundAttachment(decodedText) }
+              : part.data.startsWith("data:")
+                ? { data: part.data }
+                : { text: truncateOutboundAttachment(part.data) }),
         });
       } else if (part.type === "text" && typeof part.text === "string") {
         attachments.push({
@@ -311,6 +330,13 @@ function extractAttachmentsFromMessage(message: {
   return attachments;
 }
 
+function shouldPreserveFileDataUrl(args: {
+  name?: string;
+  contentType?: string;
+}): boolean {
+  return isSvgAttachment(args);
+}
+
 function truncateHistoryAttachment(text: string): string {
   if (text.length <= MAX_HISTORY_ATTACHMENT_CHARS) return text;
   const omitted = text.length - MAX_HISTORY_ATTACHMENT_CHARS;
@@ -326,6 +352,14 @@ function truncateOutboundAttachment(text: string): string {
 function attachmentHistoryText(
   attachment: AgentChatAdapterAttachment,
 ): string | null {
+  if (isSvgAttachment(attachment)) {
+    const label = attachment.name || "SVG attachment";
+    const contentType = attachment.contentType
+      ? ` (${attachment.contentType})`
+      : "";
+    return `[Attached ${attachment.type || "file"}: ${label}${contentType}; SVG reference-only, raw markup omitted from prior chat history.]`;
+  }
+
   if (typeof attachment.text === "string" && attachment.text.length > 0) {
     const attrs = [
       `name="${escapeAttachmentAttribute(attachment.name || "attachment")}"`,
@@ -416,8 +450,39 @@ function isToolCallContentPart(
   );
 }
 
-function toolResultContent(result: unknown): string {
+function isSuccessOnlyToolResult(value: Record<string, unknown>): boolean {
+  const keys = Object.keys(value);
+  if (keys.length === 0) return true;
+  return keys.every((key) => {
+    const item = value[key];
+    if (key === "ok" || key === "success") return item === true;
+    if (key === "status") {
+      return item === "ok" || item === "success" || item === "completed";
+    }
+    return false;
+  });
+}
+
+function toolResultContent(result: unknown, toolName?: string): string {
   if (typeof result === "string") return result;
+  const completed = toolName?.trim()
+    ? `${toolName.trim()} completed.`
+    : "Tool completed.";
+  if (result === true || result == null) return completed;
+  if (result && typeof result === "object" && !Array.isArray(result)) {
+    const record = result as Record<string, unknown>;
+    const message = record.message ?? record.summary;
+    if (typeof message === "string" && message.trim()) return message.trim();
+    const title = record.title ?? record.name;
+    if (typeof title === "string" && title.trim()) {
+      return `${title.trim()} is ready.`;
+    }
+    const id = record.id ?? record.planId ?? record.commentId;
+    if (typeof id === "string" && id.trim() && toolName?.trim()) {
+      return `${toolName.trim()} completed for ${id.trim()}.`;
+    }
+    if (isSuccessOnlyToolResult(record)) return completed;
+  }
   try {
     return JSON.stringify(result);
   } catch {
@@ -482,11 +547,11 @@ function contentToStructuredMessages(
           toolInput: JSON.stringify(part.args ?? {}),
           content: truncate
             ? truncateForHistory(
-                toolResultContent(part.result),
+                toolResultContent(part.result, part.toolName),
                 MAX_HISTORY_TOOL_RESULT_CHARS,
                 "Tool result",
               )
-            : toolResultContent(part.result),
+            : toolResultContent(part.result, part.toolName),
         });
       } else {
         pendingToolResults.push({
@@ -563,7 +628,7 @@ function assistantUiMessagesToStructuredHistory(
               ? part.args
               : {},
           ...(part.result !== undefined
-            ? { result: toolResultContent(part.result) }
+            ? { result: toolResultContent(part.result, toolName) }
             : {}),
         });
       }
@@ -1125,6 +1190,23 @@ export function createAgentChatAdapter(
         typeof runConfig.custom === "object" &&
         (runConfig.custom as { trackInRunsTray?: unknown }).trackInRunsTray ===
           true;
+      // Human-in-the-loop approval keys (opt-in `needsApproval` actions). When
+      // the user approves a paused tool call, the turn is re-issued with the
+      // approval key so the server lets that specific call run.
+      const approvedToolCalls = (() => {
+        const raw =
+          runConfig?.custom &&
+          typeof runConfig.custom === "object" &&
+          "approvedToolCalls" in runConfig.custom
+            ? (runConfig.custom as { approvedToolCalls?: unknown })
+                .approvedToolCalls
+            : undefined;
+        if (!Array.isArray(raw)) return undefined;
+        const keys = raw.filter(
+          (key): key is string => typeof key === "string" && key.length > 0,
+        );
+        return keys.length > 0 ? keys : undefined;
+      })();
       const requestMode =
         runConfigRequestMode === "act" || runConfigRequestMode === "plan"
           ? runConfigRequestMode
@@ -1789,6 +1871,7 @@ export function createAgentChatAdapter(
                   ...(includeReferences && runConfig?.custom?.references
                     ? { references: runConfig.custom.references }
                     : {}),
+                  ...(approvedToolCalls ? { approvedToolCalls } : {}),
                 }),
               },
               STARTUP_RESPONSE_TIMEOUT_MS,

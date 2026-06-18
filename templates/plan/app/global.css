@@ -148,6 +148,15 @@
     --plan-canvas: #0d1117;
   }
 
+  .plan-content-surface[data-recap-screenshot-theme] .plan-document-shell {
+    padding: 10px;
+  }
+
+  .plan-content-surface[data-recap-screenshot-theme] .plan-document-body {
+    margin-inline: 0;
+    padding-inline: 0;
+  }
+
   .bg-plan-document {
     background-color: var(--plan-document);
   }

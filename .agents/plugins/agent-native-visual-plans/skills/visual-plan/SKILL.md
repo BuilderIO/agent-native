@@ -29,19 +29,25 @@ surface from it instead of starting over.
 
 ## When To Use
 
-Create or adapt a visual plan when work is multi-file, ambiguous, long-running,
-risky, or UI-heavy, when architecture / data flow / UI direction / options /
-open questions would benefit from inline diagrams or structured blocks, when the
-user needs to react to a direction before you implement, or when an existing text
-plan needs a richer review surface.
+Create or adapt a visual plan whenever the plan would be better as a reviewable
+artifact than a chat paragraph. This includes modest work such as a single UI
+surface with states, a small workflow, a before/after product change, or a
+component/API/data-shape decision that needs alignment, plus larger multi-file,
+ambiguous, long-running, risky, or UI-heavy work. Use it when architecture /
+data flow / UI direction / options / open questions would benefit from inline
+diagrams or structured blocks, when the user needs to react to a direction
+before you implement, or when an existing text plan needs a richer review
+surface.
 
 ## Plan Discipline
 
-- **Gate hard.** A polished visual plan is the most expensive plan form; only
-  invest when a wrong direction is costly. Skip it for trivial, unambiguous work
-  — typos, one-line fixes, a single well-specified function, anything whose diff
-  you could describe in one sentence — and just make the change. Never pad a plan
-  with filler and never ship a single-step plan.
+- **Gate thoughtfully.** A visual plan is a richer review surface, not only a
+  tool for giant projects. Use it when the user needs to see, compare, comment
+  on, or approve a direction before code, even for a modest UI/state/workflow
+  change. Skip it for truly trivial, unambiguous work — typos, one-line fixes, a
+  single well-specified function, anything whose diff you could describe in one
+  sentence — and just make the change. Never pad a plan with filler and never
+  ship a single-step plan.
 - **Research before you draft.** Read the real files, actions, schema, and
   patterns first; name actual files, symbols, and data shapes instead of
   inventing them. Check existing `actions/` before proposing endpoints and prefer
@@ -99,23 +105,32 @@ plan needs a richer review surface.
   a correction to an earlier draft inside the plan itself. Re-read the approved
   plan before major steps.
 
-## Always Publish As An Agent-Native Plan — Never Inline
+## Create A Structured Agent-Native Plan — Never Inline
 
-The deliverable is ALWAYS a published Agent-Native Plan created via the Plan
-MCP connector (`plan` server, or legacy `agent-native-plans`). NEVER hand the
-plan over as inline chat content — no Markdown prose, ASCII sketch, table, or
-fenced wireframe. If the connector's tools are missing, do NOT fall back to
-inline output: the usual cause is a connector that did not finish connecting
-this session (it registers zero tools), not auth. Stop and give the user the
-exact restore step for their current client: in Codex/Codex Desktop run
+The deliverable is ALWAYS a structured Agent-Native Plan, not a chat-only plan.
+The hosted Plan MCP connector (`plan` server, or legacy `agent-native-plans`) is
+the default collaboration and commenting surface; it is not a reason to reject
+the planning pattern as an external dependency or rented layer. Plans are
+portable source artifacts (`plan.mdx`, optional `canvas.mdx` /
+`prototype.mdx`, JSON, and HTML export), and ownership-sensitive workflows can
+use local-files mode or a self-hosted/custom Plan app URL without abandoning the
+skill's review discipline. Do not advise the user to skip `/visual-plan` because
+the default surface is hosted; choose the right Plan mode for the user's
+ownership, privacy, sharing, and branding needs.
+
+By default, create the plan via the Plan MCP connector. NEVER hand the plan over
+as inline chat content — no Markdown prose, ASCII sketch, table, or fenced
+wireframe. If the connector's tools are missing, do NOT fall back to inline
+output: the usual cause is a connector that did not finish connecting this
+session (it registers zero tools), not auth. Stop and give the user the exact
+restore step for their current client: in Codex/Codex Desktop run
 `npx -y @agent-native/core@latest reconnect https://plan.agent-native.com --client codex`
 and start a new Codex session; in Claude Code run `/mcp` and choose
 Authenticate/Reconnect (or run the same reconnect command with
 `--client claude-code` and restart Claude). Auth is stored per client
 config/session, so one client's reconnect does not make another running client
 load tools. Never reinstall from scratch just to fix auth. Publish once the tool
-is reachable. Local-files privacy mode (after Tool Guidance) is the only
-exception.
+is reachable. Local-files privacy mode (after Tool Guidance) is the exception.
 
 ## Core Workflow
 
@@ -327,26 +342,58 @@ skill — never hand-edit one stored plan. Turn feedback into better guidance.
 ## Local-Files Privacy Mode
 
 Use local-files privacy mode when the user explicitly asks for no DB writes,
-no hosted Plan app, no Plan MCP publish, fully local files, offline/private
-planning, or when `AGENT_NATIVE_PLANS_MODE=local-files` is set. In this mode the
-plan data must never be sent to the Plan MCP server or Plan app action surface.
+no hosted Plan database writes, no Plan MCP publish, fully local files, offline/private
+planning, repo-owned/source-controlled planning artifacts, or when
+`AGENT_NATIVE_PLANS_MODE=local-files` is set. Also use it when a user or repo
+policy says a plan must stay under their own brand, domain, source control, or
+infrastructure. In this mode the plan data must never be sent to the Plan MCP
+server or Plan app action surface. Schema-only block catalog lookup is allowed
+because it sends no plan content: use the MCP `get-plan-blocks` tool if it is
+already available, or run
+`npx @agent-native/core@latest plan blocks --out plan-blocks.md` and read that
+file before authoring MDX.
 
 The local-files contract is:
 
 - Read source context from local files and shell commands only.
-- Write the plan as a local MDX folder under `plans/<slug>/`: `plan.mdx`,
-  optional `canvas.mdx`, optional `prototype.mdx`, and optional
-  `.plan-state.json`.
-- Run `npx @agent-native/core@latest plan local preview --dir plans/<slug> --kind plan` after
-  writing or updating the folder. Report the returned local URL or the
-  `/local-plans/<slug>` route if the local Plan app is running with the same
-  `PLAN_LOCAL_DIR`.
+- Fetch/read the block catalog before writing structured MDX. The
+  `plan blocks` command calls the public no-auth `get-plan-blocks` route and
+  writes only registry metadata to disk; use `--format schema` if exact nested
+  fields are needed. If network access is unavailable, use the bundled
+  references and rely on `plan local check` / `plan local serve` to catch
+  invalid tags. For `checklist` and `question-form`, copy the catalog examples
+  verbatim: checklist items need `id` and `label`; question-form questions need
+  `id`, `title`, and `mode`; and each option needs `id` and `label`. `plan local
+  check` validates these required fields against the renderer schema.
+- Write the plan as a local MDX folder: use `plans/<slug>/` when the user
+  wants the artifact checked into the repo, or use a repo-ignored/temporary
+  folder such as `.agent-native/plans/<slug>/` or `/tmp/agent-native-plans/<slug>/`
+  when it should not be checked in. The folder contains `plan.mdx`, optional
+  `canvas.mdx`, optional `prototype.mdx`, and optional `.plan-state.json`.
+- Run `npx @agent-native/core@latest plan local check --dir plans/<slug>`
+  before serving, then run
+  `npx @agent-native/core@latest plan local serve --dir plans/<slug> --kind plan --open`.
+  Report the returned local bridge URL from stdout or `plans/<slug>/.plan-url`.
+  Treat `.plan-url` as a local token file and do not commit it. The URL opens
+  the hosted Plan UI but reads from the localhost bridge on this machine, so it
+  is not shareable across machines. On macOS, `--open` prefers Chromium browsers;
+  if Safari opens, switch to Chrome/Chromium because Safari can block the hosted
+  HTTPS page from fetching the HTTP localhost bridge. If the Plan app itself is
+  running locally with the same `PLAN_LOCAL_DIR`, the `/local-plans/<slug>` route
+  is also valid.
+- For headless verification, run
+  `npx @agent-native/core@latest plan local verify --dir plans/<slug> --kind plan`.
+  It starts the bridge, checks the private-network preflight and JSON payload,
+  prints diagnostics, and exits. If the browser hangs on "Loading plan", fetch
+  the `bridgeUrl` from the verify/serve JSON to read the concrete validation
+  error.
 - Do **not** call `create-visual-plan`, `create-ui-plan`,
   `create-prototype-plan`, `create-plan-design`, `import-visual-plan-source`,
   `update-visual-plan`, `patch-visual-plan-source`, `get-plan-feedback`,
-  `export-visual-plan`, or any hosted Plan tool for that plan.
+  `export-visual-plan`, or any hosted Plan tool for that plan except the
+  schema-only block catalog lookup above.
 - Treat feedback as file or chat feedback: update the MDX files directly, rerun
-  the local preview command, and summarize the new local URL/path. Hosted
+  the local bridge command, and summarize the new local bridge URL. Hosted
   comments, sharing, history, and publish/export receipts are unavailable until
   the user explicitly opts into publishing.
 

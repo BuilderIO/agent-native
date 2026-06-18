@@ -7,6 +7,8 @@ import {
   meta as genericTemplateMeta,
 } from "../app/routes/templates.$slug";
 import { AGENT_NATIVE_SOCIAL_IMAGE_CACHE_BUSTER } from "@agent-native/core/shared";
+import { meta as docsIndexMeta } from "../app/routes/docs._index";
+import { meta as docsSlugMeta } from "../app/routes/docs.$slug";
 import { meta as designTemplateMeta } from "../app/routes/templates.design";
 import { meta as slidesTemplateMeta } from "../app/routes/templates.slides";
 import { featuredTemplates, templates } from "../app/components/TemplateCard";
@@ -17,7 +19,7 @@ import { buildSitemapPaths } from "../app/vite-sitemap-plugin";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const docsRoot = path.resolve(__dirname, "..");
 
-function ogImageTitle(meta: Array<Record<string, unknown>>): string | null {
+function ogImageUrl(meta: Array<Record<string, unknown>>): URL {
   const image = meta.find(
     (item) => item.property === "og:image" && typeof item.content === "string",
   );
@@ -28,7 +30,17 @@ function ogImageTitle(meta: Array<Record<string, unknown>>): string | null {
   expect(url.searchParams.get("v")).toBe(
     AGENT_NATIVE_SOCIAL_IMAGE_CACHE_BUSTER,
   );
-  return url.searchParams.get("title");
+  return url;
+}
+
+function ogImageTitle(meta: Array<Record<string, unknown>>): string | null {
+  return ogImageUrl(meta).searchParams.get("title");
+}
+
+function ogImageAccentText(
+  meta: Array<Record<string, unknown>>,
+): string | null {
+  return ogImageUrl(meta).searchParams.get("accentText");
 }
 
 describe("template routes", () => {
@@ -62,6 +74,18 @@ describe("template routes", () => {
     expect(
       ogImageTitle(genericTemplateMeta({ params: { slug: "assets" } })),
     ).toBe("Agent-Native Assets");
+  });
+
+  it("uses doc-specific OG image titles and a docs accent line", () => {
+    const docsIndex = docsIndexMeta();
+    expect(ogImageTitle(docsIndex)).toBe("Getting Started");
+    expect(ogImageAccentText(docsIndex)).toBe("Agent-Native Docs");
+
+    const docsPage = docsSlugMeta({
+      params: { slug: "workspace-connections" },
+    });
+    expect(ogImageTitle(docsPage)).toBe("Workspace Connections");
+    expect(ogImageAccentText(docsPage)).toBe("Agent-Native Docs");
   });
 
   it("keeps docs sidebar template links aligned with the featured catalog", () => {

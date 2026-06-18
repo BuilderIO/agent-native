@@ -8,28 +8,26 @@ export const meta = () =>
   withTemplateSocialImage(
     [
       {
-        title:
-          "Agent-Native Content — Open Source Alternative to Notion & Google Docs",
+        title: "Agent-Native Content — Open Source Obsidian for MDX",
       },
       {
         name: "description",
         content:
-          "Write and organize content with an AI agent that knows your brand. Open source alternative to Notion and Google Docs. AI-powered writing, editing, and publishing workflows you own.",
+          "Edit local Markdown/MDX files like Obsidian, generate rich interactive custom MDX blocks, and write with an AI agent that knows your docs.",
       },
       {
         property: "og:title",
-        content:
-          "Agent-Native Content — Open Source Alternative to Notion & Google Docs",
+        content: "Agent-Native Content — Open Source Obsidian for MDX",
       },
       {
         property: "og:description",
         content:
-          "Write and organize content with an AI agent that knows your brand.",
+          "Local MDX editing, custom interactive blocks, and agent-assisted docs.",
       },
       {
         name: "keywords",
         content:
-          "AI content editor, open source Notion alternative, Google Docs alternative, AI writing tool, AI content management, agent-native content, AI-powered CMS, AI document editor, AI content creation, open source writing app",
+          "Obsidian for MDX, open source Obsidian alternative, MDX editor, local Markdown editor, AI content editor, open source Notion alternative, Google Docs alternative, AI writing tool, agent-native content, AI-powered CMS, AI document editor, custom MDX blocks",
       },
     ],
     "Content",
@@ -133,12 +131,13 @@ export default function ContentTemplate() {
             </div>
 
             <h1 className="mb-4 text-[2rem] font-bold leading-[1.08] tracking-tight sm:text-4xl md:text-5xl">
-              The open-source AI Notion alternative
+              Open-source Obsidian for MDX
             </h1>
 
             <p className="mb-6 text-base leading-7 text-[var(--fg-secondary)] sm:text-lg sm:leading-relaxed">
-              Write, organize, and publish with an AI agent that knows your
-              brand voice — and can modify the app itself.
+              Edit local Markdown/MDX files like Obsidian, generate rich
+              interactive custom blocks, and write with an AI agent that knows
+              your docs.
             </p>
 
             <div className="template-detail-actions mb-8 grid grid-cols-2 items-stretch gap-3 sm:flex sm:flex-wrap sm:items-center">
@@ -206,8 +205,8 @@ export default function ContentTemplate() {
             </div>
             <div className="mb-1 text-sm font-semibold">Write</div>
             <p className="m-0 text-sm text-[var(--fg-secondary)]">
-              Rich editor with formatting, headings, code blocks with syntax
-              highlighting, and media.
+              Rich editor for local Markdown/MDX with formatting, headings, code
+              blocks, and media.
             </p>
           </div>
           <div className="bg-[var(--bg)] p-6 text-center">
@@ -247,9 +246,10 @@ export default function ContentTemplate() {
                 <line x1="12" y1="2" x2="12" y2="15" />
               </svg>
             </div>
-            <div className="mb-1 text-sm font-semibold">Publish</div>
+            <div className="mb-1 text-sm font-semibold">Build MDX blocks</div>
             <p className="m-0 text-sm text-[var(--fg-secondary)]">
-              Push to WordPress, Contentful, Builder, or any headless CMS.
+              Generate interactive components and keep them editable in your
+              docs.
             </p>
           </div>
         </div>
@@ -261,7 +261,8 @@ export default function ContentTemplate() {
           Everything you need
         </h2>
         <p className="mb-8 max-w-2xl text-base text-[var(--fg-secondary)]">
-          A complete content workspace — like Notion, but you own the code.
+          A complete content workspace - like Obsidian for MDX, with
+          Notion-style collaboration when you need it.
         </p>
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           <div className="rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)] p-5">
@@ -286,19 +287,19 @@ export default function ContentTemplate() {
             </p>
           </div>
           <div className="rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)] p-5">
-            <h3 className="mb-1 text-sm font-semibold">Local Markdown Files</h3>
+            <h3 className="mb-1 text-sm font-semibold">
+              Local Markdown/MDX Files
+            </h3>
             <p className="m-0 text-sm text-[var(--fg-secondary)]">
-              Export docs to a local content folder, edit in your own tools,
-              preview changes, and import them back.
+              Edit repo docs directly like Obsidian, preview changes, and sync
+              them back when you use hosted mode.
             </p>
           </div>
           <div className="rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)] p-5">
-            <h3 className="mb-1 text-sm font-semibold">
-              Code Block Syntax Highlighting
-            </h3>
+            <h3 className="mb-1 text-sm font-semibold">Custom MDX Blocks</h3>
             <p className="m-0 text-sm text-[var(--fg-secondary)]">
-              Full syntax highlighting for code blocks. Language detection and
-              formatting built in.
+              Generate interactive local components, insert them in MDX, and
+              edit their props from the document UI.
             </p>
           </div>
           <div className="rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)] p-5">
@@ -440,7 +441,7 @@ export default function ContentTemplate() {
               <tr className="border-b border-[var(--docs-border)] bg-[var(--bg-secondary)]">
                 <th className="px-5 py-3 text-left font-semibold text-[var(--fg)]"></th>
                 <th className="px-5 py-3 text-left font-semibold text-[var(--fg-secondary)]">
-                  Notion / Google Docs
+                  Obsidian / Notion / Google Docs
                 </th>
                 <th className="px-5 py-3 text-left font-semibold text-[var(--fg-secondary)]">
                   ChatGPT / Claude
@@ -469,6 +470,16 @@ export default function ContentTemplate() {
                 <td className="px-5 py-3">Per-conversation</td>
                 <td className="px-5 py-3 text-[var(--fg)]">
                   Persistent, trained
+                </td>
+              </tr>
+              <tr className="border-b border-[var(--docs-border)]">
+                <td className="px-5 py-3 font-medium text-[var(--fg)]">
+                  Local MDX files
+                </td>
+                <td className="px-5 py-3">Markdown in some tools</td>
+                <td className="px-5 py-3">Manual copy-paste</td>
+                <td className="px-5 py-3 text-[var(--fg)]">
+                  Direct file editing with custom blocks
                 </td>
               </tr>
               <tr className="border-b border-[var(--docs-border)]">
@@ -510,7 +521,8 @@ export default function ContentTemplate() {
           Get started in minutes
         </h2>
         <p className="mx-auto mb-8 max-w-lg text-base text-[var(--fg-secondary)]">
-          Fork the template, connect your CMS, start writing with AI.
+          Bring your MDX docs, generate interactive blocks, and start writing
+          with AI.
         </p>
         <div className="template-detail-cta-actions flex flex-col items-stretch justify-center gap-3 sm:flex-row sm:items-center sm:gap-4">
           <TemplateDocsLink

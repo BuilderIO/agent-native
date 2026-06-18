@@ -11,6 +11,7 @@ import {
   useDbSync,
 } from "@agent-native/core/client";
 import { AuthProvider } from "@/components/auth/AuthProvider";
+import { ProviderCorpusJobNotifier } from "@/components/ProviderCorpusJobNotifier";
 import { CommandPalette } from "./components/layout/CommandPalette";
 import { Layout as AppLayout } from "./components/layout/Layout";
 import type { LinksFunction } from "react-router";
@@ -87,6 +88,7 @@ export default function Root() {
       <Toaster />
       <Sonner position="bottom-left" />
       <AuthProvider>
+        <ProviderCorpusJobNotifier />
         <CommandPalette />
         <AppLayout>
           <Outlet />

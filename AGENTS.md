@@ -160,6 +160,8 @@ Read the relevant skill before making changes in that area:
 - `client-methods` for browser/client APIs that must use named helpers instead
   of raw REST calls.
 - `delegate-to-agent` for LLM/agent delegation.
+- `harness-agents` for full agent runtimes like Claude Code, Codex, Pi,
+  Cursor, or Mastra.
 - `self-modifying-code` for source edits by the agent.
 - `server-plugins` for `/_agent-native/*` routes and plugins.
 - `authentication`, `onboarding`, `secrets` for setup/auth/credentials.
