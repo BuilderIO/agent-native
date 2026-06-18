@@ -45,6 +45,32 @@ The main agent should discover available siblings before assuming capability:
 Send narrow prompts to siblings: name the exact question, relevant ids, date
 ranges, and expected output shape. Preserve returned ids and URLs verbatim.
 
+## Artifact Handoff
+
+Mini-apps should hand off compact artifacts, not giant pasted transcripts or
+provider dumps. When a mini-app creates something another app may use, return
+or store an artifact with:
+
+- `artifactType` - what kind of output this is, such as `deal-set`,
+  `call-evidence`, `brief`, `dashboard`, or `report`.
+- `artifactId` - the stable app-owned id, file path, or resource id.
+- `createdAt` - an ISO timestamp.
+- `source` - provider/app/source ids used to create it.
+- `summary` - a short human-readable explanation.
+- `items` or `records` - the bounded structured data downstream apps need.
+- `links` - fully qualified URLs for user-visible artifacts.
+
+Downstream apps should receive artifact ids, URLs, and narrow follow-up
+questions. If a downstream app needs more detail, it should call back to the
+artifact-owning app instead of asking the orchestrator to paste the whole
+corpus into a prompt.
+
+Example: `hubspot-pipeline` returns `{ artifactType: "deal-set",
+artifactId: "hubspot-pipeline:deal-set:2026-06-18" }`. `deal-brief` passes
+that id to `gong-evidence`, which returns a `call-evidence` artifact id and
+URLs. `deal-brief` then synthesizes the final brief from the artifact ids and
+bounded summaries.
+
 ## Provider APIs
 
 Provider-specific actions are shortcuts, not limits. When the upstream API can
