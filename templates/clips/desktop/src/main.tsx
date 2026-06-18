@@ -161,7 +161,8 @@ function installConsoleCapture(route: string): void {
 
   const serialize = (value: unknown): string => {
     if (typeof value === "string") return value;
-    if (value instanceof Error) return value.stack || `${value.name}: ${value.message}`;
+    if (value instanceof Error)
+      return value.stack || `${value.name}: ${value.message}`;
     try {
       return JSON.stringify(value);
     } catch {
@@ -192,7 +193,9 @@ function installConsoleCapture(route: string): void {
   window.addEventListener("error", (event) => {
     forward("error", [
       `uncaught: ${event.message}`,
-      event.error instanceof Error ? event.error : `${event.filename}:${event.lineno}`,
+      event.error instanceof Error
+        ? event.error
+        : `${event.filename}:${event.lineno}`,
     ]);
   });
   window.addEventListener("unhandledrejection", (event) => {
