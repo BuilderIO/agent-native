@@ -170,10 +170,12 @@ const protocolSurfaces = [
   "MCP OAuth",
   "MCP Apps",
   "MCP clients",
-  "BYO chat runtimes",
   "HTTP actions",
   "CLI",
-  "Deep links",
+  "OpenAI Agents",
+  "AG-UI",
+  "Claude Agent SDK",
+  "Vercel AI SDK",
 ];
 
 const homepageTemplateSlugs = [

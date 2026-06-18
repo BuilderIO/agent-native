@@ -46,7 +46,7 @@ export default function Index() {
   }
 
   return (
-    <div className="forms-home-page relative min-h-screen overflow-hidden bg-background">
+    <div className="forms-home-page relative h-[100dvh] min-h-0 overflow-hidden bg-background">
       <header className="pointer-events-none absolute inset-x-0 top-0 z-20 flex h-16 items-center justify-between px-4 sm:px-6">
         <div className="pointer-events-auto flex items-center gap-2 text-sm font-semibold">
           <img
@@ -78,8 +78,8 @@ export default function Index() {
         </div>
       </header>
       <AgentChatHome
-        className="relative z-10 min-h-screen px-4 py-0 sm:px-6 sm:py-0"
-        contentClassName="max-w-4xl"
+        className="relative z-10 h-full min-h-0 overflow-hidden px-4 py-0 sm:px-6 sm:py-0"
+        contentClassName="h-full min-h-0 max-w-4xl"
         surfaceClassName="forms-home-chat-panel border-0 bg-transparent shadow-none"
         defaultMode="chat"
         storageKey="forms"
