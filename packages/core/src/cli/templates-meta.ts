@@ -223,6 +223,7 @@ export const TEMPLATES: TemplateMeta[] = [
     prodUrl: "https://assets.agent-native.com",
     defaultMode: "prod",
     defaultAgent: true,
+    requiredPackages: ["embedding"],
     core: true,
   },
   {

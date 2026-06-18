@@ -30,6 +30,44 @@ describe("engineToolsToAnthropic", () => {
     expect(result[0].description).toBe("Does something");
     expect(result[0].input_schema.properties).toHaveProperty("msg");
   });
+
+  it("removes top-level combinators Anthropic rejects from tool schemas", () => {
+    const inputSchema: EngineTool["inputSchema"] = {
+      type: "object",
+      properties: {
+        sql: { type: "string" },
+        statements: { type: "string" },
+        maybe: {
+          anyOf: [{ type: "string" }, { type: "null" }],
+        },
+      },
+      oneOf: [{ required: ["sql"] }, { required: ["statements"] }],
+      allOf: [{ required: ["maybe"] }],
+    };
+
+    const result = engineToolsToAnthropic([
+      {
+        name: "db-exec",
+        description: "Write SQL",
+        inputSchema,
+      },
+    ]);
+
+    expect(result[0].input_schema).toMatchObject({
+      type: "object",
+      properties: {
+        sql: { type: "string" },
+        statements: { type: "string" },
+        maybe: {
+          anyOf: [{ type: "string" }, { type: "null" }],
+        },
+      },
+    });
+    expect(result[0].input_schema).not.toHaveProperty("oneOf");
+    expect(result[0].input_schema).not.toHaveProperty("allOf");
+    expect(inputSchema).toHaveProperty("oneOf");
+    expect(inputSchema).toHaveProperty("allOf");
+  });
 });
 
 describe("engineMessagesToAnthropic", () => {

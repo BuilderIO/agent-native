@@ -25,11 +25,34 @@ import type {
 // EngineTool → Anthropic.Tool
 // ---------------------------------------------------------------------------
 
+const ANTHROPIC_UNSUPPORTED_TOP_LEVEL_SCHEMA_KEYS = [
+  "oneOf",
+  "anyOf",
+  "allOf",
+] as const;
+
+function normalizeAnthropicInputSchema(
+  schema: EngineTool["inputSchema"],
+): Anthropic.Tool["input_schema"] {
+  if (
+    !ANTHROPIC_UNSUPPORTED_TOP_LEVEL_SCHEMA_KEYS.some((key) => key in schema)
+  ) {
+    return schema as Anthropic.Tool["input_schema"];
+  }
+
+  const normalized: Record<string, unknown> = { ...schema };
+  for (const key of ANTHROPIC_UNSUPPORTED_TOP_LEVEL_SCHEMA_KEYS) {
+    delete normalized[key];
+  }
+  normalized.type = "object";
+  return normalized as Anthropic.Tool["input_schema"];
+}
+
 export function engineToolToAnthropic(tool: EngineTool): Anthropic.Tool {
   return {
     name: tool.name,
     description: tool.description,
-    input_schema: tool.inputSchema as Anthropic.Tool["input_schema"],
+    input_schema: normalizeAnthropicInputSchema(tool.inputSchema),
   };
 }
 

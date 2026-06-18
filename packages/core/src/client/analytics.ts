@@ -270,6 +270,44 @@ function shouldDropBrowserSentryNoise(event: Sentry.Event): boolean {
   ) {
     return true;
   }
+  // Safari occasionally reports a source-less global `EmptyRanges` reference
+  // error while browsing public pages. There is no script URL or function to
+  // map back to our bundle, so keep the filter narrow and only drop it when
+  // every frame is missing/undefined.
+  if (
+    exceptionValues.some((value) => {
+      const exceptionType = String(value.type ?? "")
+        .trim()
+        .toLowerCase();
+      const exceptionValue = String(value.value ?? "")
+        .trim()
+        .toLowerCase();
+      if (
+        exceptionType !== "referenceerror" ||
+        !exceptionValue.includes("emptyranges")
+      ) {
+        return false;
+      }
+      const frames = value.stacktrace?.frames ?? [];
+      return (
+        frames.length === 0 ||
+        frames.every((frame) => {
+          const filename = String(frame.filename ?? frame.abs_path ?? "")
+            .trim()
+            .toLowerCase();
+          const functionName = String(frame.function ?? "").trim();
+          return (
+            !functionName &&
+            (!filename ||
+              filename === "undefined" ||
+              filename === "<anonymous>")
+          );
+        })
+      );
+    })
+  ) {
+    return true;
+  }
   // Exact user/navigation aborts are expected browser behavior. Keep other
   // AbortError shapes visible unless they match this common non-bug message.
   if (
