@@ -1,12 +1,13 @@
 import { defineAction } from "@agent-native/core";
-import { resolveAccess } from "@agent-native/core/sharing";
+import { assertAccess } from "@agent-native/core/sharing";
 import { eq, desc, sql } from "drizzle-orm";
 import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import type { FormResponse } from "../shared/types.js";
 
 export default defineAction({
-  description: "List responses for a form.",
+  description:
+    "List response data for a form when you need rows for reasoning or export. If the user asks to see, open, or view all responses, use navigate with view=responses instead.",
   schema: z
     .object({
       formId: z.string().optional().describe("Form ID"),
@@ -25,20 +26,9 @@ export default defineAction({
     const formId = args.formId ?? args.form;
     if (!formId) throw new Error("formId is required");
 
-    const access = await resolveAccess("form", formId);
-    if (!access) throw new Error(`Form ${formId} not found`);
+    const { resource: form } = await assertAccess("form", formId, "editor");
 
     const db = getDb();
-    const [form] = await db
-      .select()
-      .from(schema.forms)
-      .where(eq(schema.forms.id, formId))
-      .limit(1);
-
-    if (!form) {
-      throw new Error(`Form ${formId} not found`);
-    }
-
     const limit = args.limit;
     const rows = await db
       .select()

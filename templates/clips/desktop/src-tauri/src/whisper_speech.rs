@@ -49,6 +49,25 @@ pub async fn whisper_transcription_start(
     }
 }
 
+/// Warm the process-wide whisper context off the recording-start path.
+///
+/// Loading the ~142 MB model into memory (`WhisperContext::new`) is synchronous
+/// and costs hundreds of ms on first use. Without this, the very first
+/// recording pays that cost between the user's Record gesture and audio
+/// actually capturing — the perceived "start lag". Call this at app startup
+/// (after the model file is downloaded) so the context is already cached.
+///
+/// Blocking work — call from a `spawn_blocking` context, not the async runtime.
+#[cfg(target_os = "macos")]
+pub fn prewarm_context(app: &AppHandle) -> Result<(), String> {
+    macos::prewarm(app)
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn prewarm_context(_app: &AppHandle) -> Result<(), String> {
+    Ok(())
+}
+
 #[tauri::command]
 pub async fn whisper_transcription_stop(app: AppHandle) -> Result<(), String> {
     #[cfg(target_os = "macos")]
@@ -120,6 +139,13 @@ mod macos {
         let ctx = Arc::new(ctx);
         *guard = Some(ctx.clone());
         Ok(ctx)
+    }
+
+    pub fn prewarm(app: &AppHandle) -> Result<(), String> {
+        let ctx = context(app)?;
+        ctx.create_state()
+            .map_err(|e| format!("whisper state init failed: {e}"))?;
+        Ok(())
     }
 
     // ---- resampling -------------------------------------------------------

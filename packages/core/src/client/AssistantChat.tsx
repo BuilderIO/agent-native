@@ -97,7 +97,6 @@ import {
   IconPlayerStop,
   IconChevronDown,
   IconTerminal,
-  IconClock,
   IconAlertTriangle,
   IconRefresh,
 } from "@tabler/icons-react";
@@ -532,6 +531,28 @@ export function latestNonRecoveryUserMessageText(
   }
   return "";
 }
+
+export function resolveAssistantChatSubmitIntent({
+  isRunning,
+  requestedIntent,
+}: {
+  isRunning: boolean;
+  requestedIntent?: ComposerSubmitIntent;
+}): ComposerSubmitIntent {
+  if (isRunning) return "queued";
+  return requestedIntent ?? "immediate";
+}
+
+type QueuedMessage = {
+  id: string;
+  text: string;
+  images?: string[];
+  attachments?: QueuedAttachment[];
+  references?: Reference[];
+  requestMode?: AgentRequestMode;
+  recoveryAction?: AgentRecoveryAction;
+  trackInRunsTray?: boolean;
+};
 
 // ─── Main Component ─────────────────────────────────────────────────────────
 
@@ -1082,18 +1103,11 @@ const AssistantChatInner = forwardRef<
     sessionExpired?: boolean;
   } | null>(null);
   const [authSessionAvailable, setAuthSessionAvailable] = useState(false);
-  const [queuedMessages, setQueuedMessages] = useState<
-    Array<{
-      id: string;
-      text: string;
-      images?: string[];
-      attachments?: QueuedAttachment[];
-      references?: Reference[];
-      requestMode?: AgentRequestMode;
-      recoveryAction?: AgentRecoveryAction;
-      trackInRunsTray?: boolean;
-    }>
-  >([]);
+  const [queuedMessages, setQueuedMessages] = useState<QueuedMessage[]>([]);
+  const queuedMessagesRef = useRef<QueuedMessage[]>([]);
+  const queueDirtyRef = useRef(false);
+  const queueMutationVersionRef = useRef(0);
+  const dequeueInFlightRef = useRef(false);
   const [composerContextItems, setComposerContextItems] = useState<
     AgentChatContextItem[]
   >([]);
@@ -1150,6 +1164,23 @@ const AssistantChatInner = forwardRef<
       includesContext: true,
     };
   }, []);
+
+  useEffect(() => {
+    queuedMessagesRef.current = queuedMessages;
+  }, [queuedMessages]);
+
+  const applyLocalQueuedMessages = useCallback(
+    (updater: (previous: QueuedMessage[]) => QueuedMessage[]) => {
+      setQueuedMessages((previous) => {
+        const next = updater(previous);
+        queuedMessagesRef.current = next;
+        queueDirtyRef.current = true;
+        queueMutationVersionRef.current += 1;
+        return next;
+      });
+    },
+    [],
+  );
 
   useEffect(() => {
     if (!isActiveComposer) return;
@@ -1215,7 +1246,6 @@ const AssistantChatInner = forwardRef<
   const textStreaming = isRunning || externalStreaming;
   // UI-only running state — drives the stop button and thinking indicator.
   const showRunningInUI = isRunning;
-  const wasRunningRef = useRef(false);
   const lastBroadcastRunningRef = useRef(isRunning);
   const tiptapRef = useRef<TiptapComposerHandle>(null);
   // Stable ref to the "stop active run" action so addToQueue can abort
@@ -1308,8 +1338,18 @@ const AssistantChatInner = forwardRef<
         }
       }
       if (Array.isArray(repo?.queuedMessages)) {
-        setQueuedMessages(repo.queuedMessages);
-        lastPersistedQueueRef.current = JSON.stringify(repo.queuedMessages);
+        const incomingQueue = repo.queuedMessages as QueuedMessage[];
+        const incomingSerialized = JSON.stringify(incomingQueue);
+        const currentSerialized = JSON.stringify(queuedMessagesRef.current);
+        if (
+          !queueDirtyRef.current ||
+          incomingSerialized === currentSerialized
+        ) {
+          queuedMessagesRef.current = incomingQueue;
+          setQueuedMessages(incomingQueue);
+          lastPersistedQueueRef.current = incomingSerialized;
+          queueDirtyRef.current = false;
+        }
       }
       if (settled && signature !== null) {
         lastImportedSignatureRef.current = signature;
@@ -1596,6 +1636,14 @@ const AssistantChatInner = forwardRef<
       }
     }, [apiUrl, refreshThreadFromServer, startReconnectToRun, threadId]);
 
+  useEffect(() => {
+    if (!threadId || !isNewThread) return;
+    // A restored tab can be reclassified as client-only after the thread list
+    // loads. Once that happens, there is no server row to restore, so show the
+    // empty composer instead of leaving the per-thread restore skeleton up.
+    setIsRestoring(false);
+  }, [isNewThread, threadId]);
+
   // Restore messages from server on mount (when threadId is set). The
   // server is the single source of truth — we don't hydrate from localStorage
   // first, so what the user sees in the chat panel always matches what the
@@ -1871,6 +1919,7 @@ const AssistantChatInner = forwardRef<
     if (!hasRestoredRef.current) return;
     const serialized = JSON.stringify(queuedMessages);
     if (serialized === lastPersistedQueueRef.current) return;
+    const queueVersion = queueMutationVersionRef.current;
     const timer = setTimeout(() => {
       (async () => {
         try {
@@ -1884,6 +1933,9 @@ const AssistantChatInner = forwardRef<
           );
           if (res.ok) {
             lastPersistedQueueRef.current = serialized;
+            if (queueMutationVersionRef.current === queueVersion) {
+              queueDirtyRef.current = false;
+            }
           }
         } catch {
           // Best-effort — next queue change will retry.
@@ -2064,19 +2116,47 @@ const AssistantChatInner = forwardRef<
     }
   }, [isRunning]);
 
-  // Auto-dequeue: when agent finishes running, send the next queued message
+  // Auto-dequeue: when the agent is idle, send the next queued message. This
+  // intentionally does not depend on observing the running -> idle transition:
+  // restored queues can exist after a reload where this component never saw the
+  // previous run as active.
   useEffect(() => {
-    if (wasRunningRef.current && !isRunning && queuedMessages.length > 0) {
-      const [next, ...rest] = queuedMessages;
-      setQueuedMessages(rest);
-      // Small delay to let the runtime settle after completion
-      setTimeout(() => {
-        void (async () => {
+    if (isRestoring || isRunning || queuedMessages.length === 0) {
+      return;
+    }
+    if (dequeueInFlightRef.current) return;
+
+    const next = queuedMessages[0];
+    if (!next) return;
+
+    dequeueInFlightRef.current = true;
+    let cancelled = false;
+    let started = false;
+    const timer = window.setTimeout(() => {
+      started = true;
+      void (async () => {
+        let removedForAppend = false;
+        let appended = false;
+        try {
           // In serverless/cross-isolate deployments the client can receive the
           // terminal SSE event a beat before SQL has marked the previous run
           // complete. Starting the queued turn during that window can reconnect
           // to the old run and replay the old answer under the new prompt.
           await waitForThreadRunToClear(apiUrl, threadId);
+          if (cancelled) return;
+
+          if (queuedMessagesRef.current[0]?.id !== next.id) {
+            return;
+          }
+
+          // Keep the placeholder visible while waiting. Remove it only when the
+          // append is about to begin, so queue stalls don't look like the chat
+          // silently ate the next message.
+          applyLocalQueuedMessages((prev) =>
+            prev.filter((message) => message.id !== next.id),
+          );
+          removedForAppend = true;
+
           const imageAttachments = createAgentImageAttachments(next.images);
           const messageAttachments =
             next.attachments && next.attachments.length > 0
@@ -2095,11 +2175,52 @@ const AssistantChatInner = forwardRef<
               next.trackInRunsTray,
             ),
           } as Parameters<typeof threadRuntime.append>[0]);
-        })();
-      }, 100);
-    }
-    wasRunningRef.current = isRunning;
-  }, [apiUrl, isRunning, queuedMessages, threadId, threadRuntime]);
+          appended = true;
+        } catch (err) {
+          if (
+            removedForAppend &&
+            !queuedMessagesRef.current.some((message) => message.id === next.id)
+          ) {
+            applyLocalQueuedMessages((prev) => [next, ...prev]);
+          }
+          captureError(err, {
+            tags: {
+              source: "agent-chat-client",
+              phase: "dequeue-message",
+            },
+            extra: {
+              threadId: threadId ?? null,
+              queuedMessageId: next.id,
+            },
+          });
+        } finally {
+          if (appended) {
+            window.setTimeout(() => {
+              dequeueInFlightRef.current = false;
+            }, 500);
+          } else {
+            dequeueInFlightRef.current = false;
+          }
+        }
+      })();
+    }, 100);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+      if (!started) {
+        dequeueInFlightRef.current = false;
+      }
+    };
+  }, [
+    apiUrl,
+    applyLocalQueuedMessages,
+    isRestoring,
+    isRunning,
+    queuedMessages,
+    threadId,
+    threadRuntime,
+  ]);
 
   // Clear frozen reconnect content + forceStopped only on the false→true
   // transition of isRuntimeRunning (i.e. a NEW run is actually starting).
@@ -2398,13 +2519,10 @@ const AssistantChatInner = forwardRef<
             ? "act"
             : undefined);
       if (isRunning && intent === "immediate") {
-        // Mid-run Enter race fix: immediately abort the active server run,
-        // wait for it to clear, then send — mirroring what the auto-dequeue
-        // path already does safely. Without this, assistant-ui's append()
-        // would cancel the adapter run locally but the server run would keep
-        // going; the new POST would then 409, reconnect to the OLD run, and
-        // replay the old answer under the new prompt.
-        setQueuedMessages((prev) => [
+        // Explicit interrupt path: abort the active server run, then let the
+        // auto-dequeue path append this message once the run is clear. Normal
+        // composer sends while running resolve to "queued" before reaching here.
+        applyLocalQueuedMessages((prev) => [
           ...prev,
           {
             id:
@@ -2421,13 +2539,9 @@ const AssistantChatInner = forwardRef<
             trackInRunsTray,
           },
         ]);
-        // Abort the server run (same as Stop button). This flips forceStopped
-        // → isRunning=false → auto-dequeue fires → waitForThreadRunToClear →
-        // append. The abort is fire-and-forget; waitForThreadRunToClear does
-        // the actual wait.
         stopActiveRunRef.current();
       } else if (isRunning && intent === "queued") {
-        setQueuedMessages((prev) => [
+        applyLocalQueuedMessages((prev) => [
           ...prev,
           {
             id:
@@ -2464,6 +2578,7 @@ const AssistantChatInner = forwardRef<
       }
     },
     [
+      applyLocalQueuedMessages,
       buildComposerContextSubmission,
       execMode,
       isRunning,
@@ -3002,17 +3117,42 @@ const AssistantChatInner = forwardRef<
                         reconnectContent.length > 0 && (
                           <ReconnectStreamMessage content={reconnectContent} />
                         )}
+                      {showRunningInUI && (
+                        <RunningActivityStatus
+                          label={
+                            isReconnecting
+                              ? "Reconnecting"
+                              : isAutoResuming
+                                ? "Resuming"
+                                : // Keep a steady "Thinking" while the model works —
+                                  // never flip through transient activity labels
+                                  // (e.g. "Contacting model", "Preparing X action").
+                                  "Thinking"
+                          }
+                        />
+                      )}
                       {queuedMessages.map((msg) => {
                         const displayText = msg.text
                           .replace(/<context>[\s\S]*?<\/context>\n?/g, "")
                           .trim();
                         return (
-                          <div key={msg.id} className="flex justify-end group">
-                            <div className="relative max-w-[85%] rounded-lg bg-accent/50 text-foreground/60 px-3 py-2 text-sm leading-relaxed whitespace-pre-wrap break-words">
-                              <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground mb-1 font-medium uppercase tracking-wide">
-                                <IconClock className="h-3 w-3" />
-                                Queued
-                              </div>
+                          <div
+                            key={msg.id}
+                            className="group flex items-start justify-end gap-1.5"
+                          >
+                            <button
+                              type="button"
+                              onClick={() =>
+                                applyLocalQueuedMessages((prev) =>
+                                  prev.filter((m) => m.id !== msg.id),
+                                )
+                              }
+                              aria-label="Remove from queue"
+                              className="mt-1.5 flex h-5 w-5 items-center justify-center rounded-full border border-border bg-background text-muted-foreground opacity-0 shadow-sm transition-opacity hover:bg-accent hover:text-foreground focus-visible:opacity-100 group-hover:opacity-100"
+                            >
+                              <IconX className="h-3 w-3" />
+                            </button>
+                            <div className="max-w-[85%] rounded-lg bg-accent/50 px-3 py-2 text-sm leading-relaxed text-foreground/60 whitespace-pre-wrap break-words">
                               {displayText}
                               {msg.images && msg.images.length > 0 && (
                                 <div className="flex flex-wrap gap-1.5 mt-1.5">
@@ -3026,18 +3166,6 @@ const AssistantChatInner = forwardRef<
                                   ))}
                                 </div>
                               )}
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  setQueuedMessages((prev) =>
-                                    prev.filter((m) => m.id !== msg.id),
-                                  )
-                                }
-                                aria-label="Remove from queue"
-                                className="absolute -top-2 -right-2 flex h-5 w-5 items-center justify-center rounded-full border border-border bg-background text-muted-foreground opacity-0 group-hover:opacity-100 focus-visible:opacity-100 hover:text-foreground hover:bg-accent shadow-sm"
-                              >
-                                <IconX className="h-3 w-3" />
-                              </button>
                             </div>
                           </div>
                         );
@@ -3093,21 +3221,6 @@ const AssistantChatInner = forwardRef<
                   />
                 )}
                 <SelectionAttachedPill />
-                {/* Keep live run progress pinned in the composer footer. */}
-                {showRunningInUI && (
-                  <RunningActivityStatus
-                    label={
-                      isReconnecting
-                        ? "Reconnecting"
-                        : isAutoResuming
-                          ? "Resuming"
-                          : // Keep a steady "Thinking" while the model works —
-                            // never flip through transient activity labels
-                            // (e.g. "Contacting model", "Preparing X action").
-                            "Thinking"
-                    }
-                  />
-                )}
                 {/* Inline attachment / body-size error */}
                 {composerError && (
                   <div
@@ -3165,7 +3278,10 @@ const AssistantChatInner = forwardRef<
                               references.length > 0 ? references : undefined,
                               attachments,
                               undefined,
-                              options?.intent ?? "immediate",
+                              resolveAssistantChatSubmitIntent({
+                                isRunning,
+                                requestedIntent: options?.intent,
+                              }),
                               undefined,
                               true,
                             )

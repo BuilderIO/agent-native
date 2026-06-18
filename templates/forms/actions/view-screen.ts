@@ -1,36 +1,108 @@
 import { defineAction } from "@agent-native/core";
-import { readAppState } from "@agent-native/core/application-state";
-import { accessFilter } from "@agent-native/core/sharing";
+import { accessFilter, resolveAccess } from "@agent-native/core/sharing";
 import { getDb, schema } from "../server/db/index.js";
 import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
+import {
+  toPublicFormSettings,
+  type FormField,
+  type FormSettings,
+} from "../shared/types.js";
+import { readAppStateForCurrentTab } from "./_tab-state.js";
+
+const FORMS_LIST_LIMIT = 25;
+const RESPONSE_PREVIEW_LIMIT = 5;
+const FIELD_PREVIEW_LIMIT = 20;
+
+function canReadPrivateFormData(role: string): boolean {
+  return role === "owner" || role === "editor" || role === "admin";
+}
+
+function safeJson<T>(value: string, fallback: T): T {
+  try {
+    return JSON.parse(value) as T;
+  } catch {
+    return fallback;
+  }
+}
+
+function cleanText(value: unknown, maxLength = 160): string {
+  if (value === undefined || value === null || value === "") return "";
+  const text =
+    typeof value === "object" ? JSON.stringify(value) : String(value);
+  const normalized = text.replace(/\s+/g, " ").trim();
+  return normalized.length <= maxLength
+    ? normalized
+    : `${normalized.slice(0, maxLength - 3)}...`;
+}
+
+function summarizeFields(fields: FormField[]) {
+  return fields.slice(0, FIELD_PREVIEW_LIMIT).map((field) => ({
+    id: field.id,
+    type: field.type,
+    label: field.label,
+    required: field.required,
+    ...(field.options?.length
+      ? {
+          options: field.options.slice(0, 8),
+          optionCount: field.options.length,
+        }
+      : {}),
+  }));
+}
+
+function summarizeSettings(settings: FormSettings) {
+  return {
+    ...toPublicFormSettings(settings),
+    integrationCount: settings.integrations?.length ?? 0,
+    integrations: settings.integrations?.map((integration) => ({
+      id: integration.id,
+      type: integration.type,
+      name: integration.name,
+      enabled: integration.enabled,
+    })),
+    allowedOriginsCount: settings.allowedOrigins?.length ?? 0,
+  };
+}
+
+function summarizeResponseData(
+  data: Record<string, unknown>,
+  fields: FormField[],
+) {
+  const fieldLabels = new Map(fields.map((field) => [field.id, field.label]));
+  return Object.entries(data)
+    .slice(0, 8)
+    .map(([key, value]) => ({
+      fieldId: key,
+      label: fieldLabels.get(key) ?? key,
+      value: cleanText(value),
+    }));
+}
 
 export default defineAction({
   description: "See what the user is currently looking at on screen.",
   schema: z.object({}),
   http: false,
   run: async () => {
-    const navigation = await readAppState("navigation");
+    const navigation = await readAppStateForCurrentTab("navigation", {
+      fallbackToGlobal: false,
+    });
 
     const screen: Record<string, unknown> = {};
     if (navigation) screen.navigation = navigation;
 
     const nav = navigation as any;
+    const activeTab = nav?.activeTab ?? nav?.tab;
 
     if (nav?.formId) {
-      const db = getDb();
       try {
-        const [form] = await db
-          .select()
-          .from(schema.forms)
-          .where(
-            and(
-              eq(schema.forms.id, nav.formId),
-              accessFilter(schema.forms, schema.formShares),
-            ),
-          )
-          .limit(1);
-        if (form) {
+        const access = await resolveAccess("form", nav.formId);
+        if (access) {
+          const db = getDb();
+          const form = access.resource as typeof schema.forms.$inferSelect;
+          const fields = safeJson<FormField[]>(form.fields, []);
+          const settings = safeJson<FormSettings>(form.settings, {});
+          const canReadPrivateData = canReadPrivateFormData(access.role);
           const [responseCount] = await db
             .select({ count: sql<number>`count(*)` })
             .from(schema.responses)
@@ -42,8 +114,13 @@ export default defineAction({
             description: form.description,
             slug: form.slug,
             status: form.status,
-            fields: JSON.parse(form.fields),
-            settings: JSON.parse(form.settings),
+            fieldCount: fields.length,
+            fields: summarizeFields(fields),
+            fieldsCapped: fields.length > FIELD_PREVIEW_LIMIT,
+            role: access.role,
+            settings: canReadPrivateData
+              ? summarizeSettings(settings)
+              : toPublicFormSettings(settings),
             responseCount: responseCount?.count ?? 0,
             createdAt: form.createdAt,
             updatedAt: form.updatedAt,
@@ -74,7 +151,7 @@ export default defineAction({
             ),
           )
           .orderBy(desc(schema.forms.updatedAt))
-          .limit(100);
+          .limit(FORMS_LIST_LIMIT);
         const formIds = rows.map((form) => form.id);
         const counts =
           formIds.length > 0
@@ -100,7 +177,7 @@ export default defineAction({
             createdAt: form.createdAt,
             updatedAt: form.updatedAt,
           })),
-          capped: rows.length >= 100,
+          capped: rows.length >= FORMS_LIST_LIMIT,
         };
       } catch {
         // continue without forms list
@@ -117,20 +194,18 @@ export default defineAction({
       };
     }
 
-    if (nav?.view === "responses" && nav?.formId) {
+    if (
+      (nav?.view === "responses" ||
+        (nav?.view === "form" &&
+          (activeTab === "responses" || activeTab === "results"))) &&
+      nav?.formId
+    ) {
       try {
         const db = getDb();
-        const [form] = await db
-          .select({ id: schema.forms.id })
-          .from(schema.forms)
-          .where(
-            and(
-              eq(schema.forms.id, nav.formId),
-              accessFilter(schema.forms, schema.formShares),
-            ),
-          )
-          .limit(1);
-        if (!form) return screen;
+        const access = await resolveAccess("form", nav.formId);
+        if (!access || !canReadPrivateFormData(access.role)) return screen;
+        const form = access.resource as typeof schema.forms.$inferSelect;
+        const fields = safeJson<FormField[]>(form.fields, []);
 
         const responses = await db
           .select({
@@ -141,7 +216,7 @@ export default defineAction({
           .from(schema.responses)
           .where(eq(schema.responses.formId, nav.formId))
           .orderBy(desc(schema.responses.submittedAt))
-          .limit(20);
+          .limit(RESPONSE_PREVIEW_LIMIT);
 
         const [total] = await db
           .select({ count: sql<number>`count(*)` })
@@ -152,10 +227,14 @@ export default defineAction({
           formId: nav.formId,
           total: total?.count ?? 0,
           showing: responses.length,
+          capped: (total?.count ?? 0) > responses.length,
           data: responses.map((r) => ({
             id: r.id,
             submittedAt: r.submittedAt,
-            data: JSON.parse(r.data),
+            values: summarizeResponseData(
+              safeJson<Record<string, unknown>>(r.data, {}),
+              fields,
+            ),
           })),
         };
       } catch {

@@ -13,7 +13,14 @@ import { useEffect } from "react";
 import { useNavigate } from "react-router";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { Button } from "@/components/ui/button";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { markFormsChatHomeHandoff } from "@/lib/chat-home-handoff";
+import { TAB_ID } from "@/lib/tab-id";
 
 export function meta() {
   return [
@@ -48,21 +55,33 @@ export default function Index() {
   return (
     <div className="forms-home-page relative h-[100dvh] min-h-0 overflow-hidden bg-background">
       <header className="pointer-events-none absolute inset-x-0 top-0 z-20 flex h-16 items-center justify-between px-4 sm:px-6">
-        <div className="pointer-events-auto flex items-center gap-2 text-sm font-semibold">
-          <img
-            src={appPath("/agent-native-icon-light.svg")}
-            alt=""
-            aria-hidden="true"
-            className="block h-4 w-auto shrink-0 dark:hidden"
-          />
-          <img
-            src={appPath("/agent-native-icon-dark.svg")}
-            alt=""
-            aria-hidden="true"
-            className="hidden h-4 w-auto shrink-0 dark:block"
-          />
-          Forms
-        </div>
+        <TooltipProvider delayDuration={700}>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                aria-label="Open dashboard"
+                className="pointer-events-auto flex items-center gap-2 rounded-md text-sm font-semibold text-foreground transition-colors hover:text-foreground/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                onClick={openForms}
+              >
+                <img
+                  src={appPath("/agent-native-icon-light.svg")}
+                  alt=""
+                  aria-hidden="true"
+                  className="block h-4 w-auto shrink-0 dark:hidden"
+                />
+                <img
+                  src={appPath("/agent-native-icon-dark.svg")}
+                  alt=""
+                  aria-hidden="true"
+                  className="hidden h-4 w-auto shrink-0 dark:block"
+                />
+                Forms
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="bottom">Open dashboard</TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
         <div className="pointer-events-auto flex items-center gap-1.5">
           <ThemeToggle />
           <Button
@@ -83,6 +102,7 @@ export default function Index() {
         surfaceClassName="forms-home-chat-panel border-0 bg-transparent shadow-none"
         defaultMode="chat"
         storageKey="forms"
+        browserTabId={TAB_ID}
         showHeader={false}
         showTabBar={false}
         dynamicSuggestions={false}

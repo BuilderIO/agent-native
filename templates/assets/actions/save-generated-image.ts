@@ -15,8 +15,9 @@ export default defineAction({
   schema: z.object({
     assetId: z.string().optional(),
     slotId: z.string().optional(),
+    folderId: z.string().min(1).nullable().optional(),
   }),
-  run: async ({ assetId, slotId }) => {
+  run: async ({ assetId, slotId, folderId }) => {
     let resolvedAssetId = assetId;
     const raw = (await readAppState("asset-variants")) as unknown | null;
     const legacyRaw =
@@ -34,7 +35,7 @@ export default defineAction({
     }
     if (!resolvedAssetId)
       throw new Error("assetId or a ready slotId is required.");
-    await markAssetSaved(resolvedAssetId);
+    await markAssetSaved(resolvedAssetId, folderId);
     const asset = await getAssetOrThrow(resolvedAssetId);
     if (activeVariants) {
       activeVariants.slots = activeVariants.slots.filter(

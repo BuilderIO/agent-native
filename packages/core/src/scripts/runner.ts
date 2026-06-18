@@ -173,7 +173,7 @@ function parseActionArgs(
     } else {
       const key = arg.slice(2);
       const next = args[i + 1];
-      if (next && !next.startsWith("--")) {
+      if (next !== undefined && !next.startsWith("--")) {
         setParsedArg(parsed, key, coerceCliValue(next, coerceBooleans));
         i++;
       } else {

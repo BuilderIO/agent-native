@@ -6,9 +6,29 @@ import { getOrgContext } from "@agent-native/core/org";
 import actionsRegistry from "../../.generated/actions-registry.js";
 import "../register-secrets.js";
 
+const INITIAL_TOOL_NAMES = [
+  "view-screen",
+  "list-designs",
+  "get-design",
+  "create-design",
+  "edit-design",
+  "generate-design",
+  "present-design-variants",
+  "apply-tweaks",
+  "update-design",
+  "list-files",
+  "create-file",
+  "update-file",
+  "navigate",
+  "provider-api-catalog",
+  "provider-api-docs",
+  "provider-api-request",
+];
+
 export default createAgentChatPlugin({
   appId: "design",
   actions: loadActionsFromStaticRegistry(actionsRegistry),
+  initialToolNames: INITIAL_TOOL_NAMES,
   // Enable sandboxed JavaScript execution so Design agents can fetch,
   // paginate, and reduce provider data through providerFetch() without us
   // hardcoding one action per GitHub endpoint.

@@ -1,11 +1,16 @@
 import { useMemo, useState } from "react";
-import { useLocation } from "react-router";
+import { useLocation, useNavigate } from "react-router";
 import { Sidebar } from "./Sidebar";
 import { Header } from "./Header";
 import { HeaderActionsProvider } from "./HeaderActions";
-import { AgentSidebar } from "@agent-native/core/client";
+import {
+  AgentSidebar,
+  focusAgentChat,
+  navigateWithAgentChatViewTransition,
+} from "@agent-native/core/client";
 import { InvitationBanner } from "@agent-native/core/client/org";
 import { consumeFormsChatHomeHandoff } from "@/lib/chat-home-handoff";
+import { TAB_ID } from "@/lib/tab-id";
 
 const BARE_ROUTES = new Set(["/form-preview"]);
 
@@ -20,6 +25,7 @@ interface LayoutProps {
 
 export function Layout({ children }: LayoutProps) {
   const location = useLocation();
+  const navigate = useNavigate();
   const [chatHomeHandoffPath] = useState(() =>
     consumeFormsChatHomeHandoff() ? location.pathname : null,
   );
@@ -47,6 +53,11 @@ export function Layout({ children }: LayoutProps) {
     location.pathname.startsWith(prefix),
   );
 
+  function openAskAgentFullscreen() {
+    focusAgentChat();
+    navigateWithAgentChatViewTransition(navigate, "/");
+  }
+
   return (
     <HeaderActionsProvider>
       <div className="flex h-screen overflow-hidden">
@@ -56,7 +67,9 @@ export function Layout({ children }: LayoutProps) {
           defaultOpen
           chatViewTransition
           storageKey="forms"
+          browserTabId={TAB_ID}
           openOnChatRunning={chatHomeHandoffActive}
+          onFullscreenRequest={openAskAgentFullscreen}
           emptyStateText="Ask me anything about your forms"
           suggestions={[
             "Build a customer feedback survey",

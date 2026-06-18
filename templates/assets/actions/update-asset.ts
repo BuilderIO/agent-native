@@ -12,7 +12,7 @@ export default defineAction({
     "Update asset metadata, folder, category, role, status, title, description, or alt text. Use this to organize DAM assets and save generated candidates.",
   schema: z.object({
     id: z.string(),
-    folderId: z.string().nullable().optional(),
+    folderId: z.string().min(1).nullable().optional(),
     title: z.string().nullable().optional(),
     description: z.string().nullable().optional(),
     altText: z.string().nullable().optional(),
@@ -40,7 +40,7 @@ export default defineAction({
   run: async ({ id, category, isStyleAnchor, ...args }) => {
     const asset = await getAssetOrThrow(id);
     await assertAccess("asset-library", asset.libraryId, "editor");
-    if (args.folderId) {
+    if (args.folderId !== undefined && args.folderId !== null) {
       const [folder] = await getDb()
         .select()
         .from(schema.assetFolders)

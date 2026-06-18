@@ -1410,6 +1410,11 @@ async function startNativeFullscreenRecording(
   let localOwnsCameraStream = false;
   let bubbleCaptureExcluded = false;
   let transcriptionCapture: TranscriptionCapture | null = null;
+  // Timer baseline for the toolbar/pill elapsed clock. Stamped the instant
+  // native capture goes live (right after the start invoke resolves), not after
+  // the region-guide / transcription spin-up — which would push the displayed
+  // clock and the toolbar-enable behind the real recording start.
+  let startedAt = 0;
   let nativeTranscriptFailureSaved = false;
   const saveTranscriptFailure = async (failureReason: string) => {
     if (!wantsAudio || nativeTranscriptFailureSaved || !id) return;
@@ -1503,27 +1508,11 @@ async function startNativeFullscreenRecording(
       micDeviceId: params.micId || null,
       micDeviceLabel: params.micLabel || null,
     });
+    // Capture is now live — stamp the timer baseline before any further awaits
+    // so the toolbar clock and toolbar-enable line up with the real start.
+    startedAt = Date.now();
     localCameraExport?.start(2_000);
-
-    if (!localOnly) {
-      await showRegionGuidesForRecording(true);
-      transcriptionCapture = wantsAudio
-        ? await startTranscriptionCapture(
-            {
-              deviceId: params.micId,
-              label: params.micLabel,
-            },
-            wantsSystemAudio,
-          )
-        : null;
-      if (wantsAudio && !transcriptionCapture) {
-        void saveTranscriptFailure(
-          "macOS Speech recognition could not start for this recording. Check Speech Recognition and Microphone permissions, then retry transcription.",
-        );
-      }
-    }
   } catch (err) {
-    await transcriptionCapture?.cancel().catch(() => {});
     await localCameraExport?.cancel().catch(() => {});
     if (bubbleCaptureExcluded) {
       await invoke("set_bubble_capture_excluded", {
@@ -1544,7 +1533,6 @@ async function startNativeFullscreenRecording(
     throw err;
   }
 
-  const startedAt = Date.now();
   let stopped = false;
   let stopPromise: Promise<RecorderStopResult> | null = null;
   let cancelPromise: Promise<void> | null = null;
@@ -1817,6 +1805,31 @@ async function startNativeFullscreenRecording(
   tickHandle = setInterval(emitState, 500);
   emit("clips:toolbar-enabled", true).catch(() => {});
   emitState();
+
+  if (!localOnly) {
+    await showRegionGuidesForRecording(true);
+    const wantsSystemAudio = wantsAudio && params.systemAudioOn !== false;
+    transcriptionCapture = wantsAudio
+      ? await startTranscriptionCapture(
+          {
+            deviceId: params.micId,
+            label: params.micLabel,
+          },
+          wantsSystemAudio,
+        )
+      : null;
+    // Stop/Cancel can fire during the await above — at that point stop()/cancel()
+    // ran while transcriptionCapture was still null, so it never tore this down.
+    // Cancel the freshly-started session here so it doesn't keep running.
+    if (stopped && transcriptionCapture) {
+      void transcriptionCapture.cancel().catch(() => {});
+      transcriptionCapture = null;
+    } else if (wantsAudio && !transcriptionCapture) {
+      void saveTranscriptFailure(
+        "macOS Speech recognition could not start for this recording. Check Speech Recognition and Microphone permissions, then retry transcription.",
+      );
+    }
+  }
 
   return handle;
 }
@@ -2242,11 +2255,15 @@ async function startRecordingInner(
     }
 
     const id = `local-${Date.now().toString(36)}`;
-    let startedAt = Date.now();
+    // Stamped at the real capture start below — kept 0 until then so the tick
+    // never reports an elapsed time against a stale baseline (which showed the
+    // clock counting up and then resetting to 0 when start finally fired).
+    let startedAt = 0;
     let pausedAt: number | null = null;
     let accumulatedPauseMs = 0;
     let stopped = false;
     let stateUnlistens: UnlistenFn[] = [];
+    let tickHandle: ReturnType<typeof setInterval> | null = null;
 
     function emitState(paused: boolean) {
       const now = Date.now();
@@ -2257,7 +2274,6 @@ async function startRecordingInner(
         elapsedMs,
       }).catch(() => {});
     }
-    const tickHandle = setInterval(() => emitState(pausedAt != null), 500);
 
     const toolbarUnlistens = await Promise.all([
       listen("clips:recorder-pause", () => {
@@ -2290,6 +2306,7 @@ async function startRecordingInner(
     await audioCue.playBeforeCapture();
     localExport.start(2_000);
     startedAt = Date.now();
+    tickHandle = setInterval(() => emitState(pausedAt != null), 500);
     emit("clips:toolbar-enabled", true).catch(() => {});
     emitState(false);
 
@@ -2341,7 +2358,7 @@ async function startRecordingInner(
           };
         }
         stopped = true;
-        clearInterval(tickHandle);
+        if (tickHandle) clearInterval(tickHandle);
         stateUnlistens.forEach((unlisten) => unlisten());
         stateUnlistens = [];
         const durationMs = Math.max(
@@ -2368,7 +2385,7 @@ async function startRecordingInner(
       async cancel() {
         if (stopped) return;
         stopped = true;
-        clearInterval(tickHandle);
+        if (tickHandle) clearInterval(tickHandle);
         stateUnlistens.forEach((unlisten) => unlisten());
         stateUnlistens = [];
         await localExport.cancel();
@@ -2527,11 +2544,15 @@ async function startRecordingInner(
     inflight.add(p);
   };
 
-  let startedAt = Date.now();
+  // Stamped at the real capture start below — kept 0 until then so the tick
+  // never reports elapsed against a stale baseline (which showed the clock
+  // counting up and then resetting to 0 when recorder.start finally fired).
+  let startedAt = 0;
   let pausedAt: number | null = null;
   let accumulatedPauseMs = 0;
   let stopped = false;
   let stateUnlistens: UnlistenFn[] = [];
+  let tickHandle: ReturnType<typeof setInterval> | null = null;
 
   function emitState(paused: boolean) {
     const now = Date.now();
@@ -2551,8 +2572,6 @@ async function startRecordingInner(
       console.error("[clips-recorder] openExternal failed:", err);
     }
   }
-
-  const tickHandle = setInterval(() => emitState(pausedAt != null), 500);
 
   // 5. Wire toolbar events.
   const toolbarUnlistens = await Promise.all([
@@ -2594,6 +2613,25 @@ async function startRecordingInner(
   ]);
   stateUnlistens = toolbarUnlistens;
 
+  await showRegionGuidesForRecording(wantsScreen);
+  await audioCue.playBeforeCapture();
+  recorder.start(LIVE_UPLOAD_CHUNK_MS);
+  startedAt = Date.now();
+  tickHandle = setInterval(() => emitState(pausedAt != null), 500);
+  // The toolbar is already open (the popover's bubble-session effect
+  // spawns it alongside the bubble in its pre-record, disabled state).
+  // Now that MediaRecorder is actually ticking, flip the toolbar's
+  // Stop / Pause buttons to enabled so the user can drive the recorder.
+  emit("clips:toolbar-enabled", true).catch(() => {});
+  // Seed the initial recorder-state so the time / paused styling match
+  // MediaRecorder's real state (before the first 500ms tick).
+  emitState(false);
+
+  // Live transcription capture starts AFTER the recorder is live. Its mic +
+  // ScreenCaptureKit spin-up takes ~1s; awaiting it before recorder.start was
+  // delaying capture, so the first ~1s the user expected to record was lost
+  // (and the recording felt cut at the end). It's a separate capture from the
+  // recorded audio tracks, so starting it slightly late is safe.
   transcriptionCapture = wantsAudio
     ? await startTranscriptionCapture(
         {
@@ -2603,23 +2641,17 @@ async function startRecordingInner(
         wantsSystemAudio,
       )
     : null;
-  if (wantsAudio && !transcriptionCapture) {
+  // Stop/Cancel can fire during the await above — at that point stop()/cancel()
+  // ran while transcriptionCapture was still null, so it never tore this down.
+  // Cancel the freshly-started session here so it doesn't keep running.
+  if (stopped && transcriptionCapture) {
+    void transcriptionCapture.cancel().catch(() => {});
+    transcriptionCapture = null;
+  } else if (wantsAudio && !transcriptionCapture) {
     void saveTranscriptFailure(
       "macOS Speech recognition could not start for this recording. Check Speech Recognition and Microphone permissions, then retry transcription.",
     );
   }
-  await showRegionGuidesForRecording(wantsScreen);
-  await audioCue.playBeforeCapture();
-  recorder.start(LIVE_UPLOAD_CHUNK_MS);
-  startedAt = Date.now();
-  // The toolbar is already open (the popover's bubble-session effect
-  // spawns it alongside the bubble in its pre-record, disabled state).
-  // Now that MediaRecorder is actually ticking, flip the toolbar's
-  // Stop / Pause buttons to enabled so the user can drive the recorder.
-  emit("clips:toolbar-enabled", true).catch(() => {});
-  // Seed the initial recorder-state so the time / paused styling match
-  // MediaRecorder's real state (before the first 500ms tick).
-  emitState(false);
 
   // 6. Bubble + toolbar visibility are owned by the popover's session
   // effect (see app.tsx + bubble-pump.ts) — not the recorder. Both open
@@ -2631,9 +2663,14 @@ async function startRecordingInner(
     async stop() {
       if (stopped) return { recordingId: id, viewUrl: `/r/${id}` };
       stopped = true;
+      // Stamped right after the recorder fully stops below (see stoppedAt).
+      // Duration must measure recorded content — through the final flushed
+      // chunk — but NOT the transcript-finalize + thumbnail + upload awaits that
+      // follow, which add ~seconds and would overstate the saved duration.
+      let stoppedAt = 0;
       console.log("[clips-recorder] stop requested");
       showFinalizingFeedback();
-      clearInterval(tickHandle);
+      if (tickHandle) clearInterval(tickHandle);
       stateUnlistens.forEach((u) => u());
       stateUnlistens = [];
 
@@ -2665,6 +2702,10 @@ async function startRecordingInner(
           // ignore
         }
       });
+      // Recorder has fully stopped and flushed its trailing chunk — this is the
+      // true end of recorded content. Everything after (transcript, thumbnail,
+      // upload) is post-processing and must not count toward duration.
+      stoppedAt = Date.now();
 
       const thumbnailUploadPromise = captureAndUploadRecordingThumbnail({
         serverUrl: params.serverUrl,
@@ -2701,7 +2742,7 @@ async function startRecordingInner(
       const displaySettings = displayStream?.getVideoTracks()[0]?.getSettings();
       const durationMs = Math.max(
         0,
-        Math.round(Date.now() - startedAt - accumulatedPauseMs),
+        Math.round(stoppedAt - startedAt - accumulatedPauseMs),
       );
       const width =
         typeof videoSettings?.width === "number"
@@ -2866,7 +2907,7 @@ async function startRecordingInner(
     async cancel() {
       if (stopped) return;
       stopped = true;
-      clearInterval(tickHandle);
+      if (tickHandle) clearInterval(tickHandle);
       stateUnlistens.forEach((u) => u());
       stateUnlistens = [];
       transcriptionCapture?.cancel().catch(() => {});

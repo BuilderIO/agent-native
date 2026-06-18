@@ -16,7 +16,7 @@ import {
   runWithRequestContext,
   verifyCaptcha,
 } from "@agent-native/core/server";
-import { resolveAccess } from "@agent-native/core/sharing";
+import { assertAccess } from "@agent-native/core/sharing";
 import { getDb, schema } from "../db/index.js";
 import type {
   FormField,
@@ -292,8 +292,10 @@ export const listResponses = defineEventHandler(async (event: H3Event) => {
   return runWithRequestContext(
     { userEmail: session.email, orgId: session.orgId ?? undefined },
     async () => {
-      const access = await resolveAccess("form", id);
-      if (!access) {
+      let access;
+      try {
+        access = await assertAccess("form", id, "editor");
+      } catch {
         setResponseStatus(event, 404);
         return { error: "Form not found" };
       }

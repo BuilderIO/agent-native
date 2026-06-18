@@ -7,6 +7,7 @@ import {
   isPlanModeToolCallAllowed,
   isContextTooLongError,
   isRetryableError,
+  actionsToEngineTools,
   resolveAgentOwnerEmail,
   runAgentLoop,
   shouldGuardRepeatedSourceSweep,
@@ -581,6 +582,97 @@ describe("resolveAgentOwnerEmail", () => {
 });
 
 describe("runAgentLoop", () => {
+  it("expands the provider tool list after tool-search returns matches", async () => {
+    const actions = attachToolSearch({
+      starter: actionEntry({
+        description: "Starter tool",
+        readOnly: true,
+      }),
+      "hidden-tool": {
+        ...actionEntry({
+          description: "Hidden forms sharing tool",
+          readOnly: true,
+        }),
+        run: async () => "hidden ran",
+      },
+    });
+    const allTools = actionsToEngineTools(actions);
+    const initialTools = allTools.filter((tool) =>
+      ["starter", "tool-search"].includes(tool.name),
+    );
+    const seenTools: string[][] = [];
+    let streamCalls = 0;
+
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(opts): AsyncIterable<EngineEvent> {
+        streamCalls += 1;
+        seenTools.push(opts.tools.map((tool) => tool.name));
+        if (streamCalls === 1) {
+          yield {
+            type: "assistant-content",
+            parts: [
+              {
+                type: "tool-call" as const,
+                id: "tool-search-1",
+                name: "tool-search",
+                input: { query: "hidden sharing" },
+              },
+            ],
+          };
+          yield { type: "stop", reason: "tool_use" };
+          return;
+        }
+        if (streamCalls === 2) {
+          yield {
+            type: "assistant-content",
+            parts: [
+              {
+                type: "tool-call" as const,
+                id: "hidden-1",
+                name: "hidden-tool",
+                input: {},
+              },
+            ],
+          };
+          yield { type: "stop", reason: "tool_use" };
+          return;
+        }
+        yield {
+          type: "assistant-content",
+          parts: [{ type: "text" as const, text: "done" }],
+        };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: initialTools,
+      availableTools: allTools,
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions,
+      send: () => {},
+      signal: new AbortController().signal,
+    });
+
+    expect(seenTools[0]).toEqual(["starter", "tool-search"]);
+    expect(seenTools[1]).toContain("hidden-tool");
+    expect(seenTools[2]).toContain("hidden-tool");
+  });
+
   it("passes the central default max output token cap to the engine", async () => {
     let seenMaxOutputTokens: number | undefined;
     const engine: AgentEngine = {
@@ -1084,6 +1176,406 @@ describe("runAgentLoop", () => {
       }),
     );
     expect(events).toContainEqual({ type: "text", text: "reported the gap" });
+  });
+
+  it("redacts sensitive fields in normal action exception tool results", async () => {
+    let streamCalls = 0;
+    const seenMessages: any[] = [];
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(opts): AsyncIterable<EngineEvent> {
+        seenMessages.push(opts.messages);
+        streamCalls += 1;
+        if (streamCalls === 1) {
+          yield {
+            type: "assistant-content",
+            parts: [
+              {
+                type: "tool-call" as const,
+                id: "tool-redact",
+                name: "write-secret",
+                input: { id: "row-1" },
+              },
+            ],
+          };
+          yield { type: "stop", reason: "tool_use" };
+          return;
+        }
+        yield {
+          type: "assistant-content",
+          parts: [{ type: "text", text: "done" }],
+        };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+    const events: any[] = [];
+
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions: {
+        "write-secret": {
+          ...actionEntry({ readOnly: true }),
+          run: async () => {
+            throw new Error("DB failed: token=SENSITIVE_VALUE");
+          },
+        },
+      },
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+    });
+
+    const toolDone = events.find(
+      (event) => event.type === "tool_done" && event.tool === "write-secret",
+    );
+    expect(toolDone?.result).toContain("DB failed");
+    expect(toolDone?.result).toContain("token=[REDACTED]");
+    expect(toolDone?.result).not.toContain("SENSITIVE_VALUE");
+    expect(JSON.stringify(seenMessages.at(-1))).not.toContain(
+      "SENSITIVE_VALUE",
+    );
+  });
+
+  it("redacts AgentActionStopError message and tool result", async () => {
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        yield {
+          type: "assistant-content",
+          parts: [
+            {
+              type: "tool-call" as const,
+              id: "tool-stop-redact",
+              name: "stop-action",
+              input: {},
+            },
+          ],
+        };
+        yield { type: "stop", reason: "tool_use" };
+      },
+    };
+    const events: any[] = [];
+
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions: {
+        "stop-action": {
+          ...actionEntry({ readOnly: true }),
+          run: async () => {
+            throw new AgentActionStopError("Stop: password=SENSITIVE_VALUE", {
+              toolResult: "Tool failed: token=SENSITIVE_VALUE",
+            });
+          },
+        },
+      },
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+    });
+
+    expect(JSON.stringify(events)).not.toContain("SENSITIVE_VALUE");
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "tool_done",
+        result: expect.stringContaining("token=[REDACTED]"),
+      }),
+    );
+    expect(events).toContainEqual({
+      type: "text",
+      text: "Stop: password=[REDACTED]",
+    });
+  });
+
+  it("validates raw JSON Schema parameters before running an action", async () => {
+    let streamCalls = 0;
+    const run = vi.fn(async () => "should not run");
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        streamCalls += 1;
+        if (streamCalls === 1) {
+          yield {
+            type: "assistant-content",
+            parts: [
+              {
+                type: "tool-call" as const,
+                id: "tool-schema",
+                name: "write-sql",
+                input: { sql: "UPDATE notes SET title = ?", statements: "[]" },
+              },
+            ],
+          };
+          yield { type: "stop", reason: "tool_use" };
+          return;
+        }
+        yield {
+          type: "assistant-content",
+          parts: [{ type: "text", text: "done" }],
+        };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+    const events: any[] = [];
+
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions: {
+        "write-sql": {
+          tool: {
+            description: "Write SQL",
+            parameters: {
+              type: "object",
+              properties: {
+                sql: { type: "string" },
+                statements: { type: "string" },
+              },
+              oneOf: [{ required: ["sql"] }, { required: ["statements"] }],
+            },
+          },
+          run,
+        },
+      },
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+    });
+
+    expect(run).not.toHaveBeenCalled();
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "tool_done",
+        tool: "write-sql",
+        result: expect.stringContaining(
+          "must match exactly one schema in oneOf",
+        ),
+      }),
+    );
+  });
+
+  it("rejects null raw JSON Schema parameters instead of validating as an empty object", async () => {
+    const run = vi.fn(async () => "should not run");
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        yield {
+          type: "assistant-content",
+          parts: [
+            {
+              type: "tool-call" as const,
+              id: "tool-schema-null",
+              name: "no-args",
+              input: null,
+            },
+          ],
+        };
+        yield { type: "stop", reason: "tool_use" };
+      },
+    };
+    const events: any[] = [];
+
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions: {
+        "no-args": {
+          tool: {
+            description: "No args",
+            parameters: { type: "object", properties: {} },
+          },
+          run,
+        },
+      },
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+    });
+
+    expect(run).not.toHaveBeenCalled();
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "tool_done",
+        tool: "no-args",
+        result: expect.stringContaining("must be object"),
+      }),
+    );
+  });
+
+  it("stops after repeated identical tool errors", async () => {
+    let streamCalls = 0;
+    const run = vi.fn(async () => {
+      throw new Error("DB failed: token=SENSITIVE_VALUE");
+    });
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        streamCalls += 1;
+        yield {
+          type: "assistant-content",
+          parts: [
+            {
+              type: "tool-call" as const,
+              id: `tool-repeat-${streamCalls}`,
+              name: "flaky-write",
+              input: { id: "row-1" },
+            },
+          ],
+        };
+        yield { type: "stop", reason: "tool_use" };
+      },
+    };
+    const events: any[] = [];
+
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions: {
+        "flaky-write": {
+          ...actionEntry({ readOnly: true }),
+          run,
+        },
+      },
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+    });
+
+    expect(run).toHaveBeenCalledTimes(3);
+    expect(JSON.stringify(events)).not.toContain("SENSITIVE_VALUE");
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "tool_done",
+        tool: "flaky-write",
+        result: expect.stringContaining("Stopped after 3 identical errors"),
+      }),
+    );
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "text",
+        text: expect.stringContaining("failed 3 times"),
+      }),
+    );
+  });
+
+  it("stops after repeated identical unknown-tool errors", async () => {
+    let streamCalls = 0;
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        streamCalls += 1;
+        yield {
+          type: "assistant-content",
+          parts: [
+            {
+              type: "tool-call" as const,
+              id: `tool-unknown-${streamCalls}`,
+              name: "missing-tool",
+              input: { id: "row-1" },
+            },
+          ],
+        };
+        yield { type: "stop", reason: "tool_use" };
+      },
+    };
+    const events: any[] = [];
+
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions: {},
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+    });
+
+    expect(streamCalls).toBe(3);
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "tool_done",
+        tool: "missing-tool",
+        result: expect.stringContaining("Stopped after 3 identical errors"),
+      }),
+    );
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "text",
+        text: expect.stringContaining("failed 3 times"),
+      }),
+    );
   });
 
   it("detects repeated read-only source sweeps but ignores ordinary helpers", () => {

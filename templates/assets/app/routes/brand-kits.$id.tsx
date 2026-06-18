@@ -2,6 +2,7 @@ import { Link, useNavigate, useParams, useSearchParams } from "react-router";
 import {
   type Dispatch,
   type DragEvent,
+  type ReactNode,
   type SetStateAction,
   useEffect,
   useRef,
@@ -22,10 +23,13 @@ import {
   useActionQuery,
 } from "@agent-native/core/client";
 import {
+  IconCopy,
   IconDotsVertical,
   IconArchive,
   IconFolder,
   IconFolderPlus,
+  IconLayoutBottombar,
+  IconLayoutGrid,
   IconMessageCircle,
   IconPencil,
   IconPhoto,
@@ -93,6 +97,12 @@ import {
 import { Separator } from "@/components/ui/separator";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Spinner } from "@/components/ui/spinner";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { EditLibraryDialog } from "@/components/library/EditLibraryDialog";
 import { assetMediaUrl } from "@/lib/asset-urls";
 import { assetPreviewSources } from "@/lib/asset-preview-sources";
@@ -108,6 +118,7 @@ import {
   VIDEO_RESOLUTIONS,
   type AspectRatio,
   type ImageCategory,
+  type ImageRole,
 } from "../../shared/api";
 
 function candidateSaveKey(slot: any): string {
@@ -116,6 +127,19 @@ function candidateSaveKey(slot: any): string {
   }
   if (typeof slot?.slotId === "string" && slot.slotId) {
     return `slot:${slot.slotId}`;
+  }
+  return "";
+}
+
+function referencePromotionKey(asset: any, slot?: any): string {
+  if (typeof slot?.slotId === "string" && slot.slotId) {
+    return `slot:${slot.slotId}`;
+  }
+  if (typeof asset?.id === "string" && asset.id) {
+    return `asset:${asset.id}`;
+  }
+  if (typeof slot?.assetId === "string" && slot.assetId) {
+    return `asset:${slot.assetId}`;
   }
   return "";
 }
@@ -148,6 +172,57 @@ function markLibraryAssetSavedInCache(
           ...savedAssetRecord,
           status: "saved",
           metadata: { ...currentMetadata, ...savedMetadata },
+        };
+      });
+      return changed ? { ...current, assets } : current;
+    },
+  );
+}
+
+function markLibraryAssetReferenceInCache(
+  queryClient: QueryClient,
+  libraryId: string,
+  assetId: string,
+  role: ImageRole,
+) {
+  queryClient.setQueryData(
+    ["action", "get-library", { id: libraryId }],
+    (current: any) => {
+      if (!current || !Array.isArray(current.assets)) return current;
+      let changed = false;
+      const assets = current.assets.map((asset: any) => {
+        if (asset.id !== assetId) return asset;
+        changed = true;
+        return {
+          ...asset,
+          status: "reference",
+          role,
+          updatedAt: new Date().toISOString(),
+        };
+      });
+      return changed ? { ...current, assets } : current;
+    },
+  );
+}
+
+function markLibraryAssetSavedStatusInCache(
+  queryClient: QueryClient,
+  libraryId: string,
+  assetId: string,
+) {
+  queryClient.setQueryData(
+    ["action", "get-library", { id: libraryId }],
+    (current: any) => {
+      if (!current || !Array.isArray(current.assets)) return current;
+      let changed = false;
+      const assets = current.assets.map((asset: any) => {
+        if (asset.id !== assetId) return asset;
+        changed = true;
+        return {
+          ...asset,
+          status: "saved",
+          role: "generated",
+          updatedAt: new Date().toISOString(),
         };
       });
       return changed ? { ...current, assets } : current;
@@ -241,6 +316,17 @@ function paletteDraftFromColors(colors: unknown): string {
     : "";
 }
 
+function referenceRoleForAsset(asset: any): ImageRole {
+  if (asset?.mediaType === "video" || asset?.mimeType?.startsWith("video/")) {
+    return "video_reference";
+  }
+  const category = asset?.metadata?.category;
+  if (category === "logo") return "logo_reference";
+  if (category === "product") return "product_reference";
+  if (category === "diagram") return "diagram_reference";
+  return "style_reference";
+}
+
 function parsePaletteDraft(value: string): string[] {
   const seen = new Set<string>();
   const colors: string[] = [];
@@ -275,7 +361,9 @@ export default function LibraryPage() {
   const { data } = useActionQuery("get-library", { id: libraryId }) as any;
   const updateLibrary = useActionMutation("update-library");
   const archiveLibrary = useActionMutation("archive-library");
+  const duplicateLibrary = useActionMutation("duplicate-library");
   const saveGenerated = useActionMutation("save-generated-image");
+  const updateAsset = useActionMutation("update-asset");
   const rerunGeneration = useActionMutation("rerun-generation-run");
   const refreshGeneration = useActionMutation("refresh-generation-run");
   const createSession = useActionMutation("create-generation-session");
@@ -300,6 +388,8 @@ export default function LibraryPage() {
   const [activeTab, setActiveTab] = useState<LibraryTab>(
     () => urlTab ?? "references",
   );
+  const [assetViewMode, setAssetViewMode] = useState<AssetViewMode>("lanes");
+  const [assetScope, setAssetScope] = useState<AssetLibraryScope>("all");
   const [selectedAssetIds, setSelectedAssetIds] = useState<Set<string>>(
     () => new Set(),
   );
@@ -310,6 +400,9 @@ export default function LibraryPage() {
   const [savingCandidateKeys, setSavingCandidateKeys] = useState<Set<string>>(
     () => new Set(),
   );
+  const [promotingReferenceKeys, setPromotingReferenceKeys] = useState<
+    Set<string>
+  >(() => new Set());
   const [mediaFilter, setMediaFilter] = useState<"all" | "image" | "video">(
     "all",
   );
@@ -328,32 +421,17 @@ export default function LibraryPage() {
     setActiveTab((current) => (current === urlTab ? current : urlTab));
   }, [urlTab]);
 
-  useEffect(() => {
-    fetch(agentNativePath("/_agent-native/application-state/navigation"), {
-      method: "PUT",
-      headers: {
-        "content-type": "application/json",
-        "x-request-source": "assets-library-ui",
-      },
-      body: JSON.stringify({
-        view: "library",
-        libraryId,
-        activeTab,
-        selectedAssetIds: Array.from(selectedAssetIds),
-      }),
-    }).catch(() => {});
-  }, [activeTab, libraryId, selectedAssetIds]);
-
   const library = data?.library;
   const folders = (data?.folders ?? []) as any[];
   const generationPresets = ((presetData as any)?.presets ?? []) as any[];
   const generationSessions = ((sessionData as any)?.sessions ?? []) as any[];
   const serverAssets = (data?.assets ?? []) as any[];
-  const savedCandidateAssetIds = new Set(
+  const finishedVariantAssetIds = new Set(
     serverAssets
       .filter(
         (asset) =>
-          asset.status === "saved" || optimisticallySavedAssetIds.has(asset.id),
+          asset.status !== "candidate" ||
+          optimisticallySavedAssetIds.has(asset.id),
       )
       .map((asset) => asset.id),
   );
@@ -364,7 +442,11 @@ export default function LibraryPage() {
         : asset,
     )
     .filter((asset) => !optimisticallyDeletedAssetIds.has(asset.id));
-  const visibleAssets = assets.filter((asset) => {
+  const candidateAssets = assets.filter(
+    (asset) => asset.role === "generated" && asset.status === "candidate",
+  );
+  const libraryAssets = assets.filter((asset) => asset.status !== "candidate");
+  const visibleAssets = libraryAssets.filter((asset) => {
     if (activeFolderId !== "all") {
       if (activeFolderId === null && asset.folderId) return false;
       if (activeFolderId && asset.folderId !== activeFolderId) return false;
@@ -396,10 +478,13 @@ export default function LibraryPage() {
   const references = visibleAssets.filter(
     (asset) => asset.status === "reference" && !isContentOnlyReference(asset),
   );
-  const generated = visibleAssets.filter((asset) => asset.role === "generated");
-  const saved = generated.filter((asset) => asset.status === "saved");
-  const candidates = generated.filter((asset) => asset.status === "candidate");
-  const unfiledCount = assets.filter((asset) => !asset.folderId).length;
+  const saved = visibleAssets.filter((asset) => asset.status === "saved");
+  const libraryBoardAssets = visibleAssets.filter(
+    (asset) =>
+      asset.status === "saved" ||
+      (asset.status === "reference" && !isContentOnlyReference(asset)),
+  );
+  const unfiledCount = libraryAssets.filter((asset) => !asset.folderId).length;
   const customInstructions = getLibraryCustomInstructions(library);
   const libraryStyleDescription = library?.styleBrief?.description ?? "";
   const libraryPaletteDraft = paletteDraftFromColors(
@@ -429,7 +514,7 @@ export default function LibraryPage() {
       ? (variants.slots ?? [])
           .filter(
             (slot: any) =>
-              !slot.assetId || !savedCandidateAssetIds.has(slot.assetId),
+              !slot.assetId || !finishedVariantAssetIds.has(slot.assetId),
           )
           .sort(compareVariantSlotsNewestFirst)
       : [];
@@ -513,6 +598,18 @@ export default function LibraryPage() {
     });
   }
 
+  function setReferencePromoting(key: string, promoting: boolean) {
+    setPromotingReferenceKeys((current) => {
+      const next = new Set(current);
+      if (promoting) {
+        next.add(key);
+      } else {
+        next.delete(key);
+      }
+      return next.size === current.size ? current : next;
+    });
+  }
+
   async function handleSaveCandidate(slot: any) {
     const key = candidateSaveKey(slot);
     if (!key || savingCandidateKeys.has(key)) return;
@@ -522,6 +619,7 @@ export default function LibraryPage() {
       const savedAsset = await saveGenerated.mutateAsync({
         ...(slot.assetId ? { assetId: slot.assetId } : {}),
         ...(slot.slotId ? { slotId: slot.slotId } : {}),
+        ...(slot.folderId !== undefined ? { folderId: slot.folderId } : {}),
       });
       const savedAssetId =
         typeof (savedAsset as any)?.id === "string"
@@ -556,13 +654,76 @@ export default function LibraryPage() {
     }
   }
 
+  async function handleMoveToReferences(asset: any, slot?: any) {
+    const key = referencePromotionKey(asset, slot);
+    if (!asset?.id || !key || promotingReferenceKeys.has(key)) return;
+    const role = referenceRoleForAsset(asset);
+    setReferencePromoting(key, true);
+    try {
+      await updateAsset.mutateAsync({
+        id: asset.id,
+        status: "reference",
+        role,
+      });
+      markLibraryAssetReferenceInCache(queryClient, libraryId, asset.id, role);
+      updateVariantSlotsInCache(
+        queryClient,
+        (candidate) =>
+          candidate.assetId === asset.id ||
+          (!!slot?.slotId && candidate.slotId === slot.slotId),
+      );
+      void queryClient.invalidateQueries({
+        queryKey: ["action", "get-library", { id: libraryId }],
+        refetchType: "active",
+      });
+      void queryClient.invalidateQueries({
+        queryKey: ["app-state", "asset-variants"],
+        refetchType: "active",
+      });
+      toast.success("Added to References.");
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Could not add asset to References.",
+      );
+    } finally {
+      setReferencePromoting(key, false);
+    }
+  }
+
+  async function handleRemoveFromReferences(asset: any) {
+    const key = referencePromotionKey(asset);
+    if (!asset?.id || !key || promotingReferenceKeys.has(key)) return;
+    setReferencePromoting(key, true);
+    try {
+      await updateAsset.mutateAsync({
+        id: asset.id,
+        status: "saved",
+        role: "generated",
+      });
+      markLibraryAssetSavedStatusInCache(queryClient, libraryId, asset.id);
+      void queryClient.invalidateQueries({
+        queryKey: ["action", "get-library", { id: libraryId }],
+        refetchType: "active",
+      });
+      toast.success("Removed from References.");
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Could not remove asset from References.",
+      );
+    } finally {
+      setReferencePromoting(key, false);
+    }
+  }
+
   useEffect(() => {
     const selectableAssets =
-      activeTab === "references"
-        ? references
-        : activeTab === "generated"
-          ? [...candidates, ...saved]
-          : [];
+      activeTab === "runs" || activeTab === "settings"
+        ? []
+        : libraryBoardAssets;
     const selectableIds = new Set(selectableAssets.map((asset) => asset.id));
     setSelectedAssetIds((current) => {
       const next = new Set(
@@ -570,7 +731,7 @@ export default function LibraryPage() {
       );
       return next.size === current.size ? current : next;
     });
-  }, [activeTab, references, candidates, saved]);
+  }, [activeTab, libraryBoardAssets]);
 
   useEffect(() => {
     fetch(agentNativePath("/_agent-native/application-state/navigation"), {
@@ -583,6 +744,8 @@ export default function LibraryPage() {
         view: "library",
         libraryId,
         activeTab,
+        assetViewMode,
+        assetScope,
         folderId: activeFolderId,
         mediaFilter,
         search,
@@ -592,6 +755,8 @@ export default function LibraryPage() {
   }, [
     activeFolderId,
     activeTab,
+    assetScope,
+    assetViewMode,
     libraryId,
     mediaFilter,
     search,
@@ -794,6 +959,23 @@ export default function LibraryPage() {
     }
   }
 
+  async function duplicateCurrentLibrary() {
+    if (!library || duplicateLibrary.isPending) return;
+    try {
+      const copy = (await duplicateLibrary.mutateAsync({
+        id: library.id,
+      })) as any;
+      toast.success("Private brand kit copy created");
+      navigate(`/brand-kits/${copy.id}`);
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Could not duplicate brand kit.",
+      );
+    }
+  }
+
   function generate(prompt: string, options: GenerateOptions) {
     const selectedPreset = options.presetId
       ? generationPresets.find((preset) => preset.id === options.presetId)
@@ -904,6 +1086,10 @@ export default function LibraryPage() {
     );
   }
   const assetById = new Map(assets.map((asset) => [asset.id, asset]));
+  const activeSurfaceTab =
+    activeTab === "runs" || activeTab === "settings" ? activeTab : "assets";
+  const hideEmptyLanes =
+    activeFolderId !== "all" || mediaFilter !== "all" || search.trim() !== "";
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -970,7 +1156,9 @@ export default function LibraryPage() {
                   variant="outline"
                   size="icon"
                   aria-label="Brand kit actions"
-                  disabled={archiveLibrary.isPending}
+                  disabled={
+                    archiveLibrary.isPending || duplicateLibrary.isPending
+                  }
                 >
                   <IconDotsVertical className="h-4 w-4" />
                 </Button>
@@ -987,6 +1175,17 @@ export default function LibraryPage() {
                   New folder
                 </DropdownMenuItem>
                 <DropdownMenuSeparator className="xl:hidden" />
+                <DropdownMenuItem
+                  disabled={duplicateLibrary.isPending}
+                  onSelect={(event) => {
+                    event.preventDefault();
+                    void duplicateCurrentLibrary();
+                  }}
+                >
+                  <IconCopy className="mr-2 h-4 w-4 shrink-0" />
+                  {duplicateLibrary.isPending ? "Duplicating..." : "Duplicate"}
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
                 <DropdownMenuItem
                   onSelect={(event) => {
                     event.preventDefault();
@@ -1089,140 +1288,118 @@ export default function LibraryPage() {
             </span>
           </div>
         )}
-        <section className="mb-5 space-y-3">
-          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-            <div className="flex min-w-0 flex-wrap items-center gap-2">
-              <FolderChip
-                active={activeFolderId === "all"}
-                label="All assets"
-                count={assets.length}
-                onClick={() => setActiveFolderId("all")}
-              />
-              <FolderChip
-                active={activeFolderId === null}
-                label="Unfiled"
-                count={unfiledCount}
-                onClick={() => setActiveFolderId(null)}
-              />
-              {folders.map((folder) => (
-                <FolderChip
-                  key={folder.id}
-                  active={activeFolderId === folder.id}
-                  label={folder.title}
-                  count={
-                    assets.filter((asset) => asset.folderId === folder.id)
-                      .length
-                  }
-                  onClick={() => setActiveFolderId(folder.id)}
-                />
-              ))}
-            </div>
-            <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-              <div className="relative">
-                <IconSearch className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                <Input
-                  value={search}
-                  onChange={(event) => setSearch(event.target.value)}
-                  placeholder="Search assets"
-                  className="h-9 w-full pl-8 pr-8 sm:w-64"
-                />
-                {search && (
-                  <button
-                    type="button"
-                    aria-label="Clear search"
-                    className="absolute right-2 top-1/2 flex h-5 w-5 -translate-y-1/2 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground"
-                    onClick={() => setSearch("")}
-                  >
-                    <IconX className="h-3.5 w-3.5" />
-                  </button>
-                )}
-              </div>
-              <Select
-                value={mediaFilter}
-                onValueChange={(value) =>
-                  setMediaFilter(value as "all" | "image" | "video")
-                }
-              >
-                <SelectTrigger className="h-9 w-full sm:w-32">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All media</SelectItem>
-                  <SelectItem value="image">Images</SelectItem>
-                  <SelectItem value="video">Videos</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-        </section>
-
-        {pendingVariants.length > 0 && (
-          <section className="mb-6 rounded-lg border border-border bg-card p-4">
-            <div className="mb-3 flex items-center justify-between gap-3">
-              <div className="min-w-0">
-                <h3 className="text-sm font-semibold">Live candidates</h3>
-                <p className="text-xs text-muted-foreground">
-                  These slots are written by the agent while generation runs.
-                </p>
-              </div>
-              <LiveCandidatesActions
-                slots={pendingVariants}
-                libraryId={libraryId}
-              />
-            </div>
-            <div className="max-h-[420px] overflow-y-auto pr-1">
-              <div className="grid grid-cols-1 gap-3 md:grid-cols-3 xl:grid-cols-4">
-                {pendingVariants.map((slot: any) => (
-                  <VariantCard
-                    key={slot.slotId}
-                    slot={slot}
-                    libraryId={libraryId}
-                    saving={savingCandidateKeys.has(candidateSaveKey(slot))}
-                    onSave={() => {
-                      void handleSaveCandidate(slot);
-                    }}
-                  />
-                ))}
-              </div>
-            </div>
-          </section>
-        )}
-
         <Tabs
-          value={activeTab}
-          onValueChange={(value) => setActiveTab(value as LibraryTab)}
+          value={activeSurfaceTab}
+          onValueChange={(value) =>
+            setActiveTab(
+              value === "assets" ? "references" : (value as LibraryTab),
+            )
+          }
           className="space-y-4"
         >
           <TabsList>
-            <TabsTrigger value="references">References</TabsTrigger>
-            <TabsTrigger value="generated">Generated</TabsTrigger>
+            <TabsTrigger value="assets">Assets</TabsTrigger>
             <TabsTrigger value="runs">Runs</TabsTrigger>
             <TabsTrigger value="settings">Settings</TabsTrigger>
           </TabsList>
 
-          <TabsContent value="references">
-            <AssetGrid
-              assets={references}
+          <TabsContent value="assets" className="space-y-5">
+            <CandidateStage
+              candidates={candidateAssets}
+              pendingVariants={pendingVariants}
+              libraryId={libraryId}
               folders={folders}
-              pendingUploads={pendingVisibleUploads}
-              emptyTitle="Upload reference assets"
-              emptyBody="Add images, clips, product shots, logos, and style references so the agent can match your brand."
-              onEmptyClick={() => fileInputRef.current?.click()}
-              onDrop={(files) => void upload(files)}
-              selectedIds={selectedAssetIds}
-              onSelectedIdsChange={setSelectedAssetIds}
-              onOptimisticDelete={markAssetsOptimisticallyDeleted}
-              onRestoreOptimisticDelete={restoreOptimisticallyDeletedAssets}
+              savingCandidateKeys={savingCandidateKeys}
+              onSaveCandidate={(slot) => {
+                void handleSaveCandidate(slot);
+              }}
             />
-          </TabsContent>
-
-          <TabsContent value="generated">
-            <AssetGrid
-              assets={[...candidates, ...saved]}
+            <section className="space-y-3">
+              <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                <div className="flex min-w-0 flex-wrap items-center gap-2">
+                  <FolderChip
+                    active={activeFolderId === "all"}
+                    label="All assets"
+                    count={libraryAssets.length}
+                    onClick={() => setActiveFolderId("all")}
+                  />
+                  <FolderChip
+                    active={activeFolderId === null}
+                    label="Unfiled"
+                    count={unfiledCount}
+                    onClick={() => setActiveFolderId(null)}
+                  />
+                  {folders.map((folder) => (
+                    <FolderChip
+                      key={folder.id}
+                      active={activeFolderId === folder.id}
+                      label={folder.title}
+                      count={
+                        libraryAssets.filter(
+                          (asset) => asset.folderId === folder.id,
+                        ).length
+                      }
+                      onClick={() => setActiveFolderId(folder.id)}
+                    />
+                  ))}
+                </div>
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                  <div className="relative">
+                    <IconSearch className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                    <Input
+                      value={search}
+                      onChange={(event) => setSearch(event.target.value)}
+                      placeholder="Search assets"
+                      className="h-9 w-full pl-8 pr-8 sm:w-64"
+                    />
+                    {search && (
+                      <button
+                        type="button"
+                        aria-label="Clear search"
+                        className="absolute right-2 top-1/2 flex h-5 w-5 -translate-y-1/2 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground"
+                        onClick={() => setSearch("")}
+                      >
+                        <IconX className="h-3.5 w-3.5" />
+                      </button>
+                    )}
+                  </div>
+                  <Select
+                    value={mediaFilter}
+                    onValueChange={(value) =>
+                      setMediaFilter(value as "all" | "image" | "video")
+                    }
+                  >
+                    <SelectTrigger className="h-9 w-full sm:w-32">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All media</SelectItem>
+                      <SelectItem value="image">Images</SelectItem>
+                      <SelectItem value="video">Videos</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+            </section>
+            <AssetSwimlaneBoard
+              libraryId={libraryId}
+              viewMode={assetViewMode}
+              onViewModeChange={setAssetViewMode}
+              scope={assetScope}
+              onScopeChange={setAssetScope}
+              hideEmptyLanes={hideEmptyLanes}
+              assets={libraryBoardAssets}
+              pendingUploads={pendingVisibleUploads}
               folders={folders}
-              emptyTitle="Generate your first assets"
-              emptyBody="Use the chat-driven generate flow to create image or video candidates, then save the ones that work."
-              onEmptyClick={() => setGenerateOpen(true)}
+              promotingReferenceKeys={promotingReferenceKeys}
+              onUploadClick={() => fileInputRef.current?.click()}
+              onDrop={(files) => void upload(files)}
+              onMoveToReferences={(asset, slot) => {
+                void handleMoveToReferences(asset, slot);
+              }}
+              onRemoveFromReferences={(asset) => {
+                void handleRemoveFromReferences(asset);
+              }}
               selectedIds={selectedAssetIds}
               onSelectedIdsChange={setSelectedAssetIds}
               onOptimisticDelete={markAssetsOptimisticallyDeleted}
@@ -1414,6 +1591,26 @@ type PendingUpload = {
 };
 
 type LibraryTab = "references" | "generated" | "runs" | "settings";
+type AssetViewMode = "lanes" | "cards";
+type AssetLibraryScope = "all" | "references";
+
+type LaneGalleryItem = {
+  id: string;
+  title: string;
+  subtitle?: string | null;
+  metadata?: string | null;
+  status?: string | null;
+  mediaType?: "image" | "video";
+  href?: string;
+  selected?: boolean;
+  busy?: boolean;
+  deleting?: boolean;
+  preview: ReactNode;
+  thumbnail: ReactNode;
+  menu?: ReactNode;
+  primaryActions?: ReactNode;
+  onToggle?: (checked: boolean) => void;
+};
 
 function RunCard({
   run,
@@ -2248,36 +2445,13 @@ function FolderChip({
   );
 }
 
-function PendingUploadCard({ upload }: { upload: PendingUpload }) {
-  const isChecking = upload.status === "checking";
-  return (
-    <div className="overflow-hidden rounded-lg border border-dashed border-border bg-card">
-      <div className="flex aspect-[4/3] items-center justify-center bg-muted/30">
-        <div className="flex flex-col items-center gap-2 text-muted-foreground">
-          <Spinner className="h-5 w-5" />
-          <span className="text-xs font-medium">
-            {isChecking ? "Checking upload" : "Uploading"}
-          </span>
-        </div>
-      </div>
-      <div className="space-y-2 p-3">
-        <div className="flex items-center gap-2 truncate text-xs font-medium">
-          {upload.mediaType === "video" ? (
-            <IconVideo className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-          ) : (
-            <IconPhoto className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-          )}
-          <span className="truncate">{upload.name}</span>
-        </div>
-        <Badge variant="outline">
-          {isChecking ? "verifying" : "uploading"}
-        </Badge>
-      </div>
-    </div>
-  );
-}
-
-function AssetPreview({ asset }: { asset: any }) {
+function AssetPreview({
+  asset,
+  fit = "cover",
+}: {
+  asset: any;
+  fit?: "cover" | "contain";
+}) {
   const [sourceIndex, setSourceIndex] = useState(0);
   const [unavailable, setUnavailable] = useState(false);
   const sources = assetPreviewSources(asset, "thumbnail");
@@ -2296,7 +2470,11 @@ function AssetPreview({ asset }: { asset: any }) {
           muted
           playsInline
           preload="metadata"
-          className="h-full w-full object-cover"
+          className={
+            fit === "contain"
+              ? "h-full w-full object-contain"
+              : "h-full w-full object-cover"
+          }
         />
         <div className="absolute bottom-2 left-2 rounded-md bg-background/90 px-2 py-1 text-[11px] font-medium text-foreground shadow-sm">
           Video
@@ -2319,7 +2497,10 @@ function AssetPreview({ asset }: { asset: any }) {
     <img
       src={src}
       alt={asset.altText || asset.title || ""}
-      className="h-full w-full object-cover transition group-hover:scale-[1.02]"
+      className={[
+        "h-full w-full transition group-hover:scale-[1.02]",
+        fit === "contain" ? "object-contain" : "object-cover",
+      ].join(" ")}
       onError={() => {
         const nextIndex = sourceIndex + 1;
         if (nextIndex < sources.length) {
@@ -2332,94 +2513,648 @@ function AssetPreview({ asset }: { asset: any }) {
   );
 }
 
-function CreateFolderDialog({
-  open,
-  onOpenChange,
-  onSubmit,
-  pending,
+function CandidateStage({
+  candidates,
+  pendingVariants,
+  libraryId,
+  folders,
+  savingCandidateKeys,
+  onSaveCandidate,
 }: {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  onSubmit: (title: string) => void | Promise<void>;
-  pending?: boolean;
+  candidates: any[];
+  pendingVariants: any[];
+  libraryId: string;
+  folders: any[];
+  savingCandidateKeys: Set<string>;
+  onSaveCandidate: (slot: any) => void;
 }) {
-  const [title, setTitle] = useState("");
-  async function submit() {
-    const trimmed = title.trim();
-    if (!trimmed || pending) return;
+  const dismissSlot = useActionMutation("dismiss-variant-slots");
+  const deleteAsset = useActionMutation("delete-asset");
+  const queryClient = useQueryClient();
+  const [dismissTarget, setDismissTarget] = useState<{
+    kind: "slot" | "asset";
+    title: string;
+    slot?: any;
+    asset?: any;
+  } | null>(null);
+  const dismissing = dismissSlot.isPending || deleteAsset.isPending;
+
+  async function handleDismissCandidate() {
+    if (!dismissTarget || dismissing) return;
     try {
-      await onSubmit(trimmed);
-      setTitle("");
+      if (dismissTarget.kind === "slot" && dismissTarget.slot) {
+        await dismissSlot.mutateAsync({ slotId: dismissTarget.slot.slotId });
+        removeVariantSlotFromCache(queryClient, dismissTarget.slot);
+        removeAssetsFromLibraryCache(queryClient, libraryId, [
+          dismissTarget.slot.assetId,
+        ]);
+        void queryClient.invalidateQueries({
+          queryKey: ["app-state", "asset-variants"],
+          refetchType: "active",
+        });
+      } else if (dismissTarget.kind === "asset" && dismissTarget.asset?.id) {
+        await deleteAsset.mutateAsync({ id: dismissTarget.asset.id });
+        removeAssetsFromLibraryCache(queryClient, libraryId, [
+          dismissTarget.asset.id,
+        ]);
+      }
+      setDismissTarget(null);
+      toast.success("Dismissed candidate.");
     } catch (error) {
       toast.error(
-        error instanceof Error ? error.message : "Could not create folder",
+        error instanceof Error ? error.message : "Could not dismiss candidate.",
       );
     }
   }
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md">
-        <DialogHeader>
-          <DialogTitle>New folder</DialogTitle>
-          <DialogDescription>
-            Group uploaded and generated assets for a campaign, channel, or
-            reusable collection.
-          </DialogDescription>
-        </DialogHeader>
-        <div className="space-y-2">
-          <Label htmlFor="folder-title">Name</Label>
-          <Input
-            id="folder-title"
-            value={title}
-            onChange={(event) => setTitle(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === "Enter" && title.trim()) {
-                event.preventDefault();
-                void submit();
+
+  function slotItem(slot: any): LaneGalleryItem {
+    const isFailed = slot.status === "failed";
+    const saving = savingCandidateKeys.has(candidateSaveKey(slot));
+    const busy = saving;
+    return {
+      id: `slot:${slot.slotId}`,
+      title: isFailed
+        ? "Failed candidate"
+        : slot.status === "ready"
+          ? "Ready candidate"
+          : "Generating candidate",
+      subtitle: slot.slotId ? shortId(String(slot.slotId)) : "Live slot",
+      metadata: "Candidate",
+      status: slot.status,
+      mediaType: "image",
+      href: slot.assetId ? `/asset/${slot.assetId}` : undefined,
+      busy,
+      preview: <VariantPreview slot={slot} fit="contain" />,
+      thumbnail: <VariantPreview slot={slot} />,
+      menu: (
+        <VariantActionsMenu slot={slot} libraryId={libraryId} busy={busy} />
+      ),
+      primaryActions:
+        slot.status === "ready" ? (
+          <div className="grid grid-cols-2 gap-2">
+            <CandidateSaveMenu
+              libraryId={libraryId}
+              folders={folders}
+              saving={saving}
+              disabled={busy}
+              onSave={(folderId) => onSaveCandidate({ ...slot, folderId })}
+            />
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-8 px-2 text-xs text-destructive hover:bg-destructive/10 hover:text-destructive"
+              onClick={() =>
+                setDismissTarget({
+                  kind: "slot",
+                  title: isFailed ? "Failed candidate" : "Ready candidate",
+                  slot,
+                })
               }
-            }}
-            placeholder="Campaign launch"
-            autoFocus
-          />
-        </div>
-        <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>
-            Cancel
-          </Button>
+              disabled={busy || dismissing}
+            >
+              Dismiss
+            </Button>
+          </div>
+        ) : (
           <Button
-            disabled={!title.trim() || pending}
-            onClick={() => {
-              void submit();
-            }}
+            variant="ghost"
+            size="sm"
+            className="h-8 w-full px-2 text-xs text-destructive hover:bg-destructive/10 hover:text-destructive"
+            onClick={() =>
+              setDismissTarget({
+                kind: "slot",
+                title: isFailed ? "Failed candidate" : "Generating candidate",
+                slot,
+              })
+            }
+            disabled={busy || dismissing}
           >
-            Create
+            Dismiss
           </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+        ),
+    };
+  }
+
+  function candidateItem(asset: any): LaneGalleryItem {
+    const saving = savingCandidateKeys.has(`asset:${asset.id}`);
+    const busy = saving;
+    return {
+      id: `candidate:${asset.id}`,
+      title: assetDisplayTitle(asset),
+      subtitle: assetLineageSourceText(asset) || assetCategoryLabel(asset),
+      metadata:
+        asset.mediaType === "video"
+          ? "Video"
+          : asset.mimeType?.startsWith("image/")
+            ? "Image"
+            : "Candidate",
+      status: "candidate",
+      mediaType: asset.mediaType === "video" ? "video" : "image",
+      href: `/asset/${asset.id}`,
+      busy,
+      preview: <AssetPreview asset={asset} fit="contain" />,
+      thumbnail: <AssetPreview asset={asset} />,
+      primaryActions: (
+        <div className="grid grid-cols-2 gap-2">
+          <CandidateSaveMenu
+            libraryId={libraryId}
+            folders={folders}
+            saving={saving}
+            disabled={busy}
+            onSave={(folderId) =>
+              onSaveCandidate({ assetId: asset.id, folderId })
+            }
+          />
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-8 px-2 text-xs text-destructive hover:bg-destructive/10 hover:text-destructive"
+            onClick={() =>
+              setDismissTarget({
+                kind: "asset",
+                title: assetDisplayTitle(asset),
+                asset,
+              })
+            }
+            disabled={busy || dismissing}
+          >
+            Dismiss
+          </Button>
+        </div>
+      ),
+    };
+  }
+
+  const pendingVariantAssetIds = new Set(
+    pendingVariants
+      .map((slot: any) => slot.assetId)
+      .filter(
+        (assetId: unknown): assetId is string => typeof assetId === "string",
+      ),
+  );
+  const detachedCandidates = candidates.filter(
+    (asset) => !pendingVariantAssetIds.has(asset.id),
+  );
+  const items = [
+    ...pendingVariants.map(slotItem),
+    ...detachedCandidates.map(candidateItem),
+  ];
+  const [activeItemId, setActiveItemId] = useState<string | null>(null);
+  const itemIds = items.map((item) => item.id).join("\n");
+  const activeItem =
+    items.find((item) => item.id === activeItemId) ?? items[0] ?? null;
+
+  useEffect(() => {
+    if (!items.length) {
+      setActiveItemId(null);
+      return;
+    }
+    setActiveItemId((current) =>
+      current && items.some((item) => item.id === current)
+        ? current
+        : items[0].id,
+    );
+  }, [itemIds, items]);
+
+  if (!items.length) return null;
+
+  return (
+    <>
+      <AlertDialog
+        open={dismissTarget !== null}
+        onOpenChange={(open) => {
+          if (!open && !dismissing) setDismissTarget(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Dismiss this candidate?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This removes {dismissTarget?.title ?? "this candidate"} from the
+              candidate stage. Saved library assets stay untouched.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={dismissing}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              disabled={dismissing}
+              onClick={(event) => {
+                event.preventDefault();
+                void handleDismissCandidate();
+              }}
+            >
+              {dismissing ? (
+                <>
+                  <Spinner className="h-4 w-4" />
+                  Dismissing...
+                </>
+              ) : (
+                "Dismiss"
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <section className="overflow-hidden rounded-lg border border-border bg-background">
+        <div className="flex flex-col gap-3 border-b border-border px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2">
+              <h3 className="truncate text-sm font-semibold">Candidates</h3>
+              <Badge variant="outline">{items.length}</Badge>
+            </div>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Generation queue
+            </p>
+          </div>
+          <div className="flex shrink-0 items-center gap-2">
+            <CandidateStageActions
+              slots={pendingVariants}
+              detachedCandidates={detachedCandidates}
+              libraryId={libraryId}
+            />
+          </div>
+        </div>
+        <div className="grid lg:grid-cols-[minmax(0,1fr)_300px]">
+          <div className="min-w-0 bg-muted/10 p-3">
+            <div
+              className={[
+                "group relative overflow-hidden rounded-lg border border-border bg-background",
+                activeItem?.busy ? "opacity-80" : "",
+              ].join(" ")}
+              aria-busy={activeItem?.busy}
+            >
+              <div className="aspect-[16/9] bg-muted/30">
+                {activeItem?.href ? (
+                  <Link to={activeItem.href} className="block h-full w-full">
+                    {activeItem.preview}
+                  </Link>
+                ) : (
+                  activeItem?.preview
+                )}
+              </div>
+              {activeItem?.menu ? (
+                <div className="absolute right-3 top-3 z-10">
+                  {activeItem.menu}
+                </div>
+              ) : null}
+              {activeItem?.busy ? (
+                <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-background/20">
+                  <Spinner className="h-5 w-5" />
+                </div>
+              ) : null}
+            </div>
+            <div className="mt-3 flex gap-2 overflow-x-auto pb-1">
+              {items.map((item) => {
+                const active = item.id === activeItem?.id;
+                return (
+                  <button
+                    key={item.id}
+                    type="button"
+                    onClick={() => setActiveItemId(item.id)}
+                    className={[
+                      "group relative h-16 w-24 shrink-0 overflow-hidden rounded-md border bg-background transition",
+                      active
+                        ? "border-primary ring-2 ring-primary/25"
+                        : "border-border/80 hover:border-foreground/30",
+                    ].join(" ")}
+                    aria-label={`Show ${item.title}`}
+                    aria-pressed={active}
+                  >
+                    {item.thumbnail}
+                    <span className="pointer-events-none absolute inset-x-0 bottom-0 h-6 bg-gradient-to-t from-background/90 to-transparent" />
+                    {item.busy ? (
+                      <span className="absolute right-1.5 top-1.5 rounded-full bg-background/90 p-1 shadow-sm">
+                        <Spinner className="h-3 w-3" />
+                      </span>
+                    ) : null}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+          <aside className="flex min-h-56 flex-col justify-between gap-4 border-t border-border bg-background p-4 lg:border-l lg:border-t-0">
+            <div className="min-w-0 space-y-4">
+              <div className="min-w-0">
+                <div className="truncate text-sm font-medium">
+                  {activeItem?.title}
+                </div>
+                {activeItem?.subtitle ? (
+                  <div className="mt-1 truncate text-xs text-muted-foreground">
+                    {activeItem.subtitle}
+                  </div>
+                ) : null}
+              </div>
+              <div className="grid grid-cols-2 gap-2 text-xs">
+                {activeItem?.status ? (
+                  <div className="rounded-md border border-border bg-muted/20 px-2 py-1.5">
+                    <div className="text-[10px] font-medium uppercase text-muted-foreground">
+                      Status
+                    </div>
+                    <div className="mt-0.5 truncate">{activeItem.status}</div>
+                  </div>
+                ) : null}
+                {activeItem?.metadata ? (
+                  <div className="rounded-md border border-border bg-muted/20 px-2 py-1.5">
+                    <div className="text-[10px] font-medium uppercase text-muted-foreground">
+                      Type
+                    </div>
+                    <div className="mt-0.5 truncate">{activeItem.metadata}</div>
+                  </div>
+                ) : null}
+              </div>
+              {activeItem?.primaryActions ? (
+                <div>{activeItem.primaryActions}</div>
+              ) : null}
+            </div>
+            {activeItem?.href ? (
+              <Button asChild variant="outline" size="sm">
+                <Link to={activeItem.href}>Open</Link>
+              </Button>
+            ) : null}
+          </aside>
+        </div>
+      </section>
+    </>
   );
 }
 
-function AssetGrid({
-  assets,
+function CandidateSaveMenu({
+  libraryId,
   folders,
-  pendingUploads = [],
-  emptyTitle,
-  emptyBody,
-  onEmptyClick,
+  saving,
+  disabled,
+  onSave,
+}: {
+  libraryId: string;
+  folders: any[];
+  saving?: boolean;
+  disabled?: boolean;
+  onSave: (folderId: string | null) => void;
+}) {
+  const createFolder = useActionMutation("create-folder");
+  const queryClient = useQueryClient();
+  const [createOpen, setCreateOpen] = useState(false);
+  const pending = saving || createFolder.isPending;
+
+  return (
+    <>
+      <CreateFolderDialog
+        open={createOpen}
+        onOpenChange={setCreateOpen}
+        onSubmit={async (title) => {
+          const folder = (await createFolder.mutateAsync({
+            libraryId,
+            title,
+            parentId: null,
+          })) as any;
+          void queryClient.invalidateQueries({
+            queryKey: ["action", "get-library", { id: libraryId }],
+            refetchType: "active",
+          });
+          setCreateOpen(false);
+          if (folder?.id) onSave(folder.id);
+        }}
+        pending={createFolder.isPending}
+      />
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button size="sm" className="h-8 px-2 text-xs" disabled={disabled}>
+            {pending ? <Spinner className="h-3.5 w-3.5" /> : "Save to..."}
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="start">
+          <DropdownMenuItem onSelect={() => onSave(null)}>
+            <IconFolder className="mr-2 h-4 w-4 shrink-0" />
+            Unfiled
+          </DropdownMenuItem>
+          {folders.map((folder) => (
+            <DropdownMenuItem
+              key={folder.id}
+              onSelect={() => onSave(folder.id)}
+            >
+              <IconFolder className="mr-2 h-4 w-4 shrink-0" />
+              Folder: {folder.title}
+            </DropdownMenuItem>
+          ))}
+          <DropdownMenuSeparator />
+          <DropdownMenuItem
+            onSelect={(event) => {
+              event.preventDefault();
+              setCreateOpen(true);
+            }}
+          >
+            <IconFolderPlus className="mr-2 h-4 w-4 shrink-0" />
+            New folder...
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </>
+  );
+}
+
+function CandidateStageActions({
+  slots,
+  detachedCandidates,
+  libraryId,
+}: {
+  slots: any[];
+  detachedCandidates: any[];
+  libraryId: string;
+}) {
+  const dismissSlots = useActionMutation("dismiss-variant-slots");
+  const deleteAssets = useActionMutation("delete-assets");
+  const queryClient = useQueryClient();
+  const [pending, setPending] = useState<"failed" | "all" | null>(null);
+  const failedSlots = slots.filter((slot) => slot.status === "failed");
+  const failedCount = failedSlots.length;
+  const detachedCount = detachedCandidates.length;
+  const totalCount = slots.length + detachedCount;
+  const isClearing = dismissSlots.isPending || deleteAssets.isPending;
+  const actionLabel = pending === "failed" ? "Dismiss failed" : "Clear all";
+  const busyLabel = pending === "failed" ? "Dismissing..." : "Clearing...";
+
+  async function handleClear(scope: "failed" | "all") {
+    const slotAssetIds = slots
+      .filter((slot) => scope === "all" || slot.status === "failed")
+      .map((slot) => slot.assetId)
+      .filter(
+        (assetId: unknown): assetId is string => typeof assetId === "string",
+      );
+    const detachedAssetIds =
+      scope === "all" ? detachedCandidates.map((asset) => asset.id) : [];
+    const removedAssetIds = [
+      ...new Set([...slotAssetIds, ...detachedAssetIds]),
+    ];
+
+    if (
+      scope === "all" &&
+      slots.length === 0 &&
+      detachedAssetIds.length === 0
+    ) {
+      setPending(null);
+      return;
+    }
+    if (scope === "failed" && failedCount === 0) {
+      setPending(null);
+      return;
+    }
+
+    try {
+      if (slots.length > 0 && (scope === "all" || failedCount > 0)) {
+        await dismissSlots.mutateAsync({ scope });
+        removeVariantSlotsByScopeFromCache(queryClient, scope);
+      }
+      if (detachedAssetIds.length > 0) {
+        await deleteAssets.mutateAsync({ ids: detachedAssetIds });
+      }
+      if (removedAssetIds.length > 0) {
+        removeAssetsFromLibraryCache(queryClient, libraryId, removedAssetIds);
+      }
+      setPending(null);
+      void queryClient.invalidateQueries({
+        queryKey: ["app-state", "asset-variants"],
+        refetchType: "active",
+      });
+      if (scope === "failed") {
+        toast.success(
+          `Dismissed ${failedCount} failed candidate${failedCount === 1 ? "" : "s"}.`,
+        );
+      } else {
+        toast.success(
+          `Cleared ${totalCount} candidate${totalCount === 1 ? "" : "s"}.`,
+        );
+      }
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "Could not clear candidates.",
+      );
+    }
+  }
+
+  if (totalCount === 0) return null;
+
+  return (
+    <>
+      <AlertDialog
+        open={pending !== null}
+        onOpenChange={(open) => {
+          if (!open && !isClearing) setPending(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {pending === "failed"
+                ? `Dismiss ${failedCount} failed candidate${failedCount === 1 ? "" : "s"}?`
+                : `Clear ${totalCount} candidate${totalCount === 1 ? "" : "s"}?`}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {pending === "failed"
+                ? "Removes failed live slots from the candidate stage. Ready candidates stay."
+                : "Clears the candidate stage and deletes unsaved generated candidates. Saved library assets stay untouched."}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isClearing}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              disabled={isClearing || pending === null}
+              onClick={(event) => {
+                event.preventDefault();
+                if (pending) void handleClear(pending);
+              }}
+            >
+              {isClearing ? (
+                <>
+                  <Spinner className="h-4 w-4" />
+                  {busyLabel}
+                </>
+              ) : (
+                actionLabel
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="gap-2"
+            aria-label="Candidate actions"
+            disabled={isClearing}
+          >
+            <IconDotsVertical className="h-4 w-4" />
+            Clear
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end">
+          <DropdownMenuItem
+            disabled={failedCount === 0 || isClearing}
+            onSelect={(event) => {
+              event.preventDefault();
+              setPending("failed");
+            }}
+          >
+            <IconTrash className="mr-2 h-4 w-4 shrink-0" />
+            Dismiss failed ({failedCount})
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            className="text-destructive focus:bg-destructive/10 focus:text-destructive"
+            disabled={isClearing}
+            onSelect={(event) => {
+              event.preventDefault();
+              setPending("all");
+            }}
+          >
+            <IconTrash className="mr-2 h-4 w-4 shrink-0" />
+            Clear all
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </>
+  );
+}
+
+function AssetSwimlaneBoard({
+  libraryId,
+  viewMode,
+  onViewModeChange,
+  scope,
+  onScopeChange,
+  hideEmptyLanes,
+  assets,
+  pendingUploads,
+  folders,
+  promotingReferenceKeys,
+  onUploadClick,
   onDrop,
+  onMoveToReferences,
+  onRemoveFromReferences,
   selectedIds,
   onSelectedIdsChange,
   onOptimisticDelete,
   onRestoreOptimisticDelete,
 }: {
+  libraryId: string;
+  viewMode: AssetViewMode;
+  onViewModeChange: (mode: AssetViewMode) => void;
+  scope: AssetLibraryScope;
+  onScopeChange: (scope: AssetLibraryScope) => void;
+  hideEmptyLanes: boolean;
   assets: any[];
+  pendingUploads: PendingUpload[];
   folders: any[];
-  pendingUploads?: PendingUpload[];
-  emptyTitle: string;
-  emptyBody: string;
-  onEmptyClick: () => void;
-  onDrop?: (files: FileList) => void;
+  promotingReferenceKeys: Set<string>;
+  onUploadClick: () => void;
+  onDrop: (files: FileList) => void;
+  onMoveToReferences: (asset: any, slot?: any) => void;
+  onRemoveFromReferences: (asset: any) => void;
   selectedIds: Set<string>;
   onSelectedIdsChange: Dispatch<SetStateAction<Set<string>>>;
   onOptimisticDelete?: (ids: string[]) => void;
@@ -2428,14 +3163,38 @@ function AssetGrid({
   const deleteAsset = useActionMutation("delete-asset");
   const deleteAssets = useActionMutation("delete-assets");
   const updateAsset = useActionMutation("update-asset");
+  const queryClient = useQueryClient();
   const [confirmDeleteIds, setConfirmDeleteIds] = useState<string[]>([]);
   const [deletingIds, setDeletingIds] = useState<Set<string>>(() => new Set());
-  const selectedAssets = assets.filter((asset) => selectedIds.has(asset.id));
+  const [bulkReferenceAction, setBulkReferenceAction] = useState<
+    "add" | "remove" | null
+  >(null);
+  const visiblePendingUploads = scope === "all" ? pendingUploads : [];
+  const referenceAssets = assets.filter(
+    (asset) => asset.status === "reference",
+  );
+  const savedAssets = assets.filter((asset) => asset.status === "saved");
+  const visibleLibraryAssets =
+    scope === "references" ? referenceAssets : assets;
+  const boardAssets = visibleLibraryAssets;
+  const selectedAssets = boardAssets.filter((asset) =>
+    selectedIds.has(asset.id),
+  );
+  const selectedReferenceAssets = selectedAssets.filter(
+    (asset) => asset.status === "reference",
+  );
+  const selectedSavedAssets = selectedAssets.filter(
+    (asset) => asset.status === "saved",
+  );
   const selectedCount = selectedAssets.length;
-  const allSelected = assets.length > 0 && selectedCount === assets.length;
+  const allSelected =
+    boardAssets.length > 0 && selectedCount === boardAssets.length;
   const pendingDeleteCount = deletingIds.size;
   const deleting =
     deleteAsset.isPending || deleteAssets.isPending || pendingDeleteCount > 0;
+  const changingReference = bulkReferenceAction !== null;
+  const hasAnyBoardItem =
+    assets.length > 0 || pendingUploads.length > 0 || pendingDeleteCount > 0;
 
   function toggleAsset(assetId: string, checked: boolean) {
     onSelectedIdsChange((current) => {
@@ -2451,7 +3210,7 @@ function AssetGrid({
 
   function toggleAll(checked: boolean) {
     onSelectedIdsChange(
-      checked ? new Set(assets.map((asset) => asset.id)) : new Set(),
+      checked ? new Set(boardAssets.map((asset) => asset.id)) : new Set(),
     );
   }
 
@@ -2522,8 +3281,7 @@ function AssetGrid({
       {
         onSuccess: (result: any) => {
           finishDeleting(ids);
-          const deletedIds = new Set(ids);
-          const count = Number(result?.deletedCount ?? deletedIds.size);
+          const count = Number(result?.deletedCount ?? ids.length);
           toast.success(`Deleted ${count} asset${count === 1 ? "" : "s"}.`);
         },
         onError: (error) => {
@@ -2534,26 +3292,255 @@ function AssetGrid({
     );
   }
 
-  if (!assets.length && !pendingUploads.length && pendingDeleteCount === 0) {
+  async function setAssetsReferenceState(assetList: any[], enabled: boolean) {
+    if (!assetList.length || changingReference) return;
+    const action = enabled ? "add" : "remove";
+    setBulkReferenceAction(action);
+    try {
+      await Promise.all(
+        assetList.map((asset) =>
+          updateAsset.mutateAsync(
+            enabled
+              ? {
+                  id: asset.id,
+                  status: "reference",
+                  role: referenceRoleForAsset(asset),
+                }
+              : {
+                  id: asset.id,
+                  status: "saved",
+                  role: "generated",
+                },
+          ),
+        ),
+      );
+      for (const asset of assetList) {
+        if (enabled) {
+          markLibraryAssetReferenceInCache(
+            queryClient,
+            libraryId,
+            asset.id,
+            referenceRoleForAsset(asset),
+          );
+        } else {
+          markLibraryAssetSavedStatusInCache(queryClient, libraryId, asset.id);
+        }
+      }
+      void queryClient.invalidateQueries({
+        queryKey: ["action", "get-library", { id: libraryId }],
+        refetchType: "active",
+      });
+      if (!enabled && scope === "references") {
+        const changedIds = new Set(assetList.map((asset) => asset.id));
+        onSelectedIdsChange((current) => {
+          const next = new Set(
+            [...current].filter((assetId) => !changedIds.has(assetId)),
+          );
+          return next.size === current.size ? current : next;
+        });
+      }
+      toast.success(
+        enabled
+          ? `Added ${assetList.length} asset${assetList.length === 1 ? "" : "s"} to References.`
+          : `Removed ${assetList.length} asset${assetList.length === 1 ? "" : "s"} from References.`,
+      );
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : enabled
+            ? "Could not add selected assets to References."
+            : "Could not remove selected assets from References.",
+      );
+      return;
+    } finally {
+      setBulkReferenceAction(null);
+    }
+  }
+
+  function uploadGalleryItem(upload: PendingUpload): LaneGalleryItem {
+    const isChecking = upload.status === "checking";
+    return {
+      id: `upload:${upload.id}`,
+      title: upload.name,
+      subtitle: isChecking ? "Checking upload" : "Uploading",
+      status: isChecking ? "Checking" : "Uploading",
+      mediaType: upload.mediaType,
+      busy: true,
+      preview: <PendingUploadPreview upload={upload} fit="contain" />,
+      thumbnail: <PendingUploadPreview upload={upload} />,
+    };
+  }
+
+  function assetGalleryItem({
+    asset,
+    saving = false,
+    promoting = false,
+    onSave,
+    onMoveToReferences,
+    onRemoveFromReferences,
+  }: {
+    asset: any;
+    saving?: boolean;
+    promoting?: boolean;
+    onSave?: () => void;
+    onMoveToReferences?: () => void;
+    onRemoveFromReferences?: () => void;
+  }): LaneGalleryItem {
+    const displayTitle = assetDisplayTitle(asset);
+    const sourceText = assetLineageSourceText(asset);
+    const categoryLabel = assetCategoryLabel(asset);
+    const isReference = asset.status === "reference";
+    const canMoveToReferences = Boolean(onMoveToReferences);
+    const canRemoveFromReferences = Boolean(onRemoveFromReferences);
+    const canChangeReference = canMoveToReferences || canRemoveFromReferences;
+    const busy =
+      deletingIds.has(asset.id) ||
+      saving ||
+      promoting ||
+      (changingReference && selectedIds.has(asset.id));
+    return {
+      id: `asset:${asset.id}`,
+      title: displayTitle,
+      subtitle: sourceText || categoryLabel || asset.status,
+      metadata:
+        asset.mediaType === "video"
+          ? "Video"
+          : asset.mimeType?.startsWith("image/")
+            ? "Image"
+            : asset.mimeType || "Asset",
+      status: isReference ? "Reference" : "Saved",
+      mediaType: asset.mediaType === "video" ? "video" : "image",
+      href: `/asset/${asset.id}`,
+      selected: selectedIds.has(asset.id),
+      deleting: deletingIds.has(asset.id),
+      busy,
+      preview: <AssetPreview asset={asset} fit="contain" />,
+      thumbnail: <AssetPreview asset={asset} />,
+      onToggle: (checked) => toggleAsset(asset.id, checked),
+      menu: (
+        <AssetActionsMenu
+          asset={asset}
+          folders={folders}
+          busy={busy}
+          updateAsset={updateAsset}
+          onDelete={() => confirmDelete([asset.id])}
+          onMoveToReferences={onMoveToReferences}
+          onRemoveFromReferences={onRemoveFromReferences}
+        />
+      ),
+      primaryActions:
+        onSave || canChangeReference ? (
+          <div
+            className={
+              onSave && canChangeReference
+                ? "grid grid-cols-1 gap-2"
+                : "grid grid-cols-2 gap-2"
+            }
+          >
+            {onSave ? (
+              <Button
+                size="sm"
+                className="h-8 px-2 text-xs"
+                onClick={onSave}
+                disabled={busy}
+              >
+                {saving ? <Spinner className="h-3.5 w-3.5" /> : "Save"}
+              </Button>
+            ) : null}
+            {canMoveToReferences ? (
+              <Button
+                variant="outline"
+                size="sm"
+                className={
+                  onSave ? "h-8 px-2 text-xs" : "col-span-2 h-8 px-2 text-xs"
+                }
+                onClick={onMoveToReferences}
+                disabled={busy}
+                title="Add to References"
+              >
+                {promoting ? (
+                  <Spinner className="h-3.5 w-3.5" />
+                ) : (
+                  "Add to References"
+                )}
+              </Button>
+            ) : null}
+            {canRemoveFromReferences ? (
+              <Button
+                variant="outline"
+                size="sm"
+                className={
+                  onSave ? "h-8 px-2 text-xs" : "col-span-2 h-8 px-2 text-xs"
+                }
+                onClick={onRemoveFromReferences}
+                disabled={busy}
+                title="Remove from References"
+              >
+                {promoting ? (
+                  <Spinner className="h-3.5 w-3.5" />
+                ) : (
+                  "Remove from References"
+                )}
+              </Button>
+            ) : null}
+          </div>
+        ) : null,
+    };
+  }
+
+  const libraryItems = visibleLibraryAssets.map((asset) =>
+    assetGalleryItem(
+      asset.status === "reference"
+        ? {
+            asset,
+            promoting: promotingReferenceKeys.has(referencePromotionKey(asset)),
+            onRemoveFromReferences: () => onRemoveFromReferences(asset),
+          }
+        : {
+            asset,
+            promoting: promotingReferenceKeys.has(referencePromotionKey(asset)),
+            onMoveToReferences: () => onMoveToReferences(asset),
+          },
+    ),
+  );
+  const visibleGalleryItems = [
+    ...visiblePendingUploads.map(uploadGalleryItem),
+    ...libraryItems,
+  ];
+
+  if (!hasAnyBoardItem) {
+    if (hideEmptyLanes) {
+      return (
+        <div className="flex min-h-[280px] w-full flex-col items-center justify-center rounded-lg border border-dashed border-border bg-muted/15 p-8 text-center">
+          <IconSearch className="h-9 w-9 text-muted-foreground" />
+          <span className="mt-4 text-base font-semibold">
+            No assets match this view
+          </span>
+          <span className="mt-2 max-w-md text-sm text-muted-foreground">
+            Try All assets, a different folder, or a broader search.
+          </span>
+        </div>
+      );
+    }
     return (
       <button
-        onClick={onEmptyClick}
+        onClick={onUploadClick}
         onDragOver={(e) => {
-          if (onDrop && e.dataTransfer.types.includes("Files"))
-            e.preventDefault();
+          if (e.dataTransfer.types.includes("Files")) e.preventDefault();
         }}
         onDrop={(e) => {
-          if (!onDrop) return;
           e.preventDefault();
           e.stopPropagation();
           onDrop(e.dataTransfer.files);
         }}
-        className="flex min-h-[320px] w-full flex-col items-center justify-center rounded-lg border border-dashed border-border bg-muted/20 p-8 text-center"
+        className="flex min-h-[360px] w-full flex-col items-center justify-center rounded-lg border border-dashed border-border bg-muted/20 p-8 text-center"
       >
         <IconPhotoPlus className="h-10 w-10 text-muted-foreground" />
-        <span className="mt-4 text-base font-semibold">{emptyTitle}</span>
+        <span className="mt-4 text-base font-semibold">Add assets</span>
         <span className="mt-2 max-w-md text-sm text-muted-foreground">
-          {emptyBody}
+          Upload source material or generate candidates, then mark only the
+          assets that should guide future generations as references.
         </span>
       </button>
     );
@@ -2576,8 +3563,8 @@ function AssetGrid({
             </AlertDialogTitle>
             <AlertDialogDescription>
               {confirmDeleteIds.length > 1
-                ? "This removes the selected assets from the brand kit. Existing exports that already use these URLs may stop rendering."
-                : "This removes the asset from the brand kit. Existing exports that already use this URL may stop rendering."}
+                ? "This permanently removes the selected assets from the brand kit. To stop using an asset as a reference but keep it, use Remove from References instead."
+                : "This permanently removes the asset from the brand kit. To keep it in the library but stop using it as a reference, use Remove from References instead."}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -2596,8 +3583,48 @@ function AssetGrid({
         </AlertDialogContent>
       </AlertDialog>
 
-      {assets.length > 0 || pendingDeleteCount > 0 ? (
-        <div className="mb-3 flex min-h-10 flex-wrap items-center justify-between gap-2 rounded-lg border border-border bg-card px-3 py-2">
+      <div className="mb-3 flex flex-col gap-3 rounded-md border border-border bg-background px-3 py-2 lg:flex-row lg:items-center lg:justify-between">
+        <div className="flex min-w-0 flex-wrap items-center gap-2">
+          <label className="flex h-8 cursor-pointer items-center gap-2 rounded-md border border-border px-2.5 text-sm font-medium text-foreground transition hover:border-foreground/30 has-[:disabled]:cursor-not-allowed has-[:disabled]:opacity-50">
+            <Checkbox
+              checked={allSelected}
+              disabled={!boardAssets.length || deleting}
+              onCheckedChange={(checked) => toggleAll(checked === true)}
+              aria-label="Select all visible assets"
+            />
+            {allSelected ? "Deselect all" : "Select all"}
+          </label>
+          <span className="text-xs text-muted-foreground">
+            {boardAssets.length} visible asset
+            {boardAssets.length === 1 ? "" : "s"}
+            {referenceAssets.length > 0
+              ? ` · ${referenceAssets.length} reference${referenceAssets.length === 1 ? "" : "s"}`
+              : ""}
+          </span>
+          {selectedCount > 0 ? (
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={() => onSelectedIdsChange(new Set())}
+            >
+              Clear
+            </Button>
+          ) : null}
+        </div>
+        <div className="flex shrink-0 flex-wrap items-center gap-2">
+          <AssetScopeToggle
+            value={scope}
+            onChange={onScopeChange}
+            allCount={assets.length}
+            referenceCount={referenceAssets.length}
+          />
+          <AssetViewModeToggle value={viewMode} onChange={onViewModeChange} />
+        </div>
+      </div>
+
+      {(selectedCount > 0 || pendingDeleteCount > 0) && (
+        <div className="mb-4 flex min-h-11 flex-wrap items-center justify-between gap-2 rounded-md border border-border bg-background px-3 py-2 shadow-sm">
           {pendingDeleteCount > 0 ? (
             <div className="flex min-w-0 items-center gap-2 text-sm font-medium">
               <Spinner className="h-4 w-4" />
@@ -2611,17 +3638,56 @@ function AssetGrid({
               <Checkbox
                 checked={allSelected}
                 onCheckedChange={(checked) => toggleAll(checked === true)}
-                aria-label="Select all assets in this view"
+                aria-label="Select all assets in this board"
               />
               <span className="truncate">
                 {selectedCount > 0
                   ? `${selectedCount} selected`
-                  : `${assets.length} asset${assets.length === 1 ? "" : "s"}`}
+                  : `${boardAssets.length} asset${boardAssets.length === 1 ? "" : "s"}`}
+              </span>
+              <span className="hidden text-xs text-muted-foreground sm:inline">
+                {referenceAssets.length} references · {savedAssets.length} saved
               </span>
             </div>
           )}
-          {selectedCount > 0 && pendingDeleteCount === 0 ? (
+          {pendingDeleteCount === 0 ? (
             <div className="flex items-center gap-2">
+              {selectedSavedAssets.length > 0 ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() =>
+                    void setAssetsReferenceState(selectedSavedAssets, true)
+                  }
+                  disabled={deleting || changingReference}
+                >
+                  {bulkReferenceAction === "add" ? (
+                    <Spinner className="h-4 w-4" />
+                  ) : (
+                    <IconPhotoPlus className="h-4 w-4" />
+                  )}
+                  Add to References
+                </Button>
+              ) : null}
+              {selectedReferenceAssets.length > 0 ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() =>
+                    void setAssetsReferenceState(selectedReferenceAssets, false)
+                  }
+                  disabled={deleting || changingReference}
+                >
+                  {bulkReferenceAction === "remove" ? (
+                    <Spinner className="h-4 w-4" />
+                  ) : (
+                    <IconX className="h-4 w-4" />
+                  )}
+                  Remove from References
+                </Button>
+              ) : null}
               <Button
                 type="button"
                 variant="ghost"
@@ -2649,152 +3715,1026 @@ function AssetGrid({
             </div>
           ) : null}
         </div>
-      ) : null}
+      )}
 
-      {assets.length || pendingUploads.length ? (
-        <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-5">
-          {pendingUploads.map((upload) => (
-            <PendingUploadCard key={upload.id} upload={upload} />
-          ))}
-          {assets.map((asset) => {
-            const displayTitle = assetDisplayTitle(asset);
-            const sourceText = assetLineageSourceText(asset);
-            return (
-              <div
-                key={asset.id}
-                className={[
-                  "group relative overflow-hidden rounded-lg border bg-card transition",
-                  selectedIds.has(asset.id)
-                    ? "border-primary ring-2 ring-primary/25"
-                    : "border-border",
-                ].join(" ")}
-              >
-                <div className="absolute left-2 top-2 z-10">
-                  <Checkbox
-                    checked={selectedIds.has(asset.id)}
-                    onCheckedChange={(checked) =>
-                      toggleAsset(asset.id, checked === true)
-                    }
-                    aria-label={`Select ${displayTitle}`}
-                    className={[
-                      "border-background bg-background/90 shadow-sm opacity-100 transition sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100",
-                      selectedIds.has(asset.id) ? "sm:opacity-100" : "",
-                    ].join(" ")}
-                  />
-                </div>
-                <div className="absolute right-2 top-2 z-10">
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button
-                        type="button"
-                        variant="secondary"
-                        size="icon"
-                        className="h-8 w-8 shadow-sm opacity-100 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100 data-[state=open]:opacity-100"
-                        aria-label="Asset actions"
-                      >
-                        <IconDotsVertical className="h-4 w-4" />
-                      </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end">
-                      <DropdownMenuItem asChild>
-                        <Link to={`/asset/${asset.id}`}>View details</Link>
-                      </DropdownMenuItem>
-                      <DropdownMenuSub>
-                        <DropdownMenuSubTrigger>
-                          <IconFolder className="mr-2 h-4 w-4 shrink-0" />
-                          Move to
-                        </DropdownMenuSubTrigger>
-                        <DropdownMenuSubContent>
-                          <DropdownMenuItem
-                            onSelect={() =>
-                              updateAsset.mutate({
-                                id: asset.id,
-                                folderId: null,
-                              })
-                            }
-                          >
-                            Unfiled
-                          </DropdownMenuItem>
-                          {folders.map((folder) => (
-                            <DropdownMenuItem
-                              key={folder.id}
-                              onSelect={() =>
-                                updateAsset.mutate({
-                                  id: asset.id,
-                                  folderId: folder.id,
-                                })
-                              }
-                            >
-                              {folder.title}
-                            </DropdownMenuItem>
-                          ))}
-                        </DropdownMenuSubContent>
-                      </DropdownMenuSub>
-                      <DropdownMenuSeparator />
-                      <DropdownMenuItem
-                        className="text-destructive focus:bg-destructive/10 focus:text-destructive"
-                        onSelect={() => confirmDelete([asset.id])}
-                      >
-                        <IconTrash className="mr-2 h-4 w-4 shrink-0" />
-                        Delete
-                      </DropdownMenuItem>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                </div>
-                <Link to={`/asset/${asset.id}`} className="block outline-none">
-                  <div className="aspect-[4/3] bg-muted">
-                    <AssetPreview asset={asset} />
-                  </div>
-                  <div className="space-y-2 p-3">
-                    <div className="flex items-center gap-2 truncate text-xs font-medium">
-                      {asset.mediaType === "video" ? (
-                        <IconVideo className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                      ) : (
-                        <IconPhoto className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                      )}
-                      <span className="truncate">{displayTitle}</span>
-                    </div>
-                    {sourceText ? (
-                      <div className="truncate text-[11px] text-muted-foreground">
-                        {sourceText}
-                      </div>
-                    ) : null}
-                    <div className="flex items-center gap-2">
-                      <Badge variant="secondary">{asset.status}</Badge>
-                      {assetCategoryLabel(asset) && (
-                        <Badge variant="outline">
-                          {assetCategoryLabel(asset)}
-                        </Badge>
-                      )}
-                    </div>
-                  </div>
-                </Link>
-              </div>
-            );
-          })}
-        </div>
+      {viewMode === "cards" ? (
+        <AssetCardsView items={visibleGalleryItems} />
       ) : (
-        <div className="flex min-h-[320px] w-full flex-col items-center justify-center rounded-lg border border-dashed border-border bg-muted/20 p-8 text-center">
-          <Spinner className="h-8 w-8 text-muted-foreground" />
-          <span className="mt-4 text-base font-semibold">
-            Deleting selected assets...
-          </span>
-        </div>
+        <SwimLane
+          title={scope === "references" ? "References" : "Library"}
+          eyebrow={
+            scope === "references"
+              ? "Assets currently marked for generation reference."
+              : "Saved assets in this filtered view. Mark the ones that should guide future generations."
+          }
+          items={visibleGalleryItems}
+          action={
+            <Button variant="outline" size="sm" onClick={onUploadClick}>
+              Add
+            </Button>
+          }
+          empty={
+            scope === "references" && assets.length > 0 ? (
+              <LaneActionEmpty
+                title="No references in this view"
+                body="Switch back to all assets and mark the keepers as references."
+                onClick={() => onScopeChange("all")}
+                action="Show all"
+              />
+            ) : hideEmptyLanes ? (
+              <LaneActionEmpty
+                title="No assets match this view"
+                body="Try All assets, a different folder, or a broader search."
+                onClick={() => onScopeChange("all")}
+                action="Show all"
+              />
+            ) : (
+              <LaneDropTarget
+                title="Drop assets here"
+                body="Upload source material, generated exports, logos, products, or style boards."
+                onClick={onUploadClick}
+                onDrop={onDrop}
+              />
+            )
+          }
+        />
       )}
     </>
   );
 }
 
-function VariantCard({
+function AssetViewModeToggle({
+  value,
+  onChange,
+}: {
+  value: AssetViewMode;
+  onChange: (mode: AssetViewMode) => void;
+}) {
+  const options: Array<{
+    value: AssetViewMode;
+    label: string;
+    icon: ReactNode;
+  }> = [
+    {
+      value: "lanes",
+      label: "Lanes",
+      icon: <IconLayoutBottombar className="h-4 w-4" />,
+    },
+    {
+      value: "cards",
+      label: "Cards",
+      icon: <IconLayoutGrid className="h-4 w-4" />,
+    },
+  ];
+
+  return (
+    <TooltipProvider delayDuration={150}>
+      <div
+        role="group"
+        aria-label="Asset view"
+        className="inline-flex shrink-0 gap-1 rounded-md border border-border bg-muted/20 p-1"
+      >
+        {options.map((option) => {
+          const active = value === option.value;
+          return (
+            <Tooltip key={option.value}>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  onClick={() => onChange(option.value)}
+                  className={[
+                    "flex h-8 w-9 items-center justify-center rounded text-sm transition",
+                    active
+                      ? "bg-background text-foreground shadow-sm"
+                      : "text-muted-foreground hover:bg-background/60 hover:text-foreground",
+                  ].join(" ")}
+                  aria-label={`${option.label} view`}
+                  aria-pressed={active}
+                  title={`${option.label} view`}
+                >
+                  {option.icon}
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom">{option.label} view</TooltipContent>
+            </Tooltip>
+          );
+        })}
+      </div>
+    </TooltipProvider>
+  );
+}
+
+function AssetScopeToggle({
+  value,
+  onChange,
+  allCount,
+  referenceCount,
+}: {
+  value: AssetLibraryScope;
+  onChange: (scope: AssetLibraryScope) => void;
+  allCount: number;
+  referenceCount: number;
+}) {
+  const options: Array<{
+    value: AssetLibraryScope;
+    label: string;
+    count: number;
+  }> = [
+    { value: "all", label: "All", count: allCount },
+    { value: "references", label: "References", count: referenceCount },
+  ];
+
+  return (
+    <div
+      role="group"
+      aria-label="Asset scope"
+      className="inline-flex shrink-0 gap-1 rounded-md border border-border bg-muted/20 p-1"
+    >
+      {options.map((option) => {
+        const active = value === option.value;
+        return (
+          <button
+            key={option.value}
+            type="button"
+            onClick={() => onChange(option.value)}
+            className={[
+              "flex h-8 items-center gap-2 rounded px-2.5 text-sm font-medium transition",
+              active
+                ? "bg-background text-foreground shadow-sm"
+                : "text-muted-foreground hover:bg-background/60 hover:text-foreground",
+            ].join(" ")}
+            aria-pressed={active}
+          >
+            <span>{option.label}</span>
+            <span
+              className={[
+                "rounded-full px-1.5 py-0.5 text-[10px] leading-none",
+                active
+                  ? "bg-muted text-muted-foreground"
+                  : "bg-background/70 text-muted-foreground",
+              ].join(" ")}
+            >
+              {option.count}
+            </span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+function AssetCardsView({ items }: { items: LaneGalleryItem[] }) {
+  if (!items.length) {
+    return (
+      <div className="flex min-h-[220px] items-center justify-center rounded-lg border border-dashed border-border bg-muted/15 p-8 text-center text-sm text-muted-foreground">
+        No assets to show.
+      </div>
+    );
+  }
+
+  return (
+    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
+      {items.map((item) => (
+        <article
+          key={item.id}
+          className={[
+            "group overflow-hidden rounded-lg border border-border/80 bg-background transition hover:border-foreground/25",
+            item.selected ? "border-primary ring-2 ring-primary/25" : "",
+            item.deleting ? "opacity-60" : "",
+          ].join(" ")}
+          aria-busy={item.busy}
+        >
+          <div className="relative aspect-[4/3] bg-muted/30">
+            {item.href ? (
+              <Link to={item.href} className="block h-full w-full">
+                {item.thumbnail}
+              </Link>
+            ) : (
+              item.thumbnail
+            )}
+            <div className="absolute left-2 top-2 z-10">
+              {item.onToggle ? (
+                <Checkbox
+                  checked={item.selected}
+                  onCheckedChange={(checked) =>
+                    item.onToggle?.(checked === true)
+                  }
+                  aria-label={`Select ${item.title}`}
+                  className="border-background bg-background/90 shadow-sm"
+                />
+              ) : null}
+            </div>
+            {item.menu ? (
+              <div className="absolute right-2 top-2 z-10">{item.menu}</div>
+            ) : null}
+            {item.busy ? (
+              <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-background/20">
+                <Spinner className="h-5 w-5" />
+              </div>
+            ) : null}
+          </div>
+          <div className="space-y-3 p-3">
+            <div className="min-w-0">
+              <div className="truncate text-sm font-medium">{item.title}</div>
+              {item.subtitle ? (
+                <div className="mt-1 truncate text-xs text-muted-foreground">
+                  {item.subtitle}
+                </div>
+              ) : null}
+            </div>
+            <div className="flex min-h-5 flex-wrap items-center gap-1.5">
+              {item.status ? (
+                <Badge variant="secondary">{item.status}</Badge>
+              ) : null}
+              {item.metadata ? (
+                <Badge variant="outline">{item.metadata}</Badge>
+              ) : null}
+            </div>
+            {item.primaryActions ? <div>{item.primaryActions}</div> : null}
+          </div>
+        </article>
+      ))}
+    </div>
+  );
+}
+
+function SwimLane({
+  title,
+  eyebrow,
+  items,
+  action,
+  empty,
+}: {
+  title: string;
+  eyebrow: string;
+  items: LaneGalleryItem[];
+  action?: ReactNode;
+  empty: ReactNode;
+}) {
+  const [activeItemId, setActiveItemId] = useState<string | null>(null);
+  const itemIds = items.map((item) => item.id).join("\n");
+  const activeItem =
+    items.find((item) => item.id === activeItemId) ?? items[0] ?? null;
+  const hasContent = items.length > 0;
+
+  useEffect(() => {
+    if (!items.length) {
+      setActiveItemId(null);
+      return;
+    }
+    setActiveItemId((current) =>
+      current && items.some((item) => item.id === current)
+        ? current
+        : items[0].id,
+    );
+  }, [itemIds, items]);
+
+  return (
+    <section className="overflow-hidden rounded-lg border border-border/80 bg-background">
+      <div className="grid min-h-[360px] xl:grid-cols-[minmax(0,1fr)_284px]">
+        <div className="flex min-w-0 flex-col bg-muted/10">
+          {hasContent ? (
+            <>
+              <div className="flex min-h-[272px] flex-1 items-center justify-center border-b border-border/70 p-4">
+                <div
+                  className={[
+                    "group relative w-full max-w-3xl overflow-hidden rounded-lg border bg-background shadow-sm",
+                    activeItem?.deleting ? "opacity-60" : "",
+                  ].join(" ")}
+                  aria-busy={activeItem?.busy}
+                >
+                  <div className="aspect-[16/10] bg-muted/30">
+                    {activeItem?.href ? (
+                      <Link
+                        to={activeItem.href}
+                        className="block h-full w-full"
+                      >
+                        {activeItem.preview}
+                      </Link>
+                    ) : (
+                      activeItem?.preview
+                    )}
+                  </div>
+                  {activeItem?.menu ? (
+                    <div className="absolute right-3 top-3 z-10">
+                      {activeItem.menu}
+                    </div>
+                  ) : null}
+                  {activeItem?.busy ? (
+                    <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-background/20">
+                      <Spinner className="h-5 w-5" />
+                    </div>
+                  ) : null}
+                </div>
+              </div>
+              <div className="flex gap-2 overflow-x-auto p-3">
+                {items.map((item) => {
+                  const active = item.id === activeItem?.id;
+                  return (
+                    <button
+                      key={item.id}
+                      type="button"
+                      onClick={() => setActiveItemId(item.id)}
+                      className={[
+                        "group relative h-16 w-24 shrink-0 overflow-hidden rounded-md border bg-background transition",
+                        active
+                          ? "border-primary ring-2 ring-primary/25"
+                          : "border-border/80 hover:border-foreground/30",
+                        item.deleting ? "opacity-60" : "",
+                      ].join(" ")}
+                      aria-label={`Show ${item.title}`}
+                      aria-pressed={active}
+                    >
+                      {item.thumbnail}
+                      <span className="pointer-events-none absolute inset-x-0 bottom-0 h-6 bg-gradient-to-t from-background/90 to-transparent" />
+                      {item.busy ? (
+                        <span className="absolute right-1.5 top-1.5 rounded-full bg-background/90 p-1 shadow-sm">
+                          <Spinner className="h-3 w-3" />
+                        </span>
+                      ) : null}
+                    </button>
+                  );
+                })}
+              </div>
+            </>
+          ) : (
+            <div className="min-h-[188px] p-3">{empty}</div>
+          )}
+        </div>
+        <aside className="order-first flex min-h-32 flex-col justify-between gap-4 border-b border-border bg-background/95 p-4 xl:order-none xl:min-h-[360px] xl:border-b-0 xl:border-l">
+          <div className="min-w-0 space-y-2">
+            <div className="flex items-center justify-between gap-3">
+              <h3 className="truncate text-sm font-semibold">{title}</h3>
+              <Badge variant="outline" className="shrink-0">
+                {items.length}
+              </Badge>
+            </div>
+            <p className="text-xs leading-relaxed text-muted-foreground">
+              {eyebrow}
+            </p>
+            {activeItem ? (
+              <div className="mt-4 space-y-3 border-t border-border pt-4">
+                <div className="flex items-start gap-3">
+                  {activeItem.onToggle ? (
+                    <Checkbox
+                      checked={activeItem.selected}
+                      onCheckedChange={(checked) =>
+                        activeItem.onToggle?.(checked === true)
+                      }
+                      aria-label={`Select ${activeItem.title}`}
+                      className="mt-0.5"
+                    />
+                  ) : null}
+                  <div className="min-w-0">
+                    <div className="truncate text-sm font-medium">
+                      {activeItem.title}
+                    </div>
+                    {activeItem.subtitle ? (
+                      <div className="mt-1 truncate text-xs text-muted-foreground">
+                        {activeItem.subtitle}
+                      </div>
+                    ) : null}
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-2 text-xs">
+                  {activeItem.status ? (
+                    <div className="rounded-md border border-border bg-muted/20 px-2 py-1.5">
+                      <div className="text-[10px] font-medium uppercase text-muted-foreground">
+                        Status
+                      </div>
+                      <div className="mt-0.5 truncate">{activeItem.status}</div>
+                    </div>
+                  ) : null}
+                  {activeItem.metadata ? (
+                    <div className="rounded-md border border-border bg-muted/20 px-2 py-1.5">
+                      <div className="text-[10px] font-medium uppercase text-muted-foreground">
+                        Type
+                      </div>
+                      <div className="mt-0.5 truncate">
+                        {activeItem.metadata}
+                      </div>
+                    </div>
+                  ) : null}
+                </div>
+                {activeItem.primaryActions ? (
+                  <div>{activeItem.primaryActions}</div>
+                ) : null}
+              </div>
+            ) : null}
+          </div>
+          <div className="flex shrink-0 items-center gap-2">
+            {activeItem?.href ? (
+              <Button asChild variant="outline" size="sm" className="flex-1">
+                <Link to={activeItem.href}>Open</Link>
+              </Button>
+            ) : null}
+            {action ? <div className="shrink-0">{action}</div> : null}
+          </div>
+        </aside>
+      </div>
+    </section>
+  );
+}
+
+function LaneDropTarget({
+  title,
+  body,
+  onClick,
+  onDrop,
+}: {
+  title: string;
+  body: string;
+  onClick: () => void;
+  onDrop: (files: FileList) => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      onDragOver={(e) => {
+        if (e.dataTransfer.types.includes("Files")) e.preventDefault();
+      }}
+      onDrop={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        onDrop(e.dataTransfer.files);
+      }}
+      className="flex h-full min-h-[148px] w-full items-center justify-center rounded-md px-4 text-center transition hover:bg-muted/25"
+    >
+      <span>
+        <IconPhotoPlus className="mx-auto h-7 w-7 text-muted-foreground" />
+        <span className="mt-2 block text-sm font-medium">{title}</span>
+        <span className="mt-1 block text-xs text-muted-foreground">{body}</span>
+      </span>
+    </button>
+  );
+}
+
+function LaneActionEmpty({
+  title,
+  body,
+  action,
+  onClick,
+}: {
+  title: string;
+  body: string;
+  action: string;
+  onClick: () => void;
+}) {
+  return (
+    <div className="flex h-full min-h-[148px] items-center justify-between gap-3 rounded-md px-4">
+      <div className="min-w-0">
+        <div className="text-sm font-medium">{title}</div>
+        <div className="mt-1 text-xs text-muted-foreground">{body}</div>
+      </div>
+      <Button variant="outline" size="sm" onClick={onClick}>
+        {action}
+      </Button>
+    </div>
+  );
+}
+
+function PendingUploadPreview({
+  upload,
+  fit = "cover",
+}: {
+  upload: PendingUpload;
+  fit?: "cover" | "contain";
+}) {
+  const isChecking = upload.status === "checking";
+  return (
+    <div
+      className={[
+        "flex h-full w-full items-center justify-center bg-muted/30",
+        fit === "contain" ? "p-8" : "",
+      ].join(" ")}
+    >
+      <div className="flex flex-col items-center gap-2 text-muted-foreground">
+        <Spinner className={fit === "contain" ? "h-6 w-6" : "h-4 w-4"} />
+        <span className="text-xs font-medium">
+          {isChecking ? "Checking" : "Uploading"}
+        </span>
+      </div>
+    </div>
+  );
+}
+
+function AssetActionsMenu({
+  asset,
+  folders,
+  busy,
+  updateAsset,
+  onDelete,
+  onMoveToReferences,
+  onRemoveFromReferences,
+}: {
+  asset: any;
+  folders: any[];
+  busy?: boolean;
+  updateAsset: any;
+  onDelete: () => void;
+  onMoveToReferences?: () => void;
+  onRemoveFromReferences?: () => void;
+}) {
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button
+          type="button"
+          variant="secondary"
+          size="icon"
+          className="h-8 w-8 shadow-sm"
+          aria-label="Asset actions"
+          disabled={busy}
+        >
+          <IconDotsVertical className="h-4 w-4" />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end">
+        <DropdownMenuItem asChild>
+          <Link to={`/asset/${asset.id}`}>View details</Link>
+        </DropdownMenuItem>
+        {onMoveToReferences ? (
+          <DropdownMenuItem
+            onSelect={(event) => {
+              event.preventDefault();
+              onMoveToReferences();
+            }}
+          >
+            <IconPhotoPlus className="mr-2 h-4 w-4 shrink-0" />
+            Add to References
+          </DropdownMenuItem>
+        ) : null}
+        {onRemoveFromReferences ? (
+          <DropdownMenuItem
+            onSelect={(event) => {
+              event.preventDefault();
+              onRemoveFromReferences();
+            }}
+          >
+            <IconX className="mr-2 h-4 w-4 shrink-0" />
+            Remove from References
+          </DropdownMenuItem>
+        ) : null}
+        <DropdownMenuSub>
+          <DropdownMenuSubTrigger>
+            <IconFolder className="mr-2 h-4 w-4 shrink-0" />
+            Move to
+          </DropdownMenuSubTrigger>
+          <DropdownMenuSubContent>
+            <DropdownMenuItem
+              onSelect={() =>
+                updateAsset.mutate({
+                  id: asset.id,
+                  folderId: null,
+                })
+              }
+            >
+              Unfiled
+            </DropdownMenuItem>
+            {folders.map((folder) => (
+              <DropdownMenuItem
+                key={folder.id}
+                onSelect={() =>
+                  updateAsset.mutate({
+                    id: asset.id,
+                    folderId: folder.id,
+                  })
+                }
+              >
+                {folder.title}
+              </DropdownMenuItem>
+            ))}
+          </DropdownMenuSubContent>
+        </DropdownMenuSub>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem
+          className="text-destructive focus:bg-destructive/10 focus:text-destructive"
+          onSelect={onDelete}
+        >
+          <IconTrash className="mr-2 h-4 w-4 shrink-0" />
+          Delete
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+function VariantPreview({
+  slot,
+  fit = "cover",
+}: {
+  slot: any;
+  fit?: "cover" | "contain";
+}) {
+  const [sourceIndex, setSourceIndex] = useState(0);
+  const [previewUnavailable, setPreviewUnavailable] = useState(false);
+  const previewSources = assetPreviewSources(slot, "thumbnail");
+  const previewSourcesKey = previewSources.join("\n");
+  const isFailed = slot.status === "failed";
+  const previewSrc = previewSources[sourceIndex];
+
+  useEffect(() => {
+    setSourceIndex(0);
+    setPreviewUnavailable(false);
+  }, [previewSourcesKey]);
+
+  return (
+    <div className="flex h-full w-full items-center justify-center bg-muted">
+      {previewSrc && !previewUnavailable ? (
+        <img
+          src={previewSrc}
+          alt=""
+          className={[
+            "h-full w-full",
+            fit === "contain" ? "object-contain" : "object-cover",
+          ].join(" ")}
+          onError={() => {
+            const nextIndex = sourceIndex + 1;
+            if (nextIndex < previewSources.length) {
+              setSourceIndex(nextIndex);
+            } else {
+              setPreviewUnavailable(true);
+            }
+          }}
+        />
+      ) : isFailed ? (
+        <div className="p-4 text-center text-xs text-destructive">
+          {slot.error}
+        </div>
+      ) : previewUnavailable ? (
+        <div className="p-4 text-center text-xs text-muted-foreground">
+          Preview unavailable
+        </div>
+      ) : (
+        <IconPhoto className="h-8 w-8 animate-pulse text-muted-foreground" />
+      )}
+    </div>
+  );
+}
+
+function VariantActionsMenu({
+  slot,
+  libraryId,
+  busy,
+  onMoveToReferences,
+}: {
+  slot: any;
+  libraryId: string;
+  busy?: boolean;
+  onMoveToReferences?: () => void;
+}) {
+  const dismissSlot = useActionMutation("dismiss-variant-slots");
+  const queryClient = useQueryClient();
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const isFailed = slot.status === "failed";
+  const label = isFailed ? "Dismiss" : "Delete";
+
+  return (
+    <>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button
+            type="button"
+            variant="secondary"
+            size="icon"
+            className="h-8 w-8 shadow-sm"
+            aria-label="Candidate actions"
+            disabled={busy || dismissSlot.isPending}
+          >
+            <IconDotsVertical className="h-4 w-4" />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end">
+          {onMoveToReferences && !isFailed ? (
+            <DropdownMenuItem
+              onSelect={(event) => {
+                event.preventDefault();
+                onMoveToReferences();
+              }}
+            >
+              <IconPhotoPlus className="mr-2 h-4 w-4 shrink-0" />
+              Add to References
+            </DropdownMenuItem>
+          ) : null}
+          <DropdownMenuItem
+            className="text-destructive focus:bg-destructive/10 focus:text-destructive"
+            onSelect={(event) => {
+              event.preventDefault();
+              setConfirmOpen(true);
+            }}
+          >
+            <IconTrash className="mr-2 h-4 w-4 shrink-0" />
+            {label}
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+
+      <AlertDialog
+        open={confirmOpen}
+        onOpenChange={(open) => {
+          if (!dismissSlot.isPending) setConfirmOpen(open);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {isFailed ? "Dismiss this slot?" : "Delete candidate?"}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {isFailed
+                ? "Removes this failed slot from the live candidates panel."
+                : "Removes this candidate from the brand kit and clears its slot."}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={dismissSlot.isPending}>
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              disabled={dismissSlot.isPending}
+              onClick={(event) => {
+                event.preventDefault();
+                dismissSlot.mutate(
+                  { slotId: slot.slotId },
+                  {
+                    onSuccess: () => {
+                      removeVariantSlotFromCache(queryClient, slot);
+                      removeAssetsFromLibraryCache(queryClient, libraryId, [
+                        slot.assetId,
+                      ]);
+                      setConfirmOpen(false);
+                      void queryClient.invalidateQueries({
+                        queryKey: ["app-state", "asset-variants"],
+                        refetchType: "active",
+                      });
+                    },
+                    onError: (error) =>
+                      toast.error(
+                        error.message || "Could not clear candidate.",
+                      ),
+                  },
+                );
+              }}
+            >
+              {dismissSlot.isPending ? (
+                <>
+                  <Spinner className="h-4 w-4" />
+                  {isFailed ? "Dismissing..." : "Deleting..."}
+                </>
+              ) : (
+                label
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
+  );
+}
+
+function PendingUploadLaneTile({ upload }: { upload: PendingUpload }) {
+  const isChecking = upload.status === "checking";
+  return (
+    <div className="w-[144px] shrink-0 overflow-hidden rounded-md border border-dashed border-border bg-background sm:w-[156px]">
+      <div className="flex aspect-[4/3] items-center justify-center bg-muted/30">
+        <div className="flex flex-col items-center gap-2 text-muted-foreground">
+          <Spinner className="h-5 w-5" />
+          <span className="text-xs font-medium">
+            {isChecking ? "Checking" : "Uploading"}
+          </span>
+        </div>
+      </div>
+      <div className="p-2.5">
+        <div className="flex items-center gap-2 truncate text-xs font-medium">
+          {upload.mediaType === "video" ? (
+            <IconVideo className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+          ) : (
+            <IconPhoto className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+          )}
+          <span className="truncate">{upload.name}</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function AssetLaneTile({
+  asset,
+  folders,
+  selected,
+  deleting,
+  saving,
+  promoting,
+  onToggle,
+  onDelete,
+  updateAsset,
+  onSave,
+  onMoveToReferences,
+}: {
+  asset: any;
+  folders: any[];
+  selected: boolean;
+  deleting?: boolean;
+  saving?: boolean;
+  promoting?: boolean;
+  onToggle: (checked: boolean) => void;
+  onDelete: () => void;
+  updateAsset: any;
+  onSave?: () => void;
+  onMoveToReferences?: () => void;
+}) {
+  const displayTitle = assetDisplayTitle(asset);
+  const sourceText = assetLineageSourceText(asset);
+  const canMoveToReferences = Boolean(onMoveToReferences);
+  const hasPrimaryActions = Boolean(onSave || canMoveToReferences);
+  const categoryLabel = assetCategoryLabel(asset);
+  const busy = deleting || saving || promoting;
+
+  return (
+    <div
+      className={[
+        "group relative w-[144px] shrink-0 overflow-hidden rounded-md border bg-background transition sm:w-[156px]",
+        selected
+          ? "border-primary ring-2 ring-primary/25"
+          : "border-border/80 hover:border-foreground/20",
+        deleting ? "opacity-60" : "",
+      ].join(" ")}
+      aria-busy={busy}
+    >
+      <div className="absolute left-2 top-2 z-10">
+        <Checkbox
+          checked={selected}
+          onCheckedChange={(checked) => onToggle(checked === true)}
+          aria-label={`Select ${displayTitle}`}
+          className={[
+            "border-background bg-background/90 shadow-sm opacity-100 transition sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100",
+            selected ? "sm:opacity-100" : "",
+          ].join(" ")}
+        />
+      </div>
+      <div className="absolute right-2 top-2 z-10">
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button
+              type="button"
+              variant="secondary"
+              size="icon"
+              className="h-8 w-8 shadow-sm opacity-100 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100 data-[state=open]:opacity-100"
+              aria-label="Asset actions"
+              disabled={busy}
+            >
+              <IconDotsVertical className="h-4 w-4" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuItem asChild>
+              <Link to={`/asset/${asset.id}`}>View details</Link>
+            </DropdownMenuItem>
+            {canMoveToReferences ? (
+              <DropdownMenuItem
+                onSelect={(event) => {
+                  event.preventDefault();
+                  onMoveToReferences?.();
+                }}
+              >
+                <IconPhotoPlus className="mr-2 h-4 w-4 shrink-0" />
+                Add to References
+              </DropdownMenuItem>
+            ) : null}
+            <DropdownMenuSub>
+              <DropdownMenuSubTrigger>
+                <IconFolder className="mr-2 h-4 w-4 shrink-0" />
+                Move to
+              </DropdownMenuSubTrigger>
+              <DropdownMenuSubContent>
+                <DropdownMenuItem
+                  onSelect={() =>
+                    updateAsset.mutate({
+                      id: asset.id,
+                      folderId: null,
+                    })
+                  }
+                >
+                  Unfiled
+                </DropdownMenuItem>
+                {folders.map((folder) => (
+                  <DropdownMenuItem
+                    key={folder.id}
+                    onSelect={() =>
+                      updateAsset.mutate({
+                        id: asset.id,
+                        folderId: folder.id,
+                      })
+                    }
+                  >
+                    {folder.title}
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuSubContent>
+            </DropdownMenuSub>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              className="text-destructive focus:bg-destructive/10 focus:text-destructive"
+              onSelect={onDelete}
+            >
+              <IconTrash className="mr-2 h-4 w-4 shrink-0" />
+              Delete
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
+      <Link to={`/asset/${asset.id}`} className="block outline-none">
+        <div className="relative aspect-[4/3] bg-muted">
+          <AssetPreview asset={asset} />
+          <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-background via-background/90 to-transparent px-2 pb-2 pt-8">
+            <div className="flex items-center gap-1.5 truncate text-xs font-medium">
+              {asset.mediaType === "video" ? (
+                <IconVideo className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+              ) : (
+                <IconPhoto className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+              )}
+              <span className="truncate">{displayTitle}</span>
+            </div>
+            <div className="mt-1 flex min-w-0 items-center gap-1 overflow-hidden text-[10px] font-medium text-muted-foreground">
+              {sourceText ? (
+                <span className="truncate">{sourceText}</span>
+              ) : (
+                <>
+                  <span className="truncate">{asset.status}</span>
+                  {categoryLabel ? (
+                    <>
+                      <span className="shrink-0 text-muted-foreground/60">
+                        /
+                      </span>
+                      <span className="truncate">{categoryLabel}</span>
+                    </>
+                  ) : null}
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      </Link>
+      {hasPrimaryActions ? (
+        <div className="space-y-2 border-t border-border/70 p-2">
+          <div
+            className={
+              onSave && canMoveToReferences
+                ? "grid grid-cols-1 gap-2"
+                : "grid grid-cols-2 gap-2"
+            }
+          >
+            {onSave ? (
+              <Button
+                size="sm"
+                className="h-8 px-2 text-xs"
+                onClick={onSave}
+                disabled={busy}
+              >
+                {saving ? <Spinner className="h-3.5 w-3.5" /> : "Save"}
+              </Button>
+            ) : null}
+            {canMoveToReferences ? (
+              <Button
+                variant="outline"
+                size="sm"
+                className={
+                  onSave ? "h-8 px-2 text-xs" : "col-span-2 h-8 px-2 text-xs"
+                }
+                onClick={onMoveToReferences}
+                disabled={busy}
+                title="Add to References"
+              >
+                {promoting ? (
+                  <Spinner className="h-3.5 w-3.5" />
+                ) : (
+                  "Add to References"
+                )}
+              </Button>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function VariantLaneTile({
   slot,
   libraryId,
   onSave,
+  onMoveToReferences,
   saving = false,
+  promoting = false,
 }: {
   slot: any;
   libraryId: string;
   onSave: () => void;
+  onMoveToReferences?: () => void;
   saving?: boolean;
+  promoting?: boolean;
 }) {
   const dismissSlot = useActionMutation("dismiss-variant-slots");
   const queryClient = useQueryClient();
@@ -2805,7 +4745,7 @@ function VariantCard({
   const previewSourcesKey = previewSources.join("\n");
   const isFailed = slot.status === "failed";
   const label = isFailed ? "Dismiss" : "Delete";
-  const busy = saving || dismissSlot.isPending;
+  const busy = saving || promoting || dismissSlot.isPending;
   const previewSrc = previewSources[sourceIndex];
 
   useEffect(() => {
@@ -2815,7 +4755,7 @@ function VariantCard({
 
   return (
     <div
-      className="group relative overflow-hidden rounded-lg border border-border bg-background"
+      className="group relative w-[144px] shrink-0 overflow-hidden rounded-md border border-border/80 bg-background transition hover:border-foreground/20 sm:w-[156px]"
       aria-busy={busy}
     >
       <div className="absolute right-2 top-2 z-10">
@@ -2833,6 +4773,17 @@ function VariantCard({
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
+            {onMoveToReferences && !isFailed ? (
+              <DropdownMenuItem
+                onSelect={(event) => {
+                  event.preventDefault();
+                  onMoveToReferences?.();
+                }}
+              >
+                <IconPhotoPlus className="mr-2 h-4 w-4 shrink-0" />
+                Add to References
+              </DropdownMenuItem>
+            ) : null}
             <DropdownMenuItem
               className="text-destructive focus:bg-destructive/10 focus:text-destructive"
               onSelect={(event) => {
@@ -2908,7 +4859,7 @@ function VariantCard({
         </AlertDialogContent>
       </AlertDialog>
 
-      <div className="flex aspect-[4/3] items-center justify-center bg-muted">
+      <div className="relative flex aspect-[4/3] items-center justify-center bg-muted">
         {previewSrc && !previewUnavailable ? (
           <img
             src={previewSrc}
@@ -2934,25 +4885,122 @@ function VariantCard({
         ) : (
           <IconPhoto className="h-8 w-8 animate-pulse text-muted-foreground" />
         )}
+        <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-background via-background/90 to-transparent px-2 pb-2 pt-8">
+          <div className="flex items-center justify-between gap-2">
+            <span className="truncate text-xs font-medium">
+              {slot.status === "ready" ? "Ready candidate" : "Generating"}
+            </span>
+            <span className="shrink-0 text-[10px] text-muted-foreground">
+              {slot.slotId ? shortId(String(slot.slotId)) : "slot"}
+            </span>
+          </div>
+        </div>
       </div>
-      <div className="flex items-center justify-between gap-2 p-3">
-        <Badge variant={slot.status === "ready" ? "secondary" : "outline"}>
-          {slot.status}
-        </Badge>
-        {slot.status === "ready" && (
-          <Button size="sm" className="w-24" onClick={onSave} disabled={busy}>
-            {saving ? (
-              <>
-                <Spinner className="h-4 w-4" />
-                Saving...
-              </>
-            ) : (
-              "Save"
-            )}
-          </Button>
-        )}
-      </div>
+      {slot.status === "ready" ? (
+        <div className="border-t border-border/70 p-2">
+          <div
+            className={
+              onMoveToReferences
+                ? "grid grid-cols-1 gap-2"
+                : "grid grid-cols-2 gap-2"
+            }
+          >
+            <Button
+              size="sm"
+              className="h-8 px-2 text-xs"
+              onClick={onSave}
+              disabled={busy}
+            >
+              {saving ? <Spinner className="h-3.5 w-3.5" /> : "Save"}
+            </Button>
+            {onMoveToReferences ? (
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-8 px-2 text-xs"
+                onClick={onMoveToReferences}
+                disabled={busy}
+                title="Add to References"
+              >
+                {promoting ? (
+                  <Spinner className="h-3.5 w-3.5" />
+                ) : (
+                  "Add to References"
+                )}
+              </Button>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
     </div>
+  );
+}
+
+function CreateFolderDialog({
+  open,
+  onOpenChange,
+  onSubmit,
+  pending,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onSubmit: (title: string) => void | Promise<void>;
+  pending?: boolean;
+}) {
+  const [title, setTitle] = useState("");
+  async function submit() {
+    const trimmed = title.trim();
+    if (!trimmed || pending) return;
+    try {
+      await onSubmit(trimmed);
+      setTitle("");
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "Could not create folder",
+      );
+    }
+  }
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>New folder</DialogTitle>
+          <DialogDescription>
+            Group uploaded and generated assets for a campaign, channel, or
+            reusable collection.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-2">
+          <Label htmlFor="folder-title">Name</Label>
+          <Input
+            id="folder-title"
+            value={title}
+            onChange={(event) => setTitle(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter" && title.trim()) {
+                event.preventDefault();
+                void submit();
+              }
+            }}
+            placeholder="Campaign launch"
+            autoFocus
+          />
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>
+            Cancel
+          </Button>
+          <Button
+            disabled={!title.trim() || pending}
+            onClick={() => {
+              void submit();
+            }}
+          >
+            Create
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 

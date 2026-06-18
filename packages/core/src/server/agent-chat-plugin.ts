@@ -7,6 +7,7 @@ import {
 } from "./request-context.js";
 import { getSetting, putSetting } from "../settings/store.js";
 import { createDbAdminAgentTools } from "../db-admin/agent-tools.js";
+import { dbExecToolParameters } from "../scripts/db/tool-schemas.js";
 import {
   getH3App,
   markDefaultPluginProvided,
@@ -1060,31 +1061,7 @@ async function createDbScriptEntries(): Promise<Record<string, ActionEntry>> {
         {
           description:
             "Write to the app's own SQL database ONLY. Runs INSERT / UPDATE / DELETE / REPLACE against the app's internal tables. For multiple related writes, pass `statements` so they run sequentially in one transaction instead of issuing several db-exec calls. Writes are auto-scoped to the current user/org, and `owner_email` / `org_id` are auto-injected on INSERT. Schema changes (CREATE/ALTER/DROP) are blocked. Never use this to backfill missing data for a read/analysis request or to create/modify users, members, roles, permissions, admin flags, or ownership; use a dedicated app action or reviewed code. IMPORTANT: This tool CANNOT write to external data sources like BigQuery, HubSpot, etc. For external services, use the appropriate template action.",
-          parameters: {
-            type: "object",
-            properties: {
-              sql: {
-                type: "string",
-                description:
-                  "Single INSERT / UPDATE / DELETE / REPLACE statement. Use parameterized placeholders (?) where possible.",
-              },
-              args: {
-                type: "string",
-                description:
-                  'Optional JSON array of positional bind args for `sql`. Example: \'["published","form-123"]\'',
-              },
-              statements: {
-                type: "string",
-                description:
-                  'Optional JSON array of write statements to execute in one transaction. Prefer this over multiple db-exec calls. Example: \'[{"sql":"INSERT INTO notes (id,title) VALUES (?,?)","args":["n1","One"]},{"sql":"UPDATE counters SET value = value + 1 WHERE key = ?","args":["notes"]}]\'',
-              },
-              format: {
-                type: "string",
-                description: 'Output format: "json" or "text" (default: text)',
-                enum: ["json", "text"],
-              },
-            },
-          },
+          parameters: dbExecToolParameters(),
         },
         execMod.default,
       ),
@@ -2314,6 +2291,23 @@ export interface AgentChatPluginOptions {
    */
   leanPrompt?: boolean;
   /**
+   * Skip auto-injecting the workspace files/skills/agents inventory on the
+   * first message of a conversation while keeping the normal prompt, resources,
+   * and tool surface. Use this for domain-focused apps where broad workspace
+   * inventory is mostly latency/noise unless the user explicitly references it.
+   *
+   * `leanPrompt: true` implies this.
+   */
+  skipFilesContext?: boolean;
+  /**
+   * Initial native tool schemas to send to the LLM provider. When set, the
+   * agent starts with only these tools plus `tool-search`; the live registry
+   * remains searchable, and matching schemas from `tool-search` results are
+   * loaded into the next model request. Use this for domain-focused apps that
+   * have a few common actions and many rare framework utilities.
+   */
+  initialToolNames?: string[];
+  /**
    * Use a compact system prompt with on-demand context loading. The system
    * prompt includes essential behavioral rules and action signatures, but
    * defers verbose framework details, SQL schema, skills, learnings, and
@@ -3493,6 +3487,7 @@ export function createAgentChatPlugin(
       const refreshScreenTool = createRefreshScreenEntry();
       const frameworkContextTool = createFrameworkContextEntry();
       const leanPrompt = options?.leanPrompt === true;
+      const skipFilesContext = leanPrompt || options?.skipFilesContext === true;
       const lazyContext = options?.lazyContext !== false && !leanPrompt;
       const urlTools = createUrlTools();
       const engineScripts = await createAgentEngineScriptEntries(
@@ -5290,7 +5285,8 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             message,
           };
         },
-        skipFilesContext: leanPrompt,
+        skipFilesContext,
+        initialToolNames: options?.initialToolNames,
         ...(options?.toolLimits ? { toolLimits: options.toolLimits } : {}),
         onEngineResolved: (engine, model) => {
           const runCtx = ensureRequestRunContext();
@@ -5336,6 +5332,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               finalResponseGuard: options?.finalResponseGuard,
               prepareRequest: options?.prepareRequest,
               skipFilesContext: true,
+              initialToolNames: options?.initialToolNames,
               onEngineResolved: (engine, model) => {
                 const runCtx = ensureRequestRunContext();
                 if (runCtx) {
@@ -5464,7 +5461,8 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           runSoftTimeoutMs: options?.runSoftTimeoutMs,
           finalResponseGuard: options?.finalResponseGuard,
           prepareRequest: options?.prepareRequest,
-          skipFilesContext: leanPrompt,
+          skipFilesContext,
+          initialToolNames: options?.initialToolNames,
           ...(options?.toolLimits ? { toolLimits: options.toolLimits } : {}),
           onEngineResolved: (engine, model) => {
             const runCtx = ensureRequestRunContext();

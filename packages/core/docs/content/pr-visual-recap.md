@@ -308,7 +308,7 @@ name: PR Visual Recap
 
 on:
   pull_request:
-    types: [opened, synchronize, reopened, ready_for_review]
+    types: [opened, synchronize, reopened, ready_for_review, closed]
 
 jobs:
   visual-recap:
@@ -360,7 +360,7 @@ The `cli-version` input controls which `@agent-native/core` CLI version runs ins
 
 ### workflow_call event context
 
-`workflow_call` workflows inherit the **caller's** event context. The reusable workflow uses `github.event.pull_request.*` expressions to read the PR number, head SHA, base SHA, and PR metadata — these work correctly only when the caller triggers on `pull_request`. The caller snippet above already includes the correct event types.
+`workflow_call` workflows inherit the **caller's** event context. The reusable workflow uses `github.event.pull_request.*` expressions to read the PR number, head SHA, base SHA, merge timestamp, and PR metadata — these work correctly only when the caller triggers on `pull_request`. The caller snippet above already includes the correct event types. The `closed` event is included so merged PR recaps can be stamped with `merged_at` and later searched as shipped work.
 
 Do not trigger the caller on `workflow_dispatch` or `push` — those events do not carry a `pull_request` payload, and the gate will skip the recap with "no pull_request payload".
 

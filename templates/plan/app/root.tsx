@@ -1,4 +1,11 @@
-import { Links, Meta, Outlet, Scripts, ScrollRestoration } from "react-router";
+import {
+  Links,
+  Meta,
+  Outlet,
+  Scripts,
+  ScrollRestoration,
+  useNavigate,
+} from "react-router";
 import { useCallback, useState } from "react";
 import { useNavigationState } from "@/hooks/use-navigation-state";
 import { useQueryClient } from "@tanstack/react-query";
@@ -9,6 +16,7 @@ import {
   appPath,
   createAgentNativeQueryClient,
   getThemeInitScript,
+  navigateWithAgentChatViewTransition,
   useCommandMenuShortcut,
 } from "@agent-native/core/client";
 import { IconSun, IconMoon } from "@tabler/icons-react";
@@ -17,6 +25,10 @@ import { Toaster } from "@/components/ui/sonner";
 import { Layout as AppLayout } from "@/components/layout/Layout";
 import { TAB_ID } from "@/lib/tab-id";
 import { APP_TITLE } from "@/lib/app-config";
+import { markPlanChatHomeHandoff } from "@/lib/chat-home-handoff";
+// Side effect: register Plan's native chat renderers so visual answers render
+// their diagram/wireframe/api-spec blocks inline in the agent chat.
+import "@/lib/register-chat-renderers";
 import type { LinksFunction } from "react-router";
 import stylesheet from "./global.css?url";
 import { configureTracking } from "@agent-native/core/client";
@@ -80,14 +92,29 @@ function DbSyncSetup() {
 
 function AppContent() {
   const [cmdkOpen, setCmdkOpen] = useState(false);
+  const navigate = useNavigate();
   const { resolvedTheme, setTheme } = useTheme();
   const isDark = resolvedTheme === "dark";
   useCommandMenuShortcut(useCallback(() => setCmdkOpen(true), []));
+  const go = useCallback(
+    (path: string) => {
+      if (path !== "/") markPlanChatHomeHandoff();
+      navigateWithAgentChatViewTransition(navigate, path);
+      setCmdkOpen(false);
+    },
+    [navigate],
+  );
   return (
     <>
       <CommandMenu open={cmdkOpen} onOpenChange={setCmdkOpen}>
         <CommandMenu.Group heading="Actions">
-          <CommandMenu.Item onSelect={() => {}}>Search plans</CommandMenu.Item>
+          <CommandMenu.Item onSelect={() => go("/")}>Ask Plan</CommandMenu.Item>
+          <CommandMenu.Item onSelect={() => go("/plans")}>
+            Open plans
+          </CommandMenu.Item>
+          <CommandMenu.Item onSelect={() => go("/recaps")}>
+            Open recaps
+          </CommandMenu.Item>
         </CommandMenu.Group>
         <CommandMenu.Group heading="Appearance">
           <CommandMenu.Item

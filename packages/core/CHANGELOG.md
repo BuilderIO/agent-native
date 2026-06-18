@@ -1,5 +1,42 @@
 # @agent-native/core
 
+## 0.58.5
+
+### Patch Changes
+
+- a832c55: Fix intermittent 404s on `/_agent-native/actions/*` (and other framework routes)
+  on serverless deploys. Routes are registered inside an async plugin init that
+  Nitro v3 does not await, and the production Nitro dispatcher snapshots its
+  middleware list once at the start of h3's `handler()` — so the readiness-gate
+  middleware, which runs inside that snapshot, could await init yet still fall
+  through to a bare 404 (surfaced in the client as a `true` error toast) for a
+  request that arrived on a cold isolate. The readiness wait now also runs as a
+  Nitro `request` hook, which h3 awaits before route + middleware resolution, so
+  late-registered routes exist by the time routing happens. The existing
+  middleware gate is retained as a fallback.
+
+## 0.58.4
+
+### Patch Changes
+
+- f16980e: Replace the agent chat loading text with a shimmering Agent Native logo lockup
+  with an animated ellipsis, and attach scoped chat context badges directly above
+  the composer.
+- f16980e: Close the current Agent Sidebar chat tab when clearing chat into a replacement.
+- f16980e: Fix active chat follow-up queueing so ordinary sends during a running turn stay queued, keep the thinking indicator attached to the active response, and stabilize built-in data widget renderers to avoid chart remount loops.
+- f16980e: Expose agent-chat plugin options for skipping first-turn workspace inventory and sending a compact starter tool catalog that expands from tool-search results.
+- f16980e: Improve Plan block layout resilience for positioned diagrams and tabbed code surfaces.
+- f16980e: Prevent org-visible resources from being saved without an organization, and let Plan visual recaps resolve the publisher's active org when an older token lacks org context.
+- f16980e: Add Plan visual-answer publishing helpers and pass merged PR metadata through PR visual recap publishing.
+- f16980e: Render native data widgets even when `render-data-widget` echoes truncated JSON.
+- f16980e: Soften the shared chat composer surface color.
+
+## 0.58.3
+
+### Patch Changes
+
+- bb38b6f: Harden core tool argument parsing, JSON Schema handling, and tool error surfacing.
+
 ## 0.58.2
 
 ### Patch Changes

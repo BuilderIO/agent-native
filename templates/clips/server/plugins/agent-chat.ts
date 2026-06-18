@@ -12,8 +12,29 @@ import { getOrgContext } from "@agent-native/core/org";
 // production.
 import actionsRegistry from "../../.generated/actions-registry.js";
 
+const INITIAL_TOOL_NAMES = [
+  "view-screen",
+  "list-recordings",
+  "search-recordings",
+  "get-recording-player-data",
+  "create-recording",
+  "update-recording",
+  "finalize-recording",
+  "cleanup-transcript",
+  "regenerate-summary",
+  "regenerate-title",
+  "regenerate-chapters",
+  "trim-recording",
+  "remove-silences",
+  "remove-filler-words",
+  "export-to-brain",
+  "navigate",
+  "refresh-list",
+];
+
 export default createAgentChatPlugin({
   appId: "clips",
   actions: loadActionsFromStaticRegistry(actionsRegistry),
+  initialToolNames: INITIAL_TOOL_NAMES,
   resolveOrgId: async (event) => (await getOrgContext(event)).orgId,
 });

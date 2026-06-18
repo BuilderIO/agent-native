@@ -13,6 +13,7 @@ export function useFormResponses(formId: string, limit = 100) {
 export function useResponseInsights(formId?: string, limit = 300, days = 30) {
   return useActionQuery("response-insights", {
     ...(formId ? { formId } : {}),
+    displayMode: "insights",
     limit: String(limit),
     days: String(days),
   });

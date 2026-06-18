@@ -538,6 +538,7 @@ dependencies = [
  "chrono",
  "core-foundation",
  "core-graphics",
+ "libc",
  "objc2",
  "objc2-audio-toolbox",
  "objc2-avf-audio",

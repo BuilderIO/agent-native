@@ -6,19 +6,31 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AgentMcpAppPayload } from "../../mcp-client/app-result.js";
 import { ToolCallDisplay } from "./tool-call-display.js";
 import {
+  clearReservedToolRenderersForTests,
   clearToolRenderersForTests,
   registerToolRenderer,
   type ToolRendererProps,
 } from "./tool-render-registry.js";
+import {
+  resolveBuiltinActionChatRenderer,
+  resolveBuiltinFallbackToolRenderer,
+} from "./widgets/builtin-tool-renderers.js";
 
 vi.mock("../mcp-apps/McpAppRenderer.js", () => ({
   McpAppRenderer: () => <div data-testid="mcp-app">MCP APP</div>,
 }));
 
-function dataInsightResult(extra: Record<string, unknown> = {}) {
-  return JSON.stringify({
+function dataInsightPayload(extra: Record<string, unknown> = {}) {
+  return {
     widget: "data-insights",
     summary: { responses: 1 },
+    chartSeries: {
+      type: "bar",
+      title: "Responses by day",
+      xKey: "date",
+      series: [{ key: "submissions", label: "Submissions" }],
+      data: [{ date: "2026-06-18", submissions: 1 }],
+    },
     table: {
       title: "Recent rows",
       columns: [{ key: "name", label: "Name" }],
@@ -28,7 +40,11 @@ function dataInsightResult(extra: Record<string, unknown> = {}) {
       truncated: false,
     },
     ...extra,
-  });
+  };
+}
+
+function dataInsightResult(extra: Record<string, unknown> = {}) {
+  return JSON.stringify(dataInsightPayload(extra));
 }
 
 function AppRenderer(_: ToolRendererProps) {
@@ -168,6 +184,65 @@ describe("ToolCallDisplay native renderers", () => {
     expect(container.textContent).toContain("Ada");
   });
 
+  it("keeps built-in data widget renderer identities stable across resolves", () => {
+    const context = {
+      toolName: "top-customers",
+      args: {},
+      resultJson: {
+        chartSeries: {
+          type: "bar",
+          title: "Responses by day",
+          xKey: "date",
+          series: [{ key: "submissions", label: "Submissions" }],
+          data: [{ date: "2026-06-18", submissions: 1 }],
+        },
+      },
+      isRunning: false,
+      chatUI: { renderer: "core.data-chart" },
+    } as const;
+
+    expect(resolveBuiltinActionChatRenderer(context)).toBe(
+      resolveBuiltinActionChatRenderer(context),
+    );
+    expect(resolveBuiltinFallbackToolRenderer(context)).toBe(
+      resolveBuiltinFallbackToolRenderer(context),
+    );
+  });
+
+  it("falls back instead of rendering blank for malformed action-declared data widgets", () => {
+    act(() => {
+      root.render(
+        <ToolCallDisplay
+          toolName="response-insights"
+          args={{}}
+          result='{"widget":"data-insights","chartSeries":'
+          chatUI={{ renderer: "core.data-insights" }}
+          isRunning={false}
+        />,
+      );
+    });
+
+    expect(container.textContent).toContain("response insights");
+    expect(container.textContent).not.toContain("Responses by day");
+  });
+
+  it("renders render-data-widget from input when the echoed result is truncated", () => {
+    act(() => {
+      root.render(
+        <ToolCallDisplay
+          toolName="render-data-widget"
+          args={dataInsightPayload()}
+          result='{"widget":"data-insights","chartSeries":'
+          isRunning={false}
+        />,
+      );
+    });
+
+    expect(container.textContent).toContain("Responses by day");
+    expect(container.textContent).toContain("Recent rows");
+    expect(container.textContent).not.toContain("render data widget");
+  });
+
   it("lets app-specific renderers override the generic explicit widget fallback", () => {
     registerToolRenderer({
       id: "app.response-insights",
@@ -188,5 +263,23 @@ describe("ToolCallDisplay native renderers", () => {
 
     expect(container.textContent).toContain("App renderer wins");
     expect(container.textContent).not.toContain("Recent rows");
+  });
+
+  it("renders built-in data widgets even when registry side effects are absent", () => {
+    clearReservedToolRenderersForTests();
+
+    act(() => {
+      root.render(
+        <ToolCallDisplay
+          toolName="render-data-widget"
+          args={dataInsightPayload()}
+          result={dataInsightResult()}
+          isRunning={false}
+        />,
+      );
+    });
+
+    expect(container.textContent).toContain("Responses by day");
+    expect(container.textContent).toContain("Recent rows");
   });
 });

@@ -15,6 +15,7 @@
  * idempotent and safe under any number of concurrent runs.
  */
 import { AsyncLocalStorage } from "node:async_hooks";
+import { sanitizeToolErrorText } from "../agent/tool-error-redaction.js";
 
 interface CaptureStore {
   logs: string[];
@@ -120,7 +121,7 @@ export async function captureCliOutput(
       // process.exit() is treated as a clean termination of the CLI action.
     } else if (swallowErrors) {
       const msg = (err as Error)?.message ?? String(err);
-      store.logs.push(`Error: ${msg}`);
+      store.logs.push(sanitizeToolErrorText(`Error: ${msg}`));
     } else {
       throw err;
     }

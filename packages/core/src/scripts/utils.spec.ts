@@ -11,6 +11,10 @@ describe("parseArgs", () => {
     expect(parseArgs(["--name", "hello"])).toEqual({ name: "hello" });
   });
 
+  it("preserves empty --key value format", () => {
+    expect(parseArgs(["--name", ""])).toEqual({ name: "" });
+  });
+
   it("parses --key=value format", () => {
     expect(parseArgs(["--name=hello"])).toEqual({ name: "hello" });
   });

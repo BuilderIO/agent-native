@@ -9,6 +9,7 @@ mod clips;
 mod config;
 mod debug;
 mod eventkit;
+mod logfile;
 mod meetings_watcher;
 mod native_screen;
 mod native_speech;
@@ -141,6 +142,9 @@ pub fn run() {
             // whisper model management
             whisper_model::whisper_model_status,
             whisper_model::whisper_model_download,
+            // persistent log file (production debugging)
+            logfile::frontend_log,
+            logfile::open_logs,
         ])
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_process::init())
@@ -168,6 +172,10 @@ pub fn run() {
         .manage(notifications::MeetingNotificationState::default())
         .manage(silence_detector::DetectorState::default())
         .setup(|app| {
+            // Capture stdout/stderr to a persistent log file before anything
+            // else runs so startup errors and panics land on disk too.
+            logfile::init(app.handle());
+
             // Keeps the app from yanking the user out of fullscreen when the
             // popover appears. Production bundles reinforce this with LSUIElement=1.
             #[cfg(target_os = "macos")]
@@ -212,6 +220,32 @@ pub fn run() {
                         match whisper_model::ensure_model(&app_handle).await {
                             Ok(_) => {
                                 let _ = app_handle.emit("whisper:model-ready", ());
+                                // Warm the in-memory whisper context now, off
+                                // the recording-start path, so the first
+                                // recording doesn't block ~hundreds of ms
+                                // loading the model into memory. Blocking work
+                                // → spawn_blocking
+                                let warm_handle = app_handle.clone();
+                                let _ = tauri::async_runtime::spawn_blocking(move || {
+                                    match whisper_speech::prewarm_context(&warm_handle) {
+                                        Ok(_) => {
+                                            println!(
+                                                "[clips-tray] whisper context prewarm finished"
+                                            );
+                                            let _ = warm_handle.emit("whisper:context-ready", ());
+                                        }
+                                        Err(e) => {
+                                            eprintln!(
+                                                "[clips-tray] whisper context prewarm failed: {e}"
+                                            );
+                                            let _ = warm_handle.emit(
+                                                "whisper:context-error",
+                                                serde_json::json!({ "error": e }),
+                                            );
+                                        }
+                                    }
+                                })
+                                .await;
                             }
                             Err(e) => {
                                 eprintln!("[clips-tray] startup model download failed: {e}");

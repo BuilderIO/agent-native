@@ -9,9 +9,35 @@ import { and, desc, like, or } from "drizzle-orm";
 import actionsRegistry from "../../.generated/actions-registry.js";
 import { tryAnswerBrainA2AQuestion } from "../lib/a2a-fallback.js";
 
+const INITIAL_TOOL_NAMES = [
+  "get-brain-settings",
+  "ask-brain",
+  "search-knowledge",
+  "search-everything",
+  "get-knowledge",
+  "list-knowledge",
+  "import-capture",
+  "import-transcript",
+  "write-knowledge",
+  "list-sources",
+  "get-source",
+  "create-source",
+  "sync-source",
+  "enqueue-distillation",
+  "list-proposals",
+  "approve-proposal",
+  "review-proposal",
+  "reject-proposal",
+  "provider-api-catalog",
+  "provider-api-docs",
+  "provider-api-request",
+  "query-staged-dataset",
+];
+
 export default createAgentChatPlugin({
   appId: "brain",
   actions: loadActionsFromStaticRegistry(actionsRegistry),
+  initialToolNames: INITIAL_TOOL_NAMES,
   resolveOrgId: async (event) => (await getOrgContext(event)).orgId,
   codeExecution: { production: "sandboxed" },
   systemPrompt: `You are the Brain institutional-knowledge agent.

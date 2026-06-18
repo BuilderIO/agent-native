@@ -1,6 +1,6 @@
 {
   "name": "@agent-native/core",
-  "version": "0.58.2",
+  "version": "0.58.5",
   "type": "module",
   "engines": {
     "node": ">=22"
@@ -210,6 +210,7 @@
     "@tiptap/starter-kit": "^3.26.0",
     "@tiptap/y-tiptap": "^3.0.4",
     "@uiw/react-codemirror": "^4.25.10",
+    "ajv": "^8.20.0",
     "better-auth": "1.6.16",
     "better-sqlite3": "^12.8.0",
     "clsx": "^2.1.1",
