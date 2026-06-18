@@ -1,5 +1,37 @@
 # @agent-native/core
 
+## 0.62.0
+
+### Minor Changes
+
+- 8a74b0a: Add `agent-native agent`, `agent-native agents list`, the `/_agent-native/agents` discovery route, and read-only share links for agent chat threads with bounded run summaries.
+- 8a74b0a: Add a headless `agent-native create --headless` scaffold for primitive-first action apps, with `--template=headless` and legacy `--template=blank` routing to the same action-only starter.
+
+### Patch Changes
+
+- 8a74b0a: Add a small agent-native client helper for listing workspace agents and invoking sibling apps by id, name, or URL.
+- 8a74b0a: Remove top-level JSON Schema combinators from Anthropic tool input schemas before sending requests so strict provider validation does not reject valid framework tools.
+
+  Also mark the Assets template as requiring the embedding package so generated workspaces can resolve `@agent-native/embedding/bridge` during deploy builds.
+
+- 8a74b0a: Add the Chat template as the public minimal app on-ramp and keep Starter as a legacy CLI alias.
+- 8a74b0a: Allow Agent-Native Code to run through the local Codex CLI when Codex is signed in, and update provider copy to mention Codex CLI auth.
+- 8a74b0a: Load integration prompt resources in compact mode so Slack, email, and webhook runs do not inline full skill or memory context.
+- 8a74b0a: Add composable mini-apps guidance to workspace agent instructions and synced workspace-core skills so generated workspaces teach sibling discovery, A2A invocation, and provider-api composition patterns.
+- 8a74b0a: Add Dispatch automation status controls backed by jobs markdown resources.
+- 8a74b0a: Fix active chat follow-up queueing so ordinary sends during a running turn stay queued, keep the thinking indicator attached to the active response, retry any fresh user turn — queued follow-ups and normal sends fired shortly after the previous run finished — through transient 409 active-run conflicts instead of reconnecting to the prior run (which replayed its answer, dropped the new message, and corrupted thread history), while still letting genuine internal continuations resume the active run, and stabilize built-in data widget renderers to avoid chart remount loops.
+- 8a74b0a: Add GitHub repository file helpers to the provider-api runtime, plus agent/headless tools and a reusable action factory for listing, searching, reading, writing, and deleting files through GitHub connector credentials or `GITHUB_TOKEN`.
+- 8a74b0a: Add a headless A2A invocation primitive for calling agent-native apps by id, name, or URL, wired through the `agent-native invoke` CLI command.
+- 8a74b0a: Expose an action-only package subpath and teach generated action templates to use it so fresh headless apps can run actions without installing browser UI peers.
+- 8a74b0a: Ship version-matched framework docs as an explicit agent-readable package guide and point generated apps at `docs-search`.
+- 8a74b0a: Retry Postgres duplicate-type DDL races during concurrent serverless cold starts.
+- 8a74b0a: Close the notifications popover correctly over extension iframes.
+- 8a74b0a: Auto-join existing signed-in users into organizations whose allowed domain matches their email, and activate the newly joined org immediately.
+- 8a74b0a: Render read-only thread share links as sanitized HTML for browser callers while
+  preserving the JSON response for API clients.
+- 8a74b0a: Improve RTL rendering for visual plan rich markdown and diagram blocks.
+- 8a74b0a: Pre-optimize core client dependencies during monorepo dev so chat-heavy apps avoid Vite optimized-dependency reloads during navigation.
+
 ## 0.61.0
 
 ### Minor Changes
