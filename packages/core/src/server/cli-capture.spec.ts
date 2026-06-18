@@ -41,4 +41,15 @@ describe("cli-capture", () => {
     expect(exited).toContain("before exit");
     expect(sibling).toContain("sibling survived");
   });
+
+  it("redacts swallowed CLI exception messages", async () => {
+    const fakeSecret = `sk-${"x".repeat(24)}`;
+
+    const output = await captureCliOutput(async () => {
+      throw new Error(`failed with ${fakeSecret}`);
+    });
+
+    expect(output).toContain("Error: failed with [REDACTED]");
+    expect(output).not.toContain(fakeSecret);
+  });
 });

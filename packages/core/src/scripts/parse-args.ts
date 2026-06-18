@@ -20,7 +20,7 @@ export function parseArgs(args: string[]): Record<string, string> {
     } else {
       const key = arg.slice(2);
       const next = args[i + 1];
-      if (next && !next.startsWith("--")) {
+      if (next !== undefined && !next.startsWith("--")) {
         result[key] = next;
         i++;
       } else {

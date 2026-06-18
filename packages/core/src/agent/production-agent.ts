@@ -4,6 +4,7 @@ import {
   setResponseStatus,
   getMethod,
 } from "h3";
+import Ajv, { type ValidateFunction } from "ajv";
 import {
   isDeployCredentialFallbackAllowed,
   readDeployCredentialEnv,
@@ -11,6 +12,7 @@ import {
 import type { EventHandler as H3EventHandler } from "h3";
 import type {
   ActionTool,
+  AgentNativeJsonSchema,
   AgentChatAttachment,
   AgentChatRequest,
   AgentChatEvent,
@@ -47,6 +49,11 @@ import { PROVIDER_TO_ENV } from "./engine/provider-env-vars.js";
 import { readAppState } from "../application-state/script-helpers.js";
 import { isDemoModeEnabled } from "../demo/config.js";
 import { redactDemoData, redactDemoString } from "../demo/redact.js";
+import {
+  redactSensitiveFields,
+  sanitizeToolErrorText,
+  sanitizeToolErrorValue,
+} from "./tool-error-redaction.js";
 import {
   startRun,
   subscribeToRun,
@@ -309,6 +316,8 @@ export interface ActionEntry {
     args: any,
     context?: import("../action.js").ActionRunContext,
   ) => Promise<any> | any;
+  /** Standard Schema input validator when declared through defineAction. */
+  schema?: unknown;
   /** HTTP exposure config. `false` = agent-only. Omitted = auto-inferred from name. */
   http?: import("../action.js").ActionHttpConfig | false;
   /** Whether HTTP/frontend action calls must have an authenticated owner.
@@ -1764,6 +1773,7 @@ function isReusableReadOnlyToolResult(part: EngineToolResultPart): boolean {
 const INTERRUPTED_TOOL_RESULT_MARKER =
   "Interrupted before this tool returned a result.";
 const MAX_WRITE_TOOL_INTERRUPTIONS = 2;
+const MAX_IDENTICAL_TOOL_ERRORS = 3;
 
 function seedWriteToolInterruptionsFromHistory(
   messages: EngineMessage[],
@@ -1847,7 +1857,7 @@ function normalizeToolInputSchema(
 
 function stringifyToolInput(input: unknown): string {
   try {
-    const str = JSON.stringify(input);
+    const str = JSON.stringify(redactSensitiveFields(input));
     if (!str) return String(input);
     return str.length > 500 ? `${str.slice(0, 500)}…` : str;
   } catch {
@@ -1871,6 +1881,10 @@ function stableStringify(value: unknown): string {
 
 function toolCallCacheKey(toolName: string, input: unknown): string {
   return `${toolName}:${stableStringify(normalizeToolCallInputForHistory(input))}`;
+}
+
+function normalizeToolErrorForBreaker(error: string): string {
+  return error.replace(/\s+/g, " ").trim();
 }
 
 function rateLimitRecoveryHint(message: string): string {
@@ -2094,10 +2108,58 @@ function toolInputSchemaErrorResult(
   error: string,
 ): string {
   return (
-    `Invalid action parameters for ${toolName}: ${error}. ` +
+    `Invalid action parameters for ${toolName}: ${sanitizeToolErrorText(error)}. ` +
     `Received: ${stringifyToolInput(input)}. ` +
     "The tool was not executed; retry with arguments that match the tool schema."
   );
+}
+
+type RawJsonSchema = AgentNativeJsonSchema;
+
+const rawToolInputAjv = new Ajv({
+  strict: false,
+  allErrors: true,
+  coerceTypes: false,
+  useDefaults: false,
+  removeAdditional: false,
+});
+
+const rawToolInputValidatorCache = new WeakMap<object, ValidateFunction>();
+
+function getRawToolInputValidator(schema: RawJsonSchema): ValidateFunction {
+  const cached = rawToolInputValidatorCache.get(schema);
+  if (cached) return cached;
+  const validator = rawToolInputAjv.compile(schema);
+  rawToolInputValidatorCache.set(schema, validator);
+  return validator;
+}
+
+function shouldValidateRawToolParameters(entry: ActionEntry): boolean {
+  const maybeSchema = entry.schema as
+    | { "~standard"?: unknown }
+    | null
+    | undefined;
+  return !maybeSchema?.["~standard"] && Boolean(entry.tool.parameters);
+}
+
+function validateRawToolInput(
+  entry: ActionEntry,
+  input: unknown,
+): string | null {
+  if (!shouldValidateRawToolParameters(entry)) return null;
+  const parameters = entry.tool.parameters;
+  if (!parameters) return null;
+  let validator: ValidateFunction;
+  try {
+    validator = getRawToolInputValidator(parameters);
+  } catch (err) {
+    return `tool schema is invalid: ${sanitizeToolErrorValue(err)}`;
+  }
+  if (validator(input === undefined ? {} : input)) return null;
+  return rawToolInputAjv.errorsText(validator.errors, {
+    separator: "; ",
+    dataVar: "input",
+  });
 }
 
 /**
@@ -2208,6 +2270,7 @@ export async function runAgentLoop(opts: {
     messages,
     actions,
   );
+  const repeatedToolErrors = new Map<string, number>();
 
   // Tool-call journal hard-block (resume safety). Snapshot the per-turn journal
   // ONCE here, before any tool runs in this chunk, so it reflects only PRIOR
@@ -2670,6 +2733,26 @@ export async function runAgentLoop(opts: {
           isError,
         });
       };
+      const finalizeToolErrorResult = (rawResult: string): string => {
+        const sanitizedResult = sanitizeToolErrorText(rawResult);
+        const errorKey = `${toolCallCacheKey(
+          toolCall.name,
+          toolCall.input,
+        )}:${normalizeToolErrorForBreaker(sanitizedResult)}`;
+        const count = (repeatedToolErrors.get(errorKey) ?? 0) + 1;
+        repeatedToolErrors.set(errorKey, count);
+        if (count < MAX_IDENTICAL_TOOL_ERRORS) return sanitizedResult;
+        const result =
+          `Stopped after ${count} identical errors from ${toolCall.name} with the same arguments. ` +
+          `Last error: ${sanitizedResult}`;
+        requestedActionStop ??= {
+          message:
+            `Stopped because ${toolCall.name} failed ${count} times with the same arguments and error. ` +
+            "Fix the underlying issue or change the arguments before retrying.",
+          errorCode: "repeated_identical_tool_error",
+        };
+        return result;
+      };
       if (sourceSweepGuard) {
         sourceSweepDelegationGuardActive = true;
         const result = sourceSweepGuard.message;
@@ -2708,7 +2791,9 @@ export async function runAgentLoop(opts: {
       }
 
       if (!actionEntry) {
-        const result = `Error: Unknown tool "${toolCall.name}"`;
+        const result = finalizeToolErrorResult(
+          `Error: Unknown tool "${toolCall.name}"`,
+        );
         send({
           type: "tool_start",
           tool: toolCall.name,
@@ -2944,10 +3029,36 @@ export async function runAgentLoop(opts: {
 
       const toolCallSchemaError = toolCallErrors.get(toolCall.id);
       if (toolCallSchemaError) {
-        const result = toolInputSchemaErrorResult(
-          toolCall.name,
-          toolCallSchemaError.input,
-          toolCallSchemaError.error,
+        const result = finalizeToolErrorResult(
+          toolInputSchemaErrorResult(
+            toolCall.name,
+            toolCallSchemaError.input,
+            toolCallSchemaError.error,
+          ),
+        );
+        send({ type: "tool_done", tool: toolCall.name, result });
+        recordToolResult(result, true);
+        return {
+          type: "tool-result" as const,
+          toolCallId: toolCall.id,
+          toolName: toolCall.name,
+          toolInput: wireToolInput,
+          content: result,
+          isError: true,
+        };
+      }
+
+      const rawToolInputError = validateRawToolInput(
+        actionEntry,
+        toolCall.input,
+      );
+      if (rawToolInputError) {
+        const result = finalizeToolErrorResult(
+          toolInputSchemaErrorResult(
+            toolCall.name,
+            toolCall.input,
+            rawToolInputError,
+          ),
         );
         send({ type: "tool_done", tool: toolCall.name, result });
         recordToolResult(result, true);
@@ -3107,17 +3218,21 @@ export async function runAgentLoop(opts: {
       } catch (err: any) {
         if (isAgentActionStopError(err)) {
           const message =
-            err.message || `Stopped after ${toolCall.name} failed.`;
-          result = err.toolResult || message;
+            sanitizeToolErrorValue(err.message) ||
+            `Stopped after ${toolCall.name} failed.`;
+          result = sanitizeToolErrorValue(err.toolResult || message);
           requestedActionStop ??= {
             message,
             ...(err.errorCode ? { errorCode: err.errorCode } : {}),
           };
         } else {
-          const message = err?.message ?? String(err);
+          const message = sanitizeToolErrorValue(err);
           result = `Error running ${toolCall.name}: ${message}${rateLimitRecoveryHint(message)}`;
         }
         isError = true;
+      }
+      if (isError) {
+        result = finalizeToolErrorResult(result);
       }
 
       // Auto-refresh the UI after a successful mutating tool call. Any action

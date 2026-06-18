@@ -51,6 +51,34 @@ describe("engineToolsToAISDK", () => {
     expect(result.greet.inputSchema).toHaveProperty("_aiSdkWrapped", true);
     expect(result.greet.inputSchema.properties).toHaveProperty("name");
   });
+
+  it("preserves full JSON Schema constraints when translating tools", () => {
+    const tools: EngineTool[] = [
+      {
+        name: "write",
+        description: "Write something",
+        inputSchema: {
+          type: "object",
+          properties: {
+            sql: { type: "string", minLength: 1 },
+            statements: { type: "string", pattern: "^\\[" },
+          },
+          additionalProperties: false,
+          oneOf: [{ required: ["sql"] }, { required: ["statements"] }],
+        },
+      },
+    ];
+
+    const result = engineToolsToAISDK(tools);
+
+    expect(result.write.inputSchema).toMatchObject({
+      type: "object",
+      additionalProperties: false,
+      oneOf: [{ required: ["sql"] }, { required: ["statements"] }],
+    });
+    expect(result.write.inputSchema.properties.sql.minLength).toBe(1);
+    expect(result.write.inputSchema.properties.statements.pattern).toBe("^\\[");
+  });
 });
 
 describe("engineMessagesToAISDK", () => {

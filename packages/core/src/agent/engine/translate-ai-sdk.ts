@@ -34,6 +34,7 @@ export function engineToolsToAISDK(
   const result: Record<string, any> = {};
   for (const tool of tools) {
     const rawSchema: Record<string, unknown> = {
+      ...tool.inputSchema,
       type: "object",
       properties: tool.inputSchema.properties ?? {},
       required: tool.inputSchema.required ?? [],
