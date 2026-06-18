@@ -16,6 +16,11 @@ import { setResponseHeader, setResponseStatus } from "h3";
 import { getMissingDefaultPlugins } from "../deploy/route-discovery.js";
 import { captureError } from "./capture-error.js";
 import { getConfiguredAppBasePath } from "./app-base-path.js";
+import {
+  DEFAULT_SPECULATION_RULES_PATH,
+  DEFAULT_SSR_CACHE_HEADERS,
+  EMPTY_SPECULATION_RULES,
+} from "../shared/cache-control.js";
 
 const BOOTSTRAPPED = new WeakSet<object>();
 const IN_BOOTSTRAP = new WeakSet<object>();
@@ -130,6 +135,29 @@ export function getH3App(nitroApp: any): H3AppShim {
 
   if (!BOOTSTRAPPED.has(nitroApp)) {
     BOOTSTRAPPED.add(nitroApp);
+
+    // Register `speculation-rules.json` eagerly here rather than relying on the
+    // async core-routes plugin. The SSR handler points the Speculation-Rules
+    // response header at this path, so the browser fetches it on the first page
+    // load — before async plugin bootstrap (or a dev HMR app re-create) has
+    // registered the plugin's copy. h3 snapshots the middleware list once at the
+    // start of each request, so a route registered after that snapshot 404s.
+    // This handler is static and side-effect free, so registering it in the
+    // synchronous init block keeps it in the snapshot for every request.
+    shim.use(
+      DEFAULT_SPECULATION_RULES_PATH,
+      ((event: H3Event) => {
+        setResponseHeader(
+          event,
+          "content-type",
+          "application/speculationrules+json; charset=utf-8",
+        );
+        for (const [name, value] of Object.entries(DEFAULT_SSR_CACHE_HEADERS)) {
+          setResponseHeader(event, name, value);
+        }
+        return EMPTY_SPECULATION_RULES;
+      }) as EventHandler,
+    );
     nitroApp[BOOTSTRAP_PROMISE_KEY] = bootstrapDefaultPlugins(nitroApp).catch(
       (err) => {
         console.warn(

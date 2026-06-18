@@ -62,6 +62,27 @@ describe("framework request handler", () => {
     vi.restoreAllMocks();
   });
 
+  it("serves speculation-rules.json eagerly without waiting for async plugin registration", async () => {
+    const nitroApp = createNitroApp();
+    // First getH3App call installs the eager static route synchronously, before
+    // any async plugin (core-routes) would register its own copy.
+    getH3App(nitroApp);
+
+    await expect(
+      dispatch(nitroApp, "/_agent-native/speculation-rules.json"),
+    ).resolves.toEqual({ prefetch: [], prerender: [] });
+  });
+
+  it("serves speculation-rules.json eagerly under APP_BASE_PATH", async () => {
+    process.env.APP_BASE_PATH = "/docs";
+    const nitroApp = createNitroApp();
+    getH3App(nitroApp);
+
+    await expect(
+      dispatch(nitroApp, "/docs/_agent-native/speculation-rules.json"),
+    ).resolves.toEqual({ prefetch: [], prerender: [] });
+  });
+
   it("dispatches bare framework routes with a mount-relative pathname", async () => {
     const nitroApp = createNitroApp();
     getH3App(nitroApp).use("/_agent-native/extensions", (event: any) => ({
