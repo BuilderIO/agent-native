@@ -41,6 +41,12 @@ export default defineAction({
   schema: z.object({
     databaseId: z.string().optional().describe("Database ID"),
     documentId: z.string().optional().describe("Database document/page ID"),
+    sourceId: z
+      .string()
+      .optional()
+      .describe(
+        "Specific source to disconnect (e.g. a federated secondary). Defaults to the primary source.",
+      ),
   }),
   run: async (
     args: DisconnectContentDatabaseSourceRequest,
@@ -48,6 +54,16 @@ export default defineAction({
     const database = await resolveDatabaseForSourceMutation(args);
     if (!database) throw new Error("Database not found.");
     await assertAccess("document", database.documentId, "editor");
+
+    const db = getDb();
+    if (args.sourceId) {
+      const [target] = await db
+        .select({ id: schema.contentDatabaseSources.id })
+        .from(schema.contentDatabaseSources)
+        .where(eq(schema.contentDatabaseSources.id, args.sourceId));
+      if (target) await deleteSourceRecords(target.id);
+      return getContentDatabaseResponse(database.id);
+    }
 
     const source = await getExistingSource(database.id);
     if (source) {

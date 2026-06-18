@@ -162,10 +162,27 @@ export default defineAction({
       .set({ updatedAt: now })
       .where(eq(schema.contentDatabaseSources.id, source.id));
 
-    const sourceRows = await db
-      .select()
-      .from(schema.contentDatabaseSourceRows)
-      .where(eq(schema.contentDatabaseSourceRows.sourceId, source.id));
+    // A federated secondary source's rows have no local document (they join by
+    // canonical key), so we don't materialize their values into
+    // documentPropertyValues — the read path overlays them per row at query
+    // time. Primary sources still copy values onto their backing documents.
+    let federationRole: string | null = null;
+    try {
+      const parsed = JSON.parse(source.metadataJson ?? "{}") as {
+        federation?: { role?: string };
+      };
+      federationRole = parsed.federation?.role ?? null;
+    } catch {
+      federationRole = null;
+    }
+    const isSecondary = federationRole === "secondary";
+
+    const sourceRows = isSecondary
+      ? []
+      : await db
+          .select()
+          .from(schema.contentDatabaseSourceRows)
+          .where(eq(schema.contentDatabaseSourceRows.sourceId, source.id));
     const itemValues = sourceFieldPropertyValuesFromRows(
       sourceRows,
       field.sourceFieldKey,

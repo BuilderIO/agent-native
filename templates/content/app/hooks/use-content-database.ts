@@ -5,6 +5,7 @@ import type {
   AttachContentDatabaseSourceRequest,
   BuilderCmsModelsResponse,
   ContentDatabaseResponse,
+  ListContentDatabasesResponse,
   ContentDatabaseSourceFieldPropertyResponse,
   ContentDatabaseSourceStatusResponse,
   CreateDatabaseRequest,
@@ -19,6 +20,7 @@ import type {
   ReviewContentDatabaseSourceChangeSetRequest,
   SetContentDatabaseSourceWriteModeRequest,
   StageBuilderRevisionRequest,
+  SuggestSourceJoinKeyResponse,
   UpdateContentDatabaseViewRequest,
   ValidateBuilderSourceExecutionRequest,
 } from "@shared/api";
@@ -214,6 +216,41 @@ export function useBuilderCmsModels(enabled: boolean) {
     enabled ? {} : undefined,
     {
       enabled,
+      retry: false,
+    },
+  );
+}
+
+export function useContentDatabases(args: {
+  excludeDatabaseId?: string;
+  enabled: boolean;
+}) {
+  return useActionQuery<ListContentDatabasesResponse>(
+    "list-content-databases",
+    args.enabled
+      ? { excludeDatabaseId: args.excludeDatabaseId ?? undefined }
+      : undefined,
+    { enabled: args.enabled, retry: false },
+  );
+}
+
+export function useSuggestSourceJoinKey(args: {
+  documentId: string;
+  candidateSourceType: "mock-local" | "builder-cms" | "local-table";
+  candidateSourceTable: string;
+  enabled: boolean;
+}) {
+  return useActionQuery<SuggestSourceJoinKeyResponse>(
+    "suggest-source-join-key",
+    args.enabled
+      ? {
+          documentId: args.documentId,
+          candidateSourceType: args.candidateSourceType,
+          candidateSourceTable: args.candidateSourceTable,
+        }
+      : undefined,
+    {
+      enabled: args.enabled,
       retry: false,
     },
   );

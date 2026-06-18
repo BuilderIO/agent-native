@@ -9,9 +9,12 @@ import type {
   ContentDatabaseResponse,
 } from "../shared/api.js";
 import {
-  applySourceSnapshotToItems,
-  getContentDatabaseSourceSnapshot,
+  getAllContentDatabaseSourceSnapshots,
 } from "./_database-source-utils.js";
+import {
+  applyFederatedOverlayValues,
+  federateSources,
+} from "./_federation-join.js";
 import {
   listPropertiesForDatabase,
   serializeDatabase,
@@ -169,25 +172,42 @@ export async function getContentDatabaseResponse(
     });
   }
 
-  const source = await getContentDatabaseSourceSnapshot(database);
+  const sources = await getAllContentDatabaseSourceSnapshots(database);
   const serializedDocumentIds = new Set(
     serializedItems.map((item) => item.document.id),
   );
-  const pagedSource =
-    limit !== null && source
-      ? {
-          ...source,
-          rows: source.rows.filter((row) =>
-            serializedDocumentIds.has(row.documentId),
-          ),
-        }
-      : source;
+  // When paginating, the *primary* source's rows are document-backed, so we can
+  // scope them to the visible page. Secondary rows join by canonical key (no
+  // document), so they're left intact — only matched ones overlay anyway.
+  const pagedSources =
+    limit !== null
+      ? sources.map((source, index) =>
+          index === 0
+            ? {
+                ...source,
+                rows: source.rows.filter((row) =>
+                  serializedDocumentIds.has(row.documentId),
+                ),
+              }
+            : source,
+        )
+      : sources;
+  const pagedPrimary = pagedSources[0] ?? null;
+
+  const federatedItems = federateSources({
+    items: serializedItems,
+    sources: pagedSources,
+  });
+  // Opt-in federated columns (a secondary field the user added via the picker)
+  // get their per-row values from the matched overlay at read time.
+  const itemsWithOverlay = applyFederatedOverlayValues(federatedItems);
 
   return {
     database: serializeDatabase(database),
     properties: await listPropertiesForDatabase(databaseId),
-    items: applySourceSnapshotToItems(serializedItems, pagedSource),
-    source: pagedSource,
+    items: itemsWithOverlay,
+    source: pagedPrimary,
+    sources: pagedSources,
     pagination:
       limit !== null
         ? {

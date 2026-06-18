@@ -219,8 +219,8 @@ implement it; the federation/join/merge logic stays provider-agnostic.
 - **Reference joins (lookups)** — its own sub-phase: match a row field against a
   related collection's key, pull derived columns. Single-value first; the
   relation/cardinality machinery is what makes this bigger than NEXT.
-- **Local tables as sources** — let any workspace database be a source (identity
-  or reference); the third Sources group.
+- **Local tables as sources (identity)** — shipped in NEXT (2026-06-18). Reference-
+  join mode for local tables follows with the reference-join sub-phase.
 - **Multi-value reference joins** (co-authors → list columns + aggregation).
 - Additional adapters: **Notion**, **Analytics** (AN analytics template), Sigma.
 - **Merged/synced columns** write fan-out — depends on the live-write layer.
@@ -249,6 +249,53 @@ The NOW phase is built and browser-QA'd: Sources (plural) → grouped Integratio
 Builder → space list (real derived name) → models (attached model marked) →
 read-only leaf. Single-source flow unchanged.
 
-## Still open
-- (none for NOW) — next up is the **NEXT** phase: canonical key + per-source
-  normalization formula + read-side outer join of a second source.
+## NEXT status — shipped (overlay)
+The NEXT phase (identity joins, **overlay** form) is built, unit-tested, and
+browser-QA'd end to end:
+- **Formula engine** gained string ops (`lower/upper/trim/replace/slug/striphost/
+  regexExtract/regexReplace`) plus `evaluateNormalizationFormula` (strict: null =
+  un-joinable). (`shared/properties.ts`)
+- **Storage:** typed `join` record + per-source `federation` block live in each
+  source's `metadataJson`; the canonical-key descriptor rides on the **primary
+  source's** `metadata.federation` (not `viewConfigJson`, to avoid the view-config
+  normalizer dropping it). No migration. (`shared/api.ts`,
+  `actions/_database-source-utils.ts`)
+- **Read engine** (`actions/_federation-join.ts`): `computeNormalizedKey` +
+  `federateSources` overlay a secondary source's matching rows by normalize-then-
+  exact key. Orphan secondary keys are **dropped** (no virtual rows yet).
+- **Local tables are the real second source** (decision 2026-06-18, replacing the
+  synthetic fixture). A new `local-table` source type lets any other workspace
+  database be federated: `list-content-databases` discovers candidates;
+  `readLocalTableEntries` maps the target's rows/properties into source entries
+  (keyed by property name); attach stores them additively (`insertSecondarySource`,
+  read-only, empty-`documentId` join-by-key sentinel) and writes federation on both
+  sources. A federated secondary has a clickable read-only leaf with **remove**
+  (`disconnect` extended with `sourceId`).
+- **Opt-in federated columns** (replacing always-on auto-inject): the secondary's
+  fields appear in the add-column picker grouped **"From <source>"** (labeled
+  *Federated*); adding one creates a real read-only column whose per-row value is
+  populated from the matched overlay at read time (`applyFederatedOverlayValues`) —
+  exactly how Builder source columns already work. No values are materialized onto
+  local documents.
+- **Suggestion** is a deterministic Jaccard heuristic (`actions/_join-suggestion.ts`
+  + `suggest-source-join-key`), no LLM; the session agent can compose the same
+  `join` record. Interactive **CanonicalKeyConfirmView** shows editable per-source
+  formulas + a live sample-match preview before commit.
+- Verified end to end: Builder primary + a **real** workspace database as the
+  local-table source #2 → "Match on a key" (heuristic matched `data.url` ↔
+  `Builder URL`, 5/5 samples) → confirm → add the secondary's `Blurb` field from the
+  picker → values overlay read-only onto matched rows. Removing the secondary works.
+  Single-source flow unchanged (673 tests green).
+
+## Still open / deferred
+- **Virtual (union) rows** — the immediately-following sub-step: render a read-only
+  row for a secondary-only key. Requires editor read-path guards (no page open / no
+  select-delete / pagination caveat). Engine is already the union engine.
+- **Brittle matcher** — the primary's title/URL entry→item matcher is retained as a
+  fallback; swapping it for the canonical-key matcher is a robustness follow-up (it
+  doesn't affect join correctness, which reads stored `sourceValues`).
+- **Column-header provenance marker** — overlay columns display read-only with their
+  source labels; a header glyph naming the originating source is a polish follow-up.
+- **Secondary resync on refresh** — refresh currently resyncs the primary only.
+- LATER (unchanged): reference joins, local-table sources, multi-value, Notion/
+  Analytics adapters, merged-column write fan-out, manual row-pin.

@@ -2299,12 +2299,14 @@ export function AddProperty({
   label = "Add property",
   popoversPortalled = true,
   source,
+  sources,
 }: {
   documentId: string;
   variant?: "default" | "header" | "icon";
   label?: string;
   popoversPortalled?: boolean;
   source?: ContentDatabaseSource | null;
+  sources?: ContentDatabaseSource[];
 }) {
   const configure = useConfigureDocumentProperty(documentId);
   const queryClient = useQueryClient();
@@ -2327,18 +2329,20 @@ export function AddProperty({
   const [typeQuery, setTypeQuery] = useState("");
   const filteredPropertyTypes = filterDocumentPropertyTypes(typeQuery);
   const firstFilteredPropertyType = filteredPropertyTypes[0] ?? null;
-  const unmappedSourceFields =
-    source?.sourceType === "builder-cms"
-      ? [
-          ...source.fields.filter(
-            (field) =>
-              !field.propertyId &&
-              field.mappingType !== "title" &&
-              field.sourceFieldLabel
-                .toLowerCase()
-                .includes(typeQuery.trim().toLowerCase()),
-          ),
-        ].sort((a, b) => {
+  const allSources =
+    sources && sources.length > 0 ? sources : source ? [source] : [];
+  const query = typeQuery.trim().toLowerCase();
+  const sourceFieldGroups = allSources
+    .map((src) => ({
+      source: src,
+      fields: src.fields
+        .filter(
+          (field) =>
+            !field.propertyId &&
+            field.mappingType !== "title" &&
+            field.sourceFieldLabel.toLowerCase().includes(query),
+        )
+        .sort((a, b) => {
           if (a.mappingType === "system" && b.mappingType !== "system") {
             return 1;
           }
@@ -2346,8 +2350,9 @@ export function AddProperty({
             return -1;
           }
           return a.sourceFieldLabel.localeCompare(b.sourceFieldLabel);
-        })
-      : [];
+        }),
+    }))
+    .filter((group) => group.fields.length > 0);
   const addPropertyNameInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -2451,12 +2456,15 @@ export function AddProperty({
             />
           </div>
           <div className="max-h-80 overflow-auto rounded border p-1">
-            {unmappedSourceFields.length > 0 ? (
-              <div className="mb-1 border-b border-border pb-1">
-                <div className="px-2 py-1 text-xs font-medium text-muted-foreground">
-                  From Builder source
+            {sourceFieldGroups.map((group) => (
+              <div
+                key={group.source.id}
+                className="mb-1 border-b border-border pb-1"
+              >
+                <div className="truncate px-2 py-1 text-xs font-medium text-muted-foreground">
+                  From {group.source.sourceName}
                 </div>
-                {unmappedSourceFields.map((field) => (
+                {group.fields.map((field) => (
                   <button
                     key={field.id}
                     type="button"
@@ -2465,17 +2473,19 @@ export function AddProperty({
                     className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-accent disabled:opacity-50"
                     onClick={() => void addFromSourceField(field.id)}
                   >
-                    <IconLink className="size-4 text-muted-foreground" />
+                    <IconLink className="size-4 shrink-0 text-muted-foreground" />
                     <span className="min-w-0 flex-1 truncate">
                       {field.sourceFieldLabel}
                     </span>
-                    <span className="text-xs text-muted-foreground">
-                      Source
+                    <span className="shrink-0 text-xs text-muted-foreground">
+                      {group.source.metadata.federation?.role === "secondary"
+                        ? "Federated"
+                        : "Source"}
                     </span>
                   </button>
                 ))}
               </div>
-            ) : null}
+            ))}
             {filteredPropertyTypes.length === 0 ? (
               <div className="px-2 py-3 text-sm text-muted-foreground">
                 No matching property types

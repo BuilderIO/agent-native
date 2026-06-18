@@ -38,6 +38,9 @@ export default defineAction({
       await resyncMockSourceSnapshot({ database, source, now });
     } else if (source.sourceType === "builder-cms") {
       await resyncBuilderCmsSourceSnapshot({ database, source, now });
+    } else if (source.sourceType === "local-table") {
+      // Read-only federated secondary; its rows are re-read on demand, nothing
+      // to resync against the primary's local snapshot here.
     } else {
       throw new Error(`Unsupported source type "${source.sourceType}".`);
     }

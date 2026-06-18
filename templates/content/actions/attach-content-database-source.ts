@@ -2,29 +2,101 @@ import { defineAction } from "@agent-native/core";
 import { assertAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
 import type {
+  BuilderCmsModelFieldSummary,
   ContentDatabaseResponse,
+  ContentDatabaseSourceFederation,
   ContentDatabaseSourceType,
 } from "../shared/api.js";
+import type { BuilderCmsSourceEntry } from "./_builder-cms-source-adapter.js";
 import {
   getExistingSource,
   getSourceRows,
   importBuilderCmsEntriesAsDatabaseItems,
+  insertSecondarySource,
   replaceSourceMetadata,
   resolveDatabaseForSourceMutation,
   seedMockSourceFields,
   seedMockSourceRows,
+  seedSecondarySourceFields,
   sourceSetupPayload,
+  storeSecondarySourceRows,
   updateBuilderCmsSourceReadMetadata,
+  writeSourceFederation,
 } from "./_database-source-utils.js";
 import {
   readBuilderCmsContentEntries,
   readBuilderCmsModelFields,
 } from "./_builder-cms-read-client.js";
+import { readLocalTableEntries } from "./_local-table-source.js";
 import { getContentDatabaseResponse } from "./_database-utils.js";
 
 const sourceTypeSchema = z
-  .enum(["mock-local", "builder-cms"])
+  .enum(["mock-local", "builder-cms", "local-table"])
   .default("mock-local");
+
+// Per-source key mapping the UI commits after the canonical-key confirm step.
+const joinSideSchema = z.object({
+  keyField: z.string(),
+  normalizationFormula: z.string(),
+});
+
+// Present only when adding a SECOND source — federate it onto the primary on a
+// canonical key. Identity joins only in this phase.
+const joinSchema = z.object({
+  canonicalKey: z.object({
+    propertyId: z.string().nullable().optional(),
+    label: z.string(),
+    type: z.string().default("text"),
+  }),
+  primary: joinSideSchema,
+  secondary: joinSideSchema,
+  columnBindings: z
+    .array(
+      z.object({
+        propertyId: z.string().nullable().optional(),
+        localFieldKey: z.string().nullable().optional(),
+        role: z.enum(["primary", "mirror"]),
+        primarySourceId: z.string().nullable().optional(),
+        sourceFieldKey: z.string(),
+      }),
+    )
+    .optional(),
+});
+
+function identityFederation(
+  role: "primary" | "secondary",
+  side: z.infer<typeof joinSideSchema>,
+  canonicalKey: z.infer<typeof joinSchema>["canonicalKey"],
+  columnBindings?: z.infer<typeof joinSchema>["columnBindings"],
+): ContentDatabaseSourceFederation {
+  return {
+    role,
+    keyField: side.keyField,
+    normalizationFormula: side.normalizationFormula,
+    join: {
+      kind: "identity",
+      collection: null,
+      localExpr: "{canonical}",
+      remoteKeyField: side.keyField,
+      normalizationFormula: side.normalizationFormula,
+    },
+    canonicalKey: {
+      propertyId: canonicalKey.propertyId ?? null,
+      label: canonicalKey.label,
+      type: canonicalKey.type ?? "text",
+    },
+    columnBindings:
+      role === "secondary"
+        ? columnBindings?.map((binding) => ({
+            propertyId: binding.propertyId ?? null,
+            localFieldKey: binding.localFieldKey ?? null,
+            role: binding.role,
+            primarySourceId: binding.primarySourceId ?? null,
+            sourceFieldKey: binding.sourceFieldKey,
+          }))
+        : undefined,
+  };
+}
 
 export default defineAction({
   description:
@@ -43,6 +115,11 @@ export default defineAction({
       .string()
       .optional()
       .describe("Source table/model name, for example content_items."),
+    join: joinSchema
+      .optional()
+      .describe(
+        "When adding a SECOND source, the canonical-key join that federates it onto the primary (read-only overlay).",
+      ),
     limit: z.coerce.number().int().min(1).max(500).default(100),
     offset: z.coerce.number().int().min(0).default(0),
   }),
@@ -62,6 +139,79 @@ export default defineAction({
       (sourceType === "builder-cms" ? "blog_article" : "content_items");
 
     const existingSource = await getExistingSource(database.id);
+
+    // Adding a SECOND source: federate it onto the primary on the canonical key
+    // instead of replacing the binding. Read-only overlay — the secondary's
+    // entries are NOT imported as local documents/items.
+    if (args.join && existingSource) {
+      // A database can't be federated with itself — that would recurse at read
+      // time and is meaningless. (The picker already excludes the current db;
+      // this is the authoritative guard.)
+      if (sourceType === "local-table" && sourceTable === database.id) {
+        throw new Error("A database can't be added as a source of itself.");
+      }
+      let entries: BuilderCmsSourceEntry[];
+      let modelFields: BuilderCmsModelFieldSummary[];
+      if (sourceType === "builder-cms") {
+        const read = await readBuilderCmsContentEntries({ model: sourceTable });
+        entries = read.state === "live" ? read.entries : [];
+        modelFields = await readBuilderCmsModelFields({ model: sourceTable });
+      } else if (sourceType === "local-table") {
+        // sourceTable carries the target database id for a local-table source.
+        ({ entries, modelFields } = await readLocalTableEntries(sourceTable));
+      } else {
+        entries = [];
+        modelFields = [];
+      }
+
+      const secondaryId = await insertSecondarySource({
+        database,
+        sourceType,
+        sourceName,
+        sourceTable,
+        now,
+      });
+      await storeSecondarySourceRows({
+        sourceId: secondaryId,
+        ownerEmail: database.ownerEmail,
+        sourceType,
+        sourceTable,
+        entries,
+        now,
+      });
+      await seedSecondarySourceFields({
+        sourceId: secondaryId,
+        ownerEmail: database.ownerEmail,
+        modelFields,
+        sampleEntry: entries[0],
+        now,
+      });
+      await writeSourceFederation({
+        sourceId: secondaryId,
+        federation: identityFederation(
+          "secondary",
+          args.join.secondary,
+          args.join.canonicalKey,
+          args.join.columnBindings,
+        ),
+        now,
+      });
+      await writeSourceFederation({
+        sourceId: existingSource.id,
+        federation: identityFederation(
+          "primary",
+          args.join.primary,
+          args.join.canonicalKey,
+        ),
+        now,
+      });
+
+      return getContentDatabaseResponse(database.id, {
+        limit: args.limit,
+        offset: args.offset,
+      });
+    }
+
     const existingSourceRows = existingSource
       ? await getSourceRows(existingSource.id)
       : [];

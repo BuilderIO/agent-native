@@ -476,6 +476,27 @@ export function evaluatePropertyFormula(
   );
 }
 
+/**
+ * Evaluate a source-key normalization formula into its canonical-key string.
+ *
+ * Unlike `evaluatePropertyFormula`, this does NOT fall back to literal
+ * `{token}` substitution when the expression yields null — a broken or
+ * null-producing formula returns `null` (an un-joinable key) so it fails
+ * visibly as "no match" instead of silently producing a garbage key. An empty
+ * result also collapses to `null`, so empty keys never match each other.
+ */
+export function evaluateNormalizationFormula(
+  formula: string | null | undefined,
+  valuesByName: Record<string, DocumentPropertyValue>,
+): string | null {
+  const trimmed = formula?.trim() ?? "";
+  if (!trimmed) return null;
+  const value = evaluateFormulaExpression(trimmed, valuesByName);
+  if (value === null || value === undefined) return null;
+  const text = String(value).trim();
+  return text === "" ? null : text;
+}
+
 type FormulaPrimitive = string | number | boolean | null;
 
 type FormulaToken =
@@ -806,8 +827,88 @@ function evaluateFormulaFunction(
     }
     case "length":
       return formulaTextValue(args[0]).length;
+    case "lower":
+      return formulaTextValue(args[0]).toLowerCase();
+    case "upper":
+      return formulaTextValue(args[0]).toUpperCase();
+    case "trim":
+      return formulaTextValue(args[0]).trim();
+    case "replace": {
+      const subject = formulaTextValue(args[0]);
+      const find = formulaTextValue(args[1]);
+      if (find === "") return subject;
+      return subject.split(find).join(formulaTextValue(args[2]));
+    }
+    case "slug":
+      return slugifyFormulaText(formulaTextValue(args[0]));
+    case "striphost":
+      return stripUrlHost(formulaTextValue(args[0]));
+    case "regexextract":
+      return regexExtractFormula(
+        formulaTextValue(args[0]),
+        formulaTextValue(args[1]),
+        args.length > 2 ? formulaNumberValue(args[2]) : null,
+      );
+    case "regexreplace":
+      return regexReplaceFormula(
+        formulaTextValue(args[0]),
+        formulaTextValue(args[1]),
+        formulaTextValue(args[2]),
+      );
     default:
       return null;
+  }
+}
+
+// URL-style slug (lowercase, non-alphanumeric runs → "-", trimmed). Distinct
+// from `slugifySourceField` in _database-source-utils, which slugs field *keys*
+// with "_" — different output space, kept separate on purpose.
+export function slugifyFormulaText(value: string): string {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+// Reduce a URL to its path so a host-qualified URL normalizes to the same key
+// as a relative one. Falls back to the input when it isn't a parseable URL.
+function stripUrlHost(value: string): string {
+  const trimmed = value.trim();
+  if (!trimmed) return "";
+  try {
+    return new URL(trimmed).pathname;
+  } catch {
+    return trimmed;
+  }
+}
+
+// A bad pattern yields null (an un-joinable key) rather than throwing on the
+// read path — a broken formula fails visibly as "no match", never silently.
+function regexExtractFormula(
+  value: string,
+  pattern: string,
+  group: number | null,
+): FormulaPrimitive {
+  try {
+    const match = new RegExp(pattern).exec(value);
+    if (!match) return null;
+    const index = group === null ? 0 : Math.trunc(group);
+    return match[index] ?? null;
+  } catch {
+    return null;
+  }
+}
+
+function regexReplaceFormula(
+  value: string,
+  pattern: string,
+  replacement: string,
+): FormulaPrimitive {
+  try {
+    return value.replace(new RegExp(pattern, "g"), replacement);
+  } catch {
+    return null;
   }
 }
 

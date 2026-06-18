@@ -305,9 +305,27 @@ export interface ContentDatabaseItem {
   position: number;
   properties: DocumentProperty[];
   sourceRecord?: ContentDatabaseSourceRow;
+  // Federation (NEXT): the row's normalized join key, and the read-only columns
+  // a secondary source contributes on top of it. Absent for non-federated rows.
+  canonicalKey?: string | null;
+  sourceOverlays?: ContentDatabaseSourceOverlay[];
 }
 
-export type ContentDatabaseSourceType = "mock-local" | "builder-cms";
+// A secondary source's read-only contribution to a federated row, matched on the
+// canonical key. Kept separate from the primary `sourceRecord` so the existing
+// change-set / diff machinery (primary-only, write-oriented) is untouched.
+export interface ContentDatabaseSourceOverlay {
+  sourceId: string;
+  sourceName: string;
+  sourceRowId: string;
+  values: Record<string, DocumentPropertyValue>;
+  fields: ContentDatabaseSourceFieldMapping[];
+}
+
+export type ContentDatabaseSourceType =
+  | "mock-local"
+  | "builder-cms"
+  | "local-table";
 export type ContentDatabaseSourceSyncState =
   | "idle"
   | "linked"
@@ -450,6 +468,51 @@ export interface ContentDatabaseSourceChangeSet {
   updatedAt: string;
 }
 
+// A typed join record (NEXT). Only `identity` is built now; the `reference`
+// shape is reserved so lookups drop in later with no schema change.
+export type ContentDatabaseSourceJoinKind = "identity" | "reference";
+
+export interface ContentDatabaseSourceJoin {
+  kind: ContentDatabaseSourceJoinKind;
+  // The related collection for a reference join; null for identity.
+  collection: string | null;
+  // identity → the canonical-key expression; reference → e.g. "{Author}".
+  localExpr: string;
+  remoteKeyField: string;
+  normalizationFormula: string;
+}
+
+export type ContentDatabaseSourceRole = "primary" | "secondary";
+
+// A column's source binding (stored now, display-primary only — write fan-out is
+// LATER). A "mirror" column keeps multiple sources in sync once live writes land.
+export interface ContentDatabaseColumnBinding {
+  propertyId: string | null;
+  localFieldKey: string | null;
+  role: "primary" | "mirror";
+  primarySourceId: string | null;
+  sourceFieldKey: string;
+}
+
+// The shared key space the database's rows are identified by (for display).
+export interface ContentDatabaseCanonicalKey {
+  propertyId: string | null;
+  label: string;
+  type: string;
+}
+
+// Per-source federation config, stored on each source's metadataJson. The
+// primary additionally carries the database-level `canonicalKey` descriptor; a
+// secondary carries its `columnBindings`.
+export interface ContentDatabaseSourceFederation {
+  role: ContentDatabaseSourceRole;
+  keyField: string;
+  normalizationFormula: string;
+  join: ContentDatabaseSourceJoin;
+  canonicalKey?: ContentDatabaseCanonicalKey;
+  columnBindings?: ContentDatabaseColumnBinding[];
+}
+
 export interface ContentDatabaseSource {
   id: string;
   databaseId: string;
@@ -477,6 +540,7 @@ export interface ContentDatabaseSource {
     allowDraftWrites?: boolean;
     allowPublishWrites?: boolean;
     allowedWriteModes?: ContentDatabaseSourcePushMode[];
+    federation?: ContentDatabaseSourceFederation;
   };
   fields: ContentDatabaseSourceFieldMapping[];
   rows: ContentDatabaseSourceRow[];
@@ -516,6 +580,9 @@ export interface ContentDatabaseResponse {
   properties: DocumentProperty[];
   items: ContentDatabaseItem[];
   source: ContentDatabaseSource | null;
+  // All attached sources (NEXT). `source` stays as `sources[0] ?? null` for
+  // back-compat; multi-source consumers read `sources`.
+  sources?: ContentDatabaseSource[];
   pagination?: {
     offset: number;
     limit: number;
@@ -570,14 +637,63 @@ export interface UpdateContentDatabaseViewRequest {
   viewConfig: ContentDatabaseViewConfig;
 }
 
+// The committed canonical-key join when adding a second source.
+export interface ContentDatabaseSourceJoinRequest {
+  canonicalKey: { propertyId?: string | null; label: string; type?: string };
+  primary: { keyField: string; normalizationFormula: string };
+  secondary: { keyField: string; normalizationFormula: string };
+  columnBindings?: ContentDatabaseColumnBinding[];
+}
+
 export interface AttachContentDatabaseSourceRequest {
   databaseId?: string;
   documentId?: string;
   sourceType?: ContentDatabaseSourceType;
   sourceName?: string;
   sourceTable?: string;
+  join?: ContentDatabaseSourceJoinRequest;
   limit?: number;
   offset?: number;
+}
+
+export interface ContentDatabaseSummary {
+  databaseId: string;
+  documentId: string;
+  title: string;
+}
+
+export interface ListContentDatabasesResponse {
+  databases: ContentDatabaseSummary[];
+}
+
+export interface SuggestSourceJoinKeyRequest {
+  databaseId?: string;
+  documentId?: string;
+  candidateSourceType: ContentDatabaseSourceType;
+  candidateSourceTable: string;
+  sampleLimit?: number;
+}
+
+export interface SourceJoinSampleMatch {
+  primaryRaw: string;
+  secondaryRaw: string;
+  normalized: string;
+  matched: boolean;
+}
+
+export interface SourceJoinSuggestion {
+  source: "heuristic";
+  canonicalKey: { propertyId: string | null; label: string; type: string };
+  primary: { keyField: string; normalizationFormula: string };
+  secondary: { keyField: string; normalizationFormula: string };
+  sampleMatches: SourceJoinSampleMatch[];
+  confidence: number;
+}
+
+export interface SuggestSourceJoinKeyResponse {
+  state: "ok" | "no-primary" | "no-overlap";
+  suggestion: SourceJoinSuggestion | null;
+  message: string | null;
 }
 
 export interface RefreshContentDatabaseSourceRequest {
@@ -588,6 +704,7 @@ export interface RefreshContentDatabaseSourceRequest {
 export interface DisconnectContentDatabaseSourceRequest {
   databaseId?: string;
   documentId?: string;
+  sourceId?: string;
 }
 
 export interface AddContentDatabaseSourceFieldPropertyRequest {

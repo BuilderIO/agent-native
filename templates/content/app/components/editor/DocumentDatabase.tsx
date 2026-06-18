@@ -95,6 +95,7 @@ import {
   useAttachContentDatabaseSource,
   useBuilderCmsModels,
   useContentDatabase,
+  useContentDatabases,
   useDisconnectContentDatabaseSource,
   useDuplicateDatabaseItem,
   useExecuteBuilderSourceExecution,
@@ -105,6 +106,7 @@ import {
   useReviewContentDatabaseSourceChangeSet,
   useSetContentDatabaseSourceWriteMode,
   useStageBuilderRevision,
+  useSuggestSourceJoinKey,
   useUpdateContentDatabaseView,
   useValidateBuilderSourceExecution,
 } from "@/hooks/use-content-database";
@@ -146,7 +148,9 @@ import {
   type ContentDatabaseResponse,
   type ContentDatabaseSource,
   type ContentDatabaseSourceChangeSet,
+  type ContentDatabaseSourceJoinRequest,
   type ContentDatabaseSourceReviewPayload,
+  type SourceJoinSuggestion,
   type ContentDatabaseView,
   type ContentDatabaseViewConfig,
   type ContentDatabaseColumnCalculation,
@@ -168,6 +172,7 @@ import {
   type DocumentPropertyOptionColor,
   documentPropertyDateKey,
   documentPropertyDatePart,
+  evaluateNormalizationFormula,
   formulaValueText,
   isComputedPropertyType,
   isEmptyPropertyValue,
@@ -416,6 +421,7 @@ function DatabaseTable({
   const hasMoreItems = data?.pagination?.hasMore === true;
   const databaseId = data?.database.id ?? null;
   const source = data?.source ?? null;
+  const sources = data?.sources ?? (source ? [source] : []);
   const [previewDocumentId, setPreviewDocumentId] = useState<string | null>(
     null,
   );
@@ -1300,6 +1306,7 @@ function DatabaseTable({
           groupableProperties={orderedProperties}
           items={visibleItems}
           source={source}
+          sources={sources}
           databaseDocumentId={document.id}
           canEdit={canEdit}
           isLoading={database.isLoading}
@@ -1401,6 +1408,7 @@ function DatabaseTable({
         properties={orderedProperties}
         items={items}
         source={source}
+        sources={sources}
         hiddenCount={hiddenProperties.length}
         groupIds={toolbarGroups.map((group) => group.id)}
         onClose={() => setSettingsOpen(false)}
@@ -1412,6 +1420,18 @@ function DatabaseTable({
             sourceName: model.displayName,
             sourceTable: model.name,
           })
+        }
+        onFederateSource={(candidate, join) =>
+          attachSource.mutate({
+            documentId: document.id,
+            sourceType: candidate.sourceType,
+            sourceName: candidate.sourceName,
+            sourceTable: candidate.sourceTable,
+            join,
+          })
+        }
+        onDisconnectSecondary={(sourceId) =>
+          disconnectSource.mutate({ documentId: document.id, sourceId })
         }
         onRefreshSource={() =>
           refreshSource.mutate({
@@ -2391,6 +2411,7 @@ function DatabaseTableView({
   groupableProperties,
   items,
   source,
+  sources,
   databaseDocumentId,
   canEdit,
   isLoading,
@@ -2434,6 +2455,7 @@ function DatabaseTableView({
   groupableProperties: DocumentProperty[];
   items: ContentDatabaseItem[];
   source: ContentDatabaseSource | null;
+  sources: ContentDatabaseSource[];
   databaseDocumentId: string;
   canEdit: boolean;
   isLoading: boolean;
@@ -2941,6 +2963,7 @@ function DatabaseTableView({
                 variant={cleanDefaultTable ? "header" : "icon"}
                 label="Add property"
                 source={source}
+                sources={sources}
               />
             </div>
           ) : null}
@@ -3178,16 +3201,30 @@ type DatabaseSettingsPanel =
 // One step in the Sources drill-down: Sources (root, empty stack) → provider
 // (Builder) → space → model leaf. The model step carries the full summary so
 // the leaf can attach without re-fetching.
+// A second source being added, awaiting the canonical-key confirm step.
+type PendingSourceCandidate = {
+  sourceType: "mock-local" | "builder-cms" | "local-table";
+  sourceName: string;
+  sourceTable: string;
+  displayName: string;
+};
+
 type SourceNavStep =
   | { kind: "provider"; providerId: "builder" }
   | { kind: "space"; spaceId: string; spaceName: string }
-  | { kind: "model"; model: BuilderCmsModelSummary };
+  | { kind: "model"; model: BuilderCmsModelSummary }
+  | { kind: "addSource" }
+  | { kind: "secondarySource"; sourceId: string; sourceName: string }
+  | { kind: "keyConfirm"; candidate: PendingSourceCandidate };
 
 function sourceNavTitle(stack: SourceNavStep[]): string {
   const top = stack[stack.length - 1];
   if (!top) return "Sources";
   if (top.kind === "provider") return "Builder";
   if (top.kind === "space") return top.spaceName;
+  if (top.kind === "addSource") return "Add a source";
+  if (top.kind === "secondarySource") return top.sourceName;
+  if (top.kind === "keyConfirm") return "Match on a key";
   return top.model.displayName;
 }
 
@@ -3216,11 +3253,14 @@ function DatabaseSettingsPanelSheet({
   properties,
   items,
   source,
+  sources,
   hiddenCount,
   groupIds,
   onClose,
   onPanelChange,
   onAttachBuilderSource,
+  onFederateSource,
+  onDisconnectSecondary,
   onRefreshSource,
   onDisconnectSource,
   onReviewBuilderUpdate,
@@ -3248,11 +3288,17 @@ function DatabaseSettingsPanelSheet({
   properties: DocumentProperty[];
   items: ContentDatabaseItem[];
   source: ContentDatabaseSource | null;
+  sources: ContentDatabaseSource[];
   hiddenCount: number;
   groupIds: string[];
   onClose: () => void;
   onPanelChange: (panel: DatabaseSettingsPanel) => void;
   onAttachBuilderSource: (model: BuilderCmsModelSummary) => void;
+  onFederateSource: (
+    candidate: PendingSourceCandidate,
+    join: ContentDatabaseSourceJoinRequest,
+  ) => void;
+  onDisconnectSecondary: (sourceId: string) => void;
   onRefreshSource: () => void;
   onDisconnectSource: () => void;
   onReviewBuilderUpdate: () => void;
@@ -3339,6 +3385,7 @@ function DatabaseSettingsPanelSheet({
           <DatabaseSettingsMainPanel
             activeView={activeView}
             source={source}
+            sourceCount={sources.length || (source ? 1 : 0)}
             propertyCount={properties.length}
             hiddenCount={hiddenCount}
             onPanelChange={onPanelChange}
@@ -3346,6 +3393,8 @@ function DatabaseSettingsPanelSheet({
         ) : panel === "source" ? (
           <DatabaseSettingsSourcePanel
             source={source}
+            sources={sources}
+            documentId={documentId}
             itemCount={items.length}
             canEdit={canEdit}
             nav={sourceNavStack}
@@ -3353,6 +3402,14 @@ function DatabaseSettingsPanelSheet({
               setSourceNavStack((stack) => [...stack, step])
             }
             onAttachBuilderSource={onAttachBuilderSource}
+            onFederateSource={(candidate, join) => {
+              onFederateSource(candidate, join);
+              setSourceNavStack([]);
+            }}
+            onDisconnectSecondary={(sourceId) => {
+              onDisconnectSecondary(sourceId);
+              setSourceNavStack([]);
+            }}
             onRefreshSource={onRefreshSource}
             onDisconnectSource={onDisconnectSource}
             onReviewBuilderUpdate={onReviewBuilderUpdate}
@@ -3378,6 +3435,7 @@ function DatabaseSettingsPanelSheet({
             activeView={activeView}
             items={items}
             source={source}
+            sources={sources}
             hiddenCount={hiddenCount}
             onPropertyHiddenChange={onPropertyHiddenChange}
             onPropertiesHiddenChange={onPropertiesHiddenChange}
@@ -3408,12 +3466,14 @@ function databaseSettingsPanelTitle(panel: DatabaseSettingsPanel) {
 function DatabaseSettingsMainPanel({
   activeView,
   source,
+  sourceCount,
   propertyCount,
   hiddenCount,
   onPanelChange,
 }: {
   activeView: ContentDatabaseView;
   source: ContentDatabaseSource | null;
+  sourceCount: number;
   propertyCount: number;
   hiddenCount: number;
   onPanelChange: (panel: DatabaseSettingsPanel) => void;
@@ -3438,7 +3498,11 @@ function DatabaseSettingsMainPanel({
         <DatabaseSettingsRow
           icon={<IconPlugConnected className="size-4" />}
           label="Sources"
-          value={source ? "1 connected" : "None"}
+          value={
+            sourceCount > 0
+              ? `${sourceCount} connected`
+              : "None"
+          }
           badgeCount={sourceBadgeCount}
           onClick={() => onPanelChange("source")}
         />
@@ -3894,11 +3958,15 @@ function BuilderSourceReviewDialog({
 
 function DatabaseSettingsSourcePanel({
   source,
+  sources,
+  documentId,
   itemCount,
   canEdit,
   nav,
   onNavPush,
   onAttachBuilderSource,
+  onFederateSource,
+  onDisconnectSecondary,
   onRefreshSource,
   onDisconnectSource,
   onReviewBuilderUpdate,
@@ -3911,11 +3979,18 @@ function DatabaseSettingsSourcePanel({
   sourceActionPending,
 }: {
   source: ContentDatabaseSource | null;
+  sources: ContentDatabaseSource[];
+  documentId: string;
   itemCount: number;
   canEdit: boolean;
   nav: SourceNavStep[];
   onNavPush: (step: SourceNavStep) => void;
   onAttachBuilderSource: (model: BuilderCmsModelSummary) => void;
+  onFederateSource: (
+    candidate: PendingSourceCandidate,
+    join: ContentDatabaseSourceJoinRequest,
+  ) => void;
+  onDisconnectSecondary: (sourceId: string) => void;
   onRefreshSource: () => void;
   onDisconnectSource: () => void;
   onReviewBuilderUpdate: () => void;
@@ -4000,12 +4075,68 @@ function DatabaseSettingsSourcePanel({
     return (
       <SourcesListView
         source={source}
+        sources={sources}
         builderConfigured={builderConfigured}
         builderSpaceLabel={builderSpaceLabel}
         reviewableCount={reviewableBuilderChangeSets.length}
         onOpenBuilder={() =>
           onNavPush({ kind: "provider", providerId: "builder" })
         }
+        onOpenSecondary={(secondary) =>
+          onNavPush({
+            kind: "secondarySource",
+            sourceId: secondary.id,
+            sourceName: secondary.sourceName,
+          })
+        }
+        onAddSource={() => onNavPush({ kind: "addSource" })}
+      />
+    );
+  }
+
+  // ── Add a source → local tables picker ────────────────────────────────
+  if (top.kind === "addSource") {
+    return (
+      <AddSourceView
+        excludeDatabaseId={source?.databaseId ?? null}
+        canEdit={canEdit}
+        onPickLocalTable={(table) =>
+          onNavPush({
+            kind: "keyConfirm",
+            candidate: {
+              sourceType: "local-table",
+              sourceName: table.title,
+              sourceTable: table.databaseId,
+              displayName: table.title,
+            },
+          })
+        }
+      />
+    );
+  }
+
+  // ── Secondary (federated) source leaf ─────────────────────────────────
+  if (top.kind === "secondarySource") {
+    const secondary = sources.find((item) => item.id === top.sourceId) ?? null;
+    return (
+      <SecondarySourceLeaf
+        source={secondary}
+        canEdit={canEdit}
+        pending={sourceActionPending}
+        onDisconnect={() => onDisconnectSecondary(top.sourceId)}
+      />
+    );
+  }
+
+  // ── Canonical-key confirm (adding a second source) ────────────────────
+  if (top.kind === "keyConfirm") {
+    return (
+      <CanonicalKeyConfirmView
+        documentId={documentId}
+        candidate={top.candidate}
+        canEdit={canEdit}
+        pending={sourceActionPending}
+        onCommit={(join) => onFederateSource(top.candidate, join)}
       />
     );
   }
@@ -4283,26 +4414,75 @@ function DatabaseSettingsSourcePanel({
 // each provider a row. Builder is live; the rest are disabled "coming soon".
 function SourcesListView({
   source,
+  sources,
   builderConfigured,
   builderSpaceLabel,
   reviewableCount,
   onOpenBuilder,
+  onOpenSecondary,
+  onAddSource,
 }: {
   source: ContentDatabaseSource | null;
+  sources: ContentDatabaseSource[];
   builderConfigured: boolean;
   builderSpaceLabel: string | null;
   reviewableCount: number;
   onOpenBuilder: () => void;
+  onOpenSecondary: (source: ContentDatabaseSource) => void;
+  onAddSource: () => void;
 }) {
   const isBuilderSource = source?.sourceType === "builder-cms";
+  const connectedSources = sources.length > 0 ? sources : source ? [source] : [];
   return (
     <div className="grid min-w-0 gap-4">
-      {!source ? (
+      {connectedSources.length === 0 ? (
         <div className="min-w-0 break-words text-xs text-muted-foreground">
           This database is local. Connect a source to map its columns onto
           these rows.
         </div>
-      ) : null}
+      ) : (
+        <div className="grid min-w-0 gap-1.5">
+          <div className="px-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+            Connected sources
+          </div>
+          {connectedSources.map((connected, index) => (
+            <DatabaseSettingsRow
+              key={connected.id}
+              icon={
+                connected.sourceType === "builder-cms" ? (
+                  <BuilderLogoMark className="size-4" />
+                ) : (
+                  <IconLayoutGrid className="size-4" />
+                )
+              }
+              label={connected.sourceName}
+              value={
+                connected.metadata.federation?.role === "secondary"
+                  ? "Federated"
+                  : index === 0
+                    ? "Primary"
+                    : undefined
+              }
+              onClick={
+                connected.metadata.federation?.role === "secondary"
+                  ? () => onOpenSecondary(connected)
+                  : connected.sourceType === "builder-cms"
+                    ? onOpenBuilder
+                    : undefined
+              }
+              disabled={
+                connected.metadata.federation?.role !== "secondary" &&
+                connected.sourceType !== "builder-cms"
+              }
+            />
+          ))}
+          <DatabaseSettingsRow
+            icon={<IconPlus className="size-4" />}
+            label="Add another source"
+            onClick={onAddSource}
+          />
+        </div>
+      )}
       <div className="grid min-w-0 gap-1.5">
         <div className="px-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
           Integrations
@@ -4337,6 +4517,331 @@ function SourcesListView({
           value="Coming soon"
           disabled
         />
+      </div>
+    </div>
+  );
+}
+
+// Confirm the canonical-key join before federating a second source. The
+// heuristic proposes a key field + normalization formula per side; the user can
+// tweak the formulas and watch a live sample-match preview before committing.
+function CanonicalKeyConfirmView({
+  documentId,
+  candidate,
+  canEdit,
+  pending,
+  onCommit,
+}: {
+  documentId: string;
+  candidate: PendingSourceCandidate;
+  canEdit: boolean;
+  pending: boolean;
+  onCommit: (join: ContentDatabaseSourceJoinRequest) => void;
+}) {
+  const suggestionQuery = useSuggestSourceJoinKey({
+    documentId,
+    candidateSourceType: candidate.sourceType,
+    candidateSourceTable: candidate.sourceTable,
+    enabled: true,
+  });
+  const suggestion: SourceJoinSuggestion | null =
+    suggestionQuery.data?.suggestion ?? null;
+
+  const [primaryFormula, setPrimaryFormula] = useState("");
+  const [secondaryFormula, setSecondaryFormula] = useState("");
+  const [primaryKeyField, setPrimaryKeyField] = useState("");
+  const [secondaryKeyField, setSecondaryKeyField] = useState("");
+  const [hydrated, setHydrated] = useState(false);
+
+  useEffect(() => {
+    if (suggestion && !hydrated) {
+      setPrimaryFormula(suggestion.primary.normalizationFormula);
+      setSecondaryFormula(suggestion.secondary.normalizationFormula);
+      setPrimaryKeyField(suggestion.primary.keyField);
+      setSecondaryKeyField(suggestion.secondary.keyField);
+      setHydrated(true);
+    }
+  }, [suggestion, hydrated]);
+
+  const previewRows = useMemo(() => {
+    if (!suggestion) return [];
+    return suggestion.sampleMatches.map((sample) => {
+      const primaryNorm = evaluateNormalizationFormula(primaryFormula, {
+        [primaryKeyField]: sample.primaryRaw,
+      });
+      const secondaryNorm = sample.secondaryRaw
+        ? evaluateNormalizationFormula(secondaryFormula, {
+            [secondaryKeyField]: sample.secondaryRaw,
+          })
+        : null;
+      return {
+        primaryRaw: sample.primaryRaw,
+        normalized: primaryNorm,
+        matched: primaryNorm !== null && primaryNorm === secondaryNorm,
+      };
+    });
+  }, [
+    suggestion,
+    primaryFormula,
+    secondaryFormula,
+    primaryKeyField,
+    secondaryKeyField,
+  ]);
+
+  const matchedCount = previewRows.filter((row) => row.matched).length;
+
+  if (suggestionQuery.isLoading) {
+    return (
+      <div className="flex items-center gap-2 text-xs text-muted-foreground">
+        <Spinner className="size-3.5" />
+        Analyzing both sources for a shared key
+      </div>
+    );
+  }
+
+  if (!suggestion) {
+    return (
+      <div className="min-w-0 break-words text-xs text-muted-foreground">
+        {suggestionQuery.data?.message ??
+          "Couldn’t suggest a join key automatically."}
+      </div>
+    );
+  }
+
+  return (
+    <div className="grid min-w-0 gap-3">
+      <div className="grid min-w-0 gap-1.5 rounded-lg border border-border bg-background p-3 text-sm">
+        <div className="truncate font-medium" title={candidate.displayName}>
+          {candidate.displayName}
+        </div>
+        <div className="min-w-0 break-words text-xs text-muted-foreground">
+          Match rows on a shared key. Suggested key:{" "}
+          <span className="font-medium text-foreground">
+            {suggestion.canonicalKey.label}
+          </span>
+          .
+        </div>
+      </div>
+
+      <div className="grid min-w-0 gap-1.5">
+        <label className="px-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+          Existing source · normalize
+        </label>
+        <Input
+          value={primaryFormula}
+          onChange={(event) => setPrimaryFormula(event.target.value)}
+          disabled={!canEdit}
+          className="font-mono text-xs"
+        />
+      </div>
+      <div className="grid min-w-0 gap-1.5">
+        <label className="px-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+          New source · normalize
+        </label>
+        <Input
+          value={secondaryFormula}
+          onChange={(event) => setSecondaryFormula(event.target.value)}
+          disabled={!canEdit}
+          className="font-mono text-xs"
+        />
+      </div>
+
+      <div className="grid min-w-0 gap-1.5 rounded-lg border border-border bg-muted/30 p-3">
+        <div className="flex items-center justify-between text-xs">
+          <span className="font-medium">Sample matches</span>
+          <span className="text-muted-foreground">
+            {matchedCount} of {previewRows.length} match
+          </span>
+        </div>
+        <div className="grid min-w-0 gap-1">
+          {previewRows.map((row, index) => (
+            <div
+              key={index}
+              className="flex min-w-0 items-center gap-1.5 text-[11px]"
+            >
+              {row.matched ? (
+                <IconCheck className="size-3 shrink-0 text-foreground" />
+              ) : (
+                <IconX className="size-3 shrink-0 text-muted-foreground" />
+              )}
+              <span
+                className="truncate text-muted-foreground"
+                title={row.primaryRaw}
+              >
+                {row.primaryRaw}
+              </span>
+              <span className="shrink-0 text-muted-foreground">→</span>
+              <span
+                className="truncate font-medium"
+                title={row.normalized ?? ""}
+              >
+                {row.normalized ?? "—"}
+              </span>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <Button
+        type="button"
+        size="sm"
+        disabled={!canEdit || pending || matchedCount === 0}
+        onClick={() =>
+          onCommit({
+            canonicalKey: suggestion.canonicalKey,
+            primary: {
+              keyField: primaryKeyField,
+              normalizationFormula: primaryFormula,
+            },
+            secondary: {
+              keyField: secondaryKeyField,
+              normalizationFormula: secondaryFormula,
+            },
+          })
+        }
+      >
+        {pending ? (
+          <Spinner className="mr-1.5 size-3.5" />
+        ) : (
+          <IconPlugConnected className="mr-1.5 size-3.5" />
+        )}
+        Confirm &amp; attach
+      </Button>
+    </div>
+  );
+}
+
+// Pick a second source to federate. NEXT supports local tables (any other
+// workspace database); integrations beyond Builder are coming soon.
+function AddSourceView({
+  excludeDatabaseId,
+  canEdit,
+  onPickLocalTable,
+}: {
+  excludeDatabaseId: string | null;
+  canEdit: boolean;
+  onPickLocalTable: (table: {
+    databaseId: string;
+    documentId: string;
+    title: string;
+  }) => void;
+}) {
+  const query = useContentDatabases({
+    excludeDatabaseId: excludeDatabaseId ?? undefined,
+    enabled: true,
+  });
+  const tables = query.data?.databases ?? [];
+  return (
+    <div className="grid min-w-0 gap-4">
+      <div className="grid min-w-0 gap-1.5">
+        <div className="px-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+          Local tables
+        </div>
+        {query.isLoading ? (
+          <div className="flex items-center gap-2 px-2 text-xs text-muted-foreground">
+            <Spinner className="size-3.5" />
+            Loading tables
+          </div>
+        ) : tables.length === 0 ? (
+          <div className="min-w-0 break-words px-2 text-xs text-muted-foreground">
+            No other databases in this workspace yet.
+          </div>
+        ) : (
+          tables.map((table) => (
+            <DatabaseSettingsRow
+              key={table.databaseId}
+              icon={<IconLayoutGrid className="size-4" />}
+              label={table.title}
+              onClick={canEdit ? () => onPickLocalTable(table) : undefined}
+              disabled={!canEdit}
+            />
+          ))
+        )}
+      </div>
+      <div className="grid min-w-0 gap-1.5">
+        <div className="px-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+          Integrations
+        </div>
+        <DatabaseSettingsRow
+          icon={<IconFileText className="size-4" />}
+          label="Notion"
+          value="Coming soon"
+          disabled
+        />
+      </div>
+    </div>
+  );
+}
+
+// A connected federated (secondary) source: read-only details + remove.
+function SecondarySourceLeaf({
+  source,
+  canEdit,
+  pending,
+  onDisconnect,
+}: {
+  source: ContentDatabaseSource | null;
+  canEdit: boolean;
+  pending: boolean;
+  onDisconnect: () => void;
+}) {
+  if (!source) {
+    return (
+      <div className="min-w-0 break-words text-xs text-muted-foreground">
+        This source is no longer connected.
+      </div>
+    );
+  }
+  const federation = source.metadata.federation;
+  const fieldCount = source.fields.length;
+  return (
+    <div className="grid min-w-0 gap-4">
+      <div className="grid min-w-0 gap-1.5 rounded-lg border border-border bg-background p-3 text-sm">
+        <div className="flex min-w-0 items-center justify-between gap-2">
+          <span className="truncate font-medium" title={source.sourceName}>
+            {source.sourceName}
+          </span>
+          <span className="inline-flex shrink-0 items-center gap-1 rounded-full border border-border px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
+            <IconLock className="size-3" />
+            Read-only
+          </span>
+        </div>
+        <div className="min-w-0 break-words text-xs text-muted-foreground">
+          {`Federated · ${fieldCount} field${fieldCount === 1 ? "" : "s"}`}
+          {federation?.canonicalKey?.label
+            ? ` · joined on ${federation.canonicalKey.label}`
+            : ""}
+        </div>
+      </div>
+      {federation ? (
+        <div className="grid min-w-0 gap-1 rounded-lg border border-border bg-background p-3 text-xs">
+          <div className="font-medium">Match formula</div>
+          <code className="block min-w-0 break-words rounded bg-muted px-1.5 py-1 font-mono text-[11px]">
+            {federation.normalizationFormula}
+          </code>
+        </div>
+      ) : null}
+      <div className="rounded-lg border border-border bg-background p-3">
+        <div className="text-xs font-medium">Remove this source</div>
+        <div className="mt-0.5 break-words text-xs text-muted-foreground">
+          Removes the federated columns&rsquo; link to this source. Your local
+          rows and columns stay.
+        </div>
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          className="mt-2 h-8 text-xs text-destructive hover:text-destructive"
+          disabled={!canEdit || pending}
+          onClick={onDisconnect}
+        >
+          {pending ? (
+            <Spinner className="mr-1 size-3.5" />
+          ) : (
+            <IconX className="mr-1 size-3.5" />
+          )}
+          Remove
+        </Button>
       </div>
     </div>
   );
@@ -4905,7 +5410,7 @@ function DatabaseSettingsRow({
       type="button"
       disabled={disabled || !onClick}
       className={cn(
-        "flex h-9 w-full items-center gap-2 rounded-md px-2 text-left text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+        "flex h-9 w-full min-w-0 items-center gap-2 rounded-md px-2 text-left text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
         disabled || !onClick
           ? "cursor-default text-muted-foreground/60"
           : "text-foreground hover:bg-muted",
@@ -4920,7 +5425,7 @@ function DatabaseSettingsRow({
       </span>
       <span className="min-w-0 flex-1 truncate">{label}</span>
       {value ? (
-        <span className="max-w-28 truncate text-xs text-muted-foreground">
+        <span className="max-w-28 shrink-0 truncate text-xs text-muted-foreground">
           {value}
         </span>
       ) : null}
@@ -5087,6 +5592,7 @@ function DatabaseSettingsPropertyVisibilityPanel({
   activeView,
   items,
   source,
+  sources,
   hiddenCount,
   onPropertyHiddenChange,
   onPropertiesHiddenChange,
@@ -5096,6 +5602,7 @@ function DatabaseSettingsPropertyVisibilityPanel({
   activeView: ContentDatabaseView;
   items: ContentDatabaseItem[];
   source: ContentDatabaseSource | null;
+  sources: ContentDatabaseSource[];
   hiddenCount: number;
   onPropertyHiddenChange: (propertyId: string, hidden: boolean) => void;
   onPropertiesHiddenChange: (propertyIds: string[], hidden: boolean) => void;
@@ -5192,6 +5699,7 @@ function DatabaseSettingsPropertyVisibilityPanel({
           documentId={documentId}
           label="New property"
           source={source}
+          sources={sources}
         />
       </div>
     </div>

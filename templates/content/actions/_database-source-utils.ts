@@ -14,6 +14,7 @@ import type {
   ContentDatabaseSourceChangeSet,
   ContentDatabaseSourceExecution,
   ContentDatabaseSourceExecutionState,
+  ContentDatabaseSourceFederation,
   ContentDatabaseSourceFieldChange,
   ContentDatabaseSourceFieldMapping,
   ContentDatabaseSourceFreshness,
@@ -90,6 +91,7 @@ type SourceMetadataRecord = {
   allowDraftWrites?: boolean;
   allowPublishWrites?: boolean;
   allowedWriteModes?: ContentDatabaseSourcePushMode[];
+  federation?: ContentDatabaseSourceFederation;
 };
 
 function parseObject<T extends object>(
@@ -142,7 +144,8 @@ function normalizeWriteOwner(
 function normalizeSourceType(
   value: string | null | undefined,
 ): ContentDatabaseSourceType {
-  return value === "builder-cms" ? value : "mock-local";
+  if (value === "builder-cms" || value === "local-table") return value;
+  return "mock-local";
 }
 
 function normalizeChangeKind(
@@ -229,9 +232,9 @@ function sourceMetadataLabel(
   sourceType: ContentDatabaseSourceType,
   sourceTable: string,
 ) {
-  return sourceType === "builder-cms"
-    ? `builder.cms.${sourceTable}`
-    : `mock-local.${sourceTable}`;
+  if (sourceType === "builder-cms") return `builder.cms.${sourceTable}`;
+  if (sourceType === "local-table") return `local.table.${sourceTable}`;
+  return `mock-local.${sourceTable}`;
 }
 
 export function serializeSourceField(
@@ -526,7 +529,35 @@ export async function getContentDatabaseSourceSnapshot(
     .where(eq(schema.contentDatabaseSources.databaseId, database.id))
     .orderBy(asc(schema.contentDatabaseSources.createdAt));
   if (!source) return null;
+  return loadSourceSnapshot(source, database);
+}
 
+/**
+ * Load every source attached to a database (oldest first → `[0]` is the
+ * primary). Federation joins read this; single-source callers keep using
+ * `getContentDatabaseSourceSnapshot`, which returns the primary.
+ */
+export async function getAllContentDatabaseSourceSnapshots(
+  database: ContentDatabaseRow | ContentDatabase,
+): Promise<ContentDatabaseSource[]> {
+  const db = getDb();
+  const sources = await db
+    .select()
+    .from(schema.contentDatabaseSources)
+    .where(eq(schema.contentDatabaseSources.databaseId, database.id))
+    .orderBy(asc(schema.contentDatabaseSources.createdAt));
+  const snapshots: ContentDatabaseSource[] = [];
+  for (const source of sources) {
+    snapshots.push(await loadSourceSnapshot(source, database));
+  }
+  return snapshots;
+}
+
+async function loadSourceSnapshot(
+  source: ContentDatabaseSourceRowDb,
+  database: ContentDatabaseRow | ContentDatabase,
+): Promise<ContentDatabaseSource> {
+  const db = getDb();
   const [
     fieldRows,
     rowRows,
@@ -635,11 +666,22 @@ export async function getContentDatabaseSourceSnapshot(
   );
   const metadata = parseObject<SourceMetadataRecord>(source.metadataJson) ?? {};
 
+  // A local-table source shows the target database's *live* title, so renaming
+  // the underlying table is reflected here instead of the name frozen at attach.
+  let displaySourceName = source.sourceName;
+  if (normalizeSourceType(source.sourceType) === "local-table") {
+    const [target] = await db
+      .select({ title: schema.contentDatabases.title })
+      .from(schema.contentDatabases)
+      .where(eq(schema.contentDatabases.id, source.sourceTable));
+    if (target?.title) displaySourceName = target.title;
+  }
+
   return {
     id: source.id,
     databaseId: source.databaseId,
     sourceType: normalizeSourceType(source.sourceType),
-    sourceName: source.sourceName,
+    sourceName: displaySourceName,
     sourceTable: source.sourceTable,
     syncState: normalizeSourceSyncState(source.syncState),
     freshness: normalizeSourceFreshness(source.freshness),
@@ -672,6 +714,7 @@ export async function getContentDatabaseSourceSnapshot(
             .map((mode) => normalizePushMode(mode))
             .filter((mode): mode is ContentDatabaseSourcePushMode => !!mode)
         : undefined,
+      federation: normalizeSourceFederation(metadata.federation),
     },
     fields,
     rows,
@@ -679,18 +722,50 @@ export async function getContentDatabaseSourceSnapshot(
   };
 }
 
-export function applySourceSnapshotToItems(
-  items: ContentDatabaseItem[],
-  source: ContentDatabaseSource | null,
-): ContentDatabaseItem[] {
-  if (!source) return items;
-  const rowByDocumentId = new Map(
-    source.rows.map((row) => [row.documentId, row]),
-  );
-  return items.map((item) => ({
-    ...item,
-    sourceRecord: rowByDocumentId.get(item.document.id),
-  }));
+// Pass a stored federation block through only when it has the shape the join
+// engine relies on; anything malformed degrades to undefined (no federation),
+// keeping a single-source database working.
+export function normalizeSourceFederation(
+  value: ContentDatabaseSourceFederation | null | undefined,
+): ContentDatabaseSourceFederation | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const role = value.role === "secondary" ? "secondary" : "primary";
+  const join = value.join;
+  if (!join || typeof join !== "object") return undefined;
+  if (typeof join.normalizationFormula !== "string") return undefined;
+  return {
+    role,
+    keyField: typeof value.keyField === "string" ? value.keyField : "",
+    normalizationFormula:
+      typeof value.normalizationFormula === "string"
+        ? value.normalizationFormula
+        : join.normalizationFormula,
+    join: {
+      kind: join.kind === "reference" ? "reference" : "identity",
+      collection: typeof join.collection === "string" ? join.collection : null,
+      localExpr: typeof join.localExpr === "string" ? join.localExpr : "",
+      remoteKeyField:
+        typeof join.remoteKeyField === "string" ? join.remoteKeyField : "",
+      normalizationFormula: join.normalizationFormula,
+    },
+    canonicalKey:
+      value.canonicalKey && typeof value.canonicalKey === "object"
+        ? {
+            propertyId: value.canonicalKey.propertyId ?? null,
+            label:
+              typeof value.canonicalKey.label === "string"
+                ? value.canonicalKey.label
+                : "",
+            type:
+              typeof value.canonicalKey.type === "string"
+                ? value.canonicalKey.type
+                : "text",
+          }
+        : undefined,
+    columnBindings: Array.isArray(value.columnBindings)
+      ? value.columnBindings
+      : undefined,
+  };
 }
 
 export function serializeSourceMetadataRecord(args: {
@@ -1698,6 +1773,156 @@ export async function replaceSourceMetadata(args: {
   }
 
   return sourceId;
+}
+
+/**
+ * Insert an ADDITIONAL source without touching existing sources — the primary
+ * keeps its fields and rows. Used to federate a read-only second source.
+ */
+export async function insertSecondarySource(args: {
+  database: ContentDatabaseRow;
+  sourceType: ContentDatabaseSourceType;
+  sourceName: string;
+  sourceTable: string;
+  now: string;
+}): Promise<string> {
+  const db = getDb();
+  const sourceId = crypto.randomUUID();
+  await db.insert(schema.contentDatabaseSources).values({
+    id: sourceId,
+    ownerEmail: args.database.ownerEmail,
+    orgId: args.database.orgId,
+    databaseId: args.database.id,
+    sourceType: args.sourceType,
+    sourceName: args.sourceName,
+    sourceTable: args.sourceTable,
+    syncState: "linked",
+    freshness: "fresh",
+    capabilitiesJson: sourceCapabilitiesForType(args.sourceType),
+    metadataJson: serializeSourceMetadataRecord({
+      sourceType: args.sourceType,
+      sourceTable: args.sourceTable,
+    }),
+    lastRefreshedAt: args.now,
+    lastSourceUpdatedAt: args.now,
+    lastError: null,
+    createdAt: args.now,
+    updatedAt: args.now,
+  });
+  return sourceId;
+}
+
+/**
+ * Store a read-only secondary source's entries as join-by-key rows. They have no
+ * local document (`documentId`/`databaseItemId` are empty sentinels) — the read
+ * engine matches them purely by normalized canonical key. Replaces any prior
+ * rows for the source so a re-store is idempotent.
+ */
+export async function storeSecondarySourceRows(args: {
+  sourceId: string;
+  ownerEmail: string;
+  sourceType: ContentDatabaseSourceType;
+  sourceTable: string;
+  entries: BuilderCmsSourceEntry[];
+  now: string;
+}) {
+  const db = getDb();
+  await db
+    .delete(schema.contentDatabaseSourceRows)
+    .where(eq(schema.contentDatabaseSourceRows.sourceId, args.sourceId));
+  if (args.entries.length === 0) return;
+  await db.insert(schema.contentDatabaseSourceRows).values(
+    args.entries.map((entry, index) => ({
+      id: crypto.randomUUID(),
+      ownerEmail: args.ownerEmail,
+      sourceId: args.sourceId,
+      databaseItemId: "",
+      documentId: "",
+      sourceRowId: entry.id || `${args.sourceType}-${index + 1}`,
+      sourceQualifiedId: `${args.sourceType}://${args.sourceTable}/${
+        entry.id || index + 1
+      }`,
+      sourceDisplayKey:
+        entry.title?.trim() || `${args.sourceTable}-${index + 1}`,
+      sourceValuesJson: JSON.stringify(entry.sourceValues ?? {}),
+      provenance: "secondary source row",
+      syncState: "linked" as const,
+      freshness: "fresh" as const,
+      lastSyncedAt: args.now,
+      lastSourceUpdatedAt: entry.updatedAt || args.now,
+      createdAt: args.now,
+      updatedAt: args.now,
+    })),
+  );
+}
+
+/**
+ * Seed read-only field mappings for a secondary source from its model fields
+ * (and any keys seen in a sample entry). Every field is read-only — write
+ * fan-out is a LATER, live-write feature. Replaces any prior fields.
+ */
+export async function seedSecondarySourceFields(args: {
+  sourceId: string;
+  ownerEmail: string;
+  modelFields: BuilderCmsModelFieldSummary[];
+  sampleEntry?: BuilderCmsSourceEntry;
+  now: string;
+}) {
+  const db = getDb();
+  await db
+    .delete(schema.contentDatabaseSourceFields)
+    .where(eq(schema.contentDatabaseSourceFields.sourceId, args.sourceId));
+  const fieldTypeByKey = new Map(
+    args.modelFields.map((field) => [
+      field.name,
+      normalizeBuilderCmsSourceFieldType(field.type),
+    ]),
+  );
+  const keys = new Set<string>(args.modelFields.map((field) => field.name));
+  for (const key of Object.keys(args.sampleEntry?.sourceValues ?? {})) {
+    keys.add(key);
+  }
+  if (keys.size === 0) return;
+  await db.insert(schema.contentDatabaseSourceFields).values(
+    [...keys].map((key) => ({
+      id: crypto.randomUUID(),
+      ownerEmail: args.ownerEmail,
+      sourceId: args.sourceId,
+      propertyId: null,
+      localFieldKey: key,
+      sourceFieldKey: key,
+      sourceFieldLabel: builderCmsModelFieldLabel(key),
+      sourceFieldType: fieldTypeByKey.get(key) ?? "text",
+      mappingType: "property" as const,
+      writeOwner: "source" as const,
+      readOnly: 1,
+      provenance: "secondary source field",
+      freshness: "fresh" as const,
+      lastSyncedAt: args.now,
+      createdAt: args.now,
+      updatedAt: args.now,
+    })),
+  );
+}
+
+/** Merge a federation block into a source's stored metadata (primary or secondary). */
+export async function writeSourceFederation(args: {
+  sourceId: string;
+  federation: ContentDatabaseSourceFederation;
+  now: string;
+}) {
+  const db = getDb();
+  const [current] = await db
+    .select({ metadataJson: schema.contentDatabaseSources.metadataJson })
+    .from(schema.contentDatabaseSources)
+    .where(eq(schema.contentDatabaseSources.id, args.sourceId));
+  const metadata =
+    parseObject<SourceMetadataRecord>(current?.metadataJson) ?? {};
+  metadata.federation = args.federation;
+  await db
+    .update(schema.contentDatabaseSources)
+    .set({ metadataJson: JSON.stringify(metadata), updatedAt: args.now })
+    .where(eq(schema.contentDatabaseSources.id, args.sourceId));
 }
 
 export async function updateBuilderCmsSourceReadMetadata(args: {

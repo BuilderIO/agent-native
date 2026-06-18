@@ -144,9 +144,7 @@ describe("document database layout", () => {
       "onClick={(event: ReactMouseEvent<HTMLButtonElement>) => {",
     );
     expect(source).toContain("event.stopPropagation();");
-    expect(source).toContain(
-      'value={source ? source.sourceName : "Local / no source"}',
-    );
+    expect(source).toContain('label="Sources"');
     expect(source).toContain('onClick={() => onPanelChange("source")}');
   });
 
